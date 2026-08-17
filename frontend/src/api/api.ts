@@ -1212,6 +1212,16 @@ export interface ServerAgentSandboxesDebugResponse {
   sandboxes?: ServerSandboxInstanceInfo[];
 }
 
+export interface ServerAgentStartupErrorRequest {
+  error?: string;
+}
+
+export interface ServerAgentStartupErrorResponse {
+  interaction_id?: string;
+  status?: string;
+  transitioned?: boolean;
+}
+
 export interface ServerAppClaudeSubscriptionStatus {
   /** owner has a subscription connected at all */
   connected?: boolean;
@@ -16663,6 +16673,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/agent-config-applied`,
         method: "POST",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Called by the settings-sync daemon when the session's Zed configuration is rejected. Atomically fails the latest waiting interaction so the task does not remain on an infinite spinner.
+     *
+     * @tags Sessions
+     * @name V1SessionsAgentStartupErrorCreate
+     * @summary Report a fatal in-container agent configuration error
+     * @request POST:/api/v1/sessions/{id}/agent-startup-error
+     * @secure
+     */
+    v1SessionsAgentStartupErrorCreate: (
+      id: string,
+      request: ServerAgentStartupErrorRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerAgentStartupErrorResponse, any>({
+        path: `/api/v1/sessions/${id}/agent-startup-error`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

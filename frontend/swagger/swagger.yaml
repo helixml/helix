@@ -1862,6 +1862,20 @@ definitions:
           $ref: '#/definitions/server.SandboxInstanceInfo'
         type: array
     type: object
+  server.AgentStartupErrorRequest:
+    properties:
+      error:
+        type: string
+    type: object
+  server.AgentStartupErrorResponse:
+    properties:
+      interaction_id:
+        type: string
+      status:
+        type: string
+      transitioned:
+        type: boolean
+    type: object
   server.AppClaudeSubscriptionStatus:
     properties:
       connected:
@@ -24450,6 +24464,37 @@ paths:
         container
       tags:
       - sessions
+  /api/v1/sessions/{id}/agent-startup-error:
+    post:
+      consumes:
+      - application/json
+      description: Called by the settings-sync daemon when the session's Zed configuration
+        is rejected. Atomically fails the latest waiting interaction so the task does
+        not remain on an infinite spinner.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fatal startup error
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.AgentStartupErrorRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.AgentStartupErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Report a fatal in-container agent configuration error
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/archive:
     patch:
       consumes:

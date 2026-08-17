@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -29,8 +31,9 @@ var (
 )
 
 const (
-	PollInterval = 30 * time.Second
-	DebounceTime = 500 * time.Millisecond
+	PollInterval              = 30 * time.Second
+	DebounceTime              = 500 * time.Millisecond
+	maxAgentStartupErrorBytes = 4096
 )
 
 type SettingsDaemon struct {
@@ -146,6 +149,43 @@ type helixConfigResponse struct {
 	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config"`
 	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"`
 	CodexSubscriptionAvailable  bool                   `json:"codex_subscription_available,omitempty"`
+}
+
+type zedConfigFetchError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *zedConfigFetchError) Error() string {
+	return fmt.Sprintf("failed to fetch config: status %d: %s", e.StatusCode, e.Message)
+}
+
+func readZedConfigFetchError(resp *http.Response) error {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxAgentStartupErrorBytes))
+	if err != nil {
+		return fmt.Errorf("failed to fetch config: status %d (failed to read response: %w)", resp.StatusCode, err)
+	}
+	message := strings.TrimSpace(string(body))
+	if message == "" {
+		message = http.StatusText(resp.StatusCode)
+	}
+	return &zedConfigFetchError{StatusCode: resp.StatusCode, Message: message}
+}
+
+func isFatalZedConfigError(err error) bool {
+	var fetchErr *zedConfigFetchError
+	if !errors.As(err, &fetchErr) {
+		return false
+	}
+	switch fetchErr.StatusCode {
+	case http.StatusBadRequest,
+		http.StatusUnauthorized,
+		http.StatusForbidden,
+		http.StatusUnprocessableEntity:
+		return true
+	default:
+		return false
+	}
 }
 
 // generateAgentServerConfig creates the agent_servers configuration for custom agents (like qwen).
@@ -1206,23 +1246,12 @@ func main() {
 	// Write Zed keymap for terminal copy/paste behavior
 	writeZedKeymap()
 
-	// Initial sync from Helix → local with retry
-	// Retry handles race condition where daemon starts before API token is fully available
-	maxRetries := 5
-	for i := 0; i < maxRetries; i++ {
-		if err := daemon.syncFromHelix(); err != nil {
-			if i < maxRetries-1 {
-				log.Printf("Initial sync attempt %d/%d failed: %v (retrying in 2s)", i+1, maxRetries, err)
-				time.Sleep(2 * time.Second)
-				continue
-			}
-			log.Printf("Warning: Initial sync failed after %d attempts: %v", maxRetries, err)
-		} else {
-			if i > 0 {
-				log.Printf("Initial sync succeeded on attempt %d/%d", i+1, maxRetries)
-			}
-			break
-		}
+	// Initial sync from Helix → local with retry. Stable client errors are
+	// reported to the API so the current interaction fails visibly instead of
+	// leaving a Zed thread waiting for an agent server that was never written.
+	const maxRetries = 5
+	if err := daemon.syncInitialConfig(maxRetries, 2*time.Second); err != nil {
+		log.Printf("Warning: Initial sync failed: %v", err)
 	}
 
 	// Start file watcher for Zed changes
@@ -1269,7 +1298,7 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to fetch config: status %d", resp.StatusCode)
+		return readZedConfigFetchError(resp)
 	}
 
 	var config helixConfigResponse
@@ -1462,6 +1491,64 @@ func (d *SettingsDaemon) notifyAgentConfigApplied() {
 		return
 	}
 	log.Printf("notifyAgentConfigApplied: API notified of applied agent config for live thread delivery")
+}
+
+func (d *SettingsDaemon) reportAgentStartupError(startupErr error) error {
+	errorMessage := startupErr.Error()
+	if len(errorMessage) > maxAgentStartupErrorBytes {
+		errorMessage = strings.ToValidUTF8(errorMessage[:maxAgentStartupErrorBytes], "")
+	}
+	payload, err := json.Marshal(struct {
+		Error string `json:"error"`
+	}{Error: errorMessage})
+	if err != nil {
+		return fmt.Errorf("encode agent startup error: %w", err)
+	}
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/agent-startup-error", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("create agent startup error request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("report agent startup error: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("report agent startup error: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (d *SettingsDaemon) syncInitialConfig(maxRetries int, retryDelay time.Duration) error {
+	if maxRetries < 1 {
+		maxRetries = 1
+	}
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		lastErr = d.syncFromHelix()
+		if lastErr == nil {
+			if attempt > 1 {
+				log.Printf("Initial sync succeeded on attempt %d/%d", attempt, maxRetries)
+			}
+			return nil
+		}
+		if isFatalZedConfigError(lastErr) {
+			if reportErr := d.reportAgentStartupError(lastErr); reportErr != nil {
+				log.Printf("Failed to report fatal agent startup error: %v", reportErr)
+			}
+			return lastErr
+		}
+		if attempt < maxRetries {
+			log.Printf("Initial sync attempt %d/%d failed: %v (retrying in %s)", attempt, maxRetries, lastErr, retryDelay)
+			time.Sleep(retryDelay)
+		}
+	}
+	return lastErr
 }
 
 // restartZed kills the running Zed editor process. The desktop's
@@ -2154,7 +2241,7 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to fetch config: status %d", resp.StatusCode)
+		return readZedConfigFetchError(resp)
 	}
 
 	var config helixConfigResponse

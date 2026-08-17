@@ -20685,6 +20685,54 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/agent-startup-error": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Called by the settings-sync daemon when the session's Zed configuration is rejected. Atomically fails the latest waiting interaction so the task does not remain on an infinite spinner.",
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Report a fatal in-container agent configuration error",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.AgentStartupErrorRequest"
+                            }
+                        }
+                    },
+                    "description": "Fatal startup error",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.AgentStartupErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/archive": {
             "patch": {
                 "security": [
@@ -30175,6 +30223,28 @@
                         "items": {
                             "$ref": "#/components/schemas/server.SandboxInstanceInfo"
                         }
+                    }
+                }
+            },
+            "server.AgentStartupErrorRequest": {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.AgentStartupErrorResponse": {
+                "type": "object",
+                "properties": {
+                    "interaction_id": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "transitioned": {
+                        "type": "boolean"
                     }
                 }
             },

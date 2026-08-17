@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -11,6 +14,97 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSyncInitialConfigReportsFatalConfigError(t *testing.T) {
+	var configRequests int
+	var startupErrorRequests int
+	var reportedError string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/sessions/ses_1/zed-config":
+			configRequests++
+			http.Error(w, `provider "openai" is not enabled for coding-agent harness "codex_cli" in this organization`, http.StatusUnprocessableEntity)
+		case "/api/v1/sessions/ses_1/agent-startup-error":
+			startupErrorRequests++
+			assert.Equal(t, "Bearer token", r.Header.Get("Authorization"))
+			var body struct {
+				Error string `json:"error"`
+			}
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			reportedError = body.Error
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"ok","transitioned":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	daemon := &SettingsDaemon{
+		httpClient: server.Client(),
+		apiURL:     server.URL,
+		apiToken:   "token",
+		sessionID:  "ses_1",
+	}
+
+	err := daemon.syncInitialConfig(5, 0)
+	require.Error(t, err)
+	assert.Equal(t, 1, configRequests, "stable client errors must not be retried")
+	assert.Equal(t, 1, startupErrorRequests)
+	assert.True(t, strings.Contains(reportedError, "status 422"))
+	assert.True(t, strings.Contains(reportedError, `provider "openai" is not enabled`))
+}
+
+func TestSyncInitialConfigDoesNotReportTransientError(t *testing.T) {
+	var configRequests int
+	var startupErrorRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/sessions/ses_1/zed-config":
+			configRequests++
+			http.Error(w, "temporary failure", http.StatusInternalServerError)
+		case "/api/v1/sessions/ses_1/agent-startup-error":
+			startupErrorRequests++
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	daemon := &SettingsDaemon{
+		httpClient: server.Client(),
+		apiURL:     server.URL,
+		sessionID:  "ses_1",
+	}
+
+	err := daemon.syncInitialConfig(2, 0)
+	require.Error(t, err)
+	assert.Equal(t, 2, configRequests)
+	assert.Zero(t, startupErrorRequests, "transient failures must not fail the interaction")
+}
+
+func TestIsFatalZedConfigError(t *testing.T) {
+	tests := []struct {
+		status int
+		fatal  bool
+	}{
+		{status: http.StatusUnauthorized, fatal: true},
+		{status: http.StatusForbidden, fatal: true},
+		{status: http.StatusUnprocessableEntity, fatal: true},
+		{status: http.StatusNotFound, fatal: false},
+		{status: http.StatusConflict, fatal: false},
+		{status: http.StatusTooManyRequests, fatal: false},
+		{status: http.StatusInternalServerError, fatal: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(http.StatusText(tt.status), func(t *testing.T) {
+			err := &zedConfigFetchError{StatusCode: tt.status, Message: "test"}
+			assert.Equal(t, tt.fatal, isFatalZedConfigError(err))
+		})
+	}
+}
 
 func TestInjectAvailableModels(t *testing.T) {
 	tests := []struct {

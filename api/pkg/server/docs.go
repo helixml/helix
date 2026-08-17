@@ -17319,6 +17319,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/agent-startup-error": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Called by the settings-sync daemon when the session's Zed configuration is rejected. Atomically fails the latest waiting interaction so the task does not remain on an infinite spinner.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Report a fatal in-container agent configuration error",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fatal startup error",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.AgentStartupErrorRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AgentStartupErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/archive": {
             "patch": {
                 "security": [
@@ -25591,6 +25637,28 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/server.SandboxInstanceInfo"
                     }
+                }
+            }
+        },
+        "server.AgentStartupErrorRequest": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.AgentStartupErrorResponse": {
+            "type": "object",
+            "properties": {
+                "interaction_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "transitioned": {
+                    "type": "boolean"
                 }
             }
         },

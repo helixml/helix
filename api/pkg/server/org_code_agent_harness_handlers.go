@@ -241,8 +241,11 @@ func (apiServer *HelixAPIServer) validateOrgCodeAgentHarness(
 	if err != nil {
 		return fmt.Errorf("failed to load coding-agent harness policy: %w", err)
 	}
-	if credentialType.IsSubscription() && !harness.AllowsSubscription() {
-		return fmt.Errorf("subscription credentials are not enabled for coding-agent harness %q in this organization", runtime)
+	if credentialType.IsSubscription() {
+		if !harness.AllowsSubscription() {
+			return fmt.Errorf("subscription credentials are not enabled for coding-agent harness %q in this organization", runtime)
+		}
+		return nil
 	}
 	if providerRef != "" && !harness.AllowsProvider(providerRef) {
 		return fmt.Errorf("provider %q is not enabled for coding-agent harness %q in this organization", providerRef, runtime)
