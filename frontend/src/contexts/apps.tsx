@@ -28,7 +28,7 @@ export interface IAppsQuery {
 }
 
 // Code agent runtime options for zed_external agents
-export type CodeAgentRuntime = 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code' | 'opencode'
+export type CodeAgentRuntime = 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code' | 'opencode' | 'deepseek_harness'
 
 // Display names for code agent runtimes (maintainable for future additions)
 export const CODE_AGENT_RUNTIME_DISPLAY_NAMES: Record<CodeAgentRuntime, string> = {
@@ -38,6 +38,7 @@ export const CODE_AGENT_RUNTIME_DISPLAY_NAMES: Record<CodeAgentRuntime, string> 
   'codex_cli': 'Codex',
   'goose_code': 'Goose',
   'opencode': 'opencode',
+  'deepseek_harness': 'DeepSeek Harness',
 }
 
 // Generate a nice display name from a model ID

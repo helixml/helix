@@ -212,6 +212,16 @@ const (
 	// OpenAI-compatible provider pointing at the Helix proxy.
 	// Zed agent name: "opencode"
 	CodeAgentRuntimeOpenCode CodeAgentRuntime = "opencode"
+
+	// CodeAgentRuntimeDeepSeekHarness uses DeepSeek Harness (`dsh`) as a custom
+	// agent_server. Unlike every other runtime here, upstream ships no ACP
+	// subcommand on its product CLI: the ACP server is a separate cordis
+	// composition, so Dockerfile.ubuntu-helix installs it under /opt/helix/dsh
+	// and exposes it as /usr/local/bin/dsh-acp. The LLM is configured through
+	// that composition's env-driven llm-pi-ai route, which points at the Helix
+	// OpenAI-compatible proxy.
+	// Zed agent name: "dsh"
+	CodeAgentRuntimeDeepSeekHarness CodeAgentRuntime = "deepseek_harness"
 )
 
 // CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.
@@ -247,6 +257,8 @@ func (r CodeAgentRuntime) ZedAgentName() string {
 		return "codex"
 	case CodeAgentRuntimeOpenCode:
 		return "opencode"
+	case CodeAgentRuntimeDeepSeekHarness:
+		return "dsh"
 	default: // CodeAgentRuntimeZedAgent or empty
 		return "zed-agent"
 	}

@@ -1,0 +1,20 @@
+#!/bin/sh
+# DeepSeek Harness ACP server, spawned by Zed as the `dsh` agent_server.
+#
+# Upstream's `dsh` CLI has no acp subcommand — the ACP server is a separate
+# cordis composition (@deepseek-ai/dsh-acp-demo) — so this wrapper is the
+# stable command name settings-sync-daemon writes into agent_servers.
+#
+# It must leave stdout untouched: stdout is the ACP JSON-RPC wire, so
+# diagnostics from this script or the harness go to stderr.
+#
+# The working directory is inherited from Zed and becomes the composition's
+# workspace root and sandbox root, so it is not overridden here.
+set -eu
+
+DSH_ROOT=/opt/helix/dsh
+
+exec node \
+  "${DSH_ROOT}/node_modules/@deepseek-ai/dsh-acp-demo/lib/bin.js" \
+  --config "${DSH_ROOT}/cordis.yml" \
+  "$@"

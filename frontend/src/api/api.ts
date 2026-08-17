@@ -3210,6 +3210,7 @@ export enum TypesCodeAgentRuntime {
   CodeAgentRuntimeCodexCLI = "codex_cli",
   CodeAgentRuntimeGooseCode = "goose_code",
   CodeAgentRuntimeOpenCode = "opencode",
+  CodeAgentRuntimeDeepSeekHarness = "deepseek_harness",
 }
 
 export interface TypesCodexAuthCredentials {
@@ -16989,7 +16990,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Persists a Waiting interaction and dispatches it via the external-agent WebSocket. If no agent is connected the interaction is held until the agent reconnects, at which point pickupWaitingInteraction delivers it — callers do not need to manage WebSocket readiness or retries. Distinct from POST /sessions/chat (synchronous SSE chat); use this endpoint for fire-and-forget delivery to an external (e.g. desktop) agent.
+     * @description Persists a Waiting interaction and dispatches it via the external-agent WebSocket. If no agent is connected the interaction is held until the agent reconnects, at which point the reconnect resume path delivers it — callers do not need to manage WebSocket readiness or retries. Distinct from POST /sessions/chat (synchronous SSE chat); use this endpoint for fire-and-forget delivery to an external (e.g. desktop) agent.
      *
      * @tags Sessions
      * @name V1SessionsMessagesCreate

@@ -23,6 +23,7 @@ describe('AgentHarness', () => {
     ['qwen_code', 'Qwen Code'],
     ['goose_code', 'Goose'],
     ['opencode', 'opencode'],
+    ['deepseek_harness', 'DeepSeek Harness'],
   ])('renders the official %s harness mark', (runtime, label) => {
     render(<AgentHarness runtime={runtime} variant="short" />)
 

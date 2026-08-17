@@ -49,6 +49,10 @@ type SettingsDaemon struct {
 
 	// Code agent configuration (from Helix API)
 	codeAgentConfig *CodeAgentConfig
+	// contextServers is the MCP server set as Helix sent it, before
+	// contextServersForZed decides whether Zed may see it. The DeepSeek
+	// Harness branch mounts this set into the agent's own composition instead.
+	contextServers map[string]interface{}
 
 	// openCodeLastAttempt is when we last tried (and failed) to install an
 	// admin-pinned opencode release. Zero means "no failure pending".
@@ -510,6 +514,45 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 				"type":    "custom",
 				"command": command,
 				"args":    []string{"acp"},
+				"env":     env,
+			},
+		}
+
+	case "deepseek_harness":
+		// DeepSeek Harness: `dsh-acp` as a custom agent_server. The whole
+		// configuration lives in the cordis composition baked into the image
+		// (/opt/helix/dsh/cordis.yml); we only supply the values it resolves
+		// from the environment.
+		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+
+		env, err := buildDeepSeekHarnessEnv(baseURL, d.codeAgentConfig.Model, d.userAPIKey)
+		if err != nil {
+			// No entry rather than a broken one: emitting an agent_server that
+			// cannot authenticate would have Zed launch it and fail the first
+			// turn with a provider error. Returning nil defers to the next
+			// poll, the same deferral the claude_code branch uses while it
+			// waits for credentials.
+			log.Printf("ERROR: dsh agent server cannot be registered: %v", err)
+			return nil
+		}
+
+		// Mount Helix's MCP servers inside the composition. They cannot ride
+		// ACP session/new for this runtime — see writeDeepSeekHarnessMCPConfig.
+		// A failure here costs the agent its MCP tools but not its ability to
+		// work, so it is logged rather than deferring the whole agent.
+		if err := writeDeepSeekHarnessMCPConfig(DeepSeekHarnessMCPConfigPath, d.contextServers); err != nil {
+			log.Printf("ERROR: dsh MCP servers unavailable this session: %v", err)
+		}
+
+		log.Printf("Using deepseek_harness runtime: command=%s, model=%s, base_url=%s, mcp_servers=%d",
+			DeepSeekHarnessCommand, d.codeAgentConfig.Model, baseURL, len(d.contextServers))
+
+		return map[string]interface{}{
+			"dsh": map[string]interface{}{
+				"name":    "dsh",
+				"type":    "custom",
+				"command": DeepSeekHarnessCommand,
+				"args":    []string{},
 				"env":     env,
 			},
 		}
@@ -1317,7 +1360,8 @@ func (d *SettingsDaemon) syncFromHelix() error {
 
 	// Start from hardcoded Helix defaults, then layer on API response fields
 	d.helixSettings = helixDefaults()
-	d.helixSettings["context_servers"] = config.ContextServers
+	d.contextServers = config.ContextServers
+	d.helixSettings["context_servers"] = d.contextServersForZed()
 	if config.LanguageModels != nil {
 		d.helixSettings["language_models"] = config.LanguageModels
 	}
@@ -2257,7 +2301,8 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 
 	// Build new helix settings from defaults + API response
 	newHelixSettings := helixDefaults()
-	newHelixSettings["context_servers"] = config.ContextServers
+	d.contextServers = config.ContextServers
+	newHelixSettings["context_servers"] = d.contextServersForZed()
 	if config.LanguageModels != nil {
 		newHelixSettings["language_models"] = config.LanguageModels
 	}

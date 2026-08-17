@@ -87,6 +87,7 @@ var SelectableCodeAgentRuntimes = []CodeAgentRuntime{
 	CodeAgentRuntimeGooseCode,
 	CodeAgentRuntimeZedAgent,
 	CodeAgentRuntimeOpenCode,
+	CodeAgentRuntimeDeepSeekHarness,
 }
 
 func IsSelectableCodeAgentRuntime(runtime CodeAgentRuntime) bool {

@@ -30063,7 +30063,8 @@ const docTemplate = `{
                 "gemini_cli",
                 "codex_cli",
                 "goose_code",
-                "opencode"
+                "opencode",
+                "deepseek_harness"
             ],
             "x-enum-varnames": [
                 "CodeAgentRuntimeZedAgent",
@@ -30072,7 +30073,8 @@ const docTemplate = `{
                 "CodeAgentRuntimeGeminiCLI",
                 "CodeAgentRuntimeCodexCLI",
                 "CodeAgentRuntimeGooseCode",
-                "CodeAgentRuntimeOpenCode"
+                "CodeAgentRuntimeOpenCode",
+                "CodeAgentRuntimeDeepSeekHarness"
             ]
         },
         "types.CodexAuthCredentials": {
