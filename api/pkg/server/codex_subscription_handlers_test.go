@@ -56,3 +56,14 @@ func TestCodexDeviceAuthOutputPatterns(t *testing.T) {
 	require.Contains(t, clean, codexDeviceURL)
 	require.Equal(t, "2E5J-JKA6Q", codexDeviceCodePattern.FindString(clean))
 }
+
+func TestNewCodexLoginAgentUsesHeadlessSandbox(t *testing.T) {
+	agent := newCodexLoginAgent("org_1", "ses_1", "usr_1")
+
+	require.Equal(t, "headless", agent.DesktopType)
+	require.Equal(t, 1, agent.VCPUs)
+	require.Equal(t, 2048, agent.MemoryMB)
+	require.Zero(t, agent.DisplayWidth)
+	require.Zero(t, agent.DisplayHeight)
+	require.Equal(t, []string{"HELIX_SERVER_SETUP=1"}, agent.Env)
+}

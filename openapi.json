@@ -4279,6 +4279,46 @@
                 }
             }
         },
+        "/api/v1/codex-subscriptions/login/{sessionId}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stop and remove the temporary sandbox used for Codex device authentication",
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Cancel a Codex login session",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/codex-subscriptions/poll-login/{sessionId}": {
             "get": {
                 "security": [
@@ -4323,7 +4363,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Launch a temporary container and start Codex device authentication",
+                "description": "Launch a temporary headless sandbox and start Codex device authentication",
                 "tags": [
                     "Codex"
                 ],

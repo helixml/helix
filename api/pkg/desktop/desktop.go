@@ -25,6 +25,7 @@ type Config struct {
 	XDGRuntimeDir string // XDG_RUNTIME_DIR for sockets
 	SessionID     string // HELIX_SESSION_ID for session identification
 	WorkspaceOnly bool   // Serve workspace APIs without compositor/video initialization
+	AllowExec     bool   // Expose the restricted command endpoint for server setup sessions
 }
 
 // Server is the main desktop integration server.
@@ -546,6 +547,9 @@ func (s *Server) httpHandler() http.Handler {
 func (s *Server) workspaceHTTPHandler() http.Handler {
 	mux := http.NewServeMux()
 	s.registerWorkspaceRoutes(mux)
+	if s.config.AllowExec {
+		mux.HandleFunc("/exec", s.handleExec)
+	}
 	return mux
 }
 

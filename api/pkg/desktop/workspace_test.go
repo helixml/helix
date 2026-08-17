@@ -144,8 +144,24 @@ func TestWorkspaceOnlyServerServesFilesAndDiffsWithoutDesktop(t *testing.T) {
 	_ = response.Body.Close()
 	require.Equal(t, http.StatusNotFound, response.StatusCode)
 
+	response, err = http.Post(baseURL+"/exec", "application/json", strings.NewReader(`{"command":["echo","test"]}`))
+	require.NoError(t, err)
+	_ = response.Body.Close()
+	require.Equal(t, http.StatusNotFound, response.StatusCode)
+
 	cancel()
 	require.ErrorIs(t, <-errCh, context.Canceled)
+}
+
+func TestWorkspaceOnlyServerAllowsRestrictedExecForServerSetup(t *testing.T) {
+	server := NewServer(Config{WorkspaceOnly: true, AllowExec: true}, slog.Default())
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/exec", strings.NewReader(`{"command":["echo","ready"]}`))
+	server.workspaceHTTPHandler().ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	assert.JSONEq(t, `{"success":true,"output":"ready","exit_code":0}`, recorder.Body.String())
 }
 
 // TestHandleWorkspaceStatus_Dirty covers the happy path of the modal-

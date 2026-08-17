@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Divider, IconButton, Stack, TextField, Tooltip, Typography } from '@mui/material'
-import { Copy, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Copy, ExternalLink, FileJson, KeyRound } from 'lucide-react'
 import { TypesCodexAuthCredentials, TypesOwnerType } from '../../api/api'
 import { useQueryClient } from '@tanstack/react-query'
 import { copyTextToClipboard } from '../../utils/clipboard'
 import { APP_MONO_FONT_FAMILY } from '../../styles/typography'
 import {
   useCodexSubscriptions,
+  useCancelCodexLogin,
   useCreateCodexSubscription,
   useDeleteCodexSubscription,
   usePollCodexLogin,
@@ -21,6 +22,7 @@ interface Props {
 export const CODEX_DEVICE_AUTH_URL = 'https://auth.openai.com/codex/device'
 
 const actionSx = { textTransform: 'none' } as const
+type ConnectMethod = 'choose' | 'device' | 'import'
 
 function parseCredentials(value: string): TypesCodexAuthCredentials {
   const credentials = JSON.parse(value) as TypesCodexAuthCredentials
@@ -43,26 +45,41 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
   const createSubscription = useCreateCodexSubscription()
   const deleteSubscription = useDeleteCodexSubscription()
   const startLogin = useStartCodexLogin()
+  const cancelLogin = useCancelCodexLogin()
   const [open, setOpen] = useState(false)
+  const [method, setMethod] = useState<ConnectMethod>('choose')
   const [disconnectOpen, setDisconnectOpen] = useState(false)
   const [value, setValue] = useState('')
   const [error, setError] = useState('')
   const [loginError, setLoginError] = useState('')
   const [loginSessionId, setLoginSessionId] = useState('')
+  const loginSessionIdRef = useRef('')
+  const dialogOpenRef = useRef(false)
+  const deviceFlowActiveRef = useRef(false)
   const { data: loginStatus } = usePollCodexLogin(loginSessionId)
-  const subscription = subscriptions[0]
+  const subscription = orgId
+    ? subscriptions.find((candidate) => candidate.owner_type === 'org' && candidate.owner_id === orgId)
+    : subscriptions.find((candidate) => candidate.owner_type === 'user')
   const loginFound = loginStatus?.found ?? false
   const deviceCode = loginStatus?.code
 
   useEffect(() => {
     if (!loginFound) return
     queryClient.invalidateQueries({ queryKey: codexSubscriptionsQueryKey })
+    loginSessionIdRef.current = ''
+    dialogOpenRef.current = false
+    deviceFlowActiveRef.current = false
     setLoginSessionId('')
     setOpen(false)
   }, [loginFound, queryClient])
 
   const closeDialog = () => {
+    dialogOpenRef.current = false
+    deviceFlowActiveRef.current = false
+    if (loginSessionIdRef.current) cancelLogin.mutate(loginSessionIdRef.current)
+    loginSessionIdRef.current = ''
     setOpen(false)
+    setMethod('choose')
     setLoginSessionId('')
     setLoginError('')
   }
@@ -72,13 +89,42 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
     setError('')
     setLoginError('')
     setLoginSessionId('')
+    setMethod('choose')
+    dialogOpenRef.current = true
+    deviceFlowActiveRef.current = false
     setOpen(true)
+  }
+
+  const generateDeviceCode = () => {
+    setMethod('device')
+    deviceFlowActiveRef.current = true
+    setLoginError('')
+    setLoginSessionId('')
     startLogin.mutate(undefined, {
-      onSuccess: (result) => setLoginSessionId(result.session_id || ''),
+      onSuccess: (result) => {
+        const sessionID = result.session_id || ''
+        if (!sessionID) return
+        if (!dialogOpenRef.current || !deviceFlowActiveRef.current) {
+          cancelLogin.mutate(sessionID)
+          return
+        }
+        loginSessionIdRef.current = sessionID
+        setLoginSessionId(sessionID)
+      },
       onError: (err) => {
+        if (!dialogOpenRef.current || !deviceFlowActiveRef.current) return
         setLoginError(err instanceof Error ? err.message : 'Failed to start ChatGPT login')
       },
     })
+  }
+
+  const chooseMethod = () => {
+    deviceFlowActiveRef.current = false
+    if (loginSessionIdRef.current) cancelLogin.mutate(loginSessionIdRef.current)
+    loginSessionIdRef.current = ''
+    setLoginSessionId('')
+    setLoginError('')
+    setMethod('choose')
   }
 
   const connect = async () => {
@@ -158,100 +204,156 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
       <Dialog open={open} onClose={closeDialog} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ pb: 0.5 }}>Connect ChatGPT Subscription</DialogTitle>
         <DialogContent sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-          <Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              Open ChatGPT, then enter the device code shown here.
-            </Typography>
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={1.5}
-              alignItems={{ xs: 'stretch', sm: 'center' }}
-            >
-              <Button
-                href={loginStatus?.url || CODEX_DEVICE_AUTH_URL}
-                target="_blank"
-                rel="noreferrer"
-                variant="contained"
-                color="secondary"
-                startIcon={<ExternalLink size={16} />}
-                sx={actionSx}
-              >
-                Open ChatGPT
-              </Button>
-              {deviceCode ? (
-                <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minHeight: 40 }}>
-                  <Typography
-                    component="span"
-                    sx={{
-                      fontFamily: APP_MONO_FONT_FAMILY,
-                      fontWeight: 600,
-                      letterSpacing: '0.08em',
-                      fontSize: '1rem',
-                    }}
-                  >
-                    {deviceCode}
-                  </Typography>
-                  <Tooltip title="Copy code">
-                    <IconButton
-                      size="small"
-                      aria-label="Copy device code"
-                      onClick={() => copyTextToClipboard(deviceCode)}
+          {method === 'choose' && (
+            <Stack spacing={1.5}>
+              <Typography variant="body2" color="text.secondary">
+                Choose how to connect your ChatGPT account for Codex.
+              </Typography>
+              <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 2 }}>
+                <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                  <KeyRound size={20} />
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="subtitle2">Generate a device code</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
+                      Helix starts a temporary headless sandbox and produces a one-time code.
+                    </Typography>
+                    <Button
+                      variant="contained"
+                      color="secondary"
+                      onClick={generateDeviceCode}
+                      sx={actionSx}
                     >
-                      <Copy size={14} />
-                    </IconButton>
-                  </Tooltip>
+                      Generate code
+                    </Button>
+                  </Box>
+                </Stack>
+              </Box>
+              <Divider><Typography variant="caption" color="text.secondary">or</Typography></Divider>
+              <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 2 }}>
+                <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                  <FileJson size={20} />
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="subtitle2">Import auth.json</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
+                      Run Codex login yourself and paste the resulting credentials.
+                    </Typography>
+                    <Button variant="outlined" onClick={() => setMethod('import')} sx={actionSx}>
+                      Enter credentials
+                    </Button>
+                  </Box>
+                </Stack>
+              </Box>
+            </Stack>
+          )}
+
+          {method === 'device' && (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                {deviceCode
+                  ? 'Copy this code, then continue to ChatGPT to authorize Codex.'
+                  : 'Starting a temporary headless sandbox to generate your code…'}
+              </Typography>
+              {deviceCode ? (
+                <Stack spacing={1.5} alignItems="flex-start">
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    spacing={0.5}
+                    sx={{ minHeight: 48, px: 1.5, borderRadius: 1, bgcolor: 'action.hover' }}
+                  >
+                    <Typography
+                      component="span"
+                      sx={{
+                        fontFamily: APP_MONO_FONT_FAMILY,
+                        fontWeight: 600,
+                        letterSpacing: '0.08em',
+                        fontSize: '1rem',
+                      }}
+                    >
+                      {deviceCode}
+                    </Typography>
+                    <Tooltip title="Copy code">
+                      <IconButton
+                        size="small"
+                        aria-label="Copy device code"
+                        onClick={() => copyTextToClipboard(deviceCode)}
+                      >
+                        <Copy size={14} />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                  <Button
+                    href={loginStatus?.url || CODEX_DEVICE_AUTH_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    variant="contained"
+                    color="secondary"
+                    startIcon={<ExternalLink size={16} />}
+                    sx={actionSx}
+                  >
+                    Continue to ChatGPT
+                  </Button>
                 </Stack>
               ) : (
-                <Stack direction="row" alignItems="center" spacing={1} sx={{ minHeight: 40 }}>
-                  <CircularProgress size={14} />
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ minHeight: 48 }}>
+                  <CircularProgress size={16} />
                   <Typography variant="body2" color="text.secondary">
-                    Waiting for device code…
+                    {startLogin.isPending ? 'Starting secure login…' : 'Waiting for device code…'}
                   </Typography>
                 </Stack>
               )}
-            </Stack>
-            {loginError && <Alert severity="error" sx={{ mt: 1.5 }}>{loginError}</Alert>}
-            {loginStatus?.error && <Alert severity="error" sx={{ mt: 1.5 }}>{loginStatus.error}</Alert>}
-          </Box>
+              {loginError && <Alert severity="error" sx={{ mt: 1.5 }}>{loginError}</Alert>}
+              {loginStatus?.error && <Alert severity="error" sx={{ mt: 1.5 }}>{loginStatus.error}</Alert>}
+            </Box>
+          )}
 
-          <Divider>
-            <Typography variant="caption" color="text.secondary">or paste auth.json</Typography>
-          </Divider>
-
-          <Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              Run <Box component="code" sx={{ fontFamily: APP_MONO_FONT_FAMILY, fontSize: '0.8125rem' }}>codex login</Box>
-              {' '}locally and paste{' '}
-              <Box component="code" sx={{ fontFamily: APP_MONO_FONT_FAMILY, fontSize: '0.8125rem' }}>~/.codex/auth.json</Box>
-              {' '}below.
-            </Typography>
-            <Alert severity="warning" sx={{ mb: 1.5 }}>
-              This file contains account credentials. Helix encrypts it before storing it and only releases it to your desktop sessions.
-            </Alert>
-            <TextField
-              fullWidth
-              multiline
-              minRows={6}
-              type="password"
-              label="Codex auth.json"
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              error={!!error}
-              helperText={error}
-            />
-          </Box>
+          {method === 'import' && (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Run <Box component="code" sx={{ fontFamily: APP_MONO_FONT_FAMILY, fontSize: '0.8125rem' }}>codex login</Box>
+                {' '}locally and paste{' '}
+                <Box component="code" sx={{ fontFamily: APP_MONO_FONT_FAMILY, fontSize: '0.8125rem' }}>~/.codex/auth.json</Box>
+                {' '}below.
+              </Typography>
+              <Alert severity="warning" sx={{ mb: 1.5 }}>
+                This file contains account credentials. Helix encrypts it before storing it and only releases it to your Codex sessions.
+              </Alert>
+              <TextField
+                fullWidth
+                multiline
+                minRows={6}
+                type="password"
+                label="Codex auth.json"
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                error={!!error}
+                helperText={error}
+              />
+            </Box>
+          )}
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
+          {method !== 'choose' && (
+            <Button
+              startIcon={<ArrowLeft size={16} />}
+              onClick={chooseMethod}
+              sx={{ ...actionSx, mr: 'auto' }}
+            >
+              Back
+            </Button>
+          )}
           <Button onClick={closeDialog} sx={actionSx}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="secondary"
-            disabled={!value || createSubscription.isPending}
-            onClick={connect}
-            sx={actionSx}
-          >
-            Import
-          </Button>
+          {method === 'import' && (
+            <Button
+              variant="contained"
+              color="secondary"
+              disabled={!value || createSubscription.isPending}
+              onClick={connect}
+              sx={actionSx}
+            >
+              Import
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
     </>

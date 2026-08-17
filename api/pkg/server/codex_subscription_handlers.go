@@ -305,7 +305,7 @@ type CodexLoginSessionResponse struct {
 }
 
 // @Summary Start a Codex login session
-// @Description Launch a temporary container and start Codex device authentication
+// @Description Launch a temporary headless sandbox and start Codex device authentication
 // @Tags Codex
 // @Produce json
 // @Success 200 {object} CodexLoginSessionResponse
@@ -316,6 +316,9 @@ func (apiServer *HelixAPIServer) startCodexLogin(_ http.ResponseWriter, req *htt
 	if user == nil {
 		return nil, system.NewHTTPError401("authentication required")
 	}
+	if err := apiServer.cleanupSubscriptionLoginSessionsForOwner(req.Context(), user.ID, codexLoginSessionName, codexLoginSessionProvider); err != nil {
+		return nil, system.NewHTTPError500("failed to clean up previous Codex login session")
+	}
 	orgID := ""
 	memberships, err := apiServer.Store.ListOrganizationMemberships(req.Context(), &store.ListOrganizationMembershipsQuery{UserID: user.ID})
 	if err == nil && len(memberships) > 0 {
@@ -325,36 +328,55 @@ func (apiServer *HelixAPIServer) startCodexLogin(_ http.ResponseWriter, req *htt
 		ID: system.GenerateSessionID(), Name: codexLoginSessionName, Created: time.Now(), Updated: time.Now(),
 		Mode: types.SessionModeInference, Type: types.SessionTypeText, Provider: codexLoginSessionProvider, ModelName: "external_agent",
 		Owner: user.ID, OwnerType: types.OwnerTypeUser, OrganizationID: orgID,
-		Metadata: types.SessionMetadata{Stream: true, AgentType: "zed_external", SessionRole: "exploratory"},
+		Metadata: types.SessionMetadata{AgentType: "zed_external", SessionRole: "exploratory"},
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to create login session")
 	}
-	agent := &types.DesktopAgent{
-		OrganizationID: orgID, SessionID: session.ID, UserID: user.ID, Input: "Codex login",
-		ProjectPath: "workspace", DisplayWidth: 1280, DisplayHeight: 720, DesktopType: "ubuntu",
-		Env: []string{"HELIX_SKIP_ZED=1"},
-	}
+	agent := newCodexLoginAgent(orgID, session.ID, user.ID)
 	agent.OnBeforeCreate = func(ctx context.Context, desktopAgent *types.DesktopAgent) error {
 		return apiServer.addUserAPITokenToAgent(ctx, desktopAgent, user.ID)
 	}
 	if _, err := apiServer.externalAgentExecutor.StartDesktop(req.Context(), agent); err != nil {
-		return nil, system.NewHTTPError500("failed to start login desktop")
+		return nil, system.NewHTTPError500("failed to start login sandbox")
 	}
 	go apiServer.startCodexLoginCommand(session.ID)
 	return &CodexLoginSessionResponse{SessionID: session.ID}, nil
+}
+
+func newCodexLoginAgent(orgID, sessionID, userID string) *types.DesktopAgent {
+	return &types.DesktopAgent{
+		OrganizationID: orgID,
+		SessionID:      sessionID,
+		UserID:         userID,
+		Input:          "Codex subscription setup",
+		ProjectPath:    "workspace",
+		DesktopType:    "headless",
+		VCPUs:          1,
+		MemoryMB:       2048,
+		Env:            []string{"HELIX_SERVER_SETUP=1"},
+	}
 }
 
 func (apiServer *HelixAPIServer) startCodexLoginCommand(sessionID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	runnerID := "desktop-" + sessionID
+	var lastErr error
 	for ctx.Err() == nil {
-		if err := apiServer.execBackgroundInContainer(ctx, runnerID, []string{"helix-codex-auth-wrapper"}); err == nil {
+		lastErr = apiServer.execBackgroundInContainer(ctx, runnerID, []string{"helix-codex-auth-wrapper"})
+		if lastErr == nil {
 			return
 		}
-		time.Sleep(2 * time.Second)
+		if _, err := apiServer.Store.GetSession(ctx, sessionID); err != nil {
+			return
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(2 * time.Second):
+		}
 	}
+	log.Error().Err(lastErr).Str("session_id", sessionID).Msg("timed out starting Codex login command")
 }
 
 type CodexPollLoginResponse struct {
@@ -409,6 +431,30 @@ func (apiServer *HelixAPIServer) pollCodexLogin(_ http.ResponseWriter, req *http
 		response.Error = strings.TrimSpace(errorOutput)
 	}
 	return response, nil
+}
+
+// @Summary Cancel a Codex login session
+// @Description Stop and remove the temporary sandbox used for Codex device authentication
+// @Tags Codex
+// @Produce json
+// @Param sessionId path string true "Session ID"
+// @Success 200 {object} map[string]string
+// @Security BearerAuth
+// @Router /api/v1/codex-subscriptions/login/{sessionId} [delete]
+func (apiServer *HelixAPIServer) cancelCodexLogin(_ http.ResponseWriter, req *http.Request) (map[string]string, *system.HTTPError) {
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError401("authentication required")
+	}
+	sessionID := mux.Vars(req)["sessionId"]
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil || session.Owner != user.ID || !isTemporarySubscriptionLoginSession(session, codexLoginSessionName, codexLoginSessionProvider) {
+		return nil, system.NewHTTPError404("login session not found")
+	}
+	if err := apiServer.cleanupSubscriptionLoginSession(req.Context(), sessionID); err != nil {
+		return nil, system.NewHTTPError500("failed to cancel login session")
+	}
+	return map[string]string{"status": "ok"}, nil
 }
 
 func (apiServer *HelixAPIServer) createCodexSubscriptionFromCredentials(ctx context.Context, userID string, credentials types.CodexAuthCredentials) (*types.CodexSubscription, error) {

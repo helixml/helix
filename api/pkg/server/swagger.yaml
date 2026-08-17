@@ -15708,6 +15708,29 @@ paths:
       summary: Get a Codex subscription
       tags:
       - Codex
+  /api/v1/codex-subscriptions/login/{sessionId}:
+    delete:
+      description: Stop and remove the temporary sandbox used for Codex device authentication
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel a Codex login session
+      tags:
+      - Codex
   /api/v1/codex-subscriptions/poll-login/{sessionId}:
     get:
       description: Return device authentication instructions or persist completed
@@ -15732,7 +15755,7 @@ paths:
       - Codex
   /api/v1/codex-subscriptions/start-login:
     post:
-      description: Launch a temporary container and start Codex device authentication
+      description: Launch a temporary headless sandbox and start Codex device authentication
       produces:
       - application/json
       responses:

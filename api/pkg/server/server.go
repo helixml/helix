@@ -1138,6 +1138,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/codex-subscriptions/{id}", system.Wrapper(apiServer.deleteCodexSubscription)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/codex-subscriptions/start-login", system.Wrapper(apiServer.startCodexLogin)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/codex-subscriptions/poll-login/{sessionId}", system.Wrapper(apiServer.pollCodexLogin)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/codex-subscriptions/login/{sessionId}", system.Wrapper(apiServer.cancelCodexLogin)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.getSessionCodexCredentials)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.updateSessionCodexCredentials)).Methods(http.MethodPut)
 

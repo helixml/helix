@@ -39,6 +39,15 @@ export function useStartCodexLogin() {
   })
 }
 
+export function useCancelCodexLogin() {
+  const apiClient = useApi().getApiClient()
+  return useMutation({
+    mutationFn: async (sessionId: string) => (
+      await apiClient.v1CodexSubscriptionsLoginDelete(sessionId)
+    ).data,
+  })
+}
+
 export function usePollCodexLogin(sessionId: string) {
   const apiClient = useApi().getApiClient()
   return useQuery({

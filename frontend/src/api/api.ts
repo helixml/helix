@@ -10267,6 +10267,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Stop and remove the temporary sandbox used for Codex device authentication
+     *
+     * @tags Codex
+     * @name V1CodexSubscriptionsLoginDelete
+     * @summary Cancel a Codex login session
+     * @request DELETE:/api/v1/codex-subscriptions/login/{sessionId}
+     * @secure
+     */
+    v1CodexSubscriptionsLoginDelete: (sessionId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, any>({
+        path: `/api/v1/codex-subscriptions/login/${sessionId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Return device authentication instructions or persist completed credentials
      *
      * @tags Codex
@@ -10285,7 +10303,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Launch a temporary container and start Codex device authentication
+     * @description Launch a temporary headless sandbox and start Codex device authentication
      *
      * @tags Codex
      * @name V1CodexSubscriptionsStartLoginCreate
