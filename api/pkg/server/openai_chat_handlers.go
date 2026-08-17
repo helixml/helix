@@ -227,6 +227,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		RAGSourceID:        r.URL.Query().Get("rag_source_id"),
 		Provider:           validatedProvider,
 		CodeAgentOverrides: usageAttribution.CodeAgentOverrides,
+		CodeAgentRuntime:   usageAttribution.CodeAgentRuntime,
 		QueryParams: func() map[string]string {
 			params := make(map[string]string)
 			for key, values := range r.URL.Query() {
@@ -248,25 +249,40 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		options.AppID = usageAttribution.AppID
 	}
 
+	// A task or session carrying its own code-agent execution config has no App
+	// by design — resolveProxyUsageAttribution clears it. Honour that over an
+	// app_id arriving on the API key or in the query string, so neither can pull
+	// an assistant back into a coding-agent request.
+	tokenAppID := user.AppID
+	if usageAttribution.hasExecutionConfig && (tokenAppID != "" || options.AppID != "") {
+		log.Debug().
+			Str("token_app_id", tokenAppID).
+			Str("query_app_id", options.AppID).
+			Str("session_id", usageAttribution.SessionID).
+			Msg("ignoring app_id: request is driven by a code-agent execution config")
+		tokenAppID = ""
+		options.AppID = ""
+	}
+
 	switch {
 	// If app ID is set from authentication token
-	case user.AppID != "":
+	case tokenAppID != "":
 		// Basic sanity validation to see whether app ID from URL query matches
 		// the app ID from the authentication token
-		if options.AppID != "" && user.AppID != options.AppID {
-			log.Error().Str("app_id", user.AppID).Str("requested_app_id", options.AppID).Msg("app IDs do not match")
+		if options.AppID != "" && tokenAppID != options.AppID {
+			log.Error().Str("app_id", tokenAppID).Str("requested_app_id", options.AppID).Msg("app IDs do not match")
 			http.Error(rw, "URL query app_id does not match token app_id", http.StatusBadRequest)
 			return
 		}
 
-		app, err = s.Store.GetApp(ctx, user.AppID)
+		app, err = s.Store.GetApp(ctx, tokenAppID)
 		if err != nil {
-			log.Error().Err(err).Str("app_id", user.AppID).Msg("error getting app")
+			log.Error().Err(err).Str("app_id", tokenAppID).Msg("error getting app")
 			http.Error(rw, fmt.Sprintf("Error getting app: %s", err), http.StatusInternalServerError)
 			return
 		}
 
-		options.AppID = user.AppID
+		options.AppID = tokenAppID
 	// If app is set through URL query options
 	case options.AppID != "":
 		app, err = s.Store.GetApp(ctx, options.AppID)
