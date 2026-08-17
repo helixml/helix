@@ -17953,7 +17953,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Persists a Waiting interaction and dispatches it via the external-agent\nWebSocket. If no agent is connected the interaction is held until the\nagent reconnects, at which point pickupWaitingInteraction delivers it —\ncallers do not need to manage WebSocket readiness or retries.\nDistinct from POST /sessions/chat (synchronous SSE chat); use this\nendpoint for fire-and-forget delivery to an external (e.g. desktop) agent.",
+                "description": "Persists a Waiting interaction and dispatches it via the external-agent\nWebSocket. If no agent is connected the interaction is held until the\nagent reconnects, at which point the reconnect resume path delivers it —\ncallers do not need to manage WebSocket readiness or retries.\nDistinct from POST /sessions/chat (synchronous SSE chat); use this\nendpoint for fire-and-forget delivery to an external (e.g. desktop) agent.",
                 "consumes": [
                     "application/json"
                 ],
