@@ -13,35 +13,27 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-func TestExternalMCPBackendUsesProjectMCPOverride(t *testing.T) {
+func TestExternalMCPBackendUsesProjectMCPBeforeStaleParentApp(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	mockGetter := mcpclient.NewMockClientGetter(ctrl)
 	mockClient := mcpclient.NewMockClient(ctrl)
 
 	const (
-		sessionID = "ses_project_mcp"
-		userID    = "usr_project_mcp"
-		appID     = "app_project_mcp"
-		projectID = "prj_project_mcp"
+		sessionID  = "ses_project_mcp"
+		userID     = "usr_project_mcp"
+		staleAppID = "app_missing"
+		projectID  = "prj_project_mcp"
 	)
-	appMCP := types.AssistantMCP{Name: "HelixOS", URL: "https://app.example/mcp"}
 	projectMCP := types.AssistantMCP{Name: "HelixOS", URL: "https://project.example/mcp"}
-	app := &types.App{
-		ID: appID,
-		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
-			MCPs: []types.AssistantMCP{appMCP},
-		}}}},
-	}
 	project := &types.Project{
 		ID:     projectID,
 		Skills: &types.AssistantSkills{MCPs: []types.AssistantMCP{projectMCP}},
 	}
 
 	mockStore.EXPECT().GetSession(gomock.Any(), sessionID).Return(&types.Session{
-		ID: sessionID, Owner: userID, ParentApp: appID, ProjectID: projectID,
+		ID: sessionID, Owner: userID, ParentApp: staleAppID, ProjectID: projectID,
 	}, nil)
-	mockStore.EXPECT().GetApp(gomock.Any(), appID).Return(app, nil)
 	mockStore.EXPECT().GetProject(gomock.Any(), projectID).Return(project, nil)
 	mockGetter.EXPECT().NewClient(gomock.Any(), gomock.Any(), nil, gomock.Eq(&projectMCP)).Return(mockClient, nil)
 	mockClient.EXPECT().ListTools(gomock.Any(), gomock.Any()).Return(&mcp.ListToolsResult{}, nil)
@@ -52,6 +44,75 @@ func TestExternalMCPBackendUsesProjectMCPOverride(t *testing.T) {
 
 	if _, err := backend.getOrCreateServer(context.Background(), &types.User{ID: userID}, sessionID, "helixos"); err != nil {
 		t.Fatalf("get project MCP proxy: %v", err)
+	}
+}
+
+func TestExternalMCPBackendFallsBackToAppWhenProjectHasNoMatch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	mockGetter := mcpclient.NewMockClientGetter(ctrl)
+	mockClient := mcpclient.NewMockClient(ctrl)
+
+	const (
+		sessionID = "ses_app_fallback_mcp"
+		userID    = "usr_app_fallback_mcp"
+		appID     = "app_fallback_mcp"
+		projectID = "prj_app_fallback_mcp"
+	)
+	projectMCP := types.AssistantMCP{Name: "Other", URL: "https://project.example/other"}
+	appMCP := types.AssistantMCP{Name: "HelixOS", URL: "https://app.example/mcp"}
+	app := &types.App{
+		ID: appID,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			MCPs: []types.AssistantMCP{appMCP},
+		}}}},
+	}
+	mockStore.EXPECT().GetSession(gomock.Any(), sessionID).Return(&types.Session{
+		ID: sessionID, Owner: userID, ParentApp: appID, ProjectID: projectID,
+	}, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{
+		ID: projectID, Skills: &types.AssistantSkills{MCPs: []types.AssistantMCP{projectMCP}},
+	}, nil)
+	mockStore.EXPECT().GetApp(gomock.Any(), appID).Return(app, nil)
+	mockGetter.EXPECT().NewClient(gomock.Any(), gomock.Any(), nil, gomock.Eq(&appMCP)).Return(mockClient, nil)
+	mockClient.EXPECT().ListTools(gomock.Any(), gomock.Any()).Return(&mcp.ListToolsResult{}, nil)
+
+	backend := NewExternalMCPBackend(mockStore)
+	backend.clientGetter = mockGetter
+	defer backend.Stop()
+
+	if _, err := backend.getOrCreateServer(context.Background(), &types.User{ID: userID}, sessionID, "helixos"); err != nil {
+		t.Fatalf("get App MCP fallback: %v", err)
+	}
+}
+
+func TestExternalMCPBackendUsesProjectMCPWithoutParentApp(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	mockGetter := mcpclient.NewMockClientGetter(ctrl)
+	mockClient := mcpclient.NewMockClient(ctrl)
+
+	const (
+		sessionID = "ses_project_only_mcp"
+		userID    = "usr_project_only_mcp"
+		projectID = "prj_project_only_mcp"
+	)
+	projectMCP := types.AssistantMCP{Name: "HelixOS", URL: "https://project.example/mcp"}
+	mockStore.EXPECT().GetSession(gomock.Any(), sessionID).Return(&types.Session{
+		ID: sessionID, Owner: userID, ParentApp: "", ProjectID: projectID,
+	}, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{
+		ID: projectID, Skills: &types.AssistantSkills{MCPs: []types.AssistantMCP{projectMCP}},
+	}, nil)
+	mockGetter.EXPECT().NewClient(gomock.Any(), gomock.Any(), nil, gomock.Eq(&projectMCP)).Return(mockClient, nil)
+	mockClient.EXPECT().ListTools(gomock.Any(), gomock.Any()).Return(&mcp.ListToolsResult{}, nil)
+
+	backend := NewExternalMCPBackend(mockStore)
+	backend.clientGetter = mockGetter
+	defer backend.Stop()
+
+	if _, err := backend.getOrCreateServer(context.Background(), &types.User{ID: userID}, sessionID, "helixos"); err != nil {
+		t.Fatalf("get project MCP proxy without parent App: %v", err)
 	}
 }
 
