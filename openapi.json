@@ -4368,6 +4368,16 @@
                     "Codex"
                 ],
                 "summary": "Start a Codex login session",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.StartCodexLoginRequest"
+                            }
+                        }
+                    },
+                    "description": "Optional organization whose Codex harness should be enabled"
+                },
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -34862,6 +34872,10 @@
                     "name": {
                         "type": "string"
                     },
+                    "organization_id": {
+                        "description": "OrganizationID identifies the org whose Claude Code harness is enabled\nafter connection. It is independent from subscription ownership.",
+                        "type": "string"
+                    },
                     "owner_id": {
                         "description": "Required for org-level, auto-set for user",
                         "type": "string"
@@ -34887,6 +34901,10 @@
                         "$ref": "#/components/schemas/types.CodexAuthCredentials"
                     },
                     "name": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "description": "OrganizationID identifies the org whose Codex harness is enabled after\nconnection. It is independent from subscription ownership.",
                         "type": "string"
                     },
                     "owner_id": {
@@ -43432,6 +43450,15 @@
                         "items": {
                             "$ref": "#/components/schemas/types.SpecTaskZedThread"
                         }
+                    }
+                }
+            },
+            "types.StartCodexLoginRequest": {
+                "type": "object",
+                "properties": {
+                    "organization_id": {
+                        "description": "OrganizationID identifies the org whose Codex harness is enabled after\nthe device flow succeeds.",
+                        "type": "string"
                     }
                 }
             },

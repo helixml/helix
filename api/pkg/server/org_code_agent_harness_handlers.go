@@ -175,6 +175,26 @@ func (apiServer *HelixAPIServer) viewerHasCodexSubscription(ctx context.Context,
 	return err == nil, err
 }
 
+func (apiServer *HelixAPIServer) enableSubscriptionCodeAgentHarness(
+	ctx context.Context,
+	orgID, userID string,
+	runtime types.CodeAgentRuntime,
+) error {
+	if orgID == "" {
+		return nil
+	}
+	subscriptionEnabled := true
+	_, err := apiServer.Store.UpsertOrgCodeAgentHarnesses(ctx, orgID, userID, []types.OrgCodeAgentHarnessUpdate{{
+		Runtime:             runtime,
+		Enabled:             true,
+		SubscriptionEnabled: &subscriptionEnabled,
+	}})
+	if err != nil {
+		return fmt.Errorf("enable subscription harness %q: %w", runtime, err)
+	}
+	return nil
+}
+
 // validateOrgCodeAgentHarness is the server-side policy fence shared by task
 // creation, configuration changes, and task start. The picker is not an
 // authorization boundary.

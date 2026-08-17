@@ -227,8 +227,8 @@ const Providers: React.FC = () => {
             onChange={handleCodeAgentChange}
             subscriptionIdentity={subscriptionIdentity}
             subscriptionAction={(runtime) => {
-              if (runtime === 'claude_code') return <ClaudeSubscriptionConnect variant="button" />
-              if (runtime === 'codex_cli') return <CodexSubscriptionConnect />
+              if (runtime === 'claude_code') return <ClaudeSubscriptionConnect variant="button" enableForOrgId={org?.id} />
+              if (runtime === 'codex_cli') return <CodexSubscriptionConnect enableForOrgId={org?.id} />
               return null
             }}
           />

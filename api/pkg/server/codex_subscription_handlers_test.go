@@ -1,12 +1,17 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func validCodexCredentials() types.CodexAuthCredentials {
@@ -66,4 +71,55 @@ func TestNewCodexLoginAgentUsesHeadlessSandbox(t *testing.T) {
 	require.Zero(t, agent.DisplayWidth)
 	require.Zero(t, agent.DisplayHeight)
 	require.Equal(t, []string{"HELIX_SERVER_SETUP=1"}, agent.Env)
+}
+
+func TestCreateCodexSubscriptionFromCredentialsEnablesOrgHarness(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	mockStore.EXPECT().CreateCodexSubscription(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, subscription *types.CodexSubscription) (*types.CodexSubscription, error) {
+			subscription.ID = "codex_sub_1"
+			return subscription, nil
+		},
+	)
+	mockStore.EXPECT().UpsertOrgCodeAgentHarnesses(
+		gomock.Any(), "org_1", "user_1", gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _, _ string, updates []types.OrgCodeAgentHarnessUpdate) ([]*types.OrgCodeAgentHarness, error) {
+		require.Len(t, updates, 1)
+		assert.Equal(t, types.CodeAgentRuntimeCodexCLI, updates[0].Runtime)
+		assert.True(t, updates[0].Enabled)
+		require.NotNil(t, updates[0].SubscriptionEnabled)
+		assert.True(t, *updates[0].SubscriptionEnabled)
+		return nil, nil
+	})
+
+	subscription, err := server.createCodexSubscriptionFromCredentials(
+		context.Background(), "user_1", "org_1", validCodexCredentials(),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "codex_sub_1", subscription.ID)
+}
+
+func TestCreateCodexSubscriptionFromCredentialsRollsBackOnHarnessFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	mockStore.EXPECT().CreateCodexSubscription(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, subscription *types.CodexSubscription) (*types.CodexSubscription, error) {
+			subscription.ID = "codex_sub_1"
+			return subscription, nil
+		},
+	)
+	mockStore.EXPECT().UpsertOrgCodeAgentHarnesses(
+		gomock.Any(), "org_1", "user_1", gomock.Any(),
+	).Return(nil, errors.New("database unavailable"))
+	mockStore.EXPECT().DeleteCodexSubscription(gomock.Any(), "codex_sub_1").Return(nil)
+
+	_, err := server.createCodexSubscriptionFromCredentials(
+		context.Background(), "user_1", "org_1", validCodexCredentials(),
+	)
+	require.ErrorContains(t, err, "enable subscription harness")
 }

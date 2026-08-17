@@ -3317,6 +3317,11 @@ export interface TypesCreateClaudeSubscriptionRequest {
     claudeAiOauth?: TypesClaudeOAuthCredentials;
   };
   name?: string;
+  /**
+   * OrganizationID identifies the org whose Claude Code harness is enabled
+   * after connection. It is independent from subscription ownership.
+   */
+  organization_id?: string;
   /** Required for org-level, auto-set for user */
   owner_id?: string;
   /** "user" or "org" */
@@ -3328,6 +3333,11 @@ export interface TypesCreateClaudeSubscriptionRequest {
 export interface TypesCreateCodexSubscriptionRequest {
   credentials?: TypesCodexAuthCredentials;
   name?: string;
+  /**
+   * OrganizationID identifies the org whose Codex harness is enabled after
+   * connection. It is independent from subscription ownership.
+   */
+  organization_id?: string;
   owner_id?: string;
   owner_type?: TypesOwnerType;
 }
@@ -7319,6 +7329,14 @@ export interface TypesSpecTaskZedThreadListResponse {
   zed_threads?: TypesSpecTaskZedThread[];
 }
 
+export interface TypesStartCodexLoginRequest {
+  /**
+   * OrganizationID identifies the org whose Codex harness is enabled after
+   * the device flow succeeds.
+   */
+  organization_id?: string;
+}
+
 export interface TypesStartPlanningOptions {
   /**
    * KeyboardLayout is the XKB keyboard layout code (e.g., "us", "fr", "de")
@@ -10311,11 +10329,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/codex-subscriptions/start-login
      * @secure
      */
-    v1CodexSubscriptionsStartLoginCreate: (params: RequestParams = {}) =>
+    v1CodexSubscriptionsStartLoginCreate: (body: TypesStartCodexLoginRequest, params: RequestParams = {}) =>
       this.request<ServerCodexLoginSessionResponse, any>({
         path: `/api/v1/codex-subscriptions/start-login`,
         method: "POST",
+        body: body,
         secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

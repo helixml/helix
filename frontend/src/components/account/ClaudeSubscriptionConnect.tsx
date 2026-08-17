@@ -34,6 +34,7 @@ import useAccount from '../../hooks/useAccount'
 import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
 import { matchesAllTokens } from '../../utils/searchUtils'
 import { APP_MONO_FONT_FAMILY } from '../../styles/typography'
+import { codeAgentHarnessesQueryKey } from '../../services/codeAgentHarnessesService'
 
 interface ClaudeSubscriptionData {
   id: string
@@ -68,6 +69,7 @@ interface ClaudeSubscriptionConnectProps {
   variant?: 'button' | 'inline' | 'account'
   onConnected?: () => void
   orgId?: string
+  enableForOrgId?: string
 }
 
 // Above this many orgs the list gets a filter box. Below it, scanning is faster
@@ -214,6 +216,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   variant = 'button',
   onConnected,
   orgId,
+  enableForOrgId,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
@@ -334,9 +337,13 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       await api.post('/api/v1/claude-subscriptions', {
         name: effectiveOrgId ? `${orgLabel(effectiveOrgId)} Claude Subscription` : 'My Claude Subscription',
         setup_token: token,
+        ...(enableForOrgId ? { organization_id: enableForOrgId } : {}),
         ...(effectiveOrgId ? { owner_type: 'org', owner_id: effectiveOrgId } : {}),
       })
       queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
+      if (enableForOrgId) {
+        queryClient.invalidateQueries({ queryKey: codeAgentHarnessesQueryKey(enableForOrgId) })
+      }
       snackbar.success('Claude subscription connected')
       setTokenDialogOpen(false)
       onConnected?.()

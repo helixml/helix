@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Divider, IconButton, Stack, TextField, Tooltip, Typography } from '@mui/material'
-import { ArrowLeft, Copy, ExternalLink, FileJson, KeyRound } from 'lucide-react'
+import { ArrowLeft, CircleCheck, Copy, ExternalLink, FileJson, KeyRound } from 'lucide-react'
 import { TypesCodexAuthCredentials, TypesOwnerType } from '../../api/api'
 import { useQueryClient } from '@tanstack/react-query'
 import { copyTextToClipboard } from '../../utils/clipboard'
@@ -14,15 +14,17 @@ import {
   useStartCodexLogin,
   codexSubscriptionsQueryKey,
 } from '../../services/codexSubscriptionsService'
+import { codeAgentHarnessesQueryKey } from '../../services/codeAgentHarnessesService'
 
 interface Props {
   orgId?: string
+  enableForOrgId?: string
 }
 
 export const CODEX_DEVICE_AUTH_URL = 'https://auth.openai.com/codex/device'
 
 const actionSx = { textTransform: 'none' } as const
-type ConnectMethod = 'choose' | 'device' | 'import'
+type ConnectMethod = 'choose' | 'device' | 'import' | 'success'
 
 function parseCredentials(value: string): TypesCodexAuthCredentials {
   const credentials = JSON.parse(value) as TypesCodexAuthCredentials
@@ -39,8 +41,10 @@ function parseCredentials(value: string): TypesCodexAuthCredentials {
   return credentials
 }
 
-export default function CodexSubscriptionConnect({ orgId }: Props) {
+export default function CodexSubscriptionConnect({ orgId, enableForOrgId }: Props) {
   const queryClient = useQueryClient()
+  const queryClientRef = useRef(queryClient)
+  queryClientRef.current = queryClient
   const { data: subscriptions = [] } = useCodexSubscriptions()
   const createSubscription = useCreateCodexSubscription()
   const deleteSubscription = useDeleteCodexSubscription()
@@ -62,16 +66,18 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
     : subscriptions.find((candidate) => candidate.owner_type === 'user')
   const loginFound = loginStatus?.found ?? false
   const deviceCode = loginStatus?.code
+  const deviceError = loginError || loginStatus?.error
 
   useEffect(() => {
     if (!loginFound) return
-    queryClient.invalidateQueries({ queryKey: codexSubscriptionsQueryKey })
+    if (enableForOrgId) {
+      queryClientRef.current.invalidateQueries({ queryKey: codeAgentHarnessesQueryKey(enableForOrgId) })
+    }
     loginSessionIdRef.current = ''
-    dialogOpenRef.current = false
     deviceFlowActiveRef.current = false
     setLoginSessionId('')
-    setOpen(false)
-  }, [loginFound, queryClient])
+    setMethod('success')
+  }, [loginFound, enableForOrgId])
 
   const closeDialog = () => {
     dialogOpenRef.current = false
@@ -82,6 +88,9 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
     setMethod('choose')
     setLoginSessionId('')
     setLoginError('')
+    if (method === 'success') {
+      queryClient.invalidateQueries({ queryKey: codexSubscriptionsQueryKey })
+    }
   }
 
   const openDialog = () => {
@@ -100,7 +109,7 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
     deviceFlowActiveRef.current = true
     setLoginError('')
     setLoginSessionId('')
-    startLogin.mutate(undefined, {
+    startLogin.mutate({ organization_id: enableForOrgId }, {
       onSuccess: (result) => {
         const sessionID = result.session_id || ''
         if (!sessionID) return
@@ -133,6 +142,7 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
       await createSubscription.mutateAsync({
         name: 'My Codex Subscription',
         credentials,
+        organization_id: enableForOrgId,
         ...(orgId ? { owner_type: TypesOwnerType.OwnerTypeOrg, owner_id: orgId } : {}),
       })
       setValue('')
@@ -202,7 +212,9 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
         Connect
       </Button>
       <Dialog open={open} onClose={closeDialog} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ pb: 0.5 }}>Connect ChatGPT Subscription</DialogTitle>
+        <DialogTitle sx={{ pb: 0.5 }}>
+          {method === 'success' ? 'ChatGPT Subscription Connected' : 'Connect ChatGPT Subscription'}
+        </DialogTitle>
         <DialogContent sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
           {method === 'choose' && (
             <Stack spacing={1.5}>
@@ -293,18 +305,42 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
                   >
                     Continue to ChatGPT
                   </Button>
+                  {!deviceError && (
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <CircularProgress size={16} />
+                      <Box>
+                        <Typography variant="body2">Waiting for OpenAI callback…</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Keep this dialog open while you finish authorization in ChatGPT.
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  )}
                 </Stack>
-              ) : (
+              ) : !deviceError ? (
                 <Stack direction="row" alignItems="center" spacing={1} sx={{ minHeight: 48 }}>
                   <CircularProgress size={16} />
                   <Typography variant="body2" color="text.secondary">
                     {startLogin.isPending ? 'Starting secure login…' : 'Waiting for device code…'}
                   </Typography>
                 </Stack>
-              )}
-              {loginError && <Alert severity="error" sx={{ mt: 1.5 }}>{loginError}</Alert>}
-              {loginStatus?.error && <Alert severity="error" sx={{ mt: 1.5 }}>{loginStatus.error}</Alert>}
+              ) : null}
+              {deviceError && <Alert severity="error" sx={{ mt: 1.5 }}>{deviceError}</Alert>}
             </Box>
+          )}
+
+          {method === 'success' && (
+            <Stack spacing={1.5} alignItems="center" sx={{ py: 2, textAlign: 'center' }}>
+              <Box sx={{ color: 'success.main', display: 'flex' }}>
+                <CircleCheck size={40} />
+              </Box>
+              <Box>
+                <Typography variant="h6">Codex connected</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  OpenAI authorization completed and the Codex harness is ready to use.
+                </Typography>
+              </Box>
+            </Stack>
           )}
 
           {method === 'import' && (
@@ -333,7 +369,7 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
-          {method !== 'choose' && (
+          {method !== 'choose' && method !== 'success' && (
             <Button
               startIcon={<ArrowLeft size={16} />}
               onClick={chooseMethod}
@@ -342,7 +378,9 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
               Back
             </Button>
           )}
-          <Button onClick={closeDialog} sx={actionSx}>Cancel</Button>
+          <Button onClick={closeDialog} sx={actionSx}>
+            {method === 'success' ? 'Done' : 'Cancel'}
+          </Button>
           {method === 'import' && (
             <Button
               variant="contained"

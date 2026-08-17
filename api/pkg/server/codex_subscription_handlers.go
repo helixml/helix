@@ -77,10 +77,27 @@ func (apiServer *HelixAPIServer) createCodexSubscription(_ http.ResponseWriter, 
 		if createReq.OwnerID == "" {
 			return nil, system.NewHTTPError400("owner_id required for org-level subscriptions")
 		}
-		if _, err := apiServer.authorizeOrgOwner(req.Context(), user, createReq.OwnerID); err != nil {
+		org, err := apiServer.lookupOrg(req.Context(), createReq.OwnerID)
+		if err != nil {
+			return nil, system.NewHTTPError404("organization not found")
+		}
+		if _, err := apiServer.authorizeOrgOwner(req.Context(), user, org.ID); err != nil {
 			return nil, system.NewHTTPError403("not authorized to manage org subscriptions")
 		}
-		ownerID, ownerType = createReq.OwnerID, types.OwnerTypeOrg
+		ownerID, ownerType = org.ID, types.OwnerTypeOrg
+	}
+	harnessOrgID := ""
+	if createReq.OrganizationID != "" {
+		org, err := apiServer.lookupOrg(req.Context(), createReq.OrganizationID)
+		if err != nil {
+			return nil, system.NewHTTPError404("organization not found")
+		}
+		if _, err := apiServer.authorizeOrgOwner(req.Context(), user, org.ID); err != nil {
+			return nil, system.NewHTTPError403("not authorized to enable organization harness")
+		}
+		harnessOrgID = org.ID
+	} else if ownerType == types.OwnerTypeOrg {
+		harnessOrgID = ownerID
 	}
 
 	credentialJSON, err := json.Marshal(credentials)
@@ -107,6 +124,12 @@ func (apiServer *HelixAPIServer) createCodexSubscription(_ http.ResponseWriter, 
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to create subscription: " + err.Error())
+	}
+	if err := apiServer.enableSubscriptionCodeAgentHarness(req.Context(), harnessOrgID, user.ID, types.CodeAgentRuntimeCodexCLI); err != nil {
+		if deleteErr := apiServer.Store.DeleteCodexSubscription(context.WithoutCancel(req.Context()), sub.ID); deleteErr != nil {
+			log.Error().Err(deleteErr).Str("subscription_id", sub.ID).Msg("failed to roll back Codex subscription")
+		}
+		return nil, system.NewHTTPError500("failed to enable Codex harness: " + err.Error())
 	}
 	return sub, nil
 }
@@ -307,7 +330,9 @@ type CodexLoginSessionResponse struct {
 // @Summary Start a Codex login session
 // @Description Launch a temporary headless sandbox and start Codex device authentication
 // @Tags Codex
+// @Accept json
 // @Produce json
+// @Param body body types.StartCodexLoginRequest false "Optional organization whose Codex harness should be enabled"
 // @Success 200 {object} CodexLoginSessionResponse
 // @Security BearerAuth
 // @Router /api/v1/codex-subscriptions/start-login [post]
@@ -316,13 +341,27 @@ func (apiServer *HelixAPIServer) startCodexLogin(_ http.ResponseWriter, req *htt
 	if user == nil {
 		return nil, system.NewHTTPError401("authentication required")
 	}
+	var startReq types.StartCodexLoginRequest
+	if req.Body != nil {
+		decoder := json.NewDecoder(req.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&startReq); err != nil && !errors.Is(err, io.EOF) {
+			return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+		}
+	}
 	if err := apiServer.cleanupSubscriptionLoginSessionsForOwner(req.Context(), user.ID, codexLoginSessionName, codexLoginSessionProvider); err != nil {
 		return nil, system.NewHTTPError500("failed to clean up previous Codex login session")
 	}
 	orgID := ""
-	memberships, err := apiServer.Store.ListOrganizationMemberships(req.Context(), &store.ListOrganizationMembershipsQuery{UserID: user.ID})
-	if err == nil && len(memberships) > 0 {
-		orgID = memberships[0].OrganizationID
+	if startReq.OrganizationID != "" {
+		org, err := apiServer.lookupOrg(req.Context(), startReq.OrganizationID)
+		if err != nil {
+			return nil, system.NewHTTPError404("organization not found")
+		}
+		if _, err := apiServer.authorizeOrgOwner(req.Context(), user, org.ID); err != nil {
+			return nil, system.NewHTTPError403("not authorized to enable organization harness")
+		}
+		orgID = org.ID
 	}
 	session, err := apiServer.Store.CreateSession(req.Context(), types.Session{
 		ID: system.GenerateSessionID(), Name: codexLoginSessionName, Created: time.Now(), Updated: time.Now(),
@@ -338,6 +377,10 @@ func (apiServer *HelixAPIServer) startCodexLogin(_ http.ResponseWriter, req *htt
 		return apiServer.addUserAPITokenToAgent(ctx, desktopAgent, user.ID)
 	}
 	if _, err := apiServer.externalAgentExecutor.StartDesktop(req.Context(), agent); err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("failed to start Codex login sandbox")
+		if cleanupErr := apiServer.cleanupSubscriptionLoginSession(req.Context(), session.ID); cleanupErr != nil {
+			log.Error().Err(cleanupErr).Str("session_id", session.ID).Msg("failed to clean up Codex login session after sandbox start failure")
+		}
 		return nil, system.NewHTTPError500("failed to start login sandbox")
 	}
 	go apiServer.startCodexLoginCommand(session.ID)
@@ -411,7 +454,7 @@ func (apiServer *HelixAPIServer) pollCodexLogin(_ http.ResponseWriter, req *http
 		if parseErr != nil {
 			return &CodexPollLoginResponse{Error: parseErr.Error()}, nil
 		}
-		if _, createErr := apiServer.createCodexSubscriptionFromCredentials(req.Context(), user.ID, credentials); createErr != nil {
+		if _, createErr := apiServer.createCodexSubscriptionFromCredentials(req.Context(), user.ID, session.OrganizationID, credentials); createErr != nil {
 			return nil, system.NewHTTPError500("failed to persist Codex credentials")
 		}
 		if cleanupErr := apiServer.cleanupSubscriptionLoginSessionsForOwner(req.Context(), user.ID, codexLoginSessionName, codexLoginSessionProvider); cleanupErr != nil {
@@ -457,7 +500,7 @@ func (apiServer *HelixAPIServer) cancelCodexLogin(_ http.ResponseWriter, req *ht
 	return map[string]string{"status": "ok"}, nil
 }
 
-func (apiServer *HelixAPIServer) createCodexSubscriptionFromCredentials(ctx context.Context, userID string, credentials types.CodexAuthCredentials) (*types.CodexSubscription, error) {
+func (apiServer *HelixAPIServer) createCodexSubscriptionFromCredentials(ctx context.Context, userID, orgID string, credentials types.CodexAuthCredentials) (*types.CodexSubscription, error) {
 	normalizeCodexSubscriptionCredentials(&credentials)
 	data, err := json.Marshal(credentials)
 	if err != nil {
@@ -471,11 +514,21 @@ func (apiServer *HelixAPIServer) createCodexSubscriptionFromCredentials(ctx cont
 	if err != nil {
 		return nil, err
 	}
-	return apiServer.Store.CreateCodexSubscription(ctx, &types.CodexSubscription{
+	subscription, err := apiServer.Store.CreateCodexSubscription(ctx, &types.CodexSubscription{
 		OwnerID: userID, OwnerType: types.OwnerTypeUser, Name: "My Codex Subscription",
 		EncryptedCredentials: encrypted, AccountID: credentials.Tokens.AccountID, AuthMode: credentials.AuthMode,
 		Status: "active", LastRefreshedAt: &credentials.LastRefresh, CreatedBy: userID,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := apiServer.enableSubscriptionCodeAgentHarness(ctx, orgID, userID, types.CodeAgentRuntimeCodexCLI); err != nil {
+		if deleteErr := apiServer.Store.DeleteCodexSubscription(context.WithoutCancel(ctx), subscription.ID); deleteErr != nil {
+			log.Error().Err(deleteErr).Str("subscription_id", subscription.ID).Msg("failed to roll back Codex subscription")
+		}
+		return nil, err
+	}
+	return subscription, nil
 }
 
 func (apiServer *HelixAPIServer) execBackgroundInContainer(ctx context.Context, runnerID string, command []string) error {

@@ -3685,6 +3685,9 @@ const docTemplate = `{
                     }
                 ],
                 "description": "Launch a temporary headless sandbox and start Codex device authentication",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -3692,6 +3695,16 @@ const docTemplate = `{
                     "Codex"
                 ],
                 "summary": "Start a Codex login session",
+                "parameters": [
+                    {
+                        "description": "Optional organization whose Codex harness should be enabled",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/types.StartCodexLoginRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -30275,6 +30288,10 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "OrganizationID identifies the org whose Claude Code harness is enabled\nafter connection. It is independent from subscription ownership.",
+                    "type": "string"
+                },
                 "owner_id": {
                     "description": "Required for org-level, auto-set for user",
                     "type": "string"
@@ -30300,6 +30317,10 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.CodexAuthCredentials"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "OrganizationID identifies the org whose Codex harness is enabled after\nconnection. It is independent from subscription ownership.",
                     "type": "string"
                 },
                 "owner_id": {
@@ -38845,6 +38866,15 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.SpecTaskZedThread"
                     }
+                }
+            }
+        },
+        "types.StartCodexLoginRequest": {
+            "type": "object",
+            "properties": {
+                "organization_id": {
+                    "description": "OrganizationID identifies the org whose Codex harness is enabled after\nthe device flow succeeds.",
+                    "type": "string"
                 }
             }
         },

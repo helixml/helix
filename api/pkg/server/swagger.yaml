@@ -5216,6 +5216,11 @@ definitions:
         type: object
       name:
         type: string
+      organization_id:
+        description: |-
+          OrganizationID identifies the org whose Claude Code harness is enabled
+          after connection. It is independent from subscription ownership.
+        type: string
       owner_id:
         description: Required for org-level, auto-set for user
         type: string
@@ -5232,6 +5237,11 @@ definitions:
       credentials:
         $ref: '#/definitions/types.CodexAuthCredentials'
       name:
+        type: string
+      organization_id:
+        description: |-
+          OrganizationID identifies the org whose Codex harness is enabled after
+          connection. It is independent from subscription ownership.
         type: string
       owner_id:
         type: string
@@ -11622,6 +11632,14 @@ definitions:
           $ref: '#/definitions/types.SpecTaskZedThread'
         type: array
     type: object
+  types.StartCodexLoginRequest:
+    properties:
+      organization_id:
+        description: |-
+          OrganizationID identifies the org whose Codex harness is enabled after
+          the device flow succeeds.
+        type: string
+    type: object
   types.StartPlanningOptions:
     properties:
       keyboard_layout:
@@ -15755,7 +15773,15 @@ paths:
       - Codex
   /api/v1/codex-subscriptions/start-login:
     post:
+      consumes:
+      - application/json
       description: Launch a temporary headless sandbox and start Codex device authentication
+      parameters:
+      - description: Optional organization whose Codex harness should be enabled
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/types.StartCodexLoginRequest'
       produces:
       - application/json
       responses:

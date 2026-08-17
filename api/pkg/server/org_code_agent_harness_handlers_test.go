@@ -73,6 +73,38 @@ func TestValidateOrgCodeAgentHarnessSkipsPersonalWorkspace(t *testing.T) {
 	))
 }
 
+func TestEnableSubscriptionCodeAgentHarness(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	mockStore.EXPECT().UpsertOrgCodeAgentHarnesses(
+		gomock.Any(),
+		"org_1",
+		"user_1",
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _, _ string, updates []types.OrgCodeAgentHarnessUpdate) ([]*types.OrgCodeAgentHarness, error) {
+		require.Len(t, updates, 1)
+		assert.Equal(t, types.CodeAgentRuntimeCodexCLI, updates[0].Runtime)
+		assert.True(t, updates[0].Enabled)
+		require.NotNil(t, updates[0].SubscriptionEnabled)
+		assert.True(t, *updates[0].SubscriptionEnabled)
+		assert.Nil(t, updates[0].ProviderRefs)
+		return nil, nil
+	})
+
+	require.NoError(t, server.enableSubscriptionCodeAgentHarness(
+		context.Background(), "org_1", "user_1", types.CodeAgentRuntimeCodexCLI,
+	))
+}
+
+func TestEnableSubscriptionCodeAgentHarnessSkipsPersonalWorkspace(t *testing.T) {
+	server := &HelixAPIServer{}
+	require.NoError(t, server.enableSubscriptionCodeAgentHarness(
+		context.Background(), "", "user_1", types.CodeAgentRuntimeClaudeCode,
+	))
+}
+
 func TestNormalizeHarnessProviderRefs(t *testing.T) {
 	refs, err := normalizeHarnessProviderRefs([]string{" provider-2 ", "provider-1", "provider-2"})
 	require.NoError(t, err)

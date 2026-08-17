@@ -60,11 +60,14 @@ type ClaudeSetupTokenCredentials struct {
 
 // CreateClaudeSubscriptionRequest is the request body for creating a Claude subscription.
 type CreateClaudeSubscriptionRequest struct {
-	Name        string    `json:"name"`
-	OwnerType   OwnerType `json:"owner_type"`            // "user" or "org"
-	OwnerID     string    `json:"owner_id,omitempty"`    // Required for org-level, auto-set for user
-	SetupToken  string    `json:"setup_token,omitempty"` // From `claude setup-token` (alternative to credentials)
-	Credentials struct {
+	Name      string    `json:"name"`
+	OwnerType OwnerType `json:"owner_type"`         // "user" or "org"
+	OwnerID   string    `json:"owner_id,omitempty"` // Required for org-level, auto-set for user
+	// OrganizationID identifies the org whose Claude Code harness is enabled
+	// after connection. It is independent from subscription ownership.
+	OrganizationID string `json:"organization_id,omitempty"`
+	SetupToken     string `json:"setup_token,omitempty"` // From `claude setup-token` (alternative to credentials)
+	Credentials    struct {
 		ClaudeAiOauth ClaudeOAuthCredentials `json:"claudeAiOauth"`
 	} `json:"credentials"`
 }
