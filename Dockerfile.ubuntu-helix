@@ -232,6 +232,68 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     strip /goose-binary
 
 # ====================================================================
+# DeepSeek Harness (dsh) ACP server
+# ====================================================================
+# Unlike every other harness we ship, upstream's product CLI (`dsh web`,
+# `dsh --profile …`) has NO acp subcommand: the Agent Client Protocol server
+# is a separate cordis composition published as @deepseek-ai/dsh-acp-demo,
+# whose bin speaks JSON-RPC on stdio. So this stage installs that bin plus the
+# leaf plugins the composition names (LLM adapter, sandbox, bash, filesystem,
+# approval, compaction, tools), and the runtime copies the tree wholesale.
+#
+# Its own Node: dsh requires "^22.19.0 || >=24.0.0" and the desktop image
+# ships Node 20 for qwen-code and the MCP servers. Bumping that shared Node
+# to satisfy one harness would put every other npm consumer on an untested
+# runtime, so dsh gets a private interpreter under /opt/helix/dsh/bin/node
+# instead. Debian bookworm's glibc is older than the runtime image's, so the
+# binary keeps working there (glibc is forward compatible, not backward).
+#
+# Version pinning: dsh is in developer preview and upstream states there will
+# be compatibility-breaking changes, so DSH_VERSION is exact — never a range.
+# The @latest dist-tag on the plugin packages is a 0.0.1-rc.1 placeholder;
+# the real releases are published under @next, which is why every package is
+# requested at an explicit version.
+FROM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS dsh-build
+ARG DSH_VERSION=0.1.0-rc.6
+WORKDIR /opt/helix/dsh
+# node-pty is a hard dependency of dsh-subprocess-local (the bash executor's
+# process plumbing) and publishes no prebuild for Node 24, so it is compiled
+# from source here. These toolchain packages stay in this stage — the runtime
+# image only receives the resulting node_modules tree.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential python3 && \
+    rm -rf /var/lib/apt/lists/*
+RUN <<_INSTALL_DSH
+set -eu
+echo "=== Installing DeepSeek Harness ACP server ${DSH_VERSION} ==="
+npm init -y > /dev/null
+# One `npm install` so the whole set resolves against a single lockfile.
+# @deepseek-ai/dsh-acp-demo declares its plugin dependencies as peers; npm
+# installs those automatically, but the leaf plugins the composition loads
+# (cordis.yml below) are not peers of anything and must be named here.
+npm install --no-audit --no-fund --omit=dev \
+  "@deepseek-ai/dsh-acp-demo@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-llm-pi-ai@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-sandbox-local@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-sandbox-policy@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-subprocess-local@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-bash-sandbox@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-user-approval@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-token-meter@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-compaction-basic@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-fs-sandbox@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-fs-observation-policy@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-tool-fs@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-tool-fs-search@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-tool-todo@${DSH_VERSION}" \
+  "@deepseek-ai/dsh-session-projection@${DSH_VERSION}"
+npm cache clean --force > /dev/null 2>&1 || true
+mkdir -p bin
+cp "$(command -v node)" bin/node
+echo "${DSH_VERSION}" > version
+_INSTALL_DSH
+
+# ====================================================================
 # Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
 # ====================================================================
 # Ubuntu 25.10 uses GNOME 47+ which has excellent Wayland support.
@@ -1304,6 +1366,25 @@ OPENCODE_SMOKE_HOME="$(mktemp -d)"
 HOME="${OPENCODE_SMOKE_HOME}" /usr/local/bin/opencode --version
 rm -r "${OPENCODE_SMOKE_HOME}"
 _INSTALL_OPENCODE
+
+# DeepSeek Harness (dsh) ACP agent server, built in the dsh-build stage above.
+# Installed root-owned for the same reason as opencode: the agent user must not
+# be able to overwrite its own runtime. The composition and the wrapper are
+# repo files rather than heredocs so they are reviewable and testable outside
+# the image.
+COPY --from=dsh-build --chown=root:root /opt/helix/dsh /opt/helix/dsh
+ADD --chown=root:root desktop/shared/dsh/cordis.yml /opt/helix/dsh/cordis.yml
+ADD --chown=root:root desktop/shared/dsh/dsh-acp /usr/local/bin/dsh-acp
+RUN <<_INSTALL_DSH_RUNTIME
+set -eu
+chmod 755 /usr/local/bin/dsh-acp /opt/helix/dsh/bin/node
+# $DSH_HOME (skills, credentials) and the JSONL session log are written at
+# runtime under paths settings-sync-daemon owns; nothing under /opt/helix/dsh
+# is written to after this point.
+chmod -R go-w /opt/helix/dsh
+echo "=== DeepSeek Harness $(cat /opt/helix/dsh/version) ==="
+/opt/helix/dsh/bin/node --version
+_INSTALL_DSH_RUNTIME
 
 WORKDIR /
 

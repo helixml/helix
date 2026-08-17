@@ -91,6 +91,7 @@ export const SELECTABLE_CODE_AGENT_RUNTIMES: ReadonlyArray<Runtime> = [
   TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
   TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
   TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+  TypesCodeAgentRuntime.CodeAgentRuntimeDeepSeekHarness,
 ]
 
 const triggerSx = {

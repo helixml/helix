@@ -337,6 +337,17 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
               </Box>
             </Stack>
           </MenuItem>
+          <MenuItem value="deepseek_harness">
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <AgentHarness runtime="deepseek_harness" variant="short" size={18} />
+              <Box>
+              <Typography variant="body2">DeepSeek Harness</Typography>
+              <Typography variant="caption" color="text.secondary">
+                DeepSeek's plugin-based ACP agent
+              </Typography>
+              </Box>
+            </Stack>
+          </MenuItem>
         </Select>
       </FormControl>
 

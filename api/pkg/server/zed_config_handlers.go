@@ -759,6 +759,16 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		agentName = "opencode"
 		model = fmt.Sprintf("%s/%s", providerName, modelName)
 
+	case types.CodeAgentRuntimeDeepSeekHarness:
+		// DeepSeek Harness: `dsh-acp` as a custom agent_server. Like qwen and
+		// opencode, every provider is reached through Helix's
+		// OpenAI-compatible proxy, so the provider prefix stays part of the
+		// model id the proxy routes on.
+		baseURL = helixURL + "/v1"
+		apiType = "openai"
+		agentName = "dsh"
+		model = fmt.Sprintf("%s/%s", providerName, modelName)
+
 	case types.CodeAgentRuntimeCodexCLI:
 		agentName = "codex"
 		model = modelName

@@ -5035,6 +5035,7 @@ definitions:
     - codex_cli
     - goose_code
     - opencode
+    - deepseek_harness
     type: string
     x-enum-varnames:
     - CodeAgentRuntimeZedAgent
@@ -5044,6 +5045,7 @@ definitions:
     - CodeAgentRuntimeCodexCLI
     - CodeAgentRuntimeGooseCode
     - CodeAgentRuntimeOpenCode
+    - CodeAgentRuntimeDeepSeekHarness
   types.CodexAuthCredentials:
     properties:
       OPENAI_API_KEY:

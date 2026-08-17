@@ -324,6 +324,22 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 		},
 		{
+			// Same routing as opencode/qwen: one OpenAI-compatible endpoint,
+			// provider prefix retained in the model id. The agent name is
+			// "dsh", which is what settings-sync-daemon keys the
+			// agent_servers entry on.
+			name: "deepseek_harness routes through the helix proxy",
+			assistant: &types.AssistantConfig{
+				Provider:         "deepseek",
+				Model:            "deepseek-v4-pro",
+				CodeAgentRuntime: types.CodeAgentRuntimeDeepSeekHarness,
+			},
+			want: &types.CodeAgentConfig{
+				Provider: "deepseek", Model: "deepseek/deepseek-v4-pro", AgentName: "dsh",
+				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeDeepSeekHarness,
+			},
+		},
+		{
 			name: "codex_cli omits none reasoning effort",
 			assistant: &types.AssistantConfig{
 				GenerationModelProvider: "openai",

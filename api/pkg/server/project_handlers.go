@@ -3192,6 +3192,8 @@ func projectAgentRuntimeToTypes(runtime string) (types.AgentType, types.CodeAgen
 		return types.AgentTypeZedExternal, types.CodeAgentRuntimeGooseCode
 	case "opencode":
 		return types.AgentTypeZedExternal, types.CodeAgentRuntimeOpenCode
+	case "dsh", "deepseek_harness":
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeDeepSeekHarness
 	default:
 		// "claude_code" or empty/unrecognised → Claude Code CLI (default)
 		return types.AgentTypeZedExternal, types.CodeAgentRuntimeClaudeCode

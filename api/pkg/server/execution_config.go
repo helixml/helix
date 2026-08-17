@@ -200,7 +200,8 @@ func (s *HelixAPIServer) validateCodeAgentExecutionConfig(
 		types.CodeAgentRuntimeGeminiCLI,
 		types.CodeAgentRuntimeCodexCLI,
 		types.CodeAgentRuntimeGooseCode,
-		types.CodeAgentRuntimeOpenCode:
+		types.CodeAgentRuntimeOpenCode,
+		types.CodeAgentRuntimeDeepSeekHarness:
 	default:
 		return fmt.Errorf("unsupported code-agent runtime %q", config.Runtime)
 	}

@@ -219,7 +219,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
-  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli' | 'goose_code' | 'opencode'>(app.code_agent_runtime || 'zed_agent')
+  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli' | 'goose_code' | 'opencode' | 'deepseek_harness'>(app.code_agent_runtime || 'zed_agent')
   // External agent display settings
   const [resolution, setResolution] = useState<'1080p' | '4k' | '5k'>(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
   const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -703,7 +703,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                 <Select
                   value={code_agent_runtime}
                   onChange={(e) => {
-                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code' | 'opencode';
+                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code' | 'opencode' | 'deepseek_harness';
                     setCodeAgentRuntime(newRuntime);
                     if (newRuntime === 'codex_cli' && !model) {
                       setModel(DEFAULT_CODEX_SUBSCRIPTION_MODEL)
@@ -779,6 +779,17 @@ const AppSettings: FC<AppSettingsProps> = ({
                       <Typography variant="body2">opencode</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Open-source, model-agnostic ACP agent
+                      </Typography>
+                      </Box>
+                    </Stack>
+                  </MenuItem>
+                  <MenuItem value="deepseek_harness">
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="deepseek_harness" variant="short" size={18} />
+                      <Box>
+                      <Typography variant="body2">DeepSeek Harness</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        DeepSeek's plugin-based ACP agent
                       </Typography>
                       </Box>
                     </Stack>

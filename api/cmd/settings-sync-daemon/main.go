@@ -514,6 +514,37 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			},
 		}
 
+	case "deepseek_harness":
+		// DeepSeek Harness: `dsh-acp` as a custom agent_server. The whole
+		// configuration lives in the cordis composition baked into the image
+		// (/opt/helix/dsh/cordis.yml); we only supply the values it resolves
+		// from the environment.
+		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+
+		env, err := buildDeepSeekHarnessEnv(baseURL, d.codeAgentConfig.Model, d.userAPIKey)
+		if err != nil {
+			// No entry rather than a broken one: emitting an agent_server that
+			// cannot authenticate would have Zed launch it and fail the first
+			// turn with a provider error. Returning nil defers to the next
+			// poll, the same deferral the claude_code branch uses while it
+			// waits for credentials.
+			log.Printf("ERROR: dsh agent server cannot be registered: %v", err)
+			return nil
+		}
+
+		log.Printf("Using deepseek_harness runtime: command=%s, model=%s, base_url=%s",
+			DeepSeekHarnessCommand, d.codeAgentConfig.Model, baseURL)
+
+		return map[string]interface{}{
+			"dsh": map[string]interface{}{
+				"name":    "dsh",
+				"type":    "custom",
+				"command": DeepSeekHarnessCommand,
+				"args":    []string{},
+				"env":     env,
+			},
+		}
+
 	default: // "zed_agent" or empty (default)
 		// Zed Agent: Uses Zed's built-in agent panel - no agent_servers needed
 		// The container env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) are set by wolf_executor
