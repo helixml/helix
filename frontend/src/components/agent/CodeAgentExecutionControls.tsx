@@ -42,8 +42,8 @@ export interface CodeAgentExecutionControlsProps {
    * the project sandbox tab configures compute and nothing else.
    */
   computeOnly?: boolean
-  /** Select the recommended subscription model when a new task has no config. */
-  autoSelectSubscriptionDefault?: boolean
+  /** Select the recommended available harness and model when a new task has no config. */
+  autoSelectDefault?: boolean
 }
 
 const SANDBOX_PRESETS = [
@@ -81,7 +81,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   compact = false,
   grouped = false,
   computeOnly = false,
-  autoSelectSubscriptionDefault = false,
+  autoSelectDefault = false,
 }) => {
   const snackbar = useSnackbar()
   const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(null)
@@ -126,7 +126,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
     <CodeAgentConfigPicker
       value={value}
       disabled={controlsDisabled}
-      autoSelectSubscriptionDefault={autoSelectSubscriptionDefault}
+      autoSelectDefault={autoSelectDefault}
       onChange={(next) => void save(next)}
     />
   )

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   TypesCodeAgentRuntime,
   TypesOrgCodeAgentHarnessStatus,
+  TypesProviderEndpointStatus,
 } from '../../api/api'
 import CodeAgentHarnessesSection from './CodeAgentHarnessesSection'
 
@@ -22,6 +23,7 @@ describe('CodeAgentHarnessesSection', () => {
         endpoints={[{
           id: 'provider-1',
           name: 'anthropic',
+          status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
           available_models: [{ id: 'task-selected-model', enabled: true, type: 'chat' }],
         }]}
         subscriptionIdentity={() => 'developer@example.com · Claude Max Subscription'}
@@ -54,16 +56,19 @@ describe('CodeAgentHarnessesSection', () => {
           {
             id: 'provider-1',
             name: 'openai',
+            status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
             available_models: [{ id: 'model-1', enabled: true, type: 'chat' }],
           },
           {
             id: 'provider-2',
             name: 'anthropic',
+            status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
             available_models: [{ id: 'model-2', enabled: true, type: 'chat' }],
           },
           {
             id: 'provider-temporarily-unavailable',
             name: 'anthropic',
+            status: TypesProviderEndpointStatus.ProviderEndpointStatusError,
             available_models: [],
           },
         ]}
@@ -89,6 +94,7 @@ describe('CodeAgentHarnessesSection', () => {
         endpoints={[{
           id: 'provider-1',
           name: 'anthropic',
+          status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
           available_models: [{ id: 'model-1', enabled: true, type: 'chat' }],
         }]}
         onChange={vi.fn()}
@@ -97,6 +103,27 @@ describe('CodeAgentHarnessesSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
     expect(screen.getByRole('checkbox', { name: 'Enable anthropic for Claude Code' })).not.toBeChecked()
+  })
+
+  it('disables a provider switch until its API connection is healthy', () => {
+    render(
+      <CodeAgentHarnessesSection
+        harnesses={harnesses}
+        endpoints={[{
+          id: 'provider-1',
+          name: 'anthropic',
+          status: TypesProviderEndpointStatus.ProviderEndpointStatusError,
+          available_models: [{ id: 'stale-cached-model', enabled: true, type: 'chat' }],
+        }]}
+        onChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
+    const providerSwitch = screen.getByRole('checkbox', { name: 'Enable anthropic for Claude Code' })
+    expect(providerSwitch).not.toBeChecked()
+    expect(providerSwitch).toBeDisabled()
+    expect(screen.getByText('Not connected')).toBeInTheDocument()
   })
 
   it('updates subscription eligibility in organization settings', () => {
@@ -148,6 +175,7 @@ describe('CodeAgentHarnessesSection', () => {
         endpoints={[{
           id: 'provider-1',
           name: 'openai',
+          status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
           available_models: [{ id: 'model-1', enabled: true, type: 'chat' }],
         }]}
         subscriptionAction={() => <button type="button">Connect</button>}

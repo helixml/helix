@@ -323,7 +323,7 @@ const Home: FC = () => {
         onSandboxResourceOverridesChange={setTaskSandboxResources}
         onSandboxRuntimeChange={handleTaskSandboxRuntimeChange}
         disabled={submitting}
-        autoSelectSubscriptionDefault
+        autoSelectDefault
         compact
       />
       <Box

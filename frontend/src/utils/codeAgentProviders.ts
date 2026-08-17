@@ -1,7 +1,14 @@
 import {
   TypesCodeAgentRuntime,
   TypesProviderEndpoint,
+  TypesProviderEndpointStatus,
 } from '../api/api'
+
+export function providerEndpointIsConnected(provider: TypesProviderEndpoint): boolean {
+  return provider.status === TypesProviderEndpointStatus.ProviderEndpointStatusOK
+    && (provider.available_models || []).some((model) => model.enabled
+      && (!model.type || model.type === 'chat' || model.type === 'text'))
+}
 
 export function requiredProviderNameForRuntime(
   runtime?: TypesCodeAgentRuntime | string,

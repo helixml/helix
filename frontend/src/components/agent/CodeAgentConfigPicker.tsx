@@ -16,6 +16,7 @@ import {
   TypesCodeAgentCredentialType,
   TypesCodeAgentExecutionConfig,
   TypesCodeAgentRuntime,
+  TypesOrgCodeAgentHarnessStatus,
   TypesProviderEndpoint,
 } from '../../api/api'
 import { useGetOrgByName } from '../../services/orgService'
@@ -42,6 +43,7 @@ import {
 import NoCodeAgentsDialog from './NoCodeAgentsDialog'
 import AgentHarness, { getAgentHarnessLabel } from './AgentHarness'
 import {
+  providerEndpointIsConnected,
   providerSupportsCodeAgentRuntime,
   providersForCodeAgentRuntime,
 } from '../../utils/codeAgentProviders'
@@ -51,7 +53,7 @@ type Runtime = TypesCodeAgentRuntime
 interface CodeAgentConfigPickerProps {
   value?: TypesCodeAgentExecutionConfig
   disabled?: boolean
-  autoSelectSubscriptionDefault?: boolean
+  autoSelectDefault?: boolean
   onChange: (value: TypesCodeAgentExecutionConfig) => void
 }
 
@@ -134,6 +136,7 @@ function providersAllowedForHarness(
   runtime: Runtime,
 ): TypesProviderEndpoint[] {
   const compatible = providersForCodeAgentRuntime(providers, runtime)
+    .filter(providerEndpointIsConnected)
   if (!enforceOrgPolicy || harness?.provider_refs == null) return compatible
   const allowed = new Set(harness.provider_refs)
   return compatible.filter((provider) => allowed.has(providerRef(provider)))
@@ -154,39 +157,74 @@ function subscriptionModelOptions(runtime: Runtime): ModelOption[] {
   }))
 }
 
-function subscriptionDefaultConfig(
-  preferredRuntime: Runtime | undefined,
-  claudeAvailable: boolean,
-  codexAvailable: boolean,
-): TypesCodeAgentExecutionConfig | undefined {
-  const candidates = [
-    {
-      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
-      model: DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
-      available: claudeAvailable,
-    },
-    {
-      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
-      model: DEFAULT_CODEX_SUBSCRIPTION_MODEL,
-      available: codexAvailable,
-    },
-  ]
-  const selected = candidates.find((candidate) =>
-    candidate.available && candidate.runtime === preferredRuntime)
-    || candidates.find((candidate) => candidate.available)
-  if (!selected) return undefined
-
-  return {
-    runtime: selected.runtime,
-    credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
-    model: selected.model,
+function preferredModelOption(runtime: Runtime, options: ModelOption[]): ModelOption | undefined {
+  const preferredModels = CURRENT_NATIVE_MODELS[runtime] || []
+  for (const preferred of preferredModels) {
+    const option = options.find(({ id }) => {
+      const normalized = (id.split('/').pop() || id).toLowerCase()
+      return normalized === preferred || normalized.startsWith(`${preferred}-`)
+    })
+    if (option) return option
   }
+  return options.find(({ id }) => !isLegacyNativeModel(runtime, id)) || options[0]
+}
+
+function defaultCodeAgentConfig(
+  preferredRuntime: Runtime | undefined,
+  selectableRuntimes: Runtime[],
+  harnesses: TypesOrgCodeAgentHarnessStatus[],
+  providers: TypesProviderEndpoint[],
+  enforceOrgPolicy: boolean,
+  claudeSubscriptionAvailable: boolean,
+  codexSubscriptionAvailable: boolean,
+): TypesCodeAgentExecutionConfig | undefined {
+  const nativeRuntimes = [
+    TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+    TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+  ]
+  const runtimes = [...new Set([
+    ...(preferredRuntime ? [preferredRuntime] : []),
+    ...nativeRuntimes,
+    ...selectableRuntimes,
+  ])].filter((runtime) => selectableRuntimes.includes(runtime))
+
+  for (const runtime of runtimes) {
+    const subscriptionAvailable = runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
+      ? claudeSubscriptionAvailable
+      : runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI && codexSubscriptionAvailable
+    if (subscriptionAvailable) {
+      return {
+        runtime,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+        model: runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
+          ? DEFAULT_CLAUDE_SUBSCRIPTION_MODEL
+          : DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+      }
+    }
+  }
+
+  for (const runtime of runtimes) {
+    const harness = findHarnessStatus(harnesses, runtime)
+    const option = preferredModelOption(
+      runtime,
+      apiModelOptions(providersAllowedForHarness(providers, harness, enforceOrgPolicy, runtime)),
+    )
+    if (option?.provider) {
+      return {
+        runtime,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+        provider_ref: providerRef(option.provider),
+        model: option.id,
+      }
+    }
+  }
+  return undefined
 }
 
 const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   value,
   disabled = false,
-  autoSelectSubscriptionDefault = false,
+  autoSelectDefault = false,
   onChange,
 }) => {
   const router = useRouter()
@@ -234,7 +272,9 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     matchesStoredRef(provider, value?.provider_ref || ''))
   const selectedProviderRuntimeCompatible = value?.credential_type
     === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
-    || (!!selectedProvider && providerSupportsCodeAgentRuntime(selectedProvider, value?.runtime))
+    || (!!selectedProvider
+      && providerEndpointIsConnected(selectedProvider)
+      && providerSupportsCodeAgentRuntime(selectedProvider, value?.runtime))
   const selectedSourceAllowed = selectedProviderRuntimeCompatible
     && (!orgName
       || (value?.credential_type === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
@@ -267,24 +307,30 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
       && !!codexStatus.viewer_has_subscription
     : !!codexSubscriptions?.some((subscription) => subscription.owner_type === 'user')
 
-  useEffect(() => {
-    if (!autoSelectSubscriptionDefault || !policySettled) return
-    if (value?.model && selectedConfigurationAllowed) return
+  const automaticDefault = defaultCodeAgentConfig(
+    value?.runtime,
+    selectableRuntimes,
+    orgHarnesses,
+    providers,
+    !!orgName,
+    claudeSubscriptionDefaultAvailable,
+    codexSubscriptionDefaultAvailable,
+  )
 
-    const next = subscriptionDefaultConfig(
-      value?.runtime,
-      claudeSubscriptionDefaultAvailable,
-      codexSubscriptionDefaultAvailable,
-    )
-    if (next) onChangeRef.current(next)
+  useEffect(() => {
+    if (!autoSelectDefault || !policySettled) return
+    if (value?.model && selectedConfigurationAllowed) return
+    if (automaticDefault) onChangeRef.current(automaticDefault)
   }, [
-    autoSelectSubscriptionDefault,
+    autoSelectDefault,
     value?.runtime,
     value?.model,
     policySettled,
     selectedConfigurationAllowed,
-    claudeSubscriptionDefaultAvailable,
-    codexSubscriptionDefaultAvailable,
+    automaticDefault?.runtime,
+    automaticDefault?.credential_type,
+    automaticDefault?.provider_ref,
+    automaticDefault?.model,
   ])
 
   const openPicker = (element: HTMLElement) => {

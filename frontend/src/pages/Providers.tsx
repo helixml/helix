@@ -60,18 +60,26 @@ const Providers: React.FC = () => {
 
   // Claude subscription state (must be called before any early returns)
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const claudeIsSetupToken = hasClaudeSubscription && claudeSubscriptions![0].credential_type === 'setup_token'
+  const personalClaudeSubscription = claudeSubscriptions?.find(subscription => subscription.owner_type === 'user')
+  const orgClaudeSubscription = claudeSubscriptions?.find(subscription =>
+    subscription.owner_type === 'org' && subscription.owner_id === org?.id)
+  const effectiveClaudeSubscription = personalClaudeSubscription || orgClaudeSubscription
+  const hasClaudeSubscription = !!personalClaudeSubscription
+  const claudeIsSetupToken = personalClaudeSubscription?.credential_type === 'setup_token'
   const claudeExpiry = hasClaudeSubscription && !claudeIsSetupToken
-    ? getTokenExpiryStatus(claudeSubscriptions![0].access_token_expires_at)
+    ? getTokenExpiryStatus(personalClaudeSubscription?.access_token_expires_at)
     : null
   const claudeIsExpired = claudeExpiry?.isExpired ?? false
   const { data: codexSubscriptions } = useCodexSubscriptions()
-  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
+  const personalCodexSubscription = codexSubscriptions?.find(subscription => subscription.owner_type === 'user')
+  const orgCodexSubscription = codexSubscriptions?.find(subscription =>
+    subscription.owner_type === 'org' && subscription.owner_id === org?.id)
+  const effectiveCodexSubscription = personalCodexSubscription || orgCodexSubscription
+  const hasCodexSubscription = !!personalCodexSubscription
 
   const subscriptionIdentity = (runtime: string): string | undefined => {
     if (runtime === 'claude_code') {
-      const subscription = claudeSubscriptions?.[0]
+      const subscription = effectiveClaudeSubscription
       if (!subscription) return undefined
       const plan = subscription.subscription_type
         ? `Claude ${subscription.subscription_type.charAt(0).toUpperCase()}${subscription.subscription_type.slice(1)} Subscription`
@@ -79,7 +87,7 @@ const Providers: React.FC = () => {
       return [subscription.name, plan].filter(Boolean).join(' · ')
     }
     if (runtime === 'codex_cli') {
-      const subscription = codexSubscriptions?.[0]
+      const subscription = effectiveCodexSubscription
       if (!subscription) return undefined
       return [subscription.name, 'ChatGPT Subscription'].filter(Boolean).join(' · ')
     }
@@ -220,7 +228,7 @@ const Providers: React.FC = () => {
             subscriptionIdentity={subscriptionIdentity}
             subscriptionAction={(runtime) => {
               if (runtime === 'claude_code') return <ClaudeSubscriptionConnect variant="button" />
-              if (runtime === 'codex_cli') return <CodexSubscriptionConnect orgId={org?.id} />
+              if (runtime === 'codex_cli') return <CodexSubscriptionConnect />
               return null
             }}
           />

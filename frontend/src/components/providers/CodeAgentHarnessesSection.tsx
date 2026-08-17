@@ -17,14 +17,10 @@ import CodeAgentHarnessRow, { HARNESS_SWITCH_SLOT_SX, HarnessHealth } from './Co
 import { providerRef } from '../create/AdvancedModelPicker'
 import { getAgentHarnessLabel } from '../agent/AgentHarness'
 import {
+  providerEndpointIsConnected,
   providersForCodeAgentRuntime,
   requiredProviderNameForRuntime,
 } from '../../utils/codeAgentProviders'
-
-function endpointIsRunnable(endpoint: TypesProviderEndpoint): boolean {
-  return (endpoint.available_models || []).some((model) => model.enabled
-    && (!model.type || model.type === 'chat' || model.type === 'text'))
-}
 
 const PROVIDERS_HELP =
   'Enabled API providers expose their models in the task chat, where a model is selected.'
@@ -61,13 +57,13 @@ const CodeAgentHarnessesSection: FC<{
     <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
       {harnesses.map((harness) => {
         const compatibleEndpoints = providersForCodeAgentRuntime(endpoints, harness.runtime)
-        const runnableEndpoints = compatibleEndpoints.filter(endpointIsRunnable)
+        const connectedEndpoints = compatibleEndpoints.filter(providerEndpointIsConnected)
         const allowedProviderRefs = harness.provider_refs == null
           ? null
           : new Set(harness.provider_refs)
         const allowedEndpoints = allowedProviderRefs == null
-          ? runnableEndpoints
-          : runnableEndpoints.filter((endpoint) => allowedProviderRefs.has(providerRef(endpoint)))
+          ? connectedEndpoints
+          : connectedEndpoints.filter((endpoint) => allowedProviderRefs.has(providerRef(endpoint)))
         const subscriptionEnabled = harness.subscription_enabled !== false
         const viewerHasSubscription = !!harness.viewer_has_subscription
         const hasSubscription = harness.supports_subscription
@@ -171,7 +167,7 @@ const CodeAgentHarnessesSection: FC<{
                     </IconButton>
                   </Tooltip>
                 </Stack>
-                {runnableEndpoints.length > 0 ? (
+                {compatibleEndpoints.length > 0 ? (
                   <Stack
                     sx={{
                       '& > *': {
@@ -183,9 +179,11 @@ const CodeAgentHarnessesSection: FC<{
                       '& > *:last-child': { borderBottom: 'none' },
                     }}
                   >
-                    {runnableEndpoints.map((endpoint) => {
+                    {compatibleEndpoints.map((endpoint) => {
                       const ref = providerRef(endpoint)
-                      const checked = allowedProviderRefs == null || allowedProviderRefs.has(ref)
+                      const connected = providerEndpointIsConnected(endpoint)
+                      const checked = connected
+                        && (allowedProviderRefs == null || allowedProviderRefs.has(ref))
                       return (
                         <Stack
                           key={ref}
@@ -194,33 +192,46 @@ const CodeAgentHarnessesSection: FC<{
                           justifyContent="space-between"
                           spacing={1}
                         >
-                          <Typography variant="body2">{endpoint.name || 'Unnamed provider'}</Typography>
-                          <Box sx={HARNESS_SWITCH_SLOT_SX}>
-                            <Switch
-                              color="secondary"
-                              checked={checked}
-                              disabled={readOnly}
-                              inputProps={{
-                                'aria-label': `${checked ? 'Disable' : 'Enable'} ${endpoint.name || 'unnamed provider'} for ${harnessLabel}`,
-                              }}
-                              onChange={(_, enabled) => {
-                                const current = harness.provider_refs == null
-                                  // Preserve temporarily unavailable endpoints
-                                  // when materializing the legacy all-providers policy.
-                                  ? [...new Set(compatibleEndpoints.map(providerRef))]
-                                  : harness.provider_refs.filter((candidate) =>
-                                    compatibleEndpoints.some((endpoint) => providerRef(endpoint) === candidate))
-                                const next = enabled
-                                  ? [...new Set([...current, ref])]
-                                  : current.filter((candidate) => candidate !== ref)
-                                onChange({
-                                  runtime: harness.runtime!,
-                                  enabled: harness.enabled ?? false,
-                                  provider_refs: next,
-                                })
-                              }}
-                            />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body2">{endpoint.name || 'Unnamed provider'}</Typography>
+                            {!connected && (
+                              <Typography variant="caption" color="text.secondary">
+                                Not connected
+                              </Typography>
+                            )}
                           </Box>
+                          <Tooltip
+                            title="Connect this provider with a valid API key first"
+                            disableHoverListener={connected}
+                            disableFocusListener={connected}
+                          >
+                            <Box sx={HARNESS_SWITCH_SLOT_SX} component="span">
+                              <Switch
+                                color="secondary"
+                                checked={checked}
+                                disabled={readOnly || !connected}
+                                inputProps={{
+                                  'aria-label': `${checked ? 'Disable' : 'Enable'} ${endpoint.name || 'unnamed provider'} for ${harnessLabel}`,
+                                }}
+                                onChange={(_, enabled) => {
+                                  const current = harness.provider_refs == null
+                                    // Preserve temporarily unavailable endpoints
+                                    // when materializing the legacy all-providers policy.
+                                    ? [...new Set(compatibleEndpoints.map(providerRef))]
+                                    : harness.provider_refs.filter((candidate) =>
+                                      compatibleEndpoints.some((endpoint) => providerRef(endpoint) === candidate))
+                                  const next = enabled
+                                    ? [...new Set([...current, ref])]
+                                    : current.filter((candidate) => candidate !== ref)
+                                  onChange({
+                                    runtime: harness.runtime!,
+                                    enabled: harness.enabled ?? false,
+                                    provider_refs: next,
+                                  })
+                                }}
+                              />
+                            </Box>
+                          </Tooltip>
                         </Stack>
                       )
                     })}

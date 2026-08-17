@@ -7,6 +7,7 @@ import {
   TypesCodeAgentCredentialType,
   TypesCodeAgentExecutionConfig,
   TypesCodeAgentRuntime,
+  TypesProviderEndpointStatus,
 } from '../../api/api'
 import CodeAgentConfigPicker from './CodeAgentConfigPicker'
 
@@ -54,7 +55,7 @@ function AutoSelectingPicker({
   return (
     <CodeAgentConfigPicker
       value={value}
-      autoSelectSubscriptionDefault
+      autoSelectDefault
       onChange={(next) => {
         onChange?.(next)
         setValue(next)
@@ -70,16 +71,20 @@ describe('CodeAgentConfigPicker', () => {
       {
         id: 'provider-1',
         name: 'OpenAI',
+        status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
         available_models: [
           { id: 'api-model', enabled: true, type: 'text' },
+          { id: 'gpt-5.6-sol', enabled: true, type: 'text' },
           { id: 'gpt-5.6-terra', enabled: true, type: 'text' },
         ],
       },
       {
         id: 'provider-2',
         name: 'Anthropic',
+        status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
         available_models: [
           { id: 'claude-api-model', enabled: true, type: 'chat' },
+          { id: 'claude-opus-5', enabled: true, type: 'chat' },
           { id: 'claude-fable-5', enabled: true, type: 'chat' },
         ],
       },
@@ -133,6 +138,19 @@ describe('CodeAgentConfigPicker', () => {
     expect(screen.queryByText('OpenAI')).not.toBeInTheDocument()
     expect(screen.getByText('claude-api-model')).toBeInTheDocument()
     expect(screen.getAllByText('Anthropic').length).toBeGreaterThan(0)
+  })
+
+  it('does not expose cached models from a disconnected provider', () => {
+    providerState.providers = providerState.providers.map((provider) =>
+      provider.name === 'Anthropic'
+        ? { ...provider, status: TypesProviderEndpointStatus.ProviderEndpointStatusError }
+        : provider)
+    renderPicker(<CodeAgentConfigPicker onChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
+
+    expect(screen.queryByText('claude-opus-5')).not.toBeInTheDocument()
+    expect(screen.queryByText('claude-fable-5')).not.toBeInTheDocument()
   })
 
   it('combines models from settings-enabled subscription and API sources', () => {
@@ -207,7 +225,7 @@ describe('CodeAgentConfigPicker', () => {
     }))
   })
 
-  it('does not invent an API default when no subscription is connected', async () => {
+  it('defaults a new task to Claude Opus from a connected Anthropic provider', async () => {
     harnessState.harnesses = harnessState.harnesses.map((harness) => ({
       ...harness,
       viewer_has_subscription: false,
@@ -215,8 +233,13 @@ describe('CodeAgentConfigPicker', () => {
     const onChange = vi.fn()
     renderPicker(<AutoSelectingPicker onChange={onChange} />)
 
-    await waitFor(() => expect(onChange).not.toHaveBeenCalled())
-    expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('Configure harness')
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith({
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_ref: 'provider-2',
+      model: 'claude-opus-5',
+    }))
+    expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('claude-opus-5')
   })
 
   it('keeps the last known harness when it is still available', async () => {
@@ -241,6 +264,36 @@ describe('CodeAgentConfigPicker', () => {
       expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('api-model')
     })
     expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('replaces a stored API config when that provider is disconnected', async () => {
+    harnessState.harnesses = harnessState.harnesses.map((harness) => ({
+      ...harness,
+      viewer_has_subscription: false,
+    }))
+    providerState.providers = providerState.providers.map((provider) =>
+      provider.name === 'Anthropic'
+        ? { ...provider, status: TypesProviderEndpointStatus.ProviderEndpointStatusError }
+        : provider)
+    const onChange = vi.fn()
+    renderPicker(
+      <AutoSelectingPicker
+        onChange={onChange}
+        initial={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+          credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+          provider_ref: 'provider-2',
+          model: 'claude-opus-5',
+        }}
+      />,
+    )
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith({
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_ref: 'provider-1',
+      model: 'gpt-5.6-sol',
+    }))
   })
 
   it('writes the provider and model selected in chat into the task config', () => {
@@ -347,26 +400,25 @@ describe('CodeAgentConfigPicker', () => {
     }))
   })
 
-  it('requires an explicit model choice when only API providers remain', async () => {
+  it('defaults to Codex Sol when OpenAI is the only connected native provider', async () => {
     harnessState.harnesses = harnessState.harnesses.map((harness) => ({
       ...harness,
-      enabled: harness.runtime !== TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+      enabled: harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
       viewer_has_subscription: false,
     }))
+    providerState.providers = providerState.providers.map((provider) =>
+      provider.name === 'Anthropic'
+        ? { ...provider, status: TypesProviderEndpointStatus.ProviderEndpointStatusError }
+        : provider)
     const onChange = vi.fn()
-    renderPicker(
-      <AutoSelectingPicker
-        onChange={onChange}
-        initial={{
-          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
-          credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
-          provider_ref: 'provider-1',
-          model: 'api-model',
-        }}
-      />,
-    )
+    renderPicker(<AutoSelectingPicker onChange={onChange} />)
 
-    await waitFor(() => expect(onChange).not.toHaveBeenCalled())
-    expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('Configure harness')
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith({
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_ref: 'provider-1',
+      model: 'gpt-5.6-sol',
+    }))
+    expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('gpt-5.6-sol')
   })
 })
