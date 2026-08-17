@@ -16,6 +16,15 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func testSpecTaskCodeAgentConfig() *types.CodeAgentExecutionConfig {
+	return &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeZedAgent,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "provider-test",
+		Model:          "model-test",
+	}
+}
+
 func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -40,23 +49,23 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 
 	ctx := context.Background()
 	req := &types.CreateTaskRequest{
-		ProjectID:                "test-project",
-		Prompt:                   "Create a user authentication system",
-		Type:                     "feature",
-		Priority:                 types.SpecTaskPriorityHigh,
-		UserID:                   "test-user",
-		CodeAgentOverrides:       &types.CodeAgentOverrides{Model: "gpt-5.6-sol", ReasoningEffort: "high"},
+		ProjectID: "test-project",
+		Prompt:    "Create a user authentication system",
+		Type:      "feature",
+		Priority:  types.SpecTaskPriorityHigh,
+		UserID:    "test-user",
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeCodexCLI, CredentialType: types.CodeAgentCredentialTypeSubscription,
+			Model: "gpt-5.6-sol", ReasoningEffort: "high",
+		},
 		SandboxResourceOverrides: &types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192},
 		SandboxRuntime:           types.SandboxRuntimeHeadlessUbuntu,
 	}
 
 	// Mock expectations
 	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{
-		ID:                "test-project",
-		DefaultHelixAppID: "test-app-id",
-	}, nil)
-	mockStore.EXPECT().GetApp(ctx, "test-app-id").Return(&types.App{
-		ID: "test-app-id",
+		ID:              "test-project",
+		CodeAgentConfig: req.CodeAgentConfig,
 	}, nil)
 	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
 	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
@@ -67,7 +76,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 			assert.Equal(t, "test-user", task.CreatedBy)
 			assert.Equal(t, "feature", task.Type)
 			assert.Equal(t, types.SpecTaskPriorityHigh, task.Priority)
-			assert.Equal(t, req.CodeAgentOverrides, task.CodeAgentOverrides)
+			assert.Equal(t, req.CodeAgentConfig, task.CodeAgentConfig)
 			assert.Equal(t, req.SandboxResourceOverrides, task.SandboxResourceOverrides)
 			assert.Equal(t, types.SandboxRuntimeHeadlessUbuntu, task.SandboxRuntime)
 			// Task number and design doc path should be assigned at creation
@@ -137,15 +146,19 @@ func TestSpecDrivenTaskService_AutoStartAssignsStarter(t *testing.T) {
 
 	ctx := context.Background()
 	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{
-		ID:                    "test-project",
-		DefaultSandboxRuntime: types.SandboxRuntimeHeadlessUbuntu,
+		ID:                              "test-project",
+		DefaultSandboxRuntime:           types.SandboxRuntimeHeadlessUbuntu,
+		DefaultSandboxResourceOverrides: &types.SandboxResourceOverrides{VCPUs: 8, MemoryMB: 16384},
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+		},
 	}, nil)
 	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
 	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
 		func(_ context.Context, task *types.SpecTask) error {
 			require.Equal(t, "starter", task.AssigneeID)
 			require.Equal(t, "starter", task.PlanningStartedBy)
-			require.Equal(t, types.DefaultSpecTaskSandboxResources(), task.SandboxResourceOverrides)
+			require.Equal(t, &types.SandboxResourceOverrides{VCPUs: 8, MemoryMB: 16384}, task.SandboxResourceOverrides)
 			require.Equal(t, types.SandboxRuntimeHeadlessUbuntu, task.SandboxRuntime)
 			return nil
 		},
@@ -182,6 +195,10 @@ func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsBlankExistingBranch(t 
 	task, err := service.CreateTaskFromPrompt(context.Background(), &types.CreateTaskRequest{
 		BranchMode:    types.BranchModeExisting,
 		WorkingBranch: "   ",
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeZedAgent, CredentialType: types.CodeAgentCredentialTypeAPIKey,
+			ProviderRef: "openai", Model: "gpt-5.6-sol",
+		},
 	})
 
 	require.EqualError(t, err, "working branch is required for existing branch mode")
@@ -380,14 +397,15 @@ func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testin
 	// Task has SpecApprovedBy/SpecApprovedAt set but SpecApproval is nil —
 	// this is the broken state from the approveImplementation fallback bug.
 	taskInDB := &types.SpecTask{
-		ID:             "task-stuck",
-		ProjectID:      "project-1",
-		Status:         types.TaskStatusSpecApproved,
-		SpecApprovedBy: "user-1",
-		SpecApprovedAt: &approvedAt,
-		SpecApproval:   nil, // <-- the bug: this was never set
-		TaskNumber:     42,
-		Name:           "stuck-task",
+		ID:              "task-stuck",
+		ProjectID:       "project-1",
+		Status:          types.TaskStatusSpecApproved,
+		SpecApprovedBy:  "user-1",
+		SpecApprovedAt:  &approvedAt,
+		SpecApproval:    nil, // <-- the bug: this was never set
+		TaskNumber:      42,
+		Name:            "stuck-task",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
 	}
 
 	mockStore.EXPECT().GetSpecTask(ctx, "task-stuck").Return(taskInDB, nil)
@@ -444,14 +462,15 @@ func TestSpecDrivenTaskService_ApproveSpecs_NilSpecApprovalAndNilApprovedAt(t *t
 
 	// Both SpecApproval and SpecApprovedAt are nil — worst case scenario.
 	taskInDB := &types.SpecTask{
-		ID:             "task-worst-case",
-		ProjectID:      "project-1",
-		Status:         types.TaskStatusSpecApproved,
-		SpecApprovedBy: "user-1",
-		SpecApprovedAt: nil,
-		SpecApproval:   nil,
-		TaskNumber:     43,
-		Name:           "worst-case-task",
+		ID:              "task-worst-case",
+		ProjectID:       "project-1",
+		Status:          types.TaskStatusSpecApproved,
+		SpecApprovedBy:  "user-1",
+		SpecApprovedAt:  nil,
+		SpecApproval:    nil,
+		TaskNumber:      43,
+		Name:            "worst-case-task",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
 	}
 
 	mockStore.EXPECT().GetSpecTask(ctx, "task-worst-case").Return(taskInDB, nil)
@@ -512,6 +531,7 @@ func TestSpecDrivenTaskService_ApproveSpecsUsesCustomBaseForNewBranch(t *testing
 		BaseBranch:        "release/2.0",
 		TaskNumber:        44,
 		Name:              "custom-base-task",
+		CodeAgentConfig:   testSpecTaskCodeAgentConfig(),
 	}
 	project := &types.Project{ID: "project-1", DefaultRepoID: "repo-1"}
 	repo := &types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}
@@ -577,6 +597,7 @@ func TestSpecDrivenTaskService_ApproveSpecsDoesNotCheckoutExistingBranch(t *test
 		BranchName:        "existing-work",
 		TaskNumber:        45,
 		Name:              "existing-branch-task",
+		CodeAgentConfig:   testSpecTaskCodeAgentConfig(),
 	}
 	project := &types.Project{ID: "project-1", DefaultRepoID: "repo-1"}
 	repo := &types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}
@@ -641,6 +662,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace(t *testing
 		SpecApproval:      &types.SpecApprovalResponse{Approved: true, ApprovedBy: "user-1"},
 		TaskNumber:        99,
 		Name:              "loser-task",
+		CodeAgentConfig:   testSpecTaskCodeAgentConfig(),
 	}
 
 	mockStore.EXPECT().GetSpecTask(ctx, "task-loser").Return(taskInDB, nil)

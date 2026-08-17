@@ -840,6 +840,11 @@ type Store interface {
 	GetSandbox(ctx context.Context, id string) (*types.Sandbox, error)
 	GetSandboxBySession(ctx context.Context, sessionID string) (*types.Sandbox, error)
 	ListSandboxes(ctx context.Context, q *ListSandboxesQuery) ([]*types.Sandbox, error)
+
+	// Organization coding-agent harness policy
+	ListOrgCodeAgentHarnesses(ctx context.Context, orgID string) ([]*types.OrgCodeAgentHarness, error)
+	GetOrgCodeAgentHarness(ctx context.Context, orgID string, runtime types.CodeAgentRuntime) (*types.OrgCodeAgentHarness, error)
+	UpsertOrgCodeAgentHarnesses(ctx context.Context, orgID string, actingUserID string, updates []types.OrgCodeAgentHarnessUpdate) ([]*types.OrgCodeAgentHarness, error)
 	UpdateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
 	SetSandboxStatus(ctx context.Context, id string, status types.SandboxStatus, message string) error
 	SetSandboxBillingLastChargedAt(ctx context.Context, id string, chargedAt time.Time) error

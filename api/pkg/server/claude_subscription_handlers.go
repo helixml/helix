@@ -51,12 +51,29 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		if createReq.OwnerID == "" {
 			return nil, system.NewHTTPError400("owner_id required for org-level subscriptions")
 		}
-		_, err := apiServer.authorizeOrgOwner(req.Context(), user, createReq.OwnerID)
+		org, err := apiServer.lookupOrg(req.Context(), createReq.OwnerID)
+		if err != nil {
+			return nil, system.NewHTTPError404("organization not found")
+		}
+		_, err = apiServer.authorizeOrgOwner(req.Context(), user, org.ID)
 		if err != nil {
 			return nil, system.NewHTTPError403("not authorized to manage org subscriptions: " + err.Error())
 		}
-		ownerID = createReq.OwnerID
+		ownerID = org.ID
 		ownerType = types.OwnerTypeOrg
+	}
+	harnessOrgID := ""
+	if createReq.OrganizationID != "" {
+		org, err := apiServer.lookupOrg(req.Context(), createReq.OrganizationID)
+		if err != nil {
+			return nil, system.NewHTTPError404("organization not found")
+		}
+		if _, err := apiServer.authorizeOrgOwner(req.Context(), user, org.ID); err != nil {
+			return nil, system.NewHTTPError403("not authorized to enable organization harness")
+		}
+		harnessOrgID = org.ID
+	} else if ownerType == types.OwnerTypeOrg {
+		harnessOrgID = ownerID
 	}
 
 	var encrypted string
@@ -151,6 +168,14 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 	// instead of an unconditional "active". A dead token is caught here rather
 	// than at the first agent turn.
 	created = apiServer.revalidateClaudeSubscription(req.Context(), created)
+	if created.Status == "active" {
+		if err := apiServer.enableSubscriptionCodeAgentHarness(req.Context(), harnessOrgID, user.ID, types.CodeAgentRuntimeClaudeCode); err != nil {
+			if deleteErr := apiServer.Store.DeleteClaudeSubscription(context.WithoutCancel(req.Context()), created.ID); deleteErr != nil {
+				log.Error().Err(deleteErr).Str("subscription_id", created.ID).Msg("failed to roll back Claude subscription")
+			}
+			return nil, system.NewHTTPError500("failed to enable Claude Code harness: " + err.Error())
+		}
+	}
 	if cleanupErr := apiServer.cleanupSubscriptionLoginSessionsForOwner(req.Context(), user.ID, claudeLoginSessionName, claudeLoginSessionProvider); cleanupErr != nil {
 		log.Warn().Err(cleanupErr).Str("user_id", user.ID).Msg("failed to clean up completed Claude login sessions")
 	}

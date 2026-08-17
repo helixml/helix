@@ -15,7 +15,7 @@ import { useListProviders } from '../services/providersService'
  * aborts the agent's turn, so callers should narrow their options to this set
  * when it is present and leave them alone when it is not.
  *
- * Shares the providers query cache with SpecTaskModelPicker, so this adds no
+ * Shares the providers query cache with CodeAgentConfigPicker, so this adds no
  * extra request.
  */
 export function useModelReasoningEfforts(modelId?: string): string[] | undefined {

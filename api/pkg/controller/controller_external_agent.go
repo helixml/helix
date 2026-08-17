@@ -130,7 +130,7 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	requestID := interaction.ID
 
 	// Claim the interaction BEFORE waiting for readiness. The wait can run for
-	// minutes while a container boots, and pickupWaitingInteraction fires during
+	// minutes while a container boots, and the reconnect resume path fires during
 	// that window on agent reconnect and on the settings-sync daemon's
 	// /agent-config-applied callback after an agent switch. Without the claim
 	// both paths send a chat_message for the same request_id and Zed opens two

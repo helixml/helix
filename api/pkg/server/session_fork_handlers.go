@@ -168,6 +168,19 @@ func (apiServer *HelixAPIServer) resolveForkTarget(
 	parent *types.Session,
 	body ForkSessionRequest,
 ) (types.CodeAgentRuntime, string, error) {
+	if parent.Metadata.SpecTaskID != "" {
+		if body.HelixAppID != "" || body.CodeAgentRuntime != "" {
+			return "", "", fmt.Errorf("SpecTask forks inherit code_agent_config; App and runtime overrides are not supported")
+		}
+		task, err := apiServer.Store.GetSpecTask(ctx, parent.Metadata.SpecTaskID)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to load SpecTask execution config: %w", err)
+		}
+		if task.CodeAgentConfig == nil {
+			return "", "", fmt.Errorf("SpecTask has no code_agent_config")
+		}
+		return task.CodeAgentConfig.Runtime, "", nil
+	}
 	appID := body.HelixAppID
 	if appID == "" {
 		appID = parent.ParentApp
@@ -384,7 +397,7 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 	// prompts (and the "all the prior text streams in" sensation only
 	// happens because the LLM is reading the prepended transcript on
 	// that first call). Creating it in Waiting state means the existing
-	// pickupWaitingInteraction path delivers it as soon as the agent
+	// reconnect resume path delivers it as soon as the agent
 	// websocket connects; maybePrependTranscript fires on it (same as
 	// any other first-message-on-a-forked-session) and prepends the
 	// transcript. The prompt is short and meaningful so the agent's
@@ -522,11 +535,7 @@ func (apiServer *HelixAPIServer) repointSpecTasksToChild(
 			continue
 		}
 		oldSessionID := task.PlanningSessionID
-		oldAppID := task.HelixAppID
 		task.PlanningSessionID = child.ID
-		if child.ParentApp != "" {
-			task.HelixAppID = child.ParentApp
-		}
 		if err := apiServer.Store.UpdateSpecTask(ctx, task); err != nil {
 			log.Warn().Err(err).
 				Str("spec_task_id", task.ID).
@@ -539,8 +548,6 @@ func (apiServer *HelixAPIServer) repointSpecTasksToChild(
 			Str("spec_task_id", task.ID).
 			Str("old_session_id", oldSessionID).
 			Str("new_session_id", child.ID).
-			Str("old_helix_app_id", oldAppID).
-			Str("new_helix_app_id", task.HelixAppID).
 			Msg("fork: re-pointed spec task to child session")
 	}
 }

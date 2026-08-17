@@ -15,7 +15,7 @@ import (
 
 // getSpecTaskExecutionConfig godoc
 // @Summary Get task execution configuration
-// @Description Returns the task's current coding identity without exposing Agent secrets. Legacy tasks whose Agent was deleted fall back to their session and interaction snapshots.
+// @Description Returns the task-owned code-agent configuration. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.
 // @Tags spec-driven-tasks
 // @Produce json
 // @Param taskId path string true "SpecTask ID"
@@ -51,12 +51,15 @@ func (s *HelixAPIServer) getSpecTaskExecutionConfig(w http.ResponseWriter, r *ht
 }
 
 func (s *HelixAPIServer) resolveSpecTaskExecutionConfig(ctx context.Context, task *types.SpecTask) (*types.AgentExecutionConfig, error) {
+	if task.CodeAgentConfig != nil {
+		return taskAgentExecutionConfig(task.CodeAgentConfig), nil
+	}
 	return s.resolveExecutionConfig(ctx, task.HelixAppID, task.CodeAgentOverrides, task.PlanningSessionID)
 }
 
 // updateSpecTaskExecutionConfig godoc
 // @Summary Update task execution configuration
-// @Description Replaces a task's code-agent overrides or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.
+// @Description Replaces a task's complete code-agent configuration or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.
 // @Tags spec-driven-tasks
 // @Accept json
 // @Produce json
@@ -79,7 +82,11 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	codeChange := req.CodeAgentOverrides != nil || req.AgentID != ""
+	if req.AgentID != "" || req.CodeAgentOverrides != nil {
+		http.Error(w, "agent_id and code_agent_overrides are no longer supported; provide code_agent_config", http.StatusBadRequest)
+		return
+	}
+	codeChange := req.CodeAgentConfig != nil
 	if codeChange == (req.SandboxResourceOverrides != nil) {
 		http.Error(w, "provide exactly one execution configuration change", http.StatusBadRequest)
 		return
@@ -145,18 +152,10 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 		}
 	}
 
-	changed, restarted, httpErr := s.applyCodeAgentExecutionConfig(ctx, user, codeAgentConfigTarget{
-		surface:           "spec tasks",
-		requiredAgentKind: types.AgentKindCoding,
-		session:           session,
-		agentID:           task.HelixAppID,
-		overrides:         task.CodeAgentOverrides,
-		handoffReason:     "The coding agent or model configuration changed for this task.",
-		persist:           s.persistSpecTaskCodeAgentConfig(task),
-	}, types.SessionExecutionConfigUpdateRequest{
-		AgentID:            req.AgentID,
-		CodeAgentOverrides: req.CodeAgentOverrides,
-	})
+	changed, restarted, httpErr := s.applySpecTaskExecutionConfig(
+		ctx, user, task, session, req.CodeAgentConfig,
+		"The coding agent or model configuration changed for this task.",
+	)
 	if httpErr != nil {
 		http.Error(w, httpErr.Message, httpErr.StatusCode)
 		return

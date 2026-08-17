@@ -475,7 +475,7 @@ func (s *ApplyProjectSuite) TestApply_NewAgentAppIsCodingAgent() {
 	s.store.EXPECT().
 		ListProjects(gomock.Any(), &store.ListProjectsQuery{UserID: s.userID}).
 		Return([]*types.Project{existingProject}, nil)
-	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).Times(3)
 
 	var created *types.App
 	s.store.EXPECT().
@@ -571,7 +571,8 @@ func (s *ApplyProjectSuite) TestApply_PreservesExistingAgentSkills() {
 		Return([]*types.Project{existingProject}, nil)
 	s.store.EXPECT().
 		UpdateProject(gomock.Any(), gomock.Any()).
-		Return(nil)
+		Return(nil).
+		Times(2)
 	s.store.EXPECT().
 		GetApp(gomock.Any(), appID).
 		Return(existingApp, nil)
@@ -666,7 +667,7 @@ func (s *ApplyProjectSuite) TestApply_LinkedAgentPreservesCanonicalConfig() {
 				s.Equal(appID, project.DefaultHelixAppID)
 			}
 			return nil
-		}).Times(2)
+		}).Times(3)
 	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(existingApp, nil)
 	// No UpdateApp: linking an app to a project must not rewrite the app —
 	// neither its config nor its kind. Reclassifying a caller's coding agent to
@@ -723,7 +724,7 @@ func (s *ApplyProjectSuite) TestApply_ToolsFromSpecOverrideSkills() {
 	}
 
 	s.store.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return([]*types.Project{existingProject}, nil)
-	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(existingApp, nil)
 
 	var updated *types.App

@@ -206,7 +206,6 @@ type BoardTask = SpecTaskWithExtras & {
   planning_options?: Record<string, unknown>;
   spec_approval?: Record<string, unknown>;
   design_review_id?: string;
-  helix_app_id?: string;
   external_agent_id?: string;
   estimated_hours?: number;
   last_push_at?: string;

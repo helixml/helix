@@ -627,6 +627,8 @@ func needsDefaultNewProjectAgentConfig(app *types.Agent) bool {
 	}
 	for _, assistant := range app.Config.Helix.Assistants {
 		if assistant.GetAgentType() == types.AgentTypeZedExternal &&
+			assistant.CodeAgentRuntime != types.CodeAgentRuntimeClaudeCode &&
+			assistant.CodeAgentRuntime != types.CodeAgentRuntimeCodexCLI &&
 			!assistant.CodeAgentCredentialType.IsSubscription() &&
 			assistant.Provider == "" && assistant.Model == "" {
 			return true

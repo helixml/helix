@@ -2,6 +2,17 @@
 
 Date: 2026-08-13
 
+> Superseded for SpecTasks by
+> `2026-08-15-spec-task-code-agent-config-migration.md`: SpecTasks now own a
+> complete `CodeAgentExecutionConfig`. Session-owned overrides remain valid for
+> general chat and org-agent sessions.
+
+> Superseded for new general-session edits by
+> `2026-08-16-code-agent-config-picker.md`: general sessions now persist a
+> complete config while retaining their parent Agent identity. Overrides are
+> read only for historical sessions. The implementation and verification below
+> describe the superseded first iteration.
+
 ## Problem
 
 `/orgs/{org}/chat/session/{id}` (the org-chart bot chat, `pages/Session.tsx`
@@ -31,7 +42,7 @@ storage location differed between the two surfaces.
 holds the shared logic; each surface supplies a `codeAgentConfigTarget`
 describing its current identity and how to persist a new one:
 
-- SpecTask surface → writes `SpecTask.CodeAgentOverrides` (unchanged behaviour).
+- SpecTask surface → writes the task-owned execution configuration.
 - Session surface → writes `Session.Metadata.CodeAgentOverrides` (new).
 
 `applyCodeAgentExecutionConfig` then does the same thing for both: validate,

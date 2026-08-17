@@ -47,7 +47,6 @@ func newTestParentSession(owner string) *types.Session {
 			CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode,
 			ZedAgentName:     "claude",
 			SystemPrompt:     "be helpful",
-			SpecTaskID:       "task_test",
 			SessionRole:      "planning",
 		},
 	}
@@ -217,7 +216,7 @@ func TestForkSessionFromParent_SnapshotsTranscriptAndPausesParent(t *testing.T) 
 	assert.Equal(t, types.InteractionTriggerForkHandoff, handoff.Trigger,
 		"last interaction must be the auto-handoff waiting for the agent")
 	assert.Equal(t, types.InteractionStateWaiting, handoff.State,
-		"handoff must be in Waiting state so pickupWaitingInteraction delivers it")
+		"handoff must be in Waiting state so the reconnect resume path delivers it")
 	assert.Contains(t, handoff.PromptMessage, "handoff",
 		"handoff prompt must name itself so the agent's reply acknowledges it")
 	assert.Contains(t, handoff.PromptMessage, string(types.CodeAgentRuntimeQwenCode),

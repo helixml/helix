@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { TypesCodeAgentRuntime, TypesSandboxRuntime } from '../../api/api'
+import { TypesCodeAgentCredentialType, TypesCodeAgentRuntime, TypesSandboxRuntime } from '../../api/api'
 import { AppsContext, IAppsContext } from '../../contexts/apps'
 import type { IApp } from '../../types'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
@@ -48,12 +48,8 @@ describe('ProjectChatItemTooltip', () => {
   })
 
   it('uses the task configuration for agent, compute, and environment details', async () => {
-    const agent = {
-      id: 'app-codex',
-      config: { helix: { assistants: [{ code_agent_runtime: 'codex_cli', model: 'gpt-5.6-sol' }] } },
-    } as IApp
     render(
-      <AppsContext.Provider value={appsContext([agent])}>
+      <AppsContext.Provider value={appsContext([])}>
         <ProjectChatItemTooltip
           item={{
             id: 'task-codex',
@@ -61,7 +57,11 @@ describe('ProjectChatItemTooltip', () => {
             title: 'Fix CI',
             task: {
               id: 'task-codex',
-              helix_app_id: agent.id,
+              code_agent_config: {
+                runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+                credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+                model: 'gpt-5.6-sol',
+              },
               sandbox_resource_overrides: { vcpus: 8, memory_mb: 16384 },
               sandbox_runtime: TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
             },

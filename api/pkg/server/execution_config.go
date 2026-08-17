@@ -1,10 +1,9 @@
 package server
 
-// Shared code-agent execution configuration. A SpecTask and a plain chat
-// session (org bot chat, project chat) both run the same Zed/ACP machinery, so
-// both resolve their coding identity and apply model/reasoning changes through
-// the helpers here. The only difference between the two surfaces is WHERE the
-// overrides are persisted, which each caller supplies as codeAgentConfigTarget.
+// Shared code-agent execution configuration. SpecTasks and general sessions
+// own complete execution configs. An org-agent session still keeps its parent
+// App for identity and behavior, while this config selects the coding runtime.
+// Both surfaces share the same Zed/ACP restart lifecycle.
 
 import (
 	"context"
@@ -20,9 +19,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// effectiveCodeAgentOverrides picks the overrides that apply to a session's
-// next turn. A SpecTask owns the configuration of the sessions it drives, so
-// its overrides win; every other session carries its own.
+// effectiveCodeAgentOverrides picks legacy task overrides before startup
+// migration and session overrides for App-backed chat sessions.
 func effectiveCodeAgentOverrides(session *types.Session, task *types.SpecTask) *types.CodeAgentOverrides {
 	if task != nil {
 		return task.CodeAgentOverrides
@@ -185,6 +183,236 @@ func (s *HelixAPIServer) validateCodeAgentOverrides(
 	return nil
 }
 
+func (s *HelixAPIServer) validateCodeAgentExecutionConfig(
+	ctx context.Context,
+	config *types.CodeAgentExecutionConfig,
+	actorID string,
+	ownerID string,
+	organizationID string,
+) error {
+	if config == nil {
+		return fmt.Errorf("code_agent_config is required")
+	}
+	switch config.Runtime {
+	case types.CodeAgentRuntimeZedAgent,
+		types.CodeAgentRuntimeQwenCode,
+		types.CodeAgentRuntimeClaudeCode,
+		types.CodeAgentRuntimeGeminiCLI,
+		types.CodeAgentRuntimeCodexCLI,
+		types.CodeAgentRuntimeGooseCode,
+		types.CodeAgentRuntimeOpenCode:
+	default:
+		return fmt.Errorf("unsupported code-agent runtime %q", config.Runtime)
+	}
+	if err := s.validateOrgCodeAgentHarness(ctx, organizationID, config.Runtime, config.CredentialType, config.ProviderRef); err != nil {
+		return err
+	}
+	if config.CredentialType != types.CodeAgentCredentialTypeAPIKey &&
+		config.CredentialType != types.CodeAgentCredentialTypeSubscription {
+		return fmt.Errorf("unsupported credential type %q", config.CredentialType)
+	}
+	if config.CredentialType == types.CodeAgentCredentialTypeAPIKey &&
+		(config.ProviderRef == "" || config.Model == "") {
+		return fmt.Errorf("provider_ref and model are required for API-key code agents")
+	}
+	if config.CredentialType.IsSubscription() && config.ProviderRef != "" {
+		return fmt.Errorf("subscription code agents cannot set provider_ref")
+	}
+	effort := strings.ToLower(strings.TrimSpace(config.ReasoningEffort))
+	switch effort {
+	case "", "none", "low", "medium", "high", "xhigh", "max", "ultra":
+	default:
+		return fmt.Errorf("unsupported reasoning effort %q", config.ReasoningEffort)
+	}
+	if config.ServiceTier != "" && config.ServiceTier != "fast" {
+		return fmt.Errorf("unsupported service tier %q", config.ServiceTier)
+	}
+	if config.ServiceTier != "" && config.Runtime != types.CodeAgentRuntimeCodexCLI {
+		return fmt.Errorf("service tier is only supported by Codex")
+	}
+
+	app := external_agent.AppFromCodeAgentConfig(config, ownerID, organizationID)
+	snapshot, err := s.getProviderSnapshot(ctx, actorID, app)
+	if err != nil {
+		return fmt.Errorf("failed to load providers: %w", err)
+	}
+	if reason := external_agent.ValidateAssistantModelConfig(app, snapshot); reason != "" {
+		return fmt.Errorf("%s", reason)
+	}
+	return nil
+}
+
+func isDeferredNativeHarnessProjectConfig(config *types.CodeAgentExecutionConfig) bool {
+	if config == nil || config.CredentialType != types.CodeAgentCredentialTypeAPIKey ||
+		config.ProviderRef != "" || config.Model != "" {
+		return false
+	}
+	return config.Runtime == types.CodeAgentRuntimeClaudeCode ||
+		config.Runtime == types.CodeAgentRuntimeCodexCLI
+}
+
+// Projects choose a harness, while each task chooses the credential source and
+// model. Native harness projects therefore persist a runtime-only API default;
+// the complete config is selected and validated when a task is created.
+func (s *HelixAPIServer) validateProjectCodeAgentConfig(
+	ctx context.Context,
+	config *types.CodeAgentExecutionConfig,
+	actorID string,
+	ownerID string,
+	organizationID string,
+) error {
+	if !isDeferredNativeHarnessProjectConfig(config) {
+		return s.validateCodeAgentExecutionConfig(ctx, config, actorID, ownerID, organizationID)
+	}
+	return s.validateOrgCodeAgentHarness(
+		ctx,
+		organizationID,
+		config.Runtime,
+		config.CredentialType,
+		"",
+	)
+}
+
+func taskAgentExecutionConfig(config *types.CodeAgentExecutionConfig) *types.AgentExecutionConfig {
+	if config == nil {
+		return &types.AgentExecutionConfig{}
+	}
+	return &types.AgentExecutionConfig{
+		AgentAvailable:  true,
+		AgentName:       config.Runtime.ZedAgentName(),
+		Runtime:         config.Runtime,
+		CredentialType:  config.CredentialType,
+		ProviderRef:     config.ProviderRef,
+		Model:           config.Model,
+		ReasoningEffort: config.ReasoningEffort,
+		ServiceTier:     config.ServiceTier,
+		CodeAgentConfig: config,
+	}
+}
+
+func (s *HelixAPIServer) applySpecTaskExecutionConfig(
+	ctx context.Context,
+	user *types.User,
+	task *types.SpecTask,
+	session *types.Session,
+	config *types.CodeAgentExecutionConfig,
+	handoffReason string,
+) (changed bool, restarted bool, httpErr *system.HTTPError) {
+	if err := s.validateCodeAgentExecutionConfig(ctx, config, user.ID, task.UserID, task.OrganizationID); err != nil {
+		return false, false, system.NewHTTPError400(err.Error())
+	}
+	if reflect.DeepEqual(task.CodeAgentConfig, config) &&
+		task.HelixAppID == "" && task.CodeAgentOverrides == nil &&
+		(session == nil || (session.ParentApp == "" && session.Metadata.CodeAgentOverrides == nil)) {
+		return false, false, nil
+	}
+	live := session != nil && s.hasRunningAgentContainer(ctx, session.ID)
+	if session != nil {
+		var err error
+		if live {
+			err = s.cancelTurnsForSwitch(ctx, session.ID)
+		} else {
+			err = s.cancelOfflineTurnsForSwitch(ctx, session)
+		}
+		if err != nil {
+			return false, false, system.NewHTTPError409(fmt.Sprintf("failed to stop the current agent turn before switching: %v", err))
+		}
+	}
+
+	oldConfig := task.CodeAgentConfig
+	oldAppID := task.HelixAppID
+	oldOverrides := task.CodeAgentOverrides
+	task.CodeAgentConfig = config
+	task.HelixAppID = ""
+	task.CodeAgentOverrides = nil
+	if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
+		task.CodeAgentConfig = oldConfig
+		task.HelixAppID = oldAppID
+		task.CodeAgentOverrides = oldOverrides
+		return false, false, system.NewHTTPError500(fmt.Sprintf("failed to save code-agent config: %v", err))
+	}
+	rollback := func() {
+		task.CodeAgentConfig = oldConfig
+		task.HelixAppID = oldAppID
+		task.CodeAgentOverrides = oldOverrides
+		if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to roll back task code-agent config")
+		}
+	}
+	if session == nil {
+		return true, false, nil
+	}
+	if switchErr := s.switchAgentInPlaceForNextTurn(ctx, session, config.Runtime, "", agentSwitchOptions{
+		createHandoff:  live,
+		handoffReason:  handoffReason,
+		deliverLive:    live,
+		clearParentApp: true,
+	}); switchErr != nil {
+		rollback()
+		return false, false, switchErr
+	}
+	return true, live, nil
+}
+
+func (s *HelixAPIServer) applySessionCodeAgentExecutionConfig(
+	ctx context.Context,
+	user *types.User,
+	session *types.Session,
+	config *types.CodeAgentExecutionConfig,
+	handoffReason string,
+) (changed bool, restarted bool, httpErr *system.HTTPError) {
+	if err := s.validateCodeAgentExecutionConfig(
+		ctx, config, user.ID, session.Owner, session.OrganizationID,
+	); err != nil {
+		return false, false, system.NewHTTPError400(err.Error())
+	}
+	if reflect.DeepEqual(session.Metadata.CodeAgentConfig, config) &&
+		session.Metadata.CodeAgentOverrides == nil {
+		return false, false, nil
+	}
+
+	live := s.hasRunningAgentContainer(ctx, session.ID)
+	var err error
+	if live {
+		err = s.cancelTurnsForSwitch(ctx, session.ID)
+	} else {
+		err = s.cancelOfflineTurnsForSwitch(ctx, session)
+	}
+	if err != nil {
+		return false, false, system.NewHTTPError409(
+			fmt.Sprintf("failed to stop the current agent turn before switching: %v", err))
+	}
+
+	oldConfig := session.Metadata.CodeAgentConfig
+	oldOverrides := session.Metadata.CodeAgentOverrides
+	session.Metadata.CodeAgentConfig = config
+	session.Metadata.CodeAgentOverrides = nil
+	if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
+		session.Metadata.CodeAgentConfig = oldConfig
+		session.Metadata.CodeAgentOverrides = oldOverrides
+		return false, false, system.NewHTTPError500(fmt.Sprintf("failed to save code-agent config: %v", err))
+	}
+	rollback := func() {
+		session.Metadata.CodeAgentConfig = oldConfig
+		session.Metadata.CodeAgentOverrides = oldOverrides
+		if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
+			log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to roll back session code-agent config")
+		}
+	}
+
+	if switchErr := s.switchAgentInPlaceForNextTurn(
+		ctx, session, config.Runtime, session.ParentApp, agentSwitchOptions{
+			createHandoff: live,
+			handoffReason: handoffReason,
+			deliverLive:   live,
+		},
+	); switchErr != nil {
+		rollback()
+		return false, false, switchErr
+	}
+	return true, live, nil
+}
+
 // cancelTurnsForSwitch drains every in-flight turn so the agent is idle before
 // its configuration is swapped underneath it.
 func (s *HelixAPIServer) cancelTurnsForSwitch(ctx context.Context, sessionID string) error {
@@ -247,15 +475,13 @@ func (s *HelixAPIServer) codeAgentRuntimeForApp(ctx context.Context, appID strin
 	return assistant.CodeAgentRuntime, nil
 }
 
-// codeAgentConfigTarget is the surface whose coding identity is being changed:
-// its current identity, where to persist a new one, and the live session (if
-// any) that has to be restarted onto it.
+// codeAgentConfigTarget describes an App-backed chat surface whose coding
+// identity is being changed.
 type codeAgentConfigTarget struct {
 	// surface names the caller in user-facing errors ("spec tasks", "sessions").
 	surface string
 	// requiredAgentKind, when set, restricts which Agents this surface may
-	// switch TO. Spec tasks take coding agents only; a chat session takes any
-	// Agent with a coding assistant, which includes an org chart's bots.
+	// switch to. Org chart chat accepts any Agent with a coding assistant.
 	requiredAgentKind string
 	// session runs the agent. Nil when the surface has not started one yet, in
 	// which case the new configuration simply applies on first start.
@@ -264,24 +490,10 @@ type codeAgentConfigTarget struct {
 	// no-op check and for rolling back a failed switch.
 	agentID   string
 	overrides *types.CodeAgentOverrides
-	// persist writes a new identity to whichever record owns it (a SpecTask row
-	// for task surfaces, the session row otherwise).
+	// persist writes the new App-backed identity to its owning session row.
 	persist func(ctx context.Context, agentID string, overrides *types.CodeAgentOverrides) error
 	// handoffReason is shown to the freshly started agent thread.
 	handoffReason string
-}
-
-// persistSpecTaskCodeAgentConfig writes a coding identity onto a SpecTask row.
-// Both endpoints use it: the task's own, and the session's when that session is
-// driven by a task and so writes through to it.
-func (s *HelixAPIServer) persistSpecTaskCodeAgentConfig(
-	task *types.SpecTask,
-) func(context.Context, string, *types.CodeAgentOverrides) error {
-	return func(ctx context.Context, agentID string, overrides *types.CodeAgentOverrides) error {
-		task.HelixAppID = agentID
-		task.CodeAgentOverrides = overrides
-		return s.Store.UpdateSpecTask(ctx, task)
-	}
 }
 
 // persistSessionCodeAgentConfig writes a coding identity onto a session row.

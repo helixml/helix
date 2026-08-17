@@ -12,6 +12,7 @@ type proxyUsageAttribution struct {
 	AppID              string
 	CodeAgentRuntime   types.CodeAgentRuntime
 	CodeAgentOverrides *types.CodeAgentOverrides
+	hasExecutionConfig bool
 }
 
 func (s *HelixAPIServer) resolveProxyUsageAttribution(ctx context.Context, user *types.User, defaultSessionID string) (*proxyUsageAttribution, error) {
@@ -40,6 +41,16 @@ func (s *HelixAPIServer) resolveProxyUsageAttribution(ctx context.Context, user 
 	attribution.SessionID = session.ID
 	attribution.CodeAgentRuntime = session.Metadata.CodeAgentRuntime
 	attribution.CodeAgentOverrides = session.Metadata.CodeAgentOverrides
+	if session.Metadata.CodeAgentConfig != nil {
+		attribution.hasExecutionConfig = true
+		attribution.CodeAgentRuntime = session.Metadata.CodeAgentConfig.Runtime
+		attribution.CodeAgentOverrides = &types.CodeAgentOverrides{
+			ProviderRef:     session.Metadata.CodeAgentConfig.ProviderRef,
+			Model:           session.Metadata.CodeAgentConfig.Model,
+			ReasoningEffort: session.Metadata.CodeAgentConfig.ReasoningEffort,
+			ServiceTier:     session.Metadata.CodeAgentConfig.ServiceTier,
+		}
+	}
 	if session.ParentApp != "" {
 		attribution.AppID = session.ParentApp
 	}
@@ -51,8 +62,20 @@ func (s *HelixAPIServer) resolveProxyUsageAttribution(ctx context.Context, user 
 		if task.PlanningSessionID != "" && task.PlanningSessionID != session.ID {
 			return nil, fmt.Errorf("API key session %q does not own spec task %q", session.ID, task.ID)
 		}
-		attribution.CodeAgentOverrides = task.CodeAgentOverrides
-		if task.HelixAppID != "" {
+		if task.CodeAgentConfig != nil {
+			attribution.hasExecutionConfig = true
+			attribution.AppID = ""
+			attribution.CodeAgentRuntime = task.CodeAgentConfig.Runtime
+			attribution.CodeAgentOverrides = &types.CodeAgentOverrides{
+				ProviderRef:     task.CodeAgentConfig.ProviderRef,
+				Model:           task.CodeAgentConfig.Model,
+				ReasoningEffort: task.CodeAgentConfig.ReasoningEffort,
+				ServiceTier:     task.CodeAgentConfig.ServiceTier,
+			}
+		} else {
+			attribution.CodeAgentOverrides = task.CodeAgentOverrides
+		}
+		if task.CodeAgentConfig == nil && task.HelixAppID != "" {
 			attribution.AppID = task.HelixAppID
 		}
 	}

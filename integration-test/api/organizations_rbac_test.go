@@ -200,14 +200,18 @@ func (suite *OrganizationsRBACTestSuite) TestProjectVisibilityAndRepositoryAcces
 				Name:        "project-rbac-agent-" + uuid.New().String(),
 				Description: "project rbac test agent",
 				Assistants: []types.AssistantConfig{{
-					Name:             "assistant",
-					Model:            "openai/gpt-oss-20b",
-					AgentType:        types.AgentTypeZedExternal,
-					CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+					Name:  "assistant",
+					Model: "openai/gpt-oss-20b",
 				}},
 			},
 		},
 	})
+	suite.Require().NoError(err)
+	// This RBAC test needs a project Agent, not a SpecTask execution config.
+	// Org-graph creation normally assigns this kind; seed it directly here so
+	// the test remains focused on project/repository authorization.
+	defaultApp.AgentKind = types.AgentKindOrg
+	defaultApp, err = suite.db.UpdateApp(suite.ctx, defaultApp)
 	suite.Require().NoError(err)
 
 	projectRepo := suite.createTestRepository("project-repo", suite.userOrgOwner.ID)

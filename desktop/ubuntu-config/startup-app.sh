@@ -85,6 +85,10 @@ rm -rf ~/.codex && ln -sf $CODEX_STATE_DIR ~/.codex
 gow_log "[start] Codex state directory set: $CODEX_STATE_DIR"
 
 if [ "${HELIX_HEADLESS}" = "1" ]; then
+    if [ "${HELIX_SERVER_SETUP}" = "1" ]; then
+        gow_log "[start] Starting headless server setup bridge without Zed"
+        exec dbus-run-session -- /usr/local/bin/start-headless-workspace-bridge.sh
+    fi
     gow_log "[start] Starting headless Zed agent without GNOME or streaming services"
     exec dbus-run-session -- bash -c '
         /usr/local/bin/start-headless-workspace-bridge.sh &

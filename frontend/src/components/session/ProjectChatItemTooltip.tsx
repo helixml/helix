@@ -54,15 +54,15 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
   children,
 }) => {
   const { apps } = useApps()
-  const configuredAppID = item.task?.helix_app_id || item.session?.app_id
+  const configuredAppID = item.kind === 'spec-task' ? undefined : item.session?.app_id
   const configuredApp = apps.find((app) => app.id === configuredAppID)
-  const runtime = configuredApp
+  const runtime = item.task?.code_agent_config?.runtime || (configuredApp
     ? getAgentHarnessRuntime(configuredApp)
-    : item.session?.metadata?.code_agent_runtime || item.session?.metadata?.agent_type
+    : item.session?.metadata?.code_agent_runtime || item.session?.metadata?.agent_type)
   const harness = runtimeLabel(runtime)
-  const model = configuredApp
+  const model = item.task?.code_agent_config?.model || (configuredApp
     ? getAgentHarnessModel(configuredApp)
-    : item.session?.model_name
+    : item.session?.model_name)
   const { compute, environment } = sandboxDetails(item)
   const rows = [
     repository && { icon: <FolderGit2 size={13} />, value: repository },

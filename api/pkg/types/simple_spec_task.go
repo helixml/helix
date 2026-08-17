@@ -145,18 +145,22 @@ type CreateTaskRequest struct {
 	ProjectID string `json:"project_id"`
 	Prompt    string `json:"prompt"`
 	// Name is the task title. Empty means derive it from the prompt.
-	Name         string           `json:"name,omitempty"`
-	Type         string           `json:"type"`
-	Priority     SpecTaskPriority `json:"priority"`
-	UserID       string           `json:"user_id"`
-	UserEmail    string           `json:"user_email,omitempty"`  // Optional: User email for audit trail
-	AppID        string           `json:"app_id"`                // Optional: Helix agent to use for spec generation
-	JustDoItMode bool             `json:"just_do_it_mode"`       // Optional: Skip spec planning, go straight to implementation
-	AutoStart    bool             `json:"auto_start"`            // Optional: Skip backlog and start immediately, regardless of project auto-start setting
-	DependsOn    []string         `json:"depends_on"`            // Optional: IDs of tasks this task depends on
-	AssigneeID   string           `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
+	Name      string           `json:"name,omitempty"`
+	Type      string           `json:"type"`
+	Priority  SpecTaskPriority `json:"priority"`
+	UserID    string           `json:"user_id"`
+	UserEmail string           `json:"user_email,omitempty"` // Optional: User email for audit trail
+	// AppID is accepted only so the API can return an explicit migration error
+	// to old clients. New tasks must provide CodeAgentConfig or inherit the
+	// project's materialized configuration.
+	AppID        string   `json:"app_id,omitempty" swaggerignore:"true"`
+	JustDoItMode bool     `json:"just_do_it_mode"`       // Optional: Skip spec planning, go straight to implementation
+	AutoStart    bool     `json:"auto_start"`            // Optional: Skip backlog and start immediately, regardless of project auto-start setting
+	DependsOn    []string `json:"depends_on"`            // Optional: IDs of tasks this task depends on
+	AssigneeID   string   `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
 
-	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty"`
+	CodeAgentConfig          *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" swaggerignore:"true"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
 	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty"`
 
@@ -212,9 +216,13 @@ type SpecTask struct {
 	TechnicalDesign    string `json:"technical_design" gorm:"type:text"`    // Design document (markdown)
 	ImplementationPlan string `json:"implementation_plan" gorm:"type:text"` // Discrete tasks breakdown (markdown)
 
-	// NEW: Single Helix Agent for entire workflow (App type in code)
+	// Legacy migration source. New API writes are rejected and task start clears
+	// this after materializing CodeAgentConfig. Remove the column after the
+	// migration window.
 	HelixAppID string `json:"helix_app_id,omitempty" gorm:"size:255;index"`
 
+	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty" gorm:"type:jsonb;serializer:json"`
+	// Legacy migration source; cleared together with HelixAppID on task start.
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty" gorm:"size:64"`
@@ -461,20 +469,21 @@ type SpecTaskUpdateRequest struct {
 	Priority         SpecTaskPriority `json:"priority,omitempty"`
 	Name             string           `json:"name,omitempty"`
 	Description      string           `json:"description,omitempty"`
-	JustDoItMode     *bool            `json:"just_do_it_mode,omitempty"`    // Pointer to allow explicit false
-	HelixAppID       string           `json:"helix_app_id,omitempty"`       // Agent to use for this task
-	UserShortTitle   *string          `json:"user_short_title,omitempty"`   // User override for tab title (pointer to allow clearing with empty string)
-	PublicDesignDocs *bool            `json:"public_design_docs,omitempty"` // Pointer to allow explicit false
-	KeepAlive        *bool            `json:"keep_alive,omitempty"`         // Pointer to allow explicit false — prevent auto-idle-shutdown
-	DependsOn        []string         `json:"depends_on"`                   // IDs of tasks this task depends on
-	AssigneeID       *string          `json:"assignee_id,omitempty"`        // Pointer to allow clearing (set to empty string to unassign)
+	JustDoItMode     *bool            `json:"just_do_it_mode,omitempty"`                   // Pointer to allow explicit false
+	HelixAppID       string           `json:"helix_app_id,omitempty" swaggerignore:"true"` // Rejected legacy field
+	UserShortTitle   *string          `json:"user_short_title,omitempty"`                  // User override for tab title (pointer to allow clearing with empty string)
+	PublicDesignDocs *bool            `json:"public_design_docs,omitempty"`                // Pointer to allow explicit false
+	KeepAlive        *bool            `json:"keep_alive,omitempty"`                        // Pointer to allow explicit false — prevent auto-idle-shutdown
+	DependsOn        []string         `json:"depends_on"`                                  // IDs of tasks this task depends on
+	AssigneeID       *string          `json:"assignee_id,omitempty"`                       // Pointer to allow clearing (set to empty string to unassign)
 }
 
-// SpecTaskExecutionConfigUpdateRequest replaces either task-level execution
-// override. Omitted fields are left unchanged.
+// SpecTaskExecutionConfigUpdateRequest replaces either the task's complete
+// code-agent config or its sandbox resource preset.
 type SpecTaskExecutionConfigUpdateRequest struct {
-	AgentID                  string                    `json:"agent_id,omitempty"`
-	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty"`
+	AgentID                  string                    `json:"agent_id,omitempty" swaggerignore:"true"` // Rejected legacy field
+	CodeAgentConfig          *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" swaggerignore:"true"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
 }
 

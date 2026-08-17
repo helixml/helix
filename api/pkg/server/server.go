@@ -38,6 +38,7 @@ import (
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
+	openailogger "github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/opencode"
 	"github.com/helixml/helix/api/pkg/proxy"
@@ -213,6 +214,10 @@ type HelixAPIServer struct {
 	// created. The server only nil-checks it and calls Run. See
 	// api/pkg/sandbox/compute and api/pkg/sandbox/compute/bootstrap.
 	computeManager *compute.PoolSupervisor
+
+	openAIResponsesLogStores     []openailogger.LogStore
+	openAIResponsesBillingLogger openailogger.LogStore
+	openAIResponsesTransport     http.RoundTripper
 }
 
 func NewServer(
@@ -301,6 +306,8 @@ func NewServer(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cache: %w", err)
 	}
+
+	responsesLogStores, responsesBillingLogger := providerManager.OpenAIResponsesLogStores()
 
 	// Initialize skill manager
 	skillManager := api_skill.NewManager()
@@ -427,6 +434,10 @@ func NewServer(
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
 		auditLogService:          services.NewAuditLogService(store),
+
+		openAIResponsesLogStores:     responsesLogStores,
+		openAIResponsesBillingLogger: responsesBillingLogger,
+		openAIResponsesTransport:     newOpenAIResponsesTransport(cfg.Tools.TLSSkipVerify),
 	}
 
 	// Sandboxes API controller — orchestrates user-created sandboxes via hydra.
@@ -1025,6 +1036,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	router.HandleFunc("/.well-known/helix-domain-verify/{token}", apiServer.domainVerificationResponse).Methods(http.MethodGet)
 
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/v1/responses", apiServer.authMiddleware.auth(apiServer.openAIResponsesProxyHandler)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/embeddings", apiServer.authMiddleware.auth(apiServer.createEmbeddings)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
 	// Anthropic API compatible routes
@@ -1071,6 +1083,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/execution-config", apiServer.getSessionExecutionConfig).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/execution-config", apiServer.updateSessionExecutionConfig).Methods(http.MethodPatch)
 	authRouter.HandleFunc("/sessions/{id}/agent-config-applied", system.Wrapper(apiServer.agentConfigApplied)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/agent-startup-error", system.Wrapper(apiServer.reportAgentStartupError)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/workspace-status", system.Wrapper(apiServer.workspaceStatus)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/sessions/{id}/cancel", system.Wrapper(apiServer.cancelSessionTurn)).Methods(http.MethodPost)
@@ -1128,6 +1141,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/codex-subscriptions/{id}", system.Wrapper(apiServer.deleteCodexSubscription)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/codex-subscriptions/start-login", system.Wrapper(apiServer.startCodexLogin)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/codex-subscriptions/poll-login/{sessionId}", system.Wrapper(apiServer.pollCodexLogin)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/codex-subscriptions/login/{sessionId}", system.Wrapper(apiServer.cancelCodexLogin)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.getSessionCodexCredentials)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.updateSessionCodexCredentials)).Methods(http.MethodPut)
 
@@ -1254,6 +1268,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/organizations/{id}/api_keys", apiServer.listOrgAPIKeys).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{id}/api_keys", apiServer.createOrgAPIKey).Methods(http.MethodPost)
 	authRouter.HandleFunc("/organizations/{id}/api_keys/{key}", apiServer.deleteOrgAPIKey).Methods(http.MethodDelete)
+
+	// Coding-agent harness policy. Providers remain independent organization
+	// endpoints; tasks combine an enabled harness with a provider/model.
+	authRouter.HandleFunc("/organizations/{org_id}/code-agent-harnesses", system.Wrapper(apiServer.listOrgCodeAgentHarnesses)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{org_id}/code-agent-harnesses", system.Wrapper(apiServer.updateOrgCodeAgentHarnesses)).Methods(http.MethodPut)
 
 	// Sandboxes API — ephemeral org-scoped containers (Vercel-style).
 	authRouter.HandleFunc("/sandbox-runtimes", apiServer.listSandboxRuntimes).Methods(http.MethodGet)

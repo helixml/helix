@@ -92,7 +92,7 @@ helix spectask interact spt_01xxx --history
 
 ```bash
 source .env.usercreds
-helix spectask start --project $HELIX_PROJECT --agent $HELIX_UBUNTU_AGENT -n "Test Task" --prompt "Description"
+helix spectask start --project $HELIX_PROJECT -n "Test Task" --prompt "Description"
 ```
 
 ### List Active Sessions

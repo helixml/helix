@@ -15,6 +15,25 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func TestCreateTaskFromPromptRejectsLegacyAgentFields(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	user := types.User{ID: "user1"}
+	project := &types.Project{ID: "project1", UserID: user.ID}
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+
+	body := `{"project_id":"project1","prompt":"do work","app_id":"app-legacy"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/from-prompt", bytes.NewBufferString(body))
+	req = req.WithContext(setRequestUser(req.Context(), user))
+	response := httptest.NewRecorder()
+
+	server.createTaskFromPrompt(response, req)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	require.Contains(t, response.Body.String(), "code_agent_config")
+}
+
 func TestSpecTaskProviderPreflightHandlers(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -69,7 +88,10 @@ func TestSpecTaskProviderPreflightHandlers(t *testing.T) {
 			mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
 			mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).Times(2)
 			mockStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
-			mockProviderManager.EXPECT().ListProviderEndpoints(gomock.Any(), app.OrganizationID).Return([]*types.ProviderEndpoint{{Name: "anthropic"}}, nil)
+			mockStore.EXPECT().GetOrgCodeAgentHarness(
+				gomock.Any(), app.OrganizationID, types.CodeAgentRuntimeClaudeCode,
+			).Return(&types.OrgCodeAgentHarness{Enabled: true}, nil)
+			mockProviderManager.EXPECT().ListProviderEndpointsForOwner(gomock.Any(), app.OrganizationID, types.OwnerTypeOrg).Return([]*types.ProviderEndpoint{{Name: "anthropic"}}, nil)
 
 			req := httptest.NewRequest(http.MethodPost, tt.path, bytes.NewBufferString(tt.body))
 			req = mux.SetURLVars(req, map[string]string{"taskId": task.ID})

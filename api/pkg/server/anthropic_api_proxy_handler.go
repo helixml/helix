@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/anthropic"
+	"github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
@@ -226,6 +228,23 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 	// This allows Zed and other Anthropic SDK clients to work without setting X-Provider header
 
 	provider := "anthropic"
+	if user.SessionID != "" {
+		selection, err := s.codeAgentProviderSelection(ctx, user)
+		if err != nil && !errors.Is(err, errNoCodeAgentProviderContext) {
+			return nil, err
+		}
+		if err == nil {
+			endpoint, err := s.resolveCodeAgentProviderEndpoint(ctx, user, selection.ProviderRef)
+			if err != nil {
+				return nil, err
+			}
+			if selection.Runtime == types.CodeAgentRuntimeClaudeCode &&
+				!external_agent.CodeAgentRuntimeAllowsProvider(selection.Runtime, endpoint.Name) {
+				return nil, fmt.Errorf("Claude Code API-key mode requires the anthropic provider; provider %q is not compatible", endpoint.Name)
+			}
+			return endpoint, nil
+		}
+	}
 
 	// Helix agent
 	if user.ProjectID != "" {

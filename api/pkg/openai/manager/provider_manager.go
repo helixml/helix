@@ -20,9 +20,10 @@ import (
 )
 
 type GetClientRequest struct {
-	Provider string
-	Owner    string
-	AppID    string
+	Provider  string
+	Owner     string
+	OwnerType types.OwnerType
+	AppID     string
 }
 
 // RunnerControllerStatus defines the minimum interface needed to check runner status
@@ -38,6 +39,7 @@ type ProviderManager interface {
 	GetClient(ctx context.Context, req *GetClientRequest) (openai.Client, error)
 	// ListProviders returns a list of providers that are available
 	ListProviders(ctx context.Context, owner string) ([]types.Provider, error)
+	ListProvidersForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]types.Provider, error)
 	// ListProviderEndpoints returns the full provider records visible to the
 	// owner: synthetic entries for env-baked global providers (ID="",
 	// Name=canonical) plus DB-backed user/org provider records. Used by
@@ -45,6 +47,8 @@ type ProviderManager interface {
 	// provider reference (an immutable ID for DB-backed, the canonical name
 	// for globals) to the current canonical name.
 	ListProviderEndpoints(ctx context.Context, owner string) ([]*types.ProviderEndpoint, error)
+	ListProviderEndpointsForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]*types.ProviderEndpoint, error)
+	OpenAIResponsesLogStores() ([]logger.LogStore, logger.LogStore)
 	// SetRunnerController sets the runner controller for checking runner availability
 	SetRunnerController(controller RunnerControllerStatus)
 }
@@ -185,6 +189,13 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 	return mcm
 }
 
+// OpenAIResponsesLogStores exposes the same logging and billing pipeline used
+// by OpenAI-compatible chat clients so protocol adapters do not create a
+// second billing cache or diverge from the server's logging configuration.
+func (m *MultiClientManager) OpenAIResponsesLogStores() ([]logger.LogStore, logger.LogStore) {
+	return append([]logger.LogStore(nil), m.logStores...), m.billingLogger
+}
+
 func (m *MultiClientManager) StartRefresh(ctx context.Context) {
 	if m.cfg.Providers.OpenAI.APIKeyFromFile != "" {
 		err := m.watchAndUpdateClient(ctx, types.ProviderOpenAI, m.cfg.Providers.OpenAI.APIKeyRefreshInterval, m.cfg.Providers.OpenAI.BaseURL, m.cfg.Providers.OpenAI.APIKeyFromFile)
@@ -311,6 +322,10 @@ func (m *MultiClientManager) SetRunnerController(_ RunnerControllerStatus) {
 }
 
 func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([]types.Provider, error) {
+	return m.ListProvidersForOwner(ctx, owner, types.OwnerTypeUser)
+}
+
+func (m *MultiClientManager) ListProvidersForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]types.Provider, error) {
 	m.globalClientsMu.RLock()
 	defer m.globalClientsMu.RUnlock()
 
@@ -327,6 +342,7 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 
 	userProviders, err := m.store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      owner,
+		OwnerType:  ownerType,
 		WithGlobal: true,
 	})
 	if err != nil {
@@ -348,6 +364,10 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 // — the agent record stores the immutable ID, settings.json carries the
 // current name. Renames flow into running sessions on the next sync poll.
 func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner string) ([]*types.ProviderEndpoint, error) {
+	return m.ListProviderEndpointsForOwner(ctx, owner, types.OwnerTypeUser)
+}
+
+func (m *MultiClientManager) ListProviderEndpointsForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]*types.ProviderEndpoint, error) {
 	// Always list global providers including Helix — runner availability is
 	// checked by the inferencerouter at request-routing time post sandbox-
 	// absorbs-runner pivot, not at provider-listing time. Matches
@@ -368,6 +388,7 @@ func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner st
 
 	userProviders, err := m.store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      owner,
+		OwnerType:  ownerType,
 		WithGlobal: true,
 	})
 	if err != nil {
@@ -403,6 +424,7 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 
 	userProviders, err := m.store.ListProviderEndpoints(context.Background(), &store.ListProviderEndpointsQuery{
 		Owner:      req.Owner,
+		OwnerType:  req.OwnerType,
 		WithGlobal: true,
 	})
 	if err != nil {
