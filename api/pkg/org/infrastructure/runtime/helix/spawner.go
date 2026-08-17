@@ -408,7 +408,7 @@ func sanitizeLogValue(value string) string {
 // Two paths:
 //   - **Follow-up** (state.SessionID exists): POST
 //     /api/v1/sessions/{id}/messages. Helix queues the message and
-//     pickupWaitingInteraction delivers it on agent reconnect — no
+//     the reconnect resume path delivers it on agent reconnect — no
 //     warmup loop, no cold-start handling on our side.
 //   - **First activation** (no session yet): POST /sessions/chat to
 //     create the session. The dispatch may race the desktop's WS
