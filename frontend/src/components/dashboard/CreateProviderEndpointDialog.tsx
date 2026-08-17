@@ -18,19 +18,18 @@ import {
   FormLabel,
   Checkbox,
   Typography,
-  IconButton,
   Box,
   Divider,
   Link,
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 import { IProviderEndpoint } from '../../types';
 import { TypesProviderEndpointType } from '../../api/api'
 import { useCreateProviderEndpoint } from '../../services/providersService';
 import { PROVIDERS, Provider } from '../providers/types';
+import { getFormSelectSx } from '../../contexts/theme';
+import { CustomHeadersEditor, ProviderEndpointHeader } from './ProviderEndpointFormFields';
 
 const CUSTOM_PROVIDER_ID = 'user/custom';
 
@@ -79,7 +78,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
     description: '',
     auth_type: 'none' as AuthType,
     billing_enabled: false,
-    headers: [] as Array<{ key: string; value: string }>,
+    headers: [] as ProviderEndpointHeader[],
   });
 
   const selectedProvider = PROVIDERS.find((p) => p.id === selectedProviderId);
@@ -133,28 +132,9 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
     setError('');
   };
 
-  const handleHeaderChange = (index: number, field: 'key' | 'value', value: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      headers: prev.headers.map((header, i) =>
-        i === index ? { ...header, [field]: value } : header
-      ),
-    }));
+  const handleHeadersChange = (headers: ProviderEndpointHeader[]) => {
+    setFormData((prev) => ({ ...prev, headers }));
     setError('');
-  };
-
-  const addHeader = () => {
-    setFormData((prev) => ({
-      ...prev,
-      headers: [...prev.headers, { key: '', value: '' }],
-    }));
-  };
-
-  const removeHeader = (index: number) => {
-    setFormData((prev) => ({
-      ...prev,
-      headers: prev.headers.filter((_, i) => i !== index),
-    }));
   };
 
   const validateForm = useCallback(() => {
@@ -242,7 +222,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
         <Stack spacing={2} sx={{ mt: 2 }}>
           {error && <Alert severity="error">{error}</Alert>}
 
-          <FormControl fullWidth>
+          <FormControl fullWidth sx={theme => getFormSelectSx(theme.palette.mode === 'light')}>
             <InputLabel id="provider-preset-label">Provider</InputLabel>
             <Select
               labelId="provider-preset-label"
@@ -347,13 +327,14 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
             />
           )}
 
-          <FormControl fullWidth>
-            <InputLabel>Type</InputLabel>
+          <FormControl fullWidth sx={theme => getFormSelectSx(theme.palette.mode === 'light')}>
+            <InputLabel id="create-endpoint-type-label">Visibility</InputLabel>
             <Select
+              labelId="create-endpoint-type-label"
               name="endpoint_type"
               value={formData.endpoint_type}
               onChange={(e) => handleInputChange(e as React.ChangeEvent<HTMLInputElement | { name?: string; value: unknown }>)}
-              label="Type"
+              label="Visibility"
             >
               {/* Only show User option when providers management is enabled -
                   when disabled, only admins can create endpoints and "user" type
@@ -383,54 +364,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
 
           <Divider sx={{ my: 2 }} />
 
-          <Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6">Custom Headers</Typography>
-              <Button
-                startIcon={<AddIcon />}
-                onClick={addHeader}
-                variant="outlined"
-                size="small"
-              >
-                Add Header
-              </Button>
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Add custom headers that will be sent with requests to this endpoint
-            </Typography>
-            
-            {formData.headers.map((header, index) => (
-              <Box key={index} sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
-                <TextField
-                  label="Header Name"
-                  value={header.key}
-                  onChange={(e) => handleHeaderChange(index, 'key', e.target.value)}
-                  placeholder="e.g., X-API-Key"
-                  sx={{ flex: 1 }}
-                />
-                <TextField
-                  label="Header Value"
-                  value={header.value}
-                  onChange={(e) => handleHeaderChange(index, 'value', e.target.value)}
-                  placeholder="e.g., your-api-key"
-                  sx={{ flex: 1 }}
-                />
-                <IconButton
-                  onClick={() => removeHeader(index)}
-                  color="error"
-                  size="small"
-                >
-                  <DeleteIcon />
-                </IconButton>
-              </Box>
-            ))}
-            
-            {formData.headers.length === 0 && (
-              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                No custom headers added. Click "Add Header" to add custom headers.
-              </Typography>
-            )}
-          </Box>
+          <CustomHeadersEditor headers={formData.headers} onChange={handleHeadersChange} />
         </Stack>
       </DialogContent>
       <DialogActions>
