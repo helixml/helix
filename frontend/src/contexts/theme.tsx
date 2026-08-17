@@ -114,6 +114,40 @@ export const getFlatSelectOverrides = (isLight: boolean) => ({
   },
 })
 
+/**
+ * Opt back out of `getFlatSelectOverrides`.
+ *
+ * The flat look is right for selects that sit inline in toolbars and headers,
+ * but in a form a borderless select next to an outlined TextField reads as a
+ * broken field. Spread this into the `sx` of a form select to give it the same
+ * outline, height and focus ring as the TextFields around it. It has to repeat
+ * `!important` because the global rule uses it.
+ */
+export const getFormSelectSx = (isLight: boolean) => ({
+  '& .MuiOutlinedInput-root:has(> .MuiSelect-select)': {
+    borderRadius: '4px',
+    backgroundColor: 'transparent',
+    '&:hover, &.Mui-focused': {
+      backgroundColor: 'transparent',
+    },
+    '& > .MuiSelect-select': {
+      padding: '16.5px 32px 16.5px 14px',
+    },
+    '& .MuiOutlinedInput-notchedOutline': {
+      borderWidth: '1px !important',
+      borderStyle: 'solid !important',
+      borderColor: isLight ? 'rgba(0, 0, 0, 0.23)' : 'rgba(255, 255, 255, 0.23)',
+    },
+    '&:hover .MuiOutlinedInput-notchedOutline': {
+      borderColor: isLight ? 'rgba(0, 0, 0, 0.87)' : '#fff',
+    },
+    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+      borderWidth: '2px !important',
+      borderColor: 'primary.main',
+    },
+  },
+})
+
 export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const themeConfig = useThemeConfig()
   const api = useApi()

@@ -1103,3 +1103,73 @@ func (s *ProviderHandlersSuite) TestFindProviderWithModel_ResolvesFromWrappedCac
 	s.Equal("dynprov", provider, "must resolve provider from wrapped cache payload")
 	s.Equal("some-dynamic-model", bareModel)
 }
+
+// The update handler used to drop `headers` entirely, so the "Custom headers"
+// section of the edit dialog silently did nothing. Headers are three-state:
+// omitted keeps what is stored, a populated map replaces it, and an empty map
+// removes every header.
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_Headers() {
+	endpointID := "ep_123"
+
+	newEndpoint := func() *types.ProviderEndpoint {
+		return &types.ProviderEndpoint{
+			ID:           endpointID,
+			Name:         "my-endpoint",
+			BaseURL:      "http://localhost:11434",
+			Owner:        "user_id",
+			OwnerType:    types.OwnerTypeUser,
+			EndpointType: types.ProviderEndpointTypeUser,
+			Headers:      map[string]string{"X-Existing": "old"},
+		}
+	}
+
+	testCases := []struct {
+		name    string
+		payload string
+		want    map[string]string
+	}{
+		{
+			name:    "replaces headers when provided",
+			payload: `{"name":"my-endpoint","base_url":"http://localhost:11434","headers":{"X-Existing":"new","X-Added":"yes"}}`,
+			want:    map[string]string{"X-Existing": "new", "X-Added": "yes"},
+		},
+		{
+			name:    "removes every header when the map is empty",
+			payload: `{"name":"my-endpoint","base_url":"http://localhost:11434","headers":{}}`,
+			want:    map[string]string{},
+		},
+		{
+			name:    "keeps stored headers when omitted",
+			payload: `{"name":"my-endpoint","base_url":"http://localhost:11434"}`,
+			want:    map[string]string{"X-Existing": "old"},
+		},
+	}
+
+	for _, tc := range testCases {
+		s.Run(tc.name, func() {
+			s.SetupTest()
+			s.server.Cfg.Providers.EnableCustomUserProviders = true
+
+			s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+				ProvidersManagementEnabled: true,
+			}, nil)
+			s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+				ID: endpointID,
+			}).Return(newEndpoint(), nil)
+			s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+					s.Equal(tc.want, ep.Headers)
+					return ep, nil
+				})
+
+			req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader([]byte(tc.payload)))
+			req = req.WithContext(s.authCtx)
+			req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+			rr := httptest.NewRecorder()
+			s.server.updateProviderEndpoint(rr, req)
+
+			s.Equal(http.StatusOK, rr.Code, rr.Body.String())
+		})
+	}
+}
