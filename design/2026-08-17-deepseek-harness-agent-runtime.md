@@ -142,6 +142,30 @@ turn driven over stdio by a minimal client:
   module survived npm 11's blocked-lifecycle-scripts default; this is now a
   build-time gate rather than a manual check
 
+**Live, under Zed, in a real spec task.** Task `spt_01m07y52t029tjz5ra6sdcmcb9`
+on image `helix-ubuntu:870e62`, driven entirely from the `helix` CLI:
+
+- `helix api /spec-tasks/<id>/execution-config -X PATCH` selected the runtime;
+  the API answered `agent_name: "dsh"`
+- the daemon logged
+  `Using deepseek_harness runtime: command=/usr/local/bin/dsh-acp … mcp_servers=3`
+- `settings.json` carried `context_servers: {}` with `agent_servers: ['dsh']`,
+  and `/home/retro/.config/helix-dsh/mcp.cordis.json` (mode `0400`) carried all
+  three servers split correctly by transport — `chrome-devtools` as stdio from
+  its `command`, both `helix-*` as streamable-http from their `url`
+- `chrome-devtools-mcp`'s startup banner appeared on the agent's stderr, so the
+  mounted MCP servers are actually launched by dsh, not merely configured
+- **`session/new` succeeded** — `zed_thread_id b1eae838-…`, no `-32602`
+- **the Helix proxy served the turn** — two `qwen3.8-27b` calls in `llm_calls`,
+  no error, ~2s each
+- the turn completed with a correct, checkable answer: the branch Helix had
+  provisioned (`feature/000381-dsh-cli-e2e`) and the first heading of the
+  primary repo's README (`# Helix Next`), with no files modified
+
+The `org_id not specified` balance failure seen earlier is specific to personal
+API keys; an org-scoped provider reference clears it, so it never applied to
+this path.
+
 **Automated.** `cmd/settings-sync-daemon` (agent_servers shape, env contents,
 localhost rewriting, and the three defer-without-credentials cases);
 `pkg/server` runtime-selection table gains a `deepseek_harness` row;
@@ -151,18 +175,14 @@ pass: `go build ./api/pkg/server/ ./api/pkg/store/ ./api/pkg/types/
 
 ## What is NOT verified
 
-- **No successful turn under Zed yet.** Two live spec tasks have run. The
-  first, on a stale image, failed with `Custom agent server 'dsh' is not
-  registered`. The second registered and spawned the agent correctly, then
-  died on the `mcpServers` rejection above. Both failures are fixed, but a
-  green Zed→dsh turn has not been observed.
-- **The Helix proxy path is proven only up to the proxy.** Requests from dsh
-  reached this dev stack's `/v1/chat/completions` and came back with a Helix
-  error (`failed to check balance: … org_id not specified`) that every API key
-  on the box reproduces via plain `curl` — a stack billing-config issue, not an
-  integration one. The turns above therefore ran against `api.openai.com`
-  through the same `llm-pi-ai` route. The Helix-specific hop that remains
-  unexercised is provider-prefixed model routing under a working org.
+- **One model, one turn.** The live run used `qwen3.8-27b` for a single
+  read-only turn. Multi-turn conversation, follow-ups after a stop/resume,
+  clearing a thread, switching agents mid-session, and a turn that actually
+  edits and commits code are all unexercised, as is any other model.
+- **`dsh-mcp-client` was proven to launch, not to be called under Zed.** The
+  agent called `mcp__helix-session__current_session` successfully in the
+  standalone harness, and the stdio server starts inside the real container,
+  but no Zed-driven turn has yet invoked an MCP tool.
 - **Non-dsh Node consumers are unexercised under Node 24.** qwen-code's native
   modules were checked directly, but chrome-devtools-mcp, the GitHub and Drone
   MCP servers, and the Claude Code / Codex ACP wrappers have only been built,
@@ -174,8 +194,12 @@ These are properties of `@deepseek-ai/dsh-acp`, which describes itself as
 automation-only, and they are worse than what the other harnesses give Zed:
 
 - **No streaming.** Only *committed* assistant messages go on the wire, one
-  `agent_message_chunk` per block at end of turn. Zed will show nothing until
-  the turn finishes.
+  `agent_message_chunk` per block at end of turn. Confirmed in the live run:
+  the UI stays blank for the whole turn and the answer lands at once, which
+  reads as a hang on anything slower than the 8s turn above. A corollary worth
+  knowing when debugging: dsh's JSONL session log is checkpointed *behind* the
+  wire, so a finished turn can still show only the `session` event on disk —
+  the log is not a liveness signal.
 - **No tool-call updates.** Tool activity, reasoning, plans, and titles stay
   off the protocol, so Zed's thread view shows the answer with no visible work.
 - **No `session/load`.** Fresh sessions only — resume, fork, and list are
