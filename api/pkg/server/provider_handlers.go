@@ -853,6 +853,12 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 	existingEndpoint.Models = updatedEndpoint.Models
 	existingEndpoint.BaseURL = strings.TrimSpace(updatedEndpoint.BaseURL)
+	// A nil map means the caller left headers out of the request; an empty map
+	// means "remove every header". Both are legitimate, so only the nil case
+	// keeps the stored headers.
+	if updatedEndpoint.Headers != nil {
+		existingEndpoint.Headers = updatedEndpoint.Headers
+	}
 	if updatedEndpoint.APIKey != nil {
 		existingEndpoint.APIKey = strings.TrimSpace(*updatedEndpoint.APIKey)
 	}
