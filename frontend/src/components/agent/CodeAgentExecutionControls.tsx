@@ -21,6 +21,7 @@ import {
 import useSnackbar from '../../hooks/useSnackbar'
 import { useModelReasoningEfforts } from '../../hooks/useModelReasoningEfforts'
 import { getCodeAgentEffortOptions } from './CodeAgentEffortSelect'
+import { useHasEnabledCodeAgentHarnesses } from '../../services/codeAgentHarnessesService'
 import CodeAgentConfigPicker from './CodeAgentConfigPicker'
 
 type MaybePromise = void | Promise<unknown>
@@ -35,6 +36,14 @@ export interface CodeAgentExecutionControlsProps {
   disabled?: boolean
   compact?: boolean
   grouped?: boolean
+  /**
+   * Render the compute controls only. Project settings uses this: which coding
+   * agent an org may use is now an org-level decision on the Providers page, so
+   * the project sandbox tab configures compute and nothing else.
+   */
+  computeOnly?: boolean
+  /** Select the recommended available harness and model when a new task has no config. */
+  autoSelectDefault?: boolean
 }
 
 const SANDBOX_PRESETS = [
@@ -71,6 +80,8 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   disabled = false,
   compact = false,
   grouped = false,
+  computeOnly = false,
+  autoSelectDefault = false,
 }) => {
   const snackbar = useSnackbar()
   const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(null)
@@ -105,23 +116,23 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
     }
   }
 
-  const modelControl = (
+  const { hasAny: hasCodeAgents, loading: loadingCodeAgents } = useHasEnabledCodeAgentHarnesses()
+  const unconfigured = (!value?.runtime && !value?.model)
+    || (!loadingCodeAgents && !hasCodeAgents)
+
+  // One control for harness and model. They were separate triggers opening the
+  // same popover, which implied two independent settings.
+  const agentControl = (
     <CodeAgentConfigPicker
       value={value}
       disabled={controlsDisabled}
-      trigger="model"
+      autoSelectDefault={autoSelectDefault}
       onChange={(next) => void save(next)}
     />
   )
-  const harnessControl = (
-    <CodeAgentConfigPicker
-      value={value}
-      disabled={controlsDisabled}
-      trigger="harness"
-      onChange={(next) => void save(next)}
-    />
-  )
-  const reasoningControl = value?.model ? (
+  // Reasoning depth is a setting *of* a harness, so it has nothing to configure
+  // until one is picked.
+  const reasoningControl = value?.model && !unconfigured ? (
     <Tooltip title="Change reasoning and service tier">
       <Box component="span" sx={{ display: 'inline-flex' }}>
         <Button
@@ -174,13 +185,15 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
             minWidth: 0,
           }}
         >
-          <Typography variant="body2" color="text.secondary">Harness:</Typography>
-          <Box sx={{ minWidth: 0 }}>{harnessControl}</Box>
-          <Typography variant="body2" color="text.secondary">Model:</Typography>
-          <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
-            {modelControl}
-            {reasoningControl}
-          </Stack>
+          {!computeOnly && (
+            <>
+              <Typography variant="body2" color="text.secondary">Agent:</Typography>
+              <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
+                {agentControl}
+                {reasoningControl}
+              </Stack>
+            </>
+          )}
           {computeControl && (
             <>
               <Typography variant="body2" color="text.secondary">Compute:</Typography>
@@ -190,9 +203,8 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
         </Box>
       ) : (
         <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: compact ? 'nowrap' : 'wrap' }}>
-          {harnessControl}
-          {modelControl}
-          {reasoningControl}
+          {!computeOnly && agentControl}
+          {!computeOnly && reasoningControl}
           {computeControl}
         </Stack>
       )}

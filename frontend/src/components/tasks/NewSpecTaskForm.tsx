@@ -53,6 +53,8 @@ import {
   useUploadSpecTaskAttachments,
 } from "../../services/specTaskAttachmentsService";
 import CodeAgentExecutionControls from "../agent/CodeAgentExecutionControls";
+import NoCodeAgentsDialog from "../agent/NoCodeAgentsDialog";
+import { useHasEnabledCodeAgentHarnesses } from "../../services/codeAgentHarnessesService";
 import {
   preferredSpecTaskSandboxRuntime,
   saveSpecTaskSandboxRuntimePreference,
@@ -135,6 +137,13 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const [selectedDependencyTaskIds, setSelectedDependencyTaskIds] = useState<
     string[]
   >([]);
+  // A task cannot start without a coding agent, so an org with none configured
+  // gets an explanation and a route to settings rather than a Create button
+  // that is simply dead.
+  const { hasAny: hasCodeAgents, loading: loadingCodeAgents } = useHasEnabledCodeAgentHarnesses();
+  const [noAgentsOpen, setNoAgentsOpen] = useState(false);
+  const missingCodeAgents = !loadingCodeAgents && !hasCodeAgents;
+
   const [codeAgentConfig, setCodeAgentConfig] = useState<TypesCodeAgentExecutionConfig>();
   const [sandboxResourceOverrides, setSandboxResourceOverrides] = useState<TypesSandboxResourceOverrides>({
     vcpus: 4,
@@ -1084,6 +1093,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 sandboxRuntime={sandboxRuntime}
                 onSandboxResourceOverridesChange={setSandboxResourceOverrides}
                 onSandboxRuntimeChange={handleSandboxRuntimeChange}
+                autoSelectDefault
               />
               {selectedAgentIsGoose && (
                 <GooseRecipeSelector
@@ -1193,6 +1203,12 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             Cancel
           </Button>
         )}
+        <Tooltip
+          title={missingCodeAgents
+            ? "No coding agents are configured for this organization yet"
+            : ""}
+        >
+          <span onClick={() => { if (missingCodeAgents) setNoAgentsOpen(true) }}>
         <Button
           onClick={handleCreateTask}
           variant="contained"
@@ -1200,6 +1216,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           disabled={
             !taskPrompt.trim() ||
             isCreating ||
+            missingCodeAgents ||
             !codeAgentConfig?.model ||
             (branchMode === TypesBranchMode.BranchModeExisting &&
               !workingBranch)
@@ -1234,7 +1251,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         >
           Create Task
         </Button>
+          </span>
+        </Tooltip>
       </Box>
+      <NoCodeAgentsDialog open={noAgentsOpen} onClose={() => setNoAgentsOpen(false)} />
     </Box>
   );
 };

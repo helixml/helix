@@ -676,7 +676,7 @@ func TestApplyModelSubstitutions(t *testing.T) {
 
 	t.Run("leaves unavailable provider ID for organization validation", func(t *testing.T) {
 		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "org1").
+			ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).
 			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil).
 			Times(2)
 
@@ -1406,7 +1406,7 @@ func TestValidateProvidersAndModels_UnavailableProviderMessage(t *testing.T) {
 		}
 	}
 
-	mockProviderManager.EXPECT().ListProviderEndpoints(ctx, "org1").Return([]*types.ProviderEndpoint{}, nil)
+	mockProviderManager.EXPECT().ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).Return([]*types.ProviderEndpoint{}, nil)
 	err := server.validateProvidersAndModels(ctx, user, app("org1"))
 	require.EqualError(t, err, types.OrganizationProviderUnavailableMessage)
 
@@ -1437,7 +1437,7 @@ func TestListEndpointsForApp(t *testing.T) {
 
 	t.Run("org app excludes personal bucket", func(t *testing.T) {
 		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "org1").
+			ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).
 			Return([]*types.ProviderEndpoint{
 				{ID: "pe_org_01", Name: "org-prov"},
 				{Name: "openai"},

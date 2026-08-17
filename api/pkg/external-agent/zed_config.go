@@ -612,6 +612,32 @@ func ResolveProvider(token string, snapshot []ProviderRef) (ref ProviderRef, byL
 	return ProviderRef{}, false, false
 }
 
+// CodeAgentRuntimeAllowsProvider keeps native vendor CLIs on the API shape
+// they actually implement. Claude Code speaks Anthropic Messages; Codex speaks
+// OpenAI Responses. The general-purpose harnesses continue to accept any
+// provider exposed through Helix's OpenAI-compatible proxy.
+func CodeAgentRuntimeAllowsProvider(runtime types.CodeAgentRuntime, providerName string) bool {
+	switch runtime {
+	case types.CodeAgentRuntimeClaudeCode:
+		return strings.EqualFold(providerName, string(types.ProviderAnthropic))
+	case types.CodeAgentRuntimeCodexCLI:
+		return strings.EqualFold(providerName, string(types.ProviderOpenAI))
+	default:
+		return true
+	}
+}
+
+func requiredProviderForCodeAgentRuntime(runtime types.CodeAgentRuntime) string {
+	switch runtime {
+	case types.CodeAgentRuntimeClaudeCode:
+		return string(types.ProviderAnthropic)
+	case types.CodeAgentRuntimeCodexCLI:
+		return string(types.ProviderOpenAI)
+	default:
+		return ""
+	}
+}
+
 // MigrateLegacyProviderRefs walks every provider-bearing field on every
 // assistant in app.Config and, where the stored value is a legacy name that
 // resolves (case-insensitively) to a current DB-backed provider, rewrites
@@ -696,11 +722,17 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 	if snapshot == nil {
 		return ""
 	}
-	if _, _, ok := ResolveProvider(provider, snapshot); !ok {
+	resolved, _, ok := ResolveProvider(provider, snapshot)
+	if !ok {
 		if app.OrganizationID != "" {
 			return types.OrganizationProviderUnavailableMessage
 		}
 		return fmt.Sprintf("agent %q references provider %q which does not match any current provider — the provider may have been renamed or deleted. Open the agent settings and re-pick a provider, or restore/rename the provider in admin.", app.ID, provider)
+	}
+	if required := requiredProviderForCodeAgentRuntime(assistant.CodeAgentRuntime); required != "" &&
+		!CodeAgentRuntimeAllowsProvider(assistant.CodeAgentRuntime, resolved.Name) {
+		return fmt.Sprintf("coding-agent harness %q API-key mode requires the %s provider; provider %q is not compatible",
+			assistant.CodeAgentRuntime, required, resolved.Name)
 	}
 	return ""
 }

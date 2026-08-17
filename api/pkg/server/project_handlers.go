@@ -444,7 +444,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		}
 	}
 	if req.CodeAgentConfig != nil {
-		if err := s.validateCodeAgentExecutionConfig(r.Context(), req.CodeAgentConfig, user.ID, user.ID, req.OrganizationID); err != nil {
+		if err := s.validateProjectCodeAgentConfig(r.Context(), req.CodeAgentConfig, user.ID, user.ID, req.OrganizationID); err != nil {
 			return nil, system.NewHTTPError400(err.Error())
 		}
 		defaultApp = external_agent.AppFromCodeAgentConfig(req.CodeAgentConfig, user.ID, req.OrganizationID)
@@ -700,7 +700,7 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		}
 	}
 	if req.CodeAgentConfig != nil {
-		if err := s.validateCodeAgentExecutionConfig(r.Context(), req.CodeAgentConfig, user.ID, project.UserID, project.OrganizationID); err != nil {
+		if err := s.validateProjectCodeAgentConfig(r.Context(), req.CodeAgentConfig, user.ID, project.UserID, project.OrganizationID); err != nil {
 			return nil, system.NewHTTPError400(err.Error())
 		}
 	}

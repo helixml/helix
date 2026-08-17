@@ -660,5 +660,25 @@ func TestValidateAssistantModelConfig_ProviderAvailability(t *testing.T) {
 		}}}},
 	}
 	assert.Equal(t, types.OrganizationProviderUnavailableMessage, ValidateAssistantModelConfig(claudeCodeAPIKeyApp, []ProviderRef{{Name: "anthropic"}}))
-	assert.Empty(t, ValidateAssistantModelConfig(claudeCodeAPIKeyApp, []ProviderRef{{Name: "anthropic"}, {ID: "pe_personal", Name: "scope-good"}}))
+	assert.Contains(t,
+		ValidateAssistantModelConfig(claudeCodeAPIKeyApp, []ProviderRef{{Name: "anthropic"}, {ID: "pe_personal", Name: "scope-good"}}),
+		"requires the anthropic provider")
+	claudeCodeAPIKeyApp.Config.Helix.Assistants[0].GenerationModelProvider = "anthropic"
+	assert.Empty(t, ValidateAssistantModelConfig(claudeCodeAPIKeyApp, []ProviderRef{{Name: "anthropic"}}))
+
+	codexAPIKeyApp := &types.App{
+		ID: "codex-app",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			AgentType:               types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider:                "pe_provider",
+			Model:                   "gpt-5.6-sol",
+		}}}},
+	}
+	assert.Contains(t,
+		ValidateAssistantModelConfig(codexAPIKeyApp, []ProviderRef{{ID: "pe_provider", Name: "custom"}}),
+		"requires the openai provider")
+	assert.Empty(t,
+		ValidateAssistantModelConfig(codexAPIKeyApp, []ProviderRef{{ID: "pe_provider", Name: "openai"}}))
 }

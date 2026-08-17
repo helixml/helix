@@ -1862,6 +1862,20 @@ definitions:
           $ref: '#/definitions/server.SandboxInstanceInfo'
         type: array
     type: object
+  server.AgentStartupErrorRequest:
+    properties:
+      error:
+        type: string
+    type: object
+  server.AgentStartupErrorResponse:
+    properties:
+      interaction_id:
+        type: string
+      status:
+        type: string
+      transitioned:
+        type: boolean
+    type: object
   server.AppClaudeSubscriptionStatus:
     properties:
       connected:
@@ -5216,6 +5230,11 @@ definitions:
         type: object
       name:
         type: string
+      organization_id:
+        description: |-
+          OrganizationID identifies the org whose Claude Code harness is enabled
+          after connection. It is independent from subscription ownership.
+        type: string
       owner_id:
         description: Required for org-level, auto-set for user
         type: string
@@ -5232,6 +5251,11 @@ definitions:
       credentials:
         $ref: '#/definitions/types.CodexAuthCredentials'
       name:
+        type: string
+      organization_id:
+        description: |-
+          OrganizationID identifies the org whose Codex harness is enabled after
+          connection. It is independent from subscription ownership.
         type: string
       owner_id:
         type: string
@@ -7456,6 +7480,43 @@ definitions:
         type: integer
       total_tokens:
         type: integer
+    type: object
+  types.OrgCodeAgentHarnessStatus:
+    properties:
+      enabled:
+        type: boolean
+      provider_refs:
+        items:
+          type: string
+        type: array
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      subscription_enabled:
+        type: boolean
+      supports_subscription:
+        type: boolean
+      viewer_has_subscription:
+        type: boolean
+    type: object
+  types.OrgCodeAgentHarnessUpdate:
+    properties:
+      enabled:
+        type: boolean
+      provider_refs:
+        items:
+          type: string
+        type: array
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      subscription_enabled:
+        type: boolean
+    type: object
+  types.OrgCodeAgentHarnessesUpdateRequest:
+    properties:
+      harnesses:
+        items:
+          $ref: '#/definitions/types.OrgCodeAgentHarnessUpdate'
+        type: array
     type: object
   types.OrgComputeUsage:
     properties:
@@ -11585,6 +11646,14 @@ definitions:
           $ref: '#/definitions/types.SpecTaskZedThread'
         type: array
     type: object
+  types.StartCodexLoginRequest:
+    properties:
+      organization_id:
+        description: |-
+          OrganizationID identifies the org whose Codex harness is enabled after
+          the device flow succeeds.
+        type: string
+    type: object
   types.StartPlanningOptions:
     properties:
       keyboard_layout:
@@ -15671,6 +15740,29 @@ paths:
       summary: Get a Codex subscription
       tags:
       - Codex
+  /api/v1/codex-subscriptions/login/{sessionId}:
+    delete:
+      description: Stop and remove the temporary sandbox used for Codex device authentication
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel a Codex login session
+      tags:
+      - Codex
   /api/v1/codex-subscriptions/poll-login/{sessionId}:
     get:
       description: Return device authentication instructions or persist completed
@@ -15695,7 +15787,15 @@ paths:
       - Codex
   /api/v1/codex-subscriptions/start-login:
     post:
-      description: Launch a temporary container and start Codex device authentication
+      consumes:
+      - application/json
+      description: Launch a temporary headless sandbox and start Codex device authentication
+      parameters:
+      - description: Optional organization whose Codex harness should be enabled
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/types.StartCodexLoginRequest'
       produces:
       - application/json
       responses:
@@ -19107,6 +19207,56 @@ paths:
       security:
       - BearerAuth: []
       summary: Look up a user by email within the context of an organization
+      tags:
+      - organizations
+  /api/v1/organizations/{org_id}/code-agent-harnesses:
+    get:
+      description: Returns every selectable coding-agent harness, whether the organization
+        enabled it, and whether the requesting user can use its subscription mode.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrgCodeAgentHarnessStatus'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List an organization's coding-agent harnesses
+      tags:
+      - organizations
+    put:
+      description: Enables or disables coding-agent harnesses and selects either subscription
+        mode or API-provider mode for each harness. Harnesses omitted from the request
+        are left unchanged. Models are selected per task.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Harnesses to update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.OrgCodeAgentHarnessesUpdateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrgCodeAgentHarnessStatus'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Update an organization's coding-agent harnesses
       tags:
       - organizations
   /api/v1/organizations/{org_id}/sandboxes:
@@ -24314,6 +24464,37 @@ paths:
         container
       tags:
       - sessions
+  /api/v1/sessions/{id}/agent-startup-error:
+    post:
+      consumes:
+      - application/json
+      description: Called by the settings-sync daemon when the session's Zed configuration
+        is rejected. Atomically fails the latest waiting interaction so the task does
+        not remain on an infinite spinner.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fatal startup error
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.AgentStartupErrorRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.AgentStartupErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Report a fatal in-container agent configuration error
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/archive:
     patch:
       consumes:

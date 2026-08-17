@@ -12,6 +12,7 @@ type proxyUsageAttribution struct {
 	AppID              string
 	CodeAgentRuntime   types.CodeAgentRuntime
 	CodeAgentOverrides *types.CodeAgentOverrides
+	hasExecutionConfig bool
 }
 
 func (s *HelixAPIServer) resolveProxyUsageAttribution(ctx context.Context, user *types.User, defaultSessionID string) (*proxyUsageAttribution, error) {
@@ -41,6 +42,7 @@ func (s *HelixAPIServer) resolveProxyUsageAttribution(ctx context.Context, user 
 	attribution.CodeAgentRuntime = session.Metadata.CodeAgentRuntime
 	attribution.CodeAgentOverrides = session.Metadata.CodeAgentOverrides
 	if session.Metadata.CodeAgentConfig != nil {
+		attribution.hasExecutionConfig = true
 		attribution.CodeAgentRuntime = session.Metadata.CodeAgentConfig.Runtime
 		attribution.CodeAgentOverrides = &types.CodeAgentOverrides{
 			ProviderRef:     session.Metadata.CodeAgentConfig.ProviderRef,
@@ -61,6 +63,7 @@ func (s *HelixAPIServer) resolveProxyUsageAttribution(ctx context.Context, user 
 			return nil, fmt.Errorf("API key session %q does not own spec task %q", session.ID, task.ID)
 		}
 		if task.CodeAgentConfig != nil {
+			attribution.hasExecutionConfig = true
 			attribution.AppID = ""
 			attribution.CodeAgentRuntime = task.CodeAgentConfig.Runtime
 			attribution.CodeAgentOverrides = &types.CodeAgentOverrides{

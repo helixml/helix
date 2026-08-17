@@ -1,31 +1,28 @@
-import React, { FC, useRef, useState } from 'react'
+import React, { FC, useEffect, useRef, useState } from 'react'
 import {
-  Alert,
   Box,
   Button,
   CircularProgress,
-  FormControlLabel,
   IconButton,
   InputBase,
   Popover,
-  Radio,
-  RadioGroup,
   Stack,
   Tooltip,
   Typography,
 } from '@mui/material'
-import { ChevronDown, Search } from 'lucide-react'
+import { AlertTriangle, ChevronDown, Search } from 'lucide-react'
 
 import {
   TypesCodeAgentCredentialType,
   TypesCodeAgentExecutionConfig,
   TypesCodeAgentRuntime,
+  TypesOrgCodeAgentHarnessStatus,
   TypesProviderEndpoint,
 } from '../../api/api'
-import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
-import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import { useGetOrgByName } from '../../services/orgService'
 import { useListProviders } from '../../services/providersService'
+import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
+import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import useRouter from '../../hooks/useRouter'
 import { matchesAllTokens } from '../../utils/searchUtils'
 import {
@@ -36,16 +33,27 @@ import {
 import {
   CLAUDE_SUBSCRIPTION_MODELS,
   CODEX_SUBSCRIPTION_MODELS,
+  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
+  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
 } from './CodingAgentForm'
+import {
+  findHarnessStatus,
+  useOrgCodeAgentHarnesses,
+} from '../../services/codeAgentHarnessesService'
+import NoCodeAgentsDialog from './NoCodeAgentsDialog'
 import AgentHarness, { getAgentHarnessLabel } from './AgentHarness'
+import {
+  providerEndpointIsConnected,
+  providerSupportsCodeAgentRuntime,
+  providersForCodeAgentRuntime,
+} from '../../utils/codeAgentProviders'
 
-type CredentialType = TypesCodeAgentCredentialType
 type Runtime = TypesCodeAgentRuntime
 
 interface CodeAgentConfigPickerProps {
   value?: TypesCodeAgentExecutionConfig
   disabled?: boolean
-  trigger: 'harness' | 'model'
+  autoSelectDefault?: boolean
   onChange: (value: TypesCodeAgentExecutionConfig) => void
 }
 
@@ -55,6 +63,26 @@ interface ModelOption {
   label: string
   provider?: TypesProviderEndpoint
   providerLabel: string
+  credentialType: TypesCodeAgentCredentialType
+}
+
+const CURRENT_NATIVE_MODELS: Partial<Record<Runtime, string[]>> = {
+  [TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode]: [
+    'claude-opus-5',
+    'claude-fable-5',
+  ],
+  [TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI]: [
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+  ],
+}
+
+function isLegacyNativeModel(runtime: Runtime, modelID: string): boolean {
+  const current = CURRENT_NATIVE_MODELS[runtime]
+  if (!current) return false
+  const normalized = (modelID.split('/').pop() || modelID).toLowerCase()
+  return !current.some((id) => normalized === id || normalized.startsWith(`${id}-`))
 }
 
 export const SELECTABLE_CODE_AGENT_RUNTIMES: ReadonlyArray<Runtime> = [
@@ -68,7 +96,7 @@ export const SELECTABLE_CODE_AGENT_RUNTIMES: ReadonlyArray<Runtime> = [
 const triggerSx = {
   height: 28,
   minWidth: 0,
-  maxWidth: 210,
+  maxWidth: 240,
   px: 0.75,
   gap: 0.625,
   borderRadius: 1,
@@ -96,8 +124,23 @@ function apiModelOptions(providers: TypesProviderEndpoint[]): ModelOption[] {
       label: model.id || 'Unnamed model',
       provider,
       providerLabel: provider.name || 'Provider',
+      credentialType: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
     }))
     .filter((model) => !!model.id))
+}
+
+function providersAllowedForHarness(
+  providers: TypesProviderEndpoint[],
+  harness: ReturnType<typeof findHarnessStatus>,
+  enforceOrgPolicy: boolean,
+  runtime: Runtime,
+): TypesProviderEndpoint[] {
+  const compatible = providersForCodeAgentRuntime(providers, runtime)
+    .filter(providerEndpointIsConnected)
+  if (enforceOrgPolicy && harness?.subscription_enabled === true) return []
+  if (!enforceOrgPolicy || harness?.provider_refs == null) return compatible
+  const allowed = new Set(harness.provider_refs)
+  return compatible.filter((provider) => allowed.has(providerRef(provider)))
 }
 
 function subscriptionModelOptions(runtime: Runtime): ModelOption[] {
@@ -111,13 +154,78 @@ function subscriptionModelOptions(runtime: Runtime): ModelOption[] {
     providerLabel: runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
       ? 'Claude subscription'
       : 'ChatGPT subscription',
+    credentialType: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
   }))
+}
+
+function preferredModelOption(runtime: Runtime, options: ModelOption[]): ModelOption | undefined {
+  const preferredModels = CURRENT_NATIVE_MODELS[runtime] || []
+  for (const preferred of preferredModels) {
+    const option = options.find(({ id }) => {
+      const normalized = (id.split('/').pop() || id).toLowerCase()
+      return normalized === preferred || normalized.startsWith(`${preferred}-`)
+    })
+    if (option) return option
+  }
+  return options.find(({ id }) => !isLegacyNativeModel(runtime, id)) || options[0]
+}
+
+function defaultCodeAgentConfig(
+  preferredRuntime: Runtime | undefined,
+  selectableRuntimes: Runtime[],
+  harnesses: TypesOrgCodeAgentHarnessStatus[],
+  providers: TypesProviderEndpoint[],
+  enforceOrgPolicy: boolean,
+  claudeSubscriptionAvailable: boolean,
+  codexSubscriptionAvailable: boolean,
+): TypesCodeAgentExecutionConfig | undefined {
+  const nativeRuntimes = [
+    TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+    TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+  ]
+  const runtimes = [...new Set([
+    ...(preferredRuntime ? [preferredRuntime] : []),
+    ...nativeRuntimes,
+    ...selectableRuntimes,
+  ])].filter((runtime) => selectableRuntimes.includes(runtime))
+
+  for (const runtime of runtimes) {
+    const subscriptionAvailable = runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
+      ? claudeSubscriptionAvailable
+      : runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI && codexSubscriptionAvailable
+    if (subscriptionAvailable) {
+      return {
+        runtime,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+        model: runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
+          ? DEFAULT_CLAUDE_SUBSCRIPTION_MODEL
+          : DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+      }
+    }
+  }
+
+  for (const runtime of runtimes) {
+    const harness = findHarnessStatus(harnesses, runtime)
+    const option = preferredModelOption(
+      runtime,
+      apiModelOptions(providersAllowedForHarness(providers, harness, enforceOrgPolicy, runtime)),
+    )
+    if (option?.provider) {
+      return {
+        runtime,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+        provider_ref: providerRef(option.provider),
+        model: option.id,
+      }
+    }
+  }
+  return undefined
 }
 
 const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   value,
   disabled = false,
-  trigger,
+  autoSelectDefault = false,
   onChange,
 }) => {
   const router = useRouter()
@@ -128,26 +236,110 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     orgId: org?.id,
     enabled: !loadingOrg,
   })
+  const {
+    data: orgHarnesses = [],
+    isLoading: loadingOrgHarnesses,
+    isFetching: refetchingOrgHarnesses,
+  } = useOrgCodeAgentHarnesses(org?.id, { enabled: !loadingOrg })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const { data: codexSubscriptions } = useCodexSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length || 0) > 0
-  const hasCodexSubscription = (codexSubscriptions?.length || 0) > 0
 
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const [noAgentsOpen, setNoAgentsOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [legacyModelsOpen, setLegacyModelsOpen] = useState(false)
   const [runtime, setRuntime] = useState<Runtime>(
     value?.runtime || TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
   )
-  const [credentialType, setCredentialType] = useState<CredentialType>(
-    value?.credential_type || TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
-  )
   const searchRef = useRef<HTMLInputElement>(null)
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+
+  // Organization policy controls which harnesses and provider endpoints may be
+  // used. Models remain task-level choices from each allowed provider's live
+  // model list.
+  const selectableRuntimes = !orgName
+    ? [...SELECTABLE_CODE_AGENT_RUNTIMES]
+    : SELECTABLE_CODE_AGENT_RUNTIMES.filter((option) =>
+      findHarnessStatus(orgHarnesses, option)?.enabled)
+  const runtimeStatus = findHarnessStatus(orgHarnesses, runtime)
+  const settingsLoaded = !loadingOrg && !loadingOrgHarnesses && !loadingProviders
+  const policySettled = settingsLoaded && !refetchingOrgHarnesses
+  const hasAnyRuntime = selectableRuntimes.length > 0
+  const selectedRuntimeEnabled = !orgName
+    || !!findHarnessStatus(orgHarnesses, value?.runtime)?.enabled
+  const configuredRuntimeStatus = findHarnessStatus(orgHarnesses, value?.runtime)
+  const selectedProvider = providers.find((provider) =>
+    matchesStoredRef(provider, value?.provider_ref || ''))
+  const selectedProviderRuntimeCompatible = value?.credential_type
+    === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
+    || (!!selectedProvider
+      && providerEndpointIsConnected(selectedProvider)
+      && providerSupportsCodeAgentRuntime(selectedProvider, value?.runtime))
+  const selectedSourceAllowed = selectedProviderRuntimeCompatible
+    && (!orgName
+      || (value?.credential_type === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
+      ? configuredRuntimeStatus?.subscription_enabled === true
+        && !!configuredRuntimeStatus?.viewer_has_subscription
+      : !!value?.provider_ref && selectedProviderRuntimeCompatible
+        && configuredRuntimeStatus?.subscription_enabled !== true
+        && (configuredRuntimeStatus?.provider_refs == null
+        || configuredRuntimeStatus.provider_refs.includes(value.provider_ref))))
+  const selectedConfigurationAllowed = selectedRuntimeEnabled && selectedSourceAllowed
+  const unconfigured = !value?.runtime
+    || !value?.model
+    || (policySettled && !selectedConfigurationAllowed)
+
+  const claudeStatus = findHarnessStatus(
+    orgHarnesses,
+    TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+  )
+  const codexStatus = findHarnessStatus(
+    orgHarnesses,
+    TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+  )
+  const claudeSubscriptionDefaultAvailable = orgName
+    ? !!claudeStatus?.enabled
+      && claudeStatus.subscription_enabled === true
+      && !!claudeStatus.viewer_has_subscription
+    : !!claudeSubscriptions?.some((subscription) => subscription.owner_type === 'user')
+  const codexSubscriptionDefaultAvailable = orgName
+    ? !!codexStatus?.enabled
+      && codexStatus.subscription_enabled === true
+      && !!codexStatus.viewer_has_subscription
+    : !!codexSubscriptions?.some((subscription) => subscription.owner_type === 'user')
+
+  const automaticDefault = defaultCodeAgentConfig(
+    value?.runtime,
+    selectableRuntimes,
+    orgHarnesses,
+    providers,
+    !!orgName,
+    claudeSubscriptionDefaultAvailable,
+    codexSubscriptionDefaultAvailable,
+  )
+
+  useEffect(() => {
+    if (!autoSelectDefault || !policySettled) return
+    if (value?.model && selectedConfigurationAllowed) return
+    if (automaticDefault) onChangeRef.current(automaticDefault)
+  }, [
+    autoSelectDefault,
+    value?.runtime,
+    value?.model,
+    policySettled,
+    selectedConfigurationAllowed,
+    automaticDefault?.runtime,
+    automaticDefault?.credential_type,
+    automaticDefault?.provider_ref,
+    automaticDefault?.model,
+  ])
 
   const openPicker = (element: HTMLElement) => {
-    setRuntime(value?.runtime || TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent)
-    setCredentialType(
-      value?.credential_type || TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
-    )
+    const selected = value?.runtime && (!orgName || findHarnessStatus(orgHarnesses, value.runtime)?.enabled)
+      ? value.runtime as Runtime
+      : selectableRuntimes[0] || TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent
+    setRuntime(selected)
     setQuery('')
     setAnchor(element)
     requestAnimationFrame(() => searchRef.current?.focus())
@@ -155,28 +347,22 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
 
   const selectRuntime = (nextRuntime: Runtime) => {
     setRuntime(nextRuntime)
-    if (nextRuntime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode) {
-      setCredentialType(hasClaudeSubscription
-        ? TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
-        : TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey)
-    } else if (nextRuntime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI) {
-      setCredentialType(hasCodexSubscription
-        ? TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
-        : TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey)
-    } else {
-      setCredentialType(TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey)
-    }
     setQuery('')
+    setLegacyModelsOpen(false)
   }
 
-  const subscription = credentialType
-    === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
-  const subscriptionAvailable = runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
-    ? hasClaudeSubscription
-    : hasCodexSubscription
-  const models = subscription
-    ? subscriptionModelOptions(runtime)
-    : apiModelOptions(providers)
+  const subscriptionAvailable = orgName
+    ? isSubscriptionRuntime(runtime)
+      && runtimeStatus?.subscription_enabled === true
+      && !!runtimeStatus?.viewer_has_subscription
+    : isSubscriptionRuntime(runtime) && (runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
+      ? !!claudeSubscriptions?.some((subscription) => subscription.owner_type === 'user')
+      : !!codexSubscriptions?.some((subscription) => subscription.owner_type === 'user'))
+  const allowedProviders = providersAllowedForHarness(providers, runtimeStatus, !!orgName, runtime)
+  const models = [
+    ...(subscriptionAvailable ? subscriptionModelOptions(runtime) : []),
+    ...apiModelOptions(allowedProviders),
+  ]
   const visibleModels = models.filter((model) => matchesAllTokens(
     query,
     model.label,
@@ -184,20 +370,34 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     model.providerLabel,
     getAgentHarnessLabel(runtime),
   ))
-  const selectedProvider = providers.find((provider) =>
-    matchesStoredRef(provider, value?.provider_ref || ''))
-  const modelLabel = models.find((model) => model.id === value?.model
+  const currentModels = visibleModels.filter((model) => !isLegacyNativeModel(runtime, model.id))
+  const legacyModels = visibleModels.filter((model) => isLegacyNativeModel(runtime, model.id))
+  const configuredProviders = providersAllowedForHarness(
+    providers,
+    configuredRuntimeStatus,
+    !!orgName,
+    value?.runtime || runtime,
+  )
+  const configuredModels = value?.credential_type
+    === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
+    && value.runtime
+    ? subscriptionModelOptions(value.runtime)
+    : apiModelOptions(configuredProviders)
+  const modelLabel = configuredModels.find((model) => model.id === value?.model
     && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '')))?.label
     || value?.model?.split('/').pop()
     || 'Select model'
 
   const chooseModel = (model: ModelOption) => {
     const sameRuntime = value?.runtime === runtime
-      && value?.credential_type === credentialType
+      && value?.credential_type === model.credentialType
+      && (model.provider
+        ? matchesStoredRef(model.provider, value?.provider_ref || '')
+        : !value?.provider_ref)
     onChange({
       runtime,
-      credential_type: credentialType,
-      provider_ref: subscription || !model.provider ? undefined : providerRef(model.provider),
+      credential_type: model.credentialType,
+      provider_ref: model.provider ? providerRef(model.provider) : undefined,
       model: model.id,
       reasoning_effort: sameRuntime ? value?.reasoning_effort : undefined,
       service_tier: runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI && sameRuntime
@@ -213,24 +413,75 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     setAnchor(null)
   }
 
+  const renderModelOption = (model: ModelOption) => {
+    const selected = value?.runtime === runtime
+      && value?.credential_type === model.credentialType
+      && value?.model === model.id
+      && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || ''))
+    return (
+      <Button
+        key={model.key}
+        fullWidth
+        onClick={() => chooseModel(model)}
+        sx={{
+          minHeight: 52,
+          px: 1.25,
+          py: 0.75,
+          mb: 0.25,
+          borderRadius: 1,
+          justifyContent: 'flex-start',
+          textAlign: 'left',
+          textTransform: 'none',
+          bgcolor: selected ? 'action.selected' : 'transparent',
+          '&:hover': { bgcolor: 'action.hover' },
+        }}
+      >
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography variant="body2" color="text.primary" noWrap>{model.label}</Typography>
+          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 0.5 }}>
+            {model.provider
+              ? <ProviderIcon provider={model.provider} size={13} />
+              : <AgentHarness runtime={runtime} variant="short" size={13} showTooltip={false} />}
+            <Typography variant="caption" color="text.secondary" noWrap>{model.providerLabel}</Typography>
+          </Stack>
+        </Box>
+      </Button>
+    )
+  }
+
   return (
     <>
-      <Tooltip title={trigger === 'harness' ? 'Change coding harness' : 'Change coding model'}>
+      <Tooltip title={unconfigured ? '' : 'Change coding agent and model'}>
         <Box component="span" sx={{ display: 'inline-flex', minWidth: 0 }}>
           <Button
-            aria-label={trigger === 'harness' ? 'Change coding harness' : 'Change coding model'}
+            aria-label="Change coding agent"
             disabled={disabled}
-            onClick={(event) => openPicker(event.currentTarget)}
+            onClick={(event) => {
+              // Nothing to pick from: explain and offer the fix rather than
+              // opening an empty popover.
+              if (policySettled && !hasAnyRuntime) {
+                setNoAgentsOpen(true)
+                return
+              }
+              openPicker(event.currentTarget)
+            }}
             sx={triggerSx}
           >
-            {trigger === 'harness' ? (
-              <AgentHarness runtime={value?.runtime || runtime} variant="long" size={16} showTooltip={false} />
+            {unconfigured ? (
+              <>
+                <AlertTriangle size={14} aria-hidden="true" />
+                <Box component="span">Configure harness</Box>
+              </>
             ) : (
               <>
+                {/*
+                  One control for both: the harness mark and name, then the
+                  model it runs. They were two buttons opening the same popover,
+                  which read as two independent settings.
+                */}
+                {/* The mark identifies the harness, so naming it too is redundant. */}
                 <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0 }}>
-                  {selectedProvider
-                    ? <ProviderIcon provider={selectedProvider} size={16} />
-                    : <AgentHarness runtime={value?.runtime || runtime} variant="short" size={16} showTooltip={false} />}
+                  <AgentHarness runtime={value?.runtime || runtime} variant="short" size={16} />
                 </Box>
                 <Box component="span" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {modelLabel.replace(/ \(.+\)$/, '')}
@@ -274,9 +525,13 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
               borderRight: '1px solid',
               borderColor: 'divider',
               overflowY: 'auto',
+              // The 38px buttons plus 6px padding exactly meet the 50px rail, so
+              // a sub-pixel overflow was drawing a themed horizontal scrollbar
+              // across the bottom of the rail.
+              overflowX: 'hidden',
             }}
           >
-            {SELECTABLE_CODE_AGENT_RUNTIMES.map((option) => (
+            {selectableRuntimes.map((option) => (
               <IconButton
                 key={option}
                 aria-label={getAgentHarnessLabel(option)}
@@ -299,37 +554,6 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
             <Box sx={{ px: 1.5, pt: 1.25 }}>
               <AgentHarness runtime={runtime} variant="long" size={17} showTooltip={false} />
 
-              {isSubscriptionRuntime(runtime) && (
-                <Box sx={{ mt: 1, mb: 0.5, p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                  <Typography variant="caption" color="text.secondary">Credentials</Typography>
-                  <RadioGroup
-                    row
-                    value={credentialType}
-                    onChange={(event) => {
-                      setCredentialType(event.target.value as CredentialType)
-                      setQuery('')
-                    }}
-                  >
-                    <FormControlLabel
-                      value={TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription}
-                      disabled={!subscriptionAvailable}
-                      control={<Radio size="small" />}
-                      label={<Typography variant="body2">Subscription</Typography>}
-                    />
-                    <FormControlLabel
-                      value={TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey}
-                      control={<Radio size="small" />}
-                      label={<Typography variant="body2">API usage</Typography>}
-                    />
-                  </RadioGroup>
-                  {!subscriptionAvailable && (
-                    <Alert severity="info" variant="outlined" sx={{ mt: 0.5, py: 0 }}>
-                      Connect a {runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode ? 'Claude' : 'ChatGPT'} subscription in Providers to use it here.
-                    </Alert>
-                  )}
-                </Box>
-              )}
-
               <Stack
                 direction="row"
                 alignItems="center"
@@ -346,55 +570,49 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
                   inputProps={{ 'aria-label': 'Search models' }}
                   sx={{ fontSize: '0.875rem' }}
                 />
-                {(loadingOrg || loadingProviders) && <CircularProgress size={15} />}
+                {(loadingOrg || loadingProviders || loadingOrgHarnesses) && <CircularProgress size={15} />}
               </Stack>
             </Box>
 
             <Box sx={{ minHeight: 0, flex: 1, overflowY: 'auto', p: 1 }}>
-              {visibleModels.map((model) => {
-                const selected = value?.runtime === runtime
-                  && value?.credential_type === credentialType
-                  && value?.model === model.id
-                  && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || ''))
-                return (
-                  <Button
-                    key={model.key}
-                    fullWidth
-                    onClick={() => chooseModel(model)}
-                    sx={{
-                      minHeight: 52,
-                      px: 1.25,
-                      py: 0.75,
-                      mb: 0.25,
-                      borderRadius: 1,
-                      justifyContent: 'flex-start',
-                      textAlign: 'left',
-                      textTransform: 'none',
-                      bgcolor: selected ? 'action.selected' : 'transparent',
-                      '&:hover': { bgcolor: 'action.hover' },
-                    }}
-                  >
-                    <Box sx={{ minWidth: 0, flex: 1 }}>
-                      <Typography variant="body2" color="text.primary" noWrap>{model.label}</Typography>
-                      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 0.5 }}>
-                        {model.provider
-                          ? <ProviderIcon provider={model.provider} size={13} />
-                          : <AgentHarness runtime={runtime} variant="short" size={13} showTooltip={false} />}
-                        <Typography variant="caption" color="text.secondary" noWrap>{model.providerLabel}</Typography>
-                      </Stack>
-                    </Box>
-                  </Button>
-                )
-              })}
+              {currentModels.map(renderModelOption)}
+              {!query && legacyModels.length > 0 && (
+                <Button
+                  fullWidth
+                  aria-expanded={legacyModelsOpen}
+                  aria-label={`${legacyModelsOpen ? 'Hide' : 'Show'} Legacy models`}
+                  onClick={() => setLegacyModelsOpen((open) => !open)}
+                  sx={{
+                    minHeight: 38,
+                    px: 1.25,
+                    mb: 0.5,
+                    justifyContent: 'space-between',
+                    color: 'text.secondary',
+                    textTransform: 'none',
+                  }}
+                >
+                  <Box component="span">Legacy models ({legacyModels.length})</Box>
+                  <ChevronDown
+                    size={15}
+                    style={{ transform: legacyModelsOpen ? 'rotate(180deg)' : undefined }}
+                  />
+                </Button>
+              )}
+              {(query || legacyModelsOpen) && legacyModels.map(renderModelOption)}
               {!loadingProviders && visibleModels.length === 0 && (
                 <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 2 }}>
-                  No models found
+                  {selectableRuntimes.length === 0
+                    ? 'No coding agents are enabled for this organization yet.'
+                    : 'No models found'}
                 </Typography>
               )}
             </Box>
+
           </Stack>
         </Stack>
       </Popover>
+
+      <NoCodeAgentsDialog open={noAgentsOpen} onClose={() => setNoAgentsOpen(false)} />
     </>
   )
 }

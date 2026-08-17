@@ -4279,6 +4279,46 @@
                 }
             }
         },
+        "/api/v1/codex-subscriptions/login/{sessionId}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stop and remove the temporary sandbox used for Codex device authentication",
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Cancel a Codex login session",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/codex-subscriptions/poll-login/{sessionId}": {
             "get": {
                 "security": [
@@ -4323,11 +4363,21 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Launch a temporary container and start Codex device authentication",
+                "description": "Launch a temporary headless sandbox and start Codex device authentication",
                 "tags": [
                     "Codex"
                 ],
                 "summary": "Start a Codex login session",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.StartCodexLoginRequest"
+                            }
+                        }
+                    },
+                    "description": "Optional organization whose Codex harness should be enabled"
+                },
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -10854,6 +10904,95 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/types.OrgUserLookupResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/code-agent-harnesses": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every selectable coding-agent harness, whether the organization enabled it, and whether the requesting user can use its subscription mode.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List an organization's coding-agent harnesses",
+                "parameters": [
+                    {
+                        "description": "Organization ID or name",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.OrgCodeAgentHarnessStatus"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Enables or disables coding-agent harnesses and selects either subscription mode or API-provider mode for each harness. Harnesses omitted from the request are left unchanged. Models are selected per task.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update an organization's coding-agent harnesses",
+                "parameters": [
+                    {
+                        "description": "Organization ID or name",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.OrgCodeAgentHarnessesUpdateRequest"
+                            }
+                        }
+                    },
+                    "description": "Harnesses to update",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.OrgCodeAgentHarnessStatus"
+                                    }
                                 }
                             }
                         }
@@ -20546,6 +20685,54 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/agent-startup-error": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Called by the settings-sync daemon when the session's Zed configuration is rejected. Atomically fails the latest waiting interaction so the task does not remain on an infinite spinner.",
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Report a fatal in-container agent configuration error",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.AgentStartupErrorRequest"
+                            }
+                        }
+                    },
+                    "description": "Fatal startup error",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.AgentStartupErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/archive": {
             "patch": {
                 "security": [
@@ -30039,6 +30226,28 @@
                     }
                 }
             },
+            "server.AgentStartupErrorRequest": {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.AgentStartupErrorResponse": {
+                "type": "object",
+                "properties": {
+                    "interaction_id": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "transitioned": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "server.AppClaudeSubscriptionStatus": {
                 "type": "object",
                 "properties": {
@@ -34733,6 +34942,10 @@
                     "name": {
                         "type": "string"
                     },
+                    "organization_id": {
+                        "description": "OrganizationID identifies the org whose Claude Code harness is enabled\nafter connection. It is independent from subscription ownership.",
+                        "type": "string"
+                    },
                     "owner_id": {
                         "description": "Required for org-level, auto-set for user",
                         "type": "string"
@@ -34758,6 +34971,10 @@
                         "$ref": "#/components/schemas/types.CodexAuthCredentials"
                     },
                     "name": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "description": "OrganizationID identifies the org whose Codex harness is enabled after\nconnection. It is independent from subscription ownership.",
                         "type": "string"
                     },
                     "owner_id": {
@@ -37802,6 +38019,63 @@
                     },
                     "total_tokens": {
                         "type": "integer"
+                    }
+                }
+            },
+            "types.OrgCodeAgentHarnessStatus": {
+                "type": "object",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "provider_refs": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "runtime": {
+                        "$ref": "#/components/schemas/types.CodeAgentRuntime"
+                    },
+                    "subscription_enabled": {
+                        "type": "boolean"
+                    },
+                    "supports_subscription": {
+                        "type": "boolean"
+                    },
+                    "viewer_has_subscription": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "types.OrgCodeAgentHarnessUpdate": {
+                "type": "object",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "provider_refs": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "runtime": {
+                        "$ref": "#/components/schemas/types.CodeAgentRuntime"
+                    },
+                    "subscription_enabled": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "types.OrgCodeAgentHarnessesUpdateRequest": {
+                "type": "object",
+                "properties": {
+                    "harnesses": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.OrgCodeAgentHarnessUpdate"
+                        }
                     }
                 }
             },
@@ -43246,6 +43520,15 @@
                         "items": {
                             "$ref": "#/components/schemas/types.SpecTaskZedThread"
                         }
+                    }
+                }
+            },
+            "types.StartCodexLoginRequest": {
+                "type": "object",
+                "properties": {
+                    "organization_id": {
+                        "description": "OrganizationID identifies the org whose Codex harness is enabled after\nthe device flow succeeds.",
+                        "type": "string"
                     }
                 }
             },

@@ -204,6 +204,9 @@ func (s *HelixAPIServer) validateCodeAgentExecutionConfig(
 	default:
 		return fmt.Errorf("unsupported code-agent runtime %q", config.Runtime)
 	}
+	if err := s.validateOrgCodeAgentHarness(ctx, organizationID, config.Runtime, config.CredentialType, config.ProviderRef); err != nil {
+		return err
+	}
 	if config.CredentialType != types.CodeAgentCredentialTypeAPIKey &&
 		config.CredentialType != types.CodeAgentCredentialTypeSubscription {
 		return fmt.Errorf("unsupported credential type %q", config.CredentialType)
@@ -237,6 +240,37 @@ func (s *HelixAPIServer) validateCodeAgentExecutionConfig(
 		return fmt.Errorf("%s", reason)
 	}
 	return nil
+}
+
+func isDeferredNativeHarnessProjectConfig(config *types.CodeAgentExecutionConfig) bool {
+	if config == nil || config.CredentialType != types.CodeAgentCredentialTypeAPIKey ||
+		config.ProviderRef != "" || config.Model != "" {
+		return false
+	}
+	return config.Runtime == types.CodeAgentRuntimeClaudeCode ||
+		config.Runtime == types.CodeAgentRuntimeCodexCLI
+}
+
+// Projects choose a harness, while each task chooses the credential source and
+// model. Native harness projects therefore persist a runtime-only API default;
+// the complete config is selected and validated when a task is created.
+func (s *HelixAPIServer) validateProjectCodeAgentConfig(
+	ctx context.Context,
+	config *types.CodeAgentExecutionConfig,
+	actorID string,
+	ownerID string,
+	organizationID string,
+) error {
+	if !isDeferredNativeHarnessProjectConfig(config) {
+		return s.validateCodeAgentExecutionConfig(ctx, config, actorID, ownerID, organizationID)
+	}
+	return s.validateOrgCodeAgentHarness(
+		ctx,
+		organizationID,
+		config.Runtime,
+		config.CredentialType,
+		"",
+	)
 }
 
 func taskAgentExecutionConfig(config *types.CodeAgentExecutionConfig) *types.AgentExecutionConfig {

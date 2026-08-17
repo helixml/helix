@@ -47,7 +47,10 @@ vi.mock("../widgets/OrganizationUserAvatar", () => ({
   resolveOrganizationUser: () => undefined,
 }));
 vi.mock("./GooseRecipeSelector", () => ({ default: () => null }));
-vi.mock("../agent/CodingAgentForm", () => ({ default: () => null }));
+vi.mock("../agent/CodingAgentForm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/CodingAgentForm")>()),
+  default: () => null,
+}));
 vi.mock("./SpecTaskExecutionControls", () => ({ default: () => null }));
 
 describe("NewSpecTaskForm", () => {

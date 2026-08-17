@@ -1212,6 +1212,16 @@ export interface ServerAgentSandboxesDebugResponse {
   sandboxes?: ServerSandboxInstanceInfo[];
 }
 
+export interface ServerAgentStartupErrorRequest {
+  error?: string;
+}
+
+export interface ServerAgentStartupErrorResponse {
+  interaction_id?: string;
+  status?: string;
+  transitioned?: boolean;
+}
+
 export interface ServerAppClaudeSubscriptionStatus {
   /** owner has a subscription connected at all */
   connected?: boolean;
@@ -3317,6 +3327,11 @@ export interface TypesCreateClaudeSubscriptionRequest {
     claudeAiOauth?: TypesClaudeOAuthCredentials;
   };
   name?: string;
+  /**
+   * OrganizationID identifies the org whose Claude Code harness is enabled
+   * after connection. It is independent from subscription ownership.
+   */
+  organization_id?: string;
   /** Required for org-level, auto-set for user */
   owner_id?: string;
   /** "user" or "org" */
@@ -3328,6 +3343,11 @@ export interface TypesCreateClaudeSubscriptionRequest {
 export interface TypesCreateCodexSubscriptionRequest {
   credentials?: TypesCodexAuthCredentials;
   name?: string;
+  /**
+   * OrganizationID identifies the org whose Codex harness is enabled after
+   * connection. It is independent from subscription ownership.
+   */
+  organization_id?: string;
   owner_id?: string;
   owner_type?: TypesOwnerType;
 }
@@ -4710,6 +4730,26 @@ export interface TypesOpenAIUsage {
   completion_tokens?: number;
   prompt_tokens?: number;
   total_tokens?: number;
+}
+
+export interface TypesOrgCodeAgentHarnessStatus {
+  enabled?: boolean;
+  provider_refs?: string[];
+  runtime?: TypesCodeAgentRuntime;
+  subscription_enabled?: boolean;
+  supports_subscription?: boolean;
+  viewer_has_subscription?: boolean;
+}
+
+export interface TypesOrgCodeAgentHarnessUpdate {
+  enabled?: boolean;
+  provider_refs?: string[];
+  runtime?: TypesCodeAgentRuntime;
+  subscription_enabled?: boolean;
+}
+
+export interface TypesOrgCodeAgentHarnessesUpdateRequest {
+  harnesses?: TypesOrgCodeAgentHarnessUpdate[];
 }
 
 export interface TypesOrgComputeUsage {
@@ -7297,6 +7337,14 @@ export interface TypesSpecTaskZedThreadCreateRequest {
 export interface TypesSpecTaskZedThreadListResponse {
   total?: number;
   zed_threads?: TypesSpecTaskZedThread[];
+}
+
+export interface TypesStartCodexLoginRequest {
+  /**
+   * OrganizationID identifies the org whose Codex harness is enabled after
+   * the device flow succeeds.
+   */
+  organization_id?: string;
 }
 
 export interface TypesStartPlanningOptions {
@@ -10247,6 +10295,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Stop and remove the temporary sandbox used for Codex device authentication
+     *
+     * @tags Codex
+     * @name V1CodexSubscriptionsLoginDelete
+     * @summary Cancel a Codex login session
+     * @request DELETE:/api/v1/codex-subscriptions/login/{sessionId}
+     * @secure
+     */
+    v1CodexSubscriptionsLoginDelete: (sessionId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, any>({
+        path: `/api/v1/codex-subscriptions/login/${sessionId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Return device authentication instructions or persist completed credentials
      *
      * @tags Codex
@@ -10265,7 +10331,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Launch a temporary container and start Codex device authentication
+     * @description Launch a temporary headless sandbox and start Codex device authentication
      *
      * @tags Codex
      * @name V1CodexSubscriptionsStartLoginCreate
@@ -10273,11 +10339,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/codex-subscriptions/start-login
      * @secure
      */
-    v1CodexSubscriptionsStartLoginCreate: (params: RequestParams = {}) =>
+    v1CodexSubscriptionsStartLoginCreate: (body: TypesStartCodexLoginRequest, params: RequestParams = {}) =>
       this.request<ServerCodexLoginSessionResponse, any>({
         path: `/api/v1/codex-subscriptions/start-login`,
         method: "POST",
+        body: body,
         secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -12876,6 +12944,46 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns every selectable coding-agent harness, whether the organization enabled it, and whether the requesting user can use its subscription mode.
+     *
+     * @tags organizations
+     * @name V1OrganizationsCodeAgentHarnessesDetail
+     * @summary List an organization's coding-agent harnesses
+     * @request GET:/api/v1/organizations/{org_id}/code-agent-harnesses
+     * @secure
+     */
+    v1OrganizationsCodeAgentHarnessesDetail: (orgId: string, params: RequestParams = {}) =>
+      this.request<TypesOrgCodeAgentHarnessStatus[], any>({
+        path: `/api/v1/organizations/${orgId}/code-agent-harnesses`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Enables or disables coding-agent harnesses and selects either subscription mode or API-provider mode for each harness. Harnesses omitted from the request are left unchanged. Models are selected per task.
+     *
+     * @tags organizations
+     * @name V1OrganizationsCodeAgentHarnessesUpdate
+     * @summary Update an organization's coding-agent harnesses
+     * @request PUT:/api/v1/organizations/{org_id}/code-agent-harnesses
+     * @secure
+     */
+    v1OrganizationsCodeAgentHarnessesUpdate: (
+      orgId: string,
+      request: TypesOrgCodeAgentHarnessesUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrgCodeAgentHarnessStatus[], any>({
+        path: `/api/v1/organizations/${orgId}/code-agent-harnesses`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -16565,6 +16673,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/agent-config-applied`,
         method: "POST",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Called by the settings-sync daemon when the session's Zed configuration is rejected. Atomically fails the latest waiting interaction so the task does not remain on an infinite spinner.
+     *
+     * @tags Sessions
+     * @name V1SessionsAgentStartupErrorCreate
+     * @summary Report a fatal in-container agent configuration error
+     * @request POST:/api/v1/sessions/{id}/agent-startup-error
+     * @secure
+     */
+    v1SessionsAgentStartupErrorCreate: (
+      id: string,
+      request: ServerAgentStartupErrorRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerAgentStartupErrorResponse, any>({
+        path: `/api/v1/sessions/${id}/agent-startup-error`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

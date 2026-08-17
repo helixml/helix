@@ -28,12 +28,7 @@ import {
   IApp,
 } from '../types'
 
-const agentTabs = [
-  {
-    value: AGENT_KIND_CODING,
-    label: 'Coding Agents',
-    description: 'External coding harnesses for projects and spec tasks',
-  },
+export const agentTabs = [
   {
     value: AGENT_KIND_HELIX,
     label: 'Helix Agents',
@@ -44,7 +39,14 @@ const agentTabs = [
     label: 'Helix Org Agents',
     description: 'Workers managed through the Helix organization chart',
   },
+  {
+    value: AGENT_KIND_CODING,
+    label: 'Coding Agents (legacy)',
+    description: 'Legacy app-based coding agents retained for removal',
+  },
 ]
+
+export const DEFAULT_AGENT_KIND = AGENT_KIND_HELIX
 
 const Apps: FC = () => {
   const account = useAccount()
@@ -59,7 +61,7 @@ const Apps: FC = () => {
 
   const selectedKind = agentTabs.some((tab) => tab.value === params.kind)
     ? params.kind
-    : AGENT_KIND_CODING
+    : DEFAULT_AGENT_KIND
   const visibleApps = useMemo(
     () => apps.apps.filter((app) => app.agent_kind === selectedKind),
     [apps.apps, selectedKind],

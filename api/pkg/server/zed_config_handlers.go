@@ -54,9 +54,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-// SpecTasks carry a complete execution config and do not resolve a Helix App.
-// General sessions may be App-less; org-agent sessions keep the App as their
-// identity and overlay the session-owned coding execution config.
+	// SpecTasks carry a complete execution config and do not resolve a Helix App.
+	// General sessions may be App-less; org-agent sessions keep the App as their
+	// identity and overlay the session-owned coding execution config.
 	var app *types.App
 	var specTask *types.SpecTask
 	if session.Metadata.SpecTaskID != "" {
@@ -95,6 +95,27 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		app = external_agent.ApplyCodeAgentExecutionConfig(app, session.Metadata.CodeAgentConfig)
 	} else if specTask == nil || specTask.CodeAgentConfig == nil {
 		app = external_agent.ApplyCodeAgentOverrides(app, effectiveCodeAgentOverrides(session, specTask))
+	}
+	if app.OrganizationID == "" {
+		app.OrganizationID = session.OrganizationID
+	}
+	if app.OrganizationID != "" {
+		if assistant := external_agent.FindZedExternalAssistant(app); assistant != nil {
+			runtime := assistant.CodeAgentRuntime
+			if runtime == "" {
+				runtime = types.CodeAgentRuntimeZedAgent
+			}
+			providerRef, _ := acpUsageProviderAndModel(assistant)
+			if err := apiServer.validateOrgCodeAgentHarness(
+				ctx,
+				app.OrganizationID,
+				runtime,
+				assistant.CodeAgentCredentialType,
+				providerRef,
+			); err != nil {
+				return nil, system.NewHTTPError422(err.Error())
+			}
+		}
 	}
 
 	// Generate Zed MCP config
@@ -1084,13 +1105,55 @@ func (apiServer *HelixAPIServer) resolveGooseRecipeFileParams(ctx context.Contex
 // GenerateZedMCPConfig to skip resolution.
 func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, actorID string, app *types.App) ([]external_agent.ProviderRef, error) {
 	if apiServer.providerManager == nil {
+		if app != nil && app.OrganizationID != "" {
+			return []external_agent.ProviderRef{}, nil
+		}
 		return nil, nil
 	}
 	endpoints, err := apiServer.listEndpointsForApp(ctx, actorID, app)
 	if err != nil {
 		return nil, err
 	}
+	if app != nil && app.OrganizationID != "" {
+		assistant := external_agent.FindZedExternalAssistant(app)
+		if assistant != nil {
+			runtime := assistant.CodeAgentRuntime
+			if runtime == "" {
+				runtime = types.CodeAgentRuntimeZedAgent
+			}
+			harness, err := apiServer.loadOrgCodeAgentHarnessPolicy(ctx, app.OrganizationID, runtime)
+			switch {
+			case err != nil:
+				return nil, err
+			case !harness.Enabled:
+				endpoints = []*types.ProviderEndpoint{}
+			case harness.ProviderRefs != nil:
+				endpoints = filterProviderEndpointsByRefs(endpoints, harness.ProviderRefs)
+			}
+		}
+	}
 	return providerSnapshotFromEndpoints(endpoints), nil
+}
+
+func filterProviderEndpointsByRefs(endpoints []*types.ProviderEndpoint, refs []string) []*types.ProviderEndpoint {
+	allowed := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		allowed[ref] = struct{}{}
+	}
+	filtered := make([]*types.ProviderEndpoint, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint == nil {
+			continue
+		}
+		ref := endpoint.ID
+		if ref == "" {
+			ref = endpoint.Name
+		}
+		if _, ok := allowed[ref]; ok {
+			filtered = append(filtered, endpoint)
+		}
+	}
+	return filtered
 }
 
 func providerSnapshotFromEndpoints(endpoints []*types.ProviderEndpoint) []external_agent.ProviderRef {
@@ -1111,11 +1174,10 @@ func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorI
 	if apiServer.providerManager == nil {
 		return nil, nil
 	}
-	owner := actorID
 	if app != nil && app.OrganizationID != "" {
-		owner = app.OrganizationID
+		return apiServer.providerManager.ListProviderEndpointsForOwner(ctx, app.OrganizationID, types.OwnerTypeOrg)
 	}
-	return apiServer.providerManager.ListProviderEndpoints(ctx, owner)
+	return apiServer.providerManager.ListProviderEndpoints(ctx, actorID)
 }
 
 // validateSpecTaskAgentConfig pre-flights the task's provider/model snapshot
@@ -1131,6 +1193,15 @@ func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorI
 // project App links. Startup migration removes those links.
 func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context, task *types.SpecTask, actorID string) (string, error) {
 	if task.CodeAgentConfig != nil {
+		if err := apiServer.validateOrgCodeAgentHarness(
+			ctx,
+			task.OrganizationID,
+			task.CodeAgentConfig.Runtime,
+			task.CodeAgentConfig.CredentialType,
+			task.CodeAgentConfig.ProviderRef,
+		); err != nil {
+			return err.Error(), nil
+		}
 		app := external_agent.AppFromCodeAgentConfig(task.CodeAgentConfig, task.UserID, task.OrganizationID)
 		snapshot, err := apiServer.getProviderSnapshot(ctx, actorID, app)
 		if err != nil {
