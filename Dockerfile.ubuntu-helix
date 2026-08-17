@@ -241,56 +241,41 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 # leaf plugins the composition names (LLM adapter, sandbox, bash, filesystem,
 # approval, compaction, tools), and the runtime copies the tree wholesale.
 #
-# Its own Node: dsh requires "^22.19.0 || >=24.0.0" and the desktop image
-# ships Node 20 for qwen-code and the MCP servers. Bumping that shared Node
-# to satisfy one harness would put every other npm consumer on an untested
-# runtime, so dsh gets a private interpreter under /opt/helix/dsh/bin/node
-# instead. Debian bookworm's glibc is older than the runtime image's, so the
-# binary keeps working there (glibc is forward compatible, not backward).
+# The stage's Node major must match the runtime image's (Node 24, installed
+# from nodesource below). node-pty is compiled here, and a native module built
+# against one NODE_MODULE_VERSION will not load under another; within a major
+# that value is stable, so a patch-level drift between the two is fine.
 #
-# Version pinning: dsh is in developer preview and upstream states there will
-# be compatibility-breaking changes, so DSH_VERSION is exact — never a range.
-# The @latest dist-tag on the plugin packages is a 0.0.1-rc.1 placeholder;
-# the real releases are published under @next, which is why every package is
-# requested at an explicit version.
+# Version pinning is a committed lockfile, not a version string. Naming exact
+# versions here is NOT enough: dsh-acp-demo pulls its plugin set in as *peer*
+# dependencies, which npm resolves by range (`^0.1.0-rc.6`), so a newly
+# published rc drifts in underneath the pins and collides with them — exactly
+# what happened when upstream cut rc.7 mid-build. desktop/shared/dsh/
+# package.json + package-lock.json pin the whole 181-package tree, peers
+# included, and `npm ci` installs it byte-for-byte or fails.
+#
+# To move dsh: edit the versions in package.json, run `npm install` in that
+# directory to refresh the lock, and re-test the composition. Upstream is in
+# developer preview and states there WILL be compatibility-breaking changes,
+# so treat every bump as a change that needs a live turn to verify.
 FROM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS dsh-build
-ARG DSH_VERSION=0.1.0-rc.6
 WORKDIR /opt/helix/dsh
 # node-pty is a hard dependency of dsh-subprocess-local (the bash executor's
 # process plumbing) and publishes no prebuild for Node 24, so it is compiled
-# from source here. These toolchain packages stay in this stage — the runtime
-# image only receives the resulting node_modules tree.
+# from source here. This is the whole reason dsh gets a build stage rather than
+# a plain npm install in the runtime image: the toolchain stays here and only
+# the resulting node_modules tree is copied out.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends build-essential python3 && \
     rm -rf /var/lib/apt/lists/*
+COPY desktop/shared/dsh/package.json desktop/shared/dsh/package-lock.json ./
 RUN <<_INSTALL_DSH
 set -eu
-echo "=== Installing DeepSeek Harness ACP server ${DSH_VERSION} ==="
-npm init -y > /dev/null
-# One `npm install` so the whole set resolves against a single lockfile.
-# @deepseek-ai/dsh-acp-demo declares its plugin dependencies as peers; npm
-# installs those automatically, but the leaf plugins the composition loads
-# (cordis.yml below) are not peers of anything and must be named here.
-npm install --no-audit --no-fund --omit=dev \
-  "@deepseek-ai/dsh-acp-demo@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-llm-pi-ai@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-sandbox-local@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-sandbox-policy@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-subprocess-local@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-bash-sandbox@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-user-approval@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-token-meter@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-compaction-basic@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-fs-sandbox@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-fs-observation-policy@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-tool-fs@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-tool-fs-search@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-tool-todo@${DSH_VERSION}" \
-  "@deepseek-ai/dsh-session-projection@${DSH_VERSION}"
+echo "=== Installing DeepSeek Harness ACP server ==="
+npm ci --no-audit --no-fund --omit=dev
 npm cache clean --force > /dev/null 2>&1 || true
-mkdir -p bin
-cp "$(command -v node)" bin/node
-echo "${DSH_VERSION}" > version
+node -p "'dsh-acp-demo ' + require('@deepseek-ai/dsh-acp-demo/package.json').version" > version
+cat version
 _INSTALL_DSH
 
 # ====================================================================
@@ -821,12 +806,22 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /usr/share/backgrounds && \
     wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
 
-# Node.js 20 (for Qwen Code and chrome-devtools-mcp)
+# Node.js 24 — the active LTS line, and the runtime for every Node consumer in
+# this image: Qwen Code, chrome-devtools-mcp, the GitHub MCP server, the Drone
+# CI MCP server, the DeepSeek Harness ACP server, and the Claude Code / Codex
+# ACP wrappers Zed bootstraps through npm at session start.
+#
+# Node 20 left maintenance in 2026 and is below DeepSeek Harness's supported
+# floor (^22.19.0 || >=24.0.0). Qwen Code is still *built* against node:20-slim
+# (Dockerfile.qwen-code-build) but runs on this interpreter; its three bundled
+# native modules (@rollup/rollup-linux-x64-gnu, @lydell/node-pty-linux-x64,
+# @teddyzhu/clipboard-linux-x64-gnu) are all N-API, so they are ABI-independent
+# and load unchanged here.
 RUN apt-get update && \
     apt-get install -y ca-certificates curl gnupg git && \
     mkdir -p /etc/apt/keyrings && \
     curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
     apt-get update && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
@@ -1377,13 +1372,15 @@ ADD --chown=root:root desktop/shared/dsh/cordis.yml /opt/helix/dsh/cordis.yml
 ADD --chown=root:root desktop/shared/dsh/dsh-acp /usr/local/bin/dsh-acp
 RUN <<_INSTALL_DSH_RUNTIME
 set -eu
-chmod 755 /usr/local/bin/dsh-acp /opt/helix/dsh/bin/node
+chmod 755 /usr/local/bin/dsh-acp
 # $DSH_HOME (skills, credentials) and the JSONL session log are written at
 # runtime under paths settings-sync-daemon owns; nothing under /opt/helix/dsh
 # is written to after this point.
 chmod -R go-w /opt/helix/dsh
-echo "=== DeepSeek Harness $(cat /opt/helix/dsh/version) ==="
-/opt/helix/dsh/bin/node --version
+echo "=== DeepSeek Harness $(cat /opt/helix/dsh/version) on $(node --version) ==="
+# Fails the build if the runtime Node cannot load the natively-compiled
+# node-pty from the build stage — the one thing a Node major bump would break.
+node -e "require('/opt/helix/dsh/node_modules/node-pty'); console.log('node-pty OK')"
 _INSTALL_DSH_RUNTIME
 
 WORKDIR /

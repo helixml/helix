@@ -5,11 +5,8 @@
 # cordis composition (@deepseek-ai/dsh-acp-demo) — so this wrapper is the
 # stable command name settings-sync-daemon writes into agent_servers.
 #
-# Two things it must get right:
-#   - Run the private Node 24 under /opt/helix/dsh, not the image's Node 20,
-#     which is below dsh's supported floor.
-#   - Leave stdout untouched. It is the ACP JSON-RPC wire; diagnostics from
-#     this script or the harness go to stderr.
+# It must leave stdout untouched: stdout is the ACP JSON-RPC wire, so
+# diagnostics from this script or the harness go to stderr.
 #
 # The working directory is inherited from Zed and becomes the composition's
 # workspace root and sandbox root, so it is not overridden here.
@@ -17,7 +14,7 @@ set -eu
 
 DSH_ROOT=/opt/helix/dsh
 
-exec "${DSH_ROOT}/bin/node" \
+exec node \
   "${DSH_ROOT}/node_modules/@deepseek-ai/dsh-acp-demo/lib/bin.js" \
   --config "${DSH_ROOT}/cordis.yml" \
   "$@"

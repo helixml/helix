@@ -82,6 +82,35 @@
 
       Verify your work by running the code or its tests. Keep answers brief and factual.
 
+# MCP servers, mounted here rather than handed over the protocol.
+#
+# Zed passes the project's context servers in `session/new.mcpServers`, and
+# dsh's ACP transport REJECTS a non-empty list outright
+# (-32602 "mcpServers is not supported"), which fails session creation and
+# leaves the task hanging with no visible error. settings-sync-daemon
+# therefore withholds context_servers from settings.json for this runtime and
+# writes the same set here instead, as one dsh-mcp-client entry per server —
+# which is where dsh expects MCP servers to be configured. The model sees the
+# usual `mcp__<server>__<tool>` names either way.
+#
+# The file is per-session (it carries that session's bearer tokens) and
+# rewritten on every settings sync. `initial: []` covers a session with no MCP
+# servers and the window before the daemon's first write.
+#
+# The path is a literal, not `!!js process.env.…`: the loader resolves an
+# include's `path` without evaluating js tags, so an env reference silently
+# arrives as "" and fails with `extension "" not supported`. It is kept in
+# lockstep with DeepSeekHarnessMCPConfigPath in
+# api/cmd/settings-sync-daemon/deepseek_harness.go.
+#
+# The daemon writes the file read-only so include's write-back path stays off
+# — the daemon is the only writer.
+- id: mcp-servers
+  name: '@deepseek-ai/cordis-plugin-include'
+  config:
+    path: /home/retro/.config/helix-dsh/mcp.cordis.json
+    initial: []
+
 # Context pressure: measure it, then summarize an older range before the
 # provider would overflow. Ratios scale against the routed model's window,
 # which for a hand-declared model is the route's 262144-token fallback.

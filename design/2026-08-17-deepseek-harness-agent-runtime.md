@@ -26,9 +26,10 @@ So the integration owns a composition file, not just a command line:
 
 | Piece | Lives at | Why there |
 |---|---|---|
+| Manifest | `desktop/shared/dsh/package.json` + `package-lock.json` | The exact plugin tree, so `npm ci` is reproducible |
 | Composition | `desktop/shared/dsh/cordis.yml` | A repo file, so plugin choices are reviewable in a diff and testable outside the image |
-| Launcher | `desktop/shared/dsh/dsh-acp` | A stable command name for `agent_servers`, and the thing that selects the private Node |
-| Install | `Dockerfile.ubuntu-helix` (`dsh-build` stage) | npm tree + its own Node, copied root-owned into the runtime image |
+| Launcher | `desktop/shared/dsh/dsh-acp` | A stable command name for `agent_servers`, and the one place the composition path is spelled |
+| Install | `Dockerfile.ubuntu-helix` (`dsh-build` stage) | npm tree incl. a natively-built node-pty, copied root-owned into the runtime image |
 | Per-session values | `api/cmd/settings-sync-daemon/deepseek_harness.go` | Base URL, model, API key, `$DSH_HOME`, sessions root |
 
 The composition is static and env-driven. A configuration change is a YAML
@@ -52,16 +53,72 @@ workspace until the turn timed out. The container *is* the sandbox — one
 session, one workspace — so this is dsh's equivalent of `--yolo` for qwen and
 `permission: "allow"` for opencode.
 
-**Its own Node interpreter.** dsh requires `^22.19.0 || >=24.0.0`; the desktop
-image ships Node 20 for qwen-code and the MCP servers. Moving that shared Node
-to satisfy one harness would put every other npm consumer on an untested
-runtime, so dsh gets a private interpreter at `/opt/helix/dsh/bin/node`. It is
-copied out of `node:24-bookworm-slim`, whose glibc is older than the runtime
-image's — glibc is forward compatible, so the binary keeps working.
+**Node 24 across the image.** dsh requires `^22.19.0 || >=24.0.0`; the desktop
+image shipped Node 20, which is also out of maintenance, so the shared
+interpreter moves to the Node 24 LTS line rather than dsh carrying a private
+one. Every Node consumer in the image moves with it: Qwen Code,
+chrome-devtools-mcp, the GitHub MCP server, the Drone CI MCP server, and the
+Claude Code / Codex ACP wrappers Zed bootstraps through npm.
+
+Qwen Code is still *built* against `node:20-slim` and only runs on the image's
+interpreter. Its three bundled native modules — `@rollup/rollup-linux-x64-gnu`,
+`@lydell/node-pty-linux-x64`, `@teddyzhu/clipboard-linux-x64-gnu` — were each
+loaded under Node 24 (`process.dlopen`, MODULE_VERSION 137) before the bump and
+all succeeded, so they are N-API and ABI-independent.
 
 `node-pty` (a hard dependency of `dsh-subprocess-local`, the bash executor's
 process plumbing) publishes no prebuild for Node 24 and is compiled in the
-build stage; the toolchain does not reach the runtime image.
+`dsh-build` stage; the toolchain does not reach the runtime image. That native
+module is the one thing a future Node major bump would silently break, so the
+runtime layer `require()`s it as a build gate: the stage's Node major and the
+image's must agree, and the build fails loudly if they drift.
+
+## MCP servers cannot ride ACP for this harness
+
+Zed puts the project's context servers in `session/new.mcpServers`
+(`mcp_servers_for_project`, zed `crates/agent_servers/src/acp.rs:4601`). dsh's
+ACP transport **rejects a non-empty list outright**:
+
+```
+session/new params: { cwd: '/home/retro/work', mcpServers: [ [Object] x3 ] }
+-32602 Invalid params: mcpServers is not supported
+```
+
+Session creation fails, Zed surfaces nothing to the UI, and the task simply
+hangs. This is stated in the upstream README ("empty `additionalDirectories`
+and `mcpServers` are accepted, non-empty values reject") and was still missed
+here, because every pre-Zed probe passed `mcpServers: []`.
+
+Zed has no per-agent filter and stdio MCP carries no ACP capability bit to gate
+on, so the only Helix-side lever is to withhold the servers:
+`contextServersForZed()` returns an empty map for this runtime alone.
+
+The capability is **moved, not dropped**. `writeDeepSeekHarnessMCPConfig`
+renders the same servers as `@deepseek-ai/dsh-mcp-client` loader entries — one
+per server, Zed's `command` shape becoming stdio and its `url` shape becoming
+streamable-http — into a JSON file the composition pulls in with
+`@deepseek-ai/cordis-plugin-include`. The model sees the same
+`mcp__<server>__<tool>` names it would have either way.
+
+Three details are load-bearing:
+
+- **The include path is a literal, not `!!js process.env.…`.** The loader
+  resolves an include's `path` *without* evaluating js tags, so an env
+  reference arrives as `""` and fails with `extension "" not supported`. The
+  path is therefore duplicated between `cordis.yml` and
+  `DeepSeekHarnessMCPConfigPath`, and the comments on both point at each other.
+- **The file is written 0400, via temp + rename.** `cordis-plugin-include`
+  writes entries back when the file is writable; read-only keeps the daemon the
+  sole writer, and the atomic install means the agent never reads a partial
+  file.
+- **It is rewritten even when there are no servers.** A stale file from a
+  previous agent would otherwise leak that agent's servers *and its bearer
+  tokens* into this session.
+
+The residual cost of this route: Zed's own agent panel in a dsh session has no
+MCP tools, because `context_servers` is shared state. Fixing that properly
+means teaching Zed not to send `mcpServers` to agents that cannot take them,
+which is a cross-repo change.
 
 ## Verification
 
@@ -77,8 +134,13 @@ turn driven over stdio by a minimal client:
 - a second run outside Docker wrote a file and ran `cat` through the bash
   executor; the file was verified on disk afterwards, so the tools really ran
   rather than being described
+- with a real Helix `helix-session` MCP server mounted through the include
+  file, the agent called `mcp__helix-session__current_session` and returned the
+  live session id — a value only the MCP server could supply, so the mounted
+  MCP path is confirmed rather than merely loading without error
 - `require('node-pty')` succeeds inside the built image, confirming the native
-  module survived npm 11's blocked-lifecycle-scripts default
+  module survived npm 11's blocked-lifecycle-scripts default; this is now a
+  build-time gate rather than a manual check
 
 **Automated.** `cmd/settings-sync-daemon` (agent_servers shape, env contents,
 localhost rewriting, and the three defer-without-credentials cases);
@@ -89,9 +151,11 @@ pass: `go build ./api/pkg/server/ ./api/pkg/store/ ./api/pkg/types/
 
 ## What is NOT verified
 
-- **Never run under Zed.** Every turn above was driven by a hand-written ACP
-  client, not by Zed's ACP client against a live spec task. The desktop image
-  has not been rebuilt and no session has used this runtime.
+- **No successful turn under Zed yet.** Two live spec tasks have run. The
+  first, on a stale image, failed with `Custom agent server 'dsh' is not
+  registered`. The second registered and spawned the agent correctly, then
+  died on the `mcpServers` rejection above. Both failures are fixed, but a
+  green Zed→dsh turn has not been observed.
 - **The Helix proxy path is proven only up to the proxy.** Requests from dsh
   reached this dev stack's `/v1/chat/completions` and came back with a Helix
   error (`failed to check balance: … org_id not specified`) that every API key
@@ -99,7 +163,10 @@ pass: `go build ./api/pkg/server/ ./api/pkg/store/ ./api/pkg/types/
   integration one. The turns above therefore ran against `api.openai.com`
   through the same `llm-pi-ai` route. The Helix-specific hop that remains
   unexercised is provider-prefixed model routing under a working org.
-- **No `--version`-style smoke test in the runtime layer**, only `node --version`.
+- **Non-dsh Node consumers are unexercised under Node 24.** qwen-code's native
+  modules were checked directly, but chrome-devtools-mcp, the GitHub and Drone
+  MCP servers, and the Claude Code / Codex ACP wrappers have only been built,
+  not run, on the new interpreter.
 
 ## Known limitations of the upstream ACP server
 
@@ -125,14 +192,34 @@ automation-only, and they are worse than what the other harnesses give Zed:
   sending a level a model rejects is a hard 400 that aborts the turn (see the
   `qwen3.8-27b` case in CLAUDE.md), so sending nothing is the safe default.
 
-## Version pinning
+## Version pinning is a lockfile, not a version string
 
-`DSH_VERSION` in `Dockerfile.ubuntu-helix` is an exact version, never a range:
-upstream states dsh is in developer preview and that there **will** be
-compatibility-breaking changes. Note also that the `@latest` dist-tag on the
-plugin packages is a `0.0.1-rc.1` placeholder — real releases are published
-under `@next` — which is why every package is requested at an explicit version
-rather than a tag.
+Naming exact versions in the Dockerfile is **not** enough, and this bit us
+mid-development. `dsh-acp-demo` pulls its plugin set in as *peer*
+dependencies, which npm resolves by range (`^0.1.0-rc.6`). When upstream cut
+`0.1.0-rc.7`, npm satisfied that peer with rc.7 while our explicit pins stayed
+at rc.6, and the install died on a conflict between the two:
+
+```
+peer @deepseek-ai/dsh-user-approval@"^0.1.0-rc.7" from @deepseek-ai/dsh-acp@0.1.0-rc.7
+  peer @deepseek-ai/dsh-acp@"^0.1.0-rc.6" from @deepseek-ai/dsh-acp-demo@0.1.0-rc.6
+```
+
+The first build had only passed because it ran before rc.7 was published, and
+the second reused a cached layer — so the pinning looked like it worked right
+up until a layer was invalidated. That is the worst kind of non-reproducible
+build.
+
+`desktop/shared/dsh/package.json` + `package-lock.json` now pin the whole
+181-package tree, peers included, and the image installs with `npm ci`, which
+either reproduces that tree exactly or fails. To move dsh: edit the versions in
+`package.json`, run `npm install` there to refresh the lock, and re-test the
+composition with a live turn — upstream is in developer preview and states
+there **will** be compatibility-breaking changes.
+
+Note also that the `@latest` dist-tag on the plugin packages is a `0.0.1-rc.1`
+placeholder; real releases are published under `@next`, which is why the
+manifest names explicit versions rather than a tag.
 
 Unlike opencode, there is **no admin version-override setting**. opencode has
 one because it ships a single self-contained binary with published digests;
