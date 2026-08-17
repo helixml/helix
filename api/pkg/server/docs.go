@@ -9111,7 +9111,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Enables or disables coding-agent harnesses and controls which subscription and provider sources each harness may use. Harnesses omitted from the request are left unchanged. Models are selected per task.",
+                "description": "Enables or disables coding-agent harnesses and selects either subscription mode or API-provider mode for each harness. Harnesses omitted from the request are left unchanged. Models are selected per task.",
                 "tags": [
                     "organizations"
                 ],

@@ -137,6 +137,7 @@ function providersAllowedForHarness(
 ): TypesProviderEndpoint[] {
   const compatible = providersForCodeAgentRuntime(providers, runtime)
     .filter(providerEndpointIsConnected)
+  if (enforceOrgPolicy && harness?.subscription_enabled === true) return []
   if (!enforceOrgPolicy || harness?.provider_refs == null) return compatible
   const allowed = new Set(harness.provider_refs)
   return compatible.filter((provider) => allowed.has(providerRef(provider)))
@@ -278,9 +279,10 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   const selectedSourceAllowed = selectedProviderRuntimeCompatible
     && (!orgName
       || (value?.credential_type === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
-      ? configuredRuntimeStatus?.subscription_enabled !== false
+      ? configuredRuntimeStatus?.subscription_enabled === true
         && !!configuredRuntimeStatus?.viewer_has_subscription
       : !!value?.provider_ref && selectedProviderRuntimeCompatible
+        && configuredRuntimeStatus?.subscription_enabled !== true
         && (configuredRuntimeStatus?.provider_refs == null
         || configuredRuntimeStatus.provider_refs.includes(value.provider_ref))))
   const selectedConfigurationAllowed = selectedRuntimeEnabled && selectedSourceAllowed
@@ -298,12 +300,12 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   )
   const claudeSubscriptionDefaultAvailable = orgName
     ? !!claudeStatus?.enabled
-      && claudeStatus.subscription_enabled !== false
+      && claudeStatus.subscription_enabled === true
       && !!claudeStatus.viewer_has_subscription
     : !!claudeSubscriptions?.some((subscription) => subscription.owner_type === 'user')
   const codexSubscriptionDefaultAvailable = orgName
     ? !!codexStatus?.enabled
-      && codexStatus.subscription_enabled !== false
+      && codexStatus.subscription_enabled === true
       && !!codexStatus.viewer_has_subscription
     : !!codexSubscriptions?.some((subscription) => subscription.owner_type === 'user')
 
@@ -351,7 +353,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
 
   const subscriptionAvailable = orgName
     ? isSubscriptionRuntime(runtime)
-      && runtimeStatus?.subscription_enabled !== false
+      && runtimeStatus?.subscription_enabled === true
       && !!runtimeStatus?.viewer_has_subscription
     : isSubscriptionRuntime(runtime) && (runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
       ? !!claudeSubscriptions?.some((subscription) => subscription.owner_type === 'user')

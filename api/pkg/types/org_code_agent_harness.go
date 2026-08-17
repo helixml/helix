@@ -19,8 +19,9 @@ type OrgCodeAgentHarness struct {
 	OrganizationID string           `json:"organization_id" gorm:"uniqueIndex:idx_org_code_agent_harness"`
 	Runtime        CodeAgentRuntime `json:"runtime" gorm:"uniqueIndex:idx_org_code_agent_harness"`
 	Enabled        bool             `json:"enabled"`
-	// Nil preserves the pre-source-policy behaviour where subscription mode is
-	// allowed for runtimes that support it. An explicit false disables it.
+	// Subscription mode is opt-in. Nil is treated as disabled so legacy rows
+	// remain in API-provider mode until an owner explicitly connects or selects
+	// a subscription.
 	SubscriptionEnabled *bool `json:"subscription_enabled"`
 	// Nil preserves the pre-allow-list behaviour where every provider visible
 	// to the organization is allowed. A non-nil empty list allows none. Once an
@@ -60,11 +61,11 @@ type OrgCodeAgentHarnessStatus struct {
 }
 
 func (h *OrgCodeAgentHarness) AllowsProvider(providerRef string) bool {
-	return h.ProviderRefs == nil || slices.Contains(h.ProviderRefs, providerRef)
+	return !h.AllowsSubscription() && (h.ProviderRefs == nil || slices.Contains(h.ProviderRefs, providerRef))
 }
 
 func (h *OrgCodeAgentHarness) AllowsSubscription() bool {
-	return h.SubscriptionEnabled == nil || *h.SubscriptionEnabled
+	return h.SubscriptionEnabled != nil && *h.SubscriptionEnabled
 }
 
 var SubscriptionCodeAgentRuntimes = map[CodeAgentRuntime]bool{

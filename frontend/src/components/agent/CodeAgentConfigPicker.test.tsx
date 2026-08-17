@@ -101,6 +101,7 @@ describe('CodeAgentConfigPicker', () => {
       supports_subscription: runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
         || runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
       viewer_has_subscription: runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+      subscription_enabled: runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
     }))
   })
 
@@ -153,7 +154,7 @@ describe('CodeAgentConfigPicker', () => {
     expect(screen.queryByText('claude-fable-5')).not.toBeInTheDocument()
   })
 
-  it('combines models from settings-enabled subscription and API sources', () => {
+  it('exposes only the credential mode selected in organization settings', () => {
     renderPicker(<CodeAgentConfigPicker onChange={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
 
@@ -162,6 +163,7 @@ describe('CodeAgentConfigPicker', () => {
     expect(screen.getAllByText('Claude subscription').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/Claude Fable 5/).length).toBeGreaterThan(0)
     expect(screen.queryByText('api-model')).not.toBeInTheDocument()
+    expect(screen.queryByText('claude-api-model')).not.toBeInTheDocument()
     expect(screen.queryByText('Credentials')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
@@ -214,6 +216,7 @@ describe('CodeAgentConfigPicker', () => {
     harnessState.harnesses = harnessState.harnesses.map((harness) => ({
       ...harness,
       viewer_has_subscription: harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+      subscription_enabled: harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
     }))
     const onChange = vi.fn()
     renderPicker(<AutoSelectingPicker onChange={onChange} />)
@@ -229,6 +232,7 @@ describe('CodeAgentConfigPicker', () => {
     harnessState.harnesses = harnessState.harnesses.map((harness) => ({
       ...harness,
       viewer_has_subscription: false,
+      subscription_enabled: false,
     }))
     const onChange = vi.fn()
     renderPicker(<AutoSelectingPicker onChange={onChange} />)
@@ -246,6 +250,7 @@ describe('CodeAgentConfigPicker', () => {
     harnessState.harnesses = harnessState.harnesses.map((harness) => ({
       ...harness,
       viewer_has_subscription: false,
+      subscription_enabled: false,
     }))
     const onChange = vi.fn()
     renderPicker(
@@ -270,6 +275,7 @@ describe('CodeAgentConfigPicker', () => {
     harnessState.harnesses = harnessState.harnesses.map((harness) => ({
       ...harness,
       viewer_has_subscription: false,
+      subscription_enabled: false,
     }))
     providerState.providers = providerState.providers.map((provider) =>
       provider.name === 'Anthropic'
@@ -297,6 +303,10 @@ describe('CodeAgentConfigPicker', () => {
   })
 
   it('writes the provider and model selected in chat into the task config', () => {
+    harnessState.harnesses = harnessState.harnesses.map((harness) =>
+      harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
+        ? { ...harness, subscription_enabled: false }
+        : harness)
     const onChange = vi.fn()
     renderPicker(<CodeAgentConfigPicker onChange={onChange} />)
     fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
@@ -321,7 +331,7 @@ describe('CodeAgentConfigPicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Show Legacy models' }))
     expect(screen.getByText('Claude Opus 4.8 (1M context)')).toBeInTheDocument()
-    expect(screen.getByText('claude-api-model')).toBeInTheDocument()
+    expect(screen.queryByText('claude-api-model')).not.toBeInTheDocument()
   })
 
   it('routes to organization settings when no harness is enabled', async () => {
@@ -356,7 +366,7 @@ describe('CodeAgentConfigPicker', () => {
   it('does not mutate an existing task whose provider is no longer allowed', async () => {
     harnessState.harnesses = harnessState.harnesses.map((harness) =>
       harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
-        ? { ...harness, provider_refs: ['provider-2'] }
+        ? { ...harness, subscription_enabled: false, provider_refs: ['provider-2'] }
         : harness)
     const onChange = vi.fn()
     renderPicker(

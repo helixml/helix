@@ -24,19 +24,23 @@ func TestSelectableCodeAgentRuntimes(t *testing.T) {
 
 func TestValidateOrgCodeAgentHarness(t *testing.T) {
 	tests := []struct {
-		name     string
-		row      *types.OrgCodeAgentHarness
-		storeErr error
-		wantErr  string
+		name           string
+		row            *types.OrgCodeAgentHarness
+		storeErr       error
+		credentialType types.CodeAgentCredentialType
+		providerRef    string
+		wantErr        string
 	}{
-		{name: "enabled", row: &types.OrgCodeAgentHarness{Enabled: true}},
-		{name: "provider allowed", row: &types.OrgCodeAgentHarness{Enabled: true, ProviderRefs: []string{"provider-1"}}},
-		{name: "provider denied", row: &types.OrgCodeAgentHarness{Enabled: true, ProviderRefs: []string{"provider-2"}}, wantErr: "is not enabled"},
-		{name: "subscription allowed", row: &types.OrgCodeAgentHarness{Enabled: true}},
-		{name: "subscription denied", row: &types.OrgCodeAgentHarness{Enabled: true, SubscriptionEnabled: boolPointer(false)}, wantErr: "subscription credentials are not enabled"},
-		{name: "disabled", row: &types.OrgCodeAgentHarness{Enabled: false}, wantErr: "not enabled"},
-		{name: "missing", storeErr: store.ErrNotFound, wantErr: "not enabled"},
-		{name: "store failure", storeErr: fmt.Errorf("database unavailable"), wantErr: "failed to load"},
+		{name: "enabled", row: &types.OrgCodeAgentHarness{Enabled: true}, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1"},
+		{name: "provider allowed", row: &types.OrgCodeAgentHarness{Enabled: true, ProviderRefs: []string{"provider-1"}}, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1"},
+		{name: "provider denied", row: &types.OrgCodeAgentHarness{Enabled: true, ProviderRefs: []string{"provider-2"}}, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "is not enabled"},
+		{name: "provider denied in subscription mode", row: &types.OrgCodeAgentHarness{Enabled: true, SubscriptionEnabled: boolPointer(true), ProviderRefs: []string{"provider-1"}}, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "is not enabled"},
+		{name: "subscription allowed", row: &types.OrgCodeAgentHarness{Enabled: true, SubscriptionEnabled: boolPointer(true)}, credentialType: types.CodeAgentCredentialTypeSubscription},
+		{name: "subscription denied by legacy nil", row: &types.OrgCodeAgentHarness{Enabled: true}, credentialType: types.CodeAgentCredentialTypeSubscription, wantErr: "subscription credentials are not enabled"},
+		{name: "subscription explicitly disabled", row: &types.OrgCodeAgentHarness{Enabled: true, SubscriptionEnabled: boolPointer(false)}, credentialType: types.CodeAgentCredentialTypeSubscription, wantErr: "subscription credentials are not enabled"},
+		{name: "disabled", row: &types.OrgCodeAgentHarness{Enabled: false}, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "not enabled"},
+		{name: "missing", storeErr: store.ErrNotFound, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "not enabled"},
+		{name: "store failure", storeErr: fmt.Errorf("database unavailable"), credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "failed to load"},
 	}
 
 	for _, tc := range tests {
@@ -48,14 +52,8 @@ func TestValidateOrgCodeAgentHarness(t *testing.T) {
 				gomock.Any(), "org_1", types.CodeAgentRuntimeClaudeCode,
 			).Return(tc.row, tc.storeErr)
 
-			credentialType := types.CodeAgentCredentialTypeAPIKey
-			providerRef := "provider-1"
-			if tc.name == "subscription allowed" || tc.name == "subscription denied" {
-				credentialType = types.CodeAgentCredentialTypeSubscription
-				providerRef = ""
-			}
 			err := server.validateOrgCodeAgentHarness(
-				context.Background(), "org_1", types.CodeAgentRuntimeClaudeCode, credentialType, providerRef,
+				context.Background(), "org_1", types.CodeAgentRuntimeClaudeCode, tc.credentialType, tc.providerRef,
 			)
 			if tc.wantErr == "" {
 				require.NoError(t, err)
@@ -89,7 +87,8 @@ func TestEnableSubscriptionCodeAgentHarness(t *testing.T) {
 		assert.True(t, updates[0].Enabled)
 		require.NotNil(t, updates[0].SubscriptionEnabled)
 		assert.True(t, *updates[0].SubscriptionEnabled)
-		assert.Nil(t, updates[0].ProviderRefs)
+		require.NotNil(t, updates[0].ProviderRefs)
+		assert.Empty(t, updates[0].ProviderRefs)
 		return nil, nil
 	})
 
@@ -117,6 +116,45 @@ func TestNormalizeHarnessProviderRefs(t *testing.T) {
 
 	_, err = normalizeHarnessProviderRefs([]string{""})
 	require.ErrorContains(t, err, "empty reference")
+}
+
+func TestNormalizeHarnessCredentialSources(t *testing.T) {
+	t.Run("subscription clears API providers", func(t *testing.T) {
+		update := types.OrgCodeAgentHarnessUpdate{
+			Runtime:             types.CodeAgentRuntimeClaudeCode,
+			SubscriptionEnabled: boolPointer(true),
+		}
+		require.NoError(t, normalizeHarnessCredentialSources(&update))
+		require.NotNil(t, update.ProviderRefs)
+		assert.Empty(t, update.ProviderRefs)
+	})
+
+	t.Run("API providers disable subscription", func(t *testing.T) {
+		update := types.OrgCodeAgentHarnessUpdate{
+			Runtime:      types.CodeAgentRuntimeCodexCLI,
+			ProviderRefs: []string{"openai"},
+		}
+		require.NoError(t, normalizeHarnessCredentialSources(&update))
+		require.NotNil(t, update.SubscriptionEnabled)
+		assert.False(t, *update.SubscriptionEnabled)
+	})
+
+	t.Run("rejects both modes", func(t *testing.T) {
+		update := types.OrgCodeAgentHarnessUpdate{
+			Runtime:             types.CodeAgentRuntimeClaudeCode,
+			SubscriptionEnabled: boolPointer(true),
+			ProviderRefs:        []string{"anthropic"},
+		}
+		require.ErrorContains(t, normalizeHarnessCredentialSources(&update), "cannot both be enabled")
+	})
+
+	t.Run("rejects subscriptions for unsupported harness", func(t *testing.T) {
+		update := types.OrgCodeAgentHarnessUpdate{
+			Runtime:             types.CodeAgentRuntimeOpenCode,
+			SubscriptionEnabled: boolPointer(true),
+		}
+		require.ErrorContains(t, normalizeHarnessCredentialSources(&update), "does not support")
+	})
 }
 
 func TestFilterProviderEndpointsByRefs(t *testing.T) {

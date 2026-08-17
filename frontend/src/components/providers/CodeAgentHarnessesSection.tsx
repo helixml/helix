@@ -23,7 +23,7 @@ import {
 } from '../../utils/codeAgentProviders'
 
 const PROVIDERS_HELP =
-  'Enabled API providers expose their models in the task chat, where a model is selected.'
+  'API-provider mode is exclusive with subscription mode. Enabled providers expose their models in the task chat.'
 
 const CodeAgentHarnessesSection: FC<{
   harnesses: TypesOrgCodeAgentHarnessStatus[]
@@ -61,10 +61,12 @@ const CodeAgentHarnessesSection: FC<{
         const allowedProviderRefs = harness.provider_refs == null
           ? null
           : new Set(harness.provider_refs)
-        const allowedEndpoints = allowedProviderRefs == null
-          ? connectedEndpoints
-          : connectedEndpoints.filter((endpoint) => allowedProviderRefs.has(providerRef(endpoint)))
-        const subscriptionEnabled = harness.subscription_enabled !== false
+        const subscriptionEnabled = harness.subscription_enabled === true
+        const allowedEndpoints = subscriptionEnabled
+          ? []
+          : allowedProviderRefs == null
+            ? connectedEndpoints
+            : connectedEndpoints.filter((endpoint) => allowedProviderRefs.has(providerRef(endpoint)))
         const viewerHasSubscription = !!harness.viewer_has_subscription
         const hasSubscription = harness.supports_subscription
           && subscriptionEnabled
@@ -139,6 +141,7 @@ const CodeAgentHarnessesSection: FC<{
                             runtime: harness.runtime!,
                             enabled: harness.enabled ?? false,
                             subscription_enabled: enabled,
+                            ...(enabled ? { provider_refs: [] } : {}),
                           })}
                         />
                       </Box>
@@ -182,7 +185,8 @@ const CodeAgentHarnessesSection: FC<{
                     {compatibleEndpoints.map((endpoint) => {
                       const ref = providerRef(endpoint)
                       const connected = providerEndpointIsConnected(endpoint)
-                      const checked = connected
+                      const checked = !subscriptionEnabled
+                        && connected
                         && (allowedProviderRefs == null || allowedProviderRefs.has(ref))
                       return (
                         <Stack
@@ -227,6 +231,7 @@ const CodeAgentHarnessesSection: FC<{
                                     runtime: harness.runtime!,
                                     enabled: harness.enabled ?? false,
                                     provider_refs: next,
+                                    ...(enabled ? { subscription_enabled: false } : {}),
                                   })
                                 }}
                               />

@@ -48,7 +48,7 @@ func (apiServer *HelixAPIServer) listOrgCodeAgentHarnesses(_ http.ResponseWriter
 
 // updateOrgCodeAgentHarnesses godoc
 // @Summary Update an organization's coding-agent harnesses
-// @Description Enables or disables coding-agent harnesses and controls which subscription and provider sources each harness may use. Harnesses omitted from the request are left unchanged. Models are selected per task.
+// @Description Enables or disables coding-agent harnesses and selects either subscription mode or API-provider mode for each harness. Harnesses omitted from the request are left unchanged. Models are selected per task.
 // @Tags    organizations
 // @Success 200 {array} types.OrgCodeAgentHarnessStatus
 // @Param   org_id path string true "Organization ID or name"
@@ -78,11 +78,10 @@ func (apiServer *HelixAPIServer) updateOrgCodeAgentHarnesses(_ http.ResponseWrit
 		if !types.IsSelectableCodeAgentRuntime(update.Runtime) {
 			return nil, system.NewHTTPError400(fmt.Sprintf("unsupported code agent runtime %q", update.Runtime))
 		}
-		providerRefs, err := normalizeHarnessProviderRefs(update.ProviderRefs)
-		if err != nil {
+		if err := normalizeHarnessCredentialSources(&update); err != nil {
 			return nil, system.NewHTTPError400(err.Error())
 		}
-		request.Harnesses[idx].ProviderRefs = providerRefs
+		request.Harnesses[idx] = update
 	}
 
 	if _, err := apiServer.Store.UpsertOrgCodeAgentHarnesses(ctx, org.ID, user.ID, request.Harnesses); err != nil {
@@ -159,6 +158,32 @@ func normalizeHarnessProviderRefs(refs []string) ([]string, error) {
 	return result, nil
 }
 
+func normalizeHarnessCredentialSources(update *types.OrgCodeAgentHarnessUpdate) error {
+	providerRefs, err := normalizeHarnessProviderRefs(update.ProviderRefs)
+	if err != nil {
+		return err
+	}
+	update.ProviderRefs = providerRefs
+
+	if update.SubscriptionEnabled != nil && *update.SubscriptionEnabled {
+		if !update.Runtime.SupportsSubscriptionCredentials() {
+			return fmt.Errorf("coding-agent harness %q does not support subscription credentials", update.Runtime)
+		}
+		if len(update.ProviderRefs) > 0 {
+			return fmt.Errorf("subscription and API-provider modes cannot both be enabled for coding-agent harness %q", update.Runtime)
+		}
+		// An explicit empty list replaces legacy nil/all-provider policy.
+		update.ProviderRefs = []string{}
+		return nil
+	}
+
+	if len(update.ProviderRefs) > 0 {
+		subscriptionEnabled := false
+		update.SubscriptionEnabled = &subscriptionEnabled
+	}
+	return nil
+}
+
 func (apiServer *HelixAPIServer) viewerHasClaudeSubscription(ctx context.Context, orgID, userID string) (bool, error) {
 	_, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, userID, orgID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -188,6 +213,7 @@ func (apiServer *HelixAPIServer) enableSubscriptionCodeAgentHarness(
 		Runtime:             runtime,
 		Enabled:             true,
 		SubscriptionEnabled: &subscriptionEnabled,
+		ProviderRefs:        []string{},
 	}})
 	if err != nil {
 		return fmt.Errorf("enable subscription harness %q: %w", runtime, err)
