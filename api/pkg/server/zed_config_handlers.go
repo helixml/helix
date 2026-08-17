@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,7 +14,6 @@ import (
 	"github.com/helixml/helix/api/pkg/goose"
 	modelPkg "github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/services"
-	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -1123,12 +1121,12 @@ func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, actorI
 			if runtime == "" {
 				runtime = types.CodeAgentRuntimeZedAgent
 			}
-			harness, err := apiServer.Store.GetOrgCodeAgentHarness(ctx, app.OrganizationID, runtime)
+			harness, err := apiServer.loadOrgCodeAgentHarnessPolicy(ctx, app.OrganizationID, runtime)
 			switch {
-			case errors.Is(err, store.ErrNotFound), err == nil && (harness == nil || !harness.Enabled):
-				endpoints = []*types.ProviderEndpoint{}
 			case err != nil:
-				return nil, fmt.Errorf("failed to load coding-agent harness policy: %w", err)
+				return nil, err
+			case !harness.Enabled:
+				endpoints = []*types.ProviderEndpoint{}
 			case harness.ProviderRefs != nil:
 				endpoints = filterProviderEndpointsByRefs(endpoints, harness.ProviderRefs)
 			}

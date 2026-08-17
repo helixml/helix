@@ -28,6 +28,16 @@ alone would route the request to a missing endpoint.
 - Other harnesses retain the general OpenAI-compatible provider selection.
 - The organization settings page controls whether the compatible provider and
   subscription sources are enabled. Models remain task-owned.
+- Missing organization harness-policy rows preserve the pre-policy behaviour:
+  harnesses and visible API providers remain enabled, while subscriptions stay
+  opt-in. This keeps existing and newly created organizations usable without a
+  data migration.
+- Subscription credentials are viewer-scoped: a member's personal subscription
+  is preferred, with an organization-owned subscription as a shared fallback.
+  Connecting from organization settings enables the organization harness but
+  does not silently turn a personal paid account into a shared credential.
+- Organization tasks resolve organization-owned and global API providers only;
+  personal API-provider keys are intentionally excluded from their snapshots.
 - Current Claude models are Opus 5 and Fable 5. Current Codex models are the
   GPT-5.6 Sol, Terra, and Luna variants. Older models remain selectable under a
   collapsed Legacy models section.

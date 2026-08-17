@@ -99,13 +99,9 @@ func (apiServer *HelixAPIServer) buildOrgCodeAgentHarnessStatuses(ctx context.Co
 	if err != nil {
 		return nil, fmt.Errorf("failed to list coding-agent harnesses: %w", err)
 	}
-	enabled := make(map[types.CodeAgentRuntime]bool, len(stored))
-	providerRefs := make(map[types.CodeAgentRuntime][]string, len(stored))
-	subscriptionEnabled := make(map[types.CodeAgentRuntime]*bool, len(stored))
+	policies := make(map[types.CodeAgentRuntime]*types.OrgCodeAgentHarness, len(stored))
 	for _, row := range stored {
-		enabled[row.Runtime] = row.Enabled
-		providerRefs[row.Runtime] = row.ProviderRefs
-		subscriptionEnabled[row.Runtime] = row.SubscriptionEnabled
+		policies[row.Runtime] = row
 	}
 
 	hasClaude, err := apiServer.viewerHasClaudeSubscription(ctx, orgID, userID)
@@ -119,12 +115,16 @@ func (apiServer *HelixAPIServer) buildOrgCodeAgentHarnessStatuses(ctx context.Co
 
 	statuses := make([]*types.OrgCodeAgentHarnessStatus, 0, len(types.SelectableCodeAgentRuntimes))
 	for _, runtime := range types.SelectableCodeAgentRuntimes {
+		policy := policies[runtime]
 		status := &types.OrgCodeAgentHarnessStatus{
 			Runtime:              runtime,
-			Enabled:              enabled[runtime],
-			SubscriptionEnabled:  subscriptionEnabled[runtime],
-			ProviderRefs:         providerRefs[runtime],
+			Enabled:              true,
 			SupportsSubscription: runtime.SupportsSubscriptionCredentials(),
+		}
+		if policy != nil {
+			status.Enabled = policy.Enabled
+			status.SubscriptionEnabled = policy.SubscriptionEnabled
+			status.ProviderRefs = policy.ProviderRefs
 		}
 		switch runtime {
 		case types.CodeAgentRuntimeClaudeCode:
@@ -234,12 +234,12 @@ func (apiServer *HelixAPIServer) validateOrgCodeAgentHarness(
 	if orgID == "" {
 		return nil
 	}
-	harness, err := apiServer.Store.GetOrgCodeAgentHarness(ctx, orgID, runtime)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && !harness.Enabled) {
-		return fmt.Errorf("coding-agent harness %q is not enabled for this organization", runtime)
-	}
+	harness, err := apiServer.loadOrgCodeAgentHarnessPolicy(ctx, orgID, runtime)
 	if err != nil {
-		return fmt.Errorf("failed to load coding-agent harness policy: %w", err)
+		return err
+	}
+	if !harness.Enabled {
+		return fmt.Errorf("coding-agent harness %q is not enabled for this organization", runtime)
 	}
 	if credentialType.IsSubscription() {
 		if !harness.AllowsSubscription() {
@@ -251,4 +251,26 @@ func (apiServer *HelixAPIServer) validateOrgCodeAgentHarness(
 		return fmt.Errorf("provider %q is not enabled for coding-agent harness %q in this organization", providerRef, runtime)
 	}
 	return nil
+}
+
+func (apiServer *HelixAPIServer) loadOrgCodeAgentHarnessPolicy(
+	ctx context.Context,
+	orgID string,
+	runtime types.CodeAgentRuntime,
+) (*types.OrgCodeAgentHarness, error) {
+	harness, err := apiServer.Store.GetOrgCodeAgentHarness(ctx, orgID, runtime)
+	if errors.Is(err, store.ErrNotFound) {
+		return &types.OrgCodeAgentHarness{
+			OrganizationID: orgID,
+			Runtime:        runtime,
+			Enabled:        true,
+		}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to load coding-agent harness policy: %w", err)
+	}
+	if harness == nil {
+		return nil, fmt.Errorf("failed to load coding-agent harness policy: store returned no policy")
+	}
+	return harness, nil
 }

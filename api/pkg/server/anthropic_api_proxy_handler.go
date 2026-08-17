@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -229,18 +230,20 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 	provider := "anthropic"
 	if user.SessionID != "" {
 		selection, err := s.codeAgentProviderSelection(ctx, user)
-		if err != nil {
+		if err != nil && !errors.Is(err, errNoCodeAgentProviderContext) {
 			return nil, err
 		}
-		endpoint, err := s.resolveCodeAgentProviderEndpoint(ctx, user, selection.ProviderRef)
-		if err != nil {
-			return nil, err
+		if err == nil {
+			endpoint, err := s.resolveCodeAgentProviderEndpoint(ctx, user, selection.ProviderRef)
+			if err != nil {
+				return nil, err
+			}
+			if selection.Runtime == types.CodeAgentRuntimeClaudeCode &&
+				!external_agent.CodeAgentRuntimeAllowsProvider(selection.Runtime, endpoint.Name) {
+				return nil, fmt.Errorf("Claude Code API-key mode requires the anthropic provider; provider %q is not compatible", endpoint.Name)
+			}
+			return endpoint, nil
 		}
-		if selection.Runtime == types.CodeAgentRuntimeClaudeCode &&
-			!external_agent.CodeAgentRuntimeAllowsProvider(selection.Runtime, endpoint.Name) {
-			return nil, fmt.Errorf("Claude Code API-key mode requires the anthropic provider; provider %q is not compatible", endpoint.Name)
-		}
-		return endpoint, nil
 	}
 
 	// Helix agent

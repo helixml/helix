@@ -8,7 +8,9 @@ import (
 // OrgCodeAgentHarness records whether an organization permits one coding
 // harness and which provider endpoints that harness may use. Models
 // deliberately do not live here: a task selects a model from the allowed
-// providers' current model lists when it starts.
+// providers' current model lists when it starts. An absent row retains the
+// pre-policy behaviour: the harness and all visible API providers are enabled,
+// while subscription credentials remain opt-in.
 type OrgCodeAgentHarness struct {
 	ID        string    `json:"id" gorm:"primaryKey"`
 	Created   time.Time `json:"created"`

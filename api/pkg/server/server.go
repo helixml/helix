@@ -217,6 +217,7 @@ type HelixAPIServer struct {
 
 	openAIResponsesLogStores     []openailogger.LogStore
 	openAIResponsesBillingLogger openailogger.LogStore
+	openAIResponsesTransport     http.RoundTripper
 }
 
 func NewServer(
@@ -436,6 +437,7 @@ func NewServer(
 
 		openAIResponsesLogStores:     responsesLogStores,
 		openAIResponsesBillingLogger: responsesBillingLogger,
+		openAIResponsesTransport:     newOpenAIResponsesTransport(cfg.Tools.TLSSkipVerify),
 	}
 
 	// Sandboxes API controller — orchestrates user-created sandboxes via hydra.

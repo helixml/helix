@@ -39,7 +39,7 @@ func TestValidateOrgCodeAgentHarness(t *testing.T) {
 		{name: "subscription denied by legacy nil", row: &types.OrgCodeAgentHarness{Enabled: true}, credentialType: types.CodeAgentCredentialTypeSubscription, wantErr: "subscription credentials are not enabled"},
 		{name: "subscription explicitly disabled", row: &types.OrgCodeAgentHarness{Enabled: true, SubscriptionEnabled: boolPointer(false)}, credentialType: types.CodeAgentCredentialTypeSubscription, wantErr: "subscription credentials are not enabled"},
 		{name: "disabled", row: &types.OrgCodeAgentHarness{Enabled: false}, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "not enabled"},
-		{name: "missing", storeErr: store.ErrNotFound, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "not enabled"},
+		{name: "missing preserves legacy API access", storeErr: store.ErrNotFound, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1"},
 		{name: "store failure", storeErr: fmt.Errorf("database unavailable"), credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "failed to load"},
 	}
 
@@ -211,6 +211,8 @@ func TestBuildOrgCodeAgentHarnessStatuses(t *testing.T) {
 	assert.False(t, *byRuntime[types.CodeAgentRuntimeClaudeCode].SubscriptionEnabled)
 	assert.Equal(t, []string{"provider-1"}, byRuntime[types.CodeAgentRuntimeClaudeCode].ProviderRefs)
 	assert.True(t, byRuntime[types.CodeAgentRuntimeClaudeCode].ViewerHasSubscription)
-	assert.False(t, byRuntime[types.CodeAgentRuntimeCodexCLI].Enabled)
+	assert.True(t, byRuntime[types.CodeAgentRuntimeCodexCLI].Enabled)
+	assert.Nil(t, byRuntime[types.CodeAgentRuntimeCodexCLI].ProviderRefs)
+	assert.Nil(t, byRuntime[types.CodeAgentRuntimeCodexCLI].SubscriptionEnabled)
 	assert.False(t, byRuntime[types.CodeAgentRuntimeCodexCLI].ViewerHasSubscription)
 }

@@ -227,6 +227,9 @@ const Providers: React.FC = () => {
             onChange={handleCodeAgentChange}
             subscriptionIdentity={subscriptionIdentity}
             subscriptionAction={(runtime) => {
+              // Connecting here enables the org policy but keeps the paid
+              // credential personal. Org-owned subscriptions remain an
+              // explicit shared-credential workflow.
               if (runtime === 'claude_code') return <ClaudeSubscriptionConnect variant="button" enableForOrgId={org?.id} />
               if (runtime === 'codex_cli') return <CodexSubscriptionConnect enableForOrgId={org?.id} />
               return null

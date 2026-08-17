@@ -162,9 +162,9 @@ func (s *HelixAPIServer) openAIResponsesProxyHandler(w http.ResponseWriter, r *h
 	}
 	upstreamRequest.Header.Set("Authorization", "Bearer "+apiKey)
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if s.Cfg.Tools.TLSSkipVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // explicit enterprise setting
+	transport := s.openAIResponsesTransport
+	if transport == nil {
+		transport = http.DefaultTransport
 	}
 	started := time.Now()
 	response, err := transport.RoundTrip(upstreamRequest)
@@ -189,6 +189,15 @@ func (s *HelixAPIServer) openAIResponsesProxyHandler(w http.ResponseWriter, r *h
 		result.Error = http.StatusText(response.StatusCode)
 	}
 	s.recordOpenAIResponsesCall(context.WithoutCancel(r.Context()), user, selection, endpoint, body, request.Stream, started, result)
+}
+
+func newOpenAIResponsesTransport(tlsSkipVerify bool) http.RoundTripper {
+	if !tlsSkipVerify {
+		return http.DefaultTransport
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // explicit enterprise setting
+	return transport
 }
 
 func proxyOpenAIResponsesBody(w http.ResponseWriter, response *http.Response, started time.Time) (openAIResponsesProxyResult, error) {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+var errNoCodeAgentProviderContext = errors.New("session has no code-agent provider context")
 
 func (s *HelixAPIServer) codeAgentProviderSelection(
 	ctx context.Context,
@@ -26,6 +29,9 @@ func (s *HelixAPIServer) codeAgentProviderSelection(
 			Model:       attribution.CodeAgentOverrides.Model,
 		}, nil
 	}
+	if attribution.hasExecutionConfig {
+		return nil, fmt.Errorf("code-agent task has no API provider selected")
+	}
 	if attribution.AppID != "" {
 		app, err := s.Store.GetApp(ctx, attribution.AppID)
 		if err != nil {
@@ -42,7 +48,7 @@ func (s *HelixAPIServer) codeAgentProviderSelection(
 			}, nil
 		}
 	}
-	return nil, fmt.Errorf("code-agent task has no API provider selected")
+	return nil, errNoCodeAgentProviderContext
 }
 
 type codeAgentProviderSelection struct {
@@ -86,7 +92,7 @@ func (s *HelixAPIServer) resolveCodeAgentProviderEndpoint(
 	for _, endpoint := range endpoints {
 		if endpoint.ID == providerRef || strings.EqualFold(endpoint.Name, providerRef) {
 			if endpoint.ID == "" {
-				return s.resolveCodeAgentProviderEndpoint(ctx, user, endpoint.Name)
+				return s.getBuiltInProviderEndpoint(ctx, endpoint.Name)
 			}
 			return endpoint, nil
 		}

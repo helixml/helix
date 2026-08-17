@@ -269,6 +269,63 @@ func TestAnthropicProxyRejectsNonAnthropicProviderForClaudeCode(t *testing.T) {
 	require.ErrorContains(t, err, "requires the anthropic provider")
 }
 
+func TestAnthropicProxySessionWithoutCodeAgentContextUsesLegacyProviderLookup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	cfg := &config.ServerConfig{}
+	cfg.Providers.Anthropic.APIKey = "anthropic-key"
+	cfg.Providers.Anthropic.BaseURL = "https://api.anthropic.com"
+	server := &HelixAPIServer{Cfg: cfg, Store: mockStore}
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_test").Return(&types.Session{
+		ID: "ses_test",
+	}, nil)
+	mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		Owner: "",
+		Name:  "anthropic",
+	}).Return(nil, store.ErrNotFound)
+
+	endpoint, err := server.getProviderEndpoint(t.Context(), &types.User{
+		ID:        "user_test",
+		SessionID: "ses_test",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "anthropic", endpoint.Name)
+	require.Equal(t, "anthropic-key", endpoint.APIKey)
+}
+
+func TestAnthropicProxyConfiguredTaskDoesNotFallBackWithoutProvider(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Cfg: &config.ServerConfig{}, Store: mockStore}
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_test").Return(&types.Session{
+		ID: "ses_test",
+		Metadata: types.SessionMetadata{
+			CodeAgentConfig: &types.CodeAgentExecutionConfig{
+				Runtime:        types.CodeAgentRuntimeClaudeCode,
+				CredentialType: types.CodeAgentCredentialTypeAPIKey,
+			},
+		},
+	}, nil)
+
+	_, err := server.getProviderEndpoint(t.Context(), &types.User{
+		ID:        "user_test",
+		SessionID: "ses_test",
+	})
+
+	require.ErrorContains(t, err, "code-agent task has no API provider selected")
+}
+
 func TestJoinProxyPath(t *testing.T) {
 	require.Equal(t, "/v1/responses", joinProxyPath("/v1/", "/responses"))
+}
+
+func TestNewOpenAIResponsesTransport(t *testing.T) {
+	require.Same(t, http.DefaultTransport, newOpenAIResponsesTransport(false))
+
+	transport, ok := newOpenAIResponsesTransport(true).(*http.Transport)
+	require.True(t, ok)
+	require.NotSame(t, http.DefaultTransport, transport)
+	require.NotNil(t, transport.TLSClientConfig)
+	require.True(t, transport.TLSClientConfig.InsecureSkipVerify)
 }
