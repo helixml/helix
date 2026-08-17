@@ -46,9 +46,14 @@ type ChatCompletionOptions struct {
 	// requests. Applying it to the loaded Agent keeps the controller's
 	// authoritative model selection aligned with the session or SpecTask.
 	CodeAgentOverrides *types.CodeAgentOverrides
-	QueryParams        map[string]string
-	OAuthTokens        map[string]string // OAuth tokens mapped by provider name
-	Conversational     bool              // Whether to send thoughts about tools and decisions
+	// CodeAgentRuntime marks the request as a coding-agent proxy pass-through.
+	// When set, an external harness (Zed, opencode, Codex, Claude Code, ...) owns
+	// the prompt, the tool set and every sampling parameter, so no assistant
+	// identity may be applied on top. See loadAssistant.
+	CodeAgentRuntime types.CodeAgentRuntime
+	QueryParams      map[string]string
+	OAuthTokens      map[string]string // OAuth tokens mapped by provider name
+	Conversational   bool              // Whether to send thoughts about tools and decisions
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
@@ -966,6 +971,18 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 }
 
 func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *ChatCompletionOptions) (*types.AssistantConfig, error) {
+	// A coding-agent proxy request is a pass-through, not a Helix conversation.
+	// The harness built the prompt, chose the tools and set the sampling
+	// parameters; the model and provider are already encoded in the request it
+	// sent. Every field left zero here is a field the request gets to keep, so
+	// returning an empty config is what makes the request reach the provider
+	// unmodified. Notably this must not fall through to the no-app branch below:
+	// that one seeds DefaultChatSystemPrompt, which setSystemPrompt then writes
+	// over the harness's own system message.
+	if opts.CodeAgentRuntime != "" {
+		return &types.AssistantConfig{}, nil
+	}
+
 	if opts.AppID == "" {
 		// No app — pull the user's stored chat defaults (system prompt, temperature, etc.)
 		// and present them as an implicit assistant config so the existing inference
