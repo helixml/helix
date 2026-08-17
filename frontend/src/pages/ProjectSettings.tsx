@@ -50,22 +50,23 @@ import HubIcon from "@mui/icons-material/Hub";
 import SettingsIcon from "@mui/icons-material/Settings";
 
 import Skills from "../components/app/Skills";
-import { TypesAssistantSkills, TypesCreateAccessGrantRequest, TypesProject, TypesSandboxRuntime, TypesSecretScope, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
+import {
+  TypesAssistantSkills,
+  TypesCreateAccessGrantRequest,
+  TypesProject,
+  TypesSecretScope,
+  TypesZFSTree,
+  TypesZFSTreeNode,
+} from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
 import WebServiceTab from "../components/project/WebServiceTab";
-import CodingAgentForm from "../components/agent/CodingAgentForm";
-import {
-  AppsContext,
-  CodeAgentRuntime,
-  generateAgentName,
-} from "../contexts/apps";
+import { AppsContext } from "../contexts/apps";
 import { IApp, IAppFlatState, AGENT_TYPE_ZED_EXTERNAL } from "../types";
 import { selectCodingAgents } from "../utils/apps";
-import { RECOMMENDED_CODING_MODELS } from "../constants/models";
-import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
 import AttachProjectRepositoryDialog from "../components/project/AttachProjectRepositoryDialog";
+import ProjectTaskDefaults from "../components/project/ProjectTaskDefaults";
 import AgentDropdown from "../components/agent/AgentDropdown";
 import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
 import AccessManagement from "../components/app/AccessManagement";
@@ -98,10 +99,6 @@ import {
   useGetProjectGuidelinesHistory,
 } from "../services";
 import { isProjectAccessDeniedError } from "../services/projectService";
-import {
-  effectiveSpecTaskSandboxRuntime,
-  saveSpecTaskSandboxRuntimePreference,
-} from "../utils/specTaskSandboxRuntime";
 
 interface ProjectSettingsProps {
   projectId: string;
@@ -564,26 +561,12 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     implementation: 5,
   });
 
-  // Default agent state
-  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
   const [selectedProjectManagerAgentId, setSelectedProjectManagerAgentId] =
     useState<string>("");
   const [
     selectedPullRequestReviewerAgentId,
     setSelectedPullRequestReviewerAgentId,
   ] = useState<string>("");
-  const [showCreateAgentForm, setShowCreateAgentForm] = useState(false);
-  const [codeAgentRuntime, setCodeAgentRuntime] =
-    useState<CodeAgentRuntime>("zed_agent");
-  const [claudeCodeMode, setClaudeCodeMode] =
-    useState<"subscription" | "api_key">("subscription");
-  const [selectedProvider, setSelectedProvider] = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
-  const [newAgentName, setNewAgentName] = useState("-");
-  const [userModifiedName, setUserModifiedName] = useState(false);
-  const [creatingAgent, setCreatingAgent] = useState(false);
-  const codingAgentFormRef = useRef<CodingAgentFormHandle>(null);
-
   const sortedApps = useMemo(() => {
     if (!apps) return [];
     return selectCodingAgents(apps);
@@ -601,12 +584,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     loadApps();
   }, [loadApps]);
 
-  useEffect(() => {
-    if (!userModifiedName && showCreateAgentForm) {
-      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
-    }
-  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
-
   // Initialize form from server data
   useEffect(() => {
     if (project) {
@@ -622,7 +599,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       setAutoWarmDockerCache(
         project.metadata?.auto_warm_docker_cache || false,
       );
-      setSelectedAgentId(project.default_helix_app_id || "");
       setSelectedProjectManagerAgentId(
         project.project_manager_helix_app_id || "",
       );
@@ -641,7 +617,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
       setProjectSkills(project.skills);
     }
-  }, [project]);
+  }, [project?.id, project?.updated_at]);
 
   const handleSave = async (showSuccessMessage = true) => {
     if (savingProject) return false;
@@ -682,17 +658,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const handleFieldBlur = () => {
     handleSave(false);
-  };
-
-  const handleCreateAgent = async () => {
-    const createdAgent = await codingAgentFormRef.current?.handleCreateAgent();
-    if (!createdAgent?.id) return;
-    setSelectedAgentId(createdAgent.id);
-    setShowCreateAgentForm(false);
-    await updateProjectMutation.mutateAsync({
-      default_helix_app_id: createdAgent.id,
-    });
-    snackbar.success("Agent created and set as default");
   };
 
   const handleSetPrimaryRepo = async (repoId: string) => {
@@ -1015,42 +980,19 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <Box>
         <Typography variant="h6" gutterBottom>
-          Default Task Environment
+          Task Defaults
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Choose the sandbox environment selected by default for new tasks in
-          this project. It can still be changed before a task starts.
+          Configure the compute allocated to new tasks in this project. These
+          values can still be changed before a task starts. Which coding agents
+          are available is configured for the whole organization under Providers.
         </Typography>
         <Divider sx={{ mb: 3 }} />
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-          <Typography variant="body2">Environment:</Typography>
-          <FormControl size="small" sx={{ minWidth: 180 }}>
-            <Select
-              value={effectiveSpecTaskSandboxRuntime(
-                project.default_sandbox_runtime,
-              )}
-              inputProps={{ "aria-label": "Default task environment" }}
-              onChange={(event) => {
-                const runtime = event.target.value as TypesSandboxRuntime;
-                saveSpecTaskSandboxRuntimePreference(projectId, runtime);
-                updateProjectMutation.mutate({
-                  default_sandbox_runtime: runtime,
-                });
-              }}
-            >
-              <MenuItem
-                value={TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop}
-              >
-                Full Desktop
-              </MenuItem>
-              <MenuItem
-                value={TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu}
-              >
-                Headless
-              </MenuItem>
-            </Select>
-          </FormControl>
-        </Box>
+        <ProjectTaskDefaults
+          project={project}
+          disabled={updateProjectMutation.isPending}
+          onUpdate={updateProjectMutation.mutateAsync}
+        />
       </Box>
 
       {/* Startup Script */}
@@ -1454,197 +1396,85 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           Agent Configuration
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Set agents for this project. Agents are used for working on spec
-          tasks, managing the project and reviewing pull requests.
+          Configure optional Helix agents for project management and pull
+          request review. Spec tasks use their own code-agent configuration.
         </Typography>
         <Divider sx={{ mb: 3 }} />
 
-        {!showCreateAgentForm ? (
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {/* Default Agent with settings button */}
-            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
-              <Box sx={{ flex: 1 }}>
-                <AgentDropdown
-                  value={selectedAgentId}
-                  onChange={(newAgentId) => {
-                    setSelectedAgentId(newAgentId);
-                    updateProjectMutation.mutate({
-                      default_helix_app_id: newAgentId || undefined,
-                    });
-                  }}
-                  agents={sortedApps}
-                  label="Default Agent"
-                />
-              </Box>
-              <Tooltip title="Open agent settings">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={!selectedAgentId}
-                    onClick={() =>
-                      selectedAgentId && handleOpenAgentSettings(selectedAgentId)
-                    }
-                    sx={{ mt: 0.5 }}
-                    aria-label="Open default agent settings"
-                  >
-                    <SettingsIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+            <Box sx={{ flex: 1 }}>
+              <AgentDropdown
+                value={selectedProjectManagerAgentId}
+                onChange={(newAgentId) => {
+                  setSelectedProjectManagerAgentId(newAgentId);
+                  updateProjectMutation.mutate({
+                    project_manager_helix_app_id: newAgentId || undefined,
+                  });
+                }}
+                agents={sortedApps}
+                label="Project Manager Agent"
+              />
             </Box>
-
-            {/* Project Manager Agent with settings button */}
-            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
-              <Box sx={{ flex: 1 }}>
-                <AgentDropdown
-                  value={selectedProjectManagerAgentId}
-                  onChange={(newAgentId) => {
-                    setSelectedProjectManagerAgentId(newAgentId);
-                    updateProjectMutation.mutate({
-                      project_manager_helix_app_id: newAgentId || undefined,
-                    });
-                  }}
-                  agents={sortedApps}
-                  label="Project Manager Agent"
-                />
-              </Box>
-              <Tooltip title="Open agent settings">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={!selectedProjectManagerAgentId}
-                    onClick={() =>
-                      selectedProjectManagerAgentId &&
-                      handleOpenAgentSettings(selectedProjectManagerAgentId)
-                    }
-                    sx={{ mt: 0.5 }}
-                    aria-label="Open project manager agent settings"
-                  >
-                    <SettingsIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </Box>
-
-            {/* PR Reviewer Agent with settings button */}
-            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
-              <Box sx={{ flex: 1 }}>
-                <AgentDropdown
-                  value={selectedPullRequestReviewerAgentId}
-                  onChange={(newAgentId) => {
-                    setSelectedPullRequestReviewerAgentId(newAgentId);
-                    updateProjectMutation.mutate({
-                      pull_request_reviewer_helix_app_id:
-                        newAgentId || undefined,
-                    });
-                  }}
-                  agents={sortedApps}
-                  label="Pull Request Reviewer Agent"
-                  disabled={!primaryRepoIsExternal}
-                  helperText={
-                    !primaryRepoIsExternal
-                      ? "Requires an external repository (GitHub, GitLab, etc.) as the primary repository"
-                      : undefined
-                  }
-                />
-              </Box>
-              <Tooltip title="Open agent settings">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={!selectedPullRequestReviewerAgentId}
-                    onClick={() =>
-                      selectedPullRequestReviewerAgentId &&
-                      handleOpenAgentSettings(
-                        selectedPullRequestReviewerAgentId,
-                      )
-                    }
-                    sx={{ mt: 0.5 }}
-                    aria-label="Open pull request reviewer agent settings"
-                  >
-                    <SettingsIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </Box>
-
-            <Button
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={() => setShowCreateAgentForm(true)}
-              sx={{ alignSelf: "flex-start" }}
-            >
-              Create new agent
-            </Button>
-          </Box>
-        ) : (
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <Typography variant="subtitle2">Create New Agent</Typography>
-            <CodingAgentForm
-              ref={codingAgentFormRef}
-              value={{
-                codeAgentRuntime,
-                claudeCodeMode,
-                selectedProvider,
-                selectedModel,
-                agentName: newAgentName,
-              }}
-              onChange={(nextValue) => {
-                setCodeAgentRuntime(nextValue.codeAgentRuntime);
-                setClaudeCodeMode(nextValue.claudeCodeMode);
-                setSelectedProvider(nextValue.selectedProvider);
-                setSelectedModel(nextValue.selectedModel);
-                if (nextValue.agentName !== newAgentName) {
-                  setUserModifiedName(true);
-                }
-                setNewAgentName(nextValue.agentName);
-              }}
-              disabled={creatingAgent}
-              recommendedModels={RECOMMENDED_CODING_MODELS}
-              createAgentDescription="Code development agent for spec tasks"
-              onCreateStateChange={setCreatingAgent}
-              onAgentCreated={(app) => setSelectedAgentId(app.id)}
-              showCreateButton={false}
-              modelPickerHint="Choose a capable model for agentic coding."
-              modelPickerDisplayMode="short"
-            />
-
-            <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
-              {sortedApps.length > 0 && (
-                <Button
+            <Tooltip title="Open agent settings">
+              <span>
+                <IconButton
                   size="small"
-                  variant="outlined"
-                  onClick={() => setShowCreateAgentForm(false)}
-                  disabled={creatingAgent}
+                  disabled={!selectedProjectManagerAgentId}
+                  onClick={() =>
+                    selectedProjectManagerAgentId &&
+                    handleOpenAgentSettings(selectedProjectManagerAgentId)
+                  }
+                  sx={{ mt: 0.5 }}
+                  aria-label="Open project manager agent settings"
                 >
-                  Cancel
-                </Button>
-              )}
-              <Button
-                size="small"
-                variant="outlined"
-                color="secondary"
-                onClick={handleCreateAgent}
-                disabled={
-                  creatingAgent ||
-                  !newAgentName.trim() ||
-                  (!(
-                    codeAgentRuntime === "claude_code" &&
-                    claudeCodeMode === "subscription"
-                  ) &&
-                    (!selectedModel || !selectedProvider))
-                }
-                startIcon={
-                  creatingAgent ? (
-                    <CircularProgress size={16} />
-                  ) : undefined
-                }
-              >
-                {creatingAgent ? "Creating..." : "Create Agent"}
-              </Button>
-            </Box>
+                  <SettingsIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
           </Box>
-        )}
+
+          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+            <Box sx={{ flex: 1 }}>
+              <AgentDropdown
+                value={selectedPullRequestReviewerAgentId}
+                onChange={(newAgentId) => {
+                  setSelectedPullRequestReviewerAgentId(newAgentId);
+                  updateProjectMutation.mutate({
+                    pull_request_reviewer_helix_app_id:
+                      newAgentId || undefined,
+                  });
+                }}
+                agents={sortedApps}
+                label="Pull Request Reviewer Agent"
+                disabled={!primaryRepoIsExternal}
+                helperText={
+                  !primaryRepoIsExternal
+                    ? "Requires an external repository (GitHub, GitLab, etc.) as the primary repository"
+                    : undefined
+                }
+              />
+            </Box>
+            <Tooltip title="Open agent settings">
+              <span>
+                <IconButton
+                  size="small"
+                  disabled={!selectedPullRequestReviewerAgentId}
+                  onClick={() =>
+                    selectedPullRequestReviewerAgentId &&
+                    handleOpenAgentSettings(
+                      selectedPullRequestReviewerAgentId,
+                    )
+                  }
+                  sx={{ mt: 0.5 }}
+                  aria-label="Open pull request reviewer agent settings"
+                >
+                  <SettingsIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Box>
+        </Box>
       </Box>
     </Box>
   );

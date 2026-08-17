@@ -13,23 +13,22 @@ import {
 import { ChevronDown, Folder, FolderPlus, Hammer, ListTodo, MessageCircle } from 'lucide-react'
 
 import {
-  TypesCodeAgentOverrides,
+  TypesCodeAgentExecutionConfig,
   TypesSandboxResourceOverrides,
   TypesSandboxRuntime,
 } from '../api/api'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import RobustPromptInput from '../components/common/RobustPromptInput'
-import SpecTaskExecutionControls from '../components/tasks/SpecTaskExecutionControls'
+import CodeAgentExecutionControls from '../components/agent/CodeAgentExecutionControls'
 import ManagedCreateProjectDialog from '../components/project/ManagedCreateProjectDialog'
 import Page from '../components/system/Page'
 import { useAccount } from '../contexts/account'
 import { useStreaming } from '../contexts/streaming'
 import { getBrowserLocale } from '../hooks/useBrowserLocale'
 import useLightTheme from '../hooks/useLightTheme'
-import useApps from '../hooks/useApps'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
-import { useListProjectSpecTaskAgents, useListProjects } from '../services'
+import { useListProjects } from '../services'
 import { useListProviders } from '../services/providersService'
 import { invalidateSessionsQuery } from '../services/sessionService'
 import {
@@ -46,13 +45,11 @@ import { SESSION_TYPE_TEXT } from '../types'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   buildNewChatTaskRequest,
-  chooseProjectChatAgentId,
   modelSupportsReasoningEffort,
   NEW_CHAT_REASONING_EFFORT_OPTIONS,
   newChatHeading,
   NewChatReasoningEffort,
   NewChatTaskMode,
-  projectChatAgentStorageKey,
   readNewChatReasoningEffort,
 } from './newChatLogic'
 import {
@@ -110,7 +107,6 @@ const Home: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
   const queryClient = useQueryClient()
-  const apps = useApps()
   const { NewInference } = useStreaming()
   const orgId = account.organizationTools.organization?.id || ''
   const requestedProjectId = router.params.project_id || ''
@@ -126,18 +122,13 @@ const Home: FC = () => {
   })
   const selectedProject = projects.find((project) => project.id === requestedProjectId)
   const selectedProjectId = selectedProject?.id || ''
-  const { data: codingAgents = [] } = useListProjectSpecTaskAgents(
-    selectedProjectId,
-    !!userId && !!selectedProjectId,
-  )
 
   const [selectedProvider, setSelectedProvider] = useState(() => localStorage.getItem('helix_provider') || '')
   const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem('helix_model') || '')
   const [reasoningEffort, setReasoningEffort] = useState<NewChatReasoningEffort>(() => (
     readNewChatReasoningEffort(localStorage.getItem('helix_reasoning_effort'))
   ))
-  const [selectedAgentId, setSelectedAgentId] = useState('')
-  const [taskCodeAgentOverrides, setTaskCodeAgentOverrides] = useState<TypesCodeAgentOverrides>({})
+  const [taskCodeAgentConfig, setTaskCodeAgentConfig] = useState<TypesCodeAgentExecutionConfig>()
   const [taskSandboxResources, setTaskSandboxResources] = useState<TypesSandboxResourceOverrides>({
     vcpus: 4,
     memory_mb: 8192,
@@ -156,6 +147,8 @@ const Home: FC = () => {
   const uploadTaskAttachments = useUploadSpecTaskAttachments()
   const startTask = useStartSpecTaskPlanning()
 
+  const projectCodeAgentConfigKey = JSON.stringify(selectedProject?.code_agent_config ?? null)
+
   useEffect(() => {
     if (!selectedProvider || !selectedModel) return
     localStorage.setItem('helix_provider', selectedProvider)
@@ -166,42 +159,20 @@ const Home: FC = () => {
     localStorage.setItem('helix_reasoning_effort', reasoningEffort)
   }, [reasoningEffort])
 
-  const codingAgentIds = codingAgents.flatMap((agent) => agent.id ? [agent.id] : []).join(',')
-  const agentStorageKey = projectChatAgentStorageKey(orgId)
-
   useEffect(() => {
-    const availableIds = codingAgentIds ? codingAgentIds.split(',') : []
-    setSelectedAgentId(chooseProjectChatAgentId(
-      availableIds,
-      orgId ? localStorage.getItem(agentStorageKey) : null,
-    ))
-  }, [agentStorageKey, codingAgentIds, orgId])
-
-  useEffect(() => {
-    if (!orgId || !selectedAgentId) return
-    const availableIds = codingAgentIds ? codingAgentIds.split(',') : []
-    if (!availableIds.includes(selectedAgentId)) return
-    localStorage.setItem(agentStorageKey, selectedAgentId)
-  }, [agentStorageKey, codingAgentIds, orgId, selectedAgentId])
-
-  useEffect(() => {
-    setTaskCodeAgentOverrides({})
+    setTaskCodeAgentConfig(selectedProject?.code_agent_config)
     setTaskSandboxResources({ vcpus: 4, memory_mb: 8192 })
     setTaskSandboxRuntime(preferredSpecTaskSandboxRuntime(
       selectedProjectId,
       selectedProject?.default_sandbox_runtime,
     ))
-  }, [selectedProjectId, selectedProject?.default_sandbox_runtime])
+  }, [selectedProjectId, projectCodeAgentConfigKey, selectedProject?.default_sandbox_runtime])
 
   const handleTaskSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
     setTaskSandboxRuntime(runtime)
     saveSpecTaskSandboxRuntimePreference(selectedProjectId, runtime)
   }
 
-  const taskAgents = codingAgents.flatMap((summary) => {
-    const app = apps.apps.find((candidate) => candidate.id === summary.id)
-    return app ? [app] : []
-  })
   const isProjectContext = !!selectedProjectId
   const supportsReasoningEffort = modelSupportsReasoningEffort(
     providers,
@@ -252,8 +223,8 @@ const Home: FC = () => {
       return false
     }
     if (!selectedProjectId) return false
-    if (!selectedAgentId) {
-      snackbar.error('Select a coding agent before starting this task')
+    if (!taskCodeAgentConfig?.model) {
+      snackbar.error('Select a coding harness and model before starting this task')
       return false
     }
 
@@ -261,11 +232,10 @@ const Home: FC = () => {
     let taskId = ''
     try {
       const task = await createTask.mutateAsync(buildNewChatTaskRequest({
-        appId: selectedAgentId,
         mode: taskMode,
         projectId: selectedProjectId,
         prompt: message,
-        codeAgentOverrides: taskCodeAgentOverrides,
+        codeAgentConfig: taskCodeAgentConfig,
         sandboxResourceOverrides: taskSandboxResources,
         sandboxRuntime: taskSandboxRuntime,
       }))
@@ -345,19 +315,15 @@ const Home: FC = () => {
 
   const projectActions = (
     <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, overflow: 'hidden' }}>
-      <SpecTaskExecutionControls
-        agents={taskAgents}
-        selectedAgentId={selectedAgentId}
-        codeAgentOverrides={taskCodeAgentOverrides}
+      <CodeAgentExecutionControls
+        value={taskCodeAgentConfig}
         sandboxResourceOverrides={taskSandboxResources}
         sandboxRuntime={taskSandboxRuntime}
-        onAgentModelChange={(agentId, overrides) => {
-          setSelectedAgentId(agentId)
-          setTaskCodeAgentOverrides(overrides)
-        }}
+        onChange={setTaskCodeAgentConfig}
         onSandboxResourceOverridesChange={setTaskSandboxResources}
         onSandboxRuntimeChange={handleTaskSandboxRuntimeChange}
         disabled={submitting}
+        autoSelectDefault
         compact
       />
       <Box
@@ -567,7 +533,7 @@ const Home: FC = () => {
               sessionId={`new-thread:${selectedProjectId || 'none'}`}
               sendMode="direct"
               autoFocus
-              disabled={submitting || (isProjectContext && !selectedAgentId)}
+              disabled={submitting || (isProjectContext && !taskCodeAgentConfig?.model)}
               placeholder={isProjectContext ? 'Describe what you want to build' : 'Ask anything'}
               inlineImageAttachments={!isProjectContext}
               deferredFileAttachments={isProjectContext}

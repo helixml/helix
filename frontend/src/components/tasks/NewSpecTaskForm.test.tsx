@@ -27,7 +27,7 @@ vi.mock("../../hooks/useApps", () => ({
 }));
 vi.mock("../../utils/apps", () => ({ isCodingAgent: () => true }));
 vi.mock("../../services", () => ({
-  useGetProject: () => ({ data: { default_helix_app_id: "app-1" } }),
+  useGetProject: () => ({ data: { code_agent_config: undefined } }),
   useGetProjectRepositories: () => ({ data: [] }),
 }));
 vi.mock("../../services/specTaskService", () => ({
@@ -47,7 +47,10 @@ vi.mock("../widgets/OrganizationUserAvatar", () => ({
   resolveOrganizationUser: () => undefined,
 }));
 vi.mock("./GooseRecipeSelector", () => ({ default: () => null }));
-vi.mock("../agent/CodingAgentForm", () => ({ default: () => null }));
+vi.mock("../agent/CodingAgentForm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/CodingAgentForm")>()),
+  default: () => null,
+}));
 vi.mock("./SpecTaskExecutionControls", () => ({ default: () => null }));
 
 describe("NewSpecTaskForm", () => {

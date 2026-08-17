@@ -211,6 +211,48 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         }),
       },
       components: {
+        MuiSwitch: {
+          styleOverrides: {
+            root: {
+              width: 40,
+              height: 22,
+              padding: 0,
+              display: 'flex',
+              overflow: 'visible',
+            },
+            switchBase: {
+              padding: 3,
+              color: '#fff',
+              '&.Mui-checked': {
+                transform: 'translateX(18px)',
+                color: '#fff',
+                '& + .MuiSwitch-track': {
+                  opacity: 1,
+                  backgroundColor: '#2563eb',
+                },
+              },
+              '&.Mui-disabled': {
+                color: '#fff',
+                opacity: 0.5,
+              },
+              '&.Mui-disabled + .MuiSwitch-track': {
+                opacity: isLight ? 0.2 : 0.25,
+              },
+              '&:hover': { backgroundColor: 'transparent' },
+            },
+            thumb: {
+              width: 16,
+              height: 16,
+              boxShadow: 'none',
+            },
+            track: {
+              borderRadius: 11,
+              opacity: 1,
+              backgroundColor: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.22)',
+              transition: 'background-color 150ms ease',
+            },
+          },
+        },
         MuiCssBaseline: {
           styleOverrides: {
             // Typography tokens live in styles/typography.ts; they are mirrored

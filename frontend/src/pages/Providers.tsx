@@ -1,15 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert, Collapse } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
-import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AddProviderDialog from '../components/providers/AddProviderDialog';
 
 import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint } from '../services/providersService';
 import { TypesProviderEndpointType } from '../api/api';
 import CircularProgress from '@mui/material/CircularProgress';
-import { Server } from 'lucide-react';
+import { CheckCircle, ChevronDown, CirclePlus, Server } from 'lucide-react';
 import { useGetOrgByName } from '../services/orgService';
 
 import { PROVIDERS, Provider } from '../components/providers/types';
@@ -23,12 +21,19 @@ import CodexSubscriptionConnect from '../components/account/CodexSubscriptionCon
 import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
 import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
+import CodeAgentHarnessesSection from '../components/providers/CodeAgentHarnessesSection';
+import {
+  useOrgCodeAgentHarnesses,
+  useUpdateOrgCodeAgentHarnesses,
+} from '../services/codeAgentHarnessesService';
+import { TypesOrgCodeAgentHarnessUpdate } from '../api/api';
 
 const Providers: React.FC = () => {
   const router = useRouter()
   const account = useAccount()
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [apiProvidersOpen, setApiProvidersOpen] = useState(false);
   const [localModelsEndpointId, setLocalModelsEndpointId] = useState<string | null>(null);
   const [connectingDetected, setConnectingDetected] = useState<string>("");
   const isMacDesktop = account.serverConfig?.edition === "mac-desktop";
@@ -55,14 +60,48 @@ const Providers: React.FC = () => {
 
   // Claude subscription state (must be called before any early returns)
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const claudeIsSetupToken = hasClaudeSubscription && claudeSubscriptions![0].credential_type === 'setup_token'
+  const personalClaudeSubscription = claudeSubscriptions?.find(subscription => subscription.owner_type === 'user')
+  const orgClaudeSubscription = claudeSubscriptions?.find(subscription =>
+    subscription.owner_type === 'org' && subscription.owner_id === org?.id)
+  const effectiveClaudeSubscription = personalClaudeSubscription || orgClaudeSubscription
+  const hasClaudeSubscription = !!personalClaudeSubscription
+  const claudeIsSetupToken = personalClaudeSubscription?.credential_type === 'setup_token'
   const claudeExpiry = hasClaudeSubscription && !claudeIsSetupToken
-    ? getTokenExpiryStatus(claudeSubscriptions![0].access_token_expires_at)
+    ? getTokenExpiryStatus(personalClaudeSubscription?.access_token_expires_at)
     : null
   const claudeIsExpired = claudeExpiry?.isExpired ?? false
   const { data: codexSubscriptions } = useCodexSubscriptions()
-  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
+  const personalCodexSubscription = codexSubscriptions?.find(subscription => subscription.owner_type === 'user')
+  const orgCodexSubscription = codexSubscriptions?.find(subscription =>
+    subscription.owner_type === 'org' && subscription.owner_id === org?.id)
+  const effectiveCodexSubscription = personalCodexSubscription || orgCodexSubscription
+  const hasCodexSubscription = !!personalCodexSubscription
+
+  const subscriptionIdentity = (runtime: string): string | undefined => {
+    if (runtime === 'claude_code') {
+      const subscription = effectiveClaudeSubscription
+      if (!subscription) return undefined
+      const plan = subscription.subscription_type
+        ? `Claude ${subscription.subscription_type.charAt(0).toUpperCase()}${subscription.subscription_type.slice(1)} Subscription`
+        : 'Claude Subscription'
+      return [subscription.name, plan].filter(Boolean).join(' · ')
+    }
+    if (runtime === 'codex_cli') {
+      const subscription = effectiveCodexSubscription
+      if (!subscription) return undefined
+      return [subscription.name, 'ChatGPT Subscription'].filter(Boolean).join(' · ')
+    }
+    return undefined
+  }
+
+  const { data: codeAgentHarnesses = [], isLoading: isLoadingCodeAgents } = useOrgCodeAgentHarnesses(
+    org?.id,
+    { enabled: !isLoadingOrg },
+  )
+  const updateCodeAgentHarnesses = useUpdateOrgCodeAgentHarnesses(org?.id)
+  const handleCodeAgentChange = (update: TypesOrgCodeAgentHarnessUpdate) => {
+    updateCodeAgentHarnesses.mutate([update])
+  }
 
   const pageProps = {
     breadcrumbTitle: 'AI providers',
@@ -119,10 +158,13 @@ const Providers: React.FC = () => {
     setSelectedProvider(null);
   };
 
-  // Filter for user endpoints only
-  const userEndpoints = providerEndpoints.filter(endpoint => endpoint.endpoint_type === 'user');
+  // Keep global endpoints read-only. Provider connections on this page belong
+  // to either the current user or the current organization.
+  const ownedEndpoints = providerEndpoints.filter(endpoint =>
+    endpoint.endpoint_type === (orgName ? 'org' : 'user')
+  );
 
-  // All endpoints (user + global) — used for checking if a provider is configured
+  // Current owner endpoints plus globals — used for connection status.
   const allEndpoints = providerEndpoints;
 
   // Local inference servers (LM Studio, Ollama) — check all endpoints
@@ -132,7 +174,7 @@ const Providers: React.FC = () => {
 
   // User-created custom endpoints: anything whose name doesn't match a predefined PROVIDERS id.
   const knownProviderIds = new Set(PROVIDERS.map(p => p.id));
-  const customEndpoints = userEndpoints.filter(e => e.name && !knownProviderIds.has(e.name));
+  const customEndpoints = ownedEndpoints.filter(e => e.name && !knownProviderIds.has(e.name));
 
   // Detected but not yet connected local providers
   const unconnectedDetected = (detectedProviders || []).filter(
@@ -167,6 +209,33 @@ const Providers: React.FC = () => {
             : "View the AI providers configured for your organization. Contact your organization owner to add new providers."
           }
         </Typography>
+
+        {orgName && <Box sx={{ mb: 5 }}>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>
+            Coding agents
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            {editAllowed
+              ? "Choose which harnesses and credential sources tasks in this organization can use. Models are selected when creating a task."
+              : "Harnesses available to tasks in this organization."}
+          </Typography>
+          <CodeAgentHarnessesSection
+            harnesses={codeAgentHarnesses}
+            endpoints={allEndpoints}
+            loading={(isLoadingCodeAgents || isLoadingOrg) && codeAgentHarnesses.length === 0}
+            readOnly={!editAllowed}
+            onChange={handleCodeAgentChange}
+            subscriptionIdentity={subscriptionIdentity}
+            subscriptionAction={(runtime) => {
+              // Connecting here enables the org policy but keeps the paid
+              // credential personal. Org-owned subscriptions remain an
+              // explicit shared-credential workflow.
+              if (runtime === 'claude_code') return <ClaudeSubscriptionConnect variant="button" enableForOrgId={org?.id} />
+              if (runtime === 'codex_cli') return <CodexSubscriptionConnect enableForOrgId={org?.id} />
+              return null
+            }}
+          />
+        </Box>}
 
         {/* Detected local servers banner */}
         {unconnectedDetected.length > 0 && (
@@ -204,13 +273,14 @@ const Providers: React.FC = () => {
           </Box>
         )}
 
-        <Typography variant="h6" sx={{ mb: 1.5 }}>
-          Subscriptions
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Connect an Anthropic or ChatGPT subscription for coding agents in desktop sessions.
-        </Typography>
-        <Grid container spacing={3} justifyContent="left" sx={{ mb: 4 }}>
+        {!orgName && <>
+          <Typography variant="h6" sx={{ mb: 1.5 }}>
+            Subscriptions
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Connect an Anthropic or ChatGPT subscription for coding agents in desktop sessions.
+          </Typography>
+          <Grid container spacing={3} justifyContent="left" sx={{ mb: 4 }}>
           <Grid item xs={12} sm={6} display="flex" justifyContent="center">
             <Card
               sx={{
@@ -271,7 +341,8 @@ const Providers: React.FC = () => {
               </CardActions>
             </Card>
           </Grid>
-        </Grid>
+          </Grid>
+        </>}
 
         {localEndpoints.length > 0 && (
           <>
@@ -303,12 +374,66 @@ const Providers: React.FC = () => {
 
         <Divider sx={{ mb: 3 }} />
 
-        <Typography variant="h6" sx={{ mb: 1.5 }}>
-          AI Providers
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Add API keys for chat, Zed Agent, Qwen Code, and other AI features.
-        </Typography>
+        <Box
+          component="button"
+          type="button"
+          aria-expanded={apiProvidersOpen}
+          aria-label={apiProvidersOpen ? 'Hide AI Providers' : 'Show AI Providers'}
+          onClick={() => setApiProvidersOpen((open) => !open)}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            width: '100%',
+            m: 0,
+            mb: apiProvidersOpen ? 2 : 0,
+            p: 0,
+            border: 0,
+            background: 'transparent',
+            color: 'inherit',
+            cursor: 'pointer',
+            textAlign: 'left',
+            borderRadius: 1,
+            '&:hover .providers-expand-chevron': { color: 'text.primary' },
+            '&:focus-visible': {
+              outline: '2px solid',
+              outlineColor: 'secondary.main',
+              outlineOffset: 2,
+            },
+          }}
+        >
+          <Box component="span" sx={{ minWidth: 0, flex: 1 }}>
+            <Typography variant="h6" sx={{ mb: 0.5 }}>
+              AI Providers
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Add API keys for chat, Zed Agent, Qwen Code, and other AI features.
+            </Typography>
+          </Box>
+          <Box
+            component="span"
+            className="providers-expand-chevron"
+            aria-hidden="true"
+            sx={{
+              width: 30,
+              height: 30,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              color: 'text.secondary',
+            }}
+          >
+            <ChevronDown
+              size={18}
+              style={{
+                transform: apiProvidersOpen ? 'rotate(180deg)' : undefined,
+                transition: 'transform 120ms ease',
+              }}
+            />
+          </Box>
+        </Box>
+        <Collapse in={apiProvidersOpen} unmountOnExit>
         <Grid container spacing={3} justifyContent="left">
           {PROVIDERS.map((provider) => {
             // The custom provider tile always opens a fresh "Add" dialog — many custom
@@ -316,7 +441,7 @@ const Providers: React.FC = () => {
             // This section manages keys owned by the current user or organization.
             // Synthetic global providers have id "-" and are configured by the server
             // environment, so they cannot be disconnected from this dialog.
-            const existingProvider = provider.is_custom ? undefined : userEndpoints.find(
+            const existingProvider = provider.is_custom ? undefined : ownedEndpoints.find(
               endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', '')
             );
             const isConfigured = !!existingProvider;
@@ -386,7 +511,7 @@ const Providers: React.FC = () => {
                           variant={isConfigured ? 'outlined' : 'text'}
                           color={isConfigured ? (existingProvider?.status === 'error' ? 'error' : 'success') : 'secondary'}
                           onClick={() => handleOpenDialog(provider)}
-                          startIcon={isConfigured ? <CheckCircleIcon /> : <AddCircleOutlineIcon />}
+                          startIcon={isConfigured ? <CheckCircle size={18} /> : <CirclePlus size={18} />}
                           disabled={!editAllowed && !isConfigured}
                         >
                           {isConfigured ? (existingProvider?.status === 'error' ? 'Fix Connection' : 'Connected') : 'Connect'}
@@ -463,7 +588,7 @@ const Providers: React.FC = () => {
                       variant="outlined"
                       color={endpoint.status === 'error' ? 'error' : 'success'}
                       onClick={() => handleOpenDialog(customCardProvider)}
-                      startIcon={<CheckCircleIcon />}
+                      startIcon={<CheckCircle size={18} />}
                       disabled={!editAllowed}
                     >
                       {endpoint.status === 'error' ? 'Fix Connection' : 'Connected'}
@@ -474,13 +599,14 @@ const Providers: React.FC = () => {
             );
           })}
         </Grid>
+        </Collapse>
         {selectedProvider && editAllowed && (
           <AddProviderDialog
             orgId={org?.id || ''}
             open={dialogOpen}
             onClose={handleCloseDialog}
             provider={selectedProvider}
-            existingProvider={userEndpoints.find(endpoint =>
+            existingProvider={ownedEndpoints.find(endpoint =>
               endpoint.name === selectedProvider.id ||
               endpoint.name === selectedProvider.id.replace('user/', '')
             )}

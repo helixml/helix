@@ -82,7 +82,15 @@ function renderDialog(repositories: TypesGitRepository[] = []) {
 describe('CreateProjectDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.createAgent.mockResolvedValue({ id: 'agent-1' })
+    mocks.createAgent.mockResolvedValue({
+      id: 'agent-1',
+      config: { helix: { assistants: [{
+        agent_type: 'zed_external',
+        code_agent_runtime: 'claude_code',
+        code_agent_credential_type: 'subscription',
+        claude_subscription_model: 'claude-opus-5',
+      }] } },
+    })
     mocks.createProject.mockResolvedValue({ id: 'project-1' })
     mocks.createRepo.mockResolvedValue({ id: 'repo-1', name: 'demo' })
     mocks.projects.length = 0
@@ -131,7 +139,11 @@ describe('CreateProjectDialog', () => {
     expect(mocks.createProject).toHaveBeenCalledWith(expect.objectContaining({
       name: 'Demo project',
       default_repo_id: 'repo-1',
-      default_helix_app_id: 'agent-1',
+      code_agent_config: expect.objectContaining({
+        runtime: 'claude_code',
+        credential_type: 'subscription',
+        model: 'claude-opus-5',
+      }),
     }))
   })
 

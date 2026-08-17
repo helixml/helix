@@ -11,12 +11,19 @@ import (
 
 	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func newForkCommand() *cobra.Command {
 	var projectName string
 	var description string
 	var orgFlag string
+	var runtime string
+	var credentialType string
+	var providerRef string
+	var model string
+	var reasoningEffort string
+	var serviceTier string
 
 	cmd := &cobra.Command{
 		Use:   "fork <sample-project-id>",
@@ -25,7 +32,9 @@ func newForkCommand() *cobra.Command {
 
 Projects are organization-scoped. If --org is omitted and you belong to a
 single org, that org is used; if you belong to multiple, you will be
-prompted. The HELIX_ORG environment variable is also honoured.`,
+prompted. The HELIX_ORG environment variable is also honoured.
+
+The model is required. API-key credentials also require a provider reference.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sampleID := args[0]
@@ -41,16 +50,15 @@ prompted. The HELIX_ORG environment variable is also honoured.`,
 				return err
 			}
 
-			payload := map[string]string{
-				"sample_project_id": sampleID,
-				"organization_id":   orgID,
+			codeAgentConfig := &types.CodeAgentExecutionConfig{
+				Runtime:         types.CodeAgentRuntime(runtime),
+				CredentialType:  types.CodeAgentCredentialType(credentialType),
+				ProviderRef:     providerRef,
+				Model:           model,
+				ReasoningEffort: reasoningEffort,
+				ServiceTier:     serviceTier,
 			}
-			if projectName != "" {
-				payload["project_name"] = projectName
-			}
-			if description != "" {
-				payload["description"] = description
-			}
+			payload := buildForkPayload(sampleID, orgID, projectName, description, codeAgentConfig)
 
 			jsonData, err := json.Marshal(payload)
 			if err != nil {
@@ -105,8 +113,30 @@ prompted. The HELIX_ORG environment variable is also honoured.`,
 	cmd.Flags().StringVarP(&projectName, "name", "n", "", "Project name (defaults to sample name)")
 	cmd.Flags().StringVarP(&description, "description", "d", "", "Project description")
 	cmd.Flags().StringVarP(&orgFlag, "org", "o", "", "Organization name or ID (defaults to $HELIX_ORG, then your only org, or prompts)")
+	cmd.Flags().StringVar(&runtime, "runtime", string(types.CodeAgentRuntimeZedAgent), "Code agent runtime")
+	cmd.Flags().StringVar(&credentialType, "credential-type", string(types.CodeAgentCredentialTypeAPIKey), "Code agent credential type")
+	cmd.Flags().StringVar(&providerRef, "provider", "", "Provider reference for the code agent")
+	cmd.Flags().StringVar(&model, "model", "", "Model for the code agent")
+	cmd.Flags().StringVar(&reasoningEffort, "reasoning-effort", "", "Reasoning effort for the code agent")
+	cmd.Flags().StringVar(&serviceTier, "service-tier", "", "Service tier for the code agent")
+	_ = cmd.MarkFlagRequired("model")
 
 	return cmd
+}
+
+func buildForkPayload(sampleID, orgID, projectName, description string, codeAgentConfig *types.CodeAgentExecutionConfig) map[string]any {
+	payload := map[string]any{
+		"sample_project_id": sampleID,
+		"organization_id":   orgID,
+		"code_agent_config": codeAgentConfig,
+	}
+	if projectName != "" {
+		payload["project_name"] = projectName
+	}
+	if description != "" {
+		payload["description"] = description
+	}
+	return payload
 }
 
 type ForkResponse struct {

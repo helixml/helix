@@ -78,6 +78,27 @@ func TestApplyDefaultNewProjectAgentConfigPreservesSubscriptionConfig(t *testing
 	require.Empty(t, app.Config.Helix.Assistants[0].Model)
 }
 
+func TestApplyDefaultNewProjectAgentConfigDefersNativeHarnessModelSelection(t *testing.T) {
+	for _, runtime := range []types.CodeAgentRuntime{
+		types.CodeAgentRuntimeClaudeCode,
+		types.CodeAgentRuntimeCodexCLI,
+	} {
+		t.Run(string(runtime), func(t *testing.T) {
+			app := deferredZedAgent()
+			app.Config.Helix.Assistants[0].CodeAgentRuntime = runtime
+
+			err := applyDefaultNewProjectAgentConfig(&types.SystemSettings{
+				DefaultNewProjectAgentProvider: "pe_default",
+				DefaultNewProjectAgentModel:    "qwen3.8-27b",
+			}, app)
+			require.NoError(t, err)
+			require.Empty(t, app.Config.Helix.Assistants[0].Provider)
+			require.Empty(t, app.Config.Helix.Assistants[0].Model)
+			require.Empty(t, app.Config.Helix.Assistants[0].CodeAgentCredentialType)
+		})
+	}
+}
+
 func TestApplyDefaultNewProjectAgentConfigRequiresConfiguredDefaults(t *testing.T) {
 	err := applyDefaultNewProjectAgentConfig(&types.SystemSettings{}, deferredZedAgent())
 	require.Error(t, err)

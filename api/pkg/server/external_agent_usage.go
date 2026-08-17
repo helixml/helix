@@ -175,12 +175,31 @@ func (s *HelixAPIServer) codeAgentConfigSnapshot(ctx context.Context, session *t
 
 	appID := session.ParentApp
 	var task *types.SpecTask
+	if session.Metadata.SpecTaskID == "" && session.Metadata.CodeAgentConfig != nil {
+		config := session.Metadata.CodeAgentConfig
+		return &types.InteractionCodeAgentConfigSnapshot{
+			AppID:          appID,
+			Provider:       config.ProviderRef,
+			Model:          config.Model,
+			Runtime:        config.Runtime,
+			CredentialType: config.CredentialType,
+		}, nil
+	}
 	if session.Metadata.SpecTaskID != "" {
 		loaded, err := s.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get spec task %s for ACP usage: %w", session.Metadata.SpecTaskID, err)
 		}
 		task = loaded
+		if task.CodeAgentConfig != nil {
+			config := task.CodeAgentConfig
+			return &types.InteractionCodeAgentConfigSnapshot{
+				Provider:       config.ProviderRef,
+				Model:          config.Model,
+				Runtime:        config.Runtime,
+				CredentialType: config.CredentialType,
+			}, nil
+		}
 		if task.HelixAppID != "" {
 			appID = task.HelixAppID
 		}

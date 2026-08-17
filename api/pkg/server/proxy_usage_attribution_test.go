@@ -35,6 +35,7 @@ func TestResolveProxyUsageAttributionUsesCurrentSessionApp(t *testing.T) {
 	require.Equal(t, "app_current", attribution.AppID)
 	require.Equal(t, types.CodeAgentRuntimeOpenCode, attribution.CodeAgentRuntime)
 	require.Equal(t, "qwen3.8-27b", attribution.CodeAgentOverrides.Model)
+	require.False(t, attribution.hasExecutionConfig)
 }
 
 func TestResolveProxyUsageAttributionUsesAuthoritativeSpecTaskConfig(t *testing.T) {
@@ -71,6 +72,26 @@ func TestResolveProxyUsageAttributionUsesAuthoritativeSpecTaskConfig(t *testing.
 	require.Equal(t, "pe_qwen", attribution.CodeAgentOverrides.ProviderRef)
 	require.Equal(t, "qwen3.8-27b", attribution.CodeAgentOverrides.Model)
 	require.Equal(t, "medium", attribution.CodeAgentOverrides.ReasoningEffort)
+	require.False(t, attribution.hasExecutionConfig)
+}
+
+func TestResolveProxyUsageAttributionMarksExecutionConfig(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_123").Return(&types.Session{
+		ID: "ses_123",
+		Metadata: types.SessionMetadata{CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeClaudeCode,
+		}},
+	}, nil)
+
+	attribution, err := server.resolveProxyUsageAttribution(context.Background(), &types.User{
+		SessionID: "ses_123",
+	}, "")
+
+	require.NoError(t, err)
+	require.True(t, attribution.hasExecutionConfig)
 }
 
 func TestResolveProxyUsageAttributionLeavesOrdinaryAPIRequestUnchanged(t *testing.T) {

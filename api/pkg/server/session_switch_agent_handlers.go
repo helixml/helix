@@ -90,6 +90,9 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 		return nil, system.NewHTTPError400(
 			fmt.Sprintf("session is not an external agent session (agent_type=%q)", session.Metadata.AgentType))
 	}
+	if session.Metadata.SpecTaskID != "" {
+		return nil, system.NewHTTPError400("SpecTask sessions do not support App-based agent switching; update code_agent_config instead")
+	}
 	// Switching only makes sense on a live session. A paused session is a
 	// frozen checkpoint — switch on its active descendant instead.
 	if session.Metadata.Paused {
@@ -145,9 +148,9 @@ func sessionUsesAgentRuntime(session *types.Session, runtime types.CodeAgentRunt
 		(runtime == types.CodeAgentRuntimeZedAgent && session.Metadata.ZedAgentName == "")
 }
 
-// switchAgentInPlace performs the in-place switch: snapshot the current
-// transcript, repoint the session's agent fields (and the spec task's
-// HelixAppID — see repointSpecTaskForSwitch), clear the Zed thread binding,
+// switchAgentInPlace performs the in-place switch for App-backed general and
+// org-agent sessions: snapshot the current transcript, repoint the session's
+// agent fields, clear the Zed thread binding,
 // seed a fork_seed + Waiting handoff interaction, and publish a config_changed
 // event. On the fast path the daemon hot-reloads the new config and calls
 // /agent-config-applied, which delivers the handoff over the live Zed
@@ -168,9 +171,10 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 }
 
 type agentSwitchOptions struct {
-	createHandoff bool
-	handoffReason string
-	deliverLive   bool
+	createHandoff  bool
+	handoffReason  string
+	deliverLive    bool
+	clearParentApp bool
 }
 
 // reconcileSessionAgentWithApp repairs sessions whose persisted ACP binding
@@ -245,7 +249,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	prevAppID := session.ParentApp
 	prevThreadID := session.Metadata.ZedThreadID
 	childAppID := targetAppID
-	if childAppID == "" {
+	if childAppID == "" && !options.clearParentApp {
 		childAppID = prevAppID
 	}
 
@@ -269,16 +273,6 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	// dispatched so late events cannot fall back to the new Waiting interaction.
 	apiServer.detachSupersededExternalAgentThread(session.ID, prevThreadID)
 	apiServer.flushAndClearStreamingContext(ctx, session.ID)
-
-	// Repoint the spec task's HelixAppID to the target app. CRITICAL for
-	// spec-task sessions: getZedConfig resolves code_agent_config (which drives
-	// the claude_code model via managed-settings.json) from specTask.HelixAppID
-	// FIRST, then session.ParentApp. Updating only ParentApp above leaves the
-	// claude_code agent on the OLD model — the actual inference never switches
-	// even though Zed's native default_model does. (The fork path handles this
-	// via repointSpecTasksToChild; the in-place switch must too.) Done BEFORE
-	// publishAgentConfigChange so the daemon's re-fetch sees the new app.
-	apiServer.repointSpecTaskForSwitch(ctx, session, childAppID)
 
 	// fork_seed interaction carries the prior transcript for
 	// maybePrependTranscript to inject into the new thread's first message.
@@ -444,59 +438,6 @@ func (apiServer *HelixAPIServer) agentSwitchRestartFallback(ctx context.Context,
 		Dur("after", switchAgentLiveDeliveryTimeout).
 		Msg("switch-agent fallback: no new thread from live hot-reload, requesting Zed restart")
 	apiServer.publishAgentConfigChange(ctx, session, "agent_restart")
-}
-
-// repointSpecTaskForSwitch updates any spec task tracking THIS session so its
-// HelixAppID points at the switched-to app. Without this, getZedConfig keeps
-// resolving the claude_code model from the OLD app (managed-settings.json stays
-// stale) and the underlying model never actually changes on a switch. Unlike
-// the fork's repointSpecTasksToChild, the session is unchanged, so we only
-// rewrite HelixAppID — PlanningSessionID stays the same. Best-effort: failures
-// are logged, not fatal (the Zed-native model still switches; only the
-// claude_code/managed-settings model would stay stale).
-func (apiServer *HelixAPIServer) repointSpecTaskForSwitch(ctx context.Context, session *types.Session, targetAppID string) {
-	if targetAppID == "" {
-		return
-	}
-	update := func(task *types.SpecTask) {
-		if task == nil || task.HelixAppID == targetAppID {
-			return
-		}
-		oldApp := task.HelixAppID
-		task.HelixAppID = targetAppID
-		if err := apiServer.Store.UpdateSpecTask(ctx, task); err != nil {
-			log.Warn().Err(err).
-				Str("spec_task_id", task.ID).
-				Str("session_id", session.ID).
-				Msg("switch-agent: failed to repoint spec task HelixAppID; claude_code model may stay stale")
-			return
-		}
-		log.Info().
-			Str("spec_task_id", task.ID).
-			Str("old_app", oldApp).
-			Str("new_app", targetAppID).
-			Msg("switch-agent: repointed spec task to new agent app")
-	}
-
-	// getZedConfig reads session.Metadata.SpecTaskID first — update that exact
-	// task so the next zed-config fetch returns the new app's model.
-	if session.Metadata.SpecTaskID != "" {
-		if task, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil {
-			update(task)
-		}
-	}
-
-	// Also cover any spec task that tracks this session via PlanningSessionID
-	// (defensive: keeps the spec-task page / other lookups consistent).
-	tasks, err := apiServer.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{PlanningSessionID: session.ID})
-	if err != nil {
-		return
-	}
-	for _, task := range tasks {
-		if task != nil && task.ID != session.Metadata.SpecTaskID {
-			update(task)
-		}
-	}
 }
 
 // publishAgentConfigChange notifies the session's in-desktop settings-sync

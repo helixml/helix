@@ -2387,7 +2387,7 @@ const HelixOrgChart: FC = () => {
       const botAgentID = detail.agent_id ?? detail.agent_app_id ?? ''
       const botTasks = specTasks.filter((task) => {
         const taskProject = projectsByID.get(task.project_id ?? '')
-        const taskAgentID = task.helix_app_id || taskProject?.default_helix_app_id
+        const taskAgentID = taskProject?.default_helix_app_id
         return (
           (!!botProjectID && task.project_id === botProjectID) ||
           (!!botAgentID && taskAgentID === botAgentID)

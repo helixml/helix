@@ -31,13 +31,8 @@ import { ChevronDown, X } from "lucide-react";
 import AssigneeSelector from "./AssigneeSelector";
 import OrganizationUserAvatar, { resolveOrganizationUser } from "../widgets/OrganizationUserAvatar";
 import GooseRecipeSelector from "./GooseRecipeSelector";
-import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
-
-import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
-import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
-import { isCodingAgent } from "../../utils/apps";
 import {
-  TypesCodeAgentOverrides,
+  TypesCodeAgentExecutionConfig,
   TypesCreateTaskRequest,
   TypesSpecTaskPriority,
   TypesBranchMode,
@@ -46,13 +41,9 @@ import {
   TypesSpecTask,
   TypesSpecTaskStatus,
 } from "../../api/api";
-import CodingAgentForm, {
-  CodingAgentFormHandle,
-} from "../agent/CodingAgentForm";
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
 import useSnackbar from "../../hooks/useSnackbar";
-import useApps from "../../hooks/useApps";
 import { useGetProject, useGetProjectRepositories } from "../../services";
 import { useSpecTasks, useProjectLabels, useAddLabel } from "../../services/specTaskService";
 import {
@@ -61,7 +52,9 @@ import {
   SPEC_TASK_ATTACHMENT_MAX_PER_TASK,
   useUploadSpecTaskAttachments,
 } from "../../services/specTaskAttachmentsService";
-import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
+import CodeAgentExecutionControls from "../agent/CodeAgentExecutionControls";
+import NoCodeAgentsDialog from "../agent/NoCodeAgentsDialog";
+import { useHasEnabledCodeAgentHarnesses } from "../../services/codeAgentHarnessesService";
 import {
   preferredSpecTaskSandboxRuntime,
   saveSpecTaskSandboxRuntimePreference,
@@ -102,7 +95,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const account = useAccount();
   const api = useApi();
   const snackbar = useSnackbar();
-  const apps = useApps();
   const queryClient = useQueryClient();
 
   // Fetch project data
@@ -145,8 +137,14 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const [selectedDependencyTaskIds, setSelectedDependencyTaskIds] = useState<
     string[]
   >([]);
-  const [selectedHelixAgent, setSelectedHelixAgent] = useState("");
-  const [codeAgentOverrides, setCodeAgentOverrides] = useState<TypesCodeAgentOverrides>({});
+  // A task cannot start without a coding agent, so an org with none configured
+  // gets an explanation and a route to settings rather than a Create button
+  // that is simply dead.
+  const { hasAny: hasCodeAgents, loading: loadingCodeAgents } = useHasEnabledCodeAgentHarnesses();
+  const [noAgentsOpen, setNoAgentsOpen] = useState(false);
+  const missingCodeAgents = !loadingCodeAgents && !hasCodeAgents;
+
+  const [codeAgentConfig, setCodeAgentConfig] = useState<TypesCodeAgentExecutionConfig>();
   const [sandboxResourceOverrides, setSandboxResourceOverrides] = useState<TypesSandboxResourceOverrides>({
     vcpus: 4,
     memory_mb: 8192,
@@ -297,74 +295,14 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     }
   }, [defaultBranchName, baseBranch]);
 
-  // Inline agent creation state
-  const [showCreateAgentForm, setShowCreateAgentForm] = useState(false);
-  const [codeAgentRuntime, setCodeAgentRuntime] =
-    useState<CodeAgentRuntime>("zed_agent");
-  const [claudeCodeMode, setClaudeCodeMode] = useState<
-    "subscription" | "api_key"
-  >("subscription");
-  const [selectedProvider, setSelectedProvider] = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
-  const [newAgentName, setNewAgentName] = useState("-");
-  const [userModifiedName, setUserModifiedName] = useState(false);
-  const [creatingAgent, setCreatingAgent] = useState(false);
-  const codingAgentFormRef = useRef<CodingAgentFormHandle>(null);
   // Ref for task prompt text field
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
-
-  // Show coding agents only, with the project default first.
-  const sortedApps = useMemo(() => {
-    if (!apps.apps) return [];
-    const codingApps: IApp[] = [];
-    let defaultApp: IApp | null = null;
-    const projectDefaultId = project?.default_helix_app_id;
-
-    apps.apps.forEach((app) => {
-      if (!isCodingAgent(app)) return;
-      if (projectDefaultId && app.id === projectDefaultId) {
-        defaultApp = app;
-        return;
-      }
-      codingApps.push(app);
-    });
-
-    // Sort the remaining coding agents by model quality.
-    const modelPriority = (app: IApp): number => {
-      const name = (app.config?.helix?.name || "").toLowerCase();
-      if (name.includes("opus")) return 0;
-      if (name.includes("sonnet")) return 1;
-      if (name.includes("haiku")) return 3;
-      return 2; // unknown models between sonnet and haiku
-    };
-    codingApps.sort((a, b) => modelPriority(a) - modelPriority(b));
-
-    const result: IApp[] = [];
-    if (defaultApp) result.push(defaultApp);
-    result.push(...codingApps);
-    return result;
-  }, [apps.apps, project?.default_helix_app_id]);
-
-  // Auto-generate agent name when model or runtime changes
-  useEffect(() => {
-    if (!userModifiedName && showCreateAgentForm) {
-      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
-    }
-  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
 
   // Determine whether the selected agent is a goose_code agent. We check
   // the zed_external assistant's code_agent_runtime — without this gate the
   // recipe selector would render for non-goose agents and just show "no
   // recipes" forever, which is noisy.
-  const selectedAgentIsGoose = useMemo(() => {
-    if (!selectedHelixAgent || !apps.apps) return false;
-    const app = apps.apps.find((a) => a.id === selectedHelixAgent);
-    if (!app) return false;
-    const assistant = app.config?.helix?.assistants?.find(
-      (a) => a.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-    );
-    return assistant?.code_agent_runtime === "goose_code";
-  }, [selectedHelixAgent, apps.apps]);
+  const selectedAgentIsGoose = codeAgentConfig?.runtime === "goose_code";
 
   // Reset recipe selection when the chosen agent changes — recipe names are
   // scoped to the agent, so a leftover selection from a previous agent would
@@ -372,40 +310,40 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   useEffect(() => {
     setSelectedRecipeName("");
     setRecipeParams({});
-  }, [selectedHelixAgent]);
+  }, [codeAgentConfig?.runtime]);
 
   useEffect(() => {
-    setSandboxRuntime(preferredSpecTaskSandboxRuntime(
-      projectId,
-      project?.default_sandbox_runtime,
-    ));
+    setSandboxRuntime(
+      preferredSpecTaskSandboxRuntime(
+        projectId,
+        project?.default_sandbox_runtime,
+      ),
+    );
   }, [projectId, project?.default_sandbox_runtime]);
+
+  const projectDefaultSandboxVCPUs =
+    project?.default_sandbox_resource_overrides?.vcpus || 4;
+  const projectDefaultSandboxMemoryMB =
+    project?.default_sandbox_resource_overrides?.memory_mb || 8192;
+  const projectCodeAgentConfigKey = JSON.stringify(
+    project?.code_agent_config ?? null,
+  );
+
+  useEffect(() => {
+    setSandboxResourceOverrides({
+      vcpus: projectDefaultSandboxVCPUs,
+      memory_mb: projectDefaultSandboxMemoryMB,
+    });
+  }, [projectId, projectDefaultSandboxVCPUs, projectDefaultSandboxMemoryMB]);
 
   const handleSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
     setSandboxRuntime(runtime);
     saveSpecTaskSandboxRuntimePreference(projectId, runtime);
   };
 
-  // Load apps on mount
   useEffect(() => {
-    if (account.user?.id) {
-      apps.loadApps();
-    }
-  }, []);
-
-  // Auto-select default agent
-  useEffect(() => {
-    if (project?.default_helix_app_id) {
-      setSelectedHelixAgent(project.default_helix_app_id);
-      setShowCreateAgentForm(false);
-    } else if (sortedApps.length === 0) {
-      setShowCreateAgentForm(true);
-      setSelectedHelixAgent("");
-    } else {
-      setSelectedHelixAgent(sortedApps[0]?.id || "");
-      setShowCreateAgentForm(false);
-    }
-  }, [sortedApps, project?.default_helix_app_id]);
+    setCodeAgentConfig(project?.code_agent_config);
+  }, [projectId, projectCodeAgentConfigKey]);
 
   // Focus text field on mount
   useEffect(() => {
@@ -449,10 +387,17 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setPendingAttachments([]);
     // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
-    setSelectedHelixAgent("");
-    setCodeAgentOverrides({});
-    setSandboxResourceOverrides({ vcpus: 4, memory_mb: 8192 });
-    setSandboxRuntime(TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop);
+    setCodeAgentConfig(project?.code_agent_config);
+    setSandboxResourceOverrides({
+      vcpus: projectDefaultSandboxVCPUs,
+      memory_mb: projectDefaultSandboxMemoryMB,
+    });
+    setSandboxRuntime(
+      preferredSpecTaskSandboxRuntime(
+        projectId,
+        project?.default_sandbox_runtime,
+      ),
+    );
     setSelectedRecipeName("");
     setRecipeParams({});
     // justDoItMode and autoStart intentionally kept — they persist to the next
@@ -462,16 +407,17 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setBranchPrefix("");
     setWorkingBranch("");
     setShowBranchCustomization(false);
-    setShowCreateAgentForm(false);
-    setCodeAgentRuntime("zed_agent");
-    setClaudeCodeMode("subscription");
-    setSelectedProvider("");
-    setSelectedModel("");
-    setNewAgentName("-");
-    setUserModifiedName(false);
     setAssigneeId(currentUserId || "");
     setAssigneeTouched(false);
-  }, [defaultBranchName, currentUserId]);
+  }, [
+    defaultBranchName,
+    currentUserId,
+    projectId,
+    projectCodeAgentConfigKey,
+    project?.default_sandbox_runtime,
+    projectDefaultSandboxVCPUs,
+    projectDefaultSandboxMemoryMB,
+  ]);
 
   // Handle task creation
   const handleCreateTask = async () => {
@@ -488,24 +434,17 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setIsCreating(true);
 
     try {
-      let agentId = selectedHelixAgent;
-
-      // Create agent inline if showing create form
-      if (showCreateAgentForm) {
-        const createdAgent =
-          await codingAgentFormRef.current?.handleCreateAgent();
-        if (!createdAgent?.id) {
-          setIsCreating(false);
-          return;
-        }
-        agentId = createdAgent.id;
+      if (!codeAgentConfig) {
+        snackbar.error("Select a coding harness and model");
+        setIsCreating(false);
+        return;
       }
 
       const createTaskRequest: TypesCreateTaskRequest = {
         prompt: taskPrompt,
         priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId,
-        app_id: agentId || undefined,
+        code_agent_config: codeAgentConfig,
         assignee_id: assigneeId || undefined,
         just_do_it_mode: justDoItMode,
         auto_start: autoStart,
@@ -528,9 +467,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           selectedRecipeName && Object.keys(recipeParams).length > 0
             ? recipeParams
             : undefined,
-        code_agent_overrides: Object.values(codeAgentOverrides).some(Boolean)
-          ? codeAgentOverrides
-          : undefined,
         sandbox_resource_overrides: sandboxResourceOverrides,
         sandbox_runtime: sandboxRuntime,
       };
@@ -600,7 +536,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [taskPrompt, justDoItMode, selectedHelixAgent, selectedDependencyTaskIds]);
+  }, [taskPrompt, justDoItMode, codeAgentConfig?.runtime, codeAgentConfig?.model, selectedDependencyTaskIds]);
 
   // Keyboard shortcut: Ctrl/Cmd+J to toggle Just Do It mode
   useEffect(() => {
@@ -1149,100 +1085,24 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
           {/* Coding agent and execution configuration */}
           <Box>
-            {!showCreateAgentForm ? (
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                <SpecTaskExecutionControls
-                  agents={sortedApps}
-                  selectedAgentId={selectedHelixAgent}
-                  codeAgentOverrides={codeAgentOverrides}
-                  sandboxResourceOverrides={sandboxResourceOverrides}
-                  sandboxRuntime={sandboxRuntime}
-                  onAgentModelChange={(agentId, overrides) => {
-                    setSelectedHelixAgent(agentId);
-                    setCodeAgentOverrides(overrides);
-                  }}
-                  onSandboxResourceOverridesChange={setSandboxResourceOverrides}
-                  onSandboxRuntimeChange={handleSandboxRuntimeChange}
-                />
-                {selectedAgentIsGoose && (
-                  <GooseRecipeSelector
-                    projectId={projectId}
-                    selectedRecipeName={selectedRecipeName}
-                    onSelectedRecipeNameChange={setSelectedRecipeName}
-                    params={recipeParams}
-                    onParamsChange={setRecipeParams}
-                    pendingAttachments={pendingAttachments}
-                  />
-                )}
-                <Button
-                  size="small"
-                  onClick={() => setShowCreateAgentForm(true)}
-                  sx={{
-                    alignSelf: "flex-start",
-                    textTransform: "none",
-                    fontSize: "0.75rem",
-                  }}
-                >
-                  + Create new agent
-                </Button>
-              </Box>
-            ) : (
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <CodingAgentForm
-                  ref={codingAgentFormRef}
-                  value={{
-                    codeAgentRuntime,
-                    claudeCodeMode,
-                    selectedProvider,
-                    selectedModel,
-                    agentName: newAgentName,
-                  }}
-                  onChange={(nextValue) => {
-                    setCodeAgentRuntime(nextValue.codeAgentRuntime);
-                    setClaudeCodeMode(nextValue.claudeCodeMode);
-                    setSelectedProvider(nextValue.selectedProvider);
-                    setSelectedModel(nextValue.selectedModel);
-                    if (nextValue.agentName !== newAgentName) {
-                      setUserModifiedName(true);
-                    }
-                    setNewAgentName(nextValue.agentName);
-                  }}
-                  disabled={creatingAgent || isCreating}
-                  recommendedModels={RECOMMENDED_CODING_MODELS}
-                  createAgentDescription="Code development agent for spec tasks"
-                  onCreateStateChange={setCreatingAgent}
-                  onAgentCreated={(app) => {
-                    setSelectedHelixAgent(app.id);
-                    setCodeAgentOverrides({});
-                    setShowCreateAgentForm(false);
-                  }}
-                  modelPickerHint="Choose a capable model for agentic coding."
-                  modelPickerDisplayMode="short"
-                  sx={{ display: "flex", flexDirection: "column", gap: 0 }}
-                />
-
-                {sortedApps.length > 0 && (
-                  <Button
-                    size="small"
-                    onClick={() => setShowCreateAgentForm(false)}
-                    sx={{ alignSelf: "flex-start" }}
-                    disabled={creatingAgent}
-                  >
-                    Back to agent list
-                  </Button>
-                )}
-              </Box>
-            )}
-            <Box sx={{ mt: 1 }}>
-              {showCreateAgentForm && (
-                <SpecTaskExecutionControls
-                  agents={[]}
-                  selectedAgentId=""
-                  sandboxResourceOverrides={sandboxResourceOverrides}
-                  sandboxRuntime={sandboxRuntime}
-                  onAgentModelChange={() => undefined}
-                  onSandboxResourceOverridesChange={setSandboxResourceOverrides}
-                  onSandboxRuntimeChange={handleSandboxRuntimeChange}
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              <CodeAgentExecutionControls
+                value={codeAgentConfig}
+                onChange={setCodeAgentConfig}
+                sandboxResourceOverrides={sandboxResourceOverrides}
+                sandboxRuntime={sandboxRuntime}
+                onSandboxResourceOverridesChange={setSandboxResourceOverrides}
+                onSandboxRuntimeChange={handleSandboxRuntimeChange}
+                autoSelectDefault
+              />
+              {selectedAgentIsGoose && (
+                <GooseRecipeSelector
+                  projectId={projectId}
+                  selectedRecipeName={selectedRecipeName}
+                  onSelectedRecipeNameChange={setSelectedRecipeName}
+                  params={recipeParams}
+                  onParamsChange={setRecipeParams}
+                  pendingAttachments={pendingAttachments}
                 />
               )}
             </Box>
@@ -1343,6 +1203,12 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             Cancel
           </Button>
         )}
+        <Tooltip
+          title={missingCodeAgents
+            ? "No coding agents are configured for this organization yet"
+            : ""}
+        >
+          <span onClick={() => { if (missingCodeAgents) setNoAgentsOpen(true) }}>
         <Button
           onClick={handleCreateTask}
           variant="contained"
@@ -1350,18 +1216,13 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           disabled={
             !taskPrompt.trim() ||
             isCreating ||
-            creatingAgent ||
+            missingCodeAgents ||
+            !codeAgentConfig?.model ||
             (branchMode === TypesBranchMode.BranchModeExisting &&
-              !workingBranch) ||
-            (showCreateAgentForm &&
-              !(
-                codeAgentRuntime === "claude_code" &&
-                claudeCodeMode === "subscription"
-              ) &&
-              (!selectedModel || !selectedProvider))
+              !workingBranch)
           }
           startIcon={
-            isCreating || creatingAgent ? (
+            isCreating ? (
               <CircularProgress size={16} />
             ) : (
               <AddIcon />
@@ -1390,7 +1251,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         >
           Create Task
         </Button>
+          </span>
+        </Tooltip>
       </Box>
+      <NoCodeAgentsDialog open={noAgentsOpen} onClose={() => setNoAgentsOpen(false)} />
     </Box>
   );
 };

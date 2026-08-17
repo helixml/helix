@@ -8,14 +8,44 @@ import (
 
 	"github.com/dgraph-io/ristretto/v2"
 	"github.com/helixml/helix/api/pkg/config"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestGetProviderSnapshotMissingHarnessPolicyPreservesVisibleProviders(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{
+		Store:           mockStore,
+		providerManager: providerManager,
+	}
+	app := &types.App{
+		OrganizationID: "org_1",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			AgentType:        types.AgentTypeZedExternal,
+			CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode,
+		}}}},
+	}
+	providerManager.EXPECT().
+		ListProviderEndpointsForOwner(gomock.Any(), "org_1", types.OwnerTypeOrg).
+		Return([]*types.ProviderEndpoint{{ID: "pe_anthropic", Name: "anthropic"}}, nil)
+	mockStore.EXPECT().
+		GetOrgCodeAgentHarness(gomock.Any(), "org_1", types.CodeAgentRuntimeClaudeCode).
+		Return(nil, store.ErrNotFound)
+
+	snapshot, err := server.getProviderSnapshot(context.Background(), "user_1", app)
+
+	require.NoError(t, err)
+	require.Equal(t, []external_agent.ProviderRef{{ID: "pe_anthropic", Name: "anthropic"}}, snapshot)
+}
 
 func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 	helixURL := "http://localhost:8080"

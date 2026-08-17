@@ -114,9 +114,9 @@ type Interaction struct {
 	Usage Usage `json:"usage" gorm:"type:jsonb;serializer:json"`
 
 	// CodeAgentConfigSnapshot records the effective coding configuration that
-	// executed this turn. SpecTask overrides can change while the Helix session
-	// stays the same, so usage attribution cannot be reconstructed from the
-	// session or task after the fact.
+	// executed this turn. A task or session config can change while the Helix
+	// session stays the same, so usage attribution cannot be reconstructed from
+	// current state after the fact.
 	CodeAgentConfigSnapshot *InteractionCodeAgentConfigSnapshot `json:"-" gorm:"type:jsonb;serializer:json"`
 
 	Feedback        Feedback `json:"feedback" gorm:"index"`
@@ -509,9 +509,15 @@ type SessionMetadata struct {
 	// CodeAgentOverrides customizes the coding model for THIS session without
 	// mutating its Agent. Set from the chat composer's execution controls on
 	// sessions that own their configuration (org bot chat, project chat).
-	// SpecTask sessions leave this nil — SpecTask.CodeAgentOverrides is
+	// SpecTask sessions leave this nil — SpecTask.CodeAgentConfig is
 	// authoritative there, so there is exactly one source of truth per session.
 	CodeAgentOverrides *CodeAgentOverrides `json:"code_agent_overrides,omitempty"`
+
+	// CodeAgentConfig is the complete coding runtime selected for a general
+	// external-agent session. ParentApp remains the Helix Agent identity and
+	// supplies instructions/tools; this value owns harness, credentials, model,
+	// and reasoning. SpecTask sessions keep this nil and read the task instead.
+	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
 
 	// Container fields (Hydra executor)
 	ContainerName string `json:"container_name,omitempty"` // Docker container name
@@ -3391,11 +3397,12 @@ type ListMemoryRequest struct {
 
 // ForkSimpleProjectRequest represents request to fork a simple sample project
 type ForkSimpleProjectRequest struct {
-	SampleProjectID string `json:"sample_project_id"`
-	ProjectName     string `json:"project_name"`
-	Description     string `json:"description,omitempty"`
-	OrganizationID  string `json:"organization_id,omitempty"` // Optional: if empty, project is personal
-	HelixAppID      string `json:"helix_app_id,omitempty"`    // Optional: agent app to use for spec tasks (uses default if empty)
+	SampleProjectID string                    `json:"sample_project_id"`
+	ProjectName     string                    `json:"project_name"`
+	Description     string                    `json:"description,omitempty"`
+	OrganizationID  string                    `json:"organization_id,omitempty"` // Optional: if empty, project is personal
+	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	HelixAppID      string                    `json:"helix_app_id,omitempty" swaggerignore:"true"` // Rejected legacy field
 
 	// GitHub OAuth connection ID for authenticated cloning
 	// Required for sample projects with RequiresGitHubAuth=true

@@ -85,6 +85,10 @@ describe("SpecTaskExecutionControls", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_codex",
       { provider_ref: "", model: "gpt-5.6-terra" },
+      expect.objectContaining({
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+        model: "gpt-5.6-terra",
+      }),
     ));
   });
 
@@ -156,6 +160,10 @@ describe("SpecTaskExecutionControls", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_claude",
       { provider_ref: "", model: "claude-opus-5" },
+      expect.objectContaining({
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+        model: "claude-opus-5",
+      }),
     ));
   });
 
@@ -186,6 +194,10 @@ describe("SpecTaskExecutionControls", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_codex",
       { provider_ref: "", model: "gpt-5.6-sol" },
+      expect.objectContaining({
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+        model: "gpt-5.6-sol",
+      }),
     ));
   });
 
@@ -305,6 +317,10 @@ describe("SpecTaskExecutionControls", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_codex",
       { reasoning_effort: "high" },
+      expect.objectContaining({
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+        reasoning_effort: "high",
+      }),
     ));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -328,6 +344,10 @@ describe("SpecTaskExecutionControls", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_claude",
       { provider_ref: "", model: "sonnet" },
+      expect.objectContaining({
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+        model: "sonnet",
+      }),
     ));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

@@ -1862,6 +1862,20 @@ definitions:
           $ref: '#/definitions/server.SandboxInstanceInfo'
         type: array
     type: object
+  server.AgentStartupErrorRequest:
+    properties:
+      error:
+        type: string
+    type: object
+  server.AgentStartupErrorResponse:
+    properties:
+      interaction_id:
+        type: string
+      status:
+        type: string
+      transitioned:
+        type: boolean
+    type: object
   server.AppClaudeSubscriptionStatus:
     properties:
       connected:
@@ -3644,6 +3658,8 @@ definitions:
         type: string
       agent_name:
         type: string
+      code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       code_agent_overrides:
         allOf:
         - $ref: '#/definitions/types.CodeAgentOverrides'
@@ -4967,6 +4983,31 @@ definitions:
     x-enum-varnames:
     - CodeAgentCredentialTypeAPIKey
     - CodeAgentCredentialTypeSubscription
+  types.CodeAgentExecutionConfig:
+    properties:
+      credential_type:
+        $ref: '#/definitions/types.CodeAgentCredentialType'
+      goose_recipe_repo_url:
+        description: |-
+          Goose declarations are execution inputs, not Agent identity. They are
+          copied while migrating legacy coding Apps so existing Goose tasks keep
+          their project recipe catalogue after the App link is cleared.
+        type: string
+      goose_recipes:
+        items:
+          $ref: '#/definitions/types.AssistantGooseRecipe'
+        type: array
+      model:
+        type: string
+      provider_ref:
+        type: string
+      reasoning_effort:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      service_tier:
+        type: string
+    type: object
   types.CodeAgentGooseRecipe:
     properties:
       name:
@@ -5189,6 +5230,11 @@ definitions:
         type: object
       name:
         type: string
+      organization_id:
+        description: |-
+          OrganizationID identifies the org whose Claude Code harness is enabled
+          after connection. It is independent from subscription ownership.
+        type: string
       owner_id:
         description: Required for org-level, auto-set for user
         type: string
@@ -5205,6 +5251,11 @@ definitions:
       credentials:
         $ref: '#/definitions/types.CodexAuthCredentials'
       name:
+        type: string
+      organization_id:
+        description: |-
+          OrganizationID identifies the org whose Codex harness is enabled after
+          connection. It is independent from subscription ownership.
         type: string
       owner_id:
         type: string
@@ -5318,9 +5369,6 @@ definitions:
     type: object
   types.CreateTaskRequest:
     properties:
-      app_id:
-        description: 'Optional: Helix agent to use for spec generation'
-        type: string
       assignee_id:
         description: 'Optional: team member assigned to the task'
         type: string
@@ -5338,8 +5386,8 @@ definitions:
       branch_prefix:
         description: 'For new mode: user-specified prefix (task# appended)'
         type: string
-      code_agent_overrides:
-        $ref: '#/definitions/types.CodeAgentOverrides'
+      code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       credential_owner_id:
         description: |-
           CredentialOwnerID optionally names the user whose Claude subscription should
@@ -5864,6 +5912,8 @@ definitions:
     type: object
   types.ForkSimpleProjectRequest:
     properties:
+      code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       configured_skill_env_vars:
         additionalProperties:
           additionalProperties:
@@ -5885,9 +5935,6 @@ definitions:
         description: |-
           GitHub OAuth connection ID for authenticated cloning
           Required for sample projects with RequiresGitHubAuth=true
-        type: string
-      helix_app_id:
-        description: 'Optional: agent app to use for spec tasks (uses default if empty)'
         type: string
       organization_id:
         description: 'Optional: if empty, project is personal'
@@ -7434,6 +7481,43 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.OrgCodeAgentHarnessStatus:
+    properties:
+      enabled:
+        type: boolean
+      provider_refs:
+        items:
+          type: string
+        type: array
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      subscription_enabled:
+        type: boolean
+      supports_subscription:
+        type: boolean
+      viewer_has_subscription:
+        type: boolean
+    type: object
+  types.OrgCodeAgentHarnessUpdate:
+    properties:
+      enabled:
+        type: boolean
+      provider_refs:
+        items:
+          type: string
+        type: array
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      subscription_enabled:
+        type: boolean
+    type: object
+  types.OrgCodeAgentHarnessesUpdateRequest:
+    properties:
+      harnesses:
+        items:
+          $ref: '#/definitions/types.OrgCodeAgentHarnessUpdate'
+        type: array
+    type: object
   types.OrgComputeUsage:
     properties:
       billing_enabled:
@@ -7906,20 +7990,31 @@ definitions:
       auto_start_backlog_tasks:
         description: Automation settings
         type: boolean
+      code_agent_config:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        description: CodeAgentConfig is the project default copied into each new SpecTask.
       created_at:
         type: string
       default_branch:
         type: string
       default_helix_app_id:
         description: |-
-          Default agent for spec tasks in this project (App ID)
-          New spec tasks inherit this agent; can be overridden per-task
+          Legacy coding-App migration source. Coding projects clear this after
+          materializing CodeAgentConfig. Org Worker projects retain it as their Bot
+          identity link until that separate overload is removed.
         type: string
       default_repo_id:
         description: |-
           Project-level repository management
           DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
         type: string
+      default_sandbox_resource_overrides:
+        allOf:
+        - $ref: '#/definitions/types.SandboxResourceOverrides'
+        description: |-
+          Default sandbox resources copied into each new SpecTask. Nil values from
+          legacy projects resolve to the standard 4 vCPU / 8 GB preset.
       default_sandbox_runtime:
         allOf:
         - $ref: '#/definitions/types.SandboxRuntime'
@@ -8136,13 +8231,19 @@ definitions:
     type: object
   types.ProjectCreateRequest:
     properties:
+      code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       default_branch:
         type: string
       default_helix_app_id:
-        description: Default agent for spec tasks
+        description: Org-agent identity only; coding projects use CodeAgentConfig
         type: string
       default_repo_id:
         type: string
+      default_sandbox_resource_overrides:
+        allOf:
+        - $ref: '#/definitions/types.SandboxResourceOverrides'
+        description: Default sandbox resources for spec tasks
       default_sandbox_runtime:
         allOf:
         - $ref: '#/definitions/types.SandboxRuntime'
@@ -8280,13 +8381,19 @@ definitions:
     properties:
       auto_start_backlog_tasks:
         type: boolean
+      code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       default_branch:
         type: string
       default_helix_app_id:
-        description: Default agent for spec tasks
+        description: Org-agent identity only; coding projects use CodeAgentConfig
         type: string
       default_repo_id:
         type: string
+      default_sandbox_resource_overrides:
+        allOf:
+        - $ref: '#/definitions/types.SandboxResourceOverrides'
+        description: Default sandbox resources for spec tasks
       default_sandbox_runtime:
         allOf:
         - $ref: '#/definitions/types.SandboxRuntime'
@@ -9956,6 +10063,8 @@ definitions:
     properties:
       agent_id:
         type: string
+      code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       code_agent_overrides:
         $ref: '#/definitions/types.CodeAgentOverrides'
     type: object
@@ -9965,6 +10074,8 @@ definitions:
         type: string
       agent_thread_restarted:
         type: boolean
+      code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       code_agent_overrides:
         $ref: '#/definitions/types.CodeAgentOverrides'
       session_id:
@@ -10039,6 +10150,14 @@ definitions:
       callback_url:
         description: Webhook URL to POST on session completion
         type: string
+      code_agent_config:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        description: |-
+          CodeAgentConfig is the complete coding runtime selected for a general
+          external-agent session. ParentApp remains the Helix Agent identity and
+          supplies instructions/tools; this value owns harness, credentials, model,
+          and reasoning. SpecTask sessions keep this nil and read the task instead.
       code_agent_overrides:
         allOf:
         - $ref: '#/definitions/types.CodeAgentOverrides'
@@ -10046,7 +10165,7 @@ definitions:
           CodeAgentOverrides customizes the coding model for THIS session without
           mutating its Agent. Set from the chat composer's execution controls on
           sessions that own their configuration (org bot chat, project chat).
-          SpecTask sessions leave this nil — SpecTask.CodeAgentOverrides is
+          SpecTask sessions leave this nil — SpecTask.CodeAgentConfig is
           authoritative there, so there is exactly one source of truth per session.
       code_agent_runtime:
         allOf:
@@ -10505,8 +10624,13 @@ definitions:
       cloned_from_project_id:
         description: Original project
         type: string
+      code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       code_agent_overrides:
-        $ref: '#/definitions/types.CodeAgentOverrides'
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentOverrides'
+        description: Legacy migration source; cleared together with HelixAppID on
+          task start.
       completed_at:
         type: string
       created_at:
@@ -10565,7 +10689,10 @@ definitions:
           type: string
         type: object
       helix_app_id:
-        description: 'NEW: Single Helix Agent for entire workflow (App type in code)'
+        description: |-
+          Legacy migration source. New API writes are rejected and task start clears
+          this after materializing CodeAgentConfig. Remove the column after the
+          migration window.
         type: string
       id:
         type: string
@@ -10999,10 +11126,8 @@ definitions:
     type: object
   types.SpecTaskExecutionConfigUpdateRequest:
     properties:
-      agent_id:
-        type: string
-      code_agent_overrides:
-        $ref: '#/definitions/types.CodeAgentOverrides'
+      code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
     type: object
@@ -11098,9 +11223,6 @@ definitions:
         type: array
       description:
         type: string
-      helix_app_id:
-        description: Agent to use for this task
-        type: string
       just_do_it_mode:
         description: Pointer to allow explicit false
         type: boolean
@@ -11155,8 +11277,13 @@ definitions:
       cloned_from_project_id:
         description: Original project
         type: string
+      code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       code_agent_overrides:
-        $ref: '#/definitions/types.CodeAgentOverrides'
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentOverrides'
+        description: Legacy migration source; cleared together with HelixAppID on
+          task start.
       completed_at:
         type: string
       created_at:
@@ -11215,7 +11342,10 @@ definitions:
           type: string
         type: object
       helix_app_id:
-        description: 'NEW: Single Helix Agent for entire workflow (App type in code)'
+        description: |-
+          Legacy migration source. New API writes are rejected and task start clears
+          this after materializing CodeAgentConfig. Remove the column after the
+          migration window.
         type: string
       id:
         type: string
@@ -11515,6 +11645,14 @@ definitions:
         items:
           $ref: '#/definitions/types.SpecTaskZedThread'
         type: array
+    type: object
+  types.StartCodexLoginRequest:
+    properties:
+      organization_id:
+        description: |-
+          OrganizationID identifies the org whose Codex harness is enabled after
+          the device flow succeeds.
+        type: string
     type: object
   types.StartPlanningOptions:
     properties:
@@ -15602,6 +15740,29 @@ paths:
       summary: Get a Codex subscription
       tags:
       - Codex
+  /api/v1/codex-subscriptions/login/{sessionId}:
+    delete:
+      description: Stop and remove the temporary sandbox used for Codex device authentication
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel a Codex login session
+      tags:
+      - Codex
   /api/v1/codex-subscriptions/poll-login/{sessionId}:
     get:
       description: Return device authentication instructions or persist completed
@@ -15626,7 +15787,15 @@ paths:
       - Codex
   /api/v1/codex-subscriptions/start-login:
     post:
-      description: Launch a temporary container and start Codex device authentication
+      consumes:
+      - application/json
+      description: Launch a temporary headless sandbox and start Codex device authentication
+      parameters:
+      - description: Optional organization whose Codex harness should be enabled
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/types.StartCodexLoginRequest'
       produces:
       - application/json
       responses:
@@ -19038,6 +19207,56 @@ paths:
       security:
       - BearerAuth: []
       summary: Look up a user by email within the context of an organization
+      tags:
+      - organizations
+  /api/v1/organizations/{org_id}/code-agent-harnesses:
+    get:
+      description: Returns every selectable coding-agent harness, whether the organization
+        enabled it, and whether the requesting user can use its subscription mode.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrgCodeAgentHarnessStatus'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List an organization's coding-agent harnesses
+      tags:
+      - organizations
+    put:
+      description: Enables or disables coding-agent harnesses and selects either subscription
+        mode or API-provider mode for each harness. Harnesses omitted from the request
+        are left unchanged. Models are selected per task.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Harnesses to update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.OrgCodeAgentHarnessesUpdateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrgCodeAgentHarnessStatus'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Update an organization's coding-agent harnesses
       tags:
       - organizations
   /api/v1/organizations/{org_id}/sandboxes:
@@ -24245,6 +24464,37 @@ paths:
         container
       tags:
       - sessions
+  /api/v1/sessions/{id}/agent-startup-error:
+    post:
+      consumes:
+      - application/json
+      description: Called by the settings-sync daemon when the session's Zed configuration
+        is rejected. Atomically fails the latest waiting interaction so the task does
+        not remain on an infinite spinner.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fatal startup error
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.AgentStartupErrorRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.AgentStartupErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Report a fatal in-container agent configuration error
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/archive:
     patch:
       consumes:
@@ -24538,10 +24788,10 @@ paths:
     patch:
       consumes:
       - application/json
-      description: Replaces the session's code-agent overrides, and optionally switches
-        it to a different Agent. Running sandboxes start a fresh ACP thread with the
-        prior transcript; stopped sandboxes record the change for the next start.
-        Sessions belonging to a SpecTask write through to the task.
+      description: Replaces the complete coding execution config. SpecTask sessions
+        write through to the task; general sessions keep their parent Agent for instructions
+        and tools while storing harness/model configuration on the session. Running
+        sandboxes start a fresh ACP thread with the prior transcript.
       parameters:
       - description: Session ID
         in: path
@@ -26327,9 +26577,9 @@ paths:
       - SpecTasks
   /api/v1/spec-tasks/{taskId}/execution-config:
     get:
-      description: Returns the task's current coding identity without exposing Agent
-        secrets. Legacy tasks whose Agent was deleted fall back to their session and
-        interaction snapshots.
+      description: Returns the task-owned code-agent configuration. Unmigrated historical
+        tasks are resolved through their legacy App until task start materializes
+        the configuration.
       parameters:
       - description: SpecTask ID
         in: path
@@ -26355,9 +26605,10 @@ paths:
     patch:
       consumes:
       - application/json
-      description: Replaces a task's code-agent overrides or sandbox resource preset.
-        Running sandboxes are resized in place and code-agent changes start a fresh
-        ACP thread; stopped sandboxes record code-agent changes for the next start.
+      description: Replaces a task's complete code-agent configuration or sandbox
+        resource preset. Running sandboxes are resized in place and code-agent changes
+        start a fresh ACP thread; stopped sandboxes record code-agent changes for
+        the next start.
       parameters:
       - description: SpecTask ID
         in: path

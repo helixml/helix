@@ -32,6 +32,7 @@ func main() {
 		XDGRuntimeDir: os.Getenv("XDG_RUNTIME_DIR"),
 		SessionID:     os.Getenv("HELIX_SESSION_ID"),
 		WorkspaceOnly: os.Getenv("HELIX_HEADLESS") == "1",
+		AllowExec:     os.Getenv("HELIX_SERVER_SETUP") == "1",
 	}
 
 	// Apply defaults

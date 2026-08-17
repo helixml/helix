@@ -24,11 +24,10 @@ import useRouter from "../hooks/useRouter";
 import useSnackbar from "../hooks/useSnackbar";
 import { useSettingsDialog } from "../contexts/settingsDialog";
 import useApi from "../hooks/useApi";
-import useApps from "../hooks/useApps";
 import useSubscriptionGate from "../hooks/useSubscriptionGate";
 import Paywall from "../components/subscription/Paywall";
 import HelixOrgTopNav from "../components/helix-org/HelixOrgTopNav";
-import { TypesGitRepositoryType } from "../api/api";
+import { TypesCodeAgentExecutionConfig, TypesGitRepositoryType } from "../api/api";
 import {
   useListProjects,
   useListSampleProjects,
@@ -53,7 +52,6 @@ const Projects: FC = () => {
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
   const api = useApi();
-  const apps = useApps();
   const { paywallActive, navigateToBilling } = useSubscriptionGate();
   const { openDialog } = useSettingsDialog();
 
@@ -74,26 +72,6 @@ const Projects: FC = () => {
       account.setShowLoginWindow(true);
     }
   }, [account.initialized, isLoggedIn]);
-
-  // Load apps on mount to get app names for project lozenges
-  React.useEffect(() => {
-    if (account.user?.id) {
-      apps.loadApps();
-    }
-  }, [account.user?.id]);
-
-  // Create a map of app ID -> app name for displaying in project cards
-  const appNamesMap = React.useMemo(() => {
-    const map: Record<string, string> = {};
-    if (apps.apps) {
-      apps.apps.forEach((app) => {
-        if (app.id) {
-          map[app.id] = app.config?.helix?.name || "Unnamed Agent";
-        }
-      });
-    }
-    return map;
-  }, [apps.apps]);
 
   const isOrgResolved =
     !account.organizationTools.orgID ||
@@ -166,8 +144,8 @@ const Projects: FC = () => {
   // GitHub auth wizard for sample projects that require it (e.g., helix-in-helix)
   const [sampleWizardOpen, setSampleWizardOpen] = useState(false);
   const [sampleWizardProject, setSampleWizardProject] = useState<any>(null);
-  const [selectedAgentForWizard, setSelectedAgentForWizard] = useState<
-    string | undefined
+  const [selectedCodeAgentConfigForWizard, setSelectedCodeAgentConfigForWizard] = useState<
+    TypesCodeAgentExecutionConfig | undefined
   >(undefined);
 
   // Pagination for projects
@@ -501,7 +479,7 @@ const Projects: FC = () => {
     setCreateDialogOpen(true);
   };
 
-  // Step 1: User clicks on sample project - always show agent selection modal first
+  // Step 1: collect the complete task execution defaults for the sample.
   const handleInstantiateSample = async (
     sampleId: string,
     sampleName: string,
@@ -511,14 +489,13 @@ const Projects: FC = () => {
     // Find the sample project
     const sampleProject = sampleProjects.find((p: any) => p.id === sampleId);
 
-    // Always show agent selection modal first
-    // Store the sample project for later (GitHub auth check happens after agent selection)
+    // Store the sample project for later (GitHub auth happens after config selection).
     setPendingSampleFork({ sampleId, sampleName, sampleProject });
     setAgentModalOpen(true);
   };
 
-  // Step 2: User selects an agent - proceed with fork or show GitHub wizard
-  const handleAgentSelected = async (agentId: string) => {
+  // Step 2: proceed with the selected config or show the GitHub wizard.
+  const handleAgentSelected = async (codeAgentConfig: TypesCodeAgentExecutionConfig) => {
     if (!pendingSampleFork) return;
 
     const { sampleId, sampleName, sampleProject } = pendingSampleFork;
@@ -530,7 +507,7 @@ const Projects: FC = () => {
       (sampleProject?.required_repositories?.length || 0) > 0
     ) {
       // Store the selected agent and open the GitHub wizard
-      setSelectedAgentForWizard(agentId);
+      setSelectedCodeAgentConfigForWizard(codeAgentConfig);
       setSampleWizardProject(sampleProject);
       setSampleWizardOpen(true);
     } else {
@@ -543,7 +520,7 @@ const Projects: FC = () => {
           request: {
             project_name: sampleName,
             organization_id: account.organizationTools.organization?.id,
-            helix_app_id: agentId,
+            code_agent_config: codeAgentConfig,
           },
         });
 
@@ -621,7 +598,6 @@ const Projects: FC = () => {
               onCreateFromSample={handleInstantiateSample}
               sampleProjects={sampleProjects}
               isCreating={instantiateSampleMutation.isPending}
-              appNamesMap={appNamesMap}
               pinnedProjectIds={pinnedProjectIds}
               onPinProject={handlePinProject}
               onUnpinProject={handleUnpinProject}
@@ -718,8 +694,8 @@ const Projects: FC = () => {
           setPendingSampleFork(null);
         }}
         onSelect={handleAgentSelected}
-        title="Select Agent for Project"
-        description="Choose a default agent for this project. You can override this when creating individual tasks."
+        title="Select Task Defaults"
+        description="Choose the coding harness, credentials, provider, and model for tasks in this project."
       />
 
       {/* GitHub Auth Wizard for Sample Projects */}
@@ -737,7 +713,7 @@ const Projects: FC = () => {
         }}
         sampleProject={sampleWizardProject}
         organizationId={account.organizationTools.organization?.id}
-        selectedAgentId={selectedAgentForWizard}
+        codeAgentConfig={selectedCodeAgentConfigForWizard}
       />
 
     </Page>
