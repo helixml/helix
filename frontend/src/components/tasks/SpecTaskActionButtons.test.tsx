@@ -59,32 +59,56 @@ describe.each(["inline", "stacked"] as const)(
       expect(openPRButton()).toBeEnabled();
     });
 
-    // Approving an implementation tells the agent to push its branch from
-    // inside the sandbox. The sandbox owns the working copy and may not even be
-    // on a filesystem the control plane can reach, so with the sandbox stopped
-    // there is nothing to push from.
-    it("disables Open PR once the sandbox has stopped", () => {
+    // The commits already reached the control plane's copy of the repo, so it
+    // can push them to the remote and open the PR without the sandbox. This is
+    // the common "agent finished, container was reaped" case.
+    it("enables Open PR once the sandbox has stopped, if the agent pushed", () => {
       renderButtons(implementationTask({ sandbox_state: "absent" }));
+
+      expect(openPRButton()).toBeEnabled();
+    });
+
+    // Nothing has reached the server, but a live agent can still be told to
+    // commit and push before the PR opens.
+    it("enables Open PR before the first push while the sandbox is live", () => {
+      renderButtons(
+        implementationTask({ last_push_at: undefined, sandbox_state: "running" }),
+      );
+
+      expect(openPRButton()).toBeEnabled();
+    });
+
+    // Neither source of commits exists: nothing pushed, and no agent to push.
+    it("disables Open PR when nothing was pushed and the sandbox is gone", () => {
+      renderButtons(
+        implementationTask({ last_push_at: undefined, sandbox_state: "absent" }),
+      );
 
       expect(openPRButton()).toBeDisabled();
     });
 
     // "starting" means the container exists but the agent has not connected
-    // yet, so it cannot receive the push instruction either.
-    it("disables Open PR while the sandbox is still starting", () => {
-      renderButtons(implementationTask({ sandbox_state: "starting" }));
+    // yet, so it cannot receive the commit-and-push instruction.
+    it("disables Open PR before the first push while the sandbox is starting", () => {
+      renderButtons(
+        implementationTask({ last_push_at: undefined, sandbox_state: "starting" }),
+      );
 
       expect(openPRButton()).toBeDisabled();
     });
 
-    it("disables Open PR when the task never had a sandbox", () => {
-      renderButtons(implementationTask({ sandbox_state: undefined }));
+    it("disables Open PR when the task never had a sandbox or a push", () => {
+      renderButtons(
+        implementationTask({ last_push_at: undefined, sandbox_state: undefined }),
+      );
 
       expect(openPRButton()).toBeDisabled();
     });
 
     it("explains why Open PR is unavailable", async () => {
-      renderButtons(implementationTask({ sandbox_state: "absent" }));
+      renderButtons(
+        implementationTask({ last_push_at: undefined, sandbox_state: "absent" }),
+      );
 
       // MUI renders the tooltip text into the trigger's aria description via
       // the title attribute on the wrapping span until hover; assert on the
@@ -92,14 +116,6 @@ describe.each(["inline", "stacked"] as const)(
       expect(
         await screen.findByLabelText(SANDBOX_STOPPED_TOOLTIP, { exact: false }),
       ).toBeInTheDocument();
-    });
-
-    it("still blocks Open PR before the agent has pushed", () => {
-      renderButtons(
-        implementationTask({ last_push_at: undefined, sandbox_state: "running" }),
-      );
-
-      expect(openPRButton()).toBeDisabled();
     });
   },
 );
