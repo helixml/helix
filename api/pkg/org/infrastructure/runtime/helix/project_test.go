@@ -23,17 +23,23 @@ import (
 type fakeProjectService struct {
 	mu sync.Mutex
 
-	applyCalls              int
-	applyStarted            chan struct{}
-	applyContinue           chan struct{}
-	lastApplyReq            types.ProjectApplyRequest
-	applyResponse           types.ProjectApplyResponse
-	applyErr                error
-	getProjectCalls         int
-	getProjectResp          types.Project
-	getProjectErr           error
-	getProjectErrOnce       bool
-	updateProjectCalls      int
+	applyCalls         int
+	applyStarted       chan struct{}
+	applyContinue      chan struct{}
+	lastApplyReq       types.ProjectApplyRequest
+	applyResponse      types.ProjectApplyResponse
+	applyErr           error
+	getProjectCalls    int
+	getProjectResp     types.Project
+	getProjectErr      error
+	getProjectErrOnce  bool
+	updateProjectCalls int
+	// codeAgentConfigPatches counts only the patches that carried a
+	// code-agent config. Ensure legitimately patches a project for other
+	// reasons (rename, org-member access, app link), so a bare
+	// updateProjectCalls assertion cannot tell whether the task-default sync
+	// wrote anything.
+	codeAgentConfigPatches  int
 	updateProjectPatchLast  types.ProjectUpdateRequest
 	updateProjectErr        error
 	putSecretCalls          int
@@ -133,6 +139,10 @@ func (f *fakeProjectService) UpdateProject(_ context.Context, id string, patch t
 	}
 	if patch.DefaultHelixAppID != nil {
 		updated.DefaultHelixAppID = *patch.DefaultHelixAppID
+	}
+	if patch.CodeAgentConfig != nil {
+		f.codeAgentConfigPatches++
+		updated.CodeAgentConfig = patch.CodeAgentConfig
 	}
 	f.getProjectResp = updated
 	return updated, f.updateProjectErr
