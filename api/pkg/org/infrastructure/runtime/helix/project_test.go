@@ -23,18 +23,29 @@ import (
 type fakeProjectService struct {
 	mu sync.Mutex
 
-	applyCalls              int
-	applyStarted            chan struct{}
-	applyContinue           chan struct{}
-	lastApplyReq            types.ProjectApplyRequest
-	applyResponse           types.ProjectApplyResponse
-	applyErr                error
-	getProjectCalls         int
-	getProjectResp          types.Project
-	getProjectErr           error
-	getProjectErrOnce       bool
-	updateProjectCalls      int
-	updateProjectPatchLast  types.ProjectUpdateRequest
+	applyCalls         int
+	applyStarted       chan struct{}
+	applyContinue      chan struct{}
+	lastApplyReq       types.ProjectApplyRequest
+	applyResponse      types.ProjectApplyResponse
+	applyErr           error
+	getProjectCalls    int
+	getProjectResp     types.Project
+	getProjectErr      error
+	getProjectErrOnce  bool
+	updateProjectCalls int
+	// codeAgentConfigPatches counts only the patches that carried a
+	// code-agent config. Ensure legitimately patches a project for other
+	// reasons (rename, org-member access, app link), so a bare
+	// updateProjectCalls assertion cannot tell whether the task-default sync
+	// wrote anything.
+	codeAgentConfigPatches int
+	updateProjectPatchLast types.ProjectUpdateRequest
+	// orgMembersAccessGranted records that SOME patch enabled org-member
+	// access. Ensure sends several patches per activation (rename, access,
+	// app link, task defaults), so inspecting only the last one makes the
+	// assertion depend on their order rather than on what was requested.
+	orgMembersAccessGranted bool
 	updateProjectErr        error
 	putSecretCalls          int
 	putSecretLast           map[string]string
@@ -118,6 +129,9 @@ func (f *fakeProjectService) UpdateProject(_ context.Context, id string, patch t
 	defer f.mu.Unlock()
 	f.updateProjectCalls++
 	f.updateProjectPatchLast = patch
+	if patch.Metadata != nil && patch.Metadata.OrgMembersAccess {
+		f.orgMembersAccessGranted = true
+	}
 	// Start from the seeded GetProject response so updates are
 	// visible to subsequent GetProject calls. Mirrors the in-proc
 	// adapter's "return the post-update project" contract.
@@ -133,6 +147,10 @@ func (f *fakeProjectService) UpdateProject(_ context.Context, id string, patch t
 	}
 	if patch.DefaultHelixAppID != nil {
 		updated.DefaultHelixAppID = *patch.DefaultHelixAppID
+	}
+	if patch.CodeAgentConfig != nil {
+		f.codeAgentConfigPatches++
+		updated.CodeAgentConfig = patch.CodeAgentConfig
 	}
 	f.getProjectResp = updated
 	return updated, f.updateProjectErr
@@ -326,7 +344,7 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	if svc.applyCalls != 1 {
 		t.Errorf("ApplyProject calls = %d, want 1", svc.applyCalls)
 	}
-	if svc.updateProjectCalls != 1 || svc.updateProjectPatchLast.Metadata == nil || !svc.updateProjectPatchLast.Metadata.OrgMembersAccess {
+	if svc.updateProjectCalls < 1 || !svc.orgMembersAccessGranted {
 		t.Errorf("fresh project was not marked for org member access: calls=%d patch=%+v", svc.updateProjectCalls, svc.updateProjectPatchLast)
 	}
 	if svc.lastApplyReq.Name != "w-eng" {
@@ -591,7 +609,7 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	if svc.applyCalls != 0 {
 		t.Errorf("ApplyProject must not overwrite existing app config; got %d calls", svc.applyCalls)
 	}
-	if svc.updateProjectCalls < 1 || svc.updateProjectPatchLast.Metadata == nil || !svc.updateProjectPatchLast.Metadata.OrgMembersAccess {
+	if svc.updateProjectCalls < 1 || !svc.orgMembersAccessGranted {
 		t.Errorf("existing project was not marked for org member access: calls=%d patch=%+v", svc.updateProjectCalls, svc.updateProjectPatchLast)
 	}
 	if svc.getProjectCalls < 1 {
@@ -870,6 +888,12 @@ func TestEnsureGetProjectErrorIsFatal(t *testing.T) {
 
 // TestEnsureDoesNotTouchAgentAppMCPs pins that MCP configuration is
 // generated from session metadata instead of persisted by project setup.
+//
+// The load-bearing assertion is that Ensure never WRITES the agent app
+// config — that is what persisting MCPs would look like. Reading it is
+// expected: syncProjectCodeAgentConfig derives the project's task defaults
+// from the Bot's own app so the two cannot disagree about which harness the
+// Bot runs on.
 func TestEnsureDoesNotTouchAgentAppMCPs(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role")
@@ -882,9 +906,6 @@ func TestEnsureDoesNotTouchAgentAppMCPs(t *testing.T) {
 	}
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	if svc.getAppCalls != 0 {
-		t.Errorf("Ensure must not read agent app config; GetAppConfig calls = %d", svc.getAppCalls)
-	}
 	if svc.updateAppCalls != 0 {
 		t.Errorf("Ensure must not write agent app config; UpdateAppConfig calls = %d", svc.updateAppCalls)
 	}

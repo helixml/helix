@@ -13,12 +13,14 @@ vi.mock("./InteractionInference", () => ({
   default: ({
     enableDebugCopy,
     error,
+    errorIsHistorical,
     isFromAssistant,
     message,
     workspaceAttachments,
   }: {
     enableDebugCopy?: boolean;
     error?: string;
+    errorIsHistorical?: boolean;
     isFromAssistant?: boolean;
     message?: string;
     workspaceAttachments?: Array<{ name: string }>;
@@ -28,7 +30,14 @@ vi.mock("./InteractionInference", () => ({
       {workspaceAttachments?.map((attachment) => (
         <span key={attachment.name}>{attachment.name}</span>
       ))}
-      {error && <span data-testid="interaction-error">{error}</span>}
+      {error && (
+        <span
+          data-testid="interaction-error"
+          data-historical={errorIsHistorical ? "true" : "false"}
+        >
+          {error}
+        </span>
+      )}
       {enableDebugCopy && <button aria-label="agent debug copy" />}
     </div>
   ),
@@ -161,6 +170,86 @@ describe("Interaction", () => {
 
     expect(screen.queryByTestId("interaction-error")).not.toBeInTheDocument();
     expect(screen.queryByTestId("agent-reply")).not.toBeInTheDocument();
+  });
+
+  // The 2026-08-18 shape: a turn aborted mid-work, then the session went on and
+  // answered a DIFFERENT question. The old rule only suppressed the alarm when
+  // the very next turn retried the SAME prompt, so a recovered session kept a
+  // red error and a Retry button that would have re-sent a stale prompt.
+  it("demotes an error once a later turn has succeeded", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_error",
+          prompt_message: "Do the work",
+          response_message: "partial output before the turn died",
+          error: "agent turn aborted",
+        }}
+        nextInteraction={{
+          id: "int_other",
+          prompt_message: "whats the status?",
+          response_message: "Idle.",
+          state: TypesInteractionState.InteractionStateComplete,
+        }}
+        recoveredLater
+      />,
+    );
+
+    // Still shown — the turn really did fail and its work was abandoned — but
+    // as history rather than as an actionable alarm.
+    const shown = screen.getByTestId("interaction-error");
+    expect(shown).toHaveTextContent("agent turn aborted");
+    expect(shown).toHaveAttribute("data-historical", "true");
+  });
+
+  it("keeps an error actionable while nothing has succeeded after it", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_error",
+          prompt_message: "Do the work",
+          error: "agent turn aborted",
+        }}
+        nextInteraction={{
+          id: "int_later",
+          prompt_message: "another go",
+          state: TypesInteractionState.InteractionStateError,
+          error: "failed again",
+        }}
+        recoveredLater={false}
+      />,
+    );
+
+    expect(screen.getByTestId("interaction-error")).toHaveAttribute(
+      "data-historical",
+      "false",
+    );
+  });
+
+  it("still removes the error entirely when the same prompt was retried", () => {
+    // recoveredLater must not weaken the stronger suppression: a successful
+    // retry of the same prompt means the work got done, so nothing is shown.
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_error",
+          prompt_message: "Question",
+          error: "agent failed",
+        }}
+        nextInteraction={{
+          id: "int_retry",
+          prompt_message: "Question",
+          response_message: "Answer",
+          state: TypesInteractionState.InteractionStateComplete,
+        }}
+        recoveredLater
+      />,
+    );
+
+    expect(screen.queryByTestId("interaction-error")).not.toBeInTheDocument();
   });
 
   it("collapses an agent-switch handoff under its divider", () => {

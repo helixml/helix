@@ -112,6 +112,11 @@ func (apiServer *HelixAPIServer) commitTurnError(ctx context.Context, interactio
 	// error.
 	errorMsg = apiServer.maybeReclassifySubscriptionAuthError(ctx, interaction.SessionID, errorMsg)
 
+	// Still generic? Then the cause was not a subscription problem. The most
+	// common remaining cause is the model provider itself failing, which Helix
+	// recorded in llm_calls even though Zed could not tell us about it.
+	errorMsg = apiServer.maybeExplainProviderFailure(ctx, interaction.SessionID, errorMsg)
+
 	interaction.State = types.InteractionStateError
 	interaction.Error = errorMsg
 	interaction.Updated = time.Now()

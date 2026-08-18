@@ -4333,6 +4333,83 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 // message we attempt to reclassify — specific errors are left untouched.
 const genericACPAbortMarker = "exited mid-turn or hit max tokens"
 
+// providerFailureLookback bounds how far back a failed provider call may be and
+// still be accepted as the explanation for a turn abort. A coding agent gives
+// up seconds after its last failed attempt, so anything older than this belongs
+// to an earlier, already-recovered part of the session and must not be
+// presented as the cause.
+const providerFailureLookback = 3 * time.Minute
+
+// maybeExplainProviderFailure replaces the generic ACP mid-turn abort message
+// with the provider error that actually caused it.
+//
+// Zed's AcpThreadEvent::Error carries no cause (see
+// zed/crates/acp_thread/src/acp_thread.rs — run_turn logs the error and emits a
+// payload-free event), so the harness can only report "the process exited or
+// hit max tokens" and point at a Zed.log inside a sandbox container that is
+// deleted when the task ends. Helix already recorded the real reason: every
+// proxied model request lands in llm_calls with its provider error. Read it
+// back rather than asking the user to go looking for a log they cannot reach.
+//
+// Returns errorMsg unchanged when the message is not the generic one, when no
+// recent call failed, or when the store is unavailable — a wrong explanation is
+// worse than a vague one.
+func (apiServer *HelixAPIServer) maybeExplainProviderFailure(ctx context.Context, helixSessionID, errorMsg string) string {
+	if !strings.Contains(errorMsg, genericACPAbortMarker) || helixSessionID == "" {
+		return errorMsg
+	}
+	calls, _, err := apiServer.Store.ListLLMCalls(ctx, &store.ListLLMCallsQuery{
+		SessionID: helixSessionID,
+		Page:      1,
+		PerPage:   10,
+	})
+	if err != nil || len(calls) == 0 {
+		return errorMsg
+	}
+	// ListLLMCalls orders by created DESC, so the first failure we meet is the
+	// most recent one.
+	var failure *types.LLMCall
+	for _, call := range calls {
+		if call == nil {
+			continue
+		}
+		if strings.TrimSpace(call.Error) != "" {
+			failure = call
+			break
+		}
+	}
+	if failure == nil || time.Since(failure.Created) > providerFailureLookback {
+		return errorMsg
+	}
+
+	// Count how many consecutive recent calls failed the same way. One failure
+	// reads as a blip; several says the provider was down and the agent
+	// exhausted its retries, which is the difference between "try again" and
+	// "go look at the provider".
+	attempts := 0
+	for _, call := range calls {
+		if call == nil || strings.TrimSpace(call.Error) == "" {
+			break
+		}
+		attempts++
+	}
+
+	detail := strings.TrimSpace(failure.Error)
+	if len(detail) > 300 {
+		detail = detail[:300] + "…"
+	}
+	msg := fmt.Sprintf("Agent turn aborted: the model provider failed and the coding agent gave up retrying. "+
+		"Last provider error: %s", detail)
+	if failure.Model != "" {
+		msg += fmt.Sprintf(" (model %s)", failure.Model)
+	}
+	if attempts > 1 {
+		msg += fmt.Sprintf(". %d consecutive requests failed", attempts)
+	}
+	msg += "."
+	return msg
+}
+
 // maybeReclassifySubscriptionAuthError rewrites the generic ACP mid-turn abort
 // message into a legible Claude-subscription auth error when (a) the message is
 // the generic one, (b) the session's agent runs Claude Code in subscription

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -375,6 +376,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 				}
 			}
 			a.syncProjectRuntimeSecrets(ctx, state.ProjectID, workerID)
+			a.syncProjectCodeAgentConfig(ctx, state.ProjectID, bot.AgentID, workerID)
 			return state.ProjectID, state.AgentID, repoID, nil
 		}
 	}
@@ -394,6 +396,15 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		}
 	}
 	a.syncProjectRuntimeSecrets(ctx, resp.ProjectID, workerID)
+	// resp.AgentAppID, not bot.AgentID: a brand-new Bot has no linked app yet
+	// and ApplyProject is what provisions one. On this path the app and the
+	// project were both built from the same spec, so the sync is normally a
+	// no-op — it exists so the two cannot start out disagreeing.
+	freshAppID := resp.AgentAppID
+	if freshAppID == "" {
+		freshAppID = bot.AgentID
+	}
+	a.syncProjectCodeAgentConfig(ctx, resp.ProjectID, freshAppID, workerID)
 	repoID = project.DefaultRepoID
 	// Helix's project-apply does NOT auto-create a default repo. We
 	// MUST create one and attach it as primary, because:
@@ -434,6 +445,79 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		)
 	}
 	return resp.ProjectID, resp.AgentAppID, repoID, nil
+}
+
+// syncProjectCodeAgentConfig keeps a Worker project's task defaults equal to
+// the coding configuration of the Bot's own linked agent app.
+//
+// project.CodeAgentConfig is what a spec task inherits when it is created
+// without an explicit one, so it decides which harness the Bot's own work runs
+// on. It was previously written once at provisioning time from the applier's
+// worker.* defaults and never refreshed, so changing a Bot's harness in the
+// agent settings left its project — and therefore every task it filed — on the
+// harness it was provisioned with. A Bot running opencode would keep creating
+// deepseek_harness tasks.
+//
+// This is not the "don't re-apply the provisioning spec" case the fast path
+// warns about: the source here is the Bot's live app config, which IS what the
+// settings UI edits, so syncing propagates a user's edit rather than reverting
+// it.
+//
+// Best-effort: a Bot with no linked app, an app with no coding assistant, or a
+// failed write leaves the project as-is and logs. Activation must not fail over
+// a task default.
+func (a *WorkerProject) syncProjectCodeAgentConfig(ctx context.Context, projectID, agentAppID string, workerID orgchart.NodeID) {
+	if projectID == "" || agentAppID == "" {
+		return
+	}
+	app, err := a.Service.GetApp(ctx, agentAppID)
+	if err != nil || app == nil {
+		if a.Logger != nil {
+			a.Logger.Warn("project applier: could not load agent app for code-agent config sync", "worker", workerID, "app", agentAppID, "err", err)
+		}
+		return
+	}
+	desired, err := external_agent.MaterializeCodeAgentConfig(app, nil)
+	if err != nil || desired == nil {
+		if a.Logger != nil {
+			a.Logger.Warn("project applier: agent app has no coding assistant; leaving project task defaults unchanged", "worker", workerID, "app", agentAppID, "err", err)
+		}
+		return
+	}
+	project, err := a.Service.GetProject(ctx, projectID)
+	if err != nil {
+		if a.Logger != nil {
+			a.Logger.Warn("project applier: could not read project for code-agent config sync", "worker", workerID, "project", projectID, "err", err)
+		}
+		return
+	}
+	if sameCodeAgentConfig(project.CodeAgentConfig, desired) {
+		return
+	}
+	if _, err := a.Service.UpdateProject(ctx, projectID, types.ProjectUpdateRequest{CodeAgentConfig: desired}); err != nil {
+		if a.Logger != nil {
+			a.Logger.Warn("project applier: failed to sync project task defaults from agent app", "worker", workerID, "project", projectID, "err", err)
+		}
+		return
+	}
+	if a.Logger != nil {
+		a.Logger.Info("project applier: synced project task defaults from agent app",
+			"worker", workerID, "project", projectID, "runtime", string(desired.Runtime), "model", desired.Model)
+	}
+}
+
+// sameCodeAgentConfig compares the fields that decide which agent a task runs
+// on. Only these are synced, so only these are compared — a difference in a
+// field this sync does not own must not cause a write loop.
+func sameCodeAgentConfig(current, desired *types.CodeAgentExecutionConfig) bool {
+	if current == nil || desired == nil {
+		return current == desired
+	}
+	return current.Runtime == desired.Runtime &&
+		current.CredentialType == desired.CredentialType &&
+		current.ProviderRef == desired.ProviderRef &&
+		current.Model == desired.Model &&
+		current.ReasoningEffort == desired.ReasoningEffort
 }
 
 func (a *WorkerProject) syncProjectRuntimeSecrets(ctx context.Context, projectID string, workerID orgchart.NodeID) {

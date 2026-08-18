@@ -67,6 +67,7 @@ import { selectCodingAgents } from "../utils/apps";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
 import AttachProjectRepositoryDialog from "../components/project/AttachProjectRepositoryDialog";
 import ProjectTaskDefaults from "../components/project/ProjectTaskDefaults";
+import ProjectCodeAgentDefaults from "../components/project/ProjectCodeAgentDefaults";
 import AgentDropdown from "../components/agent/AgentDropdown";
 import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
 import AccessManagement from "../components/app/AccessManagement";
@@ -845,6 +846,25 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
             onBlur={handleFieldBlur}
           />
         </Box>
+      </Box>
+
+      {/* Coding Agent */}
+      <Box>
+        <Typography variant="h6" gutterBottom>
+          Coding Agent
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          The harness and model new tasks in this project start on, including
+          tasks filed by an agent. Each task can still be changed before it
+          starts. Which harnesses are available is configured for the whole
+          organization under Providers; sandbox size lives on the Sandbox tab.
+        </Typography>
+        <Divider sx={{ mb: 3 }} />
+        <ProjectCodeAgentDefaults
+          project={project}
+          disabled={updateProjectMutation.isPending}
+          onUpdate={updateProjectMutation.mutateAsync}
+        />
       </Box>
 
       {/* Project Guidelines */}

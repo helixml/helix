@@ -175,6 +175,36 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 		}
 	}
 
+	// Sandbox size and runtime resolve exactly as CreateTaskFromPrompt resolves
+	// them for the REST path: explicit value, else the project default, else
+	// the global default. A Worker filing a task through MCP must land on the
+	// same sandbox it would have got through the UI.
+	var sandboxResources *types.SandboxResourceOverrides
+	if in.SandboxVCPUs != 0 {
+		preset, ok := types.SpecTaskSandboxPresetForVCPUs(in.SandboxVCPUs)
+		if !ok {
+			return runtime.SpecTaskView{}, fmt.Errorf("sandbox_vcpus must be 1, 4 or 8 (got %d)", in.SandboxVCPUs)
+		}
+		sandboxResources = preset
+	} else if project.DefaultSandboxResourceOverrides != nil {
+		projectResources := *project.DefaultSandboxResourceOverrides
+		sandboxResources = &projectResources
+	}
+	if sandboxResources == nil {
+		sandboxResources = types.DefaultSpecTaskSandboxResources()
+	}
+
+	sandboxRuntime := types.SandboxRuntime(strings.TrimSpace(in.SandboxRuntime))
+	if !types.ValidSpecTaskSandboxRuntime(sandboxRuntime) {
+		return runtime.SpecTaskView{}, fmt.Errorf(
+			"sandbox_runtime must be %q or %q (got %q)",
+			types.SandboxRuntimeUbuntuDesktop, types.SandboxRuntimeHeadlessUbuntu, in.SandboxRuntime)
+	}
+	if sandboxRuntime == "" {
+		sandboxRuntime = project.DefaultSandboxRuntime
+	}
+	sandboxRuntime = types.EffectiveSpecTaskSandboxRuntime(sandboxRuntime)
+
 	now := time.Now()
 	task := &types.SpecTask{
 		ID:             system.GenerateSpecTaskID(),
@@ -192,6 +222,9 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 		CreatedBy:      hiringUserID,
 		CreatedAt:      now,
 		UpdatedAt:      now,
+
+		SandboxResourceOverrides: sandboxResources,
+		SandboxRuntime:           sandboxRuntime,
 	}
 	taskNumber, err := s.tasks.IncrementGlobalTaskNumber(ctx)
 	if err != nil {
@@ -203,7 +236,16 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 	if err := s.tasks.CreateSpecTask(ctx, task); err != nil {
 		return runtime.SpecTaskView{}, fmt.Errorf("create spec task: %w", err)
 	}
-	return toView(task), nil
+	view := toView(task)
+	// The task carries no code-agent config of its own: it is materialized from
+	// the project when the task starts, so the project's is what it will run
+	// on. Report that rather than an empty field, which reads as "unset" and
+	// invites a Worker to go and set one.
+	if project.CodeAgentConfig != nil {
+		view.CodeAgentRuntime = string(project.CodeAgentConfig.Runtime)
+		view.CodeAgentModel = project.CodeAgentConfig.Model
+	}
+	return view, nil
 }
 
 func (s *SpecTasks) List(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID string, filter runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
@@ -444,13 +486,23 @@ func (s *SpecTasks) CreatePullRequests(ctx context.Context, orgID string, worker
 // toView projects a SpecTask onto the tool-facing view.
 func toView(t *types.SpecTask) runtime.SpecTaskView {
 	v := runtime.SpecTaskView{
-		ID:          t.ID,
-		Name:        t.Name,
-		Description: t.Description,
-		Status:      string(t.Status),
-		Priority:    string(t.Priority),
-		Type:        t.Type,
-		BranchName:  t.BranchName,
+		ID:             t.ID,
+		Name:           t.Name,
+		Description:    t.Description,
+		Status:         string(t.Status),
+		Priority:       string(t.Priority),
+		Type:           t.Type,
+		BranchName:     t.BranchName,
+		SandboxRuntime: string(t.SandboxRuntime),
+	}
+	if t.SandboxResourceOverrides != nil {
+		v.SandboxVCPUs = t.SandboxResourceOverrides.VCPUs
+	}
+	// Nil until the task starts — it is materialized from the project then, so
+	// callers that want it before that overlay the project's own (see Create).
+	if t.CodeAgentConfig != nil {
+		v.CodeAgentRuntime = string(t.CodeAgentConfig.Runtime)
+		v.CodeAgentModel = t.CodeAgentConfig.Model
 	}
 	for _, pr := range t.RepoPullRequests {
 		v.PullRequests = append(v.PullRequests, runtime.PullRequestView{
