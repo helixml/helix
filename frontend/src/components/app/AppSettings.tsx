@@ -184,6 +184,17 @@ const BarsIcon = ({ effort }: { effort: string }) => {
   )
 }
 
+// "luke@helix.ml · Max" — whose Claude subscription authenticates the agent and its plan.
+function formatSubscriptionOwner(
+  status: api.ServerAppClaudeSubscriptionStatus | undefined
+): string {
+  if (!status?.connected) return ''
+  const plan = status.subscription_type
+    ? status.subscription_type.charAt(0).toUpperCase() + status.subscription_type.slice(1)
+    : ''
+  return [status.subscription_owner_name, plan].filter(Boolean).join(' · ')
+}
+
 const AppSettings: FC<AppSettingsProps> = ({
   id,
   app,
@@ -281,6 +292,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const ownerClaudeValid = ownerClaudeStatus !== undefined
     ? !!ownerClaudeStatus.valid
     : (claudeSubscriptions?.length ?? 0) > 0
+  const claudeSubOwnerLabel = formatSubscriptionOwner(ownerClaudeStatus)
   const hasAnthropicProvider = providerEndpoints.some(ep => ep.name === 'anthropic')
   const hasOpenAIProvider = providerEndpoints.some(ep => ep.name === 'openai')
 
@@ -844,6 +856,11 @@ const AppSettings: FC<AppSettingsProps> = ({
                             ) : (
                               <Typography variant="caption" color="text.secondary">(not connected)</Typography>
                             )}
+                            {code_agent_runtime === 'claude_code' && claudeSubOwnerLabel ? (
+                              <Typography variant="caption" color="text.secondary">
+                                {claudeSubOwnerLabel}
+                              </Typography>
+                            ) : null}
                           </Box>
                         }
                       />

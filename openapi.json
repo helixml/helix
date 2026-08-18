@@ -30276,8 +30276,21 @@
                     "status": {
                         "type": "string"
                     },
+                    "subscription_owner_id": {
+                        "type": "string"
+                    },
+                    "subscription_owner_is_current_user": {
+                        "type": "boolean"
+                    },
+                    "subscription_owner_name": {
+                        "type": "string"
+                    },
                     "subscription_owner_type": {
                         "description": "\"user\" or \"org\" — where the effective sub resolved",
+                        "type": "string"
+                    },
+                    "subscription_type": {
+                        "description": "Identity of the Claude subscription itself, populated when Connected.\nSubscriptionType is the plan (\"pro\" / \"max\"), empty for setup-token\nconnections where the plan is unknown.\nSubscriptionOwnerName is the subscription owner's email (user-owned) or\norg name (org-owned) — i.e. WHOSE subscription authenticates the agent.\nSubscriptionOwnerIsCurrentUser is true when that owner is the requesting\nuser's own subscription (\"is it mine?\" — yes).",
                         "type": "string"
                     },
                     "valid": {

@@ -1234,8 +1234,21 @@ export interface ServerAppClaudeSubscriptionStatus {
   /** human-readable owner (email / full name) */
   owner_name?: string;
   status?: string;
+  subscription_owner_id?: string;
+  subscription_owner_is_current_user?: boolean;
+  subscription_owner_name?: string;
   /** "user" or "org" — where the effective sub resolved */
   subscription_owner_type?: string;
+  /**
+   * Identity of the Claude subscription itself, populated when Connected.
+   * SubscriptionType is the plan ("pro" / "max"), empty for setup-token
+   * connections where the plan is unknown.
+   * SubscriptionOwnerName is the subscription owner's email (user-owned) or
+   * org name (org-owned) — i.e. WHOSE subscription authenticates the agent.
+   * SubscriptionOwnerIsCurrentUser is true when that owner is the requesting
+   * user's own subscription ("is it mine?" — yes).
+   */
+  subscription_type?: string;
   /** that subscription passed its last liveness probe */
   valid?: boolean;
 }
