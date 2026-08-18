@@ -24,6 +24,21 @@
 # Helix's per-model effort table (api/pkg/model/reasoning_efforts.go) is not
 # plumbed through to this file yet; sending a level a model rejects is a hard
 # 400 that aborts the turn, so sending nothing is the safe default.
+#
+# `retryPolicy` is set explicitly rather than inherited. dsh-llm's defaults are
+# `maxRetries: 2` / `initialDelayMs: 500`, which gives up after ~2.3 seconds —
+# shorter than any real provider blip. On 2026-08-18 a 42-second upstream
+# outage (Caddy returning `502 upstream unavailable` while its vLLM backend
+# restarted) aborted every in-flight dsh turn, while opencode sessions hitting
+# the identical 502s retried longer and completed. A turn that dies here is not
+# recoverable: Zed reports it as `AcpThreadEvent::Error` and Helix marks the
+# whole spec task failed.
+#
+# 8 retries at 1s doubling to a 30s cap is a ~90-second window — long enough to
+# ride out a backend restart, and bounded so a genuinely dead provider still
+# fails the turn instead of hanging it. The retryable set is dsh-llm's default
+# (EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT); 5xx classifies as
+# SERVER, and 4xx deliberately does not retry.
 - id: llm
   name: '@deepseek-ai/dsh-llm-pi-ai'
   config:
@@ -33,6 +48,13 @@
         apiKeyEnv: HELIX_API_KEY
         api: openai-completions
         baseURL: !!js process.env.HELIX_BASE_URL
+        retryPolicy:
+          mode: normal
+          maxRetries: 8
+          backoff:
+            initialDelayMs: 1000
+            maxDelayMs: 30000
+            jitterRatio: 0.2
         models:
           - id: !!js process.env.HELIX_MODEL
 
