@@ -86,12 +86,17 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	// Create shared BuildKit cache directory for all sessions
+	// Create shared BuildKit cache directory for all sessions.
+	// 0700, not 0777: this dir is bind-mounted into every dev container
+	// (read-only there) and into the buildkit daemon; world-writable made it
+	// a cross-tenant writable scratch and a CAS-poison path if buildkitd's
+	// content root ever points at it (2026-08-16 sandbox security analysis,
+	// M10). The buildkit daemon (root) is the only writer that needs it.
 	buildkitCacheDir := filepath.Join(m.dataDir, SharedBuildKitCacheDir)
-	if err := os.MkdirAll(buildkitCacheDir, 0777); err != nil {
+	if err := os.MkdirAll(buildkitCacheDir, 0700); err != nil {
 		return fmt.Errorf("failed to create buildkit cache directory: %w", err)
 	}
-	if err := os.Chmod(buildkitCacheDir, 0777); err != nil {
+	if err := os.Chmod(buildkitCacheDir, 0700); err != nil {
 		log.Warn().Err(err).Str("dir", buildkitCacheDir).Msg("Failed to set buildkit cache directory permissions")
 	}
 

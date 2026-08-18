@@ -1049,10 +1049,29 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 
 	hostConfig := &container.HostConfig{
 		NetworkMode: networkMode,
-		IpcMode:     "host",
 		Privileged:  req.Privileged,
-		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
 		Resources:   resources,
+	}
+
+	if req.ContainerType == DevContainerTypeHeadless {
+		// Headless sandboxes run untrusted user workloads with no desktop
+		// stack, so they get the hardened profile (2026-08-16 sandbox security
+		// analysis, findings C2/C3/M2/M7): Docker's default seccomp + apparmor
+		// profiles, private IPC, no blanket capability upgrades, and MKNOD
+		// dropped (a headless container can never usefully create device
+		// nodes — the cap is only escape-relevant surface there).
+		hostConfig.IpcMode = "private"
+		hostConfig.CapDrop = []string{"MKNOD"}
+	} else {
+		// Desktop containers run the inner dockerd + GNOME/agent stack, which
+		// needs unconfined seccomp/apparmor and host IPC until the inner
+		// dockerd no longer requires them (C1/C2 migration). Non-privileged
+		// desktops still get the explicit capability set below.
+		hostConfig.IpcMode = "host"
+		hostConfig.SecurityOpt = []string{"seccomp=unconfined", "apparmor=unconfined"}
+		if !req.Privileged {
+			hostConfig.CapAdd = []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
+		}
 	}
 
 	// Persistent dev containers (hosted web services) must survive a host
@@ -1062,12 +1081,6 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	// bypassing the slow provision-fresh-sandbox + full-rebuild recovery path.
 	if req.Persistent {
 		hostConfig.RestartPolicy = container.RestartPolicy{Name: "unless-stopped"}
-	}
-
-	// Only add explicit capabilities when not in privileged mode
-	// (privileged mode already grants all capabilities)
-	if !req.Privileged {
-		hostConfig.CapAdd = []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
 	}
 
 	// Resolve "api"/"outer-api" via the sandbox dns-proxy instead of pinning a
@@ -1306,16 +1319,20 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mo
 	}
 
 	// Add shared BuildKit cache mount if available
-	// This allows docker build cache to be shared across all sessions
-	// BuildKit uses content-addressed storage, so concurrent access is safe
+	// Read-only on purpose (2026-08-16 sandbox security analysis, M10): the
+	// 0777 world-writable bind made this a cross-tenant scratch area and a
+	// content-addressed-store poisoning path if buildkitd's content root were
+	// ever (re)pointed at it. The real CAS lives in the buildkit_state
+	// volume; per-session scratch should be a local tmpfs, not this mount.
 	buildkitCacheDir := filepath.Join(dm.manager.dataDir, SharedBuildKitCacheDir)
 	if _, err := os.Stat(buildkitCacheDir); err == nil {
 		mounts = append(mounts, mount.Mount{
-			Type:   mount.TypeBind,
-			Source: buildkitCacheDir,
-			Target: "/buildkit-cache",
+			Type:     mount.TypeBind,
+			Source:   buildkitCacheDir,
+			Target:   "/buildkit-cache",
+			ReadOnly: true,
 		})
-		log.Debug().Str("source", buildkitCacheDir).Msg("Added shared BuildKit cache mount")
+		log.Debug().Str("source", buildkitCacheDir).Msg("Added shared BuildKit cache mount (read-only)")
 	}
 
 	return mounts, nil
