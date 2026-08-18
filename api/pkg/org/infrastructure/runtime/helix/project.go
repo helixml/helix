@@ -396,7 +396,15 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		}
 	}
 	a.syncProjectRuntimeSecrets(ctx, resp.ProjectID, workerID)
-	a.syncProjectCodeAgentConfig(ctx, resp.ProjectID, bot.AgentID, workerID)
+	// resp.AgentAppID, not bot.AgentID: a brand-new Bot has no linked app yet
+	// and ApplyProject is what provisions one. On this path the app and the
+	// project were both built from the same spec, so the sync is normally a
+	// no-op — it exists so the two cannot start out disagreeing.
+	freshAppID := resp.AgentAppID
+	if freshAppID == "" {
+		freshAppID = bot.AgentID
+	}
+	a.syncProjectCodeAgentConfig(ctx, resp.ProjectID, freshAppID, workerID)
 	repoID = project.DefaultRepoID
 	// Helix's project-apply does NOT auto-create a default repo. We
 	// MUST create one and attach it as primary, because:
