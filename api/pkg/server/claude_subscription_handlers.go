@@ -241,6 +241,17 @@ type AppClaudeSubscriptionStatus struct {
 	OwnerName             string     `json:"owner_name"`                        // human-readable owner (email / full name)
 	IsCurrentUser         bool       `json:"is_current_user"`                   // true when the editor IS the owner
 	SubscriptionOwnerType string     `json:"subscription_owner_type,omitempty"` // "user" or "org" — where the effective sub resolved
+	// Identity of the Claude subscription itself, populated when Connected.
+	// SubscriptionType is the plan ("pro" / "max"), empty for setup-token
+	// connections where the plan is unknown.
+	// SubscriptionOwnerName is the subscription owner's email (user-owned) or
+	// org name (org-owned) — i.e. WHOSE subscription authenticates the agent.
+	// SubscriptionOwnerIsCurrentUser is true when that owner is the requesting
+	// user's own subscription ("is it mine?" — yes).
+	SubscriptionType               string `json:"subscription_type,omitempty"`
+	SubscriptionOwnerID            string `json:"subscription_owner_id,omitempty"`
+	SubscriptionOwnerName          string `json:"subscription_owner_name,omitempty"`
+	SubscriptionOwnerIsCurrentUser bool   `json:"subscription_owner_is_current_user"`
 	Status                string     `json:"status,omitempty"`
 	LastValidatedAt       *time.Time `json:"last_validated_at,omitempty"`
 	LastError             string     `json:"last_error,omitempty"`
@@ -298,6 +309,14 @@ func (apiServer *HelixAPIServer) getAppClaudeSubscriptionStatus(_ http.ResponseW
 	status.Connected = true
 	status.Valid = sub.Status == "active"
 	status.SubscriptionOwnerType = string(sub.OwnerType)
+	status.SubscriptionType = sub.SubscriptionType
+	status.SubscriptionOwnerID = sub.OwnerID
+	status.SubscriptionOwnerIsCurrentUser = sub.OwnerType == types.OwnerTypeUser && sub.OwnerID == user.ID
+	if sub.OwnerType == types.OwnerTypeUser {
+		status.SubscriptionOwnerName = apiServer.displayNameForUser(req.Context(), sub.OwnerID)
+	} else if org, err := apiServer.lookupOrg(req.Context(), sub.OwnerID); err == nil && org != nil {
+		status.SubscriptionOwnerName = org.Name
+	}
 	status.Status = sub.Status
 	status.LastValidatedAt = sub.LastValidatedAt
 	status.LastError = sub.LastError
