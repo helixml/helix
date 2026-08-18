@@ -246,7 +246,10 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
   }
 
   // Compare other props
-  if (prevProps.highlightAllFiles !== nextProps.highlightAllFiles) {
+  if (
+    prevProps.highlightAllFiles !== nextProps.highlightAllFiles ||
+    prevProps.recoveredLater !== nextProps.recoveredLater
+  ) {
     return false;
   }
 
@@ -284,6 +287,11 @@ interface InteractionProps {
   sessionSteps?: any[];
   enableDebugCopy?: boolean;
   nextInteraction?: TypesInteraction;
+  /**
+   * A later interaction in this session completed successfully, so any error on
+   * THIS one has been overtaken by events. See lastSuccessfulInteractionIndex.
+   */
+  recoveredLater?: boolean;
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -298,6 +306,7 @@ export const Interaction: FC<InteractionProps> = ({
   sessionSteps = [],
   enableDebugCopy = false,
   nextInteraction,
+  recoveredLater = false,
 }) => {
   // Memoize computed values
   const displayData = useMemo(() => {
@@ -379,7 +388,13 @@ export const Interaction: FC<InteractionProps> = ({
       TypesInteractionState.InteractionStateComplete &&
     !nextInteraction.error &&
     nextInteractionPrompt === userMessage;
+  // A retry of the SAME prompt succeeded, so the work got done and the failed
+  // attempt is moot — drop it entirely.
   const visibleError = retrySucceeded ? undefined : interaction.error;
+  // A LATER, different turn succeeded. The session recovered, but this turn's
+  // work really was abandoned, so the error still belongs on screen — as
+  // history, not as an actionable alarm. No red alert, no Retry button.
+  const errorIsHistorical = !retrySucceeded && !!interaction.error && recoveredLater;
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null;
 
@@ -597,6 +612,7 @@ export const Interaction: FC<InteractionProps> = ({
                   imageURLs={[]}
                   message={assistantMessage}
                   error={visibleError}
+                  errorIsHistorical={errorIsHistorical}
                   isFromAssistant={true}
                   onFilterDocument={onFilterDocument}
                   onRegenerate={onRegenerate}

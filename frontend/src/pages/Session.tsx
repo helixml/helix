@@ -42,6 +42,7 @@ import {
 } from '../types'
 
 import { TypesAgentType, TypesCodeAgentExecutionConfig, TypesMessageContentType, TypesMessage, TypesStepInfo, TypesSession, TypesInteractionState } from '../api/api'
+import { lastSuccessfulInteractionIndex } from '../utils/interactionRecovery'
 
 import { useStreaming } from '../contexts/streaming'
 
@@ -110,6 +111,7 @@ interface MemoizedInteractionProps {
   session_id: string;
   onRegenerate?: (interactionID: string, message: string) => void;
   sessionSteps: TypesStepInfo[];
+  recoveredLater?: boolean;
 }
 
 // Create a memoized version of the Interaction component
@@ -122,6 +124,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       serverConfig={props.serverConfig}
       interaction={props.interaction}
       nextInteraction={props.nextInteraction}
+      recoveredLater={props.recoveredLater}
       session={props.session}
       highlightAllFiles={props.highlightAllFiles}
       onReloadSession={props.onReloadSession}
@@ -971,6 +974,14 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
     session?.data?.interactions?.map(i => `${i.id}:${i.state}`).join(',')
   ]);
 
+  // Index of the last interaction that finished cleanly. Anything errored
+  // before it has been overtaken by work that succeeded afterwards, so its
+  // alarm and Retry button are stale.
+  const lastSuccessIndex = useMemo(
+    () => lastSuccessfulInteractionIndex(memoizedInteractions),
+    [memoizedInteractions],
+  );
+
   // Function to add blocks above when scrolling up
   const addBlocksAbove = useCallback(() => {
     if (!session?.data?.interactions) return
@@ -1197,6 +1208,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
                       serverConfig={account.serverConfig}
                       interaction={interaction}
                       nextInteraction={memoizedInteractions[absoluteIndex + 1]}
+                      recoveredLater={absoluteIndex < lastSuccessIndex}
                       session={sessionData}
                       highlightAllFiles={highlightAllFiles}
                       onReloadSession={safeReloadSession}
