@@ -185,21 +185,37 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		return nil, err
 	}
 
-	// Check if session already exists and is running
-	h.mutex.RLock()
-	existingSession, exists := h.sessions[agent.SessionID]
-	h.mutex.RUnlock()
+	// Check if session already exists and is genuinely running.
+	//
+	// The in-memory map is NOT trustworthy on its own here. A phantom entry —
+	// one whose container is long gone — turns this early return into a silent
+	// no-op: resume answers 200 with an empty DevContainerID, the UI reports
+	// "Desktop started", and no container is ever created. HasRunningContainer
+	// probes hydra for the authoritative status and evicts the entry when the
+	// container is gone, so a phantom degrades into a real (re)create rather
+	// than a lie. It falls back to the map's own status when there is no
+	// connection manager, preserving the previous behaviour offline.
+	if h.HasRunningContainer(ctx, agent.SessionID) {
+		h.mutex.RLock()
+		existingSession := h.sessions[agent.SessionID]
+		h.mutex.RUnlock()
 
-	if exists && existingSession.Status == "running" {
 		log.Info().
 			Str("session_id", agent.SessionID).
 			Msg("Dev container already running, returning existing session")
-		return &types.DesktopAgentResponse{
+		resp := &types.DesktopAgentResponse{
 			SessionID:     agent.SessionID,
 			ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
 			StreamURL:     fmt.Sprintf("/api/v1/sessions/%s/stream", agent.SessionID),
 			Status:        "running",
-		}, nil
+		}
+		// Report the container we are reusing. Callers persist this onto the
+		// session and log it; leaving it empty made a reused container
+		// indistinguishable from the phantom no-op in the logs.
+		if existingSession != nil {
+			resp.DevContainerID = existingSession.ContainerID
+		}
+		return resp, nil
 	}
 
 	// Inject project secrets onto agent.Env so every fresh container picks up
@@ -1956,16 +1972,28 @@ type devContainerProber interface {
 	GetDevContainer(ctx context.Context, sessionID string) (*hydra.DevContainerResponse, error)
 }
 
-// markMissingSessionsStopped downgrades sessions on the given sandbox that this
-// control-plane still marks "running" but that are absent from hydra's live set
-// (liveSessionIDs — containers Docker currently reports as running). For each
+// markMissingSessionsStopped reconciles sessions on the given sandbox that this
+// control-plane still believes are running but that are absent from hydra's live
+// set (liveSessionIDs — containers Docker currently reports as running). For each
 // candidate it authoritatively confirms the container is not running with a
 // per-session GetDevContainer probe — taken under the session's creation lock so
 // a concurrent StartDesktop that (re)created the container after hydra's snapshot
-// can't be wrongly torn down. Confirmed-dead sessions have their container
-// metadata cleared, status set to "stopped", and their stale in-memory entry
-// evicted, so the derived SandboxState becomes "absent" instead of showing a dead
-// container as running.
+// can't be wrongly torn down. Confirmed-dead sessions have their stale in-memory
+// entry evicted and, when the DB row still claims to be running, their container
+// metadata cleared and status set to "stopped", so the derived SandboxState
+// becomes "absent" instead of showing a dead container as running.
+//
+// "Believes it is running" deliberately spans BOTH sources of truth, because
+// they can disagree. StopDesktop evicts the in-memory entry and the caller writes
+// a terminal DB status, but a discovery sweep racing that stop re-adds the entry
+// (the container is still in hydra's snapshot for the few seconds Docker takes to
+// stop it) while the terminal DB write lands last. The session is then "stopped"
+// or "terminated_idle" in the DB and "running" in the map — and each half hides
+// the other: a DB-only candidate scan skips the session every sweep, so the
+// phantom entry is never evicted, while StartDesktop keeps short-circuiting on
+// that entry and refuses to create a container. Resume answers 200 and does
+// nothing, permanently, until the process restarts. Walking the in-memory map as
+// well as the DB is what makes that state reachable and self-healing.
 func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxID string, liveSessionIDs map[string]bool, prober devContainerProber) {
 	// Unlike the active_sandboxes counter (a multi-tenant autoscaler concern that
 	// skips "local"), session-status reconciliation applies to every sandbox
@@ -1981,55 +2009,67 @@ func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxI
 		return
 	}
 
-	for _, session := range sessions {
-		if liveSessionIDs[session.ID] {
-			continue // hydra confirms this container is alive
-		}
-		// Only downgrade sessions we believe are actively running with a
-		// container. Skip "starting" (StartDesktop may be mid-flight and not yet
-		// visible to hydra) and already-terminal states.
-		if session.Metadata.ExternalAgentStatus != "running" || session.Metadata.ContainerName == "" {
-			continue
-		}
+	candidates := h.staleReconcileCandidates(sessions, sandboxID, liveSessionIDs)
 
+	for _, sessionID := range candidates {
 		// Serialize against StartDesktop for this session before making a
-		// decision, so the probe + downgrade is atomic wrt a concurrent start.
+		// decision, so the probe + remediation is atomic wrt a concurrent start.
 		h.creationLocksMutex.Lock()
-		sessionLock, exists := h.creationLocks[session.ID]
+		sessionLock, exists := h.creationLocks[sessionID]
 		if !exists {
 			sessionLock = &sync.Mutex{}
-			h.creationLocks[session.ID] = sessionLock
+			h.creationLocks[sessionID] = sessionLock
 		}
 		h.creationLocksMutex.Unlock()
 
 		sessionLock.Lock()
 
 		// Re-read under the lock: StartDesktop may have just (re)created it.
-		current, err := h.store.GetSession(ctx, session.ID)
+		current, err := h.store.GetSession(ctx, sessionID)
 		if err != nil {
 			sessionLock.Unlock()
 			continue
 		}
-		if current.Metadata.ExternalAgentStatus != "running" || current.Metadata.ContainerName == "" {
-			sessionLock.Unlock()
-			continue
-		}
 
-		// Authoritatively confirm the container is not running before
-		// downgrading. hydra's list snapshot may pre-date a just-started
-		// container, so a direct live probe is the source of truth for the
-		// decision.
+		// Authoritatively confirm the container is not running before acting.
+		// hydra's list snapshot may pre-date a just-started container, so a
+		// direct live probe is the source of truth for the decision.
 		//
 		// The probe must check the reported status, not merely that the call
 		// succeeded: GetDevContainer returns a container hydra still tracks even
 		// when Docker reports it exited, so an `err == nil` check here treated a
 		// dead container as alive and skipped the downgrade forever.
 		if prober != nil {
-			if container, err := prober.GetDevContainer(ctx, session.ID); err == nil &&
+			if container, err := prober.GetDevContainer(ctx, sessionID); err == nil &&
 				container != nil && container.Status == hydra.DevContainerStatusRunning {
 				sessionLock.Unlock()
 				continue // container really is running; snapshot was just stale
 			}
+		}
+
+		// Evict the stale in-memory entry so GetSession/HasRunningContainer and
+		// StartDesktop agree with the probe. Unconditional: a phantom entry has
+		// to go even when the DB row is already terminal and needs no downgrade,
+		// because the entry on its own is enough to make StartDesktop refuse to
+		// create a container.
+		h.mutex.Lock()
+		_, wasTracked := h.sessions[sessionID]
+		delete(h.sessions, sessionID)
+		h.mutex.Unlock()
+
+		// The DB downgrade applies only to rows that still claim to be running.
+		// A terminal row is already correct, and rewriting "terminated_idle" to
+		// "stopped" would lose why the desktop went away.
+		if current.Metadata.ExternalAgentStatus != "running" || current.Metadata.ContainerName == "" {
+			if wasTracked {
+				log.Info().
+					Str("session_id", sessionID).
+					Str("sandbox_id", sandboxID).
+					Str("db_status", current.Metadata.ExternalAgentStatus).
+					Msg("Evicted phantom in-memory session whose container is not running")
+			}
+			sessionLock.Unlock()
+			continue
 		}
 
 		current.Metadata.ContainerName = ""
@@ -2040,35 +2080,80 @@ func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxI
 
 		if _, err := h.store.UpdateSession(ctx, *current); err != nil {
 			log.Warn().Err(err).
-				Str("session_id", session.ID).
+				Str("session_id", sessionID).
 				Str("sandbox_id", sandboxID).
 				Msg("Failed to mark stale dev container session stopped during discovery")
 			sessionLock.Unlock()
 			continue
 		}
 
-		// Evict the stale in-memory entry so GetSession/HasRunningContainer agree.
-		h.mutex.Lock()
-		delete(h.sessions, session.ID)
-		h.mutex.Unlock()
-
 		// Close the billing row too. Without this, a container destroyed
 		// outside StopDesktop (host redeploy, OOM kill, manual docker rm)
 		// leaves a row in `running` and the reaper keeps charging the org
 		// every minute for a container that no longer exists.
 		if h.sandboxMeter != nil {
-			if err := h.sandboxMeter.MarkSessionStopped(ctx, session.ID); err != nil {
-				log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to close sandbox billing row for stale container")
+			if err := h.sandboxMeter.MarkSessionStopped(ctx, sessionID); err != nil {
+				log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to close sandbox billing row for stale container")
 			}
 		}
 
 		log.Info().
-			Str("session_id", session.ID).
+			Str("session_id", sessionID).
 			Str("sandbox_id", sandboxID).
 			Msg("Marked stale dev container session stopped (not reported by hydra after reconnect)")
 
 		sessionLock.Unlock()
 	}
+}
+
+// staleReconcileCandidates returns the session ids on sandboxID that hydra does
+// not report as running but that one of the two state stores still believes is
+// running, deduplicated.
+//
+// The DB contributes only rows that claim to be running with a container:
+// "starting" is skipped because StartDesktop may be mid-flight and not yet
+// visible to hydra, terminal rows need no downgrade, and scanning every historic
+// session on the sandbox would mean a hydra probe per row.
+//
+// The in-memory map contributes every entry pinned to this sandbox. Those are
+// bounded by the number of live containers plus phantoms, so probing them is
+// cheap — and they are the only way to reach a session whose DB row already went
+// terminal while its map entry stayed "running".
+func (h *HydraExecutor) staleReconcileCandidates(sessions []*types.Session, sandboxID string, liveSessionIDs map[string]bool) []string {
+	candidates := make([]string, 0, len(sessions))
+	seen := make(map[string]bool, len(sessions))
+
+	add := func(sessionID string) {
+		if sessionID == "" || liveSessionIDs[sessionID] || seen[sessionID] {
+			return
+		}
+		seen[sessionID] = true
+		candidates = append(candidates, sessionID)
+	}
+
+	for _, session := range sessions {
+		if session.Metadata.ExternalAgentStatus != "running" || session.Metadata.ContainerName == "" {
+			continue
+		}
+		add(session.ID)
+	}
+
+	h.mutex.RLock()
+	for sessionID, tracked := range h.sessions {
+		// An unset SandboxID means the single-node "local" sandbox, matching the
+		// fallback StopDesktop and HasRunningContainer use when routing RevDial.
+		trackedSandboxID := tracked.SandboxID
+		if trackedSandboxID == "" {
+			trackedSandboxID = "local"
+		}
+		if trackedSandboxID != sandboxID {
+			continue
+		}
+		add(sessionID)
+	}
+	h.mutex.RUnlock()
+
+	return candidates
 }
 
 // ReconcileSandboxResources posts the DB-derived live-set to a connected
