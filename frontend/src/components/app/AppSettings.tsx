@@ -184,7 +184,10 @@ const BarsIcon = ({ effort }: { effort: string }) => {
   )
 }
 
-// "luke@helix.ml · Max" — whose Claude subscription authenticates the agent and its plan.
+// "phil@winder.ai · Max · 20x" — the Claude account the token authenticates as
+// (its plan and rate-limit tier), since that is the identity that gets billed.
+// Falls back to the Helix user/org that connected the subscription when the
+// Claude account has not been identified by a validation yet.
 function formatSubscriptionOwner(
   status: api.ServerAppClaudeSubscriptionStatus | undefined
 ): string {
@@ -192,7 +195,8 @@ function formatSubscriptionOwner(
   const plan = status.subscription_type
     ? status.subscription_type.charAt(0).toUpperCase() + status.subscription_type.slice(1)
     : ''
-  return [status.subscription_owner_name, plan].filter(Boolean).join(' · ')
+  const account = status.claude_account_email || status.subscription_owner_name
+  return [account, plan, status.subscription_rate_limit_tier].filter(Boolean).join(' · ')
 }
 
 const AppSettings: FC<AppSettingsProps> = ({

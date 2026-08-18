@@ -1223,6 +1223,8 @@ export interface ServerAgentStartupErrorResponse {
 }
 
 export interface ServerAppClaudeSubscriptionStatus {
+  claude_account_email?: string;
+  claude_account_name?: string;
   /** owner has a subscription connected at all */
   connected?: boolean;
   /** true when the editor IS the owner */
@@ -1240,6 +1242,11 @@ export interface ServerAppClaudeSubscriptionStatus {
   /** "user" or "org" — where the effective sub resolved */
   subscription_owner_type?: string;
   /**
+   * SubscriptionRateLimitTier is the Claude org's rate-limit tier (e.g. "20x"),
+   * empty when unknown.
+   */
+  subscription_rate_limit_tier?: string;
+  /**
    * Identity of the Claude subscription itself, populated when Connected.
    * SubscriptionType is the plan ("pro" / "max"), empty for setup-token
    * connections where the plan is unknown.
@@ -1247,6 +1254,12 @@ export interface ServerAppClaudeSubscriptionStatus {
    * org name (org-owned) — i.e. WHOSE subscription authenticates the agent.
    * SubscriptionOwnerIsCurrentUser is true when that owner is the requesting
    * user's own subscription ("is it mine?" — yes).
+   *
+   * ClaudeAccountEmail/ClaudeAccountName identify the actual Claude account
+   * the token authenticates as (fetched from Anthropic's /api/oauth/profile) —
+   * the identity that gets billed. It can differ from SubscriptionOwnerName
+   * (the Helix user who connected the subscription); when no valid probe has
+   * enriched the row yet they are empty and consumers fall back to the owner.
    */
   subscription_type?: string;
   /** that subscription passed its last liveness probe */
@@ -2953,6 +2966,15 @@ export interface TypesClaudeOAuthCredentials {
 
 export interface TypesClaudeSubscription {
   access_token_expires_at?: string;
+  account_display_name?: string;
+  /**
+   * AccountEmail is the email of the Claude account the stored token
+   * authenticates as, fetched from Anthropic's /api/oauth/profile. It is the
+   * identity that gets billed and can differ from the Helix user/org (OwnerID)
+   * that connected the subscription. Best-effort: empty until a valid probe
+   * has enriched the row.
+   */
+  account_email?: string;
   created?: string;
   created_by?: string;
   /** "oauth" or "setup_token" */
