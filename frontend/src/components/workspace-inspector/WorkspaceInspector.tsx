@@ -9,7 +9,11 @@ import WorkspaceDiffSurface from "./WorkspaceDiffSurface";
 import WorkspaceFileSurface from "./WorkspaceFileSurface";
 import { closeWorkspaceTabs, type WorkspaceTabCloseAction } from "./workspaceTabs";
 import TaskSessionPlaceholder from "../tasks/TaskSessionPlaceholder";
-import { isDesktopUnavailableError, useWorkspaces } from "./workspaceReviewService";
+import {
+  isDesktopUnavailableError,
+  useDesktopReachability,
+  useWorkspaces,
+} from "./workspaceReviewService";
 import type { WorkspaceReviewComment } from "./workspaceReviewComments";
 
 const NO_COMMENTS: readonly WorkspaceReviewComment[] = [];
@@ -71,6 +75,10 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
   const onPrimarySurfaceChangeRef = useRef(onPrimarySurfaceChange);
   onPrimarySurfaceChangeRef.current = onPrimarySurfaceChange;
   const workspacesQuery = useWorkspaces(sessionId, desktopRunning);
+  const reachability = useDesktopReachability({
+    unavailable: desktopRunning && isDesktopUnavailableError(workspacesQuery.error),
+    settled: !desktopRunning || workspacesQuery.isSuccess,
+  });
   const [workspace, setWorkspace] = useState<string>();
   const [openFiles, setOpenFiles] = useState<string[]>(() =>
     router.params.preview ? [router.params.preview] : [],
@@ -151,11 +159,31 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
     );
   }
 
+  // A task whose session is running still answers 503 for the first seconds
+  // after launch, while its container registers the bridge these endpoints
+  // are dialled through. Saying "sandbox is stopped" there is simply wrong —
+  // and offering a start button invites the user to restart a healthy task.
+  if (reachability === "connecting") {
+    return (
+      <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+        <TaskSessionPlaceholder
+          tone="connecting"
+          title="Connecting to the sandbox"
+          description={
+            primarySurface === "files"
+              ? "This task's sandbox is still starting. Its workspace files will appear as soon as it connects."
+              : "This task's sandbox is still starting. Its workspace changes will appear as soon as it connects."
+          }
+        />
+      </Box>
+    );
+  }
+
   // Every workspace endpoint answers 503 while the sandbox is stopped, which
   // is the normal resting state of a finished or paused task. Show the same
   // start-desktop placeholder the Desktop tab uses rather than reporting a
   // failure to load changes.
-  if (!desktopRunning || isDesktopUnavailableError(workspacesQuery.error)) {
+  if (!desktopRunning || reachability === "unreachable") {
     return (
       <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
         <TaskSessionPlaceholder

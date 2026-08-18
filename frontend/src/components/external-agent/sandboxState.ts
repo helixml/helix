@@ -45,8 +45,11 @@ export const deriveSandboxState = (
 
   // Map session metadata to sandbox state.
   // Check stopped status first - it takes priority from the backend check.
+  // "terminated_idle" is what the idle checker writes when it reaps a sandbox
+  // that nobody used; the container name stays on the row, so without this the
+  // session reads as running and every workspace request 503s forever.
   let sandboxState: SandboxState;
-  if (status === "stopped") {
+  if (status === "stopped" || status === "terminated_idle") {
     sandboxState = "absent";
   } else if (status === "running" || (hasContainer && desiredState === "running")) {
     sandboxState = "running";
