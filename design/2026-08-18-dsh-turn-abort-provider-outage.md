@@ -122,8 +122,24 @@ the "don't re-apply the provisioning spec" case the fast path warns about — th
 source is the Bot's live app config, which is exactly what the settings UI
 edits, so syncing propagates a user's edit rather than reverting it.
 
-Still open: the MCP create tool lacks the sandbox knobs, so a Bot that wants
-them has a reason to reach for curl and hand-write a config again.
+**Fix 2:** `create_spectask` now takes `sandbox_vcpus` (1|4|8) and
+`sandbox_runtime`, resolved exactly as the REST path resolves them. That was
+the whole reason to reach for curl. Memory is derived from the vCPU count via a
+shared preset helper rather than accepted from the caller, so the pair can
+never be one `ValidPreset` rejects.
+
+There is still deliberately no code-agent argument, and the schema is
+`additionalProperties: false` so one cannot be smuggled in. Instead the
+returned view reports the sandbox the task got *and* the coding agent it
+inherited from the project, so a Worker can see it is already configured
+rather than concluding it must set one.
+
+Still open: the REST create path refuses `ubuntu-desktop` when no
+display-capable host exists (`HasDisplayCapableHost`); the org path cannot
+make that check because the `SpecTasks` port has no sandbox controller. This
+is not a regression — the org path already defaulted to `ubuntu-desktop`
+without checking — but a Worker can now request it explicitly, so the failure
+would surface at placement rather than at create.
 
 ## Also shipped
 
