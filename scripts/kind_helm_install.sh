@@ -178,8 +178,9 @@ if [ -n "$INSTALL_SANDBOX" ] && [ "$INSTALL_SANDBOX" != "false" ] && [ "$INSTALL
   # Get the controlplane service URL for sandbox to connect to
   CONTROLPLANE_SVC="http://my-helix-controlplane:80"
 
-  # Use the same runner token as the controlplane
-  RUNNER_TOKEN=${RUNNER_TOKEN:-"oh-hallo-insecure-token"}
+  # Use the same runner token as the controlplane. No built-in default —
+  # it must match controlplane.runnerToken (or its existing secret).
+  RUNNER_TOKEN=${RUNNER_TOKEN:-$(openssl rand -hex 32)}
 
   SANDBOX_VALUES=()
   SANDBOX_VALUES+=("--set" "sandbox.apiUrl=${CONTROLPLANE_SVC}")

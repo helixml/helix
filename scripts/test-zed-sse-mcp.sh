@@ -16,9 +16,12 @@ elif [[ -f "$HOME/.helix/credentials" ]]; then
     set -a && source "$HOME/.helix/credentials" && set +a
 fi
 
-# Use dev defaults if not set (matches CLI defaults in spectask.go)
+# Use dev defaults if not set
 export HELIX_URL="${HELIX_URL:-http://localhost:8080}"
-export HELIX_API_KEY="${HELIX_API_KEY:-oh-hallo-insecure-token}"
+if [[ -z "${HELIX_API_KEY:-}" ]]; then
+    echo "Error: HELIX_API_KEY is not set (the public default token was removed; source .env.usercreds or export a real key)"
+    exit 1
+fi
 
 echo "Using HELIX_URL=$HELIX_URL"
 echo "Using HELIX_API_KEY=${HELIX_API_KEY:0:10}..."

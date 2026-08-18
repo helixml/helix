@@ -43,6 +43,17 @@ var (
 	ErrHelixTokenWithOIDC = errors.New("token format mismatch: please log out and log in again")
 )
 
+// knownInsecureTokens are credential values that shipped as hard-coded
+// defaults in the public repo (2026-08-16 sandbox security analysis, H4/H8).
+// They have to be treated as public credentials: even a deployment that still
+// has one configured as its RUNNER_TOKEN must not let it authenticate, or the
+// "randomly generated" per-deployment token the value replaces is meaningless.
+// Values are never removed from this set.
+var knownInsecureTokens = map[string]string{
+	"oh-hallo-insecure-token": "it was the default RUNNER_TOKEN in docker-compose and the CLI",
+	"inner-runner-token":      "it was the fixed RUNNER_TOKEN in the Helix-in-Helix sample project",
+}
+
 type authMiddlewareConfig struct {
 	// adminUserIDs is a list of user IDs that should be admins.
 	// Can contain "all" for dev mode (everyone is admin), or specific user IDs.
@@ -170,6 +181,15 @@ func (auth *authMiddleware) isAdminWithContext(ctx context.Context, userID strin
 func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) (*types.User, error) {
 	if token == "" {
 		return nil, nil
+	}
+
+	// Refuse known-insecure public credentials regardless of deployment
+	// config (H8: one of them was accepted by a live control plane).
+	if reason, insecure := knownInsecureTokens[token]; insecure {
+		log.Error().
+			Str("reason", reason).
+			Msg("rejected request presenting a known-insecure public credential")
+		return nil, errors.New("invalid credentials: this token is a known-insecure public default; use a real per-deployment token")
 	}
 
 	if token == auth.cfg.runnerToken {

@@ -56,5 +56,5 @@ Path may be `/orgs/…`, `/api/v1/orgs/…`, or a full URL. Always authenticated
 ## Notes
 
 - Prefer org **name** (`unmanned-org`) or full id (`org_…`); both resolve.
-- Do **not** use `oh-hallo-insecure-token` (runner token).
+- Do **not** use `oh-hallo-insecure-token` (old public runner-token default — removed and now rejected by the API).
 - CoS tools (`list_bot_repositories`, etc.) are MCP tools the bot calls inside its session; the CLI chats with the bot session, it does not expose those MCP tools as CLI verbs (use `helix api` or chat the bot to invoke them).

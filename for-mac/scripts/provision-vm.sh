@@ -898,8 +898,8 @@ POSTGRES_DB=postgres
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 
-# Runner token
-RUNNER_TOKEN=oh-hallo-insecure-token
+# Runner token (generated at provision time; the public default was removed)
+RUNNER_TOKEN=$(openssl rand -hex 32)
 
 # Frontend — Vite dev server inside the frontend container on port 8081
 FRONTEND_URL=http://frontend:8081

@@ -18,9 +18,10 @@ HELIX_UBUNTU_AGENT=app_01kchs65wezc7ewxemj9px0gcv
 HELIX_PROJECT=prj_01ke4cyxvk98mjedfmqet02hy4
 ```
 
-Or use the dev token (no keycloak required, but limited functionality):
+Or use any API key that authenticates against your stack. The old public
+"dev token" was removed (security finding H4/H8) — export a real key, e.g.:
 ```bash
-HELIX_API_KEY=oh-hallo-insecure-token
+source .env.usercreds   # or: export HELIX_API_KEY=hl-...
 ```
 
 ### 3. Sandbox Container Running

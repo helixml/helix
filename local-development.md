@@ -98,12 +98,12 @@ cd helix
 cat > .env <<'EOF'
 SERVER_PORT=9080                          # runner uses 9080; API stays on 8080
 API_HOST=http://localhost:8080            # forwarded back to your laptop
-RUNNER_TOKEN=oh-hallo-insecure-token      # MUST match the control plane token
+RUNNER_TOKEN=<value from the control plane .env>   # MUST match the control plane token
 EOF
 docker compose -f docker-compose.runner.yaml up -d
 ```
 
-Then visit `/dashboard` on your local Helix and confirm the runner appears. `RUNNER_TOKEN` must match between control plane and runner - the dev stack uses `oh-hallo-insecure-token` by default. **Never use that value in production.**
+Then visit `/dashboard` on your local Helix and confirm the runner appears. `RUNNER_TOKEN` must match between control plane and runner — the local dev `./stack` generates a random one in `.env` on first start (the old public default was removed as a security backdoor). **Never use a predictable or publicly-known value in any network-reachable deployment.**
 
 ## 4. Day-to-day workflow
 

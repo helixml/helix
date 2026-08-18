@@ -488,7 +488,10 @@ func getAPIURL() string {
 func getToken() string {
 	token := os.Getenv("HELIX_API_KEY")
 	if token == "" {
-		token = "oh-hallo-insecure-token" // Dev default
+		fmt.Fprintln(os.Stderr, "error: HELIX_API_KEY is not set")
+		fmt.Fprintln(os.Stderr, "The public default token has been removed (security finding H4/H8).")
+		fmt.Fprintln(os.Stderr, "Export a real API key (e.g. from .env.usercreds or /account).")
+		os.Exit(1)
 	}
 	return token
 }

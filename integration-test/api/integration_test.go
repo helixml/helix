@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"net/http"
@@ -25,6 +27,17 @@ import (
 
 var serverCmd *exec.Cmd
 var serverExited = make(chan error, 1) // signals when the server process exits
+
+// generateIntegrationRunnerToken returns a fresh random token for the test
+// server. The old hard-coded value was a public credential and is now
+// rejected by the API (security finding H4/H8).
+func generateIntegrationRunnerToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
 
 // serverLogTailBytes bounds how much of the server's (debug-level) output we
 // keep. Enough to cover the requests around a failure without holding minutes
@@ -154,7 +167,7 @@ func startAPIServer() *serverLogBuffer {
 		"SERVER_PORT="+integrationServerPort(),
 		"LOG_LEVEL=debug",
 		"APP_URL="+integrationServerURL(),
-		"RUNNER_TOKEN=oh-hallo-insecure-token",
+		"RUNNER_TOKEN="+generateIntegrationRunnerToken(),
 		"SERVER_URL="+integrationServerURL(),
 		"ASSET_SSH_PROXY_LISTEN=127.0.0.1:"+integrationAssetSSHProxyPort(),
 		"ASSET_SSH_PROXY_ADDRESS=127.0.0.1:"+integrationAssetSSHProxyPort(),

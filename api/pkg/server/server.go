@@ -253,6 +253,11 @@ func NewServer(
 	if cfg.WebServer.RunnerToken == "" {
 		return nil, fmt.Errorf("runner token is required")
 	}
+	if reason, insecure := knownInsecureTokens[cfg.WebServer.RunnerToken]; insecure {
+		log.Error().
+			Str("reason", reason).
+			Msg("RUNNER_TOKEN is a known-insecure public default — requests presenting it will be rejected. Set a unique RUNNER_TOKEN (e.g. `openssl rand -hex 32`) and rotate any runner/revdial credentials that used this value.")
+	}
 
 	// Create OIDC client if using OIDC auth provider
 	helixRedirectURL := fmt.Sprintf("%s/api/v1/auth/callback", cfg.WebServer.URL)
@@ -1951,6 +1956,14 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 		}
 
 		// Validate the runner token (like GPTScript does)
+		if _, insecure := knownInsecureTokens[accessToken]; insecure {
+			log.Warn().
+				Str("EXTERNAL_AGENT_DEBUG", "insecure_token").
+				Str("runner_id", runnerID).
+				Msg("❌ EXTERNAL_AGENT_DEBUG: known-insecure public token presented; refusing connection")
+			http.Error(w, "Invalid access token", http.StatusUnauthorized)
+			return
+		}
 		if accessToken != apiServer.Cfg.WebServer.RunnerToken {
 			log.Warn().
 				Str("EXTERNAL_AGENT_DEBUG", "invalid_token").

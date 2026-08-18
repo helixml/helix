@@ -394,7 +394,7 @@ docker compose logs --tail 100 sandbox-nvidia 2>&1 | grep -E "error|failed"  # s
 
 ## API Authentication
 
-**NEVER** use `oh-hallo-insecure-token` — that's the runner token, not a user key.
+**NEVER** use `oh-hallo-insecure-token` — it was the public runner-token default, removed as a security backdoor (and now rejected by the API). Set a real `RUNNER_TOKEN`.
 
 Use `.env.usercreds` (contains `HELIX_API_KEY`, `HELIX_URL`, `HELIX_UBUNTU_AGENT`, `HELIX_PROJECT`):
 ```bash

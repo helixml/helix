@@ -397,6 +397,16 @@ EOF
 }
 
 # _start_services: common startup logic shared by start and start-tmux
+function ensure_runner_token() {
+  # The public RUNNER_TOKEN default was removed (security finding H4/H8). All
+  # compose services share the .env value, so generate and persist one once.
+  if grep -q '^RUNNER_TOKEN=' .env 2>/dev/null; then
+    return
+  fi
+  echo "🔐 No RUNNER_TOKEN in .env — generating one (the public default was removed)"
+  echo "RUNNER_TOKEN=$(openssl rand -hex 32)" >> .env
+}
+
 function _start_services() {
   # Check for Zed dependency and build if needed
   if [ ! -d "$PROJECTS_ROOT/zed" ]; then
@@ -449,6 +459,9 @@ function _start_services() {
 
   # Setup sandbox profile based on GPU detection
   setup_sandbox_profile
+
+  # Guarantee a unique RUNNER_TOKEN before any service starts
+  ensure_runner_token
 
   # Start services based on enabled profiles
   # NOTE: do NOT stop the sandbox before `up -d` — `docker compose up -d` already
@@ -650,6 +663,9 @@ function up() {
   # Setup sandbox profile based on GPU detection (if not already in .env)
   setup_sandbox_profile
 
+  # Guarantee a unique RUNNER_TOKEN before any service starts
+  ensure_runner_token
+
   # Sandbox services are enabled via COMPOSE_PROFILES in .env or auto-detected above
   # Profile 'code-nvidia' = NVIDIA GPU, 'code-amd-intel' = AMD/Intel GPU
 
@@ -721,6 +737,7 @@ function zed-agent-logs() {
 }
 
 function rebuild() {
+  ensure_runner_token
   docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" up -d --build $@
 }
 
@@ -1314,6 +1331,7 @@ function build-sandbox() {
   export BUILD_SANDBOX_TIMING_LOG="/tmp/build-sandbox-timing-$(date +%s).log"
   _bs_elapsed() { local msg="[⏱️  +$((SECONDS - BUILD_START_TIME))s] $*"; echo "$msg"; echo "$msg" >> "$BUILD_SANDBOX_TIMING_LOG"; }
   echo "Timing log: $BUILD_SANDBOX_TIMING_LOG"
+  ensure_runner_token
 
   echo "📦 Building Helix Sandbox container (DinD + Hydra + RevDial)..."
   echo ""
