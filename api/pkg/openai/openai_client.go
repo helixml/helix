@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -211,15 +212,37 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	return
 }
 
+// providerStatusCode extracts the HTTP status from a go-openai error. Both
+// error types it returns carry the code as a field, so read it rather than
+// looking for the digits in the rendered message: a provider that echoes the
+// request back in its body can easily put "400" inside a 502's message and
+// invert the decision.
+//
+// Returns 0 when the error is not one of those types (a transport failure, or
+// an error from the native Google adapter), which callers treat as "unknown"
+// and fall back to string matching for.
+func providerStatusCode(err error) int {
+	var apiErr *openai.APIError
+	if errors.As(err, &apiErr) && apiErr.HTTPStatusCode > 0 {
+		return apiErr.HTTPStatusCode
+	}
+	var reqErr *openai.RequestError
+	if errors.As(err, &reqErr) && reqErr.HTTPStatusCode > 0 {
+		return reqErr.HTTPStatusCode
+	}
+	return 0
+}
+
 // classifyRequestError decides whether a failed provider request is worth
 // retrying, and logs the cases an operator needs to see. Shared by the
 // streaming and non-streaming paths so the two cannot drift apart.
 //
-// Retryable: 429 (rate limit), 5xx (the provider or the proxy in front of it
-// is unhealthy — a Caddy/nginx `502 upstream unavailable` while a vLLM backend
-// restarts is the common case), and anything unrecognised (usually a transport
-// error). Not retryable: TLS trust failures and 4xx other than 429, which will
-// fail identically however many times we ask.
+// Retryable: 429 (rate limit), any 5xx (the provider or the proxy in front of
+// it is unhealthy — a Caddy `502 upstream unavailable` while a vLLM backend
+// restarts is the case that motivated this), and anything unrecognised, which
+// is usually a transport error and worth one more attempt. Not retryable: TLS
+// trust failures and 4xx other than 429, which fail identically however many
+// times we ask.
 func (c *RetryableClient) classifyRequestError(err error, model string) error {
 	errStr := err.Error()
 
@@ -233,7 +256,30 @@ func (c *RetryableClient) classifyRequestError(err error, model string) error {
 		return retry.Unrecoverable(err)
 	}
 
-	// 429 is retryable and must be tested before the general 4xx rejection.
+	if status := providerStatusCode(err); status > 0 {
+		switch {
+		case status == http.StatusTooManyRequests:
+			log.Warn().
+				Str("error", errStr).
+				Str("base_url", c.baseURL).
+				Msg("Received 429 error, will retry with backoff")
+			return err // Allow retry
+		case status >= 500:
+			// Includes Anthropic's non-standard 529 "Overloaded".
+			log.Warn().
+				Str("error", errStr).
+				Str("base_url", c.baseURL).
+				Int("status", status).
+				Msg("Received upstream error, will retry with backoff")
+			return err // Allow retry
+		case status >= 400:
+			return retry.Unrecoverable(err)
+		}
+		return err
+	}
+
+	// No typed status available. Fall back to the message, ordered so 429 is
+	// tested before the general 4xx rejection.
 	if strings.Contains(errStr, "429") {
 		log.Warn().
 			Str("error", errStr).
@@ -244,19 +290,6 @@ func (c *RetryableClient) classifyRequestError(err error, model string) error {
 
 	if strings.Contains(errStr, "401 Unauthorized") || strings.Contains(errStr, "404") || strings.Contains(errStr, "400") {
 		return retry.Unrecoverable(err)
-	}
-
-	// 5xx: the upstream is unhealthy rather than the request being wrong.
-	// 529 (Anthropic "Overloaded") is in this set.
-	for _, code := range []string{"500", "502", "503", "504", "520", "521", "522", "524", "529"} {
-		if strings.Contains(errStr, code) {
-			log.Warn().
-				Str("error", errStr).
-				Str("base_url", c.baseURL).
-				Str("status", code).
-				Msg("Received upstream error, will retry with backoff")
-			return err // Allow retry
-		}
 	}
 
 	return err
