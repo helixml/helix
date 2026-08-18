@@ -31,7 +31,7 @@ import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useLightTheme from '../../hooks/useLightTheme'
 import useAccount from '../../hooks/useAccount'
-import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
+import { getTokenExpiryStatus, formatClaudeAccountIdentity } from './claudeSubscriptionUtils'
 import { matchesAllTokens } from '../../utils/searchUtils'
 import { APP_MONO_FONT_FAMILY } from '../../styles/typography'
 import { codeAgentHarnessesQueryKey } from '../../services/codeAgentHarnessesService'
@@ -43,6 +43,8 @@ interface ClaudeSubscriptionData {
   credential_type?: string
   subscription_type: string
   rate_limit_tier: string
+  account_email?: string
+  account_display_name?: string
   status: string
   access_token_expires_at: string
   last_refreshed_at?: string
@@ -662,6 +664,15 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                 const subIsSetupToken = sub.credential_type === 'setup_token'
                 const subExpiry = subIsSetupToken ? null : getTokenExpiryStatus(sub.access_token_expires_at)
                 const subIsExpired = subExpiry?.isExpired ?? false
+                // Same identity line the agent-settings caption shows (account ·
+                // plan · tier) — rendered here as one outlined pill in place of
+                // the old plan-only chip.
+                const subIdentity = formatClaudeAccountIdentity({
+                  accountEmail: sub.account_email,
+                  accountName: sub.account_display_name,
+                  plan: sub.subscription_type,
+                  tier: sub.rate_limit_tier,
+                })
                 return (
                   <Box
                     key={sub.id}
@@ -697,8 +708,8 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                             size="small"
                           />
                         )}                        
-                        {sub.subscription_type && (
-                          <Chip label={sub.subscription_type} size="small" variant="outlined" />
+                        {subIdentity && (
+                          <Chip label={subIdentity} size="small" variant="outlined" />
                         )}
                         {sub.owner_type === 'org' ? (
                           <Chip

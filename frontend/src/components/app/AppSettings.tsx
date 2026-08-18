@@ -50,6 +50,7 @@ import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
 import { useListProviders } from '../../services/providersService'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
+import { formatClaudeAccountIdentity } from '../account/claudeSubscriptionUtils'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import useRouter from '../../hooks/useRouter'
 import { useGetOrgByName } from '../../services/orgService'
@@ -184,19 +185,22 @@ const BarsIcon = ({ effort }: { effort: string }) => {
   )
 }
 
-// "phil@winder.ai · Max · 20x" — the Claude account the token authenticates as
-// (its plan and rate-limit tier), since that is the identity that gets billed.
-// Falls back to the Helix user/org that connected the subscription when the
-// Claude account has not been identified by a validation yet.
+// Caption next to the Claude Subscription radio: the Claude account the token
+// authenticates as (its plan and rate-limit tier) — the identity that gets
+// billed. Same shared formatter as the account-settings pills; falls back to
+// the Helix user/org that connected the subscription when the Claude account
+// is unknown.
 function formatSubscriptionOwner(
   status: api.ServerAppClaudeSubscriptionStatus | undefined
 ): string {
   if (!status?.connected) return ''
-  const plan = status.subscription_type
-    ? status.subscription_type.charAt(0).toUpperCase() + status.subscription_type.slice(1)
-    : ''
-  const account = status.claude_account_email || status.subscription_owner_name
-  return [account, plan, status.subscription_rate_limit_tier].filter(Boolean).join(' · ')
+  return formatClaudeAccountIdentity({
+    accountEmail: status.claude_account_email,
+    accountName: status.claude_account_name,
+    fallbackName: status.subscription_owner_name,
+    plan: status.subscription_type,
+    tier: status.subscription_rate_limit_tier,
+  })
 }
 
 const AppSettings: FC<AppSettingsProps> = ({

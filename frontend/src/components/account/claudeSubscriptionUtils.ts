@@ -54,3 +54,24 @@ function formatDuration(ms: number): string {
   const remainHours = hours % 24
   return remainHours > 0 ? `${days}d ${remainHours}h` : `${days}d`
 }
+
+// Shared identity line for a Claude subscription: the Claude account the
+// token authenticates as (the billed identity), then plan and rate-limit
+// tier — e.g. "phil@winder.ai · Max · 20x". Both the agent-settings caption
+// and the account-settings pills render through this so they cannot drift.
+// `fallbackName` (typically the Helix user who connected the subscription)
+// is shown only when the Claude account is unknown; empty string when
+// nothing at all is known.
+export function formatClaudeAccountIdentity(input: {
+  accountEmail?: string | null
+  accountName?: string | null
+  fallbackName?: string | null
+  plan?: string | null
+  tier?: string | null
+}): string {
+  const account = input.accountEmail || input.accountName || input.fallbackName || ''
+  const plan = input.plan
+    ? input.plan.charAt(0).toUpperCase() + input.plan.slice(1)
+    : ''
+  return [account, plan, input.tier || ''].filter(Boolean).join(' · ')
+}
