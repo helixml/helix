@@ -1878,6 +1878,10 @@ definitions:
     type: object
   server.AppClaudeSubscriptionStatus:
     properties:
+      claude_account_email:
+        type: string
+      claude_account_name:
+        type: string
       connected:
         description: owner has a subscription connected at all
         type: boolean
@@ -1905,6 +1909,11 @@ definitions:
       subscription_owner_type:
         description: '"user" or "org" — where the effective sub resolved'
         type: string
+      subscription_rate_limit_tier:
+        description: |-
+          SubscriptionRateLimitTier is the Claude org's rate-limit tier (e.g. "20x"),
+          empty when unknown.
+        type: string
       subscription_type:
         description: |-
           Identity of the Claude subscription itself, populated when Connected.
@@ -1914,6 +1923,12 @@ definitions:
           org name (org-owned) — i.e. WHOSE subscription authenticates the agent.
           SubscriptionOwnerIsCurrentUser is true when that owner is the requesting
           user's own subscription ("is it mine?" — yes).
+
+          ClaudeAccountEmail/ClaudeAccountName identify the actual Claude account
+          the token authenticates as (fetched from Anthropic's /api/oauth/profile) —
+          the identity that gets billed. It can differ from SubscriptionOwnerName
+          (the Helix user who connected the subscription); when no valid probe has
+          enriched the row yet they are empty and consumers fall back to the owner.
         type: string
       valid:
         description: that subscription passed its last liveness probe
@@ -4650,6 +4665,16 @@ definitions:
   types.ClaudeSubscription:
     properties:
       access_token_expires_at:
+        type: string
+      account_display_name:
+        type: string
+      account_email:
+        description: |-
+          AccountEmail is the email of the Claude account the stored token
+          authenticates as, fetched from Anthropic's /api/oauth/profile. It is the
+          identity that gets billed and can differ from the Helix user/org (OwnerID)
+          that connected the subscription. Best-effort: empty until a valid probe
+          has enriched the row.
         type: string
       created:
         type: string

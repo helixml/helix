@@ -44,12 +44,18 @@ const (
 //	otherwise   -> ProbeInconclusive (network/5xx — don't punish the user)
 //
 // The returned detail string is a short human-readable reason (empty when valid).
+//
+// The probe model must be a CURRENT id: Anthropic 404s (not 401s) deprecated
+// model ids on /v1/messages, which reads as "inconclusive" and silently stops
+// subscriptions from ever validating. claude-3-5-haiku-latest (used here until
+// Aug 2026) hit exactly that — every probe 404'd and statuses were only ever
+// the default "active". See design/2026-08-18-claude-profile-identity.md.
 func ProbeClaudeSubscription(ctx context.Context, token string) (ProbeResult, string) {
 	if token == "" {
 		return ProbeInvalid, "no token"
 	}
 
-	body := []byte(`{"model":"claude-3-5-haiku-latest","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)
+	body := []byte(`{"model":"claude-haiku-4-5","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)
 
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
@@ -68,8 +74,9 @@ func ProbeClaudeSubscription(ctx context.Context, token string) (ProbeResult, st
 		return ProbeInconclusive, "network error probing Anthropic: " + err.Error()
 	}
 	defer resp.Body.Close()
-	// Drain a little so the connection can be reused; ignore errors.
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	// Read a little so the connection can be reused; the preview keeps
+	// unexpected statuses (like a 404 for a retired probe model) diagnosable.
+	preview, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
@@ -77,7 +84,7 @@ func ProbeClaudeSubscription(ctx context.Context, token string) (ProbeResult, st
 	case resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusTooManyRequests:
 		return ProbeValid, ""
 	default:
-		return ProbeInconclusive, fmt.Sprintf("unexpected status %d from Anthropic", resp.StatusCode)
+		return ProbeInconclusive, fmt.Sprintf("unexpected status %d from Anthropic: %s", resp.StatusCode, string(preview))
 	}
 }
 
@@ -98,23 +105,27 @@ const staleRefreshGrace = time.Hour
 // persist anything — callers decide whether to write Status/LastError/
 // LastValidatedAt back via the store.
 //
+// The third return value is the bearer token the probe authenticated with
+// (empty when no probe ran), so callers can reuse it for follow-up requests
+// such as the /api/oauth/profile identity fetch.
+//
 // For setup_token credentials a 401 is definitive. For oauth credentials whose
 // access token expired only recently we return ProbeInconclusive rather than
 // probing: Claude Code refreshes those in-container, so a raw probe of the stale
 // access token would 401 and falsely read as invalid. Past staleRefreshGrace that
 // benefit of the doubt is withdrawn — see above.
-func ValidateSubscription(ctx context.Context, sub *types.ClaudeSubscription) (ProbeResult, string) {
+func ValidateSubscription(ctx context.Context, sub *types.ClaudeSubscription) (ProbeResult, string, string) {
 	if sub == nil {
-		return ProbeInconclusive, "no subscription"
+		return ProbeInconclusive, "no subscription", ""
 	}
 
 	encKey, err := crypto.GetEncryptionKey()
 	if err != nil {
-		return ProbeInconclusive, "encryption key unavailable"
+		return ProbeInconclusive, "encryption key unavailable", ""
 	}
 	plaintext, err := crypto.DecryptAES256GCM(sub.EncryptedCredentials, encKey)
 	if err != nil {
-		return ProbeInconclusive, "failed to decrypt credentials"
+		return ProbeInconclusive, "failed to decrypt credentials", ""
 	}
 
 	credType := sub.CredentialType
@@ -126,13 +137,14 @@ func ValidateSubscription(ctx context.Context, sub *types.ClaudeSubscription) (P
 	case "setup_token":
 		var tok types.ClaudeSetupTokenCredentials
 		if err := json.Unmarshal(plaintext, &tok); err != nil || tok.SetupToken == "" {
-			return ProbeInvalid, "malformed setup token credentials"
+			return ProbeInvalid, "malformed setup token credentials", ""
 		}
-		return ProbeClaudeSubscription(ctx, tok.SetupToken)
+		result, detail := ProbeClaudeSubscription(ctx, tok.SetupToken)
+		return result, detail, tok.SetupToken
 	case "oauth":
 		var creds types.ClaudeOAuthCredentials
 		if err := json.Unmarshal(plaintext, &creds); err != nil || creds.AccessToken == "" {
-			return ProbeInvalid, "malformed oauth credentials"
+			return ProbeInvalid, "malformed oauth credentials", ""
 		}
 		// If the access token is expired but a refresh token exists, the
 		// in-container Claude Code will refresh it — don't mark it invalid.
@@ -140,12 +152,13 @@ func ValidateSubscription(ctx context.Context, sub *types.ClaudeSubscription) (P
 			if expiredFor := time.Since(time.UnixMilli(creds.ExpiresAt)); expiredFor > staleRefreshGrace {
 				return ProbeInvalid, fmt.Sprintf(
 					"access token expired %s ago and has not been refreshed — re-authenticate",
-					expiredFor.Round(time.Hour))
+					expiredFor.Round(time.Hour)), ""
 			}
-			return ProbeInconclusive, "access token expired (refreshable in-container)"
+			return ProbeInconclusive, "access token expired (refreshable in-container)", ""
 		}
-		return ProbeClaudeSubscription(ctx, creds.AccessToken)
+		result, detail := ProbeClaudeSubscription(ctx, creds.AccessToken)
+		return result, detail, creds.AccessToken
 	default:
-		return ProbeInconclusive, "unknown credential type"
+		return ProbeInconclusive, "unknown credential type", ""
 	}
 }

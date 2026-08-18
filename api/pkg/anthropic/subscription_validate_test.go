@@ -42,7 +42,7 @@ func TestValidateSubscription_LongExpiredOAuthIsInvalid(t *testing.T) {
 		ExpiresAt:    time.Now().Add(-20 * 24 * time.Hour).UnixMilli(),
 	})
 
-	got, detail := ValidateSubscription(context.Background(), sub)
+	got, detail, _ := ValidateSubscription(context.Background(), sub)
 	if got != ProbeInvalid {
 		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeInvalid", got, detail)
 	}
@@ -60,7 +60,7 @@ func TestValidateSubscription_RecentlyExpiredOAuthIsInconclusive(t *testing.T) {
 		ExpiresAt:    time.Now().Add(-5 * time.Minute).UnixMilli(),
 	})
 
-	got, detail := ValidateSubscription(context.Background(), sub)
+	got, detail, _ := ValidateSubscription(context.Background(), sub)
 	if got != ProbeInconclusive {
 		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeInconclusive", got, detail)
 	}
@@ -82,7 +82,7 @@ func TestValidateSubscription_ExpiredOAuthWithoutRefreshTokenIsProbed(t *testing
 		ExpiresAt:   time.Now().Add(-20 * 24 * time.Hour).UnixMilli(),
 	})
 
-	got, detail := ValidateSubscription(context.Background(), sub)
+	got, detail, _ := ValidateSubscription(context.Background(), sub)
 	if got != ProbeInvalid {
 		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeInvalid", got, detail)
 	}
@@ -104,7 +104,7 @@ func TestValidateSubscription_LiveOAuthIsValid(t *testing.T) {
 		ExpiresAt:    time.Now().Add(8 * time.Hour).UnixMilli(),
 	})
 
-	got, detail := ValidateSubscription(context.Background(), sub)
+	got, detail, _ := ValidateSubscription(context.Background(), sub)
 	if got != ProbeValid {
 		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeValid", got, detail)
 	}
@@ -123,7 +123,7 @@ func TestValidateSubscription_SetupTokenRejectedIsInvalid(t *testing.T) {
 
 	sub := encSub(t, "setup_token", types.ClaudeSetupTokenCredentials{SetupToken: "sk-ant-oat-setup"})
 
-	got, detail := ValidateSubscription(context.Background(), sub)
+	got, detail, _ := ValidateSubscription(context.Background(), sub)
 	if got != ProbeInvalid {
 		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeInvalid", got, detail)
 	}

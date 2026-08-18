@@ -35,6 +35,14 @@ type ClaudeSubscription struct {
 	// its owner owns, which is the pre-existing behaviour.
 	DelegatedOrgIDs pq.StringArray `json:"delegated_org_ids" gorm:"type:text[]"`
 
+	// AccountEmail is the email of the Claude account the stored token
+	// authenticates as, fetched from Anthropic's /api/oauth/profile. It is the
+	// identity that gets billed and can differ from the Helix user/org (OwnerID)
+	// that connected the subscription. Best-effort: empty until a valid probe
+	// has enriched the row.
+	AccountEmail       string `json:"account_email"`
+	AccountDisplayName string `json:"account_display_name"`
+
 	LastRefreshedAt *time.Time `json:"last_refreshed_at,omitempty"`
 	LastValidatedAt *time.Time `json:"last_validated_at,omitempty"` // last time the token was liveness-probed against Anthropic
 	LastError       string     `json:"last_error,omitempty"`

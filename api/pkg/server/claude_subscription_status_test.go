@@ -103,6 +103,37 @@ func (s *AppClaudeSubscriptionStatusSuite) TestOrgOwnedSubExposesOrgName() {
 	s.Equal("Acme", status.SubscriptionOwnerName)
 }
 
+// The Claude account the token authenticates as (enriched from Anthropic's
+// /api/oauth/profile) can differ from the Helix user who connected it — the
+// account is the billing identity, the owner is who saved the subscription.
+// The row-level fields surface verbatim when a validation has enriched them.
+func (s *AppClaudeSubscriptionStatusSuite) TestClaudeAccountIdentitySurfaces() {
+	viewer := types.User{ID: "usr_connector"}
+	app := &types.App{ID: "app_1", Owner: "usr_connector"}
+	sub, _ := freshSub()
+	sub.OwnerID = "usr_connector"
+	sub.OwnerType = types.OwnerTypeUser
+	sub.SubscriptionType = "max"
+	sub.RateLimitTier = "20x"
+	sub.AccountEmail = "phil@winder.ai"
+	sub.AccountDisplayName = "Phil Winder"
+
+	s.store.EXPECT().GetApp(gomock.Any(), "app_1").Return(app, nil)
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).
+		Return(&types.User{ID: "usr_connector", Email: "connector@helix.local"}, nil).AnyTimes()
+	s.store.EXPECT().GetEffectiveClaudeSubscription(gomock.Any(), "usr_connector", "").Return(sub, nil)
+
+	status, httpErr := s.server.getAppClaudeSubscriptionStatus(nil, s.statusRequest(viewer, "app_1"))
+	s.Nil(httpErr)
+	s.Require().NotNil(status)
+
+	s.Equal("phil@winder.ai", status.ClaudeAccountEmail)
+	s.Equal("Phil Winder", status.ClaudeAccountName)
+	s.Equal("20x", status.SubscriptionRateLimitTier)
+	s.Equal("max", status.SubscriptionType)
+	s.Equal("connector@helix.local", status.SubscriptionOwnerName)
+}
+
 // Without a connected subscription the identity fields stay empty.
 func (s *AppClaudeSubscriptionStatusSuite) TestNotConnectedLeavesIdentityEmpty() {
 	viewer := types.User{ID: "usr_me"}

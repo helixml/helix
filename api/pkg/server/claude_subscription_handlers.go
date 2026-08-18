@@ -201,13 +201,28 @@ func (apiServer *HelixAPIServer) revalidateClaudeSubscription(ctx context.Contex
 	if sub == nil {
 		return sub
 	}
-	result, detail := anthropic.ValidateSubscription(ctx, sub)
+	result, detail, token := anthropic.ValidateSubscription(ctx, sub)
 	now := time.Now()
 	switch result {
 	case anthropic.ProbeValid:
 		sub.Status = "active"
 		sub.LastError = ""
 		sub.LastValidatedAt = &now
+		// Best-effort: fetch the Claude account the token authenticates as
+		// (email, plan, rate-limit tier) from Anthropic. A profile failure
+		// must never downgrade a subscription that just probed valid.
+		if profile, err := anthropic.FetchClaudeProfile(ctx, token); err != nil {
+			log.Debug().Str("subscription_id", sub.ID).Str("detail", err.Error()).Msg("Claude profile fetch failed; identity unchanged")
+		} else {
+			sub.AccountEmail = profile.AccountEmail
+			sub.AccountDisplayName = profile.AccountDisplayName
+			if profile.Plan != "" {
+				sub.SubscriptionType = profile.Plan
+			}
+			if profile.RateLimitTier != "" {
+				sub.RateLimitTier = profile.RateLimitTier
+			}
+		}
 	case anthropic.ProbeInvalid:
 		sub.Status = "error"
 		sub.LastError = detail
@@ -248,10 +263,21 @@ type AppClaudeSubscriptionStatus struct {
 	// org name (org-owned) — i.e. WHOSE subscription authenticates the agent.
 	// SubscriptionOwnerIsCurrentUser is true when that owner is the requesting
 	// user's own subscription ("is it mine?" — yes).
+	//
+	// ClaudeAccountEmail/ClaudeAccountName identify the actual Claude account
+	// the token authenticates as (fetched from Anthropic's /api/oauth/profile) —
+	// the identity that gets billed. It can differ from SubscriptionOwnerName
+	// (the Helix user who connected the subscription); when no valid probe has
+	// enriched the row yet they are empty and consumers fall back to the owner.
 	SubscriptionType               string `json:"subscription_type,omitempty"`
 	SubscriptionOwnerID            string `json:"subscription_owner_id,omitempty"`
 	SubscriptionOwnerName          string `json:"subscription_owner_name,omitempty"`
 	SubscriptionOwnerIsCurrentUser bool   `json:"subscription_owner_is_current_user"`
+	// SubscriptionRateLimitTier is the Claude org's rate-limit tier (e.g. "20x"),
+	// empty when unknown.
+	SubscriptionRateLimitTier string `json:"subscription_rate_limit_tier,omitempty"`
+	ClaudeAccountEmail        string `json:"claude_account_email,omitempty"`
+	ClaudeAccountName         string `json:"claude_account_name,omitempty"`
 	Status                string     `json:"status,omitempty"`
 	LastValidatedAt       *time.Time `json:"last_validated_at,omitempty"`
 	LastError             string     `json:"last_error,omitempty"`
@@ -310,8 +336,11 @@ func (apiServer *HelixAPIServer) getAppClaudeSubscriptionStatus(_ http.ResponseW
 	status.Valid = sub.Status == "active"
 	status.SubscriptionOwnerType = string(sub.OwnerType)
 	status.SubscriptionType = sub.SubscriptionType
+	status.SubscriptionRateLimitTier = sub.RateLimitTier
 	status.SubscriptionOwnerID = sub.OwnerID
 	status.SubscriptionOwnerIsCurrentUser = sub.OwnerType == types.OwnerTypeUser && sub.OwnerID == user.ID
+	status.ClaudeAccountEmail = sub.AccountEmail
+	status.ClaudeAccountName = sub.AccountDisplayName
 	if sub.OwnerType == types.OwnerTypeUser {
 		status.SubscriptionOwnerName = apiServer.displayNameForUser(req.Context(), sub.OwnerID)
 	} else if org, err := apiServer.lookupOrg(req.Context(), sub.OwnerID); err == nil && org != nil {

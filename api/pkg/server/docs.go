@@ -25665,6 +25665,12 @@ const docTemplate = `{
         "server.AppClaudeSubscriptionStatus": {
             "type": "object",
             "properties": {
+                "claude_account_email": {
+                    "type": "string"
+                },
+                "claude_account_name": {
+                    "type": "string"
+                },
                 "connected": {
                     "description": "owner has a subscription connected at all",
                     "type": "boolean"
@@ -25703,8 +25709,12 @@ const docTemplate = `{
                     "description": "\"user\" or \"org\" — where the effective sub resolved",
                     "type": "string"
                 },
+                "subscription_rate_limit_tier": {
+                    "description": "SubscriptionRateLimitTier is the Claude org's rate-limit tier (e.g. \"20x\"),\nempty when unknown.",
+                    "type": "string"
+                },
                 "subscription_type": {
-                    "description": "Identity of the Claude subscription itself, populated when Connected.\nSubscriptionType is the plan (\"pro\" / \"max\"), empty for setup-token\nconnections where the plan is unknown.\nSubscriptionOwnerName is the subscription owner's email (user-owned) or\norg name (org-owned) — i.e. WHOSE subscription authenticates the agent.\nSubscriptionOwnerIsCurrentUser is true when that owner is the requesting\nuser's own subscription (\"is it mine?\" — yes).",
+                    "description": "Identity of the Claude subscription itself, populated when Connected.\nSubscriptionType is the plan (\"pro\" / \"max\"), empty for setup-token\nconnections where the plan is unknown.\nSubscriptionOwnerName is the subscription owner's email (user-owned) or\norg name (org-owned) — i.e. WHOSE subscription authenticates the agent.\nSubscriptionOwnerIsCurrentUser is true when that owner is the requesting\nuser's own subscription (\"is it mine?\" — yes).\n\nClaudeAccountEmail/ClaudeAccountName identify the actual Claude account\nthe token authenticates as (fetched from Anthropic's /api/oauth/profile) —\nthe identity that gets billed. It can differ from SubscriptionOwnerName\n(the Helix user who connected the subscription); when no valid probe has\nenriched the row yet they are empty and consumers fall back to the owner.",
                     "type": "string"
                 },
                 "valid": {
@@ -29555,6 +29565,13 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "access_token_expires_at": {
+                    "type": "string"
+                },
+                "account_display_name": {
+                    "type": "string"
+                },
+                "account_email": {
+                    "description": "AccountEmail is the email of the Claude account the stored token\nauthenticates as, fetched from Anthropic's /api/oauth/profile. It is the\nidentity that gets billed and can differ from the Helix user/org (OwnerID)\nthat connected the subscription. Best-effort: empty until a valid probe\nhas enriched the row.",
                     "type": "string"
                 },
                 "created": {
