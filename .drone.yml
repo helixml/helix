@@ -1600,33 +1600,29 @@ steps:
   # call, streaming and interaction completion — with no display server. The
   # value is not in the prompt, so only a real tool call produces it.
   #
-  # Cost control: gpt-5.6-luna with reasoning_effort=none (Zed's OpenAI provider
-  # uses /v1/chat/completions, which rejects any other effort alongside function
-  # tools). One short turn per build.
+  # Cost control: one short qwen3.8-27b turn against the configured Bunker
+  # endpoint per build.
   - name: zed-e2e-headless-smoke
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
-      # NB: the secret NAMES here are misleading. `openai_api_key` is a
-      # Together.ai key (the api-integration-test step feeds it to
-      # TOGETHER_API_KEY, paired with `openai_base_url`), and it fails auth
-      # against api.openai.com. The real OpenAI key is `openai_tools` — same
-      # mapping the two steps above use. gpt-5.6-luna is an OpenAI model, so it
-      # needs this one.
       OPENAI_API_KEY:
-        from_secret: openai_tools
+        from_secret: bunker_api_key
+      OPENAI_BASE_URL:
+        from_secret: bunker_base_url
     commands:
       - |
         ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
 
-        echo "Running headless Zed smoke test (zed-agent, gpt-5.6-luna)..."
+        echo "Running headless Zed smoke test (zed-agent, qwen3.8-27b)..."
         docker run --rm \
           -e OPENAI_API_KEY="$${OPENAI_API_KEY}" \
+          -e OPENAI_BASE_URL="$${OPENAI_BASE_URL}" \
           -e E2E_AGENTS="zed-agent" \
           -e E2E_HEADLESS=1 \
           -e E2E_SMOKE=1 \
           -e E2E_MODEL_PROVIDER=openai \
-          -e E2E_MODEL=gpt-5.6-luna \
+          -e E2E_MODEL=qwen3.8-27b \
           -e TEST_TIMEOUT=300 \
           zed-ws-e2e:$${ZED_COMMIT}
 
