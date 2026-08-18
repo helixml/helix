@@ -110,13 +110,17 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Reject approval if the agent has not pushed any commits to the feature
-	// branch. Without this guard, approve-implementation would open an empty PR
-	// (external repos) or merge a zero-commit diff (internal repos). The UI
-	// disables the button in this state; this check is the defense-in-depth
-	// for direct API callers.
-	if specTask.LastPushAt == nil {
-		http.Error(w, "Agent has not pushed any commits yet", http.StatusConflict)
+	// Approval publishes the branch from two independent sources: the control
+	// plane pushes whatever already reached its copy of the repo, and — when the
+	// sandbox is live — the agent is instructed to commit and push anything still
+	// local to its working copy. Either one is enough to produce a non-empty PR,
+	// so only refuse when neither exists: nothing pushed and no sandbox to push
+	// from. Without this, approve-implementation would open an empty PR (external
+	// repos) or merge a zero-commit diff (internal repos).
+	s.populateSessionState(ctx, []*types.SpecTask{specTask})
+	sandboxLive := specTask.SandboxState == "running"
+	if specTask.LastPushAt == nil && !sandboxLive {
+		http.Error(w, "Agent has not pushed any commits and its sandbox is not running", http.StatusConflict)
 		return
 	}
 
@@ -186,64 +190,8 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			}
 		}()
 
-		// Gather non-primary repo names so the push instruction tells the agent
-		// to push all repos, not just the primary one
-		var nonPrimaryRepoNames []string
-		projectRepos, repoErr := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			ProjectID: specTask.ProjectID,
-		})
-		if repoErr == nil {
-			for _, r := range projectRepos {
-				// Internal repos belong here too. Filtering on ExternalURL used to
-				// drop them, which directly contradicted the merge path:
-				// ensurePullRequestsForAllRepos fast-forwards exactly these
-				// non-primary internal repos, so it waits for a branch the agent
-				// was never told to push. In a project whose only internal repo is
-				// the shared playbook repo, that made contributing to it
-				// impossible — the agent never heard the repo named.
-				if r.Name != repo.Name {
-					nonPrimaryRepoNames = append(nonPrimaryRepoNames, r.Name)
-				}
-			}
-		}
-
 		// Send message to agent to commit and push any remaining uncommitted changes
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-
-			message, err := prompts.ImplementationApprovedPushInstruction(
-				specTask.BranchName,
-				repo.Name,
-				repo.DefaultBranch,
-				services.GetTaskDirName(specTask),
-				nonPrimaryRepoNames,
-			)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("task_id", specTask.ID).
-					Str("planning_session_id", specTask.PlanningSessionID).
-					Msg("Failed to generate push instruction for agent")
-				return
-			}
-
-			// interrupt=false: post-merge push instruction is a system-driven follow-up, not
-			// reactive feedback — enqueue it to defer behind any in-flight agent turn.
-			err = s.enqueueSpecTaskAgentMessage(context.Background(), specTask, message, false, "")
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("task_id", specTask.ID).
-					Str("planning_session_id", specTask.PlanningSessionID).
-					Msg("Failed to send push instruction to agent via WebSocket")
-			} else {
-				log.Info().
-					Str("task_id", specTask.ID).
-					Str("branch_name", specTask.BranchName).
-					Msg("Implementation approved - sent push instruction to agent via WebSocket")
-			}
-		}()
+		s.sendImplementationPushInstruction(ctx, specTask, repo)
 
 		// Re-fetch to get the latest RepoPullRequests (may have been set by concurrent push)
 		updatedTask, err := s.Store.GetSpecTask(ctx, specTaskID)
@@ -258,6 +206,29 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	// Internal repo or external repo with no PRs automation implemented
 	// Server-side merge: agent can't push to main due to branch restrictions
+
+	// Nothing has reached the server yet, and the gate above guarantees a live
+	// sandbox in this state — the work is still sitting in the agent's working
+	// copy, committed or not. There is no branch to fast-forward, so instruct the
+	// agent to commit and push and let the push hook complete the merge.
+	// RebaseRequestedAt is the existing "this approval is waiting on the agent's
+	// next push" marker that tryAutoMergeAfterRebase keys off, so the merge
+	// happens automatically when the push lands — no second click.
+	if specTask.LastPushAt == nil {
+		specTask.Status = types.TaskStatusImplementationReview
+		specTask.StatusUpdatedAt = &now
+		specTask.RebaseRequestedAt = &now
+		specTask.ImplementationApprovedBy = user.ID
+		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		s.sendImplementationPushInstruction(ctx, specTask, repo)
+
+		writeResponse(w, specTask, http.StatusOK)
+		return
+	}
 
 	// For external repos, acquire lock and sync before merge.
 	// The lock serializes git operations to prevent race conditions.
@@ -415,6 +386,70 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	// Return updated task
 	writeResponse(w, specTask, http.StatusOK)
+}
+
+// sendImplementationPushInstruction asks the agent, in the background, to write
+// the PR metadata and commit + push every repo it touched. Both approval paths
+// use it: the PR path sends it so late uncommitted work still reaches the PR,
+// and the server-side-merge path sends it when the agent has pushed nothing yet.
+func (s *HelixAPIServer) sendImplementationPushInstruction(ctx context.Context, specTask *types.SpecTask, repo *types.GitRepository) {
+	// Gather non-primary repo names so the push instruction tells the agent
+	// to push all repos, not just the primary one
+	var nonPrimaryRepoNames []string
+	projectRepos, repoErr := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: specTask.ProjectID,
+	})
+	if repoErr == nil {
+		for _, r := range projectRepos {
+			// Internal repos belong here too. Filtering on ExternalURL used to
+			// drop them, which directly contradicted the merge path:
+			// ensurePullRequestsForAllRepos fast-forwards exactly these
+			// non-primary internal repos, so it waits for a branch the agent
+			// was never told to push. In a project whose only internal repo is
+			// the shared playbook repo, that made contributing to it
+			// impossible — the agent never heard the repo named.
+			if r.Name != repo.Name {
+				nonPrimaryRepoNames = append(nonPrimaryRepoNames, r.Name)
+			}
+		}
+	}
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		message, err := prompts.ImplementationApprovedPushInstruction(
+			specTask.BranchName,
+			repo.Name,
+			repo.DefaultBranch,
+			services.GetTaskDirName(specTask),
+			nonPrimaryRepoNames,
+		)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", specTask.ID).
+				Str("planning_session_id", specTask.PlanningSessionID).
+				Msg("Failed to generate push instruction for agent")
+			return
+		}
+
+		// interrupt=false: the push instruction is a system-driven follow-up, not
+		// reactive feedback — enqueue it to defer behind any in-flight agent turn.
+		err = s.enqueueSpecTaskAgentMessage(context.Background(), specTask, message, false, "")
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", specTask.ID).
+				Str("planning_session_id", specTask.PlanningSessionID).
+				Msg("Failed to send push instruction to agent via WebSocket")
+		} else {
+			log.Info().
+				Str("task_id", specTask.ID).
+				Str("branch_name", specTask.BranchName).
+				Msg("Implementation approved - sent push instruction to agent via WebSocket")
+		}
+	}()
 }
 
 // isRebasePending reports whether the agent has already been asked to rebase

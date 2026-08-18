@@ -192,7 +192,7 @@ interface SpecTaskActionButtonsProps {
 }
 
 export const SANDBOX_STOPPED_TOOLTIP =
-  "Sandbox is stopped. The agent pushes its branch from inside the sandbox — start it to open a PR.";
+  "Nothing has been pushed yet and the sandbox is stopped, so there is nothing to open a PR from. Start the sandbox so the agent can commit and push.";
 
 const COMPACT_BUTTON_METRICS: Record<
   ToolbarDensity,
@@ -405,18 +405,41 @@ export default function SpecTaskActionButtons({
     (!task.last_push_at ||
       new Date(task.last_push_at).getTime() <= new Date(task.rebase_requested_at).getTime());
 
-  // Approving an implementation instructs the agent to push its branch from
-  // inside the sandbox before the PR is opened. The sandbox owns the working
-  // copy — it is not necessarily on a filesystem the control plane can reach —
-  // so with a stopped sandbox there is nothing to push from and the approval
-  // silently produces a PR against whatever was last pushed, or none at all.
-  // Gate the action until the sandbox is back.
-  //
-  // Only "running" enables it: "starting" means the container exists but the
-  // agent has not connected yet and cannot receive the push instruction.
-  // sandbox_state is absent on tasks that never had a session, which likewise
-  // cannot push.
+  // Only "running" counts as a live sandbox: "starting" means the container
+  // exists but the agent has not connected yet and cannot receive the
+  // commit-and-push instruction. sandbox_state is absent on tasks that never
+  // had a session, which likewise cannot push.
   const sandboxStopped = task.sandbox_state !== "running";
+
+  // Approving publishes the branch from two independent sources: the control
+  // plane pushes whatever already reached its copy of the repo, and (when the
+  // sandbox is live) the agent is told to commit and push anything still local
+  // to the working copy. Either one is enough, so block only when the agent has
+  // pushed nothing AND its sandbox is gone — that is the one state where there
+  // is no work to publish from anywhere.
+  const nothingToPublish = !hasPushed && sandboxStopped;
+
+  const openPRTooltip = isArchived
+    ? "Task is archived"
+    : nothingToPublish
+      ? SANDBOX_STOPPED_TOOLTIP
+      : rebasePending
+        ? hasPushed
+          ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
+          : "Agent is committing and pushing — this will complete automatically."
+        : !hasPushed
+          ? "The agent will commit and push its changes before the PR is opened."
+          : "";
+
+  const openPRDisabled =
+    isArchived ||
+    approveImplementationMutation.isPending ||
+    rebasePending ||
+    nothingToPublish;
+
+  // While the approval is waiting on the agent's next push, say which of the two
+  // things it was asked for: a rebase (branch diverged) or the first push.
+  const pendingPushLabel = hasPushed ? "Rebasing..." : "Pushing...";
 
   // Button size based on variant
   const buttonSize = "small";
@@ -729,20 +752,10 @@ export default function SpecTaskActionButtons({
           />
           <CompactActionButton
             density={density}
-            tooltip={
-              isArchived
-                ? "Task is archived"
-                : sandboxStopped
-                  ? SANDBOX_STOPPED_TOOLTIP
-                  : rebasePending
-                    ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
-                    : !hasPushed
-                      ? "Waiting for agent to push code..."
-                      : ""
-            }
+            tooltip={openPRTooltip}
             variant="contained"
             color="success"
-            disabled={isArchived || approveImplementationMutation.isPending || !hasPushed || rebasePending || sandboxStopped}
+            disabled={openPRDisabled}
             icon={
               approveImplementationMutation.isPending || rebasePending ? (
                 <CircularProgress size={16} color="inherit" />
@@ -756,7 +769,7 @@ export default function SpecTaskActionButtons({
                   ? "Merging..."
                   : "Opening PR..."
                 : rebasePending
-                  ? "Rebasing..."
+                  ? pendingPushLabel
                   : isDirectPush
                     ? "Accept"
                     : "Open PR"
@@ -818,20 +831,7 @@ export default function SpecTaskActionButtons({
             </span>
           </Tooltip>
 
-          <Tooltip
-            title={
-              isArchived
-                ? "Task is archived"
-                : sandboxStopped
-                  ? SANDBOX_STOPPED_TOOLTIP
-                  : rebasePending
-                    ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
-                    : !hasPushed
-                      ? "Waiting for agent to push code..."
-                      : ""
-            }
-            placement="top"
-          >
+          <Tooltip title={openPRTooltip} placement="top">
             <span style={{ flex: 1 }}>
               <Button
                 size={buttonSize}
@@ -845,7 +845,7 @@ export default function SpecTaskActionButtons({
                   )
                 }
                 onClick={handleOpenPR}
-                disabled={isArchived || approveImplementationMutation.isPending || !hasPushed || rebasePending || sandboxStopped}
+                disabled={openPRDisabled}
                 fullWidth
                 sx={buttonSx}
               >
@@ -854,7 +854,7 @@ export default function SpecTaskActionButtons({
                     ? "Merging..."
                     : "Opening PR..."
                   : rebasePending
-                    ? "Rebasing..."
+                    ? pendingPushLabel
                     : isDirectPush
                       ? "Accept"
                       : "Open PR"}
