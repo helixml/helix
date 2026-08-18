@@ -270,6 +270,16 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     return defaultRepo?.default_branch || "main";
   }, [projectRepositories, defaultRepoId]);
 
+  const existingBranchOptions = useMemo(
+    () =>
+      (branchesData || [])
+        .filter((branch: string) => branch !== defaultBranchName)
+        .sort((a: string, b: string) =>
+          a.localeCompare(b, undefined, { sensitivity: "base" }),
+        ),
+    [branchesData, defaultBranchName],
+  );
+
   const dependencyTaskOptions = useMemo(
     () =>
       projectTasks.filter(
@@ -1055,30 +1065,46 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   )}
                 </Stack>
               ) : (
-                <FormControl fullWidth size="small">
-                  <InputLabel>Select branch</InputLabel>
-                  <Select
-                    value={workingBranch}
-                    onChange={(e) => setWorkingBranch(e.target.value)}
-                    label="Select branch"
-                  >
-                    {branchesData
-                      ?.filter((branch: string) => branch !== defaultBranchName)
-                      .sort((a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-                      .map((branch: string) => (
-                        <MenuItem key={branch} value={branch}>
-                          {branch}
-                        </MenuItem>
-                      ))}
-                    {branchesData?.filter(
-                      (branch: string) => branch !== defaultBranchName,
-                    ).length === 0 && (
-                      <MenuItem disabled value="">
-                        No feature branches available
-                      </MenuItem>
-                    )}
-                  </Select>
-                </FormControl>
+                <Autocomplete
+                  fullWidth
+                  size="small"
+                  options={existingBranchOptions}
+                  value={workingBranch || null}
+                  onChange={(_, branch) => setWorkingBranch(branch || "")}
+                  noOptionsText={
+                    existingBranchOptions.length === 0
+                      ? "No feature branches available"
+                      : "No matching branches"
+                  }
+                  componentsProps={{
+                    popper: {
+                      placement: "bottom-start",
+                      modifiers: [{ name: "flip", enabled: false }],
+                    },
+                  }}
+                  ListboxProps={{
+                    sx: {
+                      maxHeight: 240,
+                      overflowY: "auto",
+                      py: 0.5,
+                      "& .MuiAutocomplete-option": {
+                        minHeight: 32,
+                        py: 0.5,
+                        px: 1.5,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      },
+                    },
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Select branch"
+                      placeholder="Search branches"
+                    />
+                  )}
+                />
               )}
             </Box>
           )}

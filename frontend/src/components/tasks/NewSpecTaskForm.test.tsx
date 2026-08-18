@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import NewSpecTaskForm from "./NewSpecTaskForm";
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: [] }),
+  useQuery: () => ({
+    data: ["main", "feature/alpha", "feature/beta"],
+  }),
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }));
 vi.mock("react-dropzone", () => ({
@@ -27,8 +29,12 @@ vi.mock("../../hooks/useApps", () => ({
 }));
 vi.mock("../../utils/apps", () => ({ isCodingAgent: () => true }));
 vi.mock("../../services", () => ({
-  useGetProject: () => ({ data: { code_agent_config: undefined } }),
-  useGetProjectRepositories: () => ({ data: [] }),
+  useGetProject: () => ({
+    data: { code_agent_config: undefined, default_repo_id: "repo-1" },
+  }),
+  useGetProjectRepositories: () => ({
+    data: [{ id: "repo-1", default_branch: "main" }],
+  }),
 }));
 vi.mock("../../services/specTaskService", () => ({
   useSpecTasks: () => ({ data: [] }),
@@ -76,5 +82,23 @@ describe("NewSpecTaskForm", () => {
 
     fireEvent.change(description, { target: { value: "First line\nSecond line" } });
     expect(description).toHaveValue("First line\nSecond line");
+  });
+
+  it("renders a searchable existing-branch dropdown with a bounded list", () => {
+    render(
+      <NewSpecTaskForm
+        projectId="project-1"
+        onTaskCreated={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Continue existing"));
+    const branchSearch = screen.getByPlaceholderText("Search branches");
+    expect(branchSearch).toBeInTheDocument();
+    fireEvent.mouseDown(branchSearch);
+
+    expect(screen.getByText("feature/beta")).toBeInTheDocument();
+    expect(screen.getByRole("listbox")).toHaveStyle({ maxHeight: "240px" });
   });
 });
