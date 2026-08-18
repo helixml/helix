@@ -3635,10 +3635,14 @@ echo -e "${GREEN}3. Setting up environment...${NC}"
 
 cd "$WORKSPACE/helix"
 
-# Create .env file for the inner stack
-cat > .env << 'INNER_ENV'
+# Create .env file for the inner stack.
+# RUNNER_TOKEN is generated per deployment (a hard-coded shared secret was a
+# public credential - security finding H2). The double-quoted heredoc is
+# required for ${INNER_RUNNER_TOKEN} to expand; no other $ signs exist below.
+INNER_RUNNER_TOKEN=$(openssl rand -hex 32)
+cat > .env << INNER_ENV
 # Inner Helix Control Plane Configuration
-RUNNER_TOKEN=inner-runner-token
+RUNNER_TOKEN=${INNER_RUNNER_TOKEN}
 AUTH_PROVIDER=regular
 SERVER_URL=http://localhost:8080
 
