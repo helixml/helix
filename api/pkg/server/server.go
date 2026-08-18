@@ -57,8 +57,6 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
 	"github.com/helixml/helix/api/pkg/webservice"
-
-	_ "net/http/pprof" // enable profiling
 )
 
 const APIPrefix = "/api/v1"
@@ -1505,9 +1503,6 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods(http.MethodGet)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods(http.MethodPost)
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods(http.MethodPost)
-
-	// register pprof routes
-	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
 
 	// Register Git HTTP protocol routes for clone/push operations BEFORE default handler
 	// These routes don't use authRouter - they have their own auth middleware
