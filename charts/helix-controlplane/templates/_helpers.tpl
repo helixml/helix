@@ -140,7 +140,9 @@ Used by both the init container and main controlplane container.
 - name: POSTGRES_USER
   value: {{ .Values.postgresql.auth.username }}
 - name: POSTGRES_PASSWORD
-  value: {{ .Values.postgresql.auth.password }}
+  # randAlphaNum is deterministic per release, so this matches the password
+  # the postgres pod gets when values.postgresql.auth.password is empty.
+  value: {{ .Values.postgresql.auth.password | default (randAlphaNum 32) }}
 - name: POSTGRES_DATABASE
   value: {{ .Values.postgresql.auth.database }}
 {{- end }}

@@ -89,7 +89,7 @@ spec:
                   name: {{ .Values.postgresql.auth.existingSecret }}
                   key: {{ .Values.postgresql.auth.passwordKey | default "password" }}
               {{- else }}
-              value: {{ .Values.postgresql.auth.password | default "oh-hallo-insecure-password" }}
+              value: {{ .Values.postgresql.auth.password | default (randAlphaNum 32) }}
               {{- end }}
           readinessProbe:
             exec:

@@ -230,7 +230,9 @@ postgresql:
     pullPolicy: IfNotPresent
   auth:
     username: helix
-    password: "oh-hallo-insecure-password"
+    # Leave empty to let the chart generate a random per-release password.
+    # (The old hard-coded default was a public credential.)
+    password: ""
     database: helix
     existingSecret: ""
     usernameKey: ""
