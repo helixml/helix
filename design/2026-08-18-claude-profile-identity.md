@@ -59,6 +59,11 @@ Consequences:
   rate-limit tier) that is stored on the row and shown in the caption. For
   oauth subs a later successful profile fetch overwrites it with the
   authoritative value; for setup tokens it is the only source.
+- One shared frontend formatter (`formatClaudeAccountIdentity` in
+  `claudeSubscriptionUtils.ts`) renders the line in both places: the
+  agent-settings caption and the account-settings Claude Code Subscription
+  pill (which replaces the old plan-only chip) — e.g. `phil@winder.ai ·
+  Max · 20x`. The two surfaces cannot drift.
 
 ## Problem 2: the liveness probe used a retired model and 404'd
 
