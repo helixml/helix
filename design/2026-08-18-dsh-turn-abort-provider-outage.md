@@ -133,6 +133,21 @@ project settings on the grounds that harness availability is an org-level
 decision — true, but it left the value that every task inherits invisible and
 unchangeable from the project itself.
 
+## Also: a recovered session kept showing the failure
+
+An errored turn kept a red alert and a Retry button indefinitely, even after
+the session went on to complete later work. Retry re-sends that interaction's
+prompt — one the session has already moved past — so the button was actively
+harmful, and the alert made a working session look broken.
+
+`retrySucceeded` already covered the narrow case where the very next turn
+retried the *same* prompt. The incident shape is different: the turn aborted
+mid-work, the agent switched, and the session answered a different question.
+`lastSuccessfulInteractionIndex` generalises it — anything errored before the
+last clean completion has been overtaken, and renders as a quiet note with a
+details link and no Retry. It is not erased: that turn's work really was
+abandoned, and hiding it entirely would imply it finished.
+
 ## Deployment
 
 - `cordis.yml` ships in the desktop image (`Dockerfile.ubuntu-helix:1371`) →
