@@ -23,6 +23,25 @@ describe("deriveSandboxState", () => {
     expect(state.hasDesktopLifecycleState).toBe(true);
   });
 
+  it("treats an idle-terminated sandbox as absent", () => {
+    // The idle checker writes this status and leaves container_name in place.
+    // Reading it as running showed stop/restart actions for a sandbox that was
+    // gone, and left the changes view waiting on requests that only ever 503.
+    const state = deriveSandboxState({
+      external_agent_status: "terminated_idle",
+      container_name: "headless-external-ses_1",
+    });
+
+    expect(state.sandboxState).toBe("absent");
+    expect(state.hasDesktopLifecycleState).toBe(true);
+    expect(
+      isSandboxOffline({
+        external_agent_status: "terminated_idle",
+        container_name: "headless-external-ses_1",
+      }),
+    ).toBe(true);
+  });
+
   it("reports running for a running container", () => {
     expect(
       deriveSandboxState({

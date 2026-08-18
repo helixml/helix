@@ -3,8 +3,11 @@ import { act, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import {
+  DESKTOP_RECONNECT_GRACE_MS,
+  DESKTOP_RECOVERY_POLL_INTERVAL,
   desktopPollInterval,
   desktopQueryRetry,
+  useDesktopReachability,
   getWorkspaceFileSaveError,
   isDesktopUnavailableError,
   useUpdateWorkspaceFile,
@@ -44,11 +47,67 @@ describe("workspace query behaviour against a stopped sandbox", () => {
     expect(desktopQueryRetry(2, broken)).toBe(false);
   });
 
-  it("stops the poll once the sandbox has answered 503", () => {
+  it("backs the poll off after a 503 instead of stopping it", () => {
+    // Stopping outright stranded the changes view: a task whose sandbox 503'd
+    // for one second during startup stayed on the placeholder until the user
+    // reloaded the page.
     const interval = desktopPollInterval(3000);
     expect(interval({ state: { error: undefined } })).toBe(3000);
     expect(interval({ state: { error: broken } })).toBe(3000);
-    expect(interval({ state: { error: stopped } })).toBe(false);
+    expect(interval({ state: { error: stopped } })).toBe(
+      DESKTOP_RECOVERY_POLL_INTERVAL,
+    );
+  });
+
+  it("polls a normally-static query only while the sandbox is unreachable", () => {
+    const interval = desktopPollInterval(false);
+    expect(interval({ state: { error: undefined } })).toBe(false);
+    expect(interval({ state: { error: stopped } })).toBe(
+      DESKTOP_RECOVERY_POLL_INTERVAL,
+    );
+  });
+
+  it("classifies an unreachable sandbox as connecting, then gone", () => {
+    // The bound has to be elapsed time: React Query resets failureCount on
+    // every new fetch, so counting failed attempts never gets past one.
+    vi.useFakeTimers();
+    try {
+      const { result, rerender } = renderHook(
+        (props: { unavailable: boolean; settled: boolean }) =>
+          useDesktopReachability(props),
+        { initialProps: { unavailable: false, settled: false } },
+      );
+
+      expect(result.current).toBe("reachable");
+
+      // Reads as connecting from the very first unreachable render, so the
+      // stopped placeholder never flashes on a sandbox that is coming up.
+      rerender({ unavailable: true, settled: false });
+      expect(result.current).toBe("connecting");
+
+      // React Query blanks the error while it refetches an errored query that
+      // holds no data. That must neither restart the grace period nor drop
+      // the placeholder for the duration of the request.
+      act(() => {
+        vi.advanceTimersByTime(DESKTOP_RECONNECT_GRACE_MS - 1000);
+      });
+      rerender({ unavailable: false, settled: false });
+      expect(result.current).toBe("connecting");
+
+      act(() => {
+        vi.advanceTimersByTime(1001);
+      });
+      rerender({ unavailable: true, settled: false });
+      expect(result.current).toBe("unreachable");
+
+      // Answering ends the streak, so a later outage gets its own grace.
+      rerender({ unavailable: false, settled: true });
+      expect(result.current).toBe("reachable");
+      rerender({ unavailable: true, settled: false });
+      expect(result.current).toBe("connecting");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

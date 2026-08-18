@@ -22,6 +22,7 @@ import { copyTextToClipboard, workspaceFilePath } from "./clipboard";
 import TaskSessionPlaceholder from "../tasks/TaskSessionPlaceholder";
 import {
   isDesktopUnavailableError,
+  useDesktopReachability,
   useTurnWorkspaceReview,
   useWorkspaceReview,
 } from "./workspaceReviewService";
@@ -117,10 +118,15 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
     ? scope
     : "";
   const query = interactionId ? turnReview : liveReview;
-  // A stopped sandbox answers 503. That is the ordinary state of a finished or
-  // paused task, not a failure, so it gets the shared start-desktop
-  // placeholder rather than an error — and no further polling.
-  const desktopUnavailable = isDesktopUnavailableError(query.error) && !source;
+  // A sandbox that is not answering returns 503. That is the ordinary state of
+  // a finished or paused task, not a failure, so it gets the shared
+  // start-desktop placeholder rather than an error. While the 503 is still
+  // fresh it is more likely the sandbox coming up than one that is gone —
+  // the review keeps polling either way, so the state resolves itself.
+  const reachability = useDesktopReachability({
+    unavailable: isDesktopUnavailableError(query.error) && !source,
+    settled: !!source,
+  });
   const fileCount = source?.files?.length || 0;
   const renderable = useMemo(
     () => parseRenderablePatch(source?.patch),
@@ -301,7 +307,13 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
       )}
       {query.isLoading ? (
         <Box sx={{ flex: 1, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>
-      ) : desktopUnavailable ? (
+      ) : reachability === "connecting" ? (
+        <TaskSessionPlaceholder
+          tone="connecting"
+          title="Connecting to the sandbox"
+          description="This task's sandbox is still starting. Its workspace changes will appear as soon as it connects."
+        />
+      ) : reachability === "unreachable" ? (
         <TaskSessionPlaceholder
           tone="paused"
           title={desktopUnavailableTitle}

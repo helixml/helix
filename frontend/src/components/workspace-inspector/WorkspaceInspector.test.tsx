@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorkspaceInspector from "./WorkspaceInspector";
+import { DESKTOP_RECONNECT_GRACE_MS } from "./workspaceReviewService";
 
 const mocks = vi.hoisted(() => ({
   mergeParams: vi.fn(),
@@ -106,6 +107,7 @@ describe("WorkspaceInspector when the sandbox is stopped", () => {
       <WorkspaceInspector
         sessionId="session-id"
         primarySurface="changes"
+        desktopRunning={false}
         onStartDesktop={onStartDesktop}
       />,
     );
@@ -124,6 +126,7 @@ describe("WorkspaceInspector when the sandbox is stopped", () => {
       <WorkspaceInspector
         sessionId="session-id"
         primarySurface="changes"
+        desktopRunning={false}
         desktopUnavailableTitle="Task finished"
         desktopUnavailableDescription="This task has been merged to the default branch. Start the desktop to review its workspace."
         onStartDesktop={vi.fn()}
@@ -139,6 +142,7 @@ describe("WorkspaceInspector when the sandbox is stopped", () => {
       <WorkspaceInspector
         sessionId="session-id"
         primarySurface="files"
+        desktopRunning={false}
         onStartDesktop={vi.fn()}
         isDesktopStarting
       />,
@@ -165,6 +169,50 @@ describe("WorkspaceInspector when the sandbox is stopped", () => {
     expect(screen.getByText("Desktop not running")).toBeInTheDocument();
     // useWorkspaces is called (hooks must be unconditional) but disabled.
     expect(mocks.workspacesArgs).toEqual(["session-id", false]);
+  });
+
+  it("says the sandbox is still connecting while the 503 is fresh", () => {
+    // The bug this covers: a headless task that had just started showed
+    // "This task's sandbox is stopped" — for a sandbox whose bridge came up a
+    // second later — and stayed there until the page was reloaded.
+    render(
+      <WorkspaceInspector
+        sessionId="session-id"
+        primarySurface="changes"
+        onStartDesktop={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Connecting to the sandbox")).toBeInTheDocument();
+    expect(screen.queryByText(/sandbox is stopped/i)).not.toBeInTheDocument();
+    // Restarting a task that is already running must not be offered here.
+    expect(screen.queryByRole("button", { name: "Start desktop" })).not.toBeInTheDocument();
+  });
+
+  it("still reports a stopped sandbox once the 503s have persisted", () => {
+    // A session row can claim to be running while its container is really
+    // gone. The optimistic state is bounded so the start action comes back.
+    vi.useFakeTimers();
+    try {
+      render(
+        <WorkspaceInspector
+          sessionId="session-id"
+          primarySurface="changes"
+          onStartDesktop={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByText("Connecting to the sandbox")).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(DESKTOP_RECONNECT_GRACE_MS + 1);
+      });
+
+      expect(screen.getByText("Desktop not running")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Start desktop" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("offers the subscription login when that is what is blocking the desktop", () => {

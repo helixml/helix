@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorkspaceDiffSurface from "./WorkspaceDiffSurface";
+import { DESKTOP_RECONNECT_GRACE_MS } from "./workspaceReviewService";
 
 const mocks = vi.hoisted(() => ({
   live: vi.fn(),
@@ -61,7 +62,7 @@ const renderSurface = (props = {}) =>
     />,
   );
 
-const idleQuery = { data: undefined, isLoading: false, isError: false, isFetching: false, refetch: mocks.refetch };
+const idleQuery = { data: undefined, isLoading: false, isError: false, isFetching: false, failureCount: 0, refetch: mocks.refetch };
 
 describe("WorkspaceDiffSurface", () => {
   beforeEach(() => {
@@ -136,7 +137,10 @@ describe("WorkspaceDiffSurface", () => {
     expect(screen.getByTestId("code-view")).toBeInTheDocument();
   });
 
-  it("offers to start the desktop when the sandbox answers 503 mid-poll", () => {
+  it("reads a fresh 503 as a sandbox that is still coming up", () => {
+    // A task launched seconds ago answers 503 until its container registers
+    // the bridge. Telling the reviewer it is stopped — and offering to start
+    // it — is wrong for a task that is already working.
     mocks.live.mockReturnValue({
       ...idleQuery,
       isError: true,
@@ -145,8 +149,29 @@ describe("WorkspaceDiffSurface", () => {
 
     renderSurface({ onStartDesktop: vi.fn() });
 
-    expect(screen.getByText("Desktop not running")).toBeInTheDocument();
-    expect(screen.queryByText("Could not load workspace changes.")).not.toBeInTheDocument();
+    expect(screen.getByText("Connecting to the sandbox")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start desktop" })).not.toBeInTheDocument();
+  });
+
+  it("offers to start the desktop once the 503s have persisted", () => {
+    mocks.live.mockReturnValue({
+      ...idleQuery,
+      isError: true,
+      error: { response: { status: 503 } },
+    });
+
+    vi.useFakeTimers();
+    try {
+      renderSurface({ onStartDesktop: vi.fn() });
+      act(() => {
+        vi.advanceTimersByTime(DESKTOP_RECONNECT_GRACE_MS + 1);
+      });
+
+      expect(screen.getByText("Desktop not running")).toBeInTheDocument();
+      expect(screen.queryByText("Could not load workspace changes.")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("still reports a genuine failure as an error", () => {
