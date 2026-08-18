@@ -2,6 +2,7 @@ import React, { FC, useState, useEffect, useMemo } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
 import ReplayIcon from "@mui/icons-material/Replay";
 import TerminalWindow from "../widgets/TerminalWindow";
 import ClickLink from "../widgets/ClickLink";
@@ -367,6 +368,13 @@ export const InteractionInference: FC<{
   workspaceAttachments?: ChatWorkspaceAttachment[];
   message?: string;
   error?: string;
+  /**
+   * The session went on to complete a later turn, so this error is history.
+   * Render it as a quiet note instead of an alert, and withhold Retry: the
+   * prompt it would re-send has already been overtaken by the work that
+   * followed.
+   */
+  errorIsHistorical?: boolean;
   serverConfig?: TypesServerConfigForFrontend;
   interaction: TypesInteraction;
   session: TypesSession;
@@ -386,6 +394,7 @@ export const InteractionInference: FC<{
   workspaceAttachments = [],
   message,
   error,
+  errorIsHistorical = false,
   serverConfig,
   interaction,
   session,
@@ -926,7 +935,26 @@ export const InteractionInference: FC<{
           </Box>
         </Box>
       )}
-      {error && (
+      {error && errorIsHistorical && (
+        <Row sx={{ mt: 2 }}>
+          <Cell grow>
+            <Typography variant="caption" color="text.secondary">
+              This turn was interrupted and did not finish. The session
+              continued afterwards -
+              <ClickLink
+                sx={{ pl: 0.5, pr: 0.5 }}
+                onClick={() => {
+                  setViewingError(true);
+                }}
+              >
+                view the details
+              </ClickLink>
+              .
+            </Typography>
+          </Cell>
+        </Row>
+      )}
+      {error && !errorIsHistorical && (
         <Row
           sx={{
             mt: 3,

@@ -109,6 +109,28 @@ func EffectiveSpecTaskSandboxResources(resources *SandboxResourceOverrides) Sand
 	return *resources
 }
 
+// SpecTaskSandboxPresetForVCPUs maps a vCPU count to its full preset. Memory
+// is not independently selectable — the UI offers three fixed sizes and
+// ValidPreset rejects any other pairing — so callers that take only a vCPU
+// count (the org MCP create tool, for one) resolve the memory here rather than
+// each restating the table and risking a combination ValidPreset refuses.
+//
+// Returns false for a vCPU count that has no preset.
+func SpecTaskSandboxPresetForVCPUs(vcpus int) (*SandboxResourceOverrides, bool) {
+	preset := SandboxResourceOverrides{VCPUs: vcpus}
+	switch vcpus {
+	case 1:
+		preset.MemoryMB = 2048
+	case 4:
+		preset.MemoryMB = 8192
+	case 8:
+		preset.MemoryMB = 16384
+	default:
+		return nil, false
+	}
+	return &preset, true
+}
+
 func (r SandboxResourceOverrides) ValidPreset() bool {
 	switch r.VCPUs {
 	case 1:

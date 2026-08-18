@@ -246,6 +246,19 @@ type CreateSpecTaskInput struct {
 	OriginalPrompt string   `json:"original_prompt,omitempty"`
 	SkipPlanning   bool     `json:"skip_planning,omitempty"`
 	DependsOn      []string `json:"depends_on,omitempty"`
+
+	// SandboxVCPUs picks the sandbox size preset (1, 4 or 8; memory follows).
+	// SandboxRuntime picks ubuntu-desktop or headless-ubuntu. Both are 0/""
+	// for "use the project default".
+	//
+	// These exist because a Worker that needed a bigger or headless sandbox
+	// had no way to say so through MCP and fell back to hand-writing a curl
+	// against the REST API — which meant hand-writing the whole create body,
+	// including a code-agent config copied from some earlier task. That is how
+	// a Bot running opencode ended up filing deepseek_harness tasks. Covering
+	// the knobs here removes the reason to leave the tool.
+	SandboxVCPUs   int    `json:"sandbox_vcpus,omitempty"`
+	SandboxRuntime string `json:"sandbox_runtime,omitempty"`
 }
 
 // UpdateSpecTaskInput is the safe metadata-edit surface. Lifecycle state
@@ -277,6 +290,15 @@ type SpecTaskView struct {
 	Type         string            `json:"type,omitempty"`
 	BranchName   string            `json:"branch_name,omitempty"`
 	PullRequests []PullRequestView `json:"pull_requests,omitempty"`
+
+	// What the task will actually run on. Reported back so a Worker can
+	// confirm the sandbox it asked for and see the coding agent it inherited,
+	// without a follow-up call — and so it has no reason to believe it must
+	// set the agent itself.
+	SandboxVCPUs     int    `json:"sandbox_vcpus,omitempty"`
+	SandboxRuntime   string `json:"sandbox_runtime,omitempty"`
+	CodeAgentRuntime string `json:"code_agent_runtime,omitempty"`
+	CodeAgentModel   string `json:"code_agent_model,omitempty"`
 }
 
 // PullRequestView is one PR opened for a task's repo. CreatePullRequests

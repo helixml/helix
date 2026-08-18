@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -197,41 +198,7 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
 		if err != nil {
-			errStr := err.Error()
-
-			// Check for TLS certificate errors - these are common in enterprise environments
-			if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
-				log.Error().
-					Err(err).
-					Str("base_url", c.baseURL).
-					Str("model", request.Model).
-					Msg("TLS CERTIFICATE ERROR - Set TOOLS_TLS_SKIP_VERIFY=true (in .env for Docker Compose, or extraEnv in Helm chart) for enterprise/internal TLS certificates")
-				return retry.Unrecoverable(err)
-			}
-
-			if strings.Contains(errStr, "401 Unauthorized") || strings.Contains(errStr, "404") || strings.Contains(errStr, "400") {
-				return retry.Unrecoverable(err)
-			}
-
-			// Handle 429 and 529 errors with retries for all providers
-			if strings.Contains(errStr, "429") {
-				log.Warn().
-					Str("error", errStr).
-					Str("base_url", c.baseURL).
-					Msg("Received 429 error, will retry with backoff")
-				return err // Allow retry
-			}
-
-			// Handle 529 (Overloaded) errors with retries for all providers
-			if strings.Contains(errStr, "529") {
-				log.Warn().
-					Str("error", errStr).
-					Str("base_url", c.baseURL).
-					Msg("Received 529 overloaded error, will retry with backoff")
-				return err // Allow retry
-			}
-
-			return err
+			return c.classifyRequestError(err, request.Model)
 		}
 
 		return nil
@@ -243,6 +210,89 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	)
 
 	return
+}
+
+// providerStatusCode extracts the HTTP status from a go-openai error. Both
+// error types it returns carry the code as a field, so read it rather than
+// looking for the digits in the rendered message: a provider that echoes the
+// request back in its body can easily put "400" inside a 502's message and
+// invert the decision.
+//
+// Returns 0 when the error is not one of those types (a transport failure, or
+// an error from the native Google adapter), which callers treat as "unknown"
+// and fall back to string matching for.
+func providerStatusCode(err error) int {
+	var apiErr *openai.APIError
+	if errors.As(err, &apiErr) && apiErr.HTTPStatusCode > 0 {
+		return apiErr.HTTPStatusCode
+	}
+	var reqErr *openai.RequestError
+	if errors.As(err, &reqErr) && reqErr.HTTPStatusCode > 0 {
+		return reqErr.HTTPStatusCode
+	}
+	return 0
+}
+
+// classifyRequestError decides whether a failed provider request is worth
+// retrying, and logs the cases an operator needs to see. Shared by the
+// streaming and non-streaming paths so the two cannot drift apart.
+//
+// Retryable: 429 (rate limit), any 5xx (the provider or the proxy in front of
+// it is unhealthy — a Caddy `502 upstream unavailable` while a vLLM backend
+// restarts is the case that motivated this), and anything unrecognised, which
+// is usually a transport error and worth one more attempt. Not retryable: TLS
+// trust failures and 4xx other than 429, which fail identically however many
+// times we ask.
+func (c *RetryableClient) classifyRequestError(err error, model string) error {
+	errStr := err.Error()
+
+	// Check for TLS certificate errors - these are common in enterprise environments
+	if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+		log.Error().
+			Err(err).
+			Str("base_url", c.baseURL).
+			Str("model", model).
+			Msg("TLS CERTIFICATE ERROR - Set TOOLS_TLS_SKIP_VERIFY=true (in .env for Docker Compose, or extraEnv in Helm chart) for enterprise/internal TLS certificates")
+		return retry.Unrecoverable(err)
+	}
+
+	if status := providerStatusCode(err); status > 0 {
+		switch {
+		case status == http.StatusTooManyRequests:
+			log.Warn().
+				Str("error", errStr).
+				Str("base_url", c.baseURL).
+				Msg("Received 429 error, will retry with backoff")
+			return err // Allow retry
+		case status >= 500:
+			// Includes Anthropic's non-standard 529 "Overloaded".
+			log.Warn().
+				Str("error", errStr).
+				Str("base_url", c.baseURL).
+				Int("status", status).
+				Msg("Received upstream error, will retry with backoff")
+			return err // Allow retry
+		case status >= 400:
+			return retry.Unrecoverable(err)
+		}
+		return err
+	}
+
+	// No typed status available. Fall back to the message, ordered so 429 is
+	// tested before the general 4xx rejection.
+	if strings.Contains(errStr, "429") {
+		log.Warn().
+			Str("error", errStr).
+			Str("base_url", c.baseURL).
+			Msg("Received 429 error, will retry with backoff")
+		return err // Allow retry
+	}
+
+	if strings.Contains(errStr, "401 Unauthorized") || strings.Contains(errStr, "404") || strings.Contains(errStr, "400") {
+		return retry.Unrecoverable(err)
+	}
+
+	return err
 }
 
 func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
@@ -265,7 +315,35 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 
 	request.StreamOptions.IncludeUsage = true
 
-	return c.apiClient.CreateChatCompletionStream(ctx, request)
+	// Opening the stream is retried on the same terms as a non-streaming call.
+	// This path carries every coding agent's traffic, so leaving it unretried
+	// meant a momentary upstream 502 killed the agent's whole turn — the
+	// harness saw a hard error on the first attempt and had only its own (much
+	// shorter) client-side budget to recover with.
+	//
+	// Only ESTABLISHMENT is retried. Once the server has accepted the request
+	// and started emitting deltas, re-issuing it would duplicate tokens the
+	// caller has already consumed, so a mid-stream failure stays the caller's
+	// problem.
+	var stream *openai.ChatCompletionStream
+	err := retry.Do(func() error {
+		var streamErr error
+		stream, streamErr = c.apiClient.CreateChatCompletionStream(ctx, request)
+		if streamErr != nil {
+			return c.classifyRequestError(streamErr, request.Model)
+		}
+		return nil
+	},
+		retry.Attempts(retries),
+		retry.Delay(delayBetweenRetries),
+		retry.LastErrorOnly(true),
+		retry.Context(ctx),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return stream, nil
 }
 
 func (c *RetryableClient) validateModel(model string) error {

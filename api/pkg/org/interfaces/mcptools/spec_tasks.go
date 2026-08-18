@@ -39,6 +39,8 @@ type createSpecTaskArgs struct {
 	OriginalPrompt string   `json:"original_prompt,omitempty"`
 	SkipPlanning   bool     `json:"skip_planning,omitempty"`
 	DependsOn      []string `json:"depends_on,omitempty"`
+	SandboxVCPUs   int      `json:"sandbox_vcpus,omitempty"`
+	SandboxRuntime string   `json:"sandbox_runtime,omitempty"`
 }
 
 var createSpecTaskSchema = mustSchema[createSpecTaskArgs]()
@@ -50,7 +52,12 @@ func (t *CreateSpecTask) Description() string {
 		"description of the desired outcome. Optional: project_id (a project you manage in " +
 		"your org — omit to use your own project), type (feature|bug|refactor), priority " +
 		"(low|medium|high|critical), skip_planning (go straight to implementation), depends_on " +
-		"(task IDs). The task starts in backlog — call start_spectask_planning to begin work."
+		"(task IDs), sandbox_vcpus (1, 4 or 8 — memory follows; omit for the project default), " +
+		"sandbox_runtime (headless-ubuntu for agent-only work, ubuntu-desktop when the task " +
+		"needs a GUI; omit for the project default). " +
+		"The task runs on the coding agent and model configured for the project, which is your " +
+		"own — do not try to set one, and do not call the REST API to work around this tool. " +
+		"The task starts in backlog — call start_spectask_planning to begin work."
 }
 func (t *CreateSpecTask) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args createSpecTaskArgs
@@ -65,6 +72,8 @@ func (t *CreateSpecTask) Invoke(ctx context.Context, inv tool.Invocation) (json.
 		OriginalPrompt: args.OriginalPrompt,
 		SkipPlanning:   args.SkipPlanning,
 		DependsOn:      args.DependsOn,
+		SandboxVCPUs:   args.SandboxVCPUs,
+		SandboxRuntime: args.SandboxRuntime,
 	})
 	if err != nil {
 		return nil, err

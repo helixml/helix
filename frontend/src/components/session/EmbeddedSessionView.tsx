@@ -53,6 +53,7 @@ import {
 } from "../../services/sessionService";
 import { useStreaming } from "../../contexts/streaming";
 import { TypesInteraction, TypesInteractionState } from "../../api/api";
+import { lastSuccessfulInteractionIndex } from "../../utils/interactionRecovery";
 import useLightTheme from "../../hooks/useLightTheme";
 import { SESSION_TYPE_TEXT } from "../../types";
 import { getChatColors } from "./chatStyles";
@@ -515,6 +516,13 @@ const EmbeddedSessionView = forwardRef<
 
   const totalInteractions = visibleInteractions.length;
 
+  // Anything errored before the last clean completion has been overtaken by
+  // work that succeeded afterwards; its alarm and Retry button are stale.
+  const lastSuccessIndex = useMemo(
+    () => lastSuccessfulInteractionIndex(visibleInteractions),
+    [visibleInteractions],
+  );
+
   // Check if there are more pages to load
   const totalPages = paginatedData?.totalPages || 1;
   const totalCount = paginatedData?.totalCount || 0;
@@ -709,6 +717,7 @@ const EmbeddedSessionView = forwardRef<
                 serverConfig={account.serverConfig}
                 interaction={interaction}
                 nextInteraction={visibleInteractions[index + 1]}
+                recoveredLater={index < lastSuccessIndex}
                 session={session}
                 highlightAllFiles={false}
                 onReloadSession={handleReloadSession}
