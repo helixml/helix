@@ -5266,6 +5266,14 @@ definitions:
     type: object
   types.CreateClaudeSubscriptionRequest:
     properties:
+      account_email:
+        description: |-
+          AccountEmail is the self-reported email of the Claude account the token
+          belongs to. Anthropic's /api/oauth/profile only serves account identity
+          to tokens holding the user:profile scope — setup tokens never do, so for
+          those the user must report it (or leave it empty). A successful profile
+          fetch during validation overwrites this with the authoritative value.
+        type: string
       credentials:
         properties:
           claudeAiOauth:
@@ -5285,8 +5293,15 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.OwnerType'
         description: '"user" or "org"'
+      rate_limit_tier:
+        description: 'Optional: e.g. "20x"'
+        type: string
       setup_token:
         description: From `claude setup-token` (alternative to credentials)
+        type: string
+      subscription_type:
+        description: 'Optional: fills the plan for tokens whose credentials carry
+          none (setup tokens)'
         type: string
     type: object
   types.CreateCodexSubscriptionRequest:

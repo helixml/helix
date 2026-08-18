@@ -39,6 +39,27 @@ for setup-token connections (credentials file flow did carry `subscriptionType`
   `phil@winder.ai · Max · 20x`, falling back to the Helix owner when a valid
   probe hasn't enriched the row yet.
 
+## Problem 1b: setup tokens can never be profiled (scope wall)
+
+`/api/oauth/profile` requires `any_of(user:profile, user:office)`. Setup
+tokens (`claude setup-token`) are minted with inference scopes only — Anthropic
+returns 403 "OAuth token does not meet scope requirement" for them, verified
+against real Anthropic (2026-08-18, four header combinations, same 403). That
+is by design: the Claude Code CLI guards the same call with a scope check and,
+for `CLAUDE_CODE_OAUTH_TOKEN`, relies on the user set
+`CLAUDE_CODE_SUBSCRIPTION_TYPE` / `CLAUDE_CODE_RATE_LIMIT_TIER` env vars.
+
+Consequences:
+
+- The profile fetch is skipped for `credential_type = setup_token` (a
+  deterministic 403 is not worth sending every validation); it runs for oauth
+  credentials, which may carry `user:profile` — those get the identity
+  automatically.
+- The connect dialog accepts a self-reported identity (account email, plan,
+  rate-limit tier) that is stored on the row and shown in the caption. For
+  oauth subs a later successful profile fetch overwrites it with the
+  authoritative value; for setup tokens it is the only source.
+
 ## Problem 2: the liveness probe used a retired model and 404'd
 
 `ProbeClaudeSubscription` pinned `claude-3-5-haiku-latest` (a 2024 model).

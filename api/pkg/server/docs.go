@@ -30377,6 +30377,10 @@ const docTemplate = `{
         "types.CreateClaudeSubscriptionRequest": {
             "type": "object",
             "properties": {
+                "account_email": {
+                    "description": "AccountEmail is the self-reported email of the Claude account the token\nbelongs to. Anthropic's /api/oauth/profile only serves account identity\nto tokens holding the user:profile scope — setup tokens never do, so for\nthose the user must report it (or leave it empty). A successful profile\nfetch during validation overwrites this with the authoritative value.",
+                    "type": "string"
+                },
                 "credentials": {
                     "type": "object",
                     "properties": {
@@ -30404,8 +30408,16 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "rate_limit_tier": {
+                    "description": "Optional: e.g. \"20x\"",
+                    "type": "string"
+                },
                 "setup_token": {
                     "description": "From ` + "`" + `claude setup-token` + "`" + ` (alternative to credentials)",
+                    "type": "string"
+                },
+                "subscription_type": {
+                    "description": "Optional: fills the plan for tokens whose credentials carry none (setup tokens)",
                     "type": "string"
                 }
             }

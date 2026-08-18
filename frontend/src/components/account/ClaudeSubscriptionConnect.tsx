@@ -288,8 +288,19 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   // Setup token dialog state
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false)
   const [tokenValue, setTokenValue] = useState('')
+  const [accountEmail, setAccountEmail] = useState('')
+  const [accountPlan, setAccountPlan] = useState('')
+  const [accountTier, setAccountTier] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  const resetDialogState = () => {
+    setTokenValue('')
+    setAccountEmail('')
+    setAccountPlan('')
+    setAccountTier('')
+    setSubmitError(null)
+  }
 
   // Org selector state (used by account variant)
   const [ownerType, setOwnerType] = useState<'user' | 'org'>('user')
@@ -299,8 +310,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const [ownerLocked, setOwnerLocked] = useState(false)
 
   const handleOpenTokenDialog = () => {
-    setTokenValue('')
-    setSubmitError(null)
+    resetDialogState()
     setOwnerType('user')
     setSelectedOrgId('')
     setOwnerLocked(false)
@@ -309,8 +319,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
 
   // Re-authenticate a specific subscription: pin the dialog to its owner.
   const handleOpenTokenDialogFor = (sub: ClaudeSubscriptionData) => {
-    setTokenValue('')
-    setSubmitError(null)
+    resetDialogState()
     setOwnerType(sub.owner_type === 'org' ? 'org' : 'user')
     setSelectedOrgId(sub.owner_type === 'org' ? sub.owner_id : '')
     setOwnerLocked(true)
@@ -337,6 +346,9 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       await api.post('/api/v1/claude-subscriptions', {
         name: effectiveOrgId ? `${orgLabel(effectiveOrgId)} Claude Subscription` : 'My Claude Subscription',
         setup_token: token,
+        account_email: accountEmail.trim() || undefined,
+        subscription_type: accountPlan || undefined,
+        rate_limit_tier: accountTier.trim() || undefined,
         ...(enableForOrgId ? { organization_id: enableForOrgId } : {}),
         ...(effectiveOrgId ? { owner_type: 'org', owner_id: effectiveOrgId } : {}),
       })
@@ -345,6 +357,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
         queryClient.invalidateQueries({ queryKey: codeAgentHarnessesQueryKey(enableForOrgId) })
       }
       snackbar.success('Claude subscription connected')
+      resetDialogState()
       setTokenDialogOpen(false)
       onConnected?.()
     } catch (err: any) {
@@ -507,6 +520,53 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
         {tokenValidationError && (
           <Alert severity="error">{tokenValidationError}</Alert>
         )}
+
+        <Box
+          sx={{
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 1,
+            p: 1.5,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1.5,
+          }}
+        >
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            Which Claude account is this? <Typography component="span" variant="caption" color="text.secondary">(optional)</Typography>
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Setup tokens don't disclose their account, so tell us which one this is — it's shown next to agents that use this subscription.
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            label="Account email"
+            placeholder="e.g. phil@winder.ai"
+            value={accountEmail}
+            onChange={(e) => setAccountEmail(e.target.value)}
+          />
+          <Box sx={{ display: 'flex', gap: 1.5 }}>
+            <FormControl size="small" sx={{ flex: 1 }}>
+              <InputLabel>Plan</InputLabel>
+              <Select label="Plan" value={accountPlan} onChange={(e) => setAccountPlan(e.target.value)}>
+                <MenuItem value="">Unknown</MenuItem>
+                <MenuItem value="pro">Pro</MenuItem>
+                <MenuItem value="max">Max</MenuItem>
+                <MenuItem value="team">Team</MenuItem>
+                <MenuItem value="enterprise">Enterprise</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              fullWidth
+              size="small"
+              label="Rate-limit tier"
+              placeholder="e.g. 20x"
+              value={accountTier}
+              onChange={(e) => setAccountTier(e.target.value)}
+            />
+          </Box>
+        </Box>
 
         {submitError && (
           <Alert severity="error">{submitError}</Alert>

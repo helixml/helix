@@ -109,6 +109,14 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 			return nil, system.NewHTTPError500("failed to encrypt credentials")
 		}
 		credentialType = "setup_token"
+		// Setup tokens carry no plan/tier in their (absent) credentials file,
+		// so accept the self-reported values here.
+		if subscriptionType == "" {
+			subscriptionType = strings.TrimSpace(createReq.SubscriptionType)
+		}
+		if rateLimitTier == "" {
+			rateLimitTier = strings.TrimSpace(createReq.RateLimitTier)
+		}
 	} else {
 		// OAuth credentials flow (from in-container browser auth)
 		creds := createReq.Credentials.ClaudeAiOauth
@@ -130,6 +138,12 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		credentialType = "oauth"
 		subscriptionType = creds.SubscriptionType
 		rateLimitTier = creds.RateLimitTier
+		if subscriptionType == "" {
+			subscriptionType = strings.TrimSpace(createReq.SubscriptionType)
+		}
+		if rateLimitTier == "" {
+			rateLimitTier = strings.TrimSpace(createReq.RateLimitTier)
+		}
 		scopes = creds.Scopes
 		if creds.ExpiresAt > 0 {
 			expiresAt = time.UnixMilli(creds.ExpiresAt)
@@ -154,6 +168,7 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		SubscriptionType:     subscriptionType,
 		RateLimitTier:        rateLimitTier,
 		Scopes:               scopes,
+		AccountEmail:         strings.TrimSpace(createReq.AccountEmail),
 		AccessTokenExpiresAt: expiresAt,
 		Status:               "active",
 		CreatedBy:            user.ID,
@@ -211,16 +226,21 @@ func (apiServer *HelixAPIServer) revalidateClaudeSubscription(ctx context.Contex
 		// Best-effort: fetch the Claude account the token authenticates as
 		// (email, plan, rate-limit tier) from Anthropic. A profile failure
 		// must never downgrade a subscription that just probed valid.
-		if profile, err := anthropic.FetchClaudeProfile(ctx, token); err != nil {
-			log.Debug().Str("subscription_id", sub.ID).Str("detail", err.Error()).Msg("Claude profile fetch failed; identity unchanged")
-		} else {
-			sub.AccountEmail = profile.AccountEmail
-			sub.AccountDisplayName = profile.AccountDisplayName
-			if profile.Plan != "" {
-				sub.SubscriptionType = profile.Plan
-			}
-			if profile.RateLimitTier != "" {
-				sub.RateLimitTier = profile.RateLimitTier
+		// Setup tokens are skipped: they only ever carry inference scopes, and
+		// /api/oauth/profile requires any_of(user:profile, user:office), so the
+		// fetch would 403 by construction (verified against real Anthropic).
+		if sub.CredentialType != "setup_token" {
+			if profile, err := anthropic.FetchClaudeProfile(ctx, token); err != nil {
+				log.Debug().Str("subscription_id", sub.ID).Str("detail", err.Error()).Msg("Claude profile fetch failed; identity unchanged")
+			} else {
+				sub.AccountEmail = profile.AccountEmail
+				sub.AccountDisplayName = profile.AccountDisplayName
+				if profile.Plan != "" {
+					sub.SubscriptionType = profile.Plan
+				}
+				if profile.RateLimitTier != "" {
+					sub.RateLimitTier = profile.RateLimitTier
+				}
 			}
 		}
 	case anthropic.ProbeInvalid:

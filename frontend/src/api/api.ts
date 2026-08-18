@@ -3359,6 +3359,14 @@ export interface TypesCreateBranchResponse {
 }
 
 export interface TypesCreateClaudeSubscriptionRequest {
+  /**
+   * AccountEmail is the self-reported email of the Claude account the token
+   * belongs to. Anthropic's /api/oauth/profile only serves account identity
+   * to tokens holding the user:profile scope — setup tokens never do, so for
+   * those the user must report it (or leave it empty). A successful profile
+   * fetch during validation overwrites this with the authoritative value.
+   */
+  account_email?: string;
   credentials?: {
     claudeAiOauth?: TypesClaudeOAuthCredentials;
   };
@@ -3372,8 +3380,12 @@ export interface TypesCreateClaudeSubscriptionRequest {
   owner_id?: string;
   /** "user" or "org" */
   owner_type?: TypesOwnerType;
+  /** Optional: e.g. "20x" */
+  rate_limit_tier?: string;
   /** From `claude setup-token` (alternative to credentials) */
   setup_token?: string;
+  /** Optional: fills the plan for tokens whose credentials carry none (setup tokens) */
+  subscription_type?: string;
 }
 
 export interface TypesCreateCodexSubscriptionRequest {

@@ -75,7 +75,15 @@ type CreateClaudeSubscriptionRequest struct {
 	// after connection. It is independent from subscription ownership.
 	OrganizationID string `json:"organization_id,omitempty"`
 	SetupToken     string `json:"setup_token,omitempty"` // From `claude setup-token` (alternative to credentials)
-	Credentials    struct {
+	// AccountEmail is the self-reported email of the Claude account the token
+	// belongs to. Anthropic's /api/oauth/profile only serves account identity
+	// to tokens holding the user:profile scope — setup tokens never do, so for
+	// those the user must report it (or leave it empty). A successful profile
+	// fetch during validation overwrites this with the authoritative value.
+	AccountEmail     string `json:"account_email,omitempty"`
+	SubscriptionType string `json:"subscription_type,omitempty"` // Optional: fills the plan for tokens whose credentials carry none (setup tokens)
+	RateLimitTier    string `json:"rate_limit_tier,omitempty"`   // Optional: e.g. "20x"
+	Credentials      struct {
 		ClaudeAiOauth ClaudeOAuthCredentials `json:"claudeAiOauth"`
 	} `json:"credentials"`
 }
