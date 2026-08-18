@@ -52,10 +52,30 @@ func GetSessionResultsFolder(sessionID string) string {
 	return filepath.Join(GetSessionFolder(sessionID), "results")
 }
 
+// joinUnderBase joins a caller-supplied relative path onto base and refuses
+// anything that could escape base. A single leading "/" is tolerated and
+// stripped, but any ".." segment is rejected — raw ".." joining is the
+// cross-tenant filestore traversal vector from the 2026-08-16 sandbox
+// security analysis (H6/H9), where e.g. path=.. listed every tenant under
+// /dev/users.
+func joinUnderBase(base, rel string) (string, error) {
+	if strings.IndexRune(rel, 0) >= 0 {
+		return "", fmt.Errorf("invalid filestore path %q: path must not contain NUL bytes", rel)
+	}
+	rel = filepath.ToSlash(rel)
+	rel = strings.TrimPrefix(rel, "/")
+	for _, segment := range strings.Split(rel, "/") {
+		if segment == ".." {
+			return "", fmt.Errorf("invalid filestore path %q: \"..\" segments are not allowed", rel)
+		}
+	}
+	return filepath.Join(base, rel), nil
+}
+
 func (c *Controller) GetFilestoreUserPath(ctx types.OwnerContext, path string) (string, error) {
 	userPrefix := filestore.GetUserPrefix(c.Options.Config.Controller.FilePrefixGlobal, ctx.Owner)
 
-	return filepath.Join(userPrefix, path), nil
+	return joinUnderBase(userPrefix, path)
 }
 
 // GetFilestoreAppPath returns a path scoped to the app's directory
@@ -63,7 +83,7 @@ func (c *Controller) GetFilestoreUserPath(ctx types.OwnerContext, path string) (
 func (c *Controller) GetFilestoreAppPath(appID, path string) (string, error) {
 	appPrefix := filestore.GetAppPrefix(c.Options.Config.Controller.FilePrefixGlobal, appID)
 
-	return filepath.Join(appPrefix, path), nil
+	return joinUnderBase(appPrefix, path)
 }
 
 // GetFilestoreAppKnowledgePath returns a path scoped to the app's knowledge directory
@@ -92,7 +112,10 @@ func (c *Controller) GetFilestoreAppKnowledgePath(_ types.OwnerContext, appID, k
 			Msgf("Stripped app prefix from path")
 	}
 
-	finalPath := filepath.Join(appPrefix, knowledgePath)
+	finalPath, err := joinUnderBase(appPrefix, knowledgePath)
+	if err != nil {
+		return "", err
+	}
 
 	log.Debug().
 		Str("app_id", appID).
@@ -124,6 +147,13 @@ func (c *Controller) GetFilestoreResultsPath(ctx types.OwnerContext, sessionID s
 // so, we must ensure that the users base path is created and then create each
 // special folder as listed above
 func (c *Controller) ensureFilestoreUserPath(ctx types.OwnerContext, path string) (string, error) {
+	// Validate the caller's path first so a traversal attempt can never
+	// trigger folder-creation side effects.
+	retPath, err := c.GetFilestoreUserPath(ctx, path)
+	if err != nil {
+		return "", err
+	}
+
 	userPath, err := c.GetFilestoreUserPath(ctx, "")
 	if err != nil {
 		return "", err
@@ -143,10 +173,6 @@ func (c *Controller) ensureFilestoreUserPath(ctx types.OwnerContext, path string
 		if err != nil {
 			return "", err
 		}
-	}
-	retPath, err := c.GetFilestoreUserPath(ctx, path)
-	if err != nil {
-		return "", err
 	}
 	return retPath, nil
 }
@@ -240,8 +266,7 @@ func (c *Controller) ensureFilestoreAppPath(appID, path string) (string, error) 
 		return "", err
 	}
 
-	fullPath := filepath.Join(appPrefix, path)
-	return fullPath, nil
+	return joinUnderBase(appPrefix, path)
 }
 
 // FilestoreAppList lists files in an app's directory
@@ -296,7 +321,7 @@ func (c *Controller) ensureFilestoreSpecTaskAttachmentsPath(specTaskID, filename
 	if _, err := c.Options.Filestore.CreateFolder(c.Ctx, prefix); err != nil {
 		return "", err
 	}
-	return filepath.Join(prefix, filename), nil
+	return joinUnderBase(prefix, filename)
 }
 
 // FilestoreSpecTaskAttachmentUpload writes a SpecTask attachment to the filestore.
@@ -343,5 +368,12 @@ func ExtractAppID(path string) (string, error) {
 		return "", fmt.Errorf("invalid app path format: %s", path)
 	}
 
-	return parts[1], nil
+	appID := parts[1]
+	// "apps/../../users" would resolve the app prefix to the filestore root;
+	// reject dot segments outright (H6/H9).
+	if appID == "." || appID == ".." {
+		return "", fmt.Errorf("invalid app path format: %s", path)
+	}
+
+	return appID, nil
 }

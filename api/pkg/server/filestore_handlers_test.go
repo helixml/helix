@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -218,9 +219,9 @@ func (suite *FilestoreSuite) TestIsFilestoreRouteAuthorized_UserPath_Authorized(
 	suite.True(authorized)
 }
 
-// TestIsFilestoreRouteAuthorized_UserPath_Unauthorized tests that a user cannot access
+// TestFilestoreRouteAuthorized_UserPath_Unauthorized tests that a user cannot access
 // another user's filestore path
-func (suite *FilestoreSuite) TestIsFilestoreRouteAuthorized_UserPath_Unauthorized() {
+func (suite *FilestoreSuite) TestFilestoreRouteAuthorized_UserPath_Unauthorized() {
 	// Create a request with a different user's path
 	req := httptest.NewRequest("GET", "/dev/users/different_user_id/file.pdf", nil)
 	req = req.WithContext(suite.authCtx)
@@ -228,4 +229,58 @@ func (suite *FilestoreSuite) TestIsFilestoreRouteAuthorized_UserPath_Unauthorize
 	authorized, err := suite.server.isFilestoreRouteAuthorized(req)
 	suite.NoError(err)
 	suite.False(authorized)
+}
+
+// TestFilestoreList_PathTraversalRejected is the H6/H9 regression test:
+// ?path= values containing ".." must be rejected instead of resolving into
+// other tenants' filestore prefixes. No Filestore mock expectation is set —
+// reaching the mock would fail the test, proving the path never got resolved.
+func (suite *FilestoreSuite) TestFilestoreList_PathTraversalRejected() {
+	traversalPaths := []string{
+		"..",
+		"../..",
+		"../usr_01kc1bacajbhaknzj4xy21x9gs/sessions",
+		"documents/../../usr_456/data/file.bin",
+		"specs/a/../../../users",
+	}
+	for _, p := range traversalPaths {
+		req := httptest.NewRequest("GET", "/api/v1/filestore/list?path="+url.QueryEscape(p), nil)
+		req = req.WithContext(suite.authCtx)
+
+		items, err := suite.server.filestoreList(httptest.NewRecorder(), req)
+		suite.Error(err, "path=%q must be rejected", p)
+		suite.Nil(items)
+		suite.Contains(err.Error(), `not allowed`, "path=%q", p)
+	}
+}
+
+// TestFilestoreList_LegitPathStillWorks guards against the traversal fix
+// over-rejecting: a plain relative path resolves under the caller's prefix.
+func (suite *FilestoreSuite) TestFilestoreList_LegitPathStillWorks() {
+	suite.filestoreMock.EXPECT().
+		CreateFolder(gomock.Any(), gomock.Any()).
+		Return(filestore.Item{}, nil).
+		AnyTimes()
+	suite.filestoreMock.EXPECT().
+		List(gomock.Any(), "/dev/users/user_id_test").
+		Return([]filestore.Item{{Name: "data"}}, nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/filestore/list?path=", nil)
+	req = req.WithContext(suite.authCtx)
+
+	items, err := suite.server.filestoreList(httptest.NewRecorder(), req)
+	suite.NoError(err)
+	suite.Len(items, 1)
+	suite.Equal("data", items[0].Name)
+}
+
+// TestFilestoreGet_PathTraversalRejected covers the get/delete-style
+// resolution path (same join point, different entry point).
+func (suite *FilestoreSuite) TestFilestoreGet_PathTraversalRejected() {
+	req := httptest.NewRequest("GET", "/api/v1/filestore/get?path=../usr_other/data/secret.pdf", nil)
+	req = req.WithContext(suite.authCtx)
+
+	_, err := suite.server.filestoreGet(httptest.NewRecorder(), req)
+	suite.Error(err)
+	suite.Contains(err.Error(), `not allowed`)
 }
