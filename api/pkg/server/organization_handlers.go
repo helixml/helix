@@ -198,13 +198,25 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 
 	organization, err := apiServer.lookupOrg(r.Context(), reference)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "Organization not found: "+reference, http.StatusNotFound)
+			return
+		}
 		log.Err(err).Msg("error getting organization")
 		http.Error(rw, "Could not get organization: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if _, err := apiServer.authorizeOrgMember(r.Context(), user, organization.ID); err != nil {
-		log.Err(err).Msg("error authorizing org member")
+		// Only a missing membership row is a permission answer. Any other
+		// store error (connection failure, timeout) is a server fault, and
+		// reporting it as 403 is actively harmful: the frontend treats 403 as
+		// permanent and evicts the user from an org they can fully access.
+		if !errors.Is(err, store.ErrNotFound) {
+			log.Err(err).Msg("error checking org membership")
+			http.Error(rw, "Could not check org membership: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
 		return
 	}

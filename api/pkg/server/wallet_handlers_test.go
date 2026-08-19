@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -155,4 +156,70 @@ func (s *GetWalletStatusSuite) TestStoreFailureStill500() {
 	_, httpErr := s.server.getWalletHandler(httptest.NewRecorder(), s.request("acme"))
 	s.Require().NotNil(httpErr)
 	s.Equal(http.StatusInternalServerError, httpErr.StatusCode)
+}
+
+// GetOrganizationStatusSuite covers the status codes GET /organizations/{id}
+// returns. The frontend treats 403 as a permanent "this org is not yours" and
+// evicts the user from it, so a transient membership-query failure must not
+// masquerade as one — otherwise a DB blip kicks users out of healthy orgs.
+type GetOrganizationStatusSuite struct {
+	suite.Suite
+
+	ctrl   *gomock.Controller
+	store  *store.MockStore
+	server *HelixAPIServer
+}
+
+func TestGetOrganizationStatusSuite(t *testing.T) {
+	suite.Run(t, new(GetOrganizationStatusSuite))
+}
+
+func (s *GetOrganizationStatusSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
+	s.store = store.NewMockStore(s.ctrl)
+	s.server = &HelixAPIServer{Store: s.store, Cfg: &config.ServerConfig{}}
+}
+
+func (s *GetOrganizationStatusSuite) do(orgRef string) *httptest.ResponseRecorder {
+	req := mux.SetURLVars(
+		httptest.NewRequest(http.MethodGet, "/api/v1/organizations/"+orgRef, nil),
+		map[string]string{"id": orgRef},
+	)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_outsider"}))
+
+	rw := httptest.NewRecorder()
+	s.server.getOrganization(rw, req)
+	return rw
+}
+
+func (s *GetOrganizationStatusSuite) TestNonMemberGets403() {
+	s.store.EXPECT().
+		GetOrganization(gomock.Any(), &store.GetOrganizationQuery{Name: "unmanned-org"}).
+		Return(&types.Organization{ID: "org_unmanned", Name: "unmanned-org"}, nil)
+	s.store.EXPECT().
+		GetOrganizationMembership(gomock.Any(), gomock.Any()).
+		Return(nil, store.ErrNotFound)
+
+	s.Equal(http.StatusForbidden, s.do("unmanned-org").Code)
+}
+
+// The case that makes the frontend's "403 is permanent" classifier safe.
+func (s *GetOrganizationStatusSuite) TestTransientMembershipErrorGets500() {
+	s.store.EXPECT().
+		GetOrganization(gomock.Any(), gomock.Any()).
+		Return(&types.Organization{ID: "org_mine", Name: "mine"}, nil)
+	s.store.EXPECT().
+		GetOrganizationMembership(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("connection refused"))
+
+	s.Equal(http.StatusInternalServerError, s.do("mine").Code,
+		"a DB failure must not be reported as a permission denial")
+}
+
+func (s *GetOrganizationStatusSuite) TestMissingOrgGets404() {
+	s.store.EXPECT().
+		GetOrganization(gomock.Any(), gomock.Any()).
+		Return(nil, store.ErrNotFound)
+
+	s.Equal(http.StatusNotFound, s.do("ghost-org").Code)
 }

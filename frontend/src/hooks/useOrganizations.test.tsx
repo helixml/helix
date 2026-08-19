@@ -123,6 +123,46 @@ describe('useOrganizations stale org recovery', () => {
     expect(localStorage.getItem(SELECTED_ORG_STORAGE_KEY)).toBe('mr-tester-org1')
   })
 
+  // A failed list load leaves `initialized` true (it is set in a `finally`)
+  // with an empty `organizations`. That is "we don't know", not "you have no
+  // orgs" — treating them the same evicts a user from an org they can fully
+  // access whenever GET /organizations blips.
+  it.each([500, 0])(
+    'stays put when the org list request itself failed (%i)',
+    async (status) => {
+      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, 'mr-tester-org1')
+      mockRouterState.params = { org_id: 'mr-tester-org1' }
+      mockV1OrganizationsList.mockRejectedValue(
+        status === 0 ? new Error('Network Error') : httpError(status)
+      )
+
+      const { result } = await renderInitialized()
+
+      expect(result.current.organizations).toEqual([])
+      expect(mockNavigate).not.toHaveBeenCalled()
+      expect(localStorage.getItem(SELECTED_ORG_STORAGE_KEY)).toBe('mr-tester-org1')
+    }
+  )
+
+  // Once the list does load and genuinely contains nothing, the user really
+  // has no orgs and belongs on the picker.
+  it('recovers on the next successful load after a failed one', async () => {
+    localStorage.setItem(SELECTED_ORG_STORAGE_KEY, 'unmanned-org')
+    mockRouterState.params = { org_id: 'unmanned-org' }
+    mockV1OrganizationsList.mockRejectedValueOnce(httpError(500))
+
+    const rendered = renderHook(() => useOrganizations())
+    await rendered.result.current.loadOrganizations()
+    await waitFor(() => expect(rendered.result.current.initialized).toBe(true))
+    expect(mockNavigate).not.toHaveBeenCalled()
+
+    // Retry succeeds; only now do we know the org isn't ours.
+    await rendered.result.current.loadOrganizations()
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('org_chat', { org_id: 'mr-tester-org1' })
+    )
+  })
+
   it('never redirects out of an embed route', async () => {
     // Scoped embed keys see an empty org list by design.
     mockRouterState.name = 'embed_task'

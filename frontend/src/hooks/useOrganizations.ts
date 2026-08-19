@@ -109,6 +109,13 @@ export default function useOrganizations(): IOrganizationTools {
   // ping-pong between two orgs that both answer 403.
   const inaccessibleOrgsRef = useRef<Set<string>>(new Set())
 
+  // Whether GET /organizations has ever actually succeeded. `initialized` is
+  // set in loadOrganizations' `finally`, so it is equally true after a failed
+  // list load — and an empty `organizations` then means "we don't know", not
+  // "you have no orgs". Only a successful load licenses us to conclude the
+  // URL's org isn't ours.
+  const orgListLoadedRef = useRef(false)
+
   // Leave an org we can't use. Called both when the org list says the URL org
   // isn't ours and when the org detail request answers 403/404. Sends the user
   // to a real org where possible, otherwise to the org picker, so they end up
@@ -285,6 +292,7 @@ export default function useOrganizations(): IOrganizationTools {
       })
 
       setOrganizations(sortedOrgs)
+      orgListLoadedRef.current = true
     } catch (error) {
       console.error(error)
       const errorMessage = extractErrorMessage(error)
@@ -713,7 +721,7 @@ export default function useOrganizations(): IOrganizationTools {
     const resolution = resolveOrgAccess({
       orgID,
       organizations,
-      initialized,
+      orgListLoaded: orgListLoadedRef.current,
       routeName: router.name,
     })
     if (resolution.status !== 'inaccessible') return

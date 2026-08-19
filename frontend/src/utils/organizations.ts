@@ -88,17 +88,24 @@ export type OrgAccessResolution =
 export function resolveOrgAccess({
   orgID,
   organizations,
-  initialized,
+  orgListLoaded,
   routeName,
 }: {
   orgID?: string
   organizations: TypesOrganization[]
-  initialized: boolean
+  /**
+   * True only once `GET /organizations` has actually succeeded. This is NOT
+   * the same as the hook's `initialized`, which is set in a `finally` and so
+   * is equally true after a failed list load — at which point `organizations`
+   * is an empty array that means "we don't know", not "you have no orgs".
+   * Treating those the same would evict a user from an org they can fully
+   * access whenever the list request hits a 500 or a network blip.
+   */
+  orgListLoaded: boolean
   routeName?: string
 }): OrgAccessResolution {
-  // Never act on a list we haven't loaded — that would evict users from a
-  // perfectly good org on every page load.
-  if (!initialized) return { status: 'pending' }
+  // Never act on a list we haven't successfully loaded.
+  if (!orgListLoaded) return { status: 'pending' }
   if (isEmbedRouteName(routeName)) return { status: 'ok' }
   if (!orgID) return { status: 'ok' }
 

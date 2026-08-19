@@ -27,25 +27,35 @@ describe('resolveOrgAccess', () => {
     // The list starts empty. Acting on it before it loads would evict every
     // user from their org on every page load.
     expect(
-      resolveOrgAccess({ orgID: 'acme', organizations: [], initialized: false })
+      resolveOrgAccess({ orgID: 'acme', organizations: [], orgListLoaded: false })
+    ).toEqual({ status: 'pending' })
+  })
+
+  // The hook's `initialized` flag is set in a `finally`, so it is true even
+  // when GET /organizations failed — leaving an empty list that means "we
+  // don't know", not "you have no orgs". Acting on that would boot a user out
+  // of an org they can fully access whenever the list request blips.
+  it('stays pending when the list request failed, even though we tried', () => {
+    expect(
+      resolveOrgAccess({ orgID: 'acme', organizations: [], orgListLoaded: false })
     ).toEqual({ status: 'pending' })
   })
 
   it('is ok when there is no org in the URL', () => {
     expect(
-      resolveOrgAccess({ orgID: '', organizations: [], initialized: true })
+      resolveOrgAccess({ orgID: '', organizations: [], orgListLoaded: true })
     ).toEqual({ status: 'ok' })
   })
 
   it('is ok when the URL org matches by slug', () => {
     expect(
-      resolveOrgAccess({ orgID: 'acme', organizations: [org('acme')], initialized: true })
+      resolveOrgAccess({ orgID: 'acme', organizations: [org('acme')], orgListLoaded: true })
     ).toEqual({ status: 'ok' })
   })
 
   it('is ok when the URL org matches by id', () => {
     expect(
-      resolveOrgAccess({ orgID: 'org_acme', organizations: [org('acme')], initialized: true })
+      resolveOrgAccess({ orgID: 'org_acme', organizations: [org('acme')], orgListLoaded: true })
     ).toEqual({ status: 'ok' })
   })
 
@@ -57,14 +67,14 @@ describe('resolveOrgAccess', () => {
       resolveOrgAccess({
         orgID: 'unmanned-org',
         organizations: [org('mr-tester-org1')],
-        initialized: true,
+        orgListLoaded: true,
       })
     ).toEqual({ status: 'inaccessible', fallbackOrgSlug: 'mr-tester-org1' })
   })
 
   it('reports inaccessible with no fallback when the user has no orgs at all', () => {
     expect(
-      resolveOrgAccess({ orgID: 'unmanned-org', organizations: [], initialized: true })
+      resolveOrgAccess({ orgID: 'unmanned-org', organizations: [], orgListLoaded: true })
     ).toEqual({ status: 'inaccessible', fallbackOrgSlug: undefined })
   })
 
@@ -77,7 +87,7 @@ describe('resolveOrgAccess', () => {
       resolveOrgAccess({
         orgID: 'unmanned-org',
         organizations: [org('unmanned-org', { member: false }), org('mine')],
-        initialized: true,
+        orgListLoaded: true,
       })
     ).toEqual({ status: 'ok' })
   })
@@ -88,7 +98,7 @@ describe('resolveOrgAccess', () => {
       resolveOrgAccess({
         orgID: 'unmanned-org',
         organizations: [],
-        initialized: true,
+        orgListLoaded: true,
         routeName: 'embed_task',
       })
     ).toEqual({ status: 'ok' })
