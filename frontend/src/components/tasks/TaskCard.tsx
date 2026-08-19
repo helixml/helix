@@ -1263,6 +1263,7 @@ function TaskCardInner({
                 just_do_it_mode: task.just_do_it_mode,
                 archived: task.archived,
                 metadata: task.metadata,
+                sandbox_state: task.sandbox_state,
               }}
               variant="stacked"
               startPlanningButtonRef={startPlanningButtonRef}
@@ -1357,6 +1358,7 @@ function TaskCardInner({
                   id: task.id,
                   status: "spec_generation",
                   archived: task.archived,
+                  sandbox_state: task.sandbox_state,
                 }}
                 variant="stacked"
               />
@@ -1374,6 +1376,7 @@ function TaskCardInner({
                 status: "spec_review",
                 design_docs_pushed_at: task.design_docs_pushed_at,
                 archived: task.archived,
+                sandbox_state: task.sandbox_state,
               }}
               variant="stacked"
               onReviewSpec={() => onReviewDocs(task)}
@@ -1391,6 +1394,7 @@ function TaskCardInner({
               branch_name: task.branch_name,
               archived: task.archived,
               last_push_at: task.last_push_at,
+              sandbox_state: task.sandbox_state,
             }}
             variant="stacked"
             onReject={(shiftKey) => {
@@ -1507,6 +1511,7 @@ function TaskCardInner({
                       status: "pull_request",
                       repo_pull_requests: task.repo_pull_requests,
                       archived: task.archived,
+                      sandbox_state: task.sandbox_state,
                     }}
                     variant="stacked"
                   />

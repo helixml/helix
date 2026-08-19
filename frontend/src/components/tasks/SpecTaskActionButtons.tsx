@@ -153,8 +153,17 @@ export interface SpecTaskForActions {
   repo_pull_requests?: RepoPR[];
   last_push_at?: string;
   rebase_requested_at?: string;
-  /** "running" | "starting" | "absent" — derived server-side from the session's live container state. */
-  sandbox_state?: string;
+  /** "running" | "starting" | "absent" — derived server-side from the session's live container state.
+   *
+   * REQUIRED, deliberately. It gates whether the agent can still be told to
+   * commit and push, so a caller that forgets it reads as "sandbox stopped" and
+   * silently disables Open PR forever. Both call sites did exactly that, which
+   * left the button permanently grey in the task detail view while Reject —
+   * which does not consult this field — stayed enabled. Keeping it required
+   * makes the compiler catch the next call site instead of a user discovering
+   * they cannot merge. Pass `undefined` explicitly if the task truly has no
+   * session. */
+  sandbox_state: string | undefined;
 }
 
 interface SpecTaskActionButtonsProps {
