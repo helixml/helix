@@ -4,6 +4,8 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Grid from '@mui/material/Grid'
 import Chip from '@mui/material/Chip'
 import Dialog from '@mui/material/Dialog'
@@ -176,6 +178,37 @@ const DelegationPicker: FC<DelegationPickerProps> = ({
 }
 
 const SETUP_TOKEN_COMMAND = 'claude setup-token'
+const CREDENTIALS_FILE_COMMAND = 'cat ~/.claude/.credentials.json'
+
+// Shape of ~/.claude/.credentials.json, written by `claude login` on the user's
+// own machine. Accepting it is what lets Helix reuse a login the user already
+// did, the way local tools do — no OAuth flow of our own.
+interface ClaudeOAuthCredentialsInput {
+  accessToken: string
+  refreshToken: string
+  expiresAt?: number
+  scopes?: string[]
+  subscriptionType?: string
+  rateLimitTier?: string
+}
+
+// Accepts the whole credentials file or just the claudeAiOauth object inside it,
+// because people copy either one.
+export function parseClaudeCredentials(value: string): ClaudeOAuthCredentialsInput {
+  let parsed: any
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    throw new Error('That is not valid JSON. Paste the contents of ~/.claude/.credentials.json.')
+  }
+  const creds = parsed?.claudeAiOauth ?? parsed
+  if (!creds?.accessToken || !creds?.refreshToken) {
+    throw new Error(
+      'This is not a complete Claude credentials file — it needs accessToken and refreshToken.',
+    )
+  }
+  return creds as ClaudeOAuthCredentialsInput
+}
 
 const StepIndex: FC<{ n: number }> = ({ n }) => (
   <Box
@@ -294,12 +327,19 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
 
   // Setup token dialog state
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false)
+  // Credentials-file import is the default: it is the only path that yields the
+  // account email and plan, because those tokens carry the user:profile scope
+  // that setup tokens lack.
+  const [connectMethod, setConnectMethod] = useState<'credentials' | 'setup_token'>('credentials')
+  const [credentialsValue, setCredentialsValue] = useState('')
   const [tokenValue, setTokenValue] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const resetDialogState = () => {
     setTokenValue('')
+    setCredentialsValue('')
+    setConnectMethod('credentials')
     setSubmitError(null)
   }
 
@@ -328,10 +368,25 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   }
 
   const handleSubmitToken = async () => {
-    const token = tokenValue.trim()
-    if (!token) {
-      setSubmitError('Please paste your setup token')
-      return
+    let credentialPayload: Record<string, unknown>
+    if (connectMethod === 'credentials') {
+      if (!credentialsValue.trim()) {
+        setSubmitError('Please paste the contents of ~/.claude/.credentials.json')
+        return
+      }
+      try {
+        credentialPayload = { credentials: { claudeAiOauth: parseClaudeCredentials(credentialsValue) } }
+      } catch (e) {
+        setSubmitError(e instanceof Error ? e.message : 'Could not read those credentials')
+        return
+      }
+    } else {
+      const token = tokenValue.trim()
+      if (!token) {
+        setSubmitError('Please paste your setup token')
+        return
+      }
+      credentialPayload = { setup_token: token }
     }
 
     if (!orgId && ownerType === 'org' && !selectedOrgId) {
@@ -346,7 +401,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       const effectiveOrgId = orgId || (ownerType === 'org' ? selectedOrgId : undefined)
       await api.post('/api/v1/claude-subscriptions', {
         name: effectiveOrgId ? `${orgLabel(effectiveOrgId)} Claude Subscription` : 'My Claude Subscription',
-        setup_token: token,
+        ...credentialPayload,
         ...(enableForOrgId ? { organization_id: enableForOrgId } : {}),
         ...(effectiveOrgId ? { owner_type: 'org', owner_id: effectiveOrgId } : {}),
       })
@@ -381,7 +436,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     }
   }
 
-  const tokenValidationError = validateSetupToken(tokenValue)
+  const tokenValidationError = connectMethod === 'setup_token' ? validateSetupToken(tokenValue) : ''
 
   const firstSub = subscriptions?.[0]
   const isSetupToken = firstSub?.credential_type === 'setup_token'
@@ -445,12 +500,93 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
         {ownerLocked ? 'Update Claude Subscription' : 'Connect Claude Subscription'}
       </DialogTitle>
       <DialogContent sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={connectMethod}
+          onChange={(_e, next) => {
+            if (next) {
+              setConnectMethod(next)
+              setSubmitError(null)
+            }
+          }}
+          sx={{ alignSelf: 'flex-start' }}
+        >
+          <ToggleButton value="credentials" sx={{ textTransform: 'none' }}>
+            Use my Claude login
+          </ToggleButton>
+          <ToggleButton value="setup_token" sx={{ textTransform: 'none' }}>
+            Setup token
+          </ToggleButton>
+        </ToggleButtonGroup>
+
         <Typography variant="body2" color="text.secondary">
-          Generate a setup token on your local machine, then paste it below.
+          {connectMethod === 'credentials'
+            ? 'Reuse the login you already did with `claude login` on your machine. Only this route can show which Claude account and plan the subscription belongs to.'
+            : 'Generate a setup token on your local machine, then paste it below. Setup tokens do not disclose the account behind them.'}
         </Typography>
 
         {ownerPicker}
 
+        {connectMethod === 'credentials' ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+              <StepIndex n={1} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  Print your existing Claude credentials
+                </Typography>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    bgcolor: 'action.hover',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: 1,
+                    px: 1.5,
+                    py: 0.75,
+                  }}
+                >
+                  <Box
+                    component="code"
+                    sx={{ flex: 1, fontFamily: APP_MONO_FONT_FAMILY, fontSize: '0.8125rem' }}
+                  >
+                    {CREDENTIALS_FILE_COMMAND}
+                  </Box>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      navigator.clipboard.writeText(CREDENTIALS_FILE_COMMAND)
+                      snackbar.success('Command copied')
+                    }}
+                    aria-label="Copy command"
+                  >
+                    <Copy size={14} />
+                  </IconButton>
+                </Box>
+              </Box>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+              <StepIndex n={2} />
+              <Typography variant="body2">Paste the whole JSON output below.</Typography>
+            </Box>
+            <TextField
+              autoFocus
+              fullWidth
+              multiline
+              minRows={4}
+              label="Claude credentials JSON"
+              placeholder='{"claudeAiOauth": {"accessToken": "…", "refreshToken": "…"}}'
+              value={credentialsValue}
+              onChange={(e) => setCredentialsValue(e.target.value)}
+              variant="outlined"
+              InputProps={{ sx: { fontFamily: APP_MONO_FONT_FAMILY, fontSize: '0.8125rem' } }}
+            />
+          </Box>
+        ) : (
+        <>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
             <StepIndex n={1} />
@@ -514,6 +650,8 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             sx: { fontFamily: APP_MONO_FONT_FAMILY, letterSpacing: '0.04em' },
           }}
         />
+        </>
+        )}
 
         {tokenValidationError && (
           <Alert severity="error">{tokenValidationError}</Alert>
@@ -544,7 +682,11 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           onClick={handleSubmitToken}
           variant="contained"
           color="secondary"
-          disabled={submitting || !tokenValue.trim() || !!tokenValidationError}
+          disabled={
+            submitting ||
+            !!tokenValidationError ||
+            (connectMethod === 'credentials' ? !credentialsValue.trim() : !tokenValue.trim())
+          }
           sx={{ textTransform: 'none' }}
         >
           {submitting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Connecting…</> : 'Connect'}

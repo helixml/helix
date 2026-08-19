@@ -145,6 +145,37 @@ uuid the owner's `~/.claude.json` records. So a setup token *does* identify its
 Claude organization; only the email is scope-gated. The "you can't tell whose
 subscription this is" premise does not hold for either credential type.
 
+## Problem 1d: the dialog only offered the credential that hides the account
+
+Setup tokens were the *only* way the UI let you connect Claude, and they are
+precisely the credential that cannot be profiled. Meanwhile the API had always
+accepted `credentials.claudeAiOauth` — the shape of `~/.claude/.credentials.json`
+— and nothing sent it.
+
+Local tools (t3code and friends) never run an OAuth flow of their own: they read
+the credentials `claude login` already wrote on the user's machine. Those tokens
+carry `user:profile`, which is exactly why they can name the account. Helix is a
+server and cannot read the file, but it can accept a paste of it — the same
+affordance Codex already had as "Import auth.json".
+
+### Fix
+
+The connect dialog now offers two methods, defaulting to **Use my Claude
+login**: paste the output of `cat ~/.claude/.credentials.json`.
+`parseClaudeCredentials` accepts either the whole file or the inner
+`claudeAiOauth` object, since people copy both.
+
+Verified live 2026-08-19 by connecting a real credentials file through the API:
+create returns `credential_type=oauth`, and because create already revalidates,
+the profile fetch lands immediately — `account_email=karolis.rusenas@gmail.com`,
+`subscription_type=max`, `rate_limit_tier=default_claude_max_20x`. The org
+providers row went from `Claude org f2f721d7` to
+`karolis.rusenas@gmail.com · Max · 20x`.
+
+So the identity ceiling is a property of the *credential*, not of Helix: setup
+token -> organization uuid only; credentials file -> full account identity.
+The dialog now says so at the point of choice.
+
 ## Problem 2: the liveness probe used a retired model and 404'd
 
 `ProbeClaudeSubscription` pinned `claude-3-5-haiku-latest` (a 2024 model).
