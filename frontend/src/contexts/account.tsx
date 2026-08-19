@@ -15,12 +15,14 @@ import {
   IProviderEndpoint,
 } from '../types'
 import { TypesFrontendLicenseInfo, TypesServerConfigForFrontend } from '../api/api'
+import { clearSelectedOrg } from '../utils/localStorage'
+import { isEmbedRouteName } from '../utils/organizations'
 
 // Embed routes are fullscreen, single-purpose views of one task or session,
 // designed to be iframed on another site. Account-level redirects (onboarding,
 // "you have no organizations") must never fire there: the visitor is not
 // onboarding, and a scoped embed key sees an empty org list by design.
-const isEmbedRoute = (routeName: string) => routeName?.startsWith('embed_')
+const isEmbedRoute = isEmbedRouteName
 
 export interface IAccountContext {
   initialized: boolean,
@@ -262,6 +264,12 @@ export const useAccountContext = (): IAccountContext => {
   const onLogout = useCallback(async () => {
     setLoggingOut(true)
     setUser(undefined)
+
+    // `selected_org` is a per-browser value, not a per-user one. Leaving it
+    // behind navigated the next person to sign in on this browser straight
+    // into an org they have no membership in — a page of 403s and a dead org
+    // switcher — so forget it as part of signing out.
+    clearSelectedOrg()
 
     try {
       // Use redirect: 'manual' to prevent fetch from following cross-origin redirects

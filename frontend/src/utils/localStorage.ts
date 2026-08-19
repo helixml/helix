@@ -65,3 +65,36 @@ export const removeWithTTL = (key: string): void => {
 export const hasValidTTL = (key: string): boolean => {
   return getWithTTL(key) !== null
 }
+
+/**
+ * The selected org is remembered per browser, not per user. Reading and
+ * writing it through these helpers keeps that single source of truth in one
+ * place — in particular so logout can clear it. Leaving a stale slug behind
+ * meant the next user to log in on the same browser was navigated straight
+ * into an org they have no membership in, producing a wall of 403s and a
+ * dead org switcher.
+ */
+export const getSelectedOrg = (): string | undefined => {
+  try {
+    return localStorage.getItem(SELECTED_ORG_STORAGE_KEY) || undefined
+  } catch {
+    return undefined
+  }
+}
+
+export const setSelectedOrg = (orgSlug: string): void => {
+  try {
+    localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgSlug)
+  } catch {
+    // Storage can be unavailable (private mode, quota). Remembering the org is
+    // a convenience, never a correctness requirement.
+  }
+}
+
+export const clearSelectedOrg = (): void => {
+  try {
+    localStorage.removeItem(SELECTED_ORG_STORAGE_KEY)
+  } catch {
+    // See setSelectedOrg.
+  }
+}

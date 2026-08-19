@@ -41,10 +41,14 @@ func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Reque
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 		}
 
-		// Everyone can check balance
+		// Everyone can check balance. A caller who isn't a member has no
+		// membership row, so the store returns ErrNotFound — that is a
+		// permission answer, not a server fault. Returning 500 here made a
+		// stale org slug in the URL look like the API was broken, and it
+		// diverged from every other org-scoped endpoint (which 403s).
 		_, err = s.authorizeOrgMember(req.Context(), user, org.ID)
 		if err != nil {
-			return nil, system.NewHTTPError500(fmt.Sprintf("failed to authorize org owner: %s", err))
+			return nil, system.NewHTTPError403(fmt.Sprintf("user is not a member of organization %s", org.ID))
 		}
 
 		orgID = org.ID

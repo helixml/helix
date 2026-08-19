@@ -53,3 +53,93 @@ export function isUserMemberOfOrganization(
   // User is a member if they have any membership role
   return getUserMembership(organization, userId) !== undefined
 }
+
+/**
+ * Embed routes are a fullscreen, single-purpose view of one task or session,
+ * often iframed on someone else's page. A scoped embed key deliberately
+ * returns an empty org list, so org-recovery redirects must never fire there.
+ */
+export function isEmbedRouteName(routeName?: string): boolean {
+  return Boolean(routeName?.startsWith('embed_'))
+}
+
+export type OrgAccessResolution =
+  /** The org list hasn't loaded yet — decide nothing, clear nothing. */
+  | { status: 'pending' }
+  /** No org in the URL, or the URL org is one the API says we can see. */
+  | { status: 'ok' }
+  /**
+   * The URL names an org that is not in our list: it was deleted, our
+   * membership was revoked, or (the common case) a `selected_org` value left
+   * in localStorage by a previously logged-in user on this browser.
+   * `fallbackOrgSlug` is where to send the user instead; when undefined the
+   * caller should fall back to the org picker.
+   */
+  | { status: 'inaccessible'; fallbackOrgSlug?: string }
+
+/**
+ * Decides whether the org referenced by the current URL is usable by the
+ * signed-in user. The org list from `GET /organizations` is authoritative: for
+ * a normal user it contains exactly their memberships; for an admin it
+ * contains every org (with `member: false` on the ones they don't belong to),
+ * and the API treats admins as members — so "present in the list" is the
+ * correct test for both.
+ */
+export function resolveOrgAccess({
+  orgID,
+  organizations,
+  initialized,
+  routeName,
+}: {
+  orgID?: string
+  organizations: TypesOrganization[]
+  initialized: boolean
+  routeName?: string
+}): OrgAccessResolution {
+  // Never act on a list we haven't loaded — that would evict users from a
+  // perfectly good org on every page load.
+  if (!initialized) return { status: 'pending' }
+  if (isEmbedRouteName(routeName)) return { status: 'ok' }
+  if (!orgID) return { status: 'ok' }
+
+  const match = organizations.find(org => org.id === orgID || org.name === orgID)
+  if (match) return { status: 'ok' }
+
+  return {
+    status: 'inaccessible',
+    fallbackOrgSlug: firstAccessibleOrgSlug(organizations, [orgID]),
+  }
+}
+
+/**
+ * The org to fall back to when the current one turns out to be unusable.
+ * Admins see orgs they aren't a member of (`member === false`); those are a
+ * poor landing choice, so prefer a real membership.
+ *
+ * `excludeOrgRefs` (ids or slugs) are skipped. It matters when the org list
+ * still contains an org we already failed on — membership revoked between the
+ * list load and the detail load — because landing back on it would reload it,
+ * fail again, and redirect again. Excluding every org already known to be bad,
+ * not just the current one, is what stops two such orgs ping-ponging forever.
+ */
+export function firstAccessibleOrgSlug(
+  organizations: TypesOrganization[],
+  excludeOrgRefs: string[] = []
+): string | undefined {
+  return organizations.find(org =>
+    org.member !== false &&
+    org.name &&
+    !excludeOrgRefs.includes(org.id ?? '') &&
+    !excludeOrgRefs.includes(org.name)
+  )?.name
+}
+
+/**
+ * True for the two API answers that mean "this org is not usable by you":
+ * 403 (not a member) and 404 (org gone). Anything else — 401, 500, a network
+ * blip — is transient and must NOT evict the user from their org.
+ */
+export function isOrgAccessDeniedError(error: unknown): boolean {
+  const status = (error as { response?: { status?: number } })?.response?.status
+  return status === 403 || status === 404
+}
