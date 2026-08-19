@@ -19,7 +19,8 @@ import OpenAILogo from '../components/providers/logos/openai';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
 import CodexSubscriptionConnect from '../components/account/CodexSubscriptionConnect';
 import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
-import { formatClaudeAccountIdentity, getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
+import { formatClaudeAccountIdentity, getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils'
+import { formatCodexAccountIdentity } from '../components/account/codexSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
 import CodeAgentHarnessesSection from '../components/providers/CodeAgentHarnessesSection';
 import {
@@ -97,7 +98,13 @@ const Providers: React.FC = () => {
     if (runtime === 'codex_cli') {
       const subscription = effectiveCodexSubscription
       if (!subscription) return undefined
-      return [subscription.name, 'ChatGPT Subscription'].filter(Boolean).join(' · ')
+      return formatCodexAccountIdentity({
+        accountEmail: subscription.account_email,
+        accountName: subscription.account_display_name,
+        accountId: subscription.account_id,
+        fallbackName: subscription.name,
+        plan: subscription.plan_type,
+      }) || undefined
     }
     return undefined
   }

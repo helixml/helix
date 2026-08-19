@@ -30152,6 +30152,13 @@ const docTemplate = `{
         "types.CodexSubscription": {
             "type": "object",
             "properties": {
+                "account_display_name": {
+                    "type": "string"
+                },
+                "account_email": {
+                    "description": "Identity of the ChatGPT account the stored credential authenticates as,\nread from claims OpenAI signed in the id_token (verified against their\nJWKS — never from user input). Distinct from OwnerID, which is the Helix\nuser/org that connected it.",
+                    "type": "string"
+                },
                 "account_id": {
                     "type": "string"
                 },
@@ -30181,6 +30188,10 @@ const docTemplate = `{
                 },
                 "owner_type": {
                     "$ref": "#/definitions/types.OwnerType"
+                },
+                "plan_type": {
+                    "description": "PlanType is OpenAI's chatgpt_plan_type (\"pro\", \"plus\", \"team\", …).",
+                    "type": "string"
                 },
                 "status": {
                     "type": "string"

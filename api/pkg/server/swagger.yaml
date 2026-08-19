@@ -5125,6 +5125,15 @@ definitions:
     type: object
   types.CodexSubscription:
     properties:
+      account_display_name:
+        type: string
+      account_email:
+        description: |-
+          Identity of the ChatGPT account the stored credential authenticates as,
+          read from claims OpenAI signed in the id_token (verified against their
+          JWKS — never from user input). Distinct from OwnerID, which is the Helix
+          user/org that connected it.
+        type: string
       account_id:
         type: string
       auth_mode:
@@ -5145,6 +5154,10 @@ definitions:
         type: string
       owner_type:
         $ref: '#/definitions/types.OwnerType'
+      plan_type:
+        description: PlanType is OpenAI's chatgpt_plan_type ("pro", "plus", "team",
+          …).
+        type: string
       status:
         type: string
       updated:

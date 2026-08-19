@@ -3277,6 +3277,14 @@ export interface TypesCodexAuthTokens {
 }
 
 export interface TypesCodexSubscription {
+  account_display_name?: string;
+  /**
+   * Identity of the ChatGPT account the stored credential authenticates as,
+   * read from claims OpenAI signed in the id_token (verified against their
+   * JWKS — never from user input). Distinct from OwnerID, which is the Helix
+   * user/org that connected it.
+   */
+  account_email?: string;
   account_id?: string;
   auth_mode?: string;
   created?: string;
@@ -3287,6 +3295,8 @@ export interface TypesCodexSubscription {
   name?: string;
   owner_id?: string;
   owner_type?: TypesOwnerType;
+  /** PlanType is OpenAI's chatgpt_plan_type ("pro", "plus", "team", …). */
+  plan_type?: string;
   status?: string;
   updated?: string;
 }

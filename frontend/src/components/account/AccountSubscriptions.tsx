@@ -8,6 +8,7 @@ import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from './ClaudeSubsc
 import CodexSubscriptionConnect from './CodexSubscriptionConnect'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import { formatClaudeAccountIdentity, getTokenExpiryStatus } from './claudeSubscriptionUtils'
+import { formatCodexAccountIdentity } from './codexSubscriptionUtils'
 import useLightTheme from '../../hooks/useLightTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
 
@@ -53,7 +54,22 @@ const AccountSubscriptions: FC = () => {
 
   const claudeHealth: HarnessHealth = !claudeSub ? 'unavailable' : claudeIsExpired ? 'attention' : 'ready'
 
-  const codexStatus = codexLoading ? 'Loading…' : codexSub ? 'Connected' : 'Not connected'
+  // The ChatGPT account OpenAI's signed id_token attests, same treatment as
+  // the Claude row above.
+  const codexIdentity = codexSub
+    ? formatCodexAccountIdentity({
+        accountEmail: codexSub.account_email,
+        accountName: codexSub.account_display_name,
+        accountId: codexSub.account_id,
+        plan: codexSub.plan_type,
+      })
+    : ''
+
+  const codexStatus = codexLoading
+    ? 'Loading…'
+    : !codexSub
+      ? 'Not connected'
+      : codexIdentity || 'Connected'
   const codexHealth: HarnessHealth = codexSub ? 'ready' : 'unavailable'
 
   return (

@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -116,12 +117,14 @@ func (apiServer *HelixAPIServer) createCodexSubscription(_ http.ResponseWriter, 
 	if name == "" {
 		name = "My Codex Subscription"
 	}
-	sub, err := apiServer.Store.CreateCodexSubscription(req.Context(), &types.CodexSubscription{
+	row := &types.CodexSubscription{
 		OwnerID: ownerID, OwnerType: ownerType, Name: name,
 		EncryptedCredentials: encrypted, AccountID: credentials.Tokens.AccountID,
 		AuthMode: credentials.AuthMode, Status: "active", LastRefreshedAt: &credentials.LastRefresh,
 		CreatedBy: user.ID,
-	})
+	}
+	applyCodexIdentity(req.Context(), row, credentials)
+	sub, err := apiServer.Store.CreateCodexSubscription(req.Context(), row)
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to create subscription: " + err.Error())
 	}
@@ -157,6 +160,52 @@ func normalizeCodexSubscriptionCredentials(credentials *types.CodexAuthCredentia
 // @Success 200 {array} types.CodexSubscription
 // @Security BearerAuth
 // @Router /api/v1/codex-subscriptions [get]
+// applyCodexIdentity stamps the ChatGPT account a credential attests onto the
+// row. Best-effort: a JWKS fetch failure or an unsigned token leaves the row
+// without an identity rather than blocking the connection — the credential is
+// still perfectly usable, we just cannot say whose it is.
+func applyCodexIdentity(ctx context.Context, sub *types.CodexSubscription, credentials types.CodexAuthCredentials) {
+	identity, err := openai.ParseCodexIdentity(ctx, credentials.Tokens.IDToken)
+	if err != nil {
+		log.Debug().Str("detail", err.Error()).Msg("Codex identity unavailable; subscription stays unnamed")
+		return
+	}
+	sub.AccountEmail = identity.AccountEmail
+	sub.AccountDisplayName = identity.AccountName
+	sub.PlanType = identity.PlanType
+	if identity.AccountID != "" {
+		sub.AccountID = identity.AccountID
+	}
+}
+
+// backfillCodexIdentity names a row connected before identities were derived,
+// and rows whose token was refreshed since. Persisting means the JWKS fetch
+// happens once per row, not on every list.
+func (apiServer *HelixAPIServer) backfillCodexIdentity(ctx context.Context, sub *types.CodexSubscription) {
+	if sub == nil || sub.AccountEmail != "" {
+		return
+	}
+	key, err := crypto.GetEncryptionKey()
+	if err != nil {
+		return
+	}
+	plaintext, err := crypto.DecryptAES256GCM(sub.EncryptedCredentials, key)
+	if err != nil {
+		return
+	}
+	var credentials types.CodexAuthCredentials
+	if err := json.Unmarshal(plaintext, &credentials); err != nil {
+		return
+	}
+	applyCodexIdentity(ctx, sub, credentials)
+	if sub.AccountEmail == "" {
+		return
+	}
+	if _, err := apiServer.Store.UpdateCodexSubscription(ctx, sub); err != nil {
+		log.Warn().Err(err).Str("subscription_id", sub.ID).Msg("failed to persist Codex identity")
+	}
+}
+
 func (apiServer *HelixAPIServer) listCodexSubscriptions(_ http.ResponseWriter, req *http.Request) ([]*types.CodexSubscription, *system.HTTPError) {
 	user := getRequestUser(req)
 	if user == nil {
@@ -176,6 +225,9 @@ func (apiServer *HelixAPIServer) listCodexSubscriptions(_ http.ResponseWriter, r
 			}
 			subs = append(subs, orgSubs...)
 		}
+	}
+	for _, sub := range subs {
+		apiServer.backfillCodexIdentity(req.Context(), sub)
 	}
 	return subs, nil
 }
@@ -514,11 +566,13 @@ func (apiServer *HelixAPIServer) createCodexSubscriptionFromCredentials(ctx cont
 	if err != nil {
 		return nil, err
 	}
-	subscription, err := apiServer.Store.CreateCodexSubscription(ctx, &types.CodexSubscription{
+	row := &types.CodexSubscription{
 		OwnerID: userID, OwnerType: types.OwnerTypeUser, Name: "My Codex Subscription",
 		EncryptedCredentials: encrypted, AccountID: credentials.Tokens.AccountID, AuthMode: credentials.AuthMode,
 		Status: "active", LastRefreshedAt: &credentials.LastRefresh, CreatedBy: userID,
-	})
+	}
+	applyCodexIdentity(ctx, row, credentials)
+	subscription, err := apiServer.Store.CreateCodexSubscription(ctx, row)
 	if err != nil {
 		return nil, err
 	}
