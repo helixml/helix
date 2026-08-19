@@ -1242,8 +1242,8 @@ export interface ServerAppClaudeSubscriptionStatus {
   /** "user" or "org" — where the effective sub resolved */
   subscription_owner_type?: string;
   /**
-   * SubscriptionRateLimitTier is the Claude org's rate-limit tier (e.g. "20x"),
-   * empty when unknown.
+   * SubscriptionRateLimitTier is the Claude org's rate-limit tier as Anthropic
+   * reports it, e.g. "default_claude_max_20x"; empty when unknown.
    */
   subscription_rate_limit_tier?: string;
   /**

@@ -19,6 +19,41 @@ Ground truth (extracted from the Claude Code CLI v2.1.234 bundle):
   `claude_enterprise→enterprise`, `claude_team→team`. The CLI persists
   `account.email` in its config as `oauthAccount.emailAddress`.
 
+### Confirmed live, 2026-08-19
+
+The endpoint was previously inferred from the CLI bundle. It has now been called
+directly with a real Claude Code OAuth access token (`sk-ant-oat01…`, scopes
+include `user:profile`) and returns **HTTP 200**:
+
+```json
+{
+  "account":      { "email": "<redacted>", "display_name": "…",
+                    "has_claude_max": true, "has_claude_pro": false },
+  "organization": { "name": "…'s Organization", "organization_type": "claude_max",
+                    "rate_limit_tier": "default_claude_max_20x",
+                    "subscription_status": "active" },
+  "application":  { "name": "Claude Code", "slug": "claude-code" }
+}
+```
+
+Every field name `claudeProfileResponse` parses matches verbatim. So the owner
+of an OAuth-connected Claude subscription **is** inspectable — the claim that it
+is not holds only for setup tokens (the scope wall in Problem 1b), not for the
+oauth credential flow.
+
+Two corroborations on any machine with the CLI logged in:
+
+- `~/.claude/.credentials.json` already carries `subscriptionType` and
+  `rateLimitTier` alongside the tokens.
+- `~/.claude.json` → `oauthAccount` is the CLI's cache of this exact call
+  (`emailAddress`, `organizationType`, `organizationRateLimitTier`,
+  `profileFetchedAt`).
+
+Note the tier is an internal slug — `default_claude_max_20x`, not `20x`.
+`formatRateLimitTier()` reduces it to the multiplier for display and drops
+slugs that carry none (`default_claude_pro` → nothing), so the UI never leaks
+Anthropic jargon.
+
 Helix never called this endpoint, so no email/plan/tier ever existed on the row
 for setup-token connections (credentials file flow did carry `subscriptionType`
 /`rateLimitTier`, but a setup token carries none of that).

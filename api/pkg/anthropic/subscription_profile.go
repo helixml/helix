@@ -26,16 +26,17 @@ type ClaudeProfile struct {
 	// Plan is the mapped organization plan ("pro", "max", "team",
 	// "enterprise"); empty when the organization type is unknown.
 	Plan string
-	// RateLimitTier is the org's rate-limit tier (e.g. "20x").
+	// RateLimitTier is the org's rate-limit tier as Anthropic reports it,
+	// e.g. "default_claude_max_20x" — not a bare multiplier.
 	RateLimitTier string
 }
 
 // organization type -> plan label, mirroring the cc CLI's mapping.
 var organizationTypeToPlan = map[string]string{
-	"claude_max":       "max",
-	"claude_pro":       "pro",
+	"claude_max":        "max",
+	"claude_pro":        "pro",
 	"claude_enterprise": "enterprise",
-	"claude_team":      "team",
+	"claude_team":       "team",
 }
 
 type claudeProfileResponse struct {

@@ -270,12 +270,12 @@ const claudeSubscriptionStatusMaxAge = 5 * time.Minute
 // a working subscription connected. Backs the "whose subscription" callout and
 // the cross-user warning in agent settings.
 type AppClaudeSubscriptionStatus struct {
-	Connected             bool       `json:"connected"`                         // owner has a subscription connected at all
-	Valid                 bool       `json:"valid"`                             // that subscription passed its last liveness probe
-	OwnerID               string     `json:"owner_id"`                          // app owner (the likely session owner)
-	OwnerName             string     `json:"owner_name"`                        // human-readable owner (email / full name)
-	IsCurrentUser         bool       `json:"is_current_user"`                   // true when the editor IS the owner
-	SubscriptionOwnerType string     `json:"subscription_owner_type,omitempty"` // "user" or "org" — where the effective sub resolved
+	Connected             bool   `json:"connected"`                         // owner has a subscription connected at all
+	Valid                 bool   `json:"valid"`                             // that subscription passed its last liveness probe
+	OwnerID               string `json:"owner_id"`                          // app owner (the likely session owner)
+	OwnerName             string `json:"owner_name"`                        // human-readable owner (email / full name)
+	IsCurrentUser         bool   `json:"is_current_user"`                   // true when the editor IS the owner
+	SubscriptionOwnerType string `json:"subscription_owner_type,omitempty"` // "user" or "org" — where the effective sub resolved
 	// Identity of the Claude subscription itself, populated when Connected.
 	// SubscriptionType is the plan ("pro" / "max"), empty for setup-token
 	// connections where the plan is unknown.
@@ -293,14 +293,14 @@ type AppClaudeSubscriptionStatus struct {
 	SubscriptionOwnerID            string `json:"subscription_owner_id,omitempty"`
 	SubscriptionOwnerName          string `json:"subscription_owner_name,omitempty"`
 	SubscriptionOwnerIsCurrentUser bool   `json:"subscription_owner_is_current_user"`
-	// SubscriptionRateLimitTier is the Claude org's rate-limit tier (e.g. "20x"),
-	// empty when unknown.
-	SubscriptionRateLimitTier string `json:"subscription_rate_limit_tier,omitempty"`
-	ClaudeAccountEmail        string `json:"claude_account_email,omitempty"`
-	ClaudeAccountName         string `json:"claude_account_name,omitempty"`
-	Status                string     `json:"status,omitempty"`
-	LastValidatedAt       *time.Time `json:"last_validated_at,omitempty"`
-	LastError             string     `json:"last_error,omitempty"`
+	// SubscriptionRateLimitTier is the Claude org's rate-limit tier as Anthropic
+	// reports it, e.g. "default_claude_max_20x"; empty when unknown.
+	SubscriptionRateLimitTier string     `json:"subscription_rate_limit_tier,omitempty"`
+	ClaudeAccountEmail        string     `json:"claude_account_email,omitempty"`
+	ClaudeAccountName         string     `json:"claude_account_name,omitempty"`
+	Status                    string     `json:"status,omitempty"`
+	LastValidatedAt           *time.Time `json:"last_validated_at,omitempty"`
+	LastError                 string     `json:"last_error,omitempty"`
 }
 
 // @Summary Get the Claude subscription status for an agent's owner

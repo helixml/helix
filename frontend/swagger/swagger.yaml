@@ -1911,8 +1911,8 @@ definitions:
         type: string
       subscription_rate_limit_tier:
         description: |-
-          SubscriptionRateLimitTier is the Claude org's rate-limit tier (e.g. "20x"),
-          empty when unknown.
+          SubscriptionRateLimitTier is the Claude org's rate-limit tier as Anthropic
+          reports it, e.g. "default_claude_max_20x"; empty when unknown.
         type: string
       subscription_type:
         description: |-
