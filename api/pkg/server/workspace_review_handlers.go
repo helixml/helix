@@ -1,11 +1,13 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/types"
@@ -103,6 +105,40 @@ func (apiServer *HelixAPIServer) getWorkspaceFiles(w http.ResponseWriter, req *h
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getWorkspaceFile(w http.ResponseWriter, req *http.Request) {
 	apiServer.proxyAuthorizedWorkspaceGET(w, req, "/workspace/file", &types.WorkspaceFileResponse{})
+}
+
+// downloadWorkspaceFile streams a complete, binary-safe workspace file from the task desktop.
+func (apiServer *HelixAPIServer) downloadWorkspaceFile(w http.ResponseWriter, req *http.Request) {
+	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, types.ActionGet)
+	if !ok {
+		return
+	}
+	conn, err := apiServer.dialDesktop(req.Context(), session.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer conn.Close()
+	applyDesktopDeadline(req.Context(), conn)
+	desktopURL := &url.URL{Scheme: "http", Host: "localhost:9876", Path: "/workspace/file/download", RawQuery: req.URL.RawQuery}
+	desktopReq, err := http.NewRequestWithContext(req.Context(), http.MethodGet, desktopURL.String(), nil)
+	if err != nil || desktopReq.Write(conn) != nil {
+		http.Error(w, "failed to request workspace file", http.StatusBadGateway)
+		return
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), desktopReq)
+	if err != nil {
+		http.Error(w, "failed to read workspace file", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	for _, header := range []string{"Content-Type", "Content-Length", "Content-Disposition", "Last-Modified", "X-Content-Type-Options"} {
+		if value := resp.Header.Get(header); value != "" {
+			w.Header().Set(header, value)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 // putWorkspaceFile godoc

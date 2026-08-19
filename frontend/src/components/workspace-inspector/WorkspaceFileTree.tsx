@@ -13,7 +13,8 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { ClipboardCopy, Copy, RefreshCw, Search, X } from "lucide-react";
+import { ClipboardCopy, Copy, Download, RefreshCw, Search, X } from "lucide-react";
+import axios from "axios";
 import type { TypesWorkspaceFileEntry } from "../../api/api";
 import useSnackbar from "../../hooks/useSnackbar";
 import { matchesAllTokens } from "../../utils/searchUtils";
@@ -122,6 +123,29 @@ const WorkspaceFileContextMenu: FC<WorkspaceFileContextMenuProps> = ({
     }
   };
 
+  const downloadFile = async () => {
+    try {
+      const params = new URLSearchParams({ path: item.path });
+      if (workspace) params.set("workspace", workspace);
+      const response = await axios.get(
+        `/api/v1/external-agents/${encodeURIComponent(sessionId)}/workspace-file/download?${params}`,
+        { responseType: "blob" },
+      );
+      const objectURL = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = objectURL;
+      link.download = item.path.split("/").pop() || "download";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectURL), 0);
+    } catch {
+      snackbar.error("Could not download file");
+    } finally {
+      context.close();
+    }
+  };
+
   const contentsLabel = fileQuery.isLoading
     ? "Loading contents…"
     : fileQuery.isError
@@ -148,6 +172,12 @@ const WorkspaceFileContextMenu: FC<WorkspaceFileContextMenuProps> = ({
         <ListItemIcon><Copy size={15} /></ListItemIcon>
         {workspacePath ? "Copy full path" : "Workspace path unavailable"}
       </MenuItem>
+      {item.kind === "file" && (
+        <MenuItem onClick={downloadFile}>
+          <ListItemIcon><Download size={15} /></ListItemIcon>
+          Download
+        </MenuItem>
+      )}
       {item.kind === "file" && (
         <MenuItem
           onClick={copyContents}

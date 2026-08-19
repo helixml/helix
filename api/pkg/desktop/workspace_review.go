@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -260,6 +261,41 @@ func (s *Server) handleWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 		Workspace: workspace, Path: rel, Contents: content, ByteLength: size,
 		ContentHash: hashString(content), Truncated: truncated, Binary: binary,
 	})
+}
+
+func (s *Server) handleWorkspaceFileDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	workDir, _, err := resolveReviewWorkspace(r.URL.Query().Get("workspace"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	resolved, rel, err := resolveWorkspaceFile(workDir, r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !workspaceFileIsBrowsable(r.Context(), workDir, rel) {
+		http.Error(w, "path is not a browsable workspace file", http.StatusBadRequest)
+		return
+	}
+	file, err := os.Open(resolved)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("open workspace file: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		http.Error(w, "path is not a regular file", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(rel)}))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, filepath.Base(rel), info.ModTime(), file)
 }
 
 func (s *Server) handleWorkspaceFileWrite(w http.ResponseWriter, r *http.Request) {
