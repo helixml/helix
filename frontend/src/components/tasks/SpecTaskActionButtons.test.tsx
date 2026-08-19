@@ -119,3 +119,41 @@ describe.each(["inline", "stacked"] as const)(
     });
   },
 );
+
+// sandbox_state is REQUIRED on SpecTaskForActions, and this is what keeps it
+// that way. Every test above supplies it, which is precisely why the suite
+// stayed green while both real call sites — SpecTaskDetailContent.renderTaskActions
+// and TaskCard — rebuilt the task as a subset object and dropped it. An absent
+// field reads as "sandbox stopped", which disabled Open PR while Reject (which
+// does not consult it) stayed enabled: the button was permanently grey on
+// desktop and mobile alike, with no way to merge from the UI.
+//
+// If someone makes the field optional again, the @ts-expect-error below becomes
+// an unused suppression and the type-check fails. That is deliberate: this class
+// of bug is invisible to a runtime test that constructs its own fixtures.
+describe("SpecTaskForActions", () => {
+  it("requires sandbox_state so a call site cannot silently omit it", () => {
+    // @ts-expect-error - sandbox_state is required and deliberately missing here
+    const missingSandboxState: SpecTaskForActions = {
+      id: "spt_1",
+      status: "implementation",
+      branch_name: "feature/x",
+      base_branch: "main",
+      last_push_at: "2026-08-19T11:18:13.000Z",
+    };
+    expect(missingSandboxState.id).toBe("spt_1");
+  });
+
+  // The production case from 2026-08-19: the agent had pushed and the sandbox
+  // was live, but the call site never forwarded sandbox_state.
+  it("enables Open PR when the sandbox is running and the agent has pushed", () => {
+    render(
+      <SpecTaskActionButtons
+        task={implementationTask({ sandbox_state: "running" })}
+        hasExternalRepo
+        externalRepoType="github"
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Open PR/i })).toBeEnabled();
+  });
+});
