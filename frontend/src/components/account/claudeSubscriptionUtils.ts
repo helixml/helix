@@ -69,21 +69,38 @@ export function formatRateLimitTier(tier?: string | null): string {
   return trimmed.includes('_') ? '' : trimmed
 }
 
+// Setup tokens cannot be profiled, so they have no email — but Anthropic does
+// return an organization uuid on every probe. Its first segment is enough to
+// tell two subscriptions apart, or recognise them as the same one.
+export function formatClaudeOrganizationRef(organizationId?: string | null): string {
+  const trimmed = (organizationId || '').trim()
+  if (!trimmed) return ''
+  return `Claude org ${trimmed.split('-')[0]}`
+}
+
 // Shared identity line for a Claude subscription: the Claude account the
 // token authenticates as (the billed identity), then plan and rate-limit
 // tier — e.g. "phil@winder.ai · Max · 20x". Both the agent-settings caption
 // and the account-settings pills render through this so they cannot drift.
-// `fallbackName` (typically the Helix user who connected the subscription)
-// is shown only when the Claude account is unknown; empty string when
-// nothing at all is known.
+//
+// Precedence is strongest-evidence-first. Everything above `fallbackName` is
+// something Anthropic told us about the *Claude* account; `fallbackName` (the
+// Helix user who connected the subscription) is a different fact entirely and
+// only stands in when Anthropic told us nothing. Empty when nothing is known.
 export function formatClaudeAccountIdentity(input: {
   accountEmail?: string | null
   accountName?: string | null
+  organizationId?: string | null
   fallbackName?: string | null
   plan?: string | null
   tier?: string | null
 }): string {
-  const account = input.accountEmail || input.accountName || input.fallbackName || ''
+  const account =
+    input.accountEmail ||
+    input.accountName ||
+    formatClaudeOrganizationRef(input.organizationId) ||
+    input.fallbackName ||
+    ''
   const plan = input.plan
     ? input.plan.charAt(0).toUpperCase() + input.plan.slice(1)
     : ''

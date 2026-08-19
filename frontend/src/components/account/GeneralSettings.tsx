@@ -5,7 +5,7 @@ import Grid from '@mui/material/Grid'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 
-import ClaudeSubscription from './ClaudeSubscription'
+import AccountSubscriptions from './AccountSubscriptions'
 import QuotaListView from '../quota/QuotaListView'
 import TokenUsage from '../usage/TokenUsage'
 import TotalCost from '../usage/TotalCost'
@@ -76,7 +76,7 @@ const GeneralSettings: FC<GeneralSettingsProps> = ({ onOpenPasswordDialog }) => 
         </Grid>
       </Grid>
 
-      <ClaudeSubscription />
+      <AccountSubscriptions />
 
       <Grid container spacing={2} sx={{ mt: 2, backgroundColor: panelBg, p: 2, borderRadius: 2 }}>
         <Grid item xs={12}>

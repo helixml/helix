@@ -1225,6 +1225,12 @@ export interface ServerAgentStartupErrorResponse {
 export interface ServerAppClaudeSubscriptionStatus {
   claude_account_email?: string;
   claude_account_name?: string;
+  /**
+   * ClaudeOrganizationID is Anthropic's organization uuid for the credential.
+   * Populated for setup tokens too, which cannot be profiled — it lets the UI
+   * say "this is the same subscription as X" without anyone typing anything.
+   */
+  claude_organization_id?: string;
   /** owner has a subscription connected at all */
   connected?: boolean;
   /** true when the editor IS the owner */
@@ -2975,6 +2981,14 @@ export interface TypesClaudeSubscription {
    * has enriched the row.
    */
   account_email?: string;
+  /**
+   * ClaudeOrganizationID is Anthropic's organization uuid for the credential,
+   * captured from the anthropic-organization-id header on the liveness probe.
+   * Unlike AccountEmail it needs no OAuth scope, so it is populated for setup
+   * tokens too — it is the only *verified* identity a setup token discloses.
+   * Two subscriptions sharing it are the same Claude subscription.
+   */
+  claude_organization_id?: string;
   created?: string;
   created_by?: string;
   /** "oauth" or "setup_token" */
@@ -3360,13 +3374,11 @@ export interface TypesCreateBranchResponse {
 
 export interface TypesCreateClaudeSubscriptionRequest {
   /**
-   * AccountEmail is the self-reported email of the Claude account the token
-   * belongs to. Anthropic's /api/oauth/profile only serves account identity
-   * to tokens holding the user:profile scope — setup tokens never do, so for
-   * those the user must report it (or leave it empty). A successful profile
-   * fetch during validation overwrites this with the authoritative value.
+   * Account identity is never accepted from the caller. It is derived from
+   * Anthropic: the profile fetch for oauth credentials, and the probe's
+   * organization header for setup tokens. Self-reported identity was
+   * unverifiable free text that rendered next to agents as if authoritative.
    */
-  account_email?: string;
   credentials?: {
     claudeAiOauth?: TypesClaudeOAuthCredentials;
   };
@@ -3380,12 +3392,8 @@ export interface TypesCreateClaudeSubscriptionRequest {
   owner_id?: string;
   /** "user" or "org" */
   owner_type?: TypesOwnerType;
-  /** Optional: e.g. "20x" */
-  rate_limit_tier?: string;
   /** From `claude setup-token` (alternative to credentials) */
   setup_token?: string;
-  /** Optional: fills the plan for tokens whose credentials carry none (setup tokens) */
-  subscription_type?: string;
 }
 
 export interface TypesCreateCodexSubscriptionRequest {

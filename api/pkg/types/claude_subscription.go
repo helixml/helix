@@ -43,6 +43,13 @@ type ClaudeSubscription struct {
 	AccountEmail       string `json:"account_email"`
 	AccountDisplayName string `json:"account_display_name"`
 
+	// ClaudeOrganizationID is Anthropic's organization uuid for the credential,
+	// captured from the anthropic-organization-id header on the liveness probe.
+	// Unlike AccountEmail it needs no OAuth scope, so it is populated for setup
+	// tokens too — it is the only *verified* identity a setup token discloses.
+	// Two subscriptions sharing it are the same Claude subscription.
+	ClaudeOrganizationID string `json:"claude_organization_id"`
+
 	LastRefreshedAt *time.Time `json:"last_refreshed_at,omitempty"`
 	LastValidatedAt *time.Time `json:"last_validated_at,omitempty"` // last time the token was liveness-probed against Anthropic
 	LastError       string     `json:"last_error,omitempty"`
@@ -75,15 +82,11 @@ type CreateClaudeSubscriptionRequest struct {
 	// after connection. It is independent from subscription ownership.
 	OrganizationID string `json:"organization_id,omitempty"`
 	SetupToken     string `json:"setup_token,omitempty"` // From `claude setup-token` (alternative to credentials)
-	// AccountEmail is the self-reported email of the Claude account the token
-	// belongs to. Anthropic's /api/oauth/profile only serves account identity
-	// to tokens holding the user:profile scope — setup tokens never do, so for
-	// those the user must report it (or leave it empty). A successful profile
-	// fetch during validation overwrites this with the authoritative value.
-	AccountEmail     string `json:"account_email,omitempty"`
-	SubscriptionType string `json:"subscription_type,omitempty"` // Optional: fills the plan for tokens whose credentials carry none (setup tokens)
-	RateLimitTier    string `json:"rate_limit_tier,omitempty"`   // Optional: e.g. "20x"
-	Credentials      struct {
+	// Account identity is never accepted from the caller. It is derived from
+	// Anthropic: the profile fetch for oauth credentials, and the probe's
+	// organization header for setup tokens. Self-reported identity was
+	// unverifiable free text that rendered next to agents as if authoritative.
+	Credentials struct {
 		ClaudeAiOauth ClaudeOAuthCredentials `json:"claudeAiOauth"`
 	} `json:"credentials"`
 }

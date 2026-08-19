@@ -109,14 +109,8 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 			return nil, system.NewHTTPError500("failed to encrypt credentials")
 		}
 		credentialType = "setup_token"
-		// Setup tokens carry no plan/tier in their (absent) credentials file,
-		// so accept the self-reported values here.
-		if subscriptionType == "" {
-			subscriptionType = strings.TrimSpace(createReq.SubscriptionType)
-		}
-		if rateLimitTier == "" {
-			rateLimitTier = strings.TrimSpace(createReq.RateLimitTier)
-		}
+		// Setup tokens carry no plan/tier and cannot be profiled. Identity comes
+		// from the probe's organization header on first validation, not the user.
 	} else {
 		// OAuth credentials flow (from in-container browser auth)
 		creds := createReq.Credentials.ClaudeAiOauth
@@ -138,12 +132,6 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		credentialType = "oauth"
 		subscriptionType = creds.SubscriptionType
 		rateLimitTier = creds.RateLimitTier
-		if subscriptionType == "" {
-			subscriptionType = strings.TrimSpace(createReq.SubscriptionType)
-		}
-		if rateLimitTier == "" {
-			rateLimitTier = strings.TrimSpace(createReq.RateLimitTier)
-		}
 		scopes = creds.Scopes
 		if creds.ExpiresAt > 0 {
 			expiresAt = time.UnixMilli(creds.ExpiresAt)
@@ -168,7 +156,6 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		SubscriptionType:     subscriptionType,
 		RateLimitTier:        rateLimitTier,
 		Scopes:               scopes,
-		AccountEmail:         strings.TrimSpace(createReq.AccountEmail),
 		AccessTokenExpiresAt: expiresAt,
 		Status:               "active",
 		CreatedBy:            user.ID,
@@ -216,9 +203,16 @@ func (apiServer *HelixAPIServer) revalidateClaudeSubscription(ctx context.Contex
 	if sub == nil {
 		return sub
 	}
-	result, detail, token := anthropic.ValidateSubscription(ctx, sub)
+	probe := anthropic.ValidateSubscription(ctx, sub)
 	now := time.Now()
-	switch result {
+	// Anthropic returns the organization uuid on every probe response, whatever
+	// the token's scopes — so this is the identity that works for setup tokens.
+	// Only ever widen it: an inconclusive probe that never reached Anthropic
+	// must not wipe a previously captured id.
+	if probe.OrganizationID != "" {
+		sub.ClaudeOrganizationID = probe.OrganizationID
+	}
+	switch probe.Result {
 	case anthropic.ProbeValid:
 		sub.Status = "active"
 		sub.LastError = ""
@@ -230,7 +224,7 @@ func (apiServer *HelixAPIServer) revalidateClaudeSubscription(ctx context.Contex
 		// /api/oauth/profile requires any_of(user:profile, user:office), so the
 		// fetch would 403 by construction (verified against real Anthropic).
 		if sub.CredentialType != "setup_token" {
-			if profile, err := anthropic.FetchClaudeProfile(ctx, token); err != nil {
+			if profile, err := anthropic.FetchClaudeProfile(ctx, probe.Token); err != nil {
 				log.Debug().Str("subscription_id", sub.ID).Str("detail", err.Error()).Msg("Claude profile fetch failed; identity unchanged")
 			} else {
 				sub.AccountEmail = profile.AccountEmail
@@ -245,12 +239,12 @@ func (apiServer *HelixAPIServer) revalidateClaudeSubscription(ctx context.Contex
 		}
 	case anthropic.ProbeInvalid:
 		sub.Status = "error"
-		sub.LastError = detail
+		sub.LastError = probe.Detail
 		sub.LastValidatedAt = &now
 	case anthropic.ProbeInconclusive:
 		// Leave Status/LastError as-is; record that we tried.
 		sub.LastValidatedAt = &now
-		log.Debug().Str("subscription_id", sub.ID).Str("detail", detail).Msg("Claude subscription probe inconclusive")
+		log.Debug().Str("subscription_id", sub.ID).Str("detail", probe.Detail).Msg("Claude subscription probe inconclusive")
 	}
 	updated, err := apiServer.Store.UpdateClaudeSubscription(ctx, sub)
 	if err != nil {
@@ -295,12 +289,16 @@ type AppClaudeSubscriptionStatus struct {
 	SubscriptionOwnerIsCurrentUser bool   `json:"subscription_owner_is_current_user"`
 	// SubscriptionRateLimitTier is the Claude org's rate-limit tier as Anthropic
 	// reports it, e.g. "default_claude_max_20x"; empty when unknown.
-	SubscriptionRateLimitTier string     `json:"subscription_rate_limit_tier,omitempty"`
-	ClaudeAccountEmail        string     `json:"claude_account_email,omitempty"`
-	ClaudeAccountName         string     `json:"claude_account_name,omitempty"`
-	Status                    string     `json:"status,omitempty"`
-	LastValidatedAt           *time.Time `json:"last_validated_at,omitempty"`
-	LastError                 string     `json:"last_error,omitempty"`
+	SubscriptionRateLimitTier string `json:"subscription_rate_limit_tier,omitempty"`
+	ClaudeAccountEmail        string `json:"claude_account_email,omitempty"`
+	ClaudeAccountName         string `json:"claude_account_name,omitempty"`
+	// ClaudeOrganizationID is Anthropic's organization uuid for the credential.
+	// Populated for setup tokens too, which cannot be profiled — it lets the UI
+	// say "this is the same subscription as X" without anyone typing anything.
+	ClaudeOrganizationID string     `json:"claude_organization_id,omitempty"`
+	Status               string     `json:"status,omitempty"`
+	LastValidatedAt      *time.Time `json:"last_validated_at,omitempty"`
+	LastError            string     `json:"last_error,omitempty"`
 }
 
 // @Summary Get the Claude subscription status for an agent's owner
@@ -361,6 +359,18 @@ func (apiServer *HelixAPIServer) getAppClaudeSubscriptionStatus(_ http.ResponseW
 	status.SubscriptionOwnerIsCurrentUser = sub.OwnerType == types.OwnerTypeUser && sub.OwnerID == user.ID
 	status.ClaudeAccountEmail = sub.AccountEmail
 	status.ClaudeAccountName = sub.AccountDisplayName
+	status.ClaudeOrganizationID = sub.ClaudeOrganizationID
+	// A setup token can never be profiled, but it does report its Claude org.
+	// If a subscription visible in this same context (the app owner's, or the
+	// app org's) has been profiled and sits on that org, it is by definition
+	// the same Claude account — so name it. Scoped to already-visible rows on
+	// purpose: a global lookup would leak an unrelated org's email.
+	if status.ClaudeAccountEmail == "" && sub.ClaudeOrganizationID != "" {
+		if email, name := apiServer.claudeIdentityForOrg(req.Context(), sub.ClaudeOrganizationID, app.Owner, app.OrganizationID); email != "" {
+			status.ClaudeAccountEmail = email
+			status.ClaudeAccountName = name
+		}
+	}
 	if sub.OwnerType == types.OwnerTypeUser {
 		status.SubscriptionOwnerName = apiServer.displayNameForUser(req.Context(), sub.OwnerID)
 	} else if org, err := apiServer.lookupOrg(req.Context(), sub.OwnerID); err == nil && org != nil {
@@ -370,6 +380,32 @@ func (apiServer *HelixAPIServer) getAppClaudeSubscriptionStatus(_ http.ResponseW
 	status.LastValidatedAt = sub.LastValidatedAt
 	status.LastError = sub.LastError
 	return status, nil
+}
+
+// claudeIdentityForOrg finds the account email already known for an Anthropic
+// organization uuid, looking only at subscriptions the caller's context can
+// already see (the app owner's own, then the app's org). Best-effort — returns
+// empty strings when nothing matches.
+func (apiServer *HelixAPIServer) claudeIdentityForOrg(ctx context.Context, claudeOrgID, ownerID, orgID string) (string, string) {
+	if claudeOrgID == "" {
+		return "", ""
+	}
+	scopes := []string{ownerID}
+	if orgID != "" {
+		scopes = append(scopes, orgID)
+	}
+	for _, scope := range scopes {
+		subs, err := apiServer.Store.ListClaudeSubscriptions(ctx, scope)
+		if err != nil {
+			continue
+		}
+		for _, candidate := range subs {
+			if candidate.ClaudeOrganizationID == claudeOrgID && candidate.AccountEmail != "" {
+				return candidate.AccountEmail, candidate.AccountDisplayName
+			}
+		}
+	}
+	return "", ""
 }
 
 // displayNameForUser returns a human-readable label for a user id, preferring

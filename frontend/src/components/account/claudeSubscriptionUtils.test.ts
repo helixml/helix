@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatClaudeAccountIdentity, formatRateLimitTier } from './claudeSubscriptionUtils'
+import {
+  formatClaudeAccountIdentity,
+  formatClaudeOrganizationRef,
+  formatRateLimitTier,
+} from './claudeSubscriptionUtils'
 
 describe('formatRateLimitTier', () => {
   it('reduces Anthropic tier slugs to the multiplier', () => {
@@ -23,6 +27,19 @@ describe('formatRateLimitTier', () => {
     expect(formatRateLimitTier(undefined)).toBe('')
     expect(formatRateLimitTier(null)).toBe('')
     expect(formatRateLimitTier('   ')).toBe('')
+  })
+})
+
+describe('formatClaudeOrganizationRef', () => {
+  it('shortens the org uuid to its first segment', () => {
+    expect(formatClaudeOrganizationRef('f2f721d7-f975-426f-bb19-b0b45a3a9d52')).toBe(
+      'Claude org f2f721d7',
+    )
+  })
+
+  it('returns empty for missing input', () => {
+    expect(formatClaudeOrganizationRef(undefined)).toBe('')
+    expect(formatClaudeOrganizationRef('  ')).toBe('')
   })
 })
 
@@ -53,6 +70,24 @@ describe('formatClaudeAccountIdentity', () => {
         accountEmail: 'phil@winder.ai',
         accountName: 'Phil',
         fallbackName: 'luke@helix.ml',
+      }),
+    ).toBe('phil@winder.ai')
+  })
+
+  it('names the verified Claude org when a setup token has no email', () => {
+    expect(
+      formatClaudeAccountIdentity({
+        organizationId: 'f2f721d7-f975-426f-bb19-b0b45a3a9d52',
+        fallbackName: 'luke@helix.ml',
+      }),
+    ).toBe('Claude org f2f721d7')
+  })
+
+  it('prefers a profiled email over the org reference', () => {
+    expect(
+      formatClaudeAccountIdentity({
+        accountEmail: 'phil@winder.ai',
+        organizationId: 'f2f721d7-f975-426f-bb19-b0b45a3a9d52',
       }),
     ).toBe('phil@winder.ai')
   })

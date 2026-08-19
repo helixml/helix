@@ -100,6 +100,51 @@ Consequences:
   pill (which replaces the old plan-only chip) — e.g. `phil@winder.ai ·
   Max · 20x`. The two surfaces cannot drift.
 
+## Problem 1c: asking the user to type their own identity
+
+The setup-token dialog carried a "Which Claude account is this? (optional)"
+form — account email, plan select, rate-limit tier. That was wrong on three
+counts:
+
+- **Unverifiable.** Free text with no server-side validation, rendered next to
+  agents with the same visual authority as a profile fetch. Anyone could type
+  any email onto any token.
+- **Unanswerable.** "Rate-limit tier" appears on no page a user sees, and the
+  placeholder asked for `20x` when Anthropic's actual value is
+  `default_claude_max_20x`.
+- **Unnecessary.** Anthropic returns `anthropic-organization-id` on *every*
+  `/v1/messages` response, with no OAuth scope requirement — including on the
+  401 that rejects a revoked token. Verified live 2026-08-19; the uuid matches
+  `oauthAccount.organizationUuid` exactly. That is the identity signal setup
+  tokens *do* disclose, and the liveness probe already makes the request.
+
+### Fix
+
+- `anthropic.Probe` replaces the `(ProbeResult, string, string)` tuple returned
+  by `ProbeClaudeSubscription` / `ValidateSubscription`, carrying
+  `OrganizationID` alongside result, detail and token.
+- `ClaudeSubscription.ClaudeOrganizationID` persists it. `revalidate` only ever
+  widens it — an inconclusive probe that never reached Anthropic must not wipe
+  a previously captured id.
+- `CreateClaudeSubscriptionRequest` no longer accepts `account_email`,
+  `subscription_type` or `rate_limit_tier`; the form is gone.
+- When a setup-token row has no email, the status endpoint resolves one from a
+  *sibling subscription on the same Claude org* that has been profiled
+  (`claudeIdentityForOrg`). Scoped to rows already visible in that context (the
+  app owner's, then the app's org) on purpose — a global lookup by org uuid
+  would leak an unrelated Helix org's email.
+- The UI falls back to `Claude org f2f721d7` (first uuid segment) when no email
+  is known: verified, comparable between subscriptions, and honest about what
+  we actually know.
+
+**Verified with a real setup token, 2026-08-19.** Revalidating
+`csub_01m0djfrap71qq01amyq6z3101` (`credential_type = setup_token`, previously
+carrying no plan, tier or email at all) through the live dev stack persisted
+`claude_organization_id = f2f721d7-f975-426f-bb19-b0b45a3a9d52` — the same org
+uuid the owner's `~/.claude.json` records. So a setup token *does* identify its
+Claude organization; only the email is scope-gated. The "you can't tell whose
+subscription this is" premise does not hold for either credential type.
+
 ## Problem 2: the liveness probe used a retired model and 404'd
 
 `ProbeClaudeSubscription` pinned `claude-3-5-haiku-latest` (a 2024 model).

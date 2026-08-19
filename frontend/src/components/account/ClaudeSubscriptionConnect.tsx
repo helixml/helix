@@ -45,6 +45,7 @@ interface ClaudeSubscriptionData {
   rate_limit_tier: string
   account_email?: string
   account_display_name?: string
+  claude_organization_id?: string
   status: string
   access_token_expires_at: string
   last_refreshed_at?: string
@@ -72,6 +73,9 @@ interface ClaudeSubscriptionConnectProps {
   onConnected?: () => void
   orgId?: string
   enableForOrgId?: string
+  // Set when the account variant renders inside a harness row that already
+  // names and frames the harness — drops the duplicate panel and heading.
+  embedded?: boolean
 }
 
 // Above this many orgs the list gets a filter box. Below it, scanning is faster
@@ -219,6 +223,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   onConnected,
   orgId,
   enableForOrgId,
+  embedded = false,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
@@ -290,17 +295,11 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   // Setup token dialog state
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false)
   const [tokenValue, setTokenValue] = useState('')
-  const [accountEmail, setAccountEmail] = useState('')
-  const [accountPlan, setAccountPlan] = useState('')
-  const [accountTier, setAccountTier] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const resetDialogState = () => {
     setTokenValue('')
-    setAccountEmail('')
-    setAccountPlan('')
-    setAccountTier('')
     setSubmitError(null)
   }
 
@@ -348,9 +347,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       await api.post('/api/v1/claude-subscriptions', {
         name: effectiveOrgId ? `${orgLabel(effectiveOrgId)} Claude Subscription` : 'My Claude Subscription',
         setup_token: token,
-        account_email: accountEmail.trim() || undefined,
-        subscription_type: accountPlan || undefined,
-        rate_limit_tier: accountTier.trim() || undefined,
         ...(enableForOrgId ? { organization_id: enableForOrgId } : {}),
         ...(effectiveOrgId ? { owner_type: 'org', owner_id: effectiveOrgId } : {}),
       })
@@ -523,53 +519,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           <Alert severity="error">{tokenValidationError}</Alert>
         )}
 
-        <Box
-          sx={{
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 1,
-            p: 1.5,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 1.5,
-          }}
-        >
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            Which Claude account is this? <Typography component="span" variant="caption" color="text.secondary">(optional)</Typography>
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Setup tokens don't disclose their account, so tell us which one this is — it's shown next to agents that use this subscription.
-          </Typography>
-          <TextField
-            fullWidth
-            size="small"
-            label="Account email"
-            placeholder="e.g. phil@winder.ai"
-            value={accountEmail}
-            onChange={(e) => setAccountEmail(e.target.value)}
-          />
-          <Box sx={{ display: 'flex', gap: 1.5 }}>
-            <FormControl size="small" sx={{ flex: 1 }}>
-              <InputLabel>Plan</InputLabel>
-              <Select label="Plan" value={accountPlan} onChange={(e) => setAccountPlan(e.target.value)}>
-                <MenuItem value="">Unknown</MenuItem>
-                <MenuItem value="pro">Pro</MenuItem>
-                <MenuItem value="max">Max</MenuItem>
-                <MenuItem value="team">Team</MenuItem>
-                <MenuItem value="enterprise">Enterprise</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField
-              fullWidth
-              size="small"
-              label="Rate-limit tier"
-              placeholder="e.g. 20x"
-              value={accountTier}
-              onChange={(e) => setAccountTier(e.target.value)}
-            />
-          </Box>
-        </Box>
-
         {submitError && (
           <Alert severity="error">{submitError}</Alert>
         )}
@@ -633,11 +582,15 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   if (variant === 'account') {
     return (
       <>
-        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
+        <Grid
+          container
+          spacing={2}
+          sx={embedded ? {} : { mt: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}
+        >
           <Grid item xs={12}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Box>
-                <Typography variant="h6">Claude Code Subscription</Typography>
+                {!embedded && <Typography variant="h6">Claude Code Subscription</Typography>}
                 <Typography variant="body2" color="text.secondary">
                   Connect your Claude subscription to use Claude Code as the coding agent in Helix desktop sessions.
                   {ownableOrgs.length > 0 && ' You can also connect one for an organization you own, as a shared fallback for members who have not connected their own.'}
@@ -670,6 +623,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                 const subIdentity = formatClaudeAccountIdentity({
                   accountEmail: sub.account_email,
                   accountName: sub.account_display_name,
+                  organizationId: sub.claude_organization_id,
                   plan: sub.subscription_type,
                   tier: sub.rate_limit_tier,
                 })

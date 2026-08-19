@@ -30257,6 +30257,10 @@
                     "claude_account_name": {
                         "type": "string"
                     },
+                    "claude_organization_id": {
+                        "description": "ClaudeOrganizationID is Anthropic's organization uuid for the credential.\nPopulated for setup tokens too, which cannot be profiled — it lets the UI\nsay \"this is the same subscription as X\" without anyone typing anything.",
+                        "type": "string"
+                    },
                     "connected": {
                         "description": "owner has a subscription connected at all",
                         "type": "boolean"
@@ -34160,6 +34164,10 @@
                         "description": "AccountEmail is the email of the Claude account the stored token\nauthenticates as, fetched from Anthropic's /api/oauth/profile. It is the\nidentity that gets billed and can differ from the Helix user/org (OwnerID)\nthat connected the subscription. Best-effort: empty until a valid probe\nhas enriched the row.",
                         "type": "string"
                     },
+                    "claude_organization_id": {
+                        "description": "ClaudeOrganizationID is Anthropic's organization uuid for the credential,\ncaptured from the anthropic-organization-id header on the liveness probe.\nUnlike AccountEmail it needs no OAuth scope, so it is populated for setup\ntokens too — it is the only *verified* identity a setup token discloses.\nTwo subscriptions sharing it are the same Claude subscription.",
+                        "type": "string"
+                    },
                     "created": {
                         "type": "string"
                     },
@@ -34963,11 +34971,8 @@
             "types.CreateClaudeSubscriptionRequest": {
                 "type": "object",
                 "properties": {
-                    "account_email": {
-                        "description": "AccountEmail is the self-reported email of the Claude account the token\nbelongs to. Anthropic's /api/oauth/profile only serves account identity\nto tokens holding the user:profile scope — setup tokens never do, so for\nthose the user must report it (or leave it empty). A successful profile\nfetch during validation overwrites this with the authoritative value.",
-                        "type": "string"
-                    },
                     "credentials": {
+                        "description": "Account identity is never accepted from the caller. It is derived from\nAnthropic: the profile fetch for oauth credentials, and the probe's\norganization header for setup tokens. Self-reported identity was\nunverifiable free text that rendered next to agents as if authoritative.",
                         "type": "object",
                         "properties": {
                             "claudeAiOauth": {
@@ -34994,16 +34999,8 @@
                             }
                         ]
                     },
-                    "rate_limit_tier": {
-                        "description": "Optional: e.g. \"20x\"",
-                        "type": "string"
-                    },
                     "setup_token": {
                         "description": "From `claude setup-token` (alternative to credentials)",
-                        "type": "string"
-                    },
-                    "subscription_type": {
-                        "description": "Optional: fills the plan for tokens whose credentials carry none (setup tokens)",
                         "type": "string"
                     }
                 }

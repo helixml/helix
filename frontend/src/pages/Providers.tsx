@@ -19,7 +19,7 @@ import OpenAILogo from '../components/providers/logos/openai';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
 import CodexSubscriptionConnect from '../components/account/CodexSubscriptionConnect';
 import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
-import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
+import { formatClaudeAccountIdentity, getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
 import CodeAgentHarnessesSection from '../components/providers/CodeAgentHarnessesSection';
 import {
@@ -77,14 +77,22 @@ const Providers: React.FC = () => {
   const effectiveCodexSubscription = personalCodexSubscription || orgCodexSubscription
   const hasCodexSubscription = !!personalCodexSubscription
 
+  // Name the Claude *account* the token authenticates as, not the row's label:
+  // the question this row answers is "whose subscription would this spend?".
+  // Anthropic supplies it (profile email, else the verified org uuid); the
+  // subscription name only stands in when Anthropic told us nothing.
   const subscriptionIdentity = (runtime: string): string | undefined => {
     if (runtime === 'claude_code') {
       const subscription = effectiveClaudeSubscription
       if (!subscription) return undefined
-      const plan = subscription.subscription_type
-        ? `Claude ${subscription.subscription_type.charAt(0).toUpperCase()}${subscription.subscription_type.slice(1)} Subscription`
-        : 'Claude Subscription'
-      return [subscription.name, plan].filter(Boolean).join(' · ')
+      return formatClaudeAccountIdentity({
+        accountEmail: subscription.account_email,
+        accountName: subscription.account_display_name,
+        organizationId: subscription.claude_organization_id,
+        fallbackName: subscription.name,
+        plan: subscription.subscription_type,
+        tier: subscription.rate_limit_tier,
+      }) || undefined
     }
     if (runtime === 'codex_cli') {
       const subscription = effectiveCodexSubscription
