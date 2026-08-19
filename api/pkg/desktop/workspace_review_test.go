@@ -143,6 +143,23 @@ func TestWorkspaceFileRejectsSymlinkEscape(t *testing.T) {
 	assert.NotContains(t, w.Body.String(), "secret")
 }
 
+func TestWorkspaceFileDownloadReturnsCompleteBinaryFile(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+	contents := bytes.Repeat([]byte{0, 1, 2, 255}, workspaceFileLimit/2)
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "artifact.bin"), contents, 0o644))
+
+	req := httptest.NewRequest(http.MethodGet, "/workspace/file/download?workspace="+workspace+"&path=artifact.bin", nil)
+	w := httptest.NewRecorder()
+	server.handleWorkspaceFileDownload(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, contents, w.Body.Bytes())
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "attachment")
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "artifact.bin")
+}
+
 // TestWorkspaceReviewRepresentsDualStateFileCoherently is the acceptance
 // criterion the whole review contract exists for: the previous endpoint asked
 // for a file's committed patch first and only fell back to its working patch

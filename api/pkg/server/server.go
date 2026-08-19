@@ -1191,6 +1191,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-review/turn/{interactionID}", apiServer.getWorkspaceTurnReview).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-files", apiServer.getWorkspaceFiles).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-file", apiServer.getWorkspaceFile).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-file/download", apiServer.downloadWorkspaceFile).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-file", apiServer.putWorkspaceFile).Methods("PUT")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-skills", apiServer.getWorkspaceSkills).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspaces", apiServer.getExternalAgentWorkspaces).Methods("GET") // List git workspaces in container

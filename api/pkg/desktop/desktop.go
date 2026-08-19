@@ -558,6 +558,7 @@ func (s *Server) registerWorkspaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/workspace/review", s.handleWorkspaceReview)
 	mux.HandleFunc("/workspace/files", s.handleWorkspaceFiles)
 	mux.HandleFunc("/workspace/file", s.handleWorkspaceFile)
+	mux.HandleFunc("/workspace/file/download", s.handleWorkspaceFileDownload)
 	mux.HandleFunc("/workspace/skills", s.handleWorkspaceSkills)
 	mux.HandleFunc("/workspace/checkpoints/capture", s.handleWorkspaceCheckpointCapture)
 	mux.HandleFunc("/workspace/checkpoints/diff", s.handleWorkspaceCheckpointDiff)
