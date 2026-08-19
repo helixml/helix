@@ -107,6 +107,7 @@ vi.mock('../hooks/useOrganizations', () => ({
 }))
 
 import { useAccountContext } from './account'
+import { SELECTED_ORG_STORAGE_KEY } from '../utils/localStorage'
 
 function setupAuthenticatedUser(overrides: Record<string, any> = {}) {
   mockV1AuthAuthenticatedList.mockResolvedValue({ data: { authenticated: true } })
@@ -387,5 +388,40 @@ describe('useAccountContext redirect logic', () => {
 
       expect(mockNavigateReplace).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('logout', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockRouterState.name = 'org_chat'
+    mockOrgState.initialized = true
+    mockOrgState.organizations = [{ id: 'org-1', name: 'my-org', member: true }]
+    setupDefaultApiResponses()
+    // onLogout POSTs to the logout endpoint; a plain 200 means "no IdP redirect".
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      type: 'basic',
+      ok: true,
+      redirected: false,
+      status: 200,
+    }))
+  })
+
+  // `selected_org` is written per browser, not per user. Leaving it behind sent
+  // the next person to sign in on this machine straight into an org they have
+  // no membership in — a page of 403s and a blank org switcher.
+  it('forgets the selected org so the next user does not inherit it', async () => {
+    setupAuthenticatedUser({ onboarding_completed: true })
+    localStorage.setItem(SELECTED_ORG_STORAGE_KEY, 'unmanned-org')
+
+    const { result } = renderHook(() => useAccountContext())
+    await waitFor(() => expect(result.current.initialized).toBe(true))
+
+    await act(async () => {
+      await result.current.onLogout()
+    })
+
+    expect(localStorage.getItem(SELECTED_ORG_STORAGE_KEY)).toBeNull()
   })
 })
