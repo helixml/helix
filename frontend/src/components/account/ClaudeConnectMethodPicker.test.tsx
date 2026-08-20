@@ -31,13 +31,16 @@ describe('ClaudeConnectMethodPicker', () => {
 
     const setupToken = screen.getByRole('radio', { name: 'Setup token' })
     // Verified against Anthropic's docs: setup-token mints a one-year token.
-    expect(setupToken).toHaveTextContent('Lasts one year')
+    expect(setupToken).toHaveTextContent('A year')
     expect(setupToken).toHaveTextContent('Needs the Claude Code CLI')
     // Setup tokens lack the user:profile scope, so the account is unknowable.
     expect(setupToken).toHaveTextContent('Cannot show which account')
 
     const oauth = screen.getByRole('radio', { name: 'Sign in with Claude' })
-    expect(oauth).toHaveTextContent('Helix refreshes it automatically')
+    // Measured: refreshing does NOT extend the window, so the tile must not
+    // promise an indefinite connection.
+    expect(oauth).toHaveTextContent('About 9 days')
+    expect(oauth).not.toHaveTextContent('Stays connected')
     expect(oauth).toHaveTextContent('Nothing to install')
     expect(oauth).toHaveTextContent('Shows the Claude account and plan')
 

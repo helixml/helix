@@ -11,13 +11,18 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Claude OAuth access tokens last about 8 hours; the refresh token behind them
-// lasts about 9 days and is rotated on every use. Until this existed, the only
-// thing that ever refreshed a subscription was a running container pushing new
-// credentials back (PUT /sessions/{id}/claude-credentials). That meant a
-// subscription only stayed alive if you kept starting sessions: leave it 8
-// hours and the UI went red, leave it ~9 days and the refresh window closed and
-// the subscription was dead for good.
+// Claude OAuth access tokens last about 8 hours. Until this existed, the only
+// thing that ever refreshed one was a running container pushing new credentials
+// back (PUT /sessions/{id}/claude-credentials), so a subscription only stayed
+// usable if you kept starting sessions: leave it 8 hours and the UI went red.
+//
+// What this does NOT do is make a subscription immortal. The refresh token is
+// rotated on every use, but its expiry is anchored to the original sign-in and
+// is not extended: two readings 9.2h apart, with a real refresh in between,
+// showed the window shrink 9.25 -> 8.82 days. Anthropic's docs say the same
+// ("The login lifetime itself is unchanged"). So this keeps the access token
+// alive for the ~9 days the login is good for, and after that the user has to
+// sign in again — which is exactly the trade-off the connect dialog states.
 const (
 	// claudeRefreshLeadTime is how far before expiry to refresh. Comfortably
 	// longer than the reaper interval so a token is never left to lapse between

@@ -32,10 +32,13 @@ interface MethodMeta {
 // - The one-year setup token and its model-requests-only limitation are stated
 //   in Anthropic's own docs (code.claude.com/docs/en/authentication,
 //   "Generate a long-lived token").
-// - The ~9 day refresh window is measured from a live credential file:
-//   refreshTokenExpiresAt - expiresAt = 9.04 days.
-// - "Helix refreshes it" is the background refresher in
-//   claude_subscription_refresher.go, verified against real Anthropic.
+// - The ~9 day login lifetime is measured from a live credential file, and it
+//   is a HARD cap: two readings 9.2h apart, with a real token refresh in
+//   between, showed the refresh window shrink 9.25 -> 8.82 days. Rotation does
+//   not extend it, which matches Anthropic's docs ("The login lifetime itself
+//   is unchanged"). The background refresher in
+//   claude_subscription_refresher.go keeps the 8h access token alive inside
+//   that window without needing a session; it cannot extend the window.
 // - Setup tokens cannot be profiled because /api/oauth/profile requires
 //   user:profile, which they do not carry — confirmed by a 403 against real
 //   Anthropic using a stored setup token. See
@@ -44,7 +47,7 @@ const METHODS: Record<ClaudeConnectMethod, MethodMeta> = {
   oauth: {
     label: 'Sign in with Claude',
     description: 'Authorize in your browser and paste back a short code.',
-    lifetime: 'Stays connected — Helix refreshes it automatically',
+    lifetime: 'About 9 days, then sign in again — Helix keeps it live until then',
     requirement: 'Nothing to install',
     identity: 'Shows the Claude account and plan',
     identityKnown: true,
@@ -54,7 +57,7 @@ const METHODS: Record<ClaudeConnectMethod, MethodMeta> = {
   credentials: {
     label: 'Paste credentials',
     description: 'Reuse a login you already did with `claude login`.',
-    lifetime: 'Stays connected — Helix refreshes it automatically',
+    lifetime: 'About 9 days, then reconnect — Helix keeps it live until then',
     requirement: 'Needs Claude Code signed in on your machine',
     identity: 'Shows the Claude account and plan',
     identityKnown: true,
@@ -64,7 +67,7 @@ const METHODS: Record<ClaudeConnectMethod, MethodMeta> = {
   setup_token: {
     label: 'Setup token',
     description: 'Run `claude setup-token` and paste the token.',
-    lifetime: 'Lasts one year, then must be replaced by hand',
+    lifetime: 'A year — best for unattended use',
     requirement: 'Needs the Claude Code CLI on your machine',
     identity: 'Cannot show which account it belongs to',
     identityKnown: false,
@@ -196,7 +199,11 @@ const Fact: FC<{ icon: React.ReactNode; text: string; muted?: boolean }> = ({
       sx={{
         display: 'flex',
         alignItems: 'center',
-        mt: '1px',
+        justifyContent: 'center',
+        // One line box tall, so the glyph centres on the FIRST line of a
+        // wrapped fact rather than floating above it.
+        fontSize: '0.7rem',
+        height: '1.4em',
         flexShrink: 0,
         color: muted ? 'warning.main' : 'text.secondary',
       }}

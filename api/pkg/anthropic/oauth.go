@@ -198,10 +198,11 @@ func ExchangeClaudeCode(ctx context.Context, code, verifier, state string) (*Cla
 
 // RefreshClaudeToken exchanges a refresh token for a fresh access token.
 //
-// Anthropic rotates the refresh token on every use and returns a new
-// refresh_token_expires_in, so refreshing before the access token lapses keeps
-// the refresh window rolling forward indefinitely. Stop refreshing and the
-// subscription dies for good once that window closes.
+// Anthropic rotates the refresh token on every use. Rotation does NOT extend
+// the window: its expiry is anchored to the original sign-in (measured — a
+// refresh mid-session left the window still counting down with wall clock), so
+// refreshing keeps the 8h access token alive for the ~9 days the login is good
+// for, and no longer.
 func RefreshClaudeToken(ctx context.Context, refreshToken string) (*ClaudeTokens, error) {
 	if refreshToken == "" {
 		return nil, fmt.Errorf("no refresh token")

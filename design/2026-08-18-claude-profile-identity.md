@@ -176,6 +176,33 @@ So the identity ceiling is a property of the *credential*, not of Helix: setup
 token -> organization uuid only; credentials file -> full account identity.
 The dialog now says so at the point of choice.
 
+## Correction: refreshing does not extend the login window
+
+Earlier notes in this document and in the refresher's comments claimed that
+because Anthropic rotates the refresh token on every use, refreshing "rolls the
+9-day window forward indefinitely". That is wrong.
+
+Measured on a live credential: two readings 9.2 hours apart, with a real token
+refresh in between (the credentials file was rewritten, and the access token was
+4.4h into its 8h life), showed the refresh window shrink from 9.25 to 8.82 days
+— it declines with wall clock. Anthropic's own docs say the same thing about the
+login behind it: "The login lifetime itself is unchanged."
+
+So the actual lifecycle is:
+
+| Credential | Access token | Overall life |
+|---|---|---|
+| OAuth (sign in / paste credentials) | 8h, refreshed automatically | **~9 days**, then sign in again |
+| Setup token | n/a | **1 year** |
+
+The background refresher is still worth having — without it the access token
+lapses after 8h unless a session happens to refresh it, which is what made
+subscriptions go red while idle. It just cannot make one immortal, and the
+connect dialog now says so rather than promising "stays connected".
+
+This also makes the setup token the right choice for genuinely unattended use,
+despite being the credential that cannot name its own account.
+
 ## Removed: the desktop-session login
 
 Helix already had a second Claude login: `POST /claude-subscriptions/start-login`
