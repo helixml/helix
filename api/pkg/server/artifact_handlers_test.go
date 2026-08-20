@@ -62,11 +62,13 @@ func TestArtifactSecurityHeaders(t *testing.T) {
 	require.Contains(t, canonical.Get("Content-Security-Policy"), "sandbox allow-scripts")
 	require.Contains(t, canonical.Get("Content-Security-Policy"), "connect-src 'none'")
 	require.NotContains(t, canonical.Get("Content-Security-Policy"), "allow-same-origin")
+	require.Equal(t, "*", canonical.Get("Access-Control-Allow-Origin"))
 
 	subdomain := http.Header{}
 	setArtifactSecurityHeaders(subdomain, false)
 	require.NotContains(t, subdomain.Get("Content-Security-Policy"), "sandbox")
 	require.Contains(t, subdomain.Get("Content-Security-Policy"), "connect-src 'self' https: wss:")
+	require.Empty(t, subdomain.Get("Access-Control-Allow-Origin"))
 }
 
 func TestArtifactRequestOrigin(t *testing.T) {

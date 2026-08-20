@@ -1058,6 +1058,11 @@ func setArtifactSecurityHeaders(header http.Header, sandboxed bool) {
 	header.Set("Referrer-Policy", "no-referrer")
 	header.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
 	if sandboxed {
+		// CSP sandbox gives the document an opaque origin. ES modules therefore
+		// require an explicit CORS response even when loaded from the artifact's
+		// canonical URL. These files are public; credentials remain unavailable to
+		// the opaque origin and private artifacts are served on an isolated host.
+		header.Set("Access-Control-Allow-Origin", "*")
 		header.Set("Content-Security-Policy", "sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads; default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'")
 	} else {
 		header.Set("Content-Security-Policy", "default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'self'")
