@@ -42,7 +42,7 @@ func (s *HelixAPIServer) listSessionPreviewTokens(_ http.ResponseWriter, r *http
 		return nil, system.NewHTTPError500(err.Error())
 	}
 	for _, route := range routes {
-		s.setSessionPreviewURL(route)
+		s.setVHostRouteURL(route)
 	}
 	return routes, nil
 }
@@ -98,7 +98,7 @@ func (s *HelixAPIServer) mintSessionPreviewToken(_ http.ResponseWriter, r *http.
 	if err := s.Store.CreateVHostRoute(r.Context(), route); err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
-	s.setSessionPreviewURL(route)
+	s.setVHostRouteURL(route)
 	return route, nil
 }
 
@@ -148,11 +148,14 @@ func (s *HelixAPIServer) rotateSessionPreviewToken(_ http.ResponseWriter, r *htt
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
-	s.setSessionPreviewURL(updated)
+	s.setVHostRouteURL(updated)
 	return updated, nil
 }
 
-func (s *HelixAPIServer) setSessionPreviewURL(route *types.VHostRoute) {
+// setVHostRouteURL populates the public ingress URL for any vhost route.
+// The scheme comes from PREVIEW_URL_HTTPS and the development port comes
+// from SERVER_URL, so project web-service and sandbox-preview links agree.
+func (s *HelixAPIServer) setVHostRouteURL(route *types.VHostRoute) {
 	if route == nil {
 		return
 	}
