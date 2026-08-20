@@ -56,6 +56,19 @@ describe('SandboxPromptEditor', () => {
     expect(getSandboxPromptEditorCursor(editor)).toBe(expectedOffset)
   })
 
+  it('clamps a stale selection offset to the current text length', () => {
+    const root = document.createElement('div')
+    const text = document.createTextNode('draft')
+    root.append(text)
+    const getSelection = vi.spyOn(window, 'getSelection').mockReturnValue({
+      anchorNode: text,
+      anchorOffset: 10,
+    } as unknown as Selection)
+
+    expect(getSandboxPromptEditorCursor(root)).toBe(5)
+    getSelection.mockRestore()
+  })
+
   it('emits canonical source when text is added after a token', () => {
     const { container, onValueChange } = renderEditor()
     const editor = container.querySelector<HTMLElement>('[data-prompt-input="true"]')!
