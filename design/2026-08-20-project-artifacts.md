@@ -207,7 +207,9 @@ Add `artifact_static` to `VHostTargetKind`. `target_id` is the artifact ID. Ever
 one default isolated hostname through the existing allocation and reservation logic. The vhost
 middleware dispatches it to the static handler instead of Hydra. Project-private artifacts use the
 hostname only through the authenticated viewer bootstrap and do not advertise it. Public artifacts
-return it as `subdomain_url`. No port or sandbox runtime is involved.
+return it as `subdomain_url`. The URL uses the same external protocol and port configuration as
+spec-task previews (`PREVIEW_URL_HTTPS` plus the port from `SERVER_URL`); no sandbox runtime or
+artifact application port is involved.
 
 ## Deletion and lifecycle
 
