@@ -330,8 +330,13 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   // Credentials-file import is the default: it is the only path that yields the
   // account email and plan, because those tokens carry the user:profile scope
   // that setup tokens lack.
-  const [connectMethod, setConnectMethod] = useState<'credentials' | 'setup_token'>('credentials')
+  const [connectMethod, setConnectMethod] = useState<'oauth' | 'credentials' | 'setup_token'>('oauth')
   const [credentialsValue, setCredentialsValue] = useState('')
+  // PKCE material for an in-flight sign-in. Held in component state because the
+  // browser is the OAuth client: it started the login and it finishes it.
+  const [oauthChallenge, setOauthChallenge] = useState<{ url: string; verifier: string; state: string } | null>(null)
+  const [oauthCode, setOauthCode] = useState('')
+  const [startingOauth, setStartingOauth] = useState(false)
   const [tokenValue, setTokenValue] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -339,7 +344,9 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const resetDialogState = () => {
     setTokenValue('')
     setCredentialsValue('')
-    setConnectMethod('credentials')
+    setConnectMethod('oauth')
+    setOauthChallenge(null)
+    setOauthCode('')
     setSubmitError(null)
   }
 
@@ -367,7 +374,65 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     setTokenDialogOpen(true)
   }
 
+  const handleStartOauth = async () => {
+    setStartingOauth(true)
+    setSubmitError(null)
+    try {
+      const { data } = await api.getApiClient().v1ClaudeSubscriptionsOauthStartCreate()
+      setOauthChallenge({ url: data.authorize_url || '', verifier: data.code_verifier || '', state: data.state || '' })
+      window.open(data.authorize_url, '_blank', 'noopener,noreferrer')
+    } catch (e: any) {
+      setSubmitError(e?.response?.data?.error || 'Could not start the Claude sign-in')
+    } finally {
+      setStartingOauth(false)
+    }
+  }
+
   const handleSubmitToken = async () => {
+    if (!orgId && ownerType === 'org' && !selectedOrgId) {
+      setSubmitError('Please choose which organization owns this subscription')
+      return
+    }
+    const effectiveOrgIdForOauth = orgId || (ownerType === 'org' ? selectedOrgId : undefined)
+
+    if (connectMethod === 'oauth') {
+      if (!oauthChallenge) {
+        setSubmitError('Start the sign-in first')
+        return
+      }
+      if (!oauthCode.trim()) {
+        setSubmitError('Paste the code Anthropic showed you after signing in')
+        return
+      }
+      setSubmitting(true)
+      setSubmitError(null)
+      try {
+        await api.getApiClient().v1ClaudeSubscriptionsOauthCompleteCreate({
+          code: oauthCode.trim(),
+          code_verifier: oauthChallenge.verifier,
+          state: oauthChallenge.state,
+          name: effectiveOrgIdForOauth
+            ? `${orgLabel(effectiveOrgIdForOauth)} Claude Subscription`
+            : 'My Claude Subscription',
+          ...(enableForOrgId ? { organization_id: enableForOrgId } : {}),
+          ...(effectiveOrgIdForOauth ? { owner_type: 'org' as any, owner_id: effectiveOrgIdForOauth } : {}),
+        })
+        queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
+        if (enableForOrgId) {
+          queryClient.invalidateQueries({ queryKey: codeAgentHarnessesQueryKey(enableForOrgId) })
+        }
+        snackbar.success('Claude subscription connected')
+        resetDialogState()
+        setTokenDialogOpen(false)
+        onConnected?.()
+      } catch (e: any) {
+        setSubmitError(e?.response?.data?.error || 'Could not complete the Claude sign-in')
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
+
     let credentialPayload: Record<string, unknown>
     if (connectMethod === 'credentials') {
       if (!credentialsValue.trim()) {
@@ -512,8 +577,11 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           }}
           sx={{ alignSelf: 'flex-start' }}
         >
+          <ToggleButton value="oauth" sx={{ textTransform: 'none' }}>
+            Sign in with Claude
+          </ToggleButton>
           <ToggleButton value="credentials" sx={{ textTransform: 'none' }}>
-            Use my Claude login
+            Paste credentials
           </ToggleButton>
           <ToggleButton value="setup_token" sx={{ textTransform: 'none' }}>
             Setup token
@@ -521,14 +589,66 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
         </ToggleButtonGroup>
 
         <Typography variant="body2" color="text.secondary">
-          {connectMethod === 'credentials'
-            ? 'Reuse the login you already did with `claude login` on your machine. Only this route can show which Claude account and plan the subscription belongs to.'
-            : 'Generate a setup token on your local machine, then paste it below. Setup tokens do not disclose the account behind them.'}
+          {connectMethod === 'oauth'
+            ? 'Sign in to Claude in your browser and paste back the code it shows you. Nothing needs to be installed.'
+            : connectMethod === 'credentials'
+              ? 'Reuse a login you already did with `claude login` on your own machine.'
+              : 'Generate a setup token on your local machine, then paste it below. Setup tokens do not disclose the account behind them.'}
         </Typography>
 
         {ownerPicker}
 
-        {connectMethod === 'credentials' ? (
+        {connectMethod === 'oauth' ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+              <StepIndex n={1} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  Authorize Helix on your Claude account
+                </Typography>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  onClick={handleStartOauth}
+                  disabled={startingOauth}
+                  sx={{ textTransform: 'none' }}
+                >
+                  {startingOauth ? 'Opening…' : oauthChallenge ? 'Reopen Claude' : 'Sign in with Claude'}
+                </Button>
+                {oauthChallenge && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    Didn't open?{' '}
+                    <Box
+                      component="a"
+                      href={oauthChallenge.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{ color: 'secondary.main' }}
+                    >
+                      Open the authorization page
+                    </Box>
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+              <StepIndex n={2} />
+              <Typography variant="body2">
+                Approve access, then copy the code Anthropic shows you.
+              </Typography>
+            </Box>
+            <TextField
+              fullWidth
+              label="Authorization code"
+              placeholder="Paste the code from Anthropic here…"
+              value={oauthCode}
+              onChange={(e) => setOauthCode(e.target.value)}
+              disabled={!oauthChallenge}
+              variant="outlined"
+              InputProps={{ sx: { fontFamily: APP_MONO_FONT_FAMILY, fontSize: '0.8125rem' } }}
+            />
+          </Box>
+        ) : connectMethod === 'credentials' ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
             <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
               <StepIndex n={1} />
@@ -685,7 +805,11 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           disabled={
             submitting ||
             !!tokenValidationError ||
-            (connectMethod === 'credentials' ? !credentialsValue.trim() : !tokenValue.trim())
+            (connectMethod === 'oauth'
+              ? !oauthChallenge || !oauthCode.trim()
+              : connectMethod === 'credentials'
+                ? !credentialsValue.trim()
+                : !tokenValue.trim())
           }
           sx={{ textTransform: 'none' }}
         >
