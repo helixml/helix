@@ -921,7 +921,7 @@ type WebServer struct {
 	// PreviewURLHTTPS controls the public scheme used in generated vhost URLs.
 	// It is independent of VHostTLSMode because TLS may terminate at an upstream
 	// ingress rather than in the Helix API process.
-	PreviewURLHTTPS bool `envconfig:"PREVIEW_URL_HTTPS" default:"true" description:"Generate public vhost URLs with HTTPS. Set false for HTTP-only development deployments."`
+	PreviewURLHTTPS bool `envconfig:"PREVIEW_URL_HTTPS" default:"true" description:"Generate vhost URLs with HTTPS. Set false for HTTP-only development deployments."`
 
 	// SandboxAPIURL is the URL that sandbox containers use to connect back to the API.
 	// This is needed when the main SERVER_URL goes through a reverse proxy that doesn't

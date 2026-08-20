@@ -30,6 +30,13 @@ func TestSetVHostRouteURL(t *testing.T) {
 			hostname:    "manual-test-standalone-html.ns.helix.ml",
 			expectedURL: "http://manual-test-standalone-html.ns.helix.ml:8080",
 		},
+		{
+			name:        "https with nonstandard port",
+			https:       true,
+			serverURL:   "https://helix.example.com:8443",
+			hostname:    "share-test.preview.example.com",
+			expectedURL: "https://share-test.preview.example.com:8443",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &HelixAPIServer{Cfg: &config.ServerConfig{}}

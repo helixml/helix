@@ -427,7 +427,7 @@ export const useAccountContext = (): IAccountContext => {
   useEffect(() => {
     if (!initialized) return
     if (user) return
-    const publicRoutes = ['login', 'password-reset', 'password-reset-complete']
+    const publicRoutes = ['login', 'password-reset', 'password-reset-complete', 'artifact_viewer']
     if (publicRoutes.includes(router.name)) return
 
     // Save current URL for post-login redirect

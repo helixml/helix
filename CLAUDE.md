@@ -306,6 +306,10 @@ These rules keep our list pages visually consistent. When in doubt, mirror `Sand
 - Toggle sits **directly above the table/grid, right-aligned**, in its own row inside the page `Stack`. Don't park it in `topbarContent` — the topbar is reserved for the primary action button (e.g. "New Sandbox").
 - Page header (`<Typography variant="h5">Title</Typography>` + secondary description) sits above the toggle in the same `Stack`.
 
+#### Copyable snippets
+- **Always use `MarkdownCodeBlock` from `frontend/src/components/session/MarkdownCodeBlock.tsx` for copyable commands, prompts, configuration, or code snippets.** It is the canonical AgentChat treatment and provides consistent language chrome, line wrapping, syntax styling, and icon-only copy feedback.
+- Pass the real language (`bash`, `json`, `yaml`, etc.); use `text` and `defaultWrapped` for prose prompts. Do not build bespoke `<pre>` panels, nested background cards, or labeled copy buttons for snippets.
+
 ## Architecture
 - **ACP**: `LLM ←(OpenAI API)→ Qwen Code Agent ←(ACP)→ Zed IDE`
 - **RBAC**: `authorizeUserToResource()` — unified AccessGrants

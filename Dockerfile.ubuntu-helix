@@ -60,6 +60,7 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Building Go binaries..." && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix . && \
     CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /logind-stub ./cmd/logind-stub && \
@@ -1441,6 +1442,7 @@ RUN set -e && \
 
 # Helix Go binaries - at the very end since they're the lightest to rebuild
 COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
+COPY --from=go-build-env /helix /usr/local/bin/helix
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /logind-stub /usr/local/bin/logind-stub
 COPY --from=go-build-env /mutter-lease-launcher /usr/local/bin/mutter-lease-launcher

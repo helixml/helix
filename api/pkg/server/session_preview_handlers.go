@@ -159,15 +159,19 @@ func (s *HelixAPIServer) setVHostRouteURL(route *types.VHostRoute) {
 	if route == nil {
 		return
 	}
+	route.URL = s.vhostRouteURL(route.Hostname)
+}
+
+func (s *HelixAPIServer) vhostRouteURL(hostname string) string {
 	scheme := "http"
 	if s.Cfg.WebServer.PreviewURLHTTPS {
 		scheme = "https"
 	}
-	host := strings.TrimSpace(route.Hostname)
+	host := strings.TrimSpace(hostname)
 	if serverURL, err := url.Parse(s.Cfg.WebServer.URL); err == nil && serverURL.Port() != "" {
 		host += ":" + serverURL.Port()
 	}
-	route.URL = scheme + "://" + host
+	return scheme + "://" + host
 }
 
 // deleteSessionPreviewToken godoc

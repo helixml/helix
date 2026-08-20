@@ -3805,6 +3805,142 @@ definitions:
       type:
         $ref: '#/definitions/types.APIKeyType'
     type: object
+  types.Artifact:
+    properties:
+      active_version:
+        $ref: '#/definitions/types.ArtifactVersion'
+      active_version_id:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      description:
+        type: string
+      entrypoint:
+        type: string
+      id:
+        type: string
+      kind:
+        $ref: '#/definitions/types.ArtifactKind'
+      name:
+        type: string
+      organization_id:
+        type: string
+      project_id:
+        type: string
+      subdomain_url:
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      url:
+        type: string
+      visibility:
+        $ref: '#/definitions/types.ArtifactVisibility'
+    type: object
+  types.ArtifactFile:
+    properties:
+      content_type:
+        type: string
+      path:
+        type: string
+      sha256:
+        type: string
+      size:
+        type: integer
+    type: object
+  types.ArtifactKind:
+    enum:
+    - single_file
+    - spa
+    - pdf
+    - image
+    type: string
+    x-enum-varnames:
+    - ArtifactKindSingleFile
+    - ArtifactKindSPA
+    - ArtifactKindPDF
+    - ArtifactKindImage
+  types.ArtifactVersion:
+    properties:
+      artifact_id:
+        type: string
+      content_sha256:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      file_count:
+        type: integer
+      files:
+        items:
+          $ref: '#/definitions/types.ArtifactFile'
+        type: array
+      id:
+        type: string
+      source_session_id:
+        type: string
+      source_spec_task_id:
+        type: string
+      total_bytes:
+        type: integer
+      version:
+        type: integer
+    type: object
+  types.ArtifactVersionsListResponse:
+    properties:
+      versions:
+        items:
+          $ref: '#/definitions/types.ArtifactVersion'
+        type: array
+    type: object
+  types.ArtifactViewerResponse:
+    properties:
+      active_version_id:
+        type: string
+      can_edit:
+        type: boolean
+      description:
+        type: string
+      id:
+        type: string
+      kind:
+        $ref: '#/definitions/types.ArtifactKind'
+      name:
+        type: string
+      organization_id:
+        type: string
+      organization_name:
+        type: string
+      project_id:
+        type: string
+      project_name:
+        type: string
+      subdomain_url:
+        type: string
+      visibility:
+        $ref: '#/definitions/types.ArtifactVisibility'
+    type: object
+  types.ArtifactVisibility:
+    enum:
+    - project
+    - public
+    type: string
+    x-enum-varnames:
+    - ArtifactVisibilityProject
+    - ArtifactVisibilityPublic
+  types.ArtifactsListResponse:
+    properties:
+      artifacts:
+        items:
+          $ref: '#/definitions/types.Artifact'
+        type: array
+    type: object
   types.AssistantAPI:
     properties:
       description:
@@ -13023,7 +13159,7 @@ definitions:
           User-added custom domains and preview tokens are false.
         type: boolean
       port:
-        description: destination port inside the container
+        description: destination port inside the container; zero for static artifacts
         type: integer
       rotated_at:
         type: string
@@ -13050,10 +13186,14 @@ definitions:
     enum:
     - project_web_service
     - sandbox_preview
+    - artifact_static
+    - artifact_private
     type: string
     x-enum-varnames:
     - VHostTargetProjectWebService
     - VHostTargetSandboxPreview
+    - VHostTargetArtifact
+    - VHostTargetArtifactPrivate
   types.WIPLimits:
     properties:
       implementation:
@@ -15114,6 +15254,108 @@ paths:
       summary: Create a new API key
       tags:
       - api-keys
+  /api/v1/artifacts/{artifact_id}:
+    delete:
+      parameters:
+      - description: Artifact ID
+        in: path
+        name: artifact_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Delete an artifact
+      tags:
+      - Artifacts
+    get:
+      parameters:
+      - description: Artifact ID
+        in: path
+        name: artifact_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Artifact'
+      security:
+      - BearerAuth: []
+      summary: Get an artifact
+      tags:
+      - Artifacts
+    put:
+      consumes:
+      - multipart/form-data
+      description: Patch metadata and optionally upload replacement HTML, PDF, image,
+        or ZIP content as a new version.
+      parameters:
+      - description: Artifact ID
+        in: path
+        name: artifact_id
+        required: true
+        type: string
+      - description: Artifact name
+        in: formData
+        name: name
+        type: string
+      - description: Description
+        in: formData
+        name: description
+        type: string
+      - description: HTML entrypoint
+        in: formData
+        name: entrypoint
+        type: string
+      - description: project or public
+        in: formData
+        name: visibility
+        type: string
+      - description: Allocate or retain a public default subdomain
+        in: formData
+        name: with_subdomain
+        type: boolean
+      - description: Replacement HTML, PDF, image, or ZIP content
+        in: formData
+        name: artifact
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Artifact'
+      security:
+      - BearerAuth: []
+      summary: Update an artifact
+      tags:
+      - Artifacts
+  /api/v1/artifacts/{artifact_id}/versions:
+    get:
+      parameters:
+      - description: Artifact ID
+        in: path
+        name: artifact_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ArtifactVersionsListResponse'
+      security:
+      - BearerAuth: []
+      summary: List artifact versions
+      tags:
+      - Artifacts
   /api/v1/attention-events:
     get:
       description: Returns attention events that need human action for the current
@@ -21784,6 +22026,77 @@ paths:
       summary: Grant access to a project to a team or organization member
       tags:
       - projects
+  /api/v1/projects/{id}/artifacts:
+    get:
+      description: List static artifacts in a project. Access is inherited from the
+        project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ArtifactsListResponse'
+      security:
+      - BearerAuth: []
+      summary: List project artifacts
+      tags:
+      - Artifacts
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload one HTML, PDF, or image file, or a ZIP containing a compiled
+        static SPA.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Artifact name
+        in: formData
+        name: name
+        required: true
+        type: string
+      - description: Description
+        in: formData
+        name: description
+        type: string
+      - description: HTML entrypoint (default index.html)
+        in: formData
+        name: entrypoint
+        type: string
+      - description: project or public
+        in: formData
+        name: visibility
+        type: string
+      - description: 'Deprecated: public artifacts always receive a share subdomain'
+        in: formData
+        name: with_subdomain
+        type: boolean
+      - description: HTML, PDF, image, or ZIP bundle
+        in: formData
+        name: artifact
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.Artifact'
+      security:
+      - BearerAuth: []
+      summary: Create a project artifact
+      tags:
+      - Artifacts
   /api/v1/projects/{id}/audit-logs:
     get:
       consumes:
@@ -23361,6 +23674,26 @@ paths:
             type: array
       security:
       - BearerAuth: []
+  /api/v1/public/artifacts/{artifact_id}:
+    get:
+      description: Returns safe display metadata for public artifacts without authentication.
+        Private artifacts require project access.
+      parameters:
+      - description: Artifact ID
+        in: path
+        name: artifact_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ArtifactViewerResponse'
+      summary: Get artifact viewer metadata
+      tags:
+      - Artifacts
   /api/v1/quotas:
     get:
       description: Get quotas for the user. Returns current usage and limits for desktops,
