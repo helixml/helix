@@ -174,7 +174,7 @@ func (m *VHostMiddleware) dispatchArtifact(w http.ResponseWriter, r *http.Reques
 		m.apiServer.servePrivateArtifactVHost(w, r, artifact, strings.TrimPrefix(r.URL.Path, "/"))
 		return
 	}
-	m.apiServer.serveArtifactFile(w, r, artifact, strings.TrimPrefix(r.URL.Path, "/"), false)
+	m.apiServer.serveArtifactFile(w, r, artifact, strings.TrimPrefix(r.URL.Path, "/"))
 }
 
 // dispatchSandboxPreview proxies a preview-token request to the

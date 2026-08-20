@@ -32,7 +32,7 @@ const ArtifactVisibilityBadge: FC<{ artifact: TypesArtifact }> = ({ artifact }) 
   />
 )
 
-const artifactURL = (artifact: TypesArtifact) => artifact.subdomain_url || artifact.url || ''
+const artifactURL = (artifact: TypesArtifact) => artifact.url || ''
 
 const ArtifactsView: FC<Props> = ({ artifacts, mode, onEdit, onDelete }) => {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)

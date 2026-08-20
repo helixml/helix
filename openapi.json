@@ -16024,7 +16024,7 @@
                                         "type": "string"
                                     },
                                     "with_subdomain": {
-                                        "description": "Allocate a public default subdomain",
+                                        "description": "Deprecated: public artifacts always receive a share subdomain",
                                         "type": "boolean"
                                     },
                                     "artifact": {

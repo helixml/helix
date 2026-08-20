@@ -15067,7 +15067,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         entrypoint?: string;
         /** project or public */
         visibility?: string;
-        /** Allocate a public default subdomain */
+        /** Deprecated: public artifacts always receive a share subdomain */
         with_subdomain?: boolean;
         /** HTML file or ZIP bundle */
         artifact: File;

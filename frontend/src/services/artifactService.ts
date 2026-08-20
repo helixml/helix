@@ -8,11 +8,42 @@ export type ArtifactForm = {
   description?: string
   entrypoint?: string
   visibility: 'project' | 'public'
-  with_subdomain: boolean
   artifact?: File
 }
 
 export const projectArtifactsQueryKey = (projectId: string) => ['project-artifacts', projectId]
+export const artifactQueryKey = (artifactId: string) => ['artifact', artifactId]
+
+export const useGetArtifact = (artifactId: string) => {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useQuery<TypesArtifact>({
+    queryKey: artifactQueryKey(artifactId),
+    queryFn: async () => {
+      const response = await apiClient.v1ArtifactsDetail(artifactId)
+      return response.data
+    },
+    enabled: !!artifactId,
+  })
+}
+
+export const useSetArtifactVisibility = (artifactId: string) => {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (visibility: 'project' | 'public') => {
+      const response = await apiClient.v1ArtifactsUpdate(artifactId, { visibility })
+      return response.data
+    },
+    onSuccess: (artifact) => {
+      queryClient.invalidateQueries({ queryKey: artifactQueryKey(artifactId) })
+      if (artifact.project_id) {
+        queryClient.invalidateQueries({ queryKey: projectArtifactsQueryKey(artifact.project_id) })
+      }
+    },
+  })
+}
 
 export const useListProjectArtifacts = (projectId: string) => {
   const api = useApi()

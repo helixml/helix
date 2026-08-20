@@ -22042,7 +22042,7 @@ paths:
         in: formData
         name: visibility
         type: string
-      - description: Allocate a public default subdomain
+      - description: 'Deprecated: public artifacts always receive a share subdomain'
         in: formData
         name: with_subdomain
         type: boolean

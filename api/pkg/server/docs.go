@@ -13478,7 +13478,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "boolean",
-                        "description": "Allocate a public default subdomain",
+                        "description": "Deprecated: public artifacts always receive a share subdomain",
                         "name": "with_subdomain",
                         "in": "formData"
                     },

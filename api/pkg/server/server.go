@@ -1515,14 +1515,12 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// IMPORTANT: Must be before registerDefaultHandler to avoid being proxied to frontend
 	apiServer.gitHTTPServer.RegisterRoutes(router)
 
-	// Static artifacts live outside /api/v1. Authentication is optional here:
-	// public artifacts are anonymous while project artifacts authorize the
-	// extracted user against their owning project in the handler.
-	artifactRouter := router.PathPrefix("/artifacts/").Subrouter()
-	artifactRouter.Use(apiServer.authMiddleware.extractMiddleware)
-	artifactRouter.HandleFunc("/{artifact_id}", apiServer.serveArtifactPath).Methods(http.MethodGet, http.MethodHead)
-	artifactRouter.HandleFunc("/{artifact_id}/", apiServer.serveArtifactPath).Methods(http.MethodGet, http.MethodHead)
-	artifactRouter.HandleFunc("/{artifact_id}/{artifact_path:.*}", apiServer.serveArtifactPath).Methods(http.MethodGet, http.MethodHead)
+	// /artifacts/{id} is a frontend viewer. Its iframe enters the isolated
+	// artifact origin through these narrowly scoped embed routes.
+	artifactEmbedHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.serveArtifactEmbed))
+	router.Handle("/artifacts/{artifact_id}/embed", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
+	router.Handle("/artifacts/{artifact_id}/embed/", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
+	router.Handle("/artifacts/{artifact_id}/embed/{artifact_path:.*}", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
 
 	// Set a custom NotFoundHandler for /api/v1/ routes to log unknown paths
 	subRouter.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

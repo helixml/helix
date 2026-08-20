@@ -57,18 +57,16 @@ func TestResolveArtifactFile(t *testing.T) {
 }
 
 func TestArtifactSecurityHeaders(t *testing.T) {
-	canonical := http.Header{}
-	setArtifactSecurityHeaders(canonical, true)
-	require.Contains(t, canonical.Get("Content-Security-Policy"), "sandbox allow-scripts")
-	require.Contains(t, canonical.Get("Content-Security-Policy"), "connect-src 'none'")
-	require.NotContains(t, canonical.Get("Content-Security-Policy"), "allow-same-origin")
-	require.Equal(t, "*", canonical.Get("Access-Control-Allow-Origin"))
+	header := http.Header{}
+	setArtifactSecurityHeaders(header, "https://helix.example/path")
+	require.Contains(t, header.Get("Content-Security-Policy"), "connect-src 'self' https: wss:")
+	require.Contains(t, header.Get("Content-Security-Policy"), "frame-ancestors https://helix.example")
+	require.Equal(t, "no-referrer", header.Get("Referrer-Policy"))
+	require.Contains(t, header.Get("Permissions-Policy"), "camera=()")
 
-	subdomain := http.Header{}
-	setArtifactSecurityHeaders(subdomain, false)
-	require.NotContains(t, subdomain.Get("Content-Security-Policy"), "sandbox")
-	require.Contains(t, subdomain.Get("Content-Security-Policy"), "connect-src 'self' https: wss:")
-	require.Empty(t, subdomain.Get("Access-Control-Allow-Origin"))
+	invalid := http.Header{}
+	setArtifactSecurityHeaders(invalid, "javascript:alert(1)")
+	require.Contains(t, invalid.Get("Content-Security-Policy"), "frame-ancestors 'none'")
 }
 
 func TestArtifactRequestOrigin(t *testing.T) {

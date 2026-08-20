@@ -1,12 +1,10 @@
 import { ChangeEvent, FC, useEffect, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Button from '@mui/material/Button'
-import Checkbox from '@mui/material/Checkbox'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
-import FormControlLabel from '@mui/material/FormControlLabel'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
@@ -30,7 +28,6 @@ const ArtifactDialog: FC<Props> = ({ open, artifact, saving, error, onClose, onS
   const [description, setDescription] = useState('')
   const [entrypoint, setEntrypoint] = useState('')
   const [visibility, setVisibility] = useState<'project' | 'public'>('project')
-  const [withSubdomain, setWithSubdomain] = useState(false)
   const [file, setFile] = useState<File>()
 
   useEffect(() => {
@@ -39,14 +36,8 @@ const ArtifactDialog: FC<Props> = ({ open, artifact, saving, error, onClose, onS
     setDescription(artifact?.description ?? '')
     setEntrypoint(artifact?.entrypoint ?? '')
     setVisibility(artifact?.visibility === 'public' ? 'public' : 'project')
-    setWithSubdomain(!!artifact?.subdomain_url)
     setFile(undefined)
   }, [open, artifact?.id])
-
-  const handleVisibility = (value: 'project' | 'public') => {
-    setVisibility(value)
-    if (value === 'project') setWithSubdomain(false)
-  }
 
   const handleFile = (event: ChangeEvent<HTMLInputElement>) => {
     setFile(event.target.files?.[0])
@@ -66,16 +57,12 @@ const ArtifactDialog: FC<Props> = ({ open, artifact, saving, error, onClose, onS
             select
             label="Visibility"
             value={visibility}
-            onChange={(event) => handleVisibility(event.target.value as 'project' | 'public')}
+            onChange={(event) => setVisibility(event.target.value as 'project' | 'public')}
+            helperText={visibility === 'public' ? 'Public artifacts receive an isolated share subdomain.' : 'Only project members can open this artifact.'}
           >
             <MenuItem value="project">Project members</MenuItem>
             <MenuItem value="public">Public link</MenuItem>
           </TextField>
-          <FormControlLabel
-            control={<Checkbox checked={withSubdomain} onChange={(event) => setWithSubdomain(event.target.checked)} />}
-            label="Serve on a dedicated public subdomain"
-            disabled={visibility !== 'public'}
-          />
           <TextField
             label="Entrypoint"
             value={entrypoint}
@@ -103,7 +90,6 @@ const ArtifactDialog: FC<Props> = ({ open, artifact, saving, error, onClose, onS
             description,
             entrypoint: entrypoint || undefined,
             visibility,
-            with_subdomain: withSubdomain,
             artifact: file,
           })}
         >
