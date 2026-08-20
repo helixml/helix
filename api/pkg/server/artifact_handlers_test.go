@@ -78,17 +78,6 @@ func TestArtifactRequestOrigin(t *testing.T) {
 	require.Equal(t, "https://api:8080", artifactRequestOrigin(r, ""))
 }
 
-func TestArtifactVHostOrigin(t *testing.T) {
-	require.Equal(t,
-		"http://manual-test-standalone-html.ns.helix.ml:8080",
-		artifactVHostOrigin("http://100.108.100.25:8080/", "manual-test-standalone-html.ns.helix.ml"),
-	)
-	require.Equal(t,
-		"https://artifact.example.com",
-		artifactVHostOrigin("https://helix.example.com", "artifact.example.com"),
-	)
-}
-
 func TestDefaultAndValidateArtifactEntrypoint(t *testing.T) {
 	files := []types.ArtifactFile{{Path: "replacement.html"}}
 

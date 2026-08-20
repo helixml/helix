@@ -1,5 +1,6 @@
 import { FC, MouseEvent, useState } from 'react'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
@@ -8,7 +9,7 @@ import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { ArrowLeft, Copy, ExternalLink, Globe2, LockKeyhole, Share2 } from 'lucide-react'
+import { ArrowLeft, Copy, ExternalLink, Globe2, LockKeyhole } from 'lucide-react'
 
 import Page from '../components/system/Page'
 import useRouter from '../hooks/useRouter'
@@ -94,18 +95,14 @@ const ArtifactViewer: FC = () => {
             icon={isPublic ? <Globe2 size={14} /> : <LockKeyhole size={14} />}
             label={isPublic ? 'Public' : 'Private'}
           />
-          <Tooltip title="Share artifact">
-            <span>
-              <IconButton
-                aria-label="Share artifact"
-                onClick={openShareMenu}
-                disabled={visibilityMutation.isPending}
-                sx={{ width: 30, height: 30, color: 'text.secondary', '&:hover': { color: 'text.primary' } }}
-              >
-                <Share2 size={18} />
-              </IconButton>
-            </span>
-          </Tooltip>
+          <Button
+            size="small"
+            onClick={openShareMenu}
+            disabled={visibilityMutation.isPending}
+            sx={{ textTransform: 'none', fontWeight: 500, minWidth: 'auto' }}
+          >
+            Share
+          </Button>
         </Stack>
       )}
     >
