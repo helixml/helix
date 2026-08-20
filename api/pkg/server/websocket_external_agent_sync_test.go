@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -4593,4 +4594,146 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_SkipsClaimedInteractio
 	s.Equal("req_live", got, "must return the in-flight request_id, not mint a new one")
 	s.Equal("req_live", s.server.interactionDispatchClaims["int_waiting"].requestID,
 		"the original claim must be left intact")
+}
+
+func (s *WebSocketSyncSuite) TestUnrestorableThreadError_MatchesOnlyTheCapabilityFailure() {
+	s.True(isUnrestorableThreadError("Failed to load thread: Agent does not support session loading"))
+	// A load that failed this time is not a load that can never succeed.
+	for _, errMsg := range []string{
+		"Failed to load thread: connection refused",
+		"Failed to send follow-up: Internal error: turn failed: Stream ended without finish_reason",
+		"agent turn aborted: the ACP agent process exited mid-turn or hit max tokens",
+	} {
+		s.False(isUnrestorableThreadError(errMsg), errMsg)
+	}
+}
+
+// An ACP agent that declares no loadSession capability (DeepSeek Harness) can
+// never reopen a thread whose Zed entity is gone. Before this recovery, Zed
+// dropped the message and Helix errored the turn, so every message after a Zed
+// restart vanished and the task had to be recreated.
+func (s *WebSocketSyncSuite) TestThreadLoadError_UnrestorableAgentReplaysWithSeededContext() {
+	const threadID = "thread-dsh"
+	s.server.contextMappings[threadID] = "ses_dsh"
+	s.server.requestToInteractionMapping["req-dsh"] = "int-dsh"
+	sendChan := make(chan types.ExternalAgentCommand, 2)
+	s.server.externalAgentWSManager.registerConnection("ses_dsh", &ExternalAgentWSConnection{SessionID: "ses_dsh", SendChan: sendChan})
+
+	session := &types.Session{ID: "ses_dsh", Metadata: types.SessionMetadata{
+		ZedThreadID: threadID, ZedAgentName: "dsh", SpecTaskID: "spt_dsh",
+	}}
+	pending := &types.Interaction{
+		ID: "int-dsh", SessionID: "ses_dsh", State: types.InteractionStateWaiting,
+		PromptMessage: "keep going",
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_dsh").Return(session, nil).AnyTimes()
+	s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), "ses_dsh", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, metadata types.SessionMetadata) error {
+			s.Empty(metadata.ZedThreadID, "the unloadable thread must be cleared so the replay opens a new one")
+			return nil
+		},
+	)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-dsh").Return(pending, nil)
+	s.store.EXPECT().GetSpecTask(gomock.Any(), "spt_dsh").Return(&types.SpecTask{
+		ID: "spt_dsh", Name: "Audit the security findings",
+		OriginalPrompt: "review the container hardening", BranchName: "feature/000386-audit",
+	}, nil)
+	// Reads only the tail, newest-first, rather than the whole session.
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
+			s.Equal("ses_dsh", query.SessionID)
+			s.Equal("id DESC", query.Order)
+			s.Positive(query.PerPage)
+			s.LessOrEqual(query.PerPage, reseedMaxTurns+1)
+			return []*types.Interaction{
+				pending,
+				{ID: "int-old", SessionID: "ses_dsh", PromptMessage: "start the audit", ResponseMessage: "logged 29 findings"},
+			}, int64(2), nil
+		},
+	)
+
+	err := s.server.handleThreadLoadError("ses_dsh", &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": threadID,
+			"request_id":    "req-dsh",
+			"error":         "Failed to load thread: Agent does not support session loading",
+		},
+	})
+	s.NoError(err)
+
+	select {
+	case command := <-sendChan:
+		message, _ := command.Data["message"].(string)
+		// Replayed as a first message: no thread id, so Zed opens a new one.
+		_, hasThreadID := command.Data["acp_thread_id"]
+		s.False(hasThreadID)
+		// The agent is told why it lost its memory, and what it was doing.
+		s.Contains(message, "cannot resume")
+		s.Contains(message, "Audit the security findings")
+		s.Contains(message, "feature/000386-audit")
+		s.Contains(message, "start the audit")
+		s.Contains(message, "logged 29 findings")
+		// The user's own message is last, and the pending turn is not replayed
+		// into the transcript above it.
+		s.True(strings.HasSuffix(message, "keep going"), message)
+		s.Equal(1, strings.Count(message, "keep going"))
+	default:
+		s.Fail("missing replay command for the unrestorable thread")
+	}
+}
+
+// A session with nothing to say — no task, no prior turns — sends the user's
+// message alone rather than a preamble explaining an empty history.
+func (s *WebSocketSyncSuite) TestThreadReseedPreamble_EmptyWithoutTaskOrHistory() {
+	session := &types.Session{ID: "ses_bare"}
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-current", SessionID: "ses_bare", PromptMessage: "hello"}}, int64(1), nil,
+	)
+
+	s.Empty(s.server.buildThreadReseedPreamble(context.Background(), session, "int-current"))
+}
+
+// With no turn in flight there is nothing to seed, so the dead thread id is
+// kept: it is what routes the user's next message through the seeded replay
+// instead of quietly opening a fresh, contextless thread.
+func (s *WebSocketSyncSuite) TestThreadLoadError_UnrestorableAgentKeepsThreadIDWhenNoTurnIsWaiting() {
+	const threadID = "thread-idle-dsh"
+	s.server.contextMappings[threadID] = "ses_idle"
+	session := &types.Session{ID: "ses_idle", Metadata: types.SessionMetadata{ZedThreadID: threadID, ZedAgentName: "dsh"}}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_idle").Return(session, nil).AnyTimes()
+	s.store.EXPECT().GetInteraction(gomock.Any(), "req-idle").Return(
+		&types.Interaction{ID: "req-idle", SessionID: "ses_idle", State: types.InteractionStateComplete}, nil,
+	)
+	// The recovery must not touch the session.
+	s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	err := s.server.handleThreadLoadError("ses_idle", &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": threadID,
+			"request_id":    "req-idle",
+			"error":         "Failed to load thread: Agent does not support session loading",
+		},
+	})
+	s.NoError(err)
+	s.Equal(threadID, session.Metadata.ZedThreadID)
+}
+
+// The store returns newest-first, so the preamble has to put the exchange back
+// in the order it happened — an agent reading its own history backwards is
+// worse than no history.
+func (s *WebSocketSyncSuite) TestThreadReseedPreamble_RendersTranscriptOldestFirst() {
+	session := &types.Session{ID: "ses_order"}
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{
+		{ID: "int-3", SessionID: "ses_order", PromptMessage: "third"},
+		{ID: "int-2", SessionID: "ses_order", PromptMessage: "second"},
+		{ID: "int-1", SessionID: "ses_order", PromptMessage: "first"},
+	}, int64(3), nil)
+
+	preamble := s.server.buildThreadReseedPreamble(context.Background(), session, "int-current")
+
+	s.Less(strings.Index(preamble, "first"), strings.Index(preamble, "second"))
+	s.Less(strings.Index(preamble, "second"), strings.Index(preamble, "third"))
 }
