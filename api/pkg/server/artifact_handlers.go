@@ -806,11 +806,7 @@ func (s *HelixAPIServer) populateArtifactURLs(r *http.Request, artifact *types.A
 		return fmt.Errorf("list artifact subdomains: %w", err)
 	}
 	if len(routes) > 0 && artifact.Visibility == types.ArtifactVisibilityPublic {
-		scheme := "https"
-		if parsed, parseErr := url.Parse(origin); parseErr == nil && parsed.Scheme == "http" {
-			scheme = "http"
-		}
-		artifact.SubdomainURL = scheme + "://" + routes[0].Hostname + "/"
+		artifact.SubdomainURL = artifactVHostOrigin(origin, routes[0].Hostname) + "/"
 	}
 	return nil
 }
@@ -867,8 +863,8 @@ func (s *HelixAPIServer) serveArtifactPath(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "create artifact access", http.StatusInternalServerError)
 			return
 		}
-		scheme := artifactOriginScheme(artifactRequestOrigin(r, s.Cfg.WebServer.URL))
-		action := scheme + "://" + routes[0].Hostname + "/_helix/access"
+		origin := artifactRequestOrigin(r, s.Cfg.WebServer.URL)
+		action := artifactVHostOrigin(origin, routes[0].Hostname) + "/_helix/access"
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -917,6 +913,14 @@ func artifactOriginScheme(origin string) string {
 		return "http"
 	}
 	return "https"
+}
+
+func artifactVHostOrigin(origin, hostname string) string {
+	host := hostname
+	if parsed, err := url.Parse(origin); err == nil && parsed.Port() != "" {
+		host += ":" + parsed.Port()
+	}
+	return artifactOriginScheme(origin) + "://" + host
 }
 
 func (s *HelixAPIServer) signArtifactAccessToken(userID, artifactID, artifactPath, audience string, ttl time.Duration) (string, error) {
