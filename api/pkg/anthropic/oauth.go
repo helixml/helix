@@ -23,8 +23,10 @@ var (
 )
 
 const (
-	// claudeOAuthClientID is the public client every Claude Code install uses.
-	claudeOAuthClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	// claudeOAuthClientID is the public client every Claude Code install ships
+	// with, and it is visible in the authorize URL's address bar. Not a secret —
+	// gitleaks only flags it because a UUID looks high-entropy.
+	claudeOAuthClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e" //gitleaks:allow
 
 	// claudeManualRedirectURI is an Anthropic-hosted page that displays the
 	// authorization code for the user to copy. Using it is what makes this flow
