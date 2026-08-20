@@ -3857,10 +3857,14 @@ definitions:
     enum:
     - single_file
     - spa
+    - pdf
+    - image
     type: string
     x-enum-varnames:
     - ArtifactKindSingleFile
     - ArtifactKindSPA
+    - ArtifactKindPDF
+    - ArtifactKindImage
   types.ArtifactVersion:
     properties:
       artifact_id:
@@ -3894,6 +3898,33 @@ definitions:
         items:
           $ref: '#/definitions/types.ArtifactVersion'
         type: array
+    type: object
+  types.ArtifactViewerResponse:
+    properties:
+      active_version_id:
+        type: string
+      can_edit:
+        type: boolean
+      description:
+        type: string
+      id:
+        type: string
+      kind:
+        $ref: '#/definitions/types.ArtifactKind'
+      name:
+        type: string
+      organization_id:
+        type: string
+      organization_name:
+        type: string
+      project_id:
+        type: string
+      project_name:
+        type: string
+      subdomain_url:
+        type: string
+      visibility:
+        $ref: '#/definitions/types.ArtifactVisibility'
     type: object
   types.ArtifactVisibility:
     enum:
@@ -13156,11 +13187,13 @@ definitions:
     - project_web_service
     - sandbox_preview
     - artifact_static
+    - artifact_private
     type: string
     x-enum-varnames:
     - VHostTargetProjectWebService
     - VHostTargetSandboxPreview
     - VHostTargetArtifact
+    - VHostTargetArtifactPrivate
   types.WIPLimits:
     properties:
       implementation:
@@ -15259,8 +15292,8 @@ paths:
     put:
       consumes:
       - multipart/form-data
-      description: Patch metadata and optionally upload a replacement HTML file or
-        ZIP bundle as a new version.
+      description: Patch metadata and optionally upload replacement HTML, PDF, image,
+        or ZIP content as a new version.
       parameters:
       - description: Artifact ID
         in: path
@@ -15287,7 +15320,7 @@ paths:
         in: formData
         name: with_subdomain
         type: boolean
-      - description: Replacement HTML file or ZIP bundle
+      - description: Replacement HTML, PDF, image, or ZIP content
         in: formData
         name: artifact
         type: file
@@ -22018,7 +22051,8 @@ paths:
     post:
       consumes:
       - multipart/form-data
-      description: Upload one HTML file or a ZIP containing a compiled static SPA.
+      description: Upload one HTML, PDF, or image file, or a ZIP containing a compiled
+        static SPA.
       parameters:
       - description: Project ID
         in: path
@@ -22046,7 +22080,7 @@ paths:
         in: formData
         name: with_subdomain
         type: boolean
-      - description: HTML file or ZIP bundle
+      - description: HTML, PDF, image, or ZIP bundle
         in: formData
         name: artifact
         required: true
@@ -23640,6 +23674,26 @@ paths:
             type: array
       security:
       - BearerAuth: []
+  /api/v1/public/artifacts/{artifact_id}:
+    get:
+      description: Returns safe display metadata for public artifacts without authentication.
+        Private artifacts require project access.
+      parameters:
+      - description: Artifact ID
+        in: path
+        name: artifact_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ArtifactViewerResponse'
+      summary: Get artifact viewer metadata
+      tags:
+      - Artifacts
   /api/v1/quotas:
     get:
       description: Get quotas for the user. Returns current usage and limits for desktops,

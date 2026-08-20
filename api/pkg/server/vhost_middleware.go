@@ -157,7 +157,7 @@ func (m *VHostMiddleware) serveVHostLookup(w http.ResponseWriter, r *http.Reques
 		m.dispatchSandboxPreview(w, r, route)
 	case types.VHostTargetProjectWebService:
 		m.dispatchProjectWebService(w, r, route)
-	case types.VHostTargetArtifact:
+	case types.VHostTargetArtifact, types.VHostTargetArtifactPrivate:
 		m.dispatchArtifact(w, r, route)
 	default:
 		http.Error(w, "unknown route target kind", http.StatusInternalServerError)
@@ -171,7 +171,7 @@ func (m *VHostMiddleware) dispatchArtifact(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if artifact.Visibility != types.ArtifactVisibilityPublic {
-		m.apiServer.servePrivateArtifactVHost(w, r, artifact, strings.TrimPrefix(r.URL.Path, "/"))
+		m.apiServer.servePrivateArtifactVHost(w, r, artifact, route, strings.TrimPrefix(r.URL.Path, "/"))
 		return
 	}
 	m.apiServer.serveArtifactFile(w, r, artifact, strings.TrimPrefix(r.URL.Path, "/"))

@@ -2457,6 +2457,8 @@ export interface TypesArtifactFile {
 export enum TypesArtifactKind {
   ArtifactKindSingleFile = "single_file",
   ArtifactKindSPA = "spa",
+  ArtifactKindPDF = "pdf",
+  ArtifactKindImage = "image",
 }
 
 export interface TypesArtifactVersion {
@@ -2475,6 +2477,21 @@ export interface TypesArtifactVersion {
 
 export interface TypesArtifactVersionsListResponse {
   versions?: TypesArtifactVersion[];
+}
+
+export interface TypesArtifactViewerResponse {
+  active_version_id?: string;
+  can_edit?: boolean;
+  description?: string;
+  id?: string;
+  kind?: TypesArtifactKind;
+  name?: string;
+  organization_id?: string;
+  organization_name?: string;
+  project_id?: string;
+  project_name?: string;
+  subdomain_url?: string;
+  visibility?: TypesArtifactVisibility;
 }
 
 export enum TypesArtifactVisibility {
@@ -8271,6 +8288,7 @@ export enum TypesVHostTargetKind {
   VHostTargetProjectWebService = "project_web_service",
   VHostTargetSandboxPreview = "sandbox_preview",
   VHostTargetArtifact = "artifact_static",
+  VHostTargetArtifactPrivate = "artifact_private",
 }
 
 export interface TypesWIPLimits {
@@ -9876,7 +9894,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Patch metadata and optionally upload a replacement HTML file or ZIP bundle as a new version.
+     * @description Patch metadata and optionally upload replacement HTML, PDF, image, or ZIP content as a new version.
      *
      * @tags Artifacts
      * @name V1ArtifactsUpdate
@@ -9897,7 +9915,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         visibility?: string;
         /** Allocate or retain a public default subdomain */
         with_subdomain?: boolean;
-        /** Replacement HTML file or ZIP bundle */
+        /** Replacement HTML, PDF, image, or ZIP content */
         artifact?: File;
       },
       params: RequestParams = {},
@@ -15048,7 +15066,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Upload one HTML file or a ZIP containing a compiled static SPA.
+     * @description Upload one HTML, PDF, or image file, or a ZIP containing a compiled static SPA.
      *
      * @tags Artifacts
      * @name V1ProjectsArtifactsCreate
@@ -15069,7 +15087,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         visibility?: string;
         /** Deprecated: public artifacts always receive a share subdomain */
         with_subdomain?: boolean;
-        /** HTML file or ZIP bundle */
+        /** HTML, PDF, image, or ZIP bundle */
         artifact: File;
       },
       params: RequestParams = {},
@@ -16051,6 +16069,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/providers`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns safe display metadata for public artifacts without authentication. Private artifacts require project access.
+     *
+     * @tags Artifacts
+     * @name V1PublicArtifactsDetail
+     * @summary Get artifact viewer metadata
+     * @request GET:/api/v1/public/artifacts/{artifact_id}
+     */
+    v1PublicArtifactsDetail: (artifactId: string, params: RequestParams = {}) =>
+      this.request<TypesArtifactViewerResponse, any>({
+        path: `/api/v1/public/artifacts/${artifactId}`,
+        method: "GET",
+        format: "json",
         ...params,
       }),
 

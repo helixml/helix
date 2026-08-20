@@ -13,6 +13,15 @@ export type ArtifactForm = {
 
 export const projectArtifactsQueryKey = (projectId: string) => ['project-artifacts', projectId]
 export const artifactQueryKey = (artifactId: string) => ['artifact', artifactId]
+export const artifactViewerQueryKey = (artifactId: string) => ['artifact-viewer', artifactId]
+
+export const artifactMutationData = (form: ArtifactForm) => ({
+  name: form.name,
+  visibility: form.visibility,
+  ...(form.description !== undefined ? { description: form.description } : {}),
+  ...(form.entrypoint !== undefined ? { entrypoint: form.entrypoint } : {}),
+  ...(form.artifact !== undefined ? { artifact: form.artifact } : {}),
+})
 
 export const useGetArtifact = (artifactId: string) => {
   const api = useApi()
@@ -21,6 +30,19 @@ export const useGetArtifact = (artifactId: string) => {
     queryKey: artifactQueryKey(artifactId),
     queryFn: async () => {
       const response = await apiClient.v1ArtifactsDetail(artifactId)
+      return response.data
+    },
+    enabled: !!artifactId,
+  })
+}
+
+export const useGetArtifactViewer = (artifactId: string) => {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useQuery({
+    queryKey: artifactViewerQueryKey(artifactId),
+    queryFn: async () => {
+      const response = await apiClient.v1PublicArtifactsDetail(artifactId)
       return response.data
     },
     enabled: !!artifactId,
@@ -38,6 +60,7 @@ export const useSetArtifactVisibility = (artifactId: string) => {
     },
     onSuccess: (artifact) => {
       queryClient.invalidateQueries({ queryKey: artifactQueryKey(artifactId) })
+      queryClient.invalidateQueries({ queryKey: artifactViewerQueryKey(artifactId) })
       if (artifact.project_id) {
         queryClient.invalidateQueries({ queryKey: projectArtifactsQueryKey(artifact.project_id) })
       }
@@ -64,9 +87,9 @@ export const useCreateArtifact = (projectId: string) => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (form: ArtifactForm) => {
-      if (!form.artifact) throw new Error('Choose an HTML file or ZIP bundle')
+      if (!form.artifact) throw new Error('Choose an HTML, ZIP, PDF, or image file')
       const response = await apiClient.v1ProjectsArtifactsCreate(projectId, {
-        ...form,
+        ...artifactMutationData(form),
         artifact: form.artifact,
       })
       return response.data
@@ -81,7 +104,7 @@ export const useUpdateArtifact = (projectId: string) => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, form }: { id: string; form: ArtifactForm }) => {
-      const response = await apiClient.v1ArtifactsUpdate(id, form)
+      const response = await apiClient.v1ArtifactsUpdate(id, artifactMutationData(form))
       return response.data
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: projectArtifactsQueryKey(projectId) }),

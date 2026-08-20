@@ -1521,6 +1521,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	router.Handle("/artifacts/{artifact_id}/embed", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
 	router.Handle("/artifacts/{artifact_id}/embed/", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
 	router.Handle("/artifacts/{artifact_id}/embed/{artifact_path:.*}", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
+	artifactDocumentHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.serveArtifactDocument))
+	router.Handle("/artifacts/{artifact_id}/document", artifactDocumentHandler).Methods(http.MethodGet, http.MethodHead)
+	artifactViewerHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.getArtifactViewer))
+	insecureRouter.Handle("/public/artifacts/{artifact_id}", artifactViewerHandler).Methods(http.MethodGet)
 
 	// Set a custom NotFoundHandler for /api/v1/ routes to log unknown paths
 	subRouter.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -2739,7 +2739,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Patch metadata and optionally upload a replacement HTML file or ZIP bundle as a new version.",
+                "description": "Patch metadata and optionally upload replacement HTML, PDF, image, or ZIP content as a new version.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -2790,7 +2790,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "file",
-                        "description": "Replacement HTML file or ZIP bundle",
+                        "description": "Replacement HTML, PDF, image, or ZIP content",
                         "name": "artifact",
                         "in": "formData"
                     }
@@ -13432,7 +13432,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Upload one HTML file or a ZIP containing a compiled static SPA.",
+                "description": "Upload one HTML, PDF, or image file, or a ZIP containing a compiled static SPA.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -13484,7 +13484,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "file",
-                        "description": "HTML file or ZIP bundle",
+                        "description": "HTML, PDF, image, or ZIP bundle",
                         "name": "artifact",
                         "in": "formData",
                         "required": true
@@ -15829,6 +15829,35 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.Provider"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/public/artifacts/{artifact_id}": {
+            "get": {
+                "description": "Returns safe display metadata for public artifacts without authentication. Private artifacts require project access.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "Get artifact viewer metadata",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Artifact ID",
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ArtifactViewerResponse"
                         }
                     }
                 }
@@ -28798,11 +28827,15 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "single_file",
-                "spa"
+                "spa",
+                "pdf",
+                "image"
             ],
             "x-enum-varnames": [
                 "ArtifactKindSingleFile",
-                "ArtifactKindSPA"
+                "ArtifactKindSPA",
+                "ArtifactKindPDF",
+                "ArtifactKindImage"
             ]
         },
         "types.ArtifactVersion": {
@@ -28854,6 +28887,47 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.ArtifactVersion"
                     }
+                }
+            }
+        },
+        "types.ArtifactViewerResponse": {
+            "type": "object",
+            "properties": {
+                "active_version_id": {
+                    "type": "string"
+                },
+                "can_edit": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/types.ArtifactKind"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "subdomain_url": {
+                    "type": "string"
+                },
+                "visibility": {
+                    "$ref": "#/definitions/types.ArtifactVisibility"
                 }
             }
         },
@@ -41345,12 +41419,14 @@ const docTemplate = `{
             "enum": [
                 "project_web_service",
                 "sandbox_preview",
-                "artifact_static"
+                "artifact_static",
+                "artifact_private"
             ],
             "x-enum-varnames": [
                 "VHostTargetProjectWebService",
                 "VHostTargetSandboxPreview",
-                "VHostTargetArtifact"
+                "VHostTargetArtifact",
+                "VHostTargetArtifactPrivate"
             ]
         },
         "types.WIPLimits": {

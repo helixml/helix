@@ -11,6 +11,8 @@ type ArtifactKind string
 const (
 	ArtifactKindSingleFile ArtifactKind = "single_file"
 	ArtifactKindSPA        ArtifactKind = "spa"
+	ArtifactKindPDF        ArtifactKind = "pdf"
+	ArtifactKindImage      ArtifactKind = "image"
 )
 
 type ArtifactVisibility string
@@ -72,4 +74,22 @@ type ArtifactsListResponse struct {
 
 type ArtifactVersionsListResponse struct {
 	Versions []*ArtifactVersion `json:"versions"`
+}
+
+// ArtifactViewerResponse contains only the metadata needed by the public
+// artifact viewer. Project members receive the same shape with CanEdit set
+// when they may change sharing settings.
+type ArtifactViewerResponse struct {
+	ID               string             `json:"id"`
+	ProjectID        string             `json:"project_id"`
+	ProjectName      string             `json:"project_name"`
+	OrganizationID   string             `json:"organization_id"`
+	OrganizationName string             `json:"organization_name"`
+	Name             string             `json:"name"`
+	Description      string             `json:"description,omitempty"`
+	Kind             ArtifactKind       `json:"kind"`
+	Visibility       ArtifactVisibility `json:"visibility"`
+	ActiveVersionID  string             `json:"active_version_id"`
+	SubdomainURL     string             `json:"subdomain_url,omitempty"`
+	CanEdit          bool               `json:"can_edit"`
 }

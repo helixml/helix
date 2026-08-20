@@ -91,16 +91,19 @@ const Artifacts: FC = () => {
     <Page
       breadcrumbTitle="Artifacts"
       orgBreadcrumbs
-      breadcrumbs={project?.name ? [{
-        title: project.name,
-        routeName: 'org_project-specs',
-        params: { id: projectId },
-      }] : []}
+      breadcrumbs={project?.name ? [
+        { title: 'Projects', routeName: 'projects' },
+        {
+          title: project.name,
+          routeName: 'project-specs',
+          params: { id: projectId },
+        },
+      ] : []}
     >
       <Container maxWidth="lg" sx={{ mb: 4, mt: 4 }}>
         <PageSectionHeader
           title="Artifacts"
-          description="Static HTML pages and compiled apps stored in this project. They inherit project access and run without a sandbox."
+          description="Artifacts are static pages and apps your agents create and upload to this project. They inherit project access and are served directly by Helix without a running sandbox."
           action={(
             <Button variant="contained" color="secondary" startIcon={<Plus size={18} />} onClick={openCreate}>
               New Artifact
@@ -112,7 +115,9 @@ const Artifacts: FC = () => {
             <LoadingSpinner />
           ) : artifacts.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8 }}>
-              <Typography variant="body1" color="text.secondary">No artifacts have been published in this project.</Typography>
+              <Typography variant="body1" color="text.secondary">
+                No artifacts yet. Ask an agent to create and upload one, or publish HTML or a compiled app manually.
+              </Typography>
               <Button variant="contained" color="secondary" startIcon={<Plus size={18} />} onClick={openCreate} sx={{ mt: 2 }}>
                 Publish the first artifact
               </Button>
@@ -131,6 +136,7 @@ const Artifacts: FC = () => {
       <ArtifactDialog
         open={dialogOpen}
         artifact={editing}
+        projectName={project?.name}
         saving={saving}
         error={saveError}
         onClose={() => setDialogOpen(false)}

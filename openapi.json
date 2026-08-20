@@ -3258,7 +3258,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Patch metadata and optionally upload a replacement HTML file or ZIP bundle as a new version.",
+                "description": "Patch metadata and optionally upload replacement HTML, PDF, image, or ZIP content as a new version.",
                 "tags": [
                     "Artifacts"
                 ],
@@ -3301,7 +3301,7 @@
                                         "type": "boolean"
                                     },
                                     "artifact": {
-                                        "description": "Replacement HTML file or ZIP bundle",
+                                        "description": "Replacement HTML, PDF, image, or ZIP content",
                                         "type": "string",
                                         "format": "binary"
                                     }
@@ -15985,7 +15985,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Upload one HTML file or a ZIP containing a compiled static SPA.",
+                "description": "Upload one HTML, PDF, or image file, or a ZIP containing a compiled static SPA.",
                 "tags": [
                     "Artifacts"
                 ],
@@ -16028,7 +16028,7 @@
                                         "type": "boolean"
                                     },
                                     "artifact": {
-                                        "description": "HTML file or ZIP bundle",
+                                        "description": "HTML, PDF, image, or ZIP bundle",
                                         "type": "string",
                                         "format": "binary"
                                     }
@@ -18872,6 +18872,38 @@
                                     "items": {
                                         "$ref": "#/components/schemas/types.Provider"
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/public/artifacts/{artifact_id}": {
+            "get": {
+                "description": "Returns safe display metadata for public artifacts without authentication. Private artifacts require project access.",
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "Get artifact viewer metadata",
+                "parameters": [
+                    {
+                        "description": "Artifact ID",
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ArtifactViewerResponse"
                                 }
                             }
                         }
@@ -33398,11 +33430,15 @@
                 "type": "string",
                 "enum": [
                     "single_file",
-                    "spa"
+                    "spa",
+                    "pdf",
+                    "image"
                 ],
                 "x-enum-varnames": [
                     "ArtifactKindSingleFile",
-                    "ArtifactKindSPA"
+                    "ArtifactKindSPA",
+                    "ArtifactKindPDF",
+                    "ArtifactKindImage"
                 ]
             },
             "types.ArtifactVersion": {
@@ -33454,6 +33490,47 @@
                         "items": {
                             "$ref": "#/components/schemas/types.ArtifactVersion"
                         }
+                    }
+                }
+            },
+            "types.ArtifactViewerResponse": {
+                "type": "object",
+                "properties": {
+                    "active_version_id": {
+                        "type": "string"
+                    },
+                    "can_edit": {
+                        "type": "boolean"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/types.ArtifactKind"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "organization_name": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "project_name": {
+                        "type": "string"
+                    },
+                    "subdomain_url": {
+                        "type": "string"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/types.ArtifactVisibility"
                     }
                 }
             },
@@ -45945,12 +46022,14 @@
                 "enum": [
                     "project_web_service",
                     "sandbox_preview",
-                    "artifact_static"
+                    "artifact_static",
+                    "artifact_private"
                 ],
                 "x-enum-varnames": [
                     "VHostTargetProjectWebService",
                     "VHostTargetSandboxPreview",
-                    "VHostTargetArtifact"
+                    "VHostTargetArtifact",
+                    "VHostTargetArtifactPrivate"
                 ]
             },
             "types.WIPLimits": {

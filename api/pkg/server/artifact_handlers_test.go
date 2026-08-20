@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 )
@@ -67,6 +66,11 @@ func TestArtifactSecurityHeaders(t *testing.T) {
 	invalid := http.Header{}
 	setArtifactSecurityHeaders(invalid, "javascript:alert(1)")
 	require.Contains(t, invalid.Get("Content-Security-Policy"), "frame-ancestors 'none'")
+
+	document := http.Header{}
+	setArtifactDocumentSecurityHeaders(document, "https://helix.example/path")
+	require.Equal(t, "default-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors https://helix.example", document.Get("Content-Security-Policy"))
+	require.NotContains(t, document.Get("Content-Security-Policy"), "unsafe-inline")
 }
 
 func TestArtifactRequestOrigin(t *testing.T) {
@@ -79,7 +83,7 @@ func TestArtifactRequestOrigin(t *testing.T) {
 }
 
 func TestDefaultAndValidateArtifactEntrypoint(t *testing.T) {
-	files := []types.ArtifactFile{{Path: "replacement.html"}}
+	files := []types.ArtifactFile{{Path: "replacement.html", ContentType: "text/html; charset=utf-8"}}
 
 	entrypoint, err := defaultAndValidateArtifactEntrypoint(files, "index.html", true)
 	require.NoError(t, err)
@@ -87,6 +91,41 @@ func TestDefaultAndValidateArtifactEntrypoint(t *testing.T) {
 
 	_, err = defaultAndValidateArtifactEntrypoint(files, "index.html", false)
 	require.ErrorContains(t, err, "entrypoint does not exist")
+}
+
+func TestValidateArtifactEntrypointSupportsDocuments(t *testing.T) {
+	tests := []struct {
+		name         string
+		file         types.ArtifactFile
+		expectedKind types.ArtifactKind
+	}{
+		{name: "PDF", file: types.ArtifactFile{Path: "report.pdf", ContentType: "application/pdf"}, expectedKind: types.ArtifactKindPDF},
+		{name: "image", file: types.ArtifactFile{Path: "diagram.png", ContentType: "image/png"}, expectedKind: types.ArtifactKindImage},
+		{name: "HTML", file: types.ArtifactFile{Path: "page.html", ContentType: "text/html; charset=utf-8"}, expectedKind: types.ArtifactKindSingleFile},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			entrypoint, err := validateArtifactEntrypoint([]types.ArtifactFile{test.file}, test.file.Path)
+			require.NoError(t, err)
+			require.Equal(t, test.file.Path, entrypoint)
+			require.Equal(t, test.expectedKind, artifactKindFromFiles([]types.ArtifactFile{test.file}))
+		})
+	}
+}
+
+func TestValidateArtifactEntrypointRejectsUnsupportedSingleFile(t *testing.T) {
+	_, err := validateArtifactEntrypoint([]types.ArtifactFile{{Path: "script.js", ContentType: "text/javascript"}}, "script.js")
+	require.ErrorContains(t, err, "must be HTML, PDF, or an image")
+}
+
+func TestValidateArtifactEntrypointRequiresHTMLForBundle(t *testing.T) {
+	files := []types.ArtifactFile{
+		{Path: "report.pdf", ContentType: "application/pdf"},
+		{Path: "cover.png", ContentType: "image/png"},
+	}
+	_, err := validateArtifactEntrypoint(files, "report.pdf")
+	require.ErrorContains(t, err, "bundle entrypoint must be an HTML file")
 }
 
 func TestArtifactAccessRedirectPath(t *testing.T) {
@@ -100,19 +139,24 @@ func TestArtifactAccessRedirectPath(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestArtifactAccessToken(t *testing.T) {
-	server := &HelixAPIServer{Cfg: &config.ServerConfig{}}
-	server.Cfg.Auth.Regular.JWTSecret = "artifact-test-secret"
-	raw, err := server.signArtifactAccessToken("usr_test", "art_test", "/settings", artifactBootstrapAud, time.Minute)
-	require.NoError(t, err)
-	claims, err := server.parseArtifactAccessToken(raw, "art_test", artifactBootstrapAud)
-	require.NoError(t, err)
-	require.Equal(t, "usr_test", claims.Subject)
-	require.Equal(t, "/settings", claims.ArtifactPath)
-	_, err = server.parseArtifactAccessToken(raw, "art_other", artifactBootstrapAud)
-	require.Error(t, err)
-	_, err = server.parseArtifactAccessToken(raw, "art_test", artifactSessionAud)
-	require.Error(t, err)
+func TestActivePrivateArtifactRouteUser(t *testing.T) {
+	now := time.Now()
+	future := now.Add(time.Hour)
+	userID, ok := activePrivateArtifactRouteUser(&types.VHostRoute{
+		TargetKind:   types.VHostTargetArtifactPrivate,
+		AccessUserID: "usr_test",
+		ExpiresAt:    &future,
+	}, now)
+	require.True(t, ok)
+	require.Equal(t, "usr_test", userID)
+
+	past := now.Add(-time.Second)
+	_, ok = activePrivateArtifactRouteUser(&types.VHostRoute{
+		TargetKind:   types.VHostTargetArtifactPrivate,
+		AccessUserID: "usr_test",
+		ExpiresAt:    &past,
+	}, now)
+	require.False(t, ok)
 }
 
 func artifactTestZIP(t *testing.T, files map[string]string) []byte {

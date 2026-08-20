@@ -42,8 +42,8 @@ type uploadFlags struct {
 func newCreateCommand() *cobra.Command {
 	flags := uploadFlags{}
 	cmd := &cobra.Command{
-		Use:   "create <html-file-or-directory>",
-		Short: "Create a static artifact from HTML or a compiled SPA directory",
+		Use:   "create <file-or-directory>",
+		Short: "Create an artifact from HTML, a compiled SPA, PDF, or image",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectID := firstNonEmpty(flags.projectID, os.Getenv("HELIX_PROJECT_ID"))
@@ -86,7 +86,7 @@ func newCreateCommand() *cobra.Command {
 func newUpdateCommand() *cobra.Command {
 	flags := uploadFlags{}
 	cmd := &cobra.Command{
-		Use:   "update <artifact-id> [html-file-or-directory]",
+		Use:   "update <artifact-id> [file-or-directory]",
 		Short: "Update artifact metadata or publish a new content version",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -233,7 +233,7 @@ func addUploadFlags(cmd *cobra.Command, flags *uploadFlags, includeProject bool)
 	}
 	cmd.Flags().StringVarP(&flags.name, "name", "n", "", "Artifact name")
 	cmd.Flags().StringVar(&flags.description, "description", "", "Artifact description")
-	cmd.Flags().StringVar(&flags.entrypoint, "entrypoint", "", "HTML entrypoint (default: index.html)")
+	cmd.Flags().StringVar(&flags.entrypoint, "entrypoint", "", "HTML bundle entrypoint (default: index.html)")
 	cmd.Flags().StringVar(&flags.visibility, "visibility", "project", "Visibility: project or public")
 	cmd.Flags().BoolVar(&flags.subdomain, "subdomain", false, "Deprecated: public artifacts automatically receive a share subdomain")
 	_ = cmd.Flags().MarkDeprecated("subdomain", "public artifacts automatically receive a share subdomain")

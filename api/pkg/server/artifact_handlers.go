@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"io"
 	"mime"
 	"net/http"
@@ -21,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/store"
@@ -37,11 +35,7 @@ const (
 	artifactMaxTotalBytes   = 100 << 20
 	artifactMaxFiles        = 5000
 	artifactMaxPathBytes    = 1024
-	artifactBootstrapTTL    = time.Minute
-	artifactSessionTTL      = 8 * time.Hour
-	artifactAccessCookie    = "helix_artifact_access"
-	artifactBootstrapAud    = "helix-artifact-bootstrap"
-	artifactSessionAud      = "helix-artifact-session"
+	artifactPrivateRouteTTL = 8 * time.Hour
 )
 
 type artifactUploadFile struct {
@@ -54,18 +48,6 @@ type artifactUpload struct {
 	Entrypoint    string
 	ContentSHA256 string
 }
-
-type artifactAccessClaims struct {
-	ArtifactID   string `json:"artifact_id"`
-	ArtifactPath string `json:"artifact_path,omitempty"`
-	jwt.RegisteredClaims
-}
-
-var artifactAccessBootstrapTemplate = template.Must(template.New("artifact-access").Parse(`<!doctype html>
-<html><head><meta charset="utf-8"><title>Opening artifact</title></head><body>
-<form id="artifact-access" method="post" action="{{.Action}}"><input type="hidden" name="token" value="{{.Token}}"><noscript><button type="submit">Open artifact</button></noscript></form>
-<script>document.getElementById('artifact-access').submit()</script>
-</body></html>`))
 
 // listProjectArtifacts godoc
 // @Summary List project artifacts
@@ -98,7 +80,7 @@ func (s *HelixAPIServer) listProjectArtifacts(w http.ResponseWriter, r *http.Req
 
 // createProjectArtifact godoc
 // @Summary Create a project artifact
-// @Description Upload one HTML file or a ZIP containing a compiled static SPA.
+// @Description Upload one HTML, PDF, or image file, or a ZIP containing a compiled static SPA.
 // @Tags Artifacts
 // @Accept multipart/form-data
 // @Produce json
@@ -108,7 +90,7 @@ func (s *HelixAPIServer) listProjectArtifacts(w http.ResponseWriter, r *http.Req
 // @Param entrypoint formData string false "HTML entrypoint (default index.html)"
 // @Param visibility formData string false "project or public"
 // @Param with_subdomain formData bool false "Deprecated: public artifacts always receive a share subdomain"
-// @Param artifact formData file true "HTML file or ZIP bundle"
+// @Param artifact formData file true "HTML, PDF, image, or ZIP bundle"
 // @Success 201 {object} types.Artifact
 // @Router /api/v1/projects/{id}/artifacts [post]
 // @Security BearerAuth
@@ -207,9 +189,77 @@ func (s *HelixAPIServer) getArtifact(w http.ResponseWriter, r *http.Request) {
 	writeArtifactJSON(w, http.StatusOK, artifact)
 }
 
+// getArtifactViewer godoc
+// @Summary Get artifact viewer metadata
+// @Description Returns safe display metadata for public artifacts without authentication. Private artifacts require project access.
+// @Tags Artifacts
+// @Produce json
+// @Param artifact_id path string true "Artifact ID"
+// @Success 200 {object} types.ArtifactViewerResponse
+// @Router /api/v1/public/artifacts/{artifact_id} [get]
+func (s *HelixAPIServer) getArtifactViewer(w http.ResponseWriter, r *http.Request) {
+	artifactID := mux.Vars(r)["artifact_id"]
+	artifact, err := s.Store.GetArtifact(r.Context(), artifactID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeArtifactHTTPError(w, status, "artifact not found")
+		return
+	}
+
+	user := getRequestUser(r)
+	userID := ""
+	if user != nil {
+		userID = user.ID
+	}
+	if artifact.Visibility != types.ArtifactVisibilityPublic {
+		if userID == "" {
+			writeArtifactHTTPError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if err := s.authorizeUserToProjectByID(r.Context(), user, artifact.ProjectID, types.ActionGet); err != nil {
+			writeArtifactHTTPError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
+	project, err := s.Store.GetProject(r.Context(), artifact.ProjectID)
+	if err != nil {
+		writeArtifactHTTPError(w, http.StatusInternalServerError, "load artifact project")
+		return
+	}
+	organization, err := s.Store.GetOrganization(r.Context(), &store.GetOrganizationQuery{ID: artifact.OrganizationID})
+	if err != nil {
+		writeArtifactHTTPError(w, http.StatusInternalServerError, "load artifact organization")
+		return
+	}
+	if err := s.populateArtifactURLs(r, artifact); err != nil {
+		writeArtifactHTTPError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	canEdit := userID != "" && s.authorizeUserToProjectByID(r.Context(), user, artifact.ProjectID, types.ActionUpdate) == nil
+	writeArtifactJSON(w, http.StatusOK, &types.ArtifactViewerResponse{
+		ID:               artifact.ID,
+		ProjectID:        artifact.ProjectID,
+		ProjectName:      project.Name,
+		OrganizationID:   artifact.OrganizationID,
+		OrganizationName: organization.Name,
+		Name:             artifact.Name,
+		Description:      artifact.Description,
+		Kind:             artifact.Kind,
+		Visibility:       artifact.Visibility,
+		ActiveVersionID:  artifact.ActiveVersionID,
+		SubdomainURL:     artifact.SubdomainURL,
+		CanEdit:          canEdit,
+	})
+}
+
 // updateArtifact godoc
 // @Summary Update an artifact
-// @Description Patch metadata and optionally upload a replacement HTML file or ZIP bundle as a new version.
+// @Description Patch metadata and optionally upload replacement HTML, PDF, image, or ZIP content as a new version.
 // @Tags Artifacts
 // @Accept multipart/form-data
 // @Produce json
@@ -219,7 +269,7 @@ func (s *HelixAPIServer) getArtifact(w http.ResponseWriter, r *http.Request) {
 // @Param entrypoint formData string false "HTML entrypoint"
 // @Param visibility formData string false "project or public"
 // @Param with_subdomain formData bool false "Allocate or retain a public default subdomain"
-// @Param artifact formData file false "Replacement HTML file or ZIP bundle"
+// @Param artifact formData file false "Replacement HTML, PDF, image, or ZIP content"
 // @Success 200 {object} types.Artifact
 // @Router /api/v1/artifacts/{artifact_id} [put]
 // @Security BearerAuth
@@ -285,6 +335,7 @@ func (s *HelixAPIServer) updateArtifact(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		artifact.Entrypoint = upload.Entrypoint
+		artifact.Kind = artifactKind(upload.Files)
 		versionID := system.GenerateArtifactVersionID()
 		storagePrefix = filestore.GetArtifactVersionPrefix(s.Cfg.Controller.FilePrefixGlobal, artifact.ProjectID, artifact.ID, versionID)
 		if err := s.writeArtifactUpload(r, storagePrefix, upload); err != nil {
@@ -356,6 +407,9 @@ func (s *HelixAPIServer) deleteArtifact(w http.ResponseWriter, r *http.Request) 
 func (s *HelixAPIServer) deleteArtifactResources(ctx context.Context, artifact *types.Artifact) error {
 	if err := s.Store.DeleteVHostRoutesByTarget(ctx, types.VHostTargetArtifact, artifact.ID); err != nil {
 		return fmt.Errorf("delete artifact subdomains: %w", err)
+	}
+	if err := s.Store.DeleteVHostRoutesByTarget(ctx, types.VHostTargetArtifactPrivate, artifact.ID); err != nil {
+		return fmt.Errorf("delete private artifact viewer routes: %w", err)
 	}
 	storagePrefix := filestore.GetArtifactPrefix(s.Cfg.Controller.FilePrefixGlobal, artifact.ProjectID, artifact.ID)
 	if err := s.Controller.Options.Filestore.Delete(ctx, storagePrefix+"/"); err != nil {
@@ -606,15 +660,34 @@ func validateArtifactEntrypoint(files []types.ArtifactFile, requested string) (s
 	if err != nil {
 		return "", fmt.Errorf("invalid entrypoint: %w", err)
 	}
-	if !strings.EqualFold(path.Ext(entrypoint), ".html") && !strings.EqualFold(path.Ext(entrypoint), ".htm") {
-		return "", errors.New("artifact entrypoint must be an HTML file")
-	}
+	var entrypointFile *types.ArtifactFile
 	for _, file := range files {
 		if file.Path == entrypoint {
-			return entrypoint, nil
+			matched := file
+			entrypointFile = &matched
+			break
 		}
 	}
-	return "", fmt.Errorf("artifact entrypoint does not exist: %s", entrypoint)
+	if entrypointFile == nil {
+		return "", fmt.Errorf("artifact entrypoint does not exist: %s", entrypoint)
+	}
+	if len(files) == 1 {
+		switch artifactKindFromFiles(files) {
+		case types.ArtifactKindPDF, types.ArtifactKindImage:
+			return entrypoint, nil
+		case types.ArtifactKindSingleFile:
+			if artifactFileIsHTML(*entrypointFile) {
+				return entrypoint, nil
+			}
+			fallthrough
+		default:
+			return "", errors.New("single-file artifact must be HTML, PDF, or an image")
+		}
+	}
+	if !artifactFileIsHTML(*entrypointFile) {
+		return "", errors.New("artifact bundle entrypoint must be an HTML file")
+	}
+	return entrypoint, nil
 }
 
 func artifactAggregateHash(files []artifactUploadFile) string {
@@ -629,10 +702,31 @@ func artifactAggregateHash(files []artifactUploadFile) string {
 }
 
 func artifactKind(files []artifactUploadFile) types.ArtifactKind {
-	if len(files) == 1 {
+	metadata := make([]types.ArtifactFile, len(files))
+	for i := range files {
+		metadata[i] = files[i].Metadata
+	}
+	return artifactKindFromFiles(metadata)
+}
+
+func artifactKindFromFiles(files []types.ArtifactFile) types.ArtifactKind {
+	if len(files) != 1 {
+		return types.ArtifactKindSPA
+	}
+	contentType := strings.ToLower(strings.TrimSpace(strings.SplitN(files[0].ContentType, ";", 2)[0]))
+	switch {
+	case contentType == "application/pdf":
+		return types.ArtifactKindPDF
+	case strings.HasPrefix(contentType, "image/"):
+		return types.ArtifactKindImage
+	default:
 		return types.ArtifactKindSingleFile
 	}
-	return types.ArtifactKindSPA
+}
+
+func artifactFileIsHTML(file types.ArtifactFile) bool {
+	contentType := strings.ToLower(strings.TrimSpace(strings.SplitN(file.ContentType, ";", 2)[0]))
+	return contentType == "text/html" && (strings.EqualFold(path.Ext(file.Path), ".html") || strings.EqualFold(path.Ext(file.Path), ".htm"))
 }
 
 func artifactVersionFromUpload(r *http.Request, artifactID, versionID, storagePrefix string, versionNumber int, userID string, upload *artifactUpload) *types.ArtifactVersion {
@@ -791,9 +885,10 @@ func artifactRequestOrigin(r *http.Request, configured string) string {
 	return ""
 }
 
-// serveArtifactEmbed moves the viewer iframe onto the artifact's isolated
-// origin. Public artifacts redirect directly; private artifacts require
-// project access and exchange a short-lived grant for an origin-only session.
+// serveArtifactEmbed moves the viewer iframe onto an isolated artifact origin.
+// Public artifacts use their stable share hostname. Private artifacts require
+// project access and use a short-lived, user-bound hostname so browsers do not
+// need third-party cookies to load the iframe.
 func (s *HelixAPIServer) serveArtifactEmbed(w http.ResponseWriter, r *http.Request) {
 	artifactID := mux.Vars(r)["artifact_id"]
 	artifact, err := s.Store.GetArtifact(r.Context(), artifactID)
@@ -801,19 +896,18 @@ func (s *HelixAPIServer) serveArtifactEmbed(w http.ResponseWriter, r *http.Reque
 		http.NotFound(w, r)
 		return
 	}
-	routes, err := s.Store.ListVHostRoutesByTarget(r.Context(), types.VHostTargetArtifact, artifact.ID)
-	if err != nil || len(routes) == 0 {
-		http.Error(w, "artifact origin unavailable", http.StatusServiceUnavailable)
-		return
-	}
 	redirectPath, err := artifactAccessRedirectPath(mux.Vars(r)["artifact_path"], r.URL.RawQuery)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	vhostOrigin := s.vhostRouteURL(routes[0].Hostname)
 	if artifact.Visibility == types.ArtifactVisibilityPublic {
-		http.Redirect(w, r, vhostOrigin+redirectPath, http.StatusTemporaryRedirect)
+		routes, err := s.Store.ListVHostRoutesByTarget(r.Context(), types.VHostTargetArtifact, artifact.ID)
+		if err != nil || len(routes) == 0 {
+			http.Error(w, "artifact origin unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		http.Redirect(w, r, s.vhostRouteURL(routes[0].Hostname)+redirectPath, http.StatusTemporaryRedirect)
 		return
 	}
 	if artifact.Visibility == types.ArtifactVisibilityProject {
@@ -826,22 +920,13 @@ func (s *HelixAPIServer) serveArtifactEmbed(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
-		token, err := s.signArtifactAccessToken(user.ID, artifact.ID, redirectPath, artifactBootstrapAud, artifactBootstrapTTL)
+		route, err := s.ensurePrivateArtifactRoute(r, artifact, user.ID)
 		if err != nil {
-			http.Error(w, "create artifact access", http.StatusInternalServerError)
+			http.Error(w, "create private artifact origin", http.StatusInternalServerError)
 			return
 		}
-		action := vhostOrigin + "/_helix/access"
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; form-action "+action+"; base-uri 'none'; frame-ancestors 'self'")
-		if r.Method == http.MethodHead {
-			return
-		}
-		if err := artifactAccessBootstrapTemplate.Execute(w, struct{ Action, Token string }{Action: action, Token: token}); err != nil {
-			log.Warn().Err(err).Str("artifact_id", artifact.ID).Msg("render artifact access bootstrap")
-		}
+		http.Redirect(w, r, s.vhostRouteURL(route.Hostname)+redirectPath, http.StatusTemporaryRedirect)
 		return
 	}
 	http.NotFound(w, r)
@@ -875,79 +960,89 @@ func artifactAccessRedirectPath(requested, rawQuery string) (string, error) {
 	return redirectPath, nil
 }
 
-func (s *HelixAPIServer) signArtifactAccessToken(userID, artifactID, artifactPath, audience string, ttl time.Duration) (string, error) {
+func (s *HelixAPIServer) ensurePrivateArtifactRoute(r *http.Request, artifact *types.Artifact, userID string) (*types.VHostRoute, error) {
+	routes, err := s.Store.ListVHostRoutesByTarget(r.Context(), types.VHostTargetArtifactPrivate, artifact.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list private artifact routes: %w", err)
+	}
 	now := time.Now()
-	claims := artifactAccessClaims{
-		ArtifactID: artifactID, ArtifactPath: artifactPath,
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer: "helix", Subject: userID, Audience: jwt.ClaimStrings{audience},
-			IssuedAt: jwt.NewNumericDate(now), NotBefore: jwt.NewNumericDate(now.Add(-5 * time.Second)),
-			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
-		},
+	for _, route := range routes {
+		if route.ExpiresAt == nil || !route.ExpiresAt.After(now) {
+			if err := s.Store.DeleteVHostRoute(r.Context(), route.ID); err != nil {
+				return nil, fmt.Errorf("delete expired private artifact route: %w", err)
+			}
+			continue
+		}
+		if route.AccessUserID == userID {
+			return route, nil
+		}
 	}
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(s.Cfg.Auth.Regular.JWTSecret))
-}
 
-func (s *HelixAPIServer) parseArtifactAccessToken(raw, artifactID, audience string) (*artifactAccessClaims, error) {
-	claims := &artifactAccessClaims{}
-	token, err := jwt.ParseWithClaims(raw, claims, func(token *jwt.Token) (interface{}, error) {
-		return []byte(s.Cfg.Auth.Regular.JWTSecret), nil
-	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer("helix"), jwt.WithAudience(audience))
-	if err != nil || !token.Valid {
-		return nil, errors.New("invalid artifact access token")
+	base := s.vhostBaseDomain()
+	if base == "" {
+		return nil, errors.New("artifact subdomains are not configured")
 	}
-	if claims.ArtifactID != artifactID || claims.Subject == "" {
-		return nil, errors.New("artifact access token does not match artifact")
-	}
-	return claims, nil
-}
-
-func (s *HelixAPIServer) servePrivateArtifactVHost(w http.ResponseWriter, r *http.Request, artifact *types.Artifact, requestedPath string) {
-	if requestedPath == "_helix/access" {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "invalid artifact access", http.StatusBadRequest)
-			return
-		}
-		raw := r.FormValue("token")
-		claims, err := s.parseArtifactAccessToken(raw, artifact.ID, artifactBootstrapAud)
-		if err != nil {
-			http.Error(w, "invalid artifact access", http.StatusUnauthorized)
-			return
-		}
-		session, err := s.signArtifactAccessToken(claims.Subject, artifact.ID, "", artifactSessionAud, artifactSessionTTL)
-		if err != nil {
-			http.Error(w, "create artifact session", http.StatusInternalServerError)
-			return
-		}
-		http.SetCookie(w, &http.Cookie{
-			Name: artifactAccessCookie, Value: session, Path: "/", MaxAge: int(artifactSessionTTL.Seconds()),
-			Secure: NewCookieManager(s.Cfg).SecureCookies, HttpOnly: true, SameSite: http.SameSiteLaxMode,
-		})
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		http.Redirect(w, r, claims.ArtifactPath, http.StatusSeeOther)
-		return
-	}
-	cookie, err := r.Cookie(artifactAccessCookie)
+	routeID := system.GenerateVHostRouteID()
+	hostname, err := vhost.AllocateDefaultSubdomain(r.Context(), "private-"+routeID, base, s.vhostReserveOpts(), 1)
 	if err != nil {
+		return nil, fmt.Errorf("allocate private artifact route: %w", err)
+	}
+	expiresAt := now.Add(artifactPrivateRouteTTL)
+	route := &types.VHostRoute{
+		ID: routeID, Hostname: hostname, TargetKind: types.VHostTargetArtifactPrivate, TargetID: artifact.ID,
+		VerifiedAt: &now, AccessUserID: userID, ExpiresAt: &expiresAt,
+	}
+	if err := s.Store.CreateVHostRoute(r.Context(), route); err != nil {
+		return nil, fmt.Errorf("create private artifact route: %w", err)
+	}
+	return route, nil
+}
+
+func (s *HelixAPIServer) servePrivateArtifactVHost(w http.ResponseWriter, r *http.Request, artifact *types.Artifact, route *types.VHostRoute, requestedPath string) {
+	userID, ok := activePrivateArtifactRouteUser(route, time.Now())
+	if !ok {
 		http.Error(w, "artifact access required", http.StatusUnauthorized)
 		return
 	}
-	claims, err := s.parseArtifactAccessToken(cookie.Value, artifact.ID, artifactSessionAud)
-	if err != nil {
-		http.Error(w, "artifact access required", http.StatusUnauthorized)
-		return
-	}
-	if err := s.authorizeUserToProjectByID(r.Context(), &types.User{ID: claims.Subject}, artifact.ProjectID, types.ActionGet); err != nil {
+	if err := s.authorizeUserToProjectByID(r.Context(), &types.User{ID: userID}, artifact.ProjectID, types.ActionGet); err != nil {
 		http.Error(w, "artifact access denied", http.StatusForbidden)
 		return
 	}
 	s.serveArtifactFile(w, r, artifact, requestedPath)
+}
+
+func activePrivateArtifactRouteUser(route *types.VHostRoute, now time.Time) (string, bool) {
+	if route == nil || route.TargetKind != types.VHostTargetArtifactPrivate || route.AccessUserID == "" || route.ExpiresAt == nil || !route.ExpiresAt.After(now) {
+		return "", false
+	}
+	return route.AccessUserID, true
+}
+
+// serveArtifactDocument delivers non-HTML documents on the trusted viewer
+// origin. Chrome blocks its extension-backed PDF viewer inside a cross-origin
+// iframe, so PDFs use this permission-checked, MIME-locked route instead of an
+// artifact vhost.
+func (s *HelixAPIServer) serveArtifactDocument(w http.ResponseWriter, r *http.Request) {
+	artifactID := mux.Vars(r)["artifact_id"]
+	artifact, err := s.Store.GetArtifact(r.Context(), artifactID)
+	if err != nil || artifact.Kind != types.ArtifactKindPDF {
+		http.NotFound(w, r)
+		return
+	}
+	if artifact.Visibility != types.ArtifactVisibilityPublic {
+		user := getRequestUser(r)
+		if user == nil || user.ID == "" {
+			http.Error(w, "artifact access required", http.StatusUnauthorized)
+			return
+		}
+		if err := s.authorizeUserToProjectByID(r.Context(), user, artifact.ProjectID, types.ActionGet); err != nil {
+			http.Error(w, "artifact access denied", http.StatusForbidden)
+			return
+		}
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": path.Base(artifact.Entrypoint)}))
+	setArtifactDocumentSecurityHeaders(w.Header(), artifactRequestOrigin(r, s.Cfg.WebServer.URL))
+	s.serveArtifactFile(w, r, artifact, "")
 }
 
 func (s *HelixAPIServer) serveArtifactFile(w http.ResponseWriter, r *http.Request, artifact *types.Artifact, requestedPath string) {
@@ -957,7 +1052,9 @@ func (s *HelixAPIServer) serveArtifactFile(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	etag := `"` + artifact.ActiveVersion.ID + ":" + metadata.SHA256 + `"`
-	setArtifactSecurityHeaders(w.Header(), artifactRequestOrigin(r, s.Cfg.WebServer.URL))
+	if w.Header().Get("Content-Security-Policy") == "" {
+		setArtifactSecurityHeaders(w.Header(), artifactRequestOrigin(r, s.Cfg.WebServer.URL))
+	}
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("ETag", etag)
 	if r.Header.Get("If-None-Match") == etag {
@@ -1013,11 +1110,22 @@ func setArtifactSecurityHeaders(header http.Header, viewerOrigin string) {
 	header.Set("X-Content-Type-Options", "nosniff")
 	header.Set("Referrer-Policy", "no-referrer")
 	header.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
-	frameAncestor := "'none'"
-	if parsed, err := url.Parse(strings.TrimSpace(viewerOrigin)); err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" {
-		frameAncestor = parsed.Scheme + "://" + parsed.Host
-	}
+	frameAncestor := artifactFrameAncestor(viewerOrigin)
 	header.Set("Content-Security-Policy", "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https: wss:; frame-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self' https:; frame-ancestors "+frameAncestor)
+}
+
+func setArtifactDocumentSecurityHeaders(header http.Header, viewerOrigin string) {
+	header.Set("X-Content-Type-Options", "nosniff")
+	header.Set("Referrer-Policy", "no-referrer")
+	header.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+	header.Set("Content-Security-Policy", "default-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors "+artifactFrameAncestor(viewerOrigin))
+}
+
+func artifactFrameAncestor(viewerOrigin string) string {
+	if parsed, err := url.Parse(strings.TrimSpace(viewerOrigin)); err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" {
+		return parsed.Scheme + "://" + parsed.Host
+	}
+	return "'none'"
 }
 
 func writeArtifactHTTPError(w http.ResponseWriter, status int, message string) {

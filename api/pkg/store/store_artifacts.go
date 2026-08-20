@@ -117,7 +117,6 @@ func (s *PostgresStore) UpdateArtifact(ctx context.Context, artifact *types.Arti
 				return fmt.Errorf("create artifact version: %w", err)
 			}
 			artifact.ActiveVersionID = version.ID
-			artifact.Kind = artifactKindForFileCount(version.FileCount)
 		} else {
 			var activeVersion types.ArtifactVersion
 			if err := tx.Where("id = ?", current.ActiveVersionID).First(&activeVersion).Error; err != nil {
@@ -147,13 +146,6 @@ func artifactFilesContain(files []types.ArtifactFile, filename string) bool {
 		}
 	}
 	return false
-}
-
-func artifactKindForFileCount(fileCount int) types.ArtifactKind {
-	if fileCount == 1 {
-		return types.ArtifactKindSingleFile
-	}
-	return types.ArtifactKindSPA
 }
 
 func (s *PostgresStore) ListArtifactVersions(ctx context.Context, artifactID string) ([]*types.ArtifactVersion, error) {
