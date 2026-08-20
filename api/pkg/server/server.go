@@ -782,6 +782,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Reap expired sandboxes (Sandboxes API).
 	go apiServer.sandboxController.StartReaper(ctx, time.Minute)
 
+	// Claude OAuth access tokens last ~8h and their refresh tokens ~9 days.
+	// Without this, a subscription only survived while sessions were running.
+	go apiServer.StartClaudeSubscriptionRefresher(ctx, claudeRefreshInterval)
+
 	// Probe live web services and auto-recover any that stop responding
 	// (crashed/hung stack heals without a human).
 	go webservice.NewHealthMonitor(apiServer.Store, apiServer.webServiceController).Start(ctx)

@@ -195,3 +195,78 @@ func ExchangeClaudeCode(ctx context.Context, code, verifier, state string) (*Cla
 	}
 	return tokens, nil
 }
+
+// RefreshClaudeToken exchanges a refresh token for a fresh access token.
+//
+// Anthropic rotates the refresh token on every use and returns a new
+// refresh_token_expires_in, so refreshing before the access token lapses keeps
+// the refresh window rolling forward indefinitely. Stop refreshing and the
+// subscription dies for good once that window closes.
+func RefreshClaudeToken(ctx context.Context, refreshToken string) (*ClaudeTokens, error) {
+	if refreshToken == "" {
+		return nil, fmt.Errorf("no refresh token")
+	}
+
+	body, err := json.Marshal(map[string]string{
+		"grant_type":    "refresh_token",
+		"refresh_token": refreshToken,
+		"client_id":     claudeOAuthClientID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to build refresh request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, claudeTokenURL, strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build refresh request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error refreshing Claude token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read refresh response: %w", err)
+	}
+
+	var parsed claudeTokenResponse
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, fmt.Errorf("failed to parse refresh response (status %d)", resp.StatusCode)
+	}
+	if resp.StatusCode != http.StatusOK {
+		detail := parsed.ErrorDescription
+		if detail == "" {
+			detail = parsed.Error
+		}
+		if detail == "" {
+			detail = fmt.Sprintf("status %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("Anthropic refused the refresh token (%s)", detail)
+	}
+	if parsed.AccessToken == "" {
+		return nil, fmt.Errorf("Anthropic returned no access token")
+	}
+
+	tokens := &ClaudeTokens{
+		AccessToken: parsed.AccessToken,
+		// Anthropic normally rotates this; keep the old one if it ever doesn't,
+		// so a refresh can never leave the row without a way to refresh again.
+		RefreshToken: parsed.RefreshToken,
+	}
+	if tokens.RefreshToken == "" {
+		tokens.RefreshToken = refreshToken
+	}
+	if parsed.ExpiresIn > 0 {
+		tokens.ExpiresAt = time.Now().Add(time.Duration(parsed.ExpiresIn) * time.Second).UnixMilli()
+	}
+	if parsed.Scope != "" {
+		tokens.Scopes = strings.Fields(parsed.Scope)
+	}
+	return tokens, nil
+}
