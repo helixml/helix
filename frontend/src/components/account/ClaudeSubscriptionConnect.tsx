@@ -14,10 +14,7 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogContentText from '@mui/material/DialogContentText'
 import DialogActions from '@mui/material/DialogActions'
 import CircularProgress from '@mui/material/CircularProgress'
-import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
-import WarningAmberIcon from '@mui/icons-material/WarningAmber'
-import DeleteIcon from '@mui/icons-material/Delete'
+
 import IconButton from '@mui/material/IconButton'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
@@ -27,7 +24,7 @@ import Switch from '@mui/material/Switch'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Tooltip from '@mui/material/Tooltip'
-import { Copy } from 'lucide-react'
+import { CircleAlert, CircleCheck, Copy, Trash2, TriangleAlert } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -141,14 +138,16 @@ const DelegationPicker: FC<DelegationPickerProps> = ({
       )}
       <Box
         sx={{
-          mt: 0.5,
+          mt: 1,
           // Caps the card at a readable height however many orgs you are in.
           maxHeight: 200,
           overflowY: 'auto',
-          pr: 1,
+          // Both sides need padding: the scroll container clips, and MUI's
+          // switch draws its ripple outside its own box.
+          px: 0.5,
         }}
       >
-        <FormGroup>
+        <FormGroup sx={{ rowGap: 0.5 }}>
           {visible.map((org) => {
             const orgID = org.id as string
             return (
@@ -163,6 +162,8 @@ const DelegationPicker: FC<DelegationPickerProps> = ({
                   />
                 }
                 label={<Typography variant="caption">{labelFor(org)}</Typography>}
+                // Default is marginLeft:-11px, which the scroll box cuts off.
+                sx={{ ml: 0, mr: 0, gap: 1 }}
               />
             )
           })}
@@ -858,20 +859,25 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
               <Box>
                 {!embedded && <Typography variant="h6">Claude Code Subscription</Typography>}
                 <Typography variant="body2" color="text.secondary">
-                  Connect your Claude subscription to use Claude Code as the coding agent in Helix desktop sessions.
-                  {ownableOrgs.length > 0 && ' You can also connect one for an organization you own, as a shared fallback for members who have not connected their own.'}
+                  {!embedded &&
+                    'Connect your Claude subscription to use Claude Code as the coding agent in Helix desktop sessions.'}
+                  {ownableOrgs.length > 0 &&
+                    (embedded
+                      ? 'You can also connect one for an organization you own, as a shared fallback for members who have not connected their own.'
+                      : ' You can also connect one for an organization you own, as a shared fallback for members who have not connected their own.')}
                 </Typography>
               </Box>
               {/* With no orgs you own there is exactly one subscription you can
                   hold, and the card's "Update Token" is how you change it. */}
               {(!hasSubscription || ownableOrgs.length > 0) && (
                 <Button
-                  variant="contained"
+                  variant="outlined"
                   color="secondary"
+                  size="small"
                   onClick={handleOpenTokenDialog}
-                  sx={{ flexShrink: 0 }}
+                  sx={{ flexShrink: 0, textTransform: 'none', whiteSpace: 'nowrap' }}
                 >
-                  {hasSubscription ? 'Add subscription' : 'Connect with Setup Token'}
+                  {hasSubscription ? 'Add subscription' : 'Connect subscription'}
                 </Button>
               )}
             </Box>
@@ -916,8 +922,8 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                       <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
                         {subIsExpired && !subIsSetupToken ? (
                           <Chip
-                            icon={<ErrorOutlineIcon />}
-                            label="Token Expired"
+                            icon={<CircleAlert size={16} />}
+                            label={subExpiry?.label || 'Token expired'}
                             color="error"
                             size="small"
                           />
@@ -941,24 +947,17 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                         ) : (
                           <Chip label="Personal" size="small" variant="outlined" />
                         )}
-                        {subExpiry && (
+                        {subExpiry && !subIsExpired && (
                           <Typography
                             variant="caption"
                             color={`${subExpiry.color}.main`}
                             sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
                           >
-                            {subExpiry.isExpiringSoon && !subIsExpired && <WarningAmberIcon sx={{ fontSize: 14 }} />}
+                            {subExpiry.isExpiringSoon && <TriangleAlert size={14} />}
                             {subExpiry.label}
                           </Typography>
                         )}
                       </Box>
-                      {subIsExpired && !subIsSetupToken && (
-                        <Alert severity="warning" sx={{ mt: 1, py: 0 }} icon={false}>
-                          <Typography variant="caption">
-                            Token has expired. Update your token to refresh credentials for new sessions.
-                          </Typography>
-                        </Alert>
-                      )}
                       {sub.owner_type === 'org' && (
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                           Shared fallback for {orgLabel(sub.owner_id)}: used by any member&apos;s
@@ -974,22 +973,26 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                         />
                       )}
                     </Box>
-                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexShrink: 0 }}>
                       <Button
                         variant={subIsExpired ? 'contained' : 'outlined'}
                         color={subIsExpired ? 'warning' : 'secondary'}
                         size="small"
                         onClick={() => handleOpenTokenDialogFor(sub)}
+                        sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
                       >
-                        {subIsExpired ? 'Re-authenticate' : 'Update Token'}
+                        {subIsExpired ? 'Re-authenticate' : 'Update token'}
                       </Button>
-                      <IconButton
-                        color="error"
-                        size="small"
-                        onClick={() => handleDeleteClick(sub.id)}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
+                      <Tooltip title="Disconnect subscription">
+                        <IconButton
+                          color="error"
+                          aria-label="Disconnect subscription"
+                          onClick={() => handleDeleteClick(sub.id)}
+                          sx={{ width: 30, height: 30 }}
+                        >
+                          <Trash2 size={18} />
+                        </IconButton>
+                      </Tooltip>
                     </Box>
                   </Box>
                 )
@@ -1023,7 +1026,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
               variant="contained"
               color="warning"
               onClick={handleOpenTokenDialog}
-              startIcon={<ErrorOutlineIcon />}
+              startIcon={<CircleAlert size={16} />}
               sx={connectButtonSx}
             >
               Re-authenticate
@@ -1068,7 +1071,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
         {hasSubscription ? (
           <>
-            <CheckCircleIcon color="success" fontSize="small" />
+            <Box component={CircleCheck} size={18} sx={{ color: 'success.main' }} />
             <Typography variant="body2" color="success.main">
               Claude subscription connected {isSetupToken ? '(setup token)' : ''}
             </Typography>
