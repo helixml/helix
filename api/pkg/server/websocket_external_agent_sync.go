@@ -4030,7 +4030,39 @@ func truncateString(s string, maxLen int) string {
 // recoverMissingThread clears an authoritative stale ACP thread and replays
 // its existing waiting interaction as the first message of a replacement
 // thread. The persisted thread ID prevents duplicate errors from replaying it.
-func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessionID, acpThreadID, requestID string) (bool, error) {
+// replayableInteraction resolves the turn requestID names, if this session is
+// still waiting on it — the turn a thread recovery replays. Returns nil when
+// there is nothing to replay (no request id, turn already finished, or the id
+// belongs to another session's turn).
+func (apiServer *HelixAPIServer) replayableInteraction(ctx context.Context, sessionID, requestID string) (*types.Interaction, error) {
+	apiServer.contextMappingsMutex.RLock()
+	interactionID := apiServer.requestToInteractionMapping[requestID]
+	apiServer.contextMappingsMutex.RUnlock()
+	if interactionID == "" {
+		interactionID = requestID
+	}
+	if interactionID == "" {
+		return nil, nil
+	}
+	interaction, err := apiServer.Controller.Options.Store.GetInteraction(ctx, interactionID)
+	if err != nil {
+		return nil, fmt.Errorf("load interaction for stale thread recovery: %w", err)
+	}
+	if interaction == nil || interaction.State != types.InteractionStateWaiting {
+		return nil, nil
+	}
+	if interaction.SessionID != "" && interaction.SessionID != sessionID {
+		return nil, nil
+	}
+	return interaction, nil
+}
+
+// reseedContext asks for the replayed turn to carry a summary of what the agent
+// was doing. It is set only when the agent CANNOT restore sessions at all: for
+// a thread that merely went missing, the agent still keeps its own session
+// store, and paying tokens to re-explain the task on every such recovery is not
+// obviously wanted. See buildThreadReseedPreamble.
+func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessionID, acpThreadID, requestID string, reseedContext bool) (bool, error) {
 	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		return false, fmt.Errorf("load session for stale thread recovery: %w", err)
@@ -4038,6 +4070,25 @@ func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessi
 	if session == nil || session.Metadata.ZedThreadID != acpThreadID {
 		return true, nil
 	}
+
+	// With no turn to replay there is nothing to carry context on, and for an
+	// agent that cannot restore sessions the dead thread id is the only thing
+	// that will tell us to reseed. Clearing it here would let the user's NEXT
+	// message open a fresh thread quietly — no error, no context, exactly the
+	// silent amnesia the reseed exists to prevent. Leaving it costs that message
+	// one failed load (no model call, sub-second) and routes it back here with a
+	// request_id, which is the path that seeds. A thread that merely went
+	// missing has no such need, so it is still cleared eagerly.
+	interaction, err := apiServer.replayableInteraction(ctx, sessionID, requestID)
+	if err != nil {
+		return false, err
+	}
+	if reseedContext && interaction == nil {
+		log.Info().Str("session_id", sessionID).Str("unrestorable_thread_id", acpThreadID).
+			Msg("Keeping unrestorable ACP thread id so the next message is reseeded rather than silently starting fresh")
+		return true, nil
+	}
+
 	session.Metadata.ZedThreadID = ""
 	if err := apiServer.Controller.Options.Store.UpdateSessionMetadata(ctx, sessionID, session.Metadata); err != nil {
 		return false, fmt.Errorf("clear stale ACP thread: %w", err)
@@ -4045,20 +4096,8 @@ func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessi
 
 	apiServer.contextMappingsMutex.Lock()
 	delete(apiServer.contextMappings, acpThreadID)
-	interactionID := apiServer.requestToInteractionMapping[requestID]
 	apiServer.contextMappingsMutex.Unlock()
-	if interactionID == "" {
-		interactionID = requestID
-	}
-	if interactionID == "" {
-		return true, nil
-	}
-
-	interaction, err := apiServer.Controller.Options.Store.GetInteraction(ctx, interactionID)
-	if err != nil {
-		return false, fmt.Errorf("load interaction for stale thread recovery: %w", err)
-	}
-	if interaction == nil || interaction.State != types.InteractionStateWaiting || (interaction.SessionID != "" && interaction.SessionID != sessionID) {
+	if interaction == nil {
 		return true, nil
 	}
 
@@ -4075,9 +4114,18 @@ func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessi
 	}
 	apiServer.externalAgentWSManager.readinessMu.Unlock()
 
+	// The replay lands in a brand-new agent session, so whatever the agent knew
+	// about this task died with the old one. Rebuild enough of it to carry on —
+	// otherwise the turn succeeds mechanically and the agent answers a follow-up
+	// with no idea what it was working on.
 	message := interaction.PromptMessage
+	if reseedContext {
+		if preamble := apiServer.buildThreadReseedPreamble(ctx, session, interaction.ID); preamble != "" {
+			message = preamble + message
+		}
+	}
 	if interaction.SystemPrompt != "" {
-		message = interaction.SystemPrompt + "\n\n**User Request:**\n" + interaction.PromptMessage
+		message = interaction.SystemPrompt + "\n\n**User Request:**\n" + message
 	}
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
@@ -4131,13 +4179,17 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 		helixSessionID = apiServer.contextMappings[acpThreadID]
 		apiServer.contextMappingsMutex.RUnlock()
 	}
-	if isAuthoritativeMissingThreadError(errorMsg) && acpThreadID != "" {
+	// Both conditions mean the same thing for delivery: this thread can never be
+	// loaded again, so the turn must be replayed into a new one rather than
+	// failed. They differ only in why — the thread is gone, or the agent has no
+	// way to re-enter it (see isUnrestorableThreadError).
+	if (isAuthoritativeMissingThreadError(errorMsg) || isUnrestorableThreadError(errorMsg)) && acpThreadID != "" {
 		recoverySessionID := helixSessionID
 		if recoverySessionID == "" {
 			recoverySessionID = sessionID
 		}
 		helixSessionID = recoverySessionID
-		handled, err := apiServer.recoverMissingThread(context.Background(), recoverySessionID, acpThreadID, requestID)
+		handled, err := apiServer.recoverMissingThread(context.Background(), recoverySessionID, acpThreadID, requestID, isUnrestorableThreadError(errorMsg))
 		if err != nil {
 			return err
 		}

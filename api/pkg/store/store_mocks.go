@@ -356,6 +356,20 @@ func (mr *MockStoreMockRecorder) CreateApp(ctx, tool any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApp", reflect.TypeOf((*MockStore)(nil).CreateApp), ctx, tool)
 }
 
+// CreateArtifact mocks base method.
+func (m *MockStore) CreateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateArtifact", ctx, artifact, version)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateArtifact indicates an expected call of CreateArtifact.
+func (mr *MockStoreMockRecorder) CreateArtifact(ctx, artifact, version any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateArtifact", reflect.TypeOf((*MockStore)(nil).CreateArtifact), ctx, artifact, version)
+}
+
 // CreateAttentionEvent mocks base method.
 func (m *MockStore) CreateAttentionEvent(ctx context.Context, event *types.AttentionEvent) (*types.AttentionEvent, error) {
 	m.ctrl.T.Helper()
@@ -1397,6 +1411,20 @@ func (m *MockStore) DeleteApp(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteApp(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteApp", reflect.TypeOf((*MockStore)(nil).DeleteApp), ctx, id)
+}
+
+// DeleteArtifact mocks base method.
+func (m *MockStore) DeleteArtifact(ctx context.Context, artifactID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteArtifact", ctx, artifactID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteArtifact indicates an expected call of DeleteArtifact.
+func (mr *MockStoreMockRecorder) DeleteArtifact(ctx, artifactID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteArtifact", reflect.TypeOf((*MockStore)(nil).DeleteArtifact), ctx, artifactID)
 }
 
 // DeleteClaudeSubscription mocks base method.
@@ -2493,6 +2521,21 @@ func (m *MockStore) GetAppWithTools(ctx context.Context, id string) (*types.App,
 func (mr *MockStoreMockRecorder) GetAppWithTools(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAppWithTools", reflect.TypeOf((*MockStore)(nil).GetAppWithTools), ctx, id)
+}
+
+// GetArtifact mocks base method.
+func (m *MockStore) GetArtifact(ctx context.Context, artifactID string) (*types.Artifact, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetArtifact", ctx, artifactID)
+	ret0, _ := ret[0].(*types.Artifact)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetArtifact indicates an expected call of GetArtifact.
+func (mr *MockStoreMockRecorder) GetArtifact(ctx, artifactID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetArtifact", reflect.TypeOf((*MockStore)(nil).GetArtifact), ctx, artifactID)
 }
 
 // GetAttentionEvent mocks base method.
@@ -4429,6 +4472,36 @@ func (m *MockStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.Ap
 func (mr *MockStoreMockRecorder) ListApps(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListApps", reflect.TypeOf((*MockStore)(nil).ListApps), ctx, q)
+}
+
+// ListArtifactVersions mocks base method.
+func (m *MockStore) ListArtifactVersions(ctx context.Context, artifactID string) ([]*types.ArtifactVersion, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListArtifactVersions", ctx, artifactID)
+	ret0, _ := ret[0].([]*types.ArtifactVersion)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListArtifactVersions indicates an expected call of ListArtifactVersions.
+func (mr *MockStoreMockRecorder) ListArtifactVersions(ctx, artifactID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListArtifactVersions", reflect.TypeOf((*MockStore)(nil).ListArtifactVersions), ctx, artifactID)
+}
+
+// ListArtifacts mocks base method.
+func (m *MockStore) ListArtifacts(ctx context.Context, query *ListArtifactsQuery) ([]*types.Artifact, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListArtifacts", ctx, query)
+	ret0, _ := ret[0].([]*types.Artifact)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListArtifacts indicates an expected call of ListArtifacts.
+func (mr *MockStoreMockRecorder) ListArtifacts(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListArtifacts", reflect.TypeOf((*MockStore)(nil).ListArtifacts), ctx, query)
 }
 
 // ListAttentionEvents mocks base method.
@@ -6387,6 +6460,20 @@ func (m *MockStore) UpdateApp(ctx context.Context, tool *types.App) (*types.App,
 func (mr *MockStoreMockRecorder) UpdateApp(ctx, tool any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateApp", reflect.TypeOf((*MockStore)(nil).UpdateApp), ctx, tool)
+}
+
+// UpdateArtifact mocks base method.
+func (m *MockStore) UpdateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateArtifact", ctx, artifact, version)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateArtifact indicates an expected call of UpdateArtifact.
+func (mr *MockStoreMockRecorder) UpdateArtifact(ctx, artifact, version any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateArtifact", reflect.TypeOf((*MockStore)(nil).UpdateArtifact), ctx, artifact, version)
 }
 
 // UpdateAttentionEvent mocks base method.

@@ -1389,6 +1389,12 @@ func workerRuntimeSupportsSubscription(runtime string) bool {
 }
 
 func removeLegacyHelixOrgMCPs(ctx context.Context, orgID string, st *helixorgstore.Store, projectSvc runtimehelix.ProjectService) error {
+	// Stamp orgID on the context so the inproc client can resolve identity
+	// when it calls GetAppConfig/UpdateAppConfig. Without this, the inproc
+	// client finds neither user nor org on the context and returns
+	// "no user or organization on context". lazyHelixOrgSpawner in this file
+	// uses the same pattern (see WithOrgID call near line 1503).
+	ctx = helixorgserver.WithOrgID(ctx, orgID)
 	workers, err := st.Nodes.List(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("list bots for legacy MCP cleanup: %w", err)

@@ -198,13 +198,25 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 
 	organization, err := apiServer.lookupOrg(r.Context(), reference)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "Organization not found: "+reference, http.StatusNotFound)
+			return
+		}
 		log.Err(err).Msg("error getting organization")
 		http.Error(rw, "Could not get organization: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if _, err := apiServer.authorizeOrgMember(r.Context(), user, organization.ID); err != nil {
-		log.Err(err).Msg("error authorizing org member")
+		// Only a missing membership row is a permission answer. Any other
+		// store error (connection failure, timeout) is a server fault, and
+		// reporting it as 403 is actively harmful: the frontend treats 403 as
+		// permanent and evicts the user from an org they can fully access.
+		if !errors.Is(err, store.ErrNotFound) {
+			log.Err(err).Msg("error checking org membership")
+			http.Error(rw, "Could not check org membership: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
 		return
 	}
@@ -435,6 +447,21 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	// (HELIX_DESKTOP_IDLE_TIMEOUT, default 1h). Best-effort: the reaper is the
 	// backstop, so a teardown failure must not block the org delete.
 	apiServer.stopOrgDesktops(r.Context(), orgID)
+
+	// Public artifacts remain independently addressable, so deleting only the
+	// project rows would orphan live content. Remove every artifact route and
+	// blob owned by the organization before deleting its database graph.
+	artifacts, err := apiServer.Store.ListArtifacts(r.Context(), &store.ListArtifactsQuery{OrganizationID: orgID})
+	if err != nil {
+		http.Error(rw, "Could not list organization artifacts: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, artifact := range artifacts {
+		if err := apiServer.deleteArtifactResources(r.Context(), artifact); err != nil {
+			http.Error(rw, "Could not delete organization artifact: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 
 	err = apiServer.Store.DeleteOrganization(r.Context(), orgID)
 	if err != nil {

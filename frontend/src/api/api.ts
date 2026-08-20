@@ -2476,6 +2476,82 @@ export interface TypesApiKey {
   type?: TypesAPIKeyType;
 }
 
+export interface TypesArtifact {
+  active_version?: TypesArtifactVersion;
+  active_version_id?: string;
+  created_at?: string;
+  created_by?: string;
+  deleted_at?: GormDeletedAt;
+  description?: string;
+  entrypoint?: string;
+  id?: string;
+  kind?: TypesArtifactKind;
+  name?: string;
+  organization_id?: string;
+  project_id?: string;
+  subdomain_url?: string;
+  updated_at?: string;
+  updated_by?: string;
+  url?: string;
+  visibility?: TypesArtifactVisibility;
+}
+
+export interface TypesArtifactFile {
+  content_type?: string;
+  path?: string;
+  sha256?: string;
+  size?: number;
+}
+
+export enum TypesArtifactKind {
+  ArtifactKindSingleFile = "single_file",
+  ArtifactKindSPA = "spa",
+  ArtifactKindPDF = "pdf",
+  ArtifactKindImage = "image",
+}
+
+export interface TypesArtifactVersion {
+  artifact_id?: string;
+  content_sha256?: string;
+  created_at?: string;
+  created_by?: string;
+  file_count?: number;
+  files?: TypesArtifactFile[];
+  id?: string;
+  source_session_id?: string;
+  source_spec_task_id?: string;
+  total_bytes?: number;
+  version?: number;
+}
+
+export interface TypesArtifactVersionsListResponse {
+  versions?: TypesArtifactVersion[];
+}
+
+export interface TypesArtifactViewerResponse {
+  active_version_id?: string;
+  can_edit?: boolean;
+  description?: string;
+  id?: string;
+  kind?: TypesArtifactKind;
+  name?: string;
+  organization_id?: string;
+  organization_name?: string;
+  project_id?: string;
+  project_name?: string;
+  subdomain_url?: string;
+  visibility?: TypesArtifactVisibility;
+}
+
+export enum TypesArtifactVisibility {
+  ArtifactVisibilityProject = "project",
+  ArtifactVisibilityPublic = "public",
+}
+
+export interface TypesArtifactsListResponse {
+  artifacts?: TypesArtifact[];
+}
+
 export interface TypesAssistantAPI {
   description?: string;
   headers?: Record<string, string>;
@@ -8270,7 +8346,7 @@ export interface TypesVHostRoute {
    * User-added custom domains and preview tokens are false.
    */
   is_default?: boolean;
-  /** destination port inside the container */
+  /** destination port inside the container; zero for static artifacts */
   port?: number;
   rotated_at?: string;
   target_id?: string;
@@ -8293,6 +8369,8 @@ export interface TypesVHostRoute {
 export enum TypesVHostTargetKind {
   VHostTargetProjectWebService = "project_web_service",
   VHostTargetSandboxPreview = "sandbox_preview",
+  VHostTargetArtifact = "artifact_static",
+  VHostTargetArtifactPrivate = "artifact_private",
 }
 
 export interface TypesWIPLimits {
@@ -9859,6 +9937,96 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "POST",
         body: request,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Artifacts
+     * @name V1ArtifactsDelete
+     * @summary Delete an artifact
+     * @request DELETE:/api/v1/artifacts/{artifact_id}
+     * @secure
+     */
+    v1ArtifactsDelete: (artifactId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/artifacts/${artifactId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Artifacts
+     * @name V1ArtifactsDetail
+     * @summary Get an artifact
+     * @request GET:/api/v1/artifacts/{artifact_id}
+     * @secure
+     */
+    v1ArtifactsDetail: (artifactId: string, params: RequestParams = {}) =>
+      this.request<TypesArtifact, any>({
+        path: `/api/v1/artifacts/${artifactId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Patch metadata and optionally upload replacement HTML, PDF, image, or ZIP content as a new version.
+     *
+     * @tags Artifacts
+     * @name V1ArtifactsUpdate
+     * @summary Update an artifact
+     * @request PUT:/api/v1/artifacts/{artifact_id}
+     * @secure
+     */
+    v1ArtifactsUpdate: (
+      artifactId: string,
+      data: {
+        /** Artifact name */
+        name?: string;
+        /** Description */
+        description?: string;
+        /** HTML entrypoint */
+        entrypoint?: string;
+        /** project or public */
+        visibility?: string;
+        /** Allocate or retain a public default subdomain */
+        with_subdomain?: boolean;
+        /** Replacement HTML, PDF, image, or ZIP content */
+        artifact?: File;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesArtifact, any>({
+        path: `/api/v1/artifacts/${artifactId}`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Artifacts
+     * @name V1ArtifactsVersionsDetail
+     * @summary List artifact versions
+     * @request GET:/api/v1/artifacts/{artifact_id}/versions
+     * @secure
+     */
+    v1ArtifactsVersionsDetail: (artifactId: string, params: RequestParams = {}) =>
+      this.request<TypesArtifactVersionsListResponse, any>({
+        path: `/api/v1/artifacts/${artifactId}/versions`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -15018,6 +15186,61 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List static artifacts in a project. Access is inherited from the project.
+     *
+     * @tags Artifacts
+     * @name V1ProjectsArtifactsDetail
+     * @summary List project artifacts
+     * @request GET:/api/v1/projects/{id}/artifacts
+     * @secure
+     */
+    v1ProjectsArtifactsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesArtifactsListResponse, any>({
+        path: `/api/v1/projects/${id}/artifacts`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Upload one HTML, PDF, or image file, or a ZIP containing a compiled static SPA.
+     *
+     * @tags Artifacts
+     * @name V1ProjectsArtifactsCreate
+     * @summary Create a project artifact
+     * @request POST:/api/v1/projects/{id}/artifacts
+     * @secure
+     */
+    v1ProjectsArtifactsCreate: (
+      id: string,
+      data: {
+        /** Artifact name */
+        name: string;
+        /** Description */
+        description?: string;
+        /** HTML entrypoint (default index.html) */
+        entrypoint?: string;
+        /** project or public */
+        visibility?: string;
+        /** Deprecated: public artifacts always receive a share subdomain */
+        with_subdomain?: boolean;
+        /** HTML, PDF, image, or ZIP bundle */
+        artifact: File;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesArtifact, any>({
+        path: `/api/v1/projects/${id}/artifacts`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get paginated audit logs for a project
      *
      * @tags Projects
@@ -15984,6 +16207,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/providers`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns safe display metadata for public artifacts without authentication. Private artifacts require project access.
+     *
+     * @tags Artifacts
+     * @name V1PublicArtifactsDetail
+     * @summary Get artifact viewer metadata
+     * @request GET:/api/v1/public/artifacts/{artifact_id}
+     */
+    v1PublicArtifactsDetail: (artifactId: string, params: RequestParams = {}) =>
+      this.request<TypesArtifactViewerResponse, any>({
+        path: `/api/v1/public/artifacts/${artifactId}`,
+        method: "GET",
+        format: "json",
         ...params,
       }),
 

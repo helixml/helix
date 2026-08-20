@@ -1199,6 +1199,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-review/turn/{interactionID}", apiServer.getWorkspaceTurnReview).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-files", apiServer.getWorkspaceFiles).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-file", apiServer.getWorkspaceFile).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-file/download", apiServer.downloadWorkspaceFile).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-file", apiServer.putWorkspaceFile).Methods("PUT")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-skills", apiServer.getWorkspaceSkills).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspaces", apiServer.getExternalAgentWorkspaces).Methods("GET") // List git workspaces in container
@@ -1522,6 +1523,17 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// IMPORTANT: Must be before registerDefaultHandler to avoid being proxied to frontend
 	apiServer.gitHTTPServer.RegisterRoutes(router)
 
+	// /artifacts/{id} is a frontend viewer. Its iframe enters the isolated
+	// artifact origin through these narrowly scoped embed routes.
+	artifactEmbedHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.serveArtifactEmbed))
+	router.Handle("/artifacts/{artifact_id}/embed", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
+	router.Handle("/artifacts/{artifact_id}/embed/", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
+	router.Handle("/artifacts/{artifact_id}/embed/{artifact_path:.*}", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
+	artifactDocumentHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.serveArtifactDocument))
+	router.Handle("/artifacts/{artifact_id}/document", artifactDocumentHandler).Methods(http.MethodGet, http.MethodHead)
+	artifactViewerHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.getArtifactViewer))
+	insecureRouter.Handle("/public/artifacts/{artifact_id}", artifactViewerHandler).Methods(http.MethodGet)
+
 	// Set a custom NotFoundHandler for /api/v1/ routes to log unknown paths
 	subRouter.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Error().
@@ -1547,6 +1559,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/projects", system.Wrapper(apiServer.createProject)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/apply", system.Wrapper(apiServer.applyProject)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.getProject)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/artifacts", apiServer.listProjectArtifacts).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/artifacts", apiServer.createProjectArtifact).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/spec-task-agents", system.Wrapper(apiServer.listProjectSpecTaskAgents)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.updateProject)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.deleteProject)).Methods(http.MethodDelete)
@@ -1594,6 +1608,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// Project audit log routes
 	authRouter.HandleFunc("/projects/{id}/audit-logs", system.Wrapper(apiServer.listProjectAuditLogs)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.getArtifact).Methods(http.MethodGet)
+	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.updateArtifact).Methods(http.MethodPut)
+	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.deleteArtifact).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/artifacts/{artifact_id}/versions", apiServer.listArtifactVersions).Methods(http.MethodGet)
 
 	// Sample project routes (simple in-memory)
 	authRouter.HandleFunc("/sample-projects/simple", system.Wrapper(apiServer.listSimpleSampleProjects)).Methods(http.MethodGet)

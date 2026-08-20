@@ -1,9 +1,16 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { TypesOrganization, TypesOrganizationMembership, TypesTeam, TypesCreateTeamRequest, TypesUpdateTeamRequest, TypesOrganizationRole, TypesAccessGrant, TypesCreateAccessGrantRequest, TypesUserSearchResponse } from '../api/api'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useRouter from './useRouter'
 import { extractErrorMessage } from './useErrorCallback'
+import { clearSelectedOrg, setSelectedOrg } from '../utils/localStorage'
+import {
+  firstAccessibleOrgSlug,
+  isOrgAccessDeniedError,
+  orgLandingRoute,
+  resolveOrgAccess,
+} from '../utils/organizations'
 
 export interface IOrganizationTools {
   organizations: TypesOrganization[],
@@ -98,6 +105,40 @@ export default function useOrganizations(): IOrganizationTools {
   // Extract org_id parameter from router
   const orgID = router.params.org_id || ''
 
+  // Orgs the API has refused us this session. Remembered so recovery can't
+  // ping-pong between two orgs that both answer 403.
+  const inaccessibleOrgsRef = useRef<Set<string>>(new Set())
+
+  // Whether GET /organizations has ever actually succeeded. `initialized` is
+  // set in loadOrganizations' `finally`, so it is equally true after a failed
+  // list load — and an empty `organizations` then means "we don't know", not
+  // "you have no orgs". Only a successful load licenses us to conclude the
+  // URL's org isn't ours.
+  const orgListLoadedRef = useRef(false)
+
+  // Leave an org we can't use. Called both when the org list says the URL org
+  // isn't ours and when the org detail request answers 403/404. Sends the user
+  // to a real org where possible, otherwise to the org picker, so they end up
+  // somewhere usable instead of on a page that only produces failing requests.
+  const recoverFromInaccessibleOrg = useCallback((
+    inaccessibleOrgRef: string,
+    fallbackOrgSlug?: string,
+  ) => {
+    inaccessibleOrgsRef.current.add(inaccessibleOrgRef)
+    const excluded = Array.from(inaccessibleOrgsRef.current)
+    const target = fallbackOrgSlug && !inaccessibleOrgsRef.current.has(fallbackOrgSlug)
+      ? fallbackOrgSlug
+      : firstAccessibleOrgSlug(organizations, excluded)
+    if (target) {
+      setSelectedOrg(target)
+      router.navigate(orgLandingRoute(), { org_id: target })
+      return
+    }
+    // No usable org at all — don't bounce off the picker we're already on.
+    if (router.name === 'orgs') return
+    router.navigate('orgs')
+  }, [organizations, router])
+
   // Load a single organization with all its details
   const loadOrganization = async (id: string) => {
     setLoading(true)
@@ -176,19 +217,25 @@ export default function useOrganizations(): IOrganizationTools {
         teams: teamsWithMemberships
       }
 
+      inaccessibleOrgsRef.current.delete(id)
       setOrganization(completeOrg)
     } catch (error) {
       console.error(`Error loading organization ${id}:`, error)
+
+      // 403 (not a member) and 404 (org gone) both mean this org is not usable
+      // by us — most often because a stale `selected_org` from a previously
+      // signed-in user on this browser put us here. Forget it and leave, rather
+      // than sitting on a page that fires failing requests forever.
+      if (isOrgAccessDeniedError(error)) {
+        setOrganization(undefined)
+        clearSelectedOrg()
+        recoverFromInaccessibleOrg(id)
+        return
+      }
+
       const errorMessage = extractErrorMessage(error)
       snackbar.error(errorMessage || `Error loading organization details`)
-
-      // Only clear organization on 404 (not found) errors, not on transient errors like auth issues
-      // This prevents the org from disappearing due to temporary network/auth problems
-      const status = (error as any)?.response?.status
-      if (status === 404) {
-        setOrganization(undefined)
-      }
-      // For other errors (401, 403, 500, network errors), keep the current org state
+      // For other errors (401, 500, network errors), keep the current org state
       // so the user can retry or wait for auth to recover
     } finally {
       setLoading(false)
@@ -245,6 +292,7 @@ export default function useOrganizations(): IOrganizationTools {
       })
 
       setOrganizations(sortedOrgs)
+      orgListLoadedRef.current = true
     } catch (error) {
       console.error(error)
       const errorMessage = extractErrorMessage(error)
@@ -658,21 +706,30 @@ export default function useOrganizations(): IOrganizationTools {
       return
     }
 
-    if (orgID && initialized) {
-      const useOrg = organizations.find((org) => org.id === orgID || org.name === orgID)
-      if (!useOrg || !useOrg.id) {
-        // Only clear the organization if we've loaded the list and still can't find it.
-        // If organizations is empty but we're still loading (or haven't loaded yet),
-        // don't clear - we might just not have the data yet.
-        if (organizations.length > 0) {
-          setOrganization(undefined)
-        }
-        return
-      } else {
-        loadOrganization(useOrg.id)
-      }
+    if (!initialized) return
+
+    const useOrg = organizations.find((org) => org.id === orgID || org.name === orgID)
+    if (useOrg?.id) {
+      loadOrganization(useOrg.id)
+      return
     }
-  }, [orgID, initialized, organizations])
+
+    // The URL names an org the API didn't list for us. Previously we just
+    // cleared the org and stayed put, which left the page (and every component
+    // reading org_id straight off the router) hammering the API with 403s and
+    // rendered the org switcher blank.
+    const resolution = resolveOrgAccess({
+      orgID,
+      organizations,
+      orgListLoaded: orgListLoadedRef.current,
+      routeName: router.name,
+    })
+    if (resolution.status !== 'inaccessible') return
+
+    setOrganization(undefined)
+    clearSelectedOrg()
+    recoverFromInaccessibleOrg(orgID, resolution.fallbackOrgSlug)
+  }, [orgID, initialized, organizations, router.name])
 
   return {
     organizations,

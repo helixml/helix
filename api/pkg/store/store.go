@@ -753,6 +753,14 @@ type Store interface {
 	GetProjectsCount(ctx context.Context, query *GetProjectsCountQuery) (int64, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error
+
+	// Project artifacts
+	CreateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error
+	GetArtifact(ctx context.Context, artifactID string) (*types.Artifact, error)
+	ListArtifacts(ctx context.Context, query *ListArtifactsQuery) ([]*types.Artifact, error)
+	UpdateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error
+	ListArtifactVersions(ctx context.Context, artifactID string) ([]*types.ArtifactVersion, error)
+	DeleteArtifact(ctx context.Context, artifactID string) error
 	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
 	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
 	DetachRepositoryFromProject(ctx context.Context, projectID string, repoID string) error // NOTE: signature changed to include projectID

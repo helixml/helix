@@ -31,7 +31,10 @@ export function getSandboxPromptEditorCursor(root: HTMLElement): number {
   if (!selection?.anchorNode || !root.contains(selection.anchorNode)) return readSandboxPromptEditor(root).length
   const range = document.createRange()
   range.setStart(root, 0)
-  range.setEnd(selection.anchorNode, selection.anchorOffset)
+  const maxOffset = selection.anchorNode instanceof CharacterData
+    ? selection.anchorNode.length
+    : selection.anchorNode.childNodes.length
+  range.setEnd(selection.anchorNode, Math.min(selection.anchorOffset, maxOffset))
   return serializedNodeText(range.cloneContents()).length
 }
 

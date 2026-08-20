@@ -27,6 +27,8 @@ import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
 import Jobs from './pages/Jobs'
 import SpecTasksPage from './pages/SpecTasksPage'
+import Artifacts from './pages/Artifacts'
+import ArtifactViewer from './pages/ArtifactViewer'
 import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
 import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import TeamDesktopPage from './pages/TeamDesktopPage'
@@ -55,6 +57,7 @@ import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
 import { useHelixOrgBot } from './services/helixOrgService'
 import { orgLandingRoute } from './utils/organizations'
+import { getSelectedOrg } from './utils/localStorage'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -95,6 +98,17 @@ const RouteRedirect = ({ route }: { route: string }) => {
 
 
 const routes: IApplicationRoute[] = [
+{
+  name: 'artifact_viewer',
+  path: '/artifacts/:artifact_id',
+  meta: {
+    drawer: false,
+    title: 'Artifact',
+  },
+  render: () => (
+    <ArtifactViewer />
+  ),
+},
 {
   name: 'org_projects',
   path: '/orgs/:org_id',
@@ -270,6 +284,16 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <SpecTasksPage />
+  ),
+}, {
+  name: 'org_project-artifacts',
+  path: '/orgs/:org_id/projects/:id/artifacts',
+  meta: {
+    drawer: false,
+    title: 'Project Artifacts',
+  },
+  render: () => (
+    <Artifacts />
   ),
 }, {
   name: 'org_project-task-detail',
@@ -696,16 +720,16 @@ router.subscribe((state) => {
   }
 })
 
-const SELECTED_ORG_STORAGE_KEY = 'selected_org'
-
+// The stored org is only a hint: it is written per browser, so it may name an
+// org belonging to a user who signed in here earlier. We can't validate it at
+// module load — the org list needs an authenticated request — so useOrganizations
+// re-checks it once the list arrives and redirects away (clearing the value) if
+// it turns out to be inaccessible.
 const getStoredOrg = (): string | undefined => {
   const currentPath = window.location.pathname
   if (currentPath !== '/' && currentPath !== '') return undefined
 
-  const storedOrg = localStorage.getItem(SELECTED_ORG_STORAGE_KEY)
-  if (!storedOrg) return undefined
-
-  return storedOrg
+  return getSelectedOrg()
 }
 
 const storedOrg = getStoredOrg()

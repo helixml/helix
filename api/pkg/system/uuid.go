@@ -55,6 +55,8 @@ const (
 	VHostRoutePrefix           = "vhr_"
 	WebServiceDeployPrefix     = "wsd_"
 	PromptHistoryPrefix        = "prompt_"
+	ArtifactPrefix             = "art_"
+	ArtifactVersionPrefix      = "artv_"
 )
 
 func GenerateUUID() string {
@@ -250,6 +252,14 @@ func GeneratePromptHistoryID() string {
 
 func GenerateWebServiceDeployID() string {
 	return fmt.Sprintf("%s%s", WebServiceDeployPrefix, newID())
+}
+
+func GenerateArtifactID() string {
+	return fmt.Sprintf("%s%s", ArtifactPrefix, newID())
+}
+
+func GenerateArtifactVersionID() string {
+	return fmt.Sprintf("%s%s", ArtifactVersionPrefix, newID())
 }
 
 // GenerateGitRepositoryID mints a unique id for a git repository row.
