@@ -24,6 +24,7 @@ type SpecTaskStore interface {
 	CreateSpecTask(ctx context.Context, task *types.SpecTask) error
 	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
+	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	GetProject(ctx context.Context, id string) (*types.Project, error)
 	IncrementGlobalTaskNumber(ctx context.Context) (int, error)
@@ -42,7 +43,10 @@ type SpecTaskWorkflow interface {
 	// the comment isn't dropped on the MCP path. userID is the actor to
 	// attribute / notify (the Worker's hiring user).
 	RequestChanges(ctx context.Context, task *types.SpecTask, comment, userID string) error
+	SendAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, userID string) (string, error)
+	StartAgent(ctx context.Context, task *types.SpecTask, userID string) error
 	StopAgent(ctx context.Context, task *types.SpecTask) error
+	RestartAgent(ctx context.Context, task *types.SpecTask, userID string) (promptsReset int, threadReset bool, err error)
 }
 
 // SpecTasks is the helix-runtime implementation of runtime.SpecTasks. It
@@ -359,6 +363,104 @@ func (s *SpecTasks) StartPlanning(ctx context.Context, orgID string, workerID or
 	return toView(task), nil
 }
 
+func (s *SpecTasks) SendAgentMessage(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string, in runtime.SpecTaskMessageInput) (runtime.SpecTaskMessageView, error) {
+	projectID, hiringUserID, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	if err != nil {
+		return runtime.SpecTaskMessageView{}, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return runtime.SpecTaskMessageView{}, err
+	}
+	message := strings.TrimSpace(in.Content)
+	if message == "" {
+		return runtime.SpecTaskMessageView{}, errors.New("content is required")
+	}
+	if task.PlanningSessionID == "" {
+		return runtime.SpecTaskMessageView{}, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
+	}
+	promptID, err := s.workflow.SendAgentMessage(ctx, task, message, in.Interrupt, hiringUserID)
+	if err != nil {
+		return runtime.SpecTaskMessageView{}, fmt.Errorf("send spec task agent message: %w", err)
+	}
+	return runtime.SpecTaskMessageView{
+		TaskID:    task.ID,
+		SessionID: task.PlanningSessionID,
+		PromptID:  promptID,
+	}, nil
+}
+
+func (s *SpecTasks) ListAgentMessages(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string, limit int) ([]runtime.SpecTaskAgentMessageView, error) {
+	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	if err != nil {
+		return nil, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.PlanningSessionID == "" {
+		return nil, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
+	}
+	if limit == 0 {
+		limit = 20
+	}
+	if limit < 1 || limit > 100 {
+		return nil, fmt.Errorf("limit must be between 1 and 100 (got %d)", limit)
+	}
+	interactions, _, err := s.tasks.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    task.PlanningSessionID,
+		GenerationID: -1,
+		PerPage:      limit,
+		Order:        "id DESC",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list spec task agent messages: %w", err)
+	}
+
+	views := make([]runtime.SpecTaskAgentMessageView, 0, len(interactions))
+	for i := len(interactions) - 1; i >= 0; i-- {
+		interaction := interactions[i]
+		userMessage := interaction.PromptMessage
+		if interaction.DisplayMessage != "" {
+			userMessage = interaction.DisplayMessage
+		}
+		views = append(views, runtime.SpecTaskAgentMessageView{
+			InteractionID: interaction.ID,
+			PromptID:      interaction.PromptID,
+			UserMessage:   userMessage,
+			AgentMessage:  interaction.ResponseMessage,
+			State:         string(interaction.State),
+			Error:         interaction.Error,
+			CreatedAt:     interaction.Created,
+			UpdatedAt:     interaction.Updated,
+		})
+	}
+	return views, nil
+}
+
+func (s *SpecTasks) StartAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string) (runtime.SpecTaskAgentActionView, error) {
+	projectID, hiringUserID, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	if err != nil {
+		return runtime.SpecTaskAgentActionView{}, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return runtime.SpecTaskAgentActionView{}, err
+	}
+	if task.PlanningSessionID == "" {
+		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
+	}
+	if err := s.workflow.StartAgent(ctx, task, hiringUserID); err != nil {
+		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("start spec task agent: %w", err)
+	}
+	return runtime.SpecTaskAgentActionView{
+		TaskID:    task.ID,
+		SessionID: task.PlanningSessionID,
+		Status:    "started",
+	}, nil
+}
+
 func (s *SpecTasks) StopAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string) (runtime.SpecTaskView, error) {
 	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
 	if err != nil {
@@ -372,6 +474,31 @@ func (s *SpecTasks) StopAgent(ctx context.Context, orgID string, workerID orgcha
 		return runtime.SpecTaskView{}, fmt.Errorf("stop spec task agent: %w", err)
 	}
 	return toView(task), nil
+}
+
+func (s *SpecTasks) RestartAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string) (runtime.SpecTaskAgentActionView, error) {
+	projectID, hiringUserID, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	if err != nil {
+		return runtime.SpecTaskAgentActionView{}, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return runtime.SpecTaskAgentActionView{}, err
+	}
+	if task.PlanningSessionID == "" {
+		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
+	}
+	promptsReset, threadReset, err := s.workflow.RestartAgent(ctx, task, hiringUserID)
+	if err != nil {
+		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("restart spec task agent: %w", err)
+	}
+	return runtime.SpecTaskAgentActionView{
+		TaskID:       task.ID,
+		SessionID:    task.PlanningSessionID,
+		Status:       "restarted",
+		PromptsReset: promptsReset,
+		ThreadReset:  threadReset,
+	}, nil
 }
 
 func (s *SpecTasks) ReviewSpec(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string) (runtime.SpecReviewView, error) {

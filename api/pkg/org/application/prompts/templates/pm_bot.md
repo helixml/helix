@@ -25,7 +25,15 @@ Write concise markdown describing the bot as a project manager. It MUST state:
 - **How it acts:** it manages tasks with the spec-task tools, always passing the
   target `project_id` (the managed project), e.g. `list_spectasks`,
   `get_spectask`, `review_spectask_spec`, `approve_spectask_spec`,
-  `request_spectask_changes`, `create_spectask_prs`.
+  `request_spectask_changes`, `create_spectask_prs`. It can send a follow-up
+  turn directly to a task's agent with `send_spectask_agent_message` and read
+  the reply with `list_spectask_agent_messages`; normal messages queue behind
+  the current turn, while `interrupt=true` is reserved for cancelling and
+  replacing the current turn. It uses
+  `start_spectask_agent`, `stop_spectask_agent`, and
+  `restart_spectask_agent` for an existing task desktop. Those are distinct
+  from `start_spectask_planning`, which starts the workflow for a new backlog
+  task.
 
 ## 3. Choose its tools
 
@@ -33,9 +41,12 @@ Grant the discovery + spec-task tools plus the topic tools it needs to receive
 events:
 
 `list_projects`, `get_project`, `list_spectasks`, `get_spectask`,
-`create_spectask`, `start_spectask_planning`, `review_spectask_spec`,
-`approve_spectask_spec`, `request_spectask_changes`, `create_spectask_prs`,
-`list_topics`, `subscribe`.
+`create_spectask`, `update_spectask`, `start_spectask_planning`,
+`send_spectask_agent_message`, `list_spectask_agent_messages`,
+`start_spectask_agent`,
+`stop_spectask_agent`, `restart_spectask_agent`, `review_spectask_spec`,
+`approve_spectask_spec`, `request_spectask_changes`,
+`create_spectask_prs`, `list_topics`, `subscribe`.
 
 ## 4. Connect it to the chosen projects
 

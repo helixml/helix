@@ -14,11 +14,13 @@ import (
 // fakeSpecTaskStore is an in-memory SpecTaskStore for the spectasks
 // unit tests. The real impl is *helixstore.Store, satisfied structurally.
 type fakeSpecTaskStore struct {
-	tasks       map[string]*types.SpecTask
-	projects    map[string]*types.Project
-	nextTaskNum int
-	created     []*types.SpecTask
-	updated     []*types.SpecTask
+	tasks                map[string]*types.SpecTask
+	projects             map[string]*types.Project
+	nextTaskNum          int
+	created              []*types.SpecTask
+	updated              []*types.SpecTask
+	interactions         []*types.Interaction
+	lastInteractionQuery *types.ListInteractionsQuery
 }
 
 func newFakeSpecTaskStore() *fakeSpecTaskStore {
@@ -53,6 +55,14 @@ func (f *fakeSpecTaskStore) ListSpecTasks(_ context.Context, filters *types.Spec
 	}
 	return out, nil
 }
+func (f *fakeSpecTaskStore) ListInteractions(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
+	f.lastInteractionQuery = query
+	limit := len(f.interactions)
+	if query.PerPage > 0 && query.PerPage < limit {
+		limit = query.PerPage
+	}
+	return f.interactions[:limit], int64(len(f.interactions)), nil
+}
 func (f *fakeSpecTaskStore) UpdateSpecTask(_ context.Context, task *types.SpecTask) error {
 	f.tasks[task.ID] = task
 	f.updated = append(f.updated, task)
@@ -79,7 +89,12 @@ type fakeSpecTaskWorkflow struct {
 	requestChangesCalls []string
 	lastComment         string
 	lastRequestUserID   string
+	sendCalls           []string
+	lastMessage         string
+	lastInterrupt       bool
+	startCalls          []string
 	stopCalls           []string
+	restartCalls        []string
 }
 
 func (f *fakeSpecTaskWorkflow) ApproveSpecs(_ context.Context, task *types.SpecTask) error {
@@ -100,9 +115,26 @@ func (f *fakeSpecTaskWorkflow) RequestChanges(_ context.Context, task *types.Spe
 	f.lastRequestUserID = userID
 	return nil
 }
+func (f *fakeSpecTaskWorkflow) SendAgentMessage(_ context.Context, task *types.SpecTask, message string, interrupt bool, userID string) (string, error) {
+	f.sendCalls = append(f.sendCalls, task.ID)
+	f.lastMessage = message
+	f.lastInterrupt = interrupt
+	f.lastRequestUserID = userID
+	return "pmt_1", nil
+}
+func (f *fakeSpecTaskWorkflow) StartAgent(_ context.Context, task *types.SpecTask, userID string) error {
+	f.startCalls = append(f.startCalls, task.ID)
+	f.lastRequestUserID = userID
+	return nil
+}
 func (f *fakeSpecTaskWorkflow) StopAgent(_ context.Context, task *types.SpecTask) error {
 	f.stopCalls = append(f.stopCalls, task.ID)
 	return nil
+}
+func (f *fakeSpecTaskWorkflow) RestartAgent(_ context.Context, task *types.SpecTask, userID string) (int, bool, error) {
+	f.restartCalls = append(f.restartCalls, task.ID)
+	f.lastRequestUserID = userID
+	return 2, true, nil
 }
 
 func newSpecTasksTestStore(t *testing.T) *storeWrapper {
@@ -328,6 +360,123 @@ func TestSpecTasks_StopAgentDelegates(t *testing.T) {
 	}
 	if len(wf.stopCalls) != 1 || wf.stopCalls[0] != "task_1" {
 		t.Errorf("stop calls = %v", wf.stopCalls)
+	}
+}
+
+func TestSpecTasks_SendAgentMessageDelegates(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.NodeID("w-alice")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+	if err := SaveHiringUser(context.Background(), &wrap.Store, "org-test", wid, "user_hiring"); err != nil {
+		t.Fatalf("SaveHiringUser: %v", err)
+	}
+
+	fs := newFakeSpecTaskStore()
+	fs.tasks["task_1"] = &types.SpecTask{ID: "task_1", ProjectID: "prj_mine", PlanningSessionID: "ses_task"}
+	wf := &fakeSpecTaskWorkflow{}
+	st, err := NewSpecTasks(&wrap.Store, fs, wf)
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	view, err := st.SendAgentMessage(context.Background(), "org-test", wid, "", "task_1", runtime.SpecTaskMessageInput{Content: "  status?  ", Interrupt: true})
+	if err != nil {
+		t.Fatalf("SendAgentMessage: %v", err)
+	}
+	if view.PromptID != "pmt_1" || view.SessionID != "ses_task" {
+		t.Errorf("view = %+v", view)
+	}
+	if len(wf.sendCalls) != 1 || wf.lastMessage != "status?" || !wf.lastInterrupt || wf.lastRequestUserID != "user_hiring" {
+		t.Errorf("send calls/message/interrupt/user = %v/%q/%v/%q", wf.sendCalls, wf.lastMessage, wf.lastInterrupt, wf.lastRequestUserID)
+	}
+}
+
+func TestSpecTasks_ListAgentMessagesReturnsLatestChronologically(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.NodeID("w-alice")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+
+	now := time.Now()
+	fs := newFakeSpecTaskStore()
+	fs.tasks["task_1"] = &types.SpecTask{ID: "task_1", ProjectID: "prj_mine", PlanningSessionID: "ses_task"}
+	// The store returns newest first for id DESC; the runtime reverses the
+	// selected window so an agent can read it as a conversation.
+	fs.interactions = []*types.Interaction{
+		{ID: "int_2", PromptMessage: "internal second", DisplayMessage: "second", ResponseMessage: "reply two", State: types.InteractionStateComplete, Created: now.Add(time.Minute), Updated: now.Add(time.Minute)},
+		{ID: "int_1", PromptMessage: "first", ResponseMessage: "reply one", State: types.InteractionStateComplete, Created: now, Updated: now},
+	}
+	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	views, err := st.ListAgentMessages(context.Background(), "org-test", wid, "", "task_1", 2)
+	if err != nil {
+		t.Fatalf("ListAgentMessages: %v", err)
+	}
+	if len(views) != 2 || views[0].InteractionID != "int_1" || views[1].InteractionID != "int_2" {
+		t.Fatalf("views = %+v", views)
+	}
+	if views[1].UserMessage != "second" || views[1].AgentMessage != "reply two" {
+		t.Errorf("second view = %+v", views[1])
+	}
+	if fs.lastInteractionQuery.SessionID != "ses_task" || fs.lastInteractionQuery.GenerationID != -1 || fs.lastInteractionQuery.Order != "id DESC" {
+		t.Errorf("query = %+v", fs.lastInteractionQuery)
+	}
+}
+
+func TestSpecTasks_AgentLifecycleDelegates(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.NodeID("w-alice")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+	if err := SaveHiringUser(context.Background(), &wrap.Store, "org-test", wid, "user_hiring"); err != nil {
+		t.Fatalf("SaveHiringUser: %v", err)
+	}
+
+	fs := newFakeSpecTaskStore()
+	fs.tasks["task_1"] = &types.SpecTask{ID: "task_1", ProjectID: "prj_mine", PlanningSessionID: "ses_task"}
+	wf := &fakeSpecTaskWorkflow{}
+	st, err := NewSpecTasks(&wrap.Store, fs, wf)
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	started, err := st.StartAgent(context.Background(), "org-test", wid, "", "task_1")
+	if err != nil {
+		t.Fatalf("StartAgent: %v", err)
+	}
+	restarted, err := st.RestartAgent(context.Background(), "org-test", wid, "", "task_1")
+	if err != nil {
+		t.Fatalf("RestartAgent: %v", err)
+	}
+	if started.Status != "started" || restarted.Status != "restarted" || restarted.PromptsReset != 2 || !restarted.ThreadReset {
+		t.Errorf("start/restart views = %+v / %+v", started, restarted)
+	}
+	if len(wf.startCalls) != 1 || len(wf.restartCalls) != 1 || wf.lastRequestUserID != "user_hiring" {
+		t.Errorf("start/restart/user = %v/%v/%q", wf.startCalls, wf.restartCalls, wf.lastRequestUserID)
+	}
+}
+
+func TestSpecTasks_AgentOperationsRequirePlanningSession(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.NodeID("w-alice")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+
+	fs := newFakeSpecTaskStore()
+	fs.tasks["task_1"] = &types.SpecTask{ID: "task_1", ProjectID: "prj_mine"}
+	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	if _, err := st.SendAgentMessage(context.Background(), "org-test", wid, "", "task_1", runtime.SpecTaskMessageInput{Content: "hello"}); err == nil {
+		t.Error("SendAgentMessage should reject a task without a planning session")
+	}
+	if _, err := st.StartAgent(context.Background(), "org-test", wid, "", "task_1"); err == nil {
+		t.Error("StartAgent should reject a task without a planning session")
+	}
+	if _, err := st.RestartAgent(context.Background(), "org-test", wid, "", "task_1"); err == nil {
+		t.Error("RestartAgent should reject a task without a planning session")
 	}
 }
 
