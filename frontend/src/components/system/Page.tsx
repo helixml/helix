@@ -53,6 +53,8 @@ const Page: React.FC<{
   globalSearchResourceTypes?: TypesResource[],
   // notifications — the bell is part of the standard topbar; opt out per page
   notifications?: boolean,
+  // theme toggle — immersive viewers can opt out of global appearance controls
+  themeToggle?: boolean,
   children?: ReactNode,
 }> = ({
   topbarContent = null,
@@ -73,6 +75,7 @@ const Page: React.FC<{
   globalSearch = false,
   globalSearchResourceTypes,
   notifications = true,
+  themeToggle = true,
   children,
 }) => {
   const router = useRouter()
@@ -383,11 +386,13 @@ const Page: React.FC<{
                 }}
               >
                 { topbarContent }
-                <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
-                  <IconButton onClick={toggleMode} size="small" sx={{ color: lightTheme.textColorFaded }}>
-                    {mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
-                  </IconButton>
-                </Tooltip>
+                {themeToggle && (
+                  <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+                    <IconButton onClick={toggleMode} size="small" sx={{ color: lightTheme.textColorFaded }}>
+                      {mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                )}
                 {notifications && <GlobalNotifications organizationId={organizationId} />}
               </Box>
             </AppBar>

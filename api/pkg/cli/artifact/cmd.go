@@ -57,9 +57,6 @@ func newCreateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if flags.subdomain && visibility != types.ArtifactVisibilityPublic {
-				return errors.New("--subdomain requires --visibility public")
-			}
 			content, closeContent, err := openArtifactContent(args[0])
 			if err != nil {
 				return err
@@ -238,7 +235,8 @@ func addUploadFlags(cmd *cobra.Command, flags *uploadFlags, includeProject bool)
 	cmd.Flags().StringVar(&flags.description, "description", "", "Artifact description")
 	cmd.Flags().StringVar(&flags.entrypoint, "entrypoint", "", "HTML entrypoint (default: index.html)")
 	cmd.Flags().StringVar(&flags.visibility, "visibility", "project", "Visibility: project or public")
-	cmd.Flags().BoolVar(&flags.subdomain, "subdomain", false, "Serve the public artifact on a dedicated subdomain")
+	cmd.Flags().BoolVar(&flags.subdomain, "subdomain", false, "Deprecated: public artifacts automatically receive a share subdomain")
+	_ = cmd.Flags().MarkDeprecated("subdomain", "public artifacts automatically receive a share subdomain")
 	cmd.Flags().StringVar(&flags.sourceSession, "source-session", "", "Source session ID (defaults to HELIX_SESSION_ID)")
 	cmd.Flags().StringVar(&flags.sourceTask, "source-spec-task", "", "Source spec task ID (defaults to HELIX_SPEC_TASK_ID)")
 	cmd.Flags().BoolVar(&flags.jsonOutput, "json", false, "Print JSON")

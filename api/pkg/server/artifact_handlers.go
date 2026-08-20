@@ -107,7 +107,7 @@ func (s *HelixAPIServer) listProjectArtifacts(w http.ResponseWriter, r *http.Req
 // @Param description formData string false "Description"
 // @Param entrypoint formData string false "HTML entrypoint (default index.html)"
 // @Param visibility formData string false "project or public"
-// @Param with_subdomain formData bool false "Allocate a public default subdomain"
+// @Param with_subdomain formData bool false "Deprecated: public artifacts always receive a share subdomain"
 // @Param artifact formData file true "HTML file or ZIP bundle"
 // @Success 201 {object} types.Artifact
 // @Router /api/v1/projects/{id}/artifacts [post]
@@ -134,16 +134,11 @@ func (s *HelixAPIServer) createProjectArtifact(w http.ResponseWriter, r *http.Re
 		writeArtifactHTTPError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	withSubdomain, err := artifactFormBool(r, "with_subdomain")
-	if err != nil {
+	if _, err := artifactFormBool(r, "with_subdomain"); err != nil {
 		writeArtifactHTTPError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if withSubdomain && visibility != types.ArtifactVisibilityPublic {
-		writeArtifactHTTPError(w, http.StatusBadRequest, "with_subdomain requires visibility=public")
-		return
-	}
-	if (withSubdomain || visibility == types.ArtifactVisibilityProject) && s.vhostBaseDomain() == "" {
+	if s.vhostBaseDomain() == "" {
 		writeArtifactHTTPError(w, http.StatusBadRequest, "artifact subdomains are not configured on this Helix instance")
 		return
 	}
@@ -180,12 +175,10 @@ func (s *HelixAPIServer) createProjectArtifact(w http.ResponseWriter, r *http.Re
 		return
 	}
 	artifact.ActiveVersion = version
-	if withSubdomain || visibility == types.ArtifactVisibilityProject {
-		if _, err := s.ensureArtifactSubdomain(r, artifact); err != nil {
-			s.rollbackCreatedArtifact(r, artifact, storagePrefix)
-			writeArtifactHTTPError(w, http.StatusConflict, err.Error())
-			return
-		}
+	if _, err := s.ensureArtifactSubdomain(r, artifact); err != nil {
+		s.rollbackCreatedArtifact(r, artifact, storagePrefix)
+		writeArtifactHTTPError(w, http.StatusConflict, err.Error())
+		return
 	}
 	if err := s.populateArtifactURLs(r, artifact); err != nil {
 		writeArtifactHTTPError(w, http.StatusInternalServerError, err.Error())
@@ -235,7 +228,6 @@ func (s *HelixAPIServer) updateArtifact(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	previousVisibility := artifact.Visibility
 	if err := parseArtifactMultipart(w, r); err != nil {
 		writeArtifactHTTPError(w, artifactUploadStatus(err), err.Error())
 		return
@@ -260,17 +252,11 @@ func (s *HelixAPIServer) updateArtifact(w http.ResponseWriter, r *http.Request) 
 		}
 		artifact.Visibility = visibility
 	}
-	withSubdomain, err := artifactFormBool(r, "with_subdomain")
-	if err != nil {
+	if _, err := artifactFormBool(r, "with_subdomain"); err != nil {
 		writeArtifactHTTPError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	withSubdomainSet := artifactFormHasField(r, "with_subdomain")
-	if withSubdomain && artifact.Visibility != types.ArtifactVisibilityPublic {
-		writeArtifactHTTPError(w, http.StatusBadRequest, "with_subdomain requires visibility=public")
-		return
-	}
-	if (withSubdomain || artifact.Visibility == types.ArtifactVisibilityProject) && s.vhostBaseDomain() == "" {
+	if s.vhostBaseDomain() == "" {
 		writeArtifactHTTPError(w, http.StatusBadRequest, "artifact subdomains are not configured on this Helix instance")
 		return
 	}
@@ -283,11 +269,6 @@ func (s *HelixAPIServer) updateArtifact(w http.ResponseWriter, r *http.Request) 
 		writeArtifactHTTPError(w, http.StatusInternalServerError, "inspect artifact subdomain: "+err.Error())
 		return
 	}
-	wantsRoute := artifact.Visibility == types.ArtifactVisibilityProject || withSubdomain
-	if artifact.Visibility == types.ArtifactVisibilityPublic && !withSubdomainSet && previousVisibility == types.ArtifactVisibilityPublic {
-		wantsRoute = len(existingRoutes) > 0
-	}
-
 	requestedEntrypoint := artifact.Entrypoint
 	entrypointSet := false
 	if value, exists := artifactFormField(r, "entrypoint"); exists {
@@ -320,41 +301,27 @@ func (s *HelixAPIServer) updateArtifact(w http.ResponseWriter, r *http.Request) 
 		artifact.Entrypoint = entrypoint
 	}
 	artifact.UpdatedBy = getRequestUser(r).ID
-	createdPrivateRoute := false
-	if artifact.Visibility == types.ArtifactVisibilityProject {
-		if _, err := s.ensureArtifactSubdomain(r, artifact); err != nil {
-			if storagePrefix != "" {
-				s.cleanupArtifactStorage(r, storagePrefix)
-			}
-			writeArtifactHTTPError(w, http.StatusConflict, err.Error())
-			return
+	createdRoute := len(existingRoutes) == 0
+	if _, err := s.ensureArtifactSubdomain(r, artifact); err != nil {
+		if storagePrefix != "" {
+			s.cleanupArtifactStorage(r, storagePrefix)
 		}
-		createdPrivateRoute = len(existingRoutes) == 0
+		writeArtifactHTTPError(w, http.StatusConflict, err.Error())
+		return
 	}
 	if err := s.Store.UpdateArtifact(r.Context(), artifact, version); err != nil {
 		if storagePrefix != "" {
 			s.cleanupArtifactStorage(r, storagePrefix)
 		}
-		if createdPrivateRoute {
+		if createdRoute {
 			if cleanupErr := s.Store.DeleteVHostRoutesByTarget(r.Context(), types.VHostTargetArtifact, artifact.ID); cleanupErr != nil {
-				log.Error().Err(cleanupErr).Str("artifact_id", artifact.ID).Msg("failed to roll back artifact private route")
+				log.Error().Err(cleanupErr).Str("artifact_id", artifact.ID).Msg("failed to roll back artifact route")
 			}
 		}
 		writeArtifactHTTPError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	if !wantsRoute {
-		if err := s.Store.DeleteVHostRoutesByTarget(r.Context(), types.VHostTargetArtifact, artifact.ID); err != nil {
-			writeArtifactHTTPError(w, http.StatusInternalServerError, "remove artifact subdomain: "+err.Error())
-			return
-		}
-	} else if artifact.Visibility == types.ArtifactVisibilityPublic {
-		if _, err := s.ensureArtifactSubdomain(r, artifact); err != nil {
-			writeArtifactHTTPError(w, http.StatusConflict, err.Error())
-			return
-		}
-	}
 	updated, err := s.Store.GetArtifact(r.Context(), artifact.ID)
 	if err != nil {
 		writeArtifactHTTPError(w, http.StatusInternalServerError, err.Error())
@@ -749,11 +716,6 @@ func artifactFormField(r *http.Request, name string) (string, bool) {
 	return values[len(values)-1], true
 }
 
-func artifactFormHasField(r *http.Request, name string) bool {
-	_, ok := artifactFormField(r, name)
-	return ok
-}
-
 func artifactFormBool(r *http.Request, name string) (bool, error) {
 	value, ok := artifactFormField(r, name)
 	if !ok || strings.TrimSpace(value) == "" {
@@ -800,7 +762,7 @@ func (s *HelixAPIServer) ensureArtifactSubdomain(r *http.Request, artifact *type
 
 func (s *HelixAPIServer) populateArtifactURLs(r *http.Request, artifact *types.Artifact) error {
 	origin := artifactRequestOrigin(r, s.Cfg.WebServer.URL)
-	artifact.URL = strings.TrimRight(origin, "/") + "/artifacts/" + artifact.ID + "/"
+	artifact.URL = strings.TrimRight(origin, "/") + "/artifacts/" + artifact.ID
 	routes, err := s.Store.ListVHostRoutesByTarget(r.Context(), types.VHostTargetArtifact, artifact.ID)
 	if err != nil {
 		return fmt.Errorf("list artifact subdomains: %w", err)
@@ -833,16 +795,32 @@ func artifactRequestOrigin(r *http.Request, configured string) string {
 	return ""
 }
 
-// serveArtifactPath serves an artifact on the canonical Helix origin. Public
-// artifacts need no login; project artifacts inherit project read access.
-func (s *HelixAPIServer) serveArtifactPath(w http.ResponseWriter, r *http.Request) {
+// serveArtifactEmbed moves the viewer iframe onto the artifact's isolated
+// origin. Public artifacts redirect directly; private artifacts require
+// project access and exchange a short-lived grant for an origin-only session.
+func (s *HelixAPIServer) serveArtifactEmbed(w http.ResponseWriter, r *http.Request) {
 	artifactID := mux.Vars(r)["artifact_id"]
 	artifact, err := s.Store.GetArtifact(r.Context(), artifactID)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	if artifact.Visibility != types.ArtifactVisibilityPublic {
+	routes, err := s.Store.ListVHostRoutesByTarget(r.Context(), types.VHostTargetArtifact, artifact.ID)
+	if err != nil || len(routes) == 0 {
+		http.Error(w, "artifact origin unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	redirectPath, err := artifactAccessRedirectPath(mux.Vars(r)["artifact_path"], r.URL.RawQuery)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	scheme := artifactOriginScheme(artifactRequestOrigin(r, s.Cfg.WebServer.URL))
+	if artifact.Visibility == types.ArtifactVisibilityPublic {
+		http.Redirect(w, r, scheme+"://"+routes[0].Hostname+redirectPath, http.StatusTemporaryRedirect)
+		return
+	}
+	if artifact.Visibility == types.ArtifactVisibilityProject {
 		user := getRequestUser(r)
 		if user == nil || user.ID == "" {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -852,22 +830,11 @@ func (s *HelixAPIServer) serveArtifactPath(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
-		routes, err := s.Store.ListVHostRoutesByTarget(r.Context(), types.VHostTargetArtifact, artifact.ID)
-		if err != nil || len(routes) == 0 {
-			http.Error(w, "private artifact origin unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		redirectPath, err := artifactAccessRedirectPath(mux.Vars(r)["artifact_path"], r.URL.RawQuery)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
 		token, err := s.signArtifactAccessToken(user.ID, artifact.ID, redirectPath, artifactBootstrapAud, artifactBootstrapTTL)
 		if err != nil {
 			http.Error(w, "create artifact access", http.StatusInternalServerError)
 			return
 		}
-		scheme := artifactOriginScheme(artifactRequestOrigin(r, s.Cfg.WebServer.URL))
 		action := scheme + "://" + routes[0].Hostname + "/_helix/access"
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Referrer-Policy", "no-referrer")
@@ -881,7 +848,7 @@ func (s *HelixAPIServer) serveArtifactPath(w http.ResponseWriter, r *http.Reques
 		}
 		return
 	}
-	s.serveArtifactFile(w, r, artifact, mux.Vars(r)["artifact_path"], true)
+	http.NotFound(w, r)
 }
 
 func artifactAccessRedirectPath(requested, rawQuery string) (string, error) {
@@ -991,17 +958,17 @@ func (s *HelixAPIServer) servePrivateArtifactVHost(w http.ResponseWriter, r *htt
 		http.Error(w, "artifact access denied", http.StatusForbidden)
 		return
 	}
-	s.serveArtifactFile(w, r, artifact, requestedPath, false)
+	s.serveArtifactFile(w, r, artifact, requestedPath)
 }
 
-func (s *HelixAPIServer) serveArtifactFile(w http.ResponseWriter, r *http.Request, artifact *types.Artifact, requestedPath string, sandboxed bool) {
+func (s *HelixAPIServer) serveArtifactFile(w http.ResponseWriter, r *http.Request, artifact *types.Artifact, requestedPath string) {
 	filename, metadata, ok := resolveArtifactFile(artifact, requestedPath)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
 	etag := `"` + artifact.ActiveVersion.ID + ":" + metadata.SHA256 + `"`
-	setArtifactSecurityHeaders(w.Header(), sandboxed)
+	setArtifactSecurityHeaders(w.Header(), artifactRequestOrigin(r, s.Cfg.WebServer.URL))
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("ETag", etag)
 	if r.Header.Get("If-None-Match") == etag {
@@ -1053,20 +1020,15 @@ func resolveArtifactFile(artifact *types.Artifact, requested string) (string, ty
 	return "", types.ArtifactFile{}, false
 }
 
-func setArtifactSecurityHeaders(header http.Header, sandboxed bool) {
+func setArtifactSecurityHeaders(header http.Header, viewerOrigin string) {
 	header.Set("X-Content-Type-Options", "nosniff")
 	header.Set("Referrer-Policy", "no-referrer")
 	header.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
-	if sandboxed {
-		// CSP sandbox gives the document an opaque origin. ES modules therefore
-		// require an explicit CORS response even when loaded from the artifact's
-		// canonical URL. These files are public; credentials remain unavailable to
-		// the opaque origin and private artifacts are served on an isolated host.
-		header.Set("Access-Control-Allow-Origin", "*")
-		header.Set("Content-Security-Policy", "sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads; default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'")
-	} else {
-		header.Set("Content-Security-Policy", "default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'self'")
+	frameAncestor := "'none'"
+	if parsed, err := url.Parse(strings.TrimSpace(viewerOrigin)); err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" {
+		frameAncestor = parsed.Scheme + "://" + parsed.Host
 	}
+	header.Set("Content-Security-Policy", "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https: wss:; frame-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self' https:; frame-ancestors "+frameAncestor)
 }
 
 func writeArtifactHTTPError(w http.ResponseWriter, status int, message string) {
