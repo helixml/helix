@@ -16,6 +16,10 @@ const (
 	// container for a "Share preview" dev URL. target_id is a session ID
 	// (ses_*) or sandbox ID (sbx_*).
 	VHostTargetSandboxPreview VHostTargetKind = "sandbox_preview"
+
+	// VHostTargetArtifact serves an Artifact's active static version directly
+	// from the filestore. target_id is an artifact ID (art_*).
+	VHostTargetArtifact VHostTargetKind = "artifact_static"
 )
 
 // VHostRoute maps a hostname to a routable target inside Helix. The same
@@ -27,7 +31,7 @@ type VHostRoute struct {
 	URL        string          `gorm:"-" json:"url,omitempty"`      // public URL, populated by preview API handlers
 	TargetKind VHostTargetKind `gorm:"index" json:"target_kind"`
 	TargetID   string          `gorm:"index" json:"target_id"`
-	Port       int             `json:"port"` // destination port inside the container
+	Port       int             `json:"port"` // destination port inside the container; zero for static artifacts
 
 	// IsDefault is true for project default subdomains (<slug>.<base>).
 	// User-added custom domains and preview tokens are false.

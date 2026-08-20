@@ -1009,6 +1009,18 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		}
 	}
 
+	// Static artifacts inherit project ownership, so project deletion must
+	// remove their routes, blobs, and metadata before archiving the project.
+	artifacts, err := s.Store.ListArtifacts(r.Context(), &store.ListArtifactsQuery{ProjectID: projectID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("list project artifacts: %s", err))
+	}
+	for _, artifact := range artifacts {
+		if err := s.deleteArtifactResources(r.Context(), artifact); err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+	}
+
 	// Now soft delete the project
 	err = s.Store.DeleteProject(r.Context(), projectID)
 	if err != nil {

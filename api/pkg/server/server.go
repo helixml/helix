@@ -1515,6 +1515,15 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// IMPORTANT: Must be before registerDefaultHandler to avoid being proxied to frontend
 	apiServer.gitHTTPServer.RegisterRoutes(router)
 
+	// Static artifacts live outside /api/v1. Authentication is optional here:
+	// public artifacts are anonymous while project artifacts authorize the
+	// extracted user against their owning project in the handler.
+	artifactRouter := router.PathPrefix("/artifacts/").Subrouter()
+	artifactRouter.Use(apiServer.authMiddleware.extractMiddleware)
+	artifactRouter.HandleFunc("/{artifact_id}", apiServer.serveArtifactPath).Methods(http.MethodGet, http.MethodHead)
+	artifactRouter.HandleFunc("/{artifact_id}/", apiServer.serveArtifactPath).Methods(http.MethodGet, http.MethodHead)
+	artifactRouter.HandleFunc("/{artifact_id}/{artifact_path:.*}", apiServer.serveArtifactPath).Methods(http.MethodGet, http.MethodHead)
+
 	// Set a custom NotFoundHandler for /api/v1/ routes to log unknown paths
 	subRouter.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Error().
@@ -1540,6 +1549,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/projects", system.Wrapper(apiServer.createProject)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/apply", system.Wrapper(apiServer.applyProject)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.getProject)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/artifacts", apiServer.listProjectArtifacts).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/artifacts", apiServer.createProjectArtifact).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/spec-task-agents", system.Wrapper(apiServer.listProjectSpecTaskAgents)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.updateProject)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.deleteProject)).Methods(http.MethodDelete)
@@ -1587,6 +1598,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// Project audit log routes
 	authRouter.HandleFunc("/projects/{id}/audit-logs", system.Wrapper(apiServer.listProjectAuditLogs)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.getArtifact).Methods(http.MethodGet)
+	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.updateArtifact).Methods(http.MethodPut)
+	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.deleteArtifact).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/artifacts/{artifact_id}/versions", apiServer.listArtifactVersions).Methods(http.MethodGet)
 
 	// Sample project routes (simple in-memory)
 	authRouter.HandleFunc("/sample-projects/simple", system.Wrapper(apiServer.listSimpleSampleProjects)).Methods(http.MethodGet)

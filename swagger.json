@@ -2697,6 +2697,168 @@
                 }
             }
         },
+        "/api/v1/artifacts/{artifact_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "Get an artifact",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Artifact ID",
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Artifact"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Patch metadata and optionally upload a replacement HTML file or ZIP bundle as a new version.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "Update an artifact",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Artifact ID",
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Artifact name",
+                        "name": "name",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Description",
+                        "name": "description",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "HTML entrypoint",
+                        "name": "entrypoint",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "project or public",
+                        "name": "visibility",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Allocate or retain a public default subdomain",
+                        "name": "with_subdomain",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "Replacement HTML file or ZIP bundle",
+                        "name": "artifact",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Artifact"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "Delete an artifact",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Artifact ID",
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/artifacts/{artifact_id}/versions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "List artifact versions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Artifact ID",
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ArtifactVersionsListResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/attention-events": {
             "get": {
                 "description": "Returns attention events that need human action for the current user. Only returns events that have not been dismissed and are not currently snoozed.",
@@ -13222,6 +13384,113 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.CreateAccessGrantResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/artifacts": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List static artifacts in a project. Access is inherited from the project.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "List project artifacts",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ArtifactsListResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload one HTML file or a ZIP containing a compiled static SPA.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "Create a project artifact",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Artifact name",
+                        "name": "name",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Description",
+                        "name": "description",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "HTML entrypoint (default index.html)",
+                        "name": "entrypoint",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "project or public",
+                        "name": "visibility",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Allocate a public default subdomain",
+                        "name": "with_subdomain",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "HTML file or ZIP bundle",
+                        "name": "artifact",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.Artifact"
                         }
                     }
                 }
@@ -28448,6 +28717,164 @@
                 }
             }
         },
+        "types.Artifact": {
+            "type": "object",
+            "properties": {
+                "active_version": {
+                    "$ref": "#/definitions/types.ArtifactVersion"
+                },
+                "active_version_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "$ref": "#/definitions/gorm.DeletedAt"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "entrypoint": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/types.ArtifactKind"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "subdomain_url": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "visibility": {
+                    "$ref": "#/definitions/types.ArtifactVisibility"
+                }
+            }
+        },
+        "types.ArtifactFile": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "sha256": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.ArtifactKind": {
+            "type": "string",
+            "enum": [
+                "single_file",
+                "spa"
+            ],
+            "x-enum-varnames": [
+                "ArtifactKindSingleFile",
+                "ArtifactKindSPA"
+            ]
+        },
+        "types.ArtifactVersion": {
+            "type": "object",
+            "properties": {
+                "artifact_id": {
+                    "type": "string"
+                },
+                "content_sha256": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "file_count": {
+                    "type": "integer"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ArtifactFile"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "source_session_id": {
+                    "type": "string"
+                },
+                "source_spec_task_id": {
+                    "type": "string"
+                },
+                "total_bytes": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.ArtifactVersionsListResponse": {
+            "type": "object",
+            "properties": {
+                "versions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ArtifactVersion"
+                    }
+                }
+            }
+        },
+        "types.ArtifactVisibility": {
+            "type": "string",
+            "enum": [
+                "project",
+                "public"
+            ],
+            "x-enum-varnames": [
+                "ArtifactVisibilityProject",
+                "ArtifactVisibilityPublic"
+            ]
+        },
+        "types.ArtifactsListResponse": {
+            "type": "object",
+            "properties": {
+                "artifacts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Artifact"
+                    }
+                }
+            }
+        },
         "types.AssistantAPI": {
             "type": "object",
             "properties": {
@@ -40883,7 +41310,7 @@
                     "type": "boolean"
                 },
                 "port": {
-                    "description": "destination port inside the container",
+                    "description": "destination port inside the container; zero for static artifacts",
                     "type": "integer"
                 },
                 "rotated_at": {
@@ -40913,11 +41340,13 @@
             "type": "string",
             "enum": [
                 "project_web_service",
-                "sandbox_preview"
+                "sandbox_preview",
+                "artifact_static"
             ],
             "x-enum-varnames": [
                 "VHostTargetProjectWebService",
-                "VHostTargetSandboxPreview"
+                "VHostTargetSandboxPreview",
+                "VHostTargetArtifact"
             ]
         },
         "types.WIPLimits": {

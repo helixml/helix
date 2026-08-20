@@ -27,6 +27,7 @@ import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
 import Jobs from './pages/Jobs'
 import SpecTasksPage from './pages/SpecTasksPage'
+import Artifacts from './pages/Artifacts'
 import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
 import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import TeamDesktopPage from './pages/TeamDesktopPage'
@@ -271,6 +272,16 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <SpecTasksPage />
+  ),
+}, {
+  name: 'org_project-artifacts',
+  path: '/orgs/:org_id/projects/:id/artifacts',
+  meta: {
+    drawer: false,
+    title: 'Project Artifacts',
+  },
+  render: () => (
+    <Artifacts />
   ),
 }, {
   name: 'org_project-task-detail',
