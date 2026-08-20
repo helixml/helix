@@ -525,11 +525,23 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
 
   const tokenValidationError = connectMethod === 'setup_token' ? validateSetupToken(tokenValue) : ''
 
-  const firstSub = subscriptions?.[0]
-  const isSetupToken = firstSub?.credential_type === 'setup_token'
+  // The button and inline variants speak for exactly one subscription: the org's
+  // when orgId names one, otherwise the signed-in user's own.
+  //
+  // These used to read subscriptions[0]. The list returns the user's own rows
+  // first and then appends every org they are a *member* of, so a user with no
+  // personal subscription who simply belongs to an org that has one saw
+  // "Disconnect" on a card that reads "not connected" — and if they owned that
+  // org, clicking it deleted the org's shared subscription from a control that
+  // never named it. It also left them no way to connect a personal one.
+  const targetSub = orgId
+    ? subscriptions?.find((sub) => sub.owner_type === 'org' && sub.owner_id === orgId)
+    : subscriptions?.find((sub) => sub.owner_type === 'user')
+  const hasTargetSub = !!targetSub
+  const isSetupToken = targetSub?.credential_type === 'setup_token'
   // See the card above: status, not the clock, is what says a credential needs
   // the user's attention now that refresh happens in the background.
-  const isExpired = !!firstSub && firstSub.status !== 'active'
+  const isExpired = !!targetSub && targetSub.status !== 'active'
 
   // Owner picker — only meaningful in the account variant, where you manage every
   // subscription you can see. The other variants are scoped by the `orgId` prop.
@@ -1081,7 +1093,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     const connectButtonSx = { textTransform: 'none' } as const
     return (
       <>
-        {hasSubscription ? (
+        {hasTargetSub ? (
           isExpired && !isSetupToken ? (
             <Button
               size="small"
@@ -1099,8 +1111,8 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
               variant="outlined"
               color="error"
               onClick={() => {
-                if (subscriptions?.[0]?.id) {
-                  setDeleteTarget(subscriptions[0].id)
+                if (targetSub?.id) {
+                  setDeleteTarget(targetSub.id)
                   setDisconnectDialogOpen(true)
                 }
               }}
@@ -1129,7 +1141,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   return (
     <>
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-        {hasSubscription ? (
+        {hasTargetSub ? (
           <>
             <Box component={CircleCheck} size={18} sx={{ color: 'success.main' }} />
             <Typography variant="body2" color="success.main">
