@@ -49,3 +49,8 @@ export function formatCodexAccountIdentity(input: {
     ''
   return [account, formatCodexPlan(input.plan)].filter(Boolean).join(' · ')
 }
+
+/** The non-personal half of a Codex identity: "Pro". */
+export function formatCodexAccountDetail(plan?: string | null): string {
+  return formatCodexPlan(plan)
+}

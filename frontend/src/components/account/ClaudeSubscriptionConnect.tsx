@@ -33,7 +33,8 @@ import { TypesOwnerType } from '../../api/api'
 import ClaudeConnectMethodPicker, { ClaudeConnectMethod } from './ClaudeConnectMethodPicker'
 import { SELECT_MENU_PROPS } from '../../contexts/theme'
 import useAccount from '../../hooks/useAccount'
-import { formatClaudeAccountIdentity } from './claudeSubscriptionUtils'
+import { formatClaudeAccountDetail, formatClaudeOrganizationRef } from './claudeSubscriptionUtils'
+import SubscriptionIdentity from './SubscriptionIdentity'
 import { matchesAllTokens } from '../../utils/searchUtils'
 import { APP_MONO_FONT_FAMILY } from '../../styles/typography'
 import { codeAgentHarnessesQueryKey } from '../../services/codeAgentHarnessesService'
@@ -627,7 +628,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           ? 'Replacing the credentials on this subscription. The owner cannot be changed — disconnect it and connect a new one to move it.'
           : ownerType === 'org'
             ? `Anyone in ${orgLabel(selectedOrgId)} whose session has no personal Claude subscription will run on this one, and it will be billed to the Claude account you authenticate below.`
-            : 'Used only for sessions you own, unless you delegate it to an organization afterwards.'}
+            : ''}
       </Typography>
       {replacedSub && (
         <Alert severity="warning" sx={{ mt: 1 }} icon={false}>
@@ -964,16 +965,20 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                 // past is normal and self-heals. Only the server's status says
                 // whether this credential actually needs the user.
                 const subIsBroken = sub.status !== 'active'
-                // Same identity line the agent-settings caption shows (account ·
-                // plan · tier) — rendered here as one outlined pill in place of
-                // the old plan-only chip.
-                const subIdentity = formatClaudeAccountIdentity({
-                  accountEmail: sub.account_email,
-                  accountName: sub.account_display_name,
-                  organizationId: sub.claude_organization_id,
-                  plan: sub.subscription_type,
-                  tier: sub.rate_limit_tier,
-                })
+                // Same identity line as everywhere else, with the email hidden
+                // until clicked — this pill is the most screenshotted of the lot.
+                const subIdentity = (
+                  <SubscriptionIdentity
+                    email={sub.account_email}
+                    fallback={sub.account_display_name || formatClaudeOrganizationRef(sub.claude_organization_id)}
+                    detail={formatClaudeAccountDetail({
+                      plan: sub.subscription_type,
+                      tier: sub.rate_limit_tier,
+                    })}
+                    ariaLabel="Claude account email"
+                    showPrefix
+                  />
+                )
                 return (
                   <Box
                     key={sub.id}

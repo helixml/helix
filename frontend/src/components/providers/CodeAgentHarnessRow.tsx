@@ -27,7 +27,8 @@ const HEALTH_COLOR: Record<HarnessHealth, string> = {
 const CodeAgentHarnessRow: FC<{
   runtime: string
   health: HarnessHealth
-  status: string
+  // A node, not a string: the identity line embeds a click-to-reveal email.
+  status: ReactNode
   enabled: boolean
   disabled?: boolean
   children: ReactNode

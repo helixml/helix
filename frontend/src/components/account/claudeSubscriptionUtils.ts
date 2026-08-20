@@ -93,3 +93,19 @@ function formatSpan(ms: number): string {
   if (hours < 24) return `${hours}h`
   return `${Math.floor(hours / 24)}d`
 }
+
+/**
+ * The non-personal half of a Claude identity: "Max · 20x".
+ *
+ * Split out from formatClaudeAccountIdentity so the email can be rendered as
+ * its own click-to-reveal element while the plan stays visible.
+ */
+export function formatClaudeAccountDetail(input: {
+  plan?: string | null
+  tier?: string | null
+}): string {
+  const plan = input.plan?.trim()
+    ? input.plan.trim().charAt(0).toUpperCase() + input.plan.trim().slice(1)
+    : ''
+  return [plan, formatRateLimitTier(input.tier)].filter(Boolean).join(' · ')
+}

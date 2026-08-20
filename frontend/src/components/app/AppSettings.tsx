@@ -1,4 +1,4 @@
-import React, { useState, useEffect, FC, useRef, useMemo } from 'react'
+import React, { useState, useEffect, FC, ReactNode, useRef, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -50,7 +50,8 @@ import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
 import { useListProviders } from '../../services/providersService'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
-import { formatClaudeAccountIdentity } from '../account/claudeSubscriptionUtils'
+import { formatClaudeAccountDetail } from '../account/claudeSubscriptionUtils'
+import SubscriptionIdentity from '../account/SubscriptionIdentity'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import useRouter from '../../hooks/useRouter'
 import { useGetOrgByName } from '../../services/orgService'
@@ -192,15 +193,19 @@ const BarsIcon = ({ effort }: { effort: string }) => {
 // is unknown.
 function formatSubscriptionOwner(
   status: api.ServerAppClaudeSubscriptionStatus | undefined
-): string {
-  if (!status?.connected) return ''
-  return formatClaudeAccountIdentity({
-    accountEmail: status.claude_account_email,
-    accountName: status.claude_account_name,
-    fallbackName: status.subscription_owner_name,
-    plan: status.subscription_type,
-    tier: status.subscription_rate_limit_tier,
-  })
+): ReactNode {
+  if (!status?.connected) return null
+  return (
+    <SubscriptionIdentity
+      email={status.claude_account_email}
+      fallback={status.claude_account_name || status.subscription_owner_name}
+      detail={formatClaudeAccountDetail({
+        plan: status.subscription_type,
+        tier: status.subscription_rate_limit_tier,
+      })}
+      ariaLabel="Claude account email"
+    />
+  )
 }
 
 const AppSettings: FC<AppSettingsProps> = ({

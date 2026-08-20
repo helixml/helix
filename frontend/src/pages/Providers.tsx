@@ -19,8 +19,10 @@ import OpenAILogo from '../components/providers/logos/openai';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
 import CodexSubscriptionConnect from '../components/account/CodexSubscriptionConnect';
 import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
-import { formatClaudeAccountIdentity } from '../components/account/claudeSubscriptionUtils'
-import { formatCodexAccountIdentity } from '../components/account/codexSubscriptionUtils';
+import { formatClaudeAccountDetail, formatClaudeOrganizationRef } from '../components/account/claudeSubscriptionUtils'
+import SubscriptionIdentity from '../components/account/SubscriptionIdentity'
+import type { ReactNode } from 'react'
+import { formatCodexAccountDetail, formatCodexAccountRef } from '../components/account/codexSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
 import CodeAgentHarnessesSection from '../components/providers/CodeAgentHarnessesSection';
 import {
@@ -80,29 +82,35 @@ const Providers: React.FC = () => {
   // the question this row answers is "whose subscription would this spend?".
   // Anthropic supplies it (profile email, else the verified org uuid); the
   // subscription name only stands in when Anthropic told us nothing.
-  const subscriptionIdentity = (runtime: string): string | undefined => {
+  const subscriptionIdentity = (runtime: string): ReactNode => {
     if (runtime === 'claude_code') {
       const subscription = effectiveClaudeSubscription
       if (!subscription) return undefined
-      return formatClaudeAccountIdentity({
-        accountEmail: subscription.account_email,
-        accountName: subscription.account_display_name,
-        organizationId: subscription.claude_organization_id,
-        fallbackName: subscription.name,
-        plan: subscription.subscription_type,
-        tier: subscription.rate_limit_tier,
-      }) || undefined
+      return (
+        <SubscriptionIdentity
+          email={subscription.account_email}
+          fallback={subscription.account_display_name || formatClaudeOrganizationRef(subscription.claude_organization_id) || subscription.name}
+          detail={formatClaudeAccountDetail({
+            plan: subscription.subscription_type,
+            tier: subscription.rate_limit_tier,
+          })}
+          ariaLabel="Claude account email"
+      showPrefix
+        />
+      )
     }
     if (runtime === 'codex_cli') {
       const subscription = effectiveCodexSubscription
       if (!subscription) return undefined
-      return formatCodexAccountIdentity({
-        accountEmail: subscription.account_email,
-        accountName: subscription.account_display_name,
-        accountId: subscription.account_id,
-        fallbackName: subscription.name,
-        plan: subscription.plan_type,
-      }) || undefined
+      return (
+        <SubscriptionIdentity
+          email={subscription.account_email}
+          fallback={subscription.account_display_name || formatCodexAccountRef(subscription.account_id) || subscription.name}
+          detail={formatCodexAccountDetail(subscription.plan_type)}
+          ariaLabel="ChatGPT account email"
+      showPrefix
+        />
+      )
     }
     return undefined
   }

@@ -7,8 +7,9 @@ import CodeAgentHarnessRow, { HarnessHealth } from '../providers/CodeAgentHarnes
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from './ClaudeSubscriptionConnect'
 import CodexSubscriptionConnect from './CodexSubscriptionConnect'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
-import { formatClaudeAccountIdentity } from './claudeSubscriptionUtils'
-import { formatCodexAccountIdentity } from './codexSubscriptionUtils'
+import { formatClaudeAccountDetail, formatClaudeOrganizationRef } from './claudeSubscriptionUtils'
+import { formatCodexAccountDetail, formatCodexAccountRef } from './codexSubscriptionUtils'
+import SubscriptionIdentity from './SubscriptionIdentity'
 import useLightTheme from '../../hooks/useLightTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
 
@@ -34,15 +35,18 @@ const AccountSubscriptions: FC = () => {
 
   // The identity Anthropic reported for the token — account email when the
   // profile fetch succeeded, else the verified Claude org, else the plan alone.
-  const claudeIdentity = claudeSub
-    ? formatClaudeAccountIdentity({
-        accountEmail: claudeSub.account_email,
-        accountName: claudeSub.account_display_name,
-        organizationId: claudeSub.claude_organization_id,
+  const claudeIdentity = claudeSub ? (
+    <SubscriptionIdentity
+      email={claudeSub.account_email}
+      fallback={claudeSub.account_display_name || formatClaudeOrganizationRef(claudeSub.claude_organization_id)}
+      detail={formatClaudeAccountDetail({
         plan: claudeSub.subscription_type,
         tier: claudeSub.rate_limit_tier,
-      })
-    : ''
+      })}
+      ariaLabel="Claude account email"
+      showPrefix
+    />
+  ) : null
 
   const claudeStatus = claudeLoading
     ? 'Loading…'
@@ -56,14 +60,15 @@ const AccountSubscriptions: FC = () => {
 
   // The ChatGPT account OpenAI's signed id_token attests, same treatment as
   // the Claude row above.
-  const codexIdentity = codexSub
-    ? formatCodexAccountIdentity({
-        accountEmail: codexSub.account_email,
-        accountName: codexSub.account_display_name,
-        accountId: codexSub.account_id,
-        plan: codexSub.plan_type,
-      })
-    : ''
+  const codexIdentity = codexSub ? (
+    <SubscriptionIdentity
+      email={codexSub.account_email}
+      fallback={codexSub.account_display_name || formatCodexAccountRef(codexSub.account_id)}
+      detail={formatCodexAccountDetail(codexSub.plan_type)}
+      ariaLabel="ChatGPT account email"
+      showPrefix
+    />
+  ) : null
 
   const codexStatus = codexLoading
     ? 'Loading…'
