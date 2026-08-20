@@ -245,6 +245,30 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         }),
       },
       components: {
+        // MUI floats an outlined input's label into a notch cut out of the
+        // border. That reads fine on a text field you type into, but on a
+        // select — where the value is already a full sentence and the control
+        // is denser — the label lands half inside the box and looks crooked.
+        // Site-wide, selects get a static left-aligned label above the control
+        // and no notch. Scoped with :has() so text fields keep floating labels.
+        MuiInputLabel: {
+          styleOverrides: {
+            root: {
+              '.MuiFormControl-root:has(.MuiSelect-select) &': {
+                position: 'static',
+                transform: 'none',
+                maxWidth: '100%',
+                fontSize: '0.75rem',
+                marginBottom: 4,
+                // The floating label relies on shrink state for colour; pinned
+                // above the field it should read as a quiet field label instead.
+                '&.Mui-focused': {
+                  color: 'inherit',
+                },
+              },
+            },
+          },
+        },
         MuiSwitch: {
           styleOverrides: {
             root: {
@@ -459,6 +483,14 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         MuiOutlinedInput: {
           styleOverrides: {
             root: getFlatSelectOverrides(isLight),
+            notchedOutline: {
+              // The label is pinned above the control for selects, so there is
+              // nothing to cut a notch for — and on a flat select there is no
+              // border to cut it out of anyway.
+              '.MuiFormControl-root:has(.MuiSelect-select) & legend': {
+                display: 'none',
+              },
+            },
           },
         },
         MuiInput: {

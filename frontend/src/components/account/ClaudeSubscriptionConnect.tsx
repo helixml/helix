@@ -29,6 +29,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useLightTheme from '../../hooks/useLightTheme'
+import { getFormSelectSx } from '../../contexts/theme'
 import useAccount from '../../hooks/useAccount'
 import { getTokenExpiryStatus, formatClaudeAccountIdentity } from './claudeSubscriptionUtils'
 import { matchesAllTokens } from '../../utils/searchUtils'
@@ -517,7 +518,20 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const replacedSub = ownerLocked ? undefined : subForOwner(ownerType, selectedOrgId)
   const ownerPicker = variant === 'account' && ownableOrgs.length > 0 && (
     <Box>
-      <FormControl size="small" fullWidth disabled={ownerLocked}>
+      {/* Re-authenticating replaces the credential on an existing subscription,
+          so the owner is fixed. A disabled dropdown just looks broken — state
+          the owner and explain it below instead. */}
+      {ownerLocked ? (
+        <Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            Subscription owner
+          </Typography>
+          <Typography variant="body2">
+            {ownerType === 'org' ? orgLabel(selectedOrgId) : 'Personal — only my own sessions'}
+          </Typography>
+        </Box>
+      ) : (
+      <FormControl size="small" fullWidth sx={getFormSelectSx(lightTheme.isLight)}>
         <InputLabel>Subscription owner</InputLabel>
         <Select
           value={ownerType === 'org' ? selectedOrgId : 'personal'}
@@ -541,6 +555,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           ))}
         </Select>
       </FormControl>
+      )}
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
         {ownerLocked
           ? 'Replacing the credentials on this subscription. The owner cannot be changed — disconnect it and connect a new one to move it.'
