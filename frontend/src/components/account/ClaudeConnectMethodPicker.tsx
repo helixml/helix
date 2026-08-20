@@ -82,8 +82,12 @@ const ClaudeConnectMethodPicker: FC<Props> = ({ value, onChange }) => {
     <Box
       sx={{
         display: 'grid',
-        gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' },
-        gap: 1.25,
+        // auto-fit rather than viewport breakpoints: these cards live in a
+        // dialog, so what matters is the space the dialog actually has, not how
+        // wide the window is. Below ~700px they fall to two columns and then
+        // one, which is also what a phone gets.
+        gridTemplateColumns: 'repeat(auto-fit, minmax(232px, 1fr))',
+        gap: 1.5,
       }}
     >
       {ORDER.map((method) => {
@@ -106,7 +110,7 @@ const ClaudeConnectMethodPicker: FC<Props> = ({ value, onChange }) => {
             sx={{
               display: 'flex',
               flexDirection: 'column',
-              p: 1.5,
+              p: 2,
               borderRadius: 1.5,
               cursor: 'pointer',
               userSelect: 'none',
@@ -136,7 +140,7 @@ const ClaudeConnectMethodPicker: FC<Props> = ({ value, onChange }) => {
               },
             }}
           >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1 }}>
               <Box
                 sx={{
                   width: 28,
@@ -164,7 +168,7 @@ const ClaudeConnectMethodPicker: FC<Props> = ({ value, onChange }) => {
               {meta.description}
             </Typography>
 
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 'auto' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, mt: 'auto' }}>
               <Fact icon={<Clock size={13} />} text={meta.lifetime} />
               <Fact icon={<Terminal size={13} />} text={meta.requirement} />
               <Fact
@@ -202,8 +206,8 @@ const Fact: FC<{ icon: React.ReactNode; text: string; muted?: boolean }> = ({
     <Typography
       variant="caption"
       sx={{
-        fontSize: '0.68rem',
-        lineHeight: 1.35,
+        fontSize: '0.7rem',
+        lineHeight: 1.4,
         color: muted ? 'warning.main' : 'text.secondary',
       }}
     >

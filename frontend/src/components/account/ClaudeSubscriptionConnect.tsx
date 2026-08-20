@@ -27,6 +27,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useLightTheme from '../../hooks/useLightTheme'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import { useTheme } from '@mui/material/styles'
 import { TypesOwnerType } from '../../api/api'
 import ClaudeConnectMethodPicker, { ClaudeConnectMethod } from './ClaudeConnectMethodPicker'
 import { SELECT_MENU_PROPS } from '../../contexts/theme'
@@ -264,6 +266,8 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const snackbar = useSnackbar()
   const queryClient = useQueryClient()
   const lightTheme = useLightTheme()
+  const muiTheme = useTheme()
+  const dialogFullScreen = useMediaQuery(muiTheme.breakpoints.down('sm'))
   const account = useAccount()
 
   const organizations = account.organizationTools.organizations || []
@@ -635,7 +639,18 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
 
   // Token dialog (shared across all variants)
   const tokenDialog = (
-    <Dialog open={tokenDialogOpen} onClose={() => setTokenDialogOpen(false)} maxWidth="sm" fullWidth>
+    <Dialog
+      open={tokenDialogOpen}
+      onClose={() => setTokenDialogOpen(false)}
+      maxWidth="md"
+      fullWidth
+      // Full screen on phones: a dialog inset inside a 390px viewport leaves the
+      // method cards no room to breathe.
+      // Phones get the whole screen: an inset dialog inside a ~390px viewport
+      // leaves the method cards no room. MUI's own pattern — an sx override with
+      // an xs key would have applied at every width, since xs is the base.
+      fullScreen={dialogFullScreen}
+    >
       <DialogTitle sx={{ pb: 0.5 }}>
         {ownerLocked ? 'Update Claude Subscription' : 'Connect Claude Subscription'}
       </DialogTitle>
