@@ -31,7 +31,7 @@ const (
 type VHostRoute struct {
 	ID         string          `gorm:"primaryKey" json:"id"`
 	Hostname   string          `gorm:"uniqueIndex" json:"hostname"` // always lowercased
-	URL        string          `gorm:"-" json:"url,omitempty"`      // public URL, populated by preview API handlers
+	URL        string          `gorm:"-" json:"url,omitempty"`      // public URL, populated by API handlers returning routes
 	TargetKind VHostTargetKind `gorm:"index" json:"target_kind"`
 	TargetID   string          `gorm:"index" json:"target_id"`
 	Port       int             `json:"port"` // destination port inside the container; zero for static artifacts
