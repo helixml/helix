@@ -178,10 +178,12 @@ func TestValidateRequiredFields(t *testing.T) {
 
 func TestEmptyInputIsValid(t *testing.T) {
 	// A processor with no input topic is valid but inert (unwired).
+	outputs := out("s-out")
+	outputs[0].ID = "po-out"
 	p := processor.Processor{
 		ID: "p-1", OrganizationID: "org-1", Name: "n", InputTopicID: "",
 		Kind: processor.KindTemplate, Config: cfg(t, map[string]string{"template": "x"}),
-		Outputs: out("s-out"), CreatedAt: time.Now(),
+		Outputs: outputs, CreatedAt: time.Now(),
 	}
 	if err := p.Validate(); err != nil {
 		t.Errorf("empty input should be valid (inert), got %v", err)

@@ -17,6 +17,7 @@ package activation
 import (
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
@@ -62,9 +63,10 @@ type Trigger struct {
 	ActivationID ID
 
 	// Event fields, set when Kind == TriggerEvent.
-	EventID streaming.EventID
-	TopicID streaming.TopicID
-	Source  orgchart.NodeID
+	EventID     streaming.EventID
+	TopicID     streaming.TopicID
+	EventSource eventsource.SourceRef
+	Source      orgchart.NodeID
 
 	// Message is the canonical envelope parsed from the event body.
 	// Every populated field (From, Subject, ThreadID, MessageID,

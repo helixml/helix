@@ -48,8 +48,36 @@ func (processorRow) TableName() string { return "org_processors" }
 
 type processorMapper struct{}
 
+type persistedProcessorOutput struct {
+	ID         string
+	TopicID    streaming.TopicID
+	Match      string
+	Label      string
+	Owned      bool
+	ManagedFor string `json:",omitempty"`
+}
+
+func marshalProcessorOutputs(outputs []processor.Output) ([]byte, error) {
+	rows := make([]persistedProcessorOutput, len(outputs))
+	for i, o := range outputs {
+		rows[i] = persistedProcessorOutput{ID: o.ID, TopicID: o.TopicID, Match: o.Match, Label: o.Label, Owned: o.Owned, ManagedFor: o.ManagedFor}
+	}
+	return json.Marshal(rows)
+}
+func unmarshalProcessorOutputs(data []byte) ([]processor.Output, error) {
+	var rows []persistedProcessorOutput
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, err
+	}
+	outputs := make([]processor.Output, len(rows))
+	for i, o := range rows {
+		outputs[i] = processor.Output{ID: o.ID, TopicID: o.TopicID, Match: o.Match, Label: o.Label, Owned: o.Owned, ManagedFor: o.ManagedFor}
+	}
+	return outputs, nil
+}
+
 func (processorMapper) ToRow(p processor.Processor) (processorRow, error) {
-	outs, err := json.Marshal(p.Outputs)
+	outs, err := marshalProcessorOutputs(p.Outputs)
 	if err != nil {
 		return processorRow{}, fmt.Errorf("marshal processor outputs: %w", err)
 	}
@@ -73,7 +101,9 @@ func (processorMapper) ToRow(p processor.Processor) (processorRow, error) {
 func (processorMapper) ToDomain(row processorRow) (processor.Processor, error) {
 	var outs []processor.Output
 	if row.Outputs != "" {
-		if err := json.Unmarshal([]byte(row.Outputs), &outs); err != nil {
+		var err error
+		outs, err = unmarshalProcessorOutputs([]byte(row.Outputs))
+		if err != nil {
 			return processor.Processor{}, fmt.Errorf("unmarshal processor outputs: %w", err)
 		}
 	}
@@ -137,7 +167,7 @@ func (r *processorsRepo) ListByInputTopic(ctx context.Context, orgID string, in 
 // the passed Processor are ignored. Returns store.ErrNotFound when no
 // row matches.
 func (r *processorsRepo) Update(ctx context.Context, p processor.Processor) error {
-	outs, err := json.Marshal(p.Outputs)
+	outs, err := marshalProcessorOutputs(p.Outputs)
 	if err != nil {
 		return fmt.Errorf("marshal processor outputs: %w", err)
 	}

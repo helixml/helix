@@ -24,9 +24,12 @@ package dispatch
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -178,24 +181,12 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 	// activate directly. A subscription pointing at a fired bot silently
 	// dispatches to nobody (the row is dropped on fire — see
 	// lifecycle.Fire).
+	targets := make([]orgchart.NodeID, 0, len(subs))
 	for _, sub := range subs {
-		botID := orgchart.NodeID(sub.NodeID)
-		if string(botID) == string(e.Source) {
-			continue // do not deliver the event back to its publisher
-		}
-		b, err := d.store.Nodes.Get(ctx, orgID, botID)
-		if err != nil {
-			d.logger.Warn("dispatch: get bot", "bot", botID, "err", err)
-			continue
-		}
-		// A human node is a person placeholder — it never runs. Never spawn
-		// it. Delivery-to-human (the in-app ask + external channels) is
-		// Stage 2; for now a human subscriber is simply not activated.
-		// See design/2026-07-07-humans-in-the-org.md.
-		if b.IsHuman() {
-			continue
-		}
-		trigger := activation.Trigger{
+		targets = append(targets, orgchart.NodeID(sub.NodeID))
+	}
+	d.deliver(ctx, orgID, targets, orgchart.NodeID(e.Source), func() activation.Trigger {
+		return activation.Trigger{
 			Kind:      activation.TriggerEvent,
 			EventID:   e.ID,
 			TopicID:   e.TopicID,
@@ -203,8 +194,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 			Message:   msg, // full canonical envelope; rendered by the spawner into the activation prompt
 			CreatedAt: e.CreatedAt,
 		}
-		d.queue.Enqueue(orgID, b.ID, trigger)
-	}
+	})
 	// Processor fan-out: hand the event + parsed message to the
 	// execution arm, which publishes each processor's output back
 	// through the same publish→dispatch path (so output topics dispatch
@@ -212,6 +202,54 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 	// Late-bound; no-op until RegisterProcessorRunner is called.
 	if d.processorRunner != nil {
 		d.processorRunner.Run(ctx, e, msg)
+	}
+}
+
+// DispatchSource routes a Trigger or exact Processor-output event through
+// Worker attachments. Production transports remain on Dispatch until PR 3.
+func (d *Dispatcher) DispatchSource(ctx context.Context, e eventsource.Event) error {
+	if d.store.WorkerAttachments == nil {
+		return errors.New("dispatch source: attachment repository is not configured")
+	}
+	opts := []store.Option{store.WithOrg(e.OrganizationID)}
+	if e.Source.Kind == eventsource.KindTrigger {
+		opts = append(opts, store.WithTriggerID(e.Source.TriggerID))
+	} else {
+		opts = append(opts, store.WithProcessorID(e.Source.ProcessorID), store.WithOutputID(e.Source.OutputID))
+	}
+	rows, err := d.store.WorkerAttachments.Find(ctx, opts...)
+	if err != nil {
+		return fmt.Errorf("dispatch source: find attachments: %w", err)
+	}
+	targets := make([]orgchart.NodeID, 0, len(rows))
+	for _, a := range rows {
+		targets = append(targets, a.WorkerID)
+	}
+	d.deliver(ctx, e.OrganizationID, targets, orgchart.NodeID(e.OriginatingWorkerID), func() activation.Trigger {
+		return activation.Trigger{Kind: activation.TriggerEvent, EventID: streaming.EventID(e.ID), EventSource: e.Source, Source: orgchart.NodeID(e.OriginatingWorkerID), Message: e.Message, CreatedAt: e.CreatedAt}
+	})
+	return nil
+}
+
+func (d *Dispatcher) deliver(ctx context.Context, orgID string, targets []orgchart.NodeID, origin orgchart.NodeID, newTrigger func() activation.Trigger) {
+	seen := map[orgchart.NodeID]struct{}{}
+	for _, id := range targets {
+		if id == origin {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		node, err := d.store.Nodes.Get(ctx, orgID, id)
+		if err != nil {
+			d.logger.Warn("dispatch: get bot", "bot", id, "err", err)
+			continue
+		}
+		if node.IsHuman() {
+			continue
+		}
+		d.queue.Enqueue(orgID, node.ID, newTrigger())
 	}
 }
 

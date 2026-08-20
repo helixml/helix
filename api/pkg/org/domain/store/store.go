@@ -11,12 +11,14 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	"github.com/helixml/helix/api/pkg/org/domain/attachment"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
 	"github.com/helixml/helix/api/pkg/org/domain/domainevent"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 )
 
 // ErrNotFound signals that the requested record does not exist.
@@ -186,6 +188,22 @@ type Processors interface {
 	Delete(ctx context.Context, orgID string, id processor.ProcessorID) error
 }
 
+// Triggers persists inbound event sources. Tenant-scoped callers must include
+// WithOrg in every Find query.
+type Triggers interface {
+	Create(context.Context, trigger.Trigger) error
+	Update(context.Context, trigger.Trigger) error
+	Delete(context.Context, string, string) error
+	Find(context.Context, ...Option) ([]trigger.Trigger, error)
+}
+
+// WorkerAttachments persists terminal source-to-Worker graph edges.
+type WorkerAttachments interface {
+	Create(context.Context, attachment.Attachment) error
+	Delete(context.Context, string, string) error
+	Find(context.Context, ...Option) ([]attachment.Attachment, error)
+}
+
 type Assets interface {
 	Create(ctx context.Context, a asset.Asset) error
 	Get(ctx context.Context, orgID string, id asset.ID) (asset.Asset, error)
@@ -243,17 +261,19 @@ type ChartPositions interface {
 // storage boundary is part of the domain package, not a parallel
 // declaration here. Lifted in B5.5.
 type Store struct {
-	Nodes            Nodes
-	ReportingLines   ReportingLines
-	NodeRuntimeState NodeRuntimeState
-	Topics           Topics
-	Subscriptions    Subscriptions
-	Events           Events
-	Configs          Configs
-	Activations      activation.Repository
-	Processors       Processors
-	Assets           Assets
-	AssetLinks       AssetLinks
+	Nodes             Nodes
+	ReportingLines    ReportingLines
+	NodeRuntimeState  NodeRuntimeState
+	Topics            Topics
+	Subscriptions     Subscriptions
+	Events            Events
+	Configs           Configs
+	Activations       activation.Repository
+	Processors        Processors
+	Triggers          Triggers
+	WorkerAttachments WorkerAttachments
+	Assets            Assets
+	AssetLinks        AssetLinks
 	// ChartPositions is the free-placed canvas layout for the org chart UI.
 	ChartPositions ChartPositions
 	// DomainEvents is the append-only decision/audit log (e.g. Slack

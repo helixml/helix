@@ -9,10 +9,14 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
+	"github.com/helixml/helix/api/pkg/org/domain/attachment"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
+	"github.com/stretchr/testify/require"
 )
 
 const org = "org-1"
@@ -28,7 +32,7 @@ func setup(t *testing.T) (*store.Store, *processors.Processors, *topics.Topics) 
 	id := func() string { n++; return time.Now().Format("150405.000") + "-" + string(rune('a'+n%26)) }
 	s := memory.New()
 	top := topics.New(topics.Deps{Topics: s.Topics, NewID: id})
-	svc := processors.New(processors.Deps{Processors: s.Processors, Topics: top, NewID: id})
+	svc := processors.New(processors.Deps{Processors: s.Processors, Topics: top, Attachments: s.WorkerAttachments, TopicReader: s.Topics, NewID: id})
 	return s, svc, top
 }
 
@@ -108,6 +112,38 @@ func TestDeleteRemovesAutoProvisionedTopic(t *testing.T) {
 	if _, err := s.Topics.Get(ctx, org, outID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("owned output topic %q should be deleted, err=%v", outID, err)
 	}
+}
+
+func TestAttachedOutputCannotBeRemovedAndProcessorDeleteCleansAttachment(t *testing.T) {
+	ctx := context.Background()
+	s, svc, top := setup(t)
+	_, err := top.Create(ctx, org, topics.CreateParams{ID: "s-in-attached", Name: "In attached"})
+	require.NoError(t, err)
+	p, err := svc.Create(ctx, org, processors.CreateParams{Name: "Attached", InputTopicID: "s-in-attached", Kind: processor.KindTemplate, Config: tmplCfg("x")})
+	require.NoError(t, err)
+	node, err := orgchart.NewNode("w-attached", "work", nil, time.Now(), org)
+	require.NoError(t, err)
+	require.NoError(t, s.Nodes.Create(ctx, node))
+	a, err := attachment.New("wa-attached", org, node.ID, eventsource.ProcessorOutput(p.ID, p.Outputs[0].ID), "", time.Now())
+	require.NoError(t, err)
+	require.NoError(t, s.WorkerAttachments.Create(ctx, a))
+	err = svc.RemoveOutput(ctx, org, p.ID, p.Outputs[0].TopicID)
+	require.ErrorIs(t, err, store.ErrConflict)
+	require.ErrorContains(t, err, "has worker attachments")
+	require.NoError(t, svc.Delete(ctx, org, p.ID))
+	rows, err := s.WorkerAttachments.Find(ctx, store.WithOrg(org), store.WithProcessorID(p.ID))
+	require.NoError(t, err)
+	require.Empty(t, rows)
+}
+
+func TestCreateRejectsCrossTenantTopics(t *testing.T) {
+	ctx := context.Background()
+	_, svc, top := setup(t)
+	_, err := top.Create(ctx, "org-2", topics.CreateParams{ID: "s-foreign", Name: "Foreign"})
+	require.NoError(t, err)
+	_, err = svc.Create(ctx, org, processors.CreateParams{Name: "Bad input", InputTopicID: "s-foreign", Kind: processor.KindTemplate, Config: tmplCfg("x")})
+	require.ErrorIs(t, err, store.ErrNotFound)
+	require.ErrorContains(t, err, "validate processor input topic")
 }
 
 func TestUpdateRevalidatesConfig(t *testing.T) {

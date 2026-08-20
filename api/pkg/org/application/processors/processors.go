@@ -41,18 +41,22 @@ type TopicWriter interface {
 
 // Processors owns the processor-mutation use cases.
 type Processors struct {
-	procs  store.Processors
-	topics TopicWriter
-	now    func() time.Time
-	newID  func() string
+	procs       store.Processors
+	topics      TopicWriter
+	attachments store.WorkerAttachments
+	topicReader store.Topics
+	now         func() time.Time
+	newID       func() string
 }
 
 // Deps are the constructor-injected collaborators.
 type Deps struct {
-	Processors store.Processors
-	Topics     TopicWriter
-	Now        func() time.Time
-	NewID      func() string
+	Processors  store.Processors
+	Topics      TopicWriter
+	Attachments store.WorkerAttachments
+	TopicReader store.Topics
+	Now         func() time.Time
+	NewID       func() string
 }
 
 // New constructs the Processors service.
@@ -65,7 +69,7 @@ func New(deps Deps) *Processors {
 	if newID == nil {
 		newID = func() string { return "stub" }
 	}
-	return &Processors{procs: deps.Processors, topics: deps.Topics, now: now, newID: newID}
+	return &Processors{procs: deps.Processors, topics: deps.Topics, attachments: deps.Attachments, topicReader: deps.TopicReader, now: now, newID: newID}
 }
 
 // OutputSpec describes one desired output branch at create/update time.
@@ -79,6 +83,9 @@ func New(deps Deps) *Processors {
 // are left intact on delete. Match/Label are carried onto the resulting
 // processor.Output (Match is meaningful only to the filter Kind).
 type OutputSpec struct {
+	// ID is the durable branch identity. Legacy callers may omit it; the
+	// application service allocates one when the branch is created.
+	ID      string
 	TopicID streaming.TopicID
 	Label   string
 	Match   string
@@ -116,6 +123,9 @@ func (s *Processors) Create(ctx context.Context, orgID string, p CreateParams) (
 	if p.Name == "" {
 		return processor.Processor{}, fmt.Errorf("processor name is empty")
 	}
+	if err := s.validateTopics(ctx, orgID, p.InputTopicID, p.Outputs); err != nil {
+		return processor.Processor{}, err
+	}
 
 	specs := p.Outputs
 	if len(specs) == 0 {
@@ -131,10 +141,14 @@ func (s *Processors) Create(ctx context.Context, orgID string, p CreateParams) (
 	}
 
 	for i, spec := range specs {
+		outputID := strings.TrimSpace(spec.ID)
+		if outputID == "" {
+			outputID = "po-" + s.newID()
+		}
 		if spec.TopicID != "" {
 			// Explicit existing topic — not owned by the processor, so it
 			// is not provisioned here and not torn down on delete.
-			outputs = append(outputs, processor.Output{TopicID: spec.TopicID, Match: spec.Match, Label: spec.Label, Owned: false, ManagedFor: spec.ManagedFor})
+			outputs = append(outputs, processor.Output{ID: outputID, TopicID: spec.TopicID, Match: spec.Match, Label: spec.Label, Owned: false, ManagedFor: spec.ManagedFor})
 			continue
 		}
 		t, err := s.topics.Create(ctx, orgID, topics.CreateParams{
@@ -149,7 +163,7 @@ func (s *Processors) Create(ctx context.Context, orgID string, p CreateParams) (
 			return processor.Processor{}, fmt.Errorf("provision output topic: %w", err)
 		}
 		provisioned = append(provisioned, t.ID)
-		outputs = append(outputs, processor.Output{TopicID: t.ID, Match: spec.Match, Label: spec.Label, Owned: true, ManagedFor: spec.ManagedFor})
+		outputs = append(outputs, processor.Output{ID: outputID, TopicID: t.ID, Match: spec.Match, Label: spec.Label, Owned: true, ManagedFor: spec.ManagedFor})
 	}
 
 	proc, err := processor.NewProcessor(id, p.Name, p.InputTopicID, p.Kind, p.Config, outputs, p.CreatedBy, s.now(), orgID)
@@ -197,6 +211,9 @@ func (s *Processors) Update(ctx context.Context, orgID string, id processor.Proc
 	if p.InputTopicID != nil {
 		existing.InputTopicID = *p.InputTopicID
 	}
+	if err := s.validateTopics(ctx, orgID, existing.InputTopicID, nil); err != nil {
+		return processor.Processor{}, err
+	}
 	if err := existing.Validate(); err != nil {
 		return processor.Processor{}, err
 	}
@@ -222,11 +239,18 @@ func (s *Processors) AddOutput(ctx context.Context, orgID string, id processor.P
 	if err != nil {
 		return processor.Output{}, err
 	}
+	if err := s.validateTopics(ctx, orgID, "", []OutputSpec{spec}); err != nil {
+		return processor.Output{}, err
+	}
 
 	var out processor.Output
+	outputID := strings.TrimSpace(spec.ID)
+	if outputID == "" {
+		outputID = "po-" + s.newID()
+	}
 	var provisioned streaming.TopicID
 	if spec.TopicID != "" {
-		out = processor.Output{TopicID: spec.TopicID, Match: spec.Match, Label: spec.Label, Owned: false, ManagedFor: spec.ManagedFor}
+		out = processor.Output{ID: outputID, TopicID: spec.TopicID, Match: spec.Match, Label: spec.Label, Owned: false, ManagedFor: spec.ManagedFor}
 	} else {
 		t, err := s.topics.Create(ctx, orgID, topics.CreateParams{
 			Name:        addedOutputTopicName(id, spec.Label, spec.ManagedFor),
@@ -239,7 +263,7 @@ func (s *Processors) AddOutput(ctx context.Context, orgID string, id processor.P
 			return processor.Output{}, fmt.Errorf("provision output topic: %w", err)
 		}
 		provisioned = t.ID
-		out = processor.Output{TopicID: t.ID, Match: spec.Match, Label: spec.Label, Owned: true, ManagedFor: spec.ManagedFor}
+		out = processor.Output{ID: outputID, TopicID: t.ID, Match: spec.Match, Label: spec.Label, Owned: true, ManagedFor: spec.ManagedFor}
 	}
 	rollback := func() {
 		if provisioned != "" {
@@ -263,6 +287,25 @@ func (s *Processors) AddOutput(ctx context.Context, orgID string, id processor.P
 	return out, nil
 }
 
+func (s *Processors) validateTopics(ctx context.Context, orgID string, input streaming.TopicID, outputs []OutputSpec) error {
+	if s.topicReader == nil {
+		return nil
+	}
+	if input != "" {
+		if _, err := s.topicReader.Get(ctx, orgID, input); err != nil {
+			return fmt.Errorf("validate processor input topic %q: %w", input, err)
+		}
+	}
+	for _, out := range outputs {
+		if out.TopicID != "" {
+			if _, err := s.topicReader.Get(ctx, orgID, out.TopicID); err != nil {
+				return fmt.Errorf("validate processor output topic %q: %w", out.TopicID, err)
+			}
+		}
+	}
+	return nil
+}
+
 // RemoveOutput drops the output branch whose destination is topicID and,
 // when that branch owned its Topic, deletes the Topic (cascading its
 // subscriptions). Idempotent: an unknown topicID is a no-op. Rejected when
@@ -284,6 +327,15 @@ func (s *Processors) RemoveOutput(ctx context.Context, orgID string, id processo
 		return nil // already gone
 	}
 	removed := existing.Outputs[idx]
+	if s.attachments != nil {
+		attached, err := s.attachments.Find(ctx, store.WithOrg(orgID), store.WithProcessorID(id), store.WithOutputID(removed.ID), store.WithLimit(1))
+		if err != nil {
+			return fmt.Errorf("check output %q attachments: %w", removed.ID, err)
+		}
+		if len(attached) > 0 {
+			return fmt.Errorf("processor output %q has worker attachments: %w", removed.ID, store.ErrConflict)
+		}
+	}
 	existing.Outputs = append(existing.Outputs[:idx:idx], existing.Outputs[idx+1:]...)
 	if err := existing.Validate(); err != nil {
 		return fmt.Errorf("remove output %q: %w", topicID, err)
@@ -308,6 +360,17 @@ func (s *Processors) Delete(ctx context.Context, orgID string, id processor.Proc
 	}
 	if err := s.procs.Delete(ctx, orgID, id); err != nil {
 		return err
+	}
+	if s.attachments != nil {
+		attached, err := s.attachments.Find(ctx, store.WithOrg(orgID), store.WithProcessorID(id))
+		if err != nil {
+			return fmt.Errorf("processor deleted but list attachments: %w", err)
+		}
+		for _, a := range attached {
+			if err := s.attachments.Delete(ctx, orgID, a.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("processor deleted but attachment %q cleanup failed: %w", a.ID, err)
+			}
+		}
 	}
 	for _, o := range existing.Outputs {
 		if !o.Owned {

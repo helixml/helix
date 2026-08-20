@@ -253,10 +253,12 @@ func (c Config) processorsService() *processors.Processors {
 		return nil
 	}
 	return processors.New(processors.Deps{
-		Processors: c.Store.Processors,
-		Topics:     c.topicsService(),
-		Now:        c.Now,
-		NewID:      c.NewID,
+		Processors:  c.Store.Processors,
+		Topics:      c.topicsService(),
+		Attachments: c.Store.WorkerAttachments,
+		TopicReader: c.Store.Topics,
+		Now:         c.Now,
+		NewID:       c.NewID,
 	})
 }
 

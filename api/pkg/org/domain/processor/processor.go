@@ -56,6 +56,7 @@ type Kind string
 //     filter Kind (see filter.go); transform Kinds require it empty.
 //   - Label is a human-facing name for the branch, shown on the chart.
 type Output struct {
+	ID      string `json:"-"`
 	TopicID streaming.TopicID
 	Match   string
 	Label   string
@@ -163,6 +164,16 @@ func (p Processor) Automated() bool { return p.CreatedBy == SystemActor }
 // validated against the Kind's rules. createdBy is optional (cosmetic
 // anchor, like NewTopic).
 func NewProcessor(id ProcessorID, name string, inputTopicID streaming.TopicID, kind Kind, config json.RawMessage, outputs []Output, createdBy string, createdAt time.Time, orgID string) (Processor, error) {
+	// Compatibility adapter for pre-output-ID callers and upgraded rows. Topic
+	// IDs are immutable branch ownership keys in the Topic model, so this is
+	// exact recovery rather than label/position inference. The database
+	// migration persists these IDs before subsequent reads.
+	outputs = append([]Output(nil), outputs...)
+	for i := range outputs {
+		if outputs[i].ID == "" && outputs[i].TopicID != "" {
+			outputs[i].ID = "po-topic-" + string(outputs[i].TopicID)
+		}
+	}
 	p := Processor{
 		ID:             id,
 		OrganizationID: orgID,
@@ -207,9 +218,19 @@ func (p Processor) Validate() error {
 		return errors.New("processor has no outputs")
 	}
 	for i, o := range p.Outputs {
+		if o.ID == "" {
+			return fmt.Errorf("processor output %d has empty id", i)
+		}
 		if o.TopicID == "" {
 			return fmt.Errorf("processor output %d has empty topic id", i)
 		}
+	}
+	seenOutputIDs := make(map[string]struct{}, len(p.Outputs))
+	for _, o := range p.Outputs {
+		if _, exists := seenOutputIDs[o.ID]; exists {
+			return fmt.Errorf("processor output id %q is duplicated", o.ID)
+		}
+		seenOutputIDs[o.ID] = struct{}{}
 	}
 	if p.Kind == "" {
 		return errors.New("processor kind is empty")

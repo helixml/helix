@@ -287,7 +287,7 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 		Topics:   topicsSvc,
 		Messages: messages.New(messages.Deps{Topics: st.Topics, Events: st.Events, Notifier: bc}),
 		Processors: processors.New(processors.Deps{
-			Processors: st.Processors, Topics: topicsSvc, Now: deps.Now, NewID: deps.NewID,
+			Processors: st.Processors, Topics: topicsSvc, Attachments: st.WorkerAttachments, TopicReader: st.Topics, Now: deps.Now, NewID: deps.NewID,
 		}),
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Topics: st.Topics, Nodes: st.Nodes, Now: deps.Now}),
 		Publishing:    publishing.New(publishing.Deps{Topics: st.Topics, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
