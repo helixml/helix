@@ -12,10 +12,7 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogContentText from '@mui/material/DialogContentText'
 import DialogActions from '@mui/material/DialogActions'
 import CircularProgress from '@mui/material/CircularProgress'
-import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
-import WarningAmberIcon from '@mui/icons-material/WarningAmber'
-import DeleteIcon from '@mui/icons-material/Delete'
+
 import IconButton from '@mui/material/IconButton'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
@@ -25,13 +22,19 @@ import Switch from '@mui/material/Switch'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Tooltip from '@mui/material/Tooltip'
-import { Copy } from 'lucide-react'
+import { CircleAlert, CircleCheck, Copy, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useLightTheme from '../../hooks/useLightTheme'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import { useTheme } from '@mui/material/styles'
+import { TypesOwnerType } from '../../api/api'
+import ClaudeConnectMethodPicker, { ClaudeConnectMethod } from './ClaudeConnectMethodPicker'
+import { SELECT_MENU_PROPS } from '../../contexts/theme'
 import useAccount from '../../hooks/useAccount'
-import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
+import { formatClaudeAccountDetail, formatClaudeOrganizationRef } from './claudeSubscriptionUtils'
+import SubscriptionIdentity from './SubscriptionIdentity'
 import { matchesAllTokens } from '../../utils/searchUtils'
 import { APP_MONO_FONT_FAMILY } from '../../styles/typography'
 import { codeAgentHarnessesQueryKey } from '../../services/codeAgentHarnessesService'
@@ -43,8 +46,14 @@ interface ClaudeSubscriptionData {
   credential_type?: string
   subscription_type: string
   rate_limit_tier: string
+  account_email?: string
+  account_display_name?: string
+  claude_organization_id?: string
   status: string
   access_token_expires_at: string
+  // When the login itself dies and the user must sign in again. Zero/absent for
+  // setup tokens, which carry no refresh token.
+  refresh_token_expires_at?: string
   last_refreshed_at?: string
   owner_type: string
   owner_id: string
@@ -70,6 +79,9 @@ interface ClaudeSubscriptionConnectProps {
   onConnected?: () => void
   orgId?: string
   enableForOrgId?: string
+  // Set when the account variant renders inside a harness row that already
+  // names and frames the harness — drops the duplicate panel and heading.
+  embedded?: boolean
 }
 
 // Above this many orgs the list gets a filter box. Below it, scanning is faster
@@ -133,14 +145,16 @@ const DelegationPicker: FC<DelegationPickerProps> = ({
       )}
       <Box
         sx={{
-          mt: 0.5,
+          mt: 1,
           // Caps the card at a readable height however many orgs you are in.
           maxHeight: 200,
           overflowY: 'auto',
-          pr: 1,
+          // Both sides need padding: the scroll container clips, and MUI's
+          // switch draws its ripple outside its own box.
+          px: 0.5,
         }}
       >
-        <FormGroup>
+        <FormGroup sx={{ rowGap: 0.5 }}>
           {visible.map((org) => {
             const orgID = org.id as string
             return (
@@ -155,6 +169,8 @@ const DelegationPicker: FC<DelegationPickerProps> = ({
                   />
                 }
                 label={<Typography variant="caption">{labelFor(org)}</Typography>}
+                // Default is marginLeft:-11px, which the scroll box cuts off.
+                sx={{ ml: 0, mr: 0, gap: 1 }}
               />
             )
           })}
@@ -170,6 +186,37 @@ const DelegationPicker: FC<DelegationPickerProps> = ({
 }
 
 const SETUP_TOKEN_COMMAND = 'claude setup-token'
+const CREDENTIALS_FILE_COMMAND = 'cat ~/.claude/.credentials.json'
+
+// Shape of ~/.claude/.credentials.json, written by `claude login` on the user's
+// own machine. Accepting it is what lets Helix reuse a login the user already
+// did, the way local tools do — no OAuth flow of our own.
+interface ClaudeOAuthCredentialsInput {
+  accessToken: string
+  refreshToken: string
+  expiresAt?: number
+  scopes?: string[]
+  subscriptionType?: string
+  rateLimitTier?: string
+}
+
+// Accepts the whole credentials file or just the claudeAiOauth object inside it,
+// because people copy either one.
+export function parseClaudeCredentials(value: string): ClaudeOAuthCredentialsInput {
+  let parsed: any
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    throw new Error('That is not valid JSON. Paste the contents of ~/.claude/.credentials.json.')
+  }
+  const creds = parsed?.claudeAiOauth ?? parsed
+  if (!creds?.accessToken || !creds?.refreshToken) {
+    throw new Error(
+      'This is not a complete Claude credentials file — it needs accessToken and refreshToken.',
+    )
+  }
+  return creds as ClaudeOAuthCredentialsInput
+}
 
 const StepIndex: FC<{ n: number }> = ({ n }) => (
   <Box
@@ -217,11 +264,14 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   onConnected,
   orgId,
   enableForOrgId,
+  embedded = false,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
   const queryClient = useQueryClient()
   const lightTheme = useLightTheme()
+  const muiTheme = useTheme()
+  const dialogFullScreen = useMediaQuery(muiTheme.breakpoints.down('sm'))
   const account = useAccount()
 
   const organizations = account.organizationTools.organizations || []
@@ -238,6 +288,13 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       (account.admin ||
         (org.memberships || []).some((m) => m.user_id === currentUserID && m.role === 'owner')),
   )
+  // Multi-word search (AND across tokens), matching the rest of the app's
+  // filter boxes rather than a naive substring test.
+  const [ownerFilter, setOwnerFilter] = useState('')
+  const filteredOwnableOrgs = ownerFilter.trim()
+    ? ownableOrgs.filter((org) => matchesAllTokens(org.display_name || org.name || '', ownerFilter))
+    : ownableOrgs
+
   const orgLabel = (orgID: string) => {
     const org = organizations.find((o) => o.id === orgID)
     return org?.display_name || org?.name || orgID
@@ -250,11 +307,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string>('')
   const disconnectMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return api.delete(`/api/v1/claude-subscriptions/${id}`, {}, {
-        snackbar: true,
-      })
-    },
+    mutationFn: async (id: string) => (await api.getApiClient().v1ClaudeSubscriptionsDelete(id)).data,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
       setDisconnectDialogOpen(false)
@@ -287,9 +340,28 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
 
   // Setup token dialog state
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false)
+  // Credentials-file import is the default: it is the only path that yields the
+  // account email and plan, because those tokens carry the user:profile scope
+  // that setup tokens lack.
+  const [connectMethod, setConnectMethod] = useState<ClaudeConnectMethod>('oauth')
+  const [credentialsValue, setCredentialsValue] = useState('')
+  // PKCE material for an in-flight sign-in. Held in component state because the
+  // browser is the OAuth client: it started the login and it finishes it.
+  const [oauthChallenge, setOauthChallenge] = useState<{ url: string; verifier: string; state: string } | null>(null)
+  const [oauthCode, setOauthCode] = useState('')
+  const [startingOauth, setStartingOauth] = useState(false)
   const [tokenValue, setTokenValue] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  const resetDialogState = () => {
+    setTokenValue('')
+    setCredentialsValue('')
+    setConnectMethod('oauth')
+    setOauthChallenge(null)
+    setOauthCode('')
+    setSubmitError(null)
+  }
 
   // Org selector state (used by account variant)
   const [ownerType, setOwnerType] = useState<'user' | 'org'>('user')
@@ -299,8 +371,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const [ownerLocked, setOwnerLocked] = useState(false)
 
   const handleOpenTokenDialog = () => {
-    setTokenValue('')
-    setSubmitError(null)
+    resetDialogState()
     setOwnerType('user')
     setSelectedOrgId('')
     setOwnerLocked(false)
@@ -309,19 +380,100 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
 
   // Re-authenticate a specific subscription: pin the dialog to its owner.
   const handleOpenTokenDialogFor = (sub: ClaudeSubscriptionData) => {
-    setTokenValue('')
-    setSubmitError(null)
+    resetDialogState()
     setOwnerType(sub.owner_type === 'org' ? 'org' : 'user')
     setSelectedOrgId(sub.owner_type === 'org' ? sub.owner_id : '')
     setOwnerLocked(true)
     setTokenDialogOpen(true)
   }
 
-  const handleSubmitToken = async () => {
-    const token = tokenValue.trim()
-    if (!token) {
-      setSubmitError('Please paste your setup token')
+  const handleStartOauth = async () => {
+    // If a previous attempt left a code in the field it belongs to the old
+    // challenge; submitting it against the new verifier would fail obscurely.
+    if (oauthChallenge) {
+      // Already have a live challenge — reopen it rather than minting another,
+      // so a code the user has already been shown stays valid.
+      window.open(oauthChallenge.url, '_blank', 'noopener,noreferrer')
       return
+    }
+    setOauthCode('')
+    setStartingOauth(true)
+    setSubmitError(null)
+    try {
+      const { data } = await api.getApiClient().v1ClaudeSubscriptionsOauthStartCreate()
+      setOauthChallenge({ url: data.authorize_url || '', verifier: data.code_verifier || '', state: data.state || '' })
+      window.open(data.authorize_url, '_blank', 'noopener,noreferrer')
+    } catch (e: any) {
+      setSubmitError(e?.response?.data?.error || 'Could not start the Claude sign-in')
+    } finally {
+      setStartingOauth(false)
+    }
+  }
+
+  const handleSubmitToken = async () => {
+    if (!orgId && ownerType === 'org' && !selectedOrgId) {
+      setSubmitError('Please choose which organization owns this subscription')
+      return
+    }
+    const effectiveOrgIdForOauth = orgId || (ownerType === 'org' ? selectedOrgId : undefined)
+
+    if (connectMethod === 'oauth') {
+      if (!oauthChallenge) {
+        setSubmitError('Start the sign-in first')
+        return
+      }
+      if (!oauthCode.trim()) {
+        setSubmitError('Paste the code Anthropic showed you after signing in')
+        return
+      }
+      setSubmitting(true)
+      setSubmitError(null)
+      try {
+        await api.getApiClient().v1ClaudeSubscriptionsOauthCompleteCreate({
+          code: oauthCode.trim(),
+          code_verifier: oauthChallenge.verifier,
+          state: oauthChallenge.state,
+          name: effectiveOrgIdForOauth
+            ? `${orgLabel(effectiveOrgIdForOauth)} Claude Subscription`
+            : 'My Claude Subscription',
+          ...(enableForOrgId ? { organization_id: enableForOrgId } : {}),
+          ...(effectiveOrgIdForOauth ? { owner_type: TypesOwnerType.OwnerTypeOrg, owner_id: effectiveOrgIdForOauth } : {}),
+        })
+        queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
+        if (enableForOrgId) {
+          queryClient.invalidateQueries({ queryKey: codeAgentHarnessesQueryKey(enableForOrgId) })
+        }
+        snackbar.success('Claude subscription connected')
+        resetDialogState()
+        setTokenDialogOpen(false)
+        onConnected?.()
+      } catch (e: any) {
+        setSubmitError(e?.response?.data?.error || 'Could not complete the Claude sign-in')
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
+
+    let credentialPayload: Record<string, unknown>
+    if (connectMethod === 'credentials') {
+      if (!credentialsValue.trim()) {
+        setSubmitError('Please paste the contents of ~/.claude/.credentials.json')
+        return
+      }
+      try {
+        credentialPayload = { credentials: { claudeAiOauth: parseClaudeCredentials(credentialsValue) } }
+      } catch (e) {
+        setSubmitError(e instanceof Error ? e.message : 'Could not read those credentials')
+        return
+      }
+    } else {
+      const token = tokenValue.trim()
+      if (!token) {
+        setSubmitError('Please paste your setup token')
+        return
+      }
+      credentialPayload = { setup_token: token }
     }
 
     if (!orgId && ownerType === 'org' && !selectedOrgId) {
@@ -334,21 +486,22 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     try {
       // Use orgId prop if provided (button/inline variants), otherwise use internal state (account variant)
       const effectiveOrgId = orgId || (ownerType === 'org' ? selectedOrgId : undefined)
-      await api.post('/api/v1/claude-subscriptions', {
+      await api.getApiClient().v1ClaudeSubscriptionsCreate({
         name: effectiveOrgId ? `${orgLabel(effectiveOrgId)} Claude Subscription` : 'My Claude Subscription',
-        setup_token: token,
+        ...credentialPayload,
         ...(enableForOrgId ? { organization_id: enableForOrgId } : {}),
-        ...(effectiveOrgId ? { owner_type: 'org', owner_id: effectiveOrgId } : {}),
+        ...(effectiveOrgId ? { owner_type: TypesOwnerType.OwnerTypeOrg, owner_id: effectiveOrgId } : {}),
       })
       queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
       if (enableForOrgId) {
         queryClient.invalidateQueries({ queryKey: codeAgentHarnessesQueryKey(enableForOrgId) })
       }
       snackbar.success('Claude subscription connected')
+      resetDialogState()
       setTokenDialogOpen(false)
       onConnected?.()
     } catch (err: any) {
-      setSubmitError(err?.message || 'Failed to save token')
+      setSubmitError(err?.response?.data?.error || err?.message || 'Failed to save token')
     } finally {
       setSubmitting(false)
     }
@@ -370,12 +523,13 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     }
   }
 
-  const tokenValidationError = validateSetupToken(tokenValue)
+  const tokenValidationError = connectMethod === 'setup_token' ? validateSetupToken(tokenValue) : ''
 
   const firstSub = subscriptions?.[0]
   const isSetupToken = firstSub?.credential_type === 'setup_token'
-  const expiry = firstSub && !isSetupToken ? getTokenExpiryStatus(firstSub.access_token_expires_at) : null
-  const isExpired = expiry?.isExpired ?? false
+  // See the card above: status, not the clock, is what says a credential needs
+  // the user's attention now that refresh happens in the background.
+  const isExpired = !!firstSub && firstSub.status !== 'active'
 
   // Owner picker — only meaningful in the account variant, where you manage every
   // subscription you can see. The other variants are scoped by the `orgId` prop.
@@ -385,11 +539,28 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const replacedSub = ownerLocked ? undefined : subForOwner(ownerType, selectedOrgId)
   const ownerPicker = variant === 'account' && ownableOrgs.length > 0 && (
     <Box>
-      <FormControl size="small" fullWidth disabled={ownerLocked}>
+      {/* Re-authenticating replaces the credential on an existing subscription,
+          so the owner is fixed. A disabled dropdown just looks broken — state
+          the owner and explain it below instead. */}
+      {ownerLocked ? (
+        <Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            Subscription owner
+          </Typography>
+          <Typography variant="body2">
+            {ownerType === 'org' ? orgLabel(selectedOrgId) : 'Personal — only my own sessions'}
+          </Typography>
+        </Box>
+      ) : (
+      <FormControl size="small" fullWidth>
         <InputLabel>Subscription owner</InputLabel>
         <Select
           value={ownerType === 'org' ? selectedOrgId : 'personal'}
           label="Subscription owner"
+          // autoFocus off so the menu does not steal focus from the search box
+          // for the selected item; everything else is the shared behaviour.
+          MenuProps={{ ...SELECT_MENU_PROPS, autoFocus: false }}
+          onClose={() => setOwnerFilter('')}
           onChange={(e) => {
             const val = e.target.value
             if (val === 'personal') {
@@ -401,20 +572,63 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             }
           }}
         >
+          <Box
+            sx={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 1,
+              px: 1,
+              pb: 1,
+              bgcolor: 'background.paper',
+            }}
+          >
+            <TextField
+              size="small"
+              fullWidth
+              autoFocus
+              placeholder="Search organizations"
+              value={ownerFilter}
+              onChange={(e) => setOwnerFilter(e.target.value)}
+              // Select's type-ahead would eat the characters typed here, but
+              // swallowing everything also killed Escape (MUI's Modal handles it
+              // as a synthetic onKeyDown) and the arrows that move into the list.
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' || e.key === 'Tab' || e.key.startsWith('Arrow')) return
+                e.stopPropagation()
+              }}
+            />
+          </Box>
           <MenuItem value="personal">Personal — only my own sessions</MenuItem>
-          {ownableOrgs.map((org) => (
-            <MenuItem key={org.id} value={org.id as string}>
-              {org.display_name || org.name} — shared with the whole organization
-            </MenuItem>
-          ))}
+          {ownableOrgs.map((org) => {
+            const orgID = org.id as string
+            const visible = filteredOwnableOrgs.some((candidate) => candidate.id === orgID)
+            // The selected item must stay mounted even when filtered out, or
+            // MUI cannot resolve the value to a label and renders the control
+            // blank while you type.
+            const isSelected = ownerType === 'org' && selectedOrgId === orgID
+            if (!visible && !isSelected) return null
+            return (
+              <MenuItem
+                key={orgID}
+                value={orgID}
+                sx={!visible ? { display: 'none' } : undefined}
+              >
+                {org.display_name || org.name} — shared with the whole organization
+              </MenuItem>
+            )
+          })}
+          {filteredOwnableOrgs.length === 0 && ownerFilter.trim() !== '' && (
+            <MenuItem disabled>No organizations match &quot;{ownerFilter}&quot;</MenuItem>
+          )}
         </Select>
       </FormControl>
+      )}
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
         {ownerLocked
           ? 'Replacing the credentials on this subscription. The owner cannot be changed — disconnect it and connect a new one to move it.'
           : ownerType === 'org'
             ? `Anyone in ${orgLabel(selectedOrgId)} whose session has no personal Claude subscription will run on this one, and it will be billed to the Claude account you authenticate below.`
-            : 'Used only for sessions you own, unless you delegate it to an organization afterwards.'}
+            : ''}
       </Typography>
       {replacedSub && (
         <Alert severity="warning" sx={{ mt: 1 }} icon={false}>
@@ -429,17 +643,145 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
 
   // Token dialog (shared across all variants)
   const tokenDialog = (
-    <Dialog open={tokenDialogOpen} onClose={() => setTokenDialogOpen(false)} maxWidth="sm" fullWidth>
+    <Dialog
+      open={tokenDialogOpen}
+      onClose={() => setTokenDialogOpen(false)}
+      maxWidth="md"
+      fullWidth
+      // Full screen on phones: a dialog inset inside a 390px viewport leaves the
+      // method cards no room to breathe.
+      // Phones get the whole screen: an inset dialog inside a ~390px viewport
+      // leaves the method cards no room. MUI's own pattern — an sx override with
+      // an xs key would have applied at every width, since xs is the base.
+      fullScreen={dialogFullScreen}
+    >
       <DialogTitle sx={{ pb: 0.5 }}>
         {ownerLocked ? 'Update Claude Subscription' : 'Connect Claude Subscription'}
       </DialogTitle>
       <DialogContent sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-        <Typography variant="body2" color="text.secondary">
-          Generate a setup token on your local machine, then paste it below.
-        </Typography>
+        {/* The three methods differ in ways that matter after you pick one —
+            how long the credential lives, what you need installed, and whether
+            Helix can tell you whose subscription it is. The tiles state those
+            up front instead of hiding them behind a chosen tab. */}
+        <ClaudeConnectMethodPicker
+          value={connectMethod}
+          onChange={(next) => {
+            setConnectMethod(next)
+            setSubmitError(null)
+          }}
+        />
 
         {ownerPicker}
 
+        {connectMethod === 'oauth' ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+              <StepIndex n={1} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  Authorize Helix on your Claude account
+                </Typography>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  onClick={handleStartOauth}
+                  disabled={startingOauth}
+                  sx={{ textTransform: 'none' }}
+                >
+                  {startingOauth ? 'Opening…' : oauthChallenge ? 'Reopen Claude' : 'Sign in with Claude'}
+                </Button>
+                {oauthChallenge && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    Didn't open?{' '}
+                    <Box
+                      component="a"
+                      href={oauthChallenge.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{ color: 'secondary.main' }}
+                    >
+                      Open the authorization page
+                    </Box>
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+              <StepIndex n={2} />
+              <Typography variant="body2">
+                Approve access, then copy the code Anthropic shows you.
+              </Typography>
+            </Box>
+            <TextField
+              fullWidth
+              label="Authorization code"
+              placeholder="Paste the code from Anthropic here…"
+              value={oauthCode}
+              onChange={(e) => setOauthCode(e.target.value)}
+              disabled={!oauthChallenge}
+              variant="outlined"
+              InputProps={{ sx: { fontFamily: APP_MONO_FONT_FAMILY, fontSize: '0.8125rem' } }}
+            />
+          </Box>
+        ) : connectMethod === 'credentials' ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+              <StepIndex n={1} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  Print your existing Claude credentials
+                </Typography>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    bgcolor: 'action.hover',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: 1,
+                    px: 1.5,
+                    py: 0.75,
+                  }}
+                >
+                  <Box
+                    component="code"
+                    sx={{ flex: 1, fontFamily: APP_MONO_FONT_FAMILY, fontSize: '0.8125rem' }}
+                  >
+                    {CREDENTIALS_FILE_COMMAND}
+                  </Box>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      navigator.clipboard.writeText(CREDENTIALS_FILE_COMMAND)
+                      snackbar.success('Command copied')
+                    }}
+                    aria-label="Copy command"
+                  >
+                    <Copy size={14} />
+                  </IconButton>
+                </Box>
+              </Box>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+              <StepIndex n={2} />
+              <Typography variant="body2">Paste the whole JSON output below.</Typography>
+            </Box>
+            <TextField
+              autoFocus
+              fullWidth
+              multiline
+              minRows={4}
+              label="Claude credentials JSON"
+              placeholder='{"claudeAiOauth": {"accessToken": "…", "refreshToken": "…"}}'
+              value={credentialsValue}
+              onChange={(e) => setCredentialsValue(e.target.value)}
+              variant="outlined"
+              InputProps={{ sx: { fontFamily: APP_MONO_FONT_FAMILY, fontSize: '0.8125rem' } }}
+            />
+          </Box>
+        ) : (
+        <>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
             <StepIndex n={1} />
@@ -503,6 +845,8 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             sx: { fontFamily: APP_MONO_FONT_FAMILY, letterSpacing: '0.04em' },
           }}
         />
+        </>
+        )}
 
         {tokenValidationError && (
           <Alert severity="error">{tokenValidationError}</Alert>
@@ -533,7 +877,15 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           onClick={handleSubmitToken}
           variant="contained"
           color="secondary"
-          disabled={submitting || !tokenValue.trim() || !!tokenValidationError}
+          disabled={
+            submitting ||
+            !!tokenValidationError ||
+            (connectMethod === 'oauth'
+              ? !oauthChallenge || !oauthCode.trim()
+              : connectMethod === 'credentials'
+                ? !credentialsValue.trim()
+                : !tokenValue.trim())
+          }
           sx={{ textTransform: 'none' }}
         >
           {submitting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Connecting…</> : 'Connect'}
@@ -571,26 +923,35 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   if (variant === 'account') {
     return (
       <>
-        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
+        <Grid
+          container
+          spacing={2}
+          sx={embedded ? {} : { mt: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}
+        >
           <Grid item xs={12}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Box>
-                <Typography variant="h6">Claude Code Subscription</Typography>
+                {!embedded && <Typography variant="h6">Claude Code Subscription</Typography>}
                 <Typography variant="body2" color="text.secondary">
-                  Connect your Claude subscription to use Claude Code as the coding agent in Helix desktop sessions.
-                  {ownableOrgs.length > 0 && ' You can also connect one for an organization you own, as a shared fallback for members who have not connected their own.'}
+                  {!embedded &&
+                    'Connect your Claude subscription to use Claude Code as the coding agent in Helix desktop sessions.'}
+                  {ownableOrgs.length > 0 &&
+                    (embedded
+                      ? 'You can also connect one for an organization you own, as a shared fallback for members who have not connected their own.'
+                      : ' You can also connect one for an organization you own, as a shared fallback for members who have not connected their own.')}
                 </Typography>
               </Box>
               {/* With no orgs you own there is exactly one subscription you can
                   hold, and the card's "Update Token" is how you change it. */}
               {(!hasSubscription || ownableOrgs.length > 0) && (
                 <Button
-                  variant="contained"
+                  variant="outlined"
                   color="secondary"
+                  size="small"
                   onClick={handleOpenTokenDialog}
-                  sx={{ flexShrink: 0 }}
+                  sx={{ flexShrink: 0, textTransform: 'none', whiteSpace: 'nowrap' }}
                 >
-                  {hasSubscription ? 'Add subscription' : 'Connect with Setup Token'}
+                  {hasSubscription ? 'Add subscription' : 'Connect subscription'}
                 </Button>
               )}
             </Box>
@@ -600,8 +961,24 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             ) : hasSubscription ? (
               subscriptions.map((sub) => {
                 const subIsSetupToken = sub.credential_type === 'setup_token'
-                const subExpiry = subIsSetupToken ? null : getTokenExpiryStatus(sub.access_token_expires_at)
-                const subIsExpired = subExpiry?.isExpired ?? false
+                // Background refresh keeps OAuth tokens alive; an expiry in the
+                // past is normal and self-heals. Only the server's status says
+                // whether this credential actually needs the user.
+                const subIsBroken = sub.status !== 'active'
+                // Same identity line as everywhere else, with the email hidden
+                // until clicked — this pill is the most screenshotted of the lot.
+                const subIdentity = (
+                  <SubscriptionIdentity
+                    email={sub.account_email}
+                    fallback={sub.account_display_name || formatClaudeOrganizationRef(sub.claude_organization_id)}
+                    detail={formatClaudeAccountDetail({
+                      plan: sub.subscription_type,
+                      tier: sub.rate_limit_tier,
+                    })}
+                    ariaLabel="Claude account email"
+                    showPrefix
+                  />
+                )
                 return (
                   <Box
                     key={sub.id}
@@ -609,7 +986,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                       p: 2,
                       borderRadius: 1,
                       border: '1px solid',
-                      borderColor: subIsExpired ? 'error.main' : subExpiry?.isExpiringSoon ? 'warning.main' : 'divider',
+                      borderColor: subIsBroken ? 'error.main' : 'divider',
                       display: 'flex',
                       justifyContent: 'space-between',
                       // Top-aligned, not centred: the delegation list makes this row
@@ -623,22 +1000,14 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                     <Box>
                       <Typography variant="subtitle1">{sub.name || 'Claude Subscription'}</Typography>
                       <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
-                        {subIsExpired && !subIsSetupToken ? (
-                          <Chip
-                            icon={<ErrorOutlineIcon />}
-                            label="Token Expired"
-                            color="error"
-                            size="small"
-                          />
-                        ) : (
-                          <Chip
-                            label={sub.status === 'active' ? 'Connected' : sub.status}
-                            color={sub.status === 'active' ? 'success' : 'warning'}
-                            size="small"
-                          />
-                        )}                        
-                        {sub.subscription_type && (
-                          <Chip label={sub.subscription_type} size="small" variant="outlined" />
+                        <Chip
+                          {...(subIsBroken ? { icon: <CircleAlert size={16} /> } : {})}
+                          label={subIsBroken ? 'Needs re-authentication' : 'Connected'}
+                          color={subIsBroken ? 'error' : 'success'}
+                          size="small"
+                        />
+                        {subIdentity && (
+                          <Chip label={subIdentity} size="small" variant="outlined" />
                         )}
                         {sub.owner_type === 'org' ? (
                           <Chip
@@ -650,24 +1019,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                         ) : (
                           <Chip label="Personal" size="small" variant="outlined" />
                         )}
-                        {subExpiry && (
-                          <Typography
-                            variant="caption"
-                            color={`${subExpiry.color}.main`}
-                            sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
-                          >
-                            {subExpiry.isExpiringSoon && !subIsExpired && <WarningAmberIcon sx={{ fontSize: 14 }} />}
-                            {subExpiry.label}
-                          </Typography>
-                        )}
                       </Box>
-                      {subIsExpired && !subIsSetupToken && (
-                        <Alert severity="warning" sx={{ mt: 1, py: 0 }} icon={false}>
-                          <Typography variant="caption">
-                            Token has expired. Update your token to refresh credentials for new sessions.
-                          </Typography>
-                        </Alert>
-                      )}
                       {sub.owner_type === 'org' && (
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                           Shared fallback for {orgLabel(sub.owner_id)}: used by any member&apos;s
@@ -683,22 +1035,26 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                         />
                       )}
                     </Box>
-                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexShrink: 0 }}>
                       <Button
-                        variant={subIsExpired ? 'contained' : 'outlined'}
-                        color={subIsExpired ? 'warning' : 'secondary'}
+                        variant={subIsBroken ? 'contained' : 'outlined'}
+                        color={subIsBroken ? 'warning' : 'secondary'}
                         size="small"
                         onClick={() => handleOpenTokenDialogFor(sub)}
+                        sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
                       >
-                        {subIsExpired ? 'Re-authenticate' : 'Update Token'}
+                        {subIsBroken ? 'Re-authenticate' : 'Update token'}
                       </Button>
-                      <IconButton
-                        color="error"
-                        size="small"
-                        onClick={() => handleDeleteClick(sub.id)}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
+                      <Tooltip title="Disconnect subscription">
+                        <IconButton
+                          color="error"
+                          aria-label="Disconnect subscription"
+                          onClick={() => handleDeleteClick(sub.id)}
+                          sx={{ width: 30, height: 30 }}
+                        >
+                          <Trash2 size={18} />
+                        </IconButton>
+                      </Tooltip>
                     </Box>
                   </Box>
                 )
@@ -732,28 +1088,26 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
               variant="contained"
               color="warning"
               onClick={handleOpenTokenDialog}
-              startIcon={<ErrorOutlineIcon />}
+              startIcon={<CircleAlert size={16} />}
               sx={connectButtonSx}
             >
               Re-authenticate
             </Button>
           ) : (
-            <Tooltip title={expiry && !isSetupToken ? expiry.label : ''} disableHoverListener={!expiry || isSetupToken}>
-              <Button
-                size="small"
-                variant="outlined"
-                color="error"
-                onClick={() => {
-                  if (subscriptions?.[0]?.id) {
-                    setDeleteTarget(subscriptions[0].id)
-                    setDisconnectDialogOpen(true)
-                  }
-                }}
-                sx={connectButtonSx}
-              >
-                Disconnect
-              </Button>
-            </Tooltip>
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              onClick={() => {
+                if (subscriptions?.[0]?.id) {
+                  setDeleteTarget(subscriptions[0].id)
+                  setDisconnectDialogOpen(true)
+                }
+              }}
+              sx={connectButtonSx}
+            >
+              Disconnect
+            </Button>
           )
         ) : (
           <Button
@@ -777,15 +1131,10 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
         {hasSubscription ? (
           <>
-            <CheckCircleIcon color="success" fontSize="small" />
+            <Box component={CircleCheck} size={18} sx={{ color: 'success.main' }} />
             <Typography variant="body2" color="success.main">
               Claude subscription connected {isSetupToken ? '(setup token)' : ''}
             </Typography>
-            {expiry && !isSetupToken && (
-              <Typography variant="caption" color={`${expiry.color}.main`} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                ({expiry.label})
-              </Typography>
-            )}
             <Button
               size="small"
               variant="text"

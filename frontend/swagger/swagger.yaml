@@ -1878,6 +1878,16 @@ definitions:
     type: object
   server.AppClaudeSubscriptionStatus:
     properties:
+      claude_account_email:
+        type: string
+      claude_account_name:
+        type: string
+      claude_organization_id:
+        description: |-
+          ClaudeOrganizationID is Anthropic's organization uuid for the credential.
+          Populated for setup tokens too, which cannot be profiled — it lets the UI
+          say "this is the same subscription as X" without anyone typing anything.
+        type: string
       connected:
         description: owner has a subscription connected at all
         type: boolean
@@ -1894,10 +1904,43 @@ definitions:
       owner_name:
         description: human-readable owner (email / full name)
         type: string
+      refresh_token_expires_at:
+        description: |-
+          RefreshTokenExpiresAt is when the user must sign in again. Refreshing
+          keeps the access token alive but does not move this, so it is the only
+          honest basis for an expiry warning.
+        type: string
       status:
+        type: string
+      subscription_owner_id:
+        type: string
+      subscription_owner_is_current_user:
+        type: boolean
+      subscription_owner_name:
         type: string
       subscription_owner_type:
         description: '"user" or "org" — where the effective sub resolved'
+        type: string
+      subscription_rate_limit_tier:
+        description: |-
+          SubscriptionRateLimitTier is the Claude org's rate-limit tier as Anthropic
+          reports it, e.g. "default_claude_max_20x"; empty when unknown.
+        type: string
+      subscription_type:
+        description: |-
+          Identity of the Claude subscription itself, populated when Connected.
+          SubscriptionType is the plan ("pro" / "max"), empty for setup-token
+          connections where the plan is unknown.
+          SubscriptionOwnerName is the subscription owner's email (user-owned) or
+          org name (org-owned) — i.e. WHOSE subscription authenticates the agent.
+          SubscriptionOwnerIsCurrentUser is true when that owner is the requesting
+          user's own subscription ("is it mine?" — yes).
+
+          ClaudeAccountEmail/ClaudeAccountName identify the actual Claude account
+          the token authenticates as (fetched from Anthropic's /api/oauth/profile) —
+          the identity that gets billed. It can differ from SubscriptionOwnerName
+          (the Helix user who connected the subscription); when no valid probe has
+          enriched the row yet they are empty and consumers fall back to the owner.
         type: string
       valid:
         description: that subscription passed its last liveness probe
@@ -1932,9 +1975,13 @@ definitions:
         description: keyed by task_id
         type: object
     type: object
-  server.ClaudeLoginSessionResponse:
+  server.ClaudeLoginStartResponse:
     properties:
-      session_id:
+      authorize_url:
+        type: string
+      code_verifier:
+        type: string
+      state:
         type: string
     type: object
   server.ClaudeModel:
@@ -1944,17 +1991,6 @@ definitions:
       id:
         type: string
       name:
-        type: string
-    type: object
-  server.ClaudePollLoginResponse:
-    properties:
-      credentials:
-        description: Raw credentials JSON
-        type: string
-      found:
-        type: boolean
-      url:
-        description: OAuth URL for native browser
         type: string
     type: object
   server.ClientBufferStats:
@@ -1993,6 +2029,24 @@ definitions:
       found:
         type: boolean
       url:
+        type: string
+    type: object
+  server.CompleteClaudeLoginRequest:
+    properties:
+      code:
+        type: string
+      code_verifier:
+        type: string
+      name:
+        description: Same ownership knobs as a direct create.
+        type: string
+      organization_id:
+        type: string
+      owner_id:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
+      state:
         type: string
     type: object
   server.ConfigurePendingSessionRequest:
@@ -4760,6 +4814,12 @@ definitions:
         type: string
       refreshToken:
         type: string
+      refreshTokenExpiresAt:
+        description: |-
+          RefreshTokenExpiresAt is Unix milliseconds. This is the one that matters
+          for "when must I sign in again": rotation does not extend it, so it is a
+          hard deadline anchored to the original login.
+        type: integer
       scopes:
         items:
           type: string
@@ -4770,6 +4830,24 @@ definitions:
   types.ClaudeSubscription:
     properties:
       access_token_expires_at:
+        type: string
+      account_display_name:
+        type: string
+      account_email:
+        description: |-
+          AccountEmail is the email of the Claude account the stored token
+          authenticates as, fetched from Anthropic's /api/oauth/profile. It is the
+          identity that gets billed and can differ from the Helix user/org (OwnerID)
+          that connected the subscription. Best-effort: empty until a valid probe
+          has enriched the row.
+        type: string
+      claude_organization_id:
+        description: |-
+          ClaudeOrganizationID is Anthropic's organization uuid for the credential,
+          captured from the anthropic-organization-id header on the liveness probe.
+          Unlike AccountEmail it needs no OAuth scope, so it is populated for setup
+          tokens too — it is the only *verified* identity a setup token discloses.
+          Two subscriptions sharing it are the same Claude subscription.
         type: string
       created:
         type: string
@@ -4810,6 +4888,13 @@ definitions:
         - $ref: '#/definitions/types.OwnerType'
         description: '"user" or "org"'
       rate_limit_tier:
+        type: string
+      refresh_token_expires_at:
+        description: |-
+          RefreshTokenExpiresAt is when the login itself dies and the user must
+          re-authenticate. Refreshing keeps the 8h access token alive but does not
+          move this, so it is the only honest basis for an expiry warning. Zero for
+          setup tokens, which carry no refresh token.
         type: string
       scopes:
         items:
@@ -5206,6 +5291,15 @@ definitions:
     type: object
   types.CodexSubscription:
     properties:
+      account_display_name:
+        type: string
+      account_email:
+        description: |-
+          Identity of the ChatGPT account the stored credential authenticates as,
+          read from claims OpenAI signed in the id_token (verified against their
+          JWKS — never from user input). Distinct from OwnerID, which is the Helix
+          user/org that connected it.
+        type: string
       account_id:
         type: string
       auth_mode:
@@ -5226,6 +5320,10 @@ definitions:
         type: string
       owner_type:
         $ref: '#/definitions/types.OwnerType'
+      plan_type:
+        description: PlanType is OpenAI's chatgpt_plan_type ("pro", "plus", "team",
+          …).
+        type: string
       status:
         type: string
       updated:
@@ -5362,6 +5460,11 @@ definitions:
   types.CreateClaudeSubscriptionRequest:
     properties:
       credentials:
+        description: |-
+          Account identity is never accepted from the caller. It is derived from
+          Anthropic: the profile fetch for oauth credentials, and the probe's
+          organization header for setup tokens. Self-reported identity was
+          unverifiable free text that rendered next to agents as if authoritative.
         properties:
           claudeAiOauth:
             $ref: '#/definitions/types.ClaudeOAuthCredentials'
@@ -13168,7 +13271,7 @@ definitions:
       target_kind:
         $ref: '#/definitions/types.VHostTargetKind'
       url:
-        description: public URL, populated by preview API handlers
+        description: public URL, populated by API handlers returning routes
         type: string
       verification_token:
         description: |-
@@ -15723,6 +15826,41 @@ paths:
       tags:
       - Claude
   /api/v1/claude-subscriptions/{id}:
+    delete:
+      description: Disconnect a Claude subscription owned by the current user, or
+        by an organization they own
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete a Claude subscription
+      tags:
+      - Claude
     get:
       description: Get details of a specific Claude subscription (no secrets)
       parameters:
@@ -15819,66 +15957,57 @@ paths:
       summary: List available Claude models
       tags:
       - Claude
-  /api/v1/claude-subscriptions/poll-login/{sessionId}:
-    get:
-      description: Check if Claude credentials file has been written inside the desktop
-        container
+  /api/v1/claude-subscriptions/oauth/complete:
+    post:
+      consumes:
+      - application/json
+      description: Exchange the pasted authorization code for tokens and connect the
+        subscription
       parameters:
-      - description: Session ID
-        in: path
-        name: sessionId
+      - description: Authorization code and PKCE material
+        in: body
+        name: body
         required: true
-        type: string
+        schema:
+          $ref: '#/definitions/server.CompleteClaudeLoginRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/server.ClaudePollLoginResponse'
+            $ref: '#/definitions/types.ClaudeSubscription'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
         "401":
           description: Unauthorized
           schema:
             $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
-      summary: Poll for Claude login credentials
+      summary: Complete a Claude subscription login
       tags:
       - Claude
-  /api/v1/claude-subscriptions/start-login:
+  /api/v1/claude-subscriptions/oauth/start:
     post:
-      description: Launch a temporary desktop session for interactive Claude OAuth
-        login
+      description: Build the Anthropic authorization URL and PKCE material for connecting
+        a Claude subscription
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/server.ClaudeLoginSessionResponse'
+            $ref: '#/definitions/server.ClaudeLoginStartResponse'
         "401":
           description: Unauthorized
           schema:
             $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
-      summary: Start a Claude login session
+      summary: Start a Claude subscription login
       tags:
       - Claude
   /api/v1/clone-groups/{groupId}/progress:

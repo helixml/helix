@@ -45,9 +45,9 @@ func TestCleanupSubscriptionLoginSessionsForOwnerOnlyDeletesTemporaryLoginSessio
 	executor := external_agent.NewMockExecutor(ctrl)
 	server := &HelixAPIServer{Store: storeMock, externalAgentExecutor: executor}
 	loginSession := &types.Session{
-		ID:        "ses_claude_login",
-		Name:      claudeLoginSessionName,
-		Provider:  claudeLoginSessionProvider,
+		ID:        "ses_codex_login",
+		Name:      codexLoginSessionName,
+		Provider:  codexLoginSessionProvider,
 		ModelName: "external_agent",
 		Metadata: types.SessionMetadata{
 			AgentType:   "zed_external",
@@ -56,7 +56,7 @@ func TestCleanupSubscriptionLoginSessionsForOwnerOnlyDeletesTemporaryLoginSessio
 	}
 	ordinarySessionWithSameName := &types.Session{
 		ID:        "ses_ordinary",
-		Name:      claudeLoginSessionName,
+		Name:      codexLoginSessionName,
 		ModelName: "gpt-5",
 	}
 
@@ -67,6 +67,6 @@ func TestCleanupSubscriptionLoginSessionsForOwnerOnlyDeletesTemporaryLoginSessio
 	storeMock.EXPECT().DeleteSession(gomock.Any(), loginSession.ID).Return(loginSession, nil)
 
 	require.NoError(t, server.cleanupSubscriptionLoginSessionsForOwner(
-		context.Background(), "usr_1", claudeLoginSessionName, claudeLoginSessionProvider,
+		context.Background(), "usr_1", codexLoginSessionName, codexLoginSessionProvider,
 	))
 }

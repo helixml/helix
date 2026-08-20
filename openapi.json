@@ -4061,72 +4061,52 @@
                 }
             }
         },
-        "/api/v1/claude-subscriptions/poll-login/{sessionId}": {
-            "get": {
+        "/api/v1/claude-subscriptions/oauth/complete": {
+            "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Check if Claude credentials file has been written inside the desktop container",
+                "description": "Exchange the pasted authorization code for tokens and connect the subscription",
                 "tags": [
                     "Claude"
                 ],
-                "summary": "Poll for Claude login credentials",
-                "parameters": [
-                    {
-                        "description": "Session ID",
-                        "name": "sessionId",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
+                "summary": "Complete a Claude subscription login",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.CompleteClaudeLoginRequest"
+                            }
                         }
-                    }
-                ],
+                    },
+                    "description": "Authorization code and PKCE material",
+                    "required": true
+                },
                 "responses": {
                     "200": {
                         "description": "OK",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/server.ClaudePollLoginResponse"
+                                    "$ref": "#/components/schemas/types.ClaudeSubscription"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
                                 }
                             }
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -4138,41 +4118,31 @@
                 }
             }
         },
-        "/api/v1/claude-subscriptions/start-login": {
+        "/api/v1/claude-subscriptions/oauth/start": {
             "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Launch a temporary desktop session for interactive Claude OAuth login",
+                "description": "Build the Anthropic authorization URL and PKCE material for connecting a Claude subscription",
                 "tags": [
                     "Claude"
                 ],
-                "summary": "Start a Claude login session",
+                "summary": "Start a Claude subscription login",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/server.ClaudeLoginSessionResponse"
+                                    "$ref": "#/components/schemas/server.ClaudeLoginStartResponse"
                                 }
                             }
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -4214,6 +4184,74 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/types.ClaudeSubscription"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Disconnect a Claude subscription owned by the current user, or by an organization they own",
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Delete a Claude subscription",
+                "parameters": [
+                    {
+                        "description": "Subscription ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         }
@@ -30566,6 +30604,16 @@
             "server.AppClaudeSubscriptionStatus": {
                 "type": "object",
                 "properties": {
+                    "claude_account_email": {
+                        "type": "string"
+                    },
+                    "claude_account_name": {
+                        "type": "string"
+                    },
+                    "claude_organization_id": {
+                        "description": "ClaudeOrganizationID is Anthropic's organization uuid for the credential.\nPopulated for setup tokens too, which cannot be profiled — it lets the UI\nsay \"this is the same subscription as X\" without anyone typing anything.",
+                        "type": "string"
+                    },
                     "connected": {
                         "description": "owner has a subscription connected at all",
                         "type": "boolean"
@@ -30588,11 +30636,32 @@
                         "description": "human-readable owner (email / full name)",
                         "type": "string"
                     },
+                    "refresh_token_expires_at": {
+                        "description": "RefreshTokenExpiresAt is when the user must sign in again. Refreshing\nkeeps the access token alive but does not move this, so it is the only\nhonest basis for an expiry warning.",
+                        "type": "string"
+                    },
                     "status": {
+                        "type": "string"
+                    },
+                    "subscription_owner_id": {
+                        "type": "string"
+                    },
+                    "subscription_owner_is_current_user": {
+                        "type": "boolean"
+                    },
+                    "subscription_owner_name": {
                         "type": "string"
                     },
                     "subscription_owner_type": {
                         "description": "\"user\" or \"org\" — where the effective sub resolved",
+                        "type": "string"
+                    },
+                    "subscription_rate_limit_tier": {
+                        "description": "SubscriptionRateLimitTier is the Claude org's rate-limit tier as Anthropic\nreports it, e.g. \"default_claude_max_20x\"; empty when unknown.",
+                        "type": "string"
+                    },
+                    "subscription_type": {
+                        "description": "Identity of the Claude subscription itself, populated when Connected.\nSubscriptionType is the plan (\"pro\" / \"max\"), empty for setup-token\nconnections where the plan is unknown.\nSubscriptionOwnerName is the subscription owner's email (user-owned) or\norg name (org-owned) — i.e. WHOSE subscription authenticates the agent.\nSubscriptionOwnerIsCurrentUser is true when that owner is the requesting\nuser's own subscription (\"is it mine?\" — yes).\n\nClaudeAccountEmail/ClaudeAccountName identify the actual Claude account\nthe token authenticates as (fetched from Anthropic's /api/oauth/profile) —\nthe identity that gets billed. It can differ from SubscriptionOwnerName\n(the Helix user who connected the subscription); when no valid probe has\nenriched the row yet they are empty and consumers fall back to the owner.",
                         "type": "string"
                     },
                     "valid": {
@@ -30645,10 +30714,16 @@
                     }
                 }
             },
-            "server.ClaudeLoginSessionResponse": {
+            "server.ClaudeLoginStartResponse": {
                 "type": "object",
                 "properties": {
-                    "session_id": {
+                    "authorize_url": {
+                        "type": "string"
+                    },
+                    "code_verifier": {
+                        "type": "string"
+                    },
+                    "state": {
                         "type": "string"
                     }
                 }
@@ -30663,22 +30738,6 @@
                         "type": "string"
                     },
                     "name": {
-                        "type": "string"
-                    }
-                }
-            },
-            "server.ClaudePollLoginResponse": {
-                "type": "object",
-                "properties": {
-                    "credentials": {
-                        "description": "Raw credentials JSON",
-                        "type": "string"
-                    },
-                    "found": {
-                        "type": "boolean"
-                    },
-                    "url": {
-                        "description": "OAuth URL for native browser",
                         "type": "string"
                     }
                 }
@@ -30738,6 +30797,33 @@
                         "type": "boolean"
                     },
                     "url": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.CompleteClaudeLoginRequest": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "code_verifier": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Same ownership knobs as a direct create.",
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "owner_id": {
+                        "type": "string"
+                    },
+                    "owner_type": {
+                        "$ref": "#/components/schemas/types.OwnerType"
+                    },
+                    "state": {
                         "type": "string"
                     }
                 }
@@ -34631,6 +34717,10 @@
                     "refreshToken": {
                         "type": "string"
                     },
+                    "refreshTokenExpiresAt": {
+                        "description": "RefreshTokenExpiresAt is Unix milliseconds. This is the one that matters\nfor \"when must I sign in again\": rotation does not extend it, so it is a\nhard deadline anchored to the original login.",
+                        "type": "integer"
+                    },
                     "scopes": {
                         "type": "array",
                         "items": {
@@ -34646,6 +34736,17 @@
                 "type": "object",
                 "properties": {
                     "access_token_expires_at": {
+                        "type": "string"
+                    },
+                    "account_display_name": {
+                        "type": "string"
+                    },
+                    "account_email": {
+                        "description": "AccountEmail is the email of the Claude account the stored token\nauthenticates as, fetched from Anthropic's /api/oauth/profile. It is the\nidentity that gets billed and can differ from the Helix user/org (OwnerID)\nthat connected the subscription. Best-effort: empty until a valid probe\nhas enriched the row.",
+                        "type": "string"
+                    },
+                    "claude_organization_id": {
+                        "description": "ClaudeOrganizationID is Anthropic's organization uuid for the credential,\ncaptured from the anthropic-organization-id header on the liveness probe.\nUnlike AccountEmail it needs no OAuth scope, so it is populated for setup\ntokens too — it is the only *verified* identity a setup token discloses.\nTwo subscriptions sharing it are the same Claude subscription.",
                         "type": "string"
                     },
                     "created": {
@@ -34693,6 +34794,10 @@
                         ]
                     },
                     "rate_limit_tier": {
+                        "type": "string"
+                    },
+                    "refresh_token_expires_at": {
+                        "description": "RefreshTokenExpiresAt is when the login itself dies and the user must\nre-authenticate. Refreshing keeps the 8h access token alive but does not\nmove this, so it is the only honest basis for an expiry warning. Zero for\nsetup tokens, which carry no refresh token.",
                         "type": "string"
                     },
                     "scopes": {
@@ -35218,6 +35323,13 @@
             "types.CodexSubscription": {
                 "type": "object",
                 "properties": {
+                    "account_display_name": {
+                        "type": "string"
+                    },
+                    "account_email": {
+                        "description": "Identity of the ChatGPT account the stored credential authenticates as,\nread from claims OpenAI signed in the id_token (verified against their\nJWKS — never from user input). Distinct from OwnerID, which is the Helix\nuser/org that connected it.",
+                        "type": "string"
+                    },
                     "account_id": {
                         "type": "string"
                     },
@@ -35247,6 +35359,10 @@
                     },
                     "owner_type": {
                         "$ref": "#/components/schemas/types.OwnerType"
+                    },
+                    "plan_type": {
+                        "description": "PlanType is OpenAI's chatgpt_plan_type (\"pro\", \"plus\", \"team\", …).",
+                        "type": "string"
                     },
                     "status": {
                         "type": "string"
@@ -35452,6 +35568,7 @@
                 "type": "object",
                 "properties": {
                     "credentials": {
+                        "description": "Account identity is never accepted from the caller. It is derived from\nAnthropic: the profile fetch for oauth credentials, and the probe's\norganization header for setup tokens. Self-reported identity was\nunverifiable free text that rendered next to agents as if authoritative.",
                         "type": "object",
                         "properties": {
                             "claudeAiOauth": {
@@ -46004,7 +46121,7 @@
                         "$ref": "#/components/schemas/types.VHostTargetKind"
                     },
                     "url": {
-                        "description": "public URL, populated by preview API handlers",
+                        "description": "public URL, populated by API handlers returning routes",
                         "type": "string"
                     },
                     "verification_token": {

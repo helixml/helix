@@ -17,6 +17,8 @@ import useLightTheme from '../../hooks/useLightTheme'
 import { useAttentionEvents, AttentionEvent, AttentionEventType } from '../../hooks/useAttentionEvents'
 import { useBrowserNotifications } from '../../hooks/useBrowserNotifications'
 import { useNavigationHistory, NavHistoryEntry } from '../../hooks/useNavigationHistory'
+import { useSettingsDialog } from '../../contexts/settingsDialog'
+import ClaudeExpiryBanner from '../account/ClaudeExpiryBanner'
 
 interface GlobalNotificationsProps {
   organizationId?: string
@@ -454,6 +456,7 @@ const PANEL_WIDTH = 360
 const FILTER_STORAGE_KEY = 'attention-filter-mode'
 
 const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange }) => {
+  const { openDialog } = useSettingsDialog()
   const router = useRouter5()
   const account = useAccount()
   const api = useApi()
@@ -852,6 +855,16 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
             </IconButton>
           </Box>
         </Box>
+
+        {/* A Claude sign-in about to lapse needs acting on before it breaks an
+            agent turn, so it sits above the event list and opens the dialog
+            that fixes it. */}
+        <ClaudeExpiryBanner
+          onReconnect={() => {
+            handleDrawerClose()
+            openDialog('account')
+          }}
+        />
 
         {/* Browser notification prompt */}
         {shouldPrompt && (

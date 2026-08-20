@@ -76,9 +76,6 @@ import {
   isProjectAccessDeniedError,
 } from "../services/projectService";
 import { useListSessions, useGetSession } from "../services/sessionService";
-import { useClaudeSubscriptions } from "../components/account/ClaudeSubscriptionConnect";
-import ClaudeSubscriptionConnect from "../components/account/ClaudeSubscriptionConnect";
-import { getTokenExpiryStatus } from "../components/account/claudeSubscriptionUtils";
 import {
   useListProjectAccessGrants,
   useCreateProjectAccessGrant,
@@ -339,19 +336,6 @@ const SpecTasksPage: FC = () => {
   const exploratoryDisplaySettings = { width: 1920, height: 1080, fps: 60 };
 
   // Check if the project uses Claude Code with subscription credentials
-  const { data: claudeSubscriptions } = useClaudeSubscriptions();
-  const claudeTokenExpiry = useMemo(() => {
-	const config = project?.code_agent_config;
-	if (
-	  config?.runtime !== "claude_code" ||
-	  config?.credential_type !== "subscription"
-	)
-	  return null;
-    const sub = claudeSubscriptions?.[0];
-    if (!sub) return null;
-    if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
-    return getTokenExpiryStatus(sub.access_token_expires_at);
-  }, [project?.code_agent_config, claudeSubscriptions]);
 
   // Load tasks and apps on mount
   useEffect(() => {
@@ -1151,26 +1135,6 @@ const SpecTasksPage: FC = () => {
               >
                 Set up a startup script to install dependencies and start your
                 dev server.
-              </Alert>
-            )}
-
-          {/* Claude subscription token expiry warning */}
-          {claudeTokenExpiry &&
-            (claudeTokenExpiry.isExpired ||
-              claudeTokenExpiry.isExpiringSoon) && (
-              <Alert
-                severity="warning"
-                sx={{ mb: 2 }}
-                action={
-                  <ClaudeSubscriptionConnect
-                    variant="button"
-                    orgId={project?.organization_id}
-                  />
-                }
-              >
-                {claudeTokenExpiry.isExpired
-                  ? `Claude subscription token has expired (${claudeTokenExpiry.label}). It will automatically refresh the next time a session uses Claude Code, or you can re-authenticate now.`
-                  : `Claude subscription token is expiring soon (${claudeTokenExpiry.label}). It will automatically refresh the next time a session uses Claude Code, or you can re-authenticate now.`}
               </Alert>
             )}
 

@@ -1223,6 +1223,14 @@ export interface ServerAgentStartupErrorResponse {
 }
 
 export interface ServerAppClaudeSubscriptionStatus {
+  claude_account_email?: string;
+  claude_account_name?: string;
+  /**
+   * ClaudeOrganizationID is Anthropic's organization uuid for the credential.
+   * Populated for setup tokens too, which cannot be profiled — it lets the UI
+   * say "this is the same subscription as X" without anyone typing anything.
+   */
+  claude_organization_id?: string;
   /** owner has a subscription connected at all */
   connected?: boolean;
   /** true when the editor IS the owner */
@@ -1233,9 +1241,39 @@ export interface ServerAppClaudeSubscriptionStatus {
   owner_id?: string;
   /** human-readable owner (email / full name) */
   owner_name?: string;
+  /**
+   * RefreshTokenExpiresAt is when the user must sign in again. Refreshing
+   * keeps the access token alive but does not move this, so it is the only
+   * honest basis for an expiry warning.
+   */
+  refresh_token_expires_at?: string;
   status?: string;
+  subscription_owner_id?: string;
+  subscription_owner_is_current_user?: boolean;
+  subscription_owner_name?: string;
   /** "user" or "org" — where the effective sub resolved */
   subscription_owner_type?: string;
+  /**
+   * SubscriptionRateLimitTier is the Claude org's rate-limit tier as Anthropic
+   * reports it, e.g. "default_claude_max_20x"; empty when unknown.
+   */
+  subscription_rate_limit_tier?: string;
+  /**
+   * Identity of the Claude subscription itself, populated when Connected.
+   * SubscriptionType is the plan ("pro" / "max"), empty for setup-token
+   * connections where the plan is unknown.
+   * SubscriptionOwnerName is the subscription owner's email (user-owned) or
+   * org name (org-owned) — i.e. WHOSE subscription authenticates the agent.
+   * SubscriptionOwnerIsCurrentUser is true when that owner is the requesting
+   * user's own subscription ("is it mine?" — yes).
+   *
+   * ClaudeAccountEmail/ClaudeAccountName identify the actual Claude account
+   * the token authenticates as (fetched from Anthropic's /api/oauth/profile) —
+   * the identity that gets billed. It can differ from SubscriptionOwnerName
+   * (the Helix user who connected the subscription); when no valid probe has
+   * enriched the row yet they are empty and consumers fall back to the owner.
+   */
+  subscription_type?: string;
   /** that subscription passed its last liveness probe */
   valid?: boolean;
 }
@@ -1257,22 +1295,16 @@ export interface ServerBatchTaskUsageResponse {
   tasks?: Record<string, ServerBatchTaskUsageMetric[]>;
 }
 
-export interface ServerClaudeLoginSessionResponse {
-  session_id?: string;
+export interface ServerClaudeLoginStartResponse {
+  authorize_url?: string;
+  code_verifier?: string;
+  state?: string;
 }
 
 export interface ServerClaudeModel {
   description?: string;
   id?: string;
   name?: string;
-}
-
-export interface ServerClaudePollLoginResponse {
-  /** Raw credentials JSON */
-  credentials?: string;
-  found?: boolean;
-  /** OAuth URL for native browser */
-  url?: string;
 }
 
 export interface ServerClientBufferStats {
@@ -1298,6 +1330,17 @@ export interface ServerCodexPollLoginResponse {
   error?: string;
   found?: boolean;
   url?: string;
+}
+
+export interface ServerCompleteClaudeLoginRequest {
+  code?: string;
+  code_verifier?: string;
+  /** Same ownership knobs as a direct create. */
+  name?: string;
+  organization_id?: string;
+  owner_id?: string;
+  owner_type?: TypesOwnerType;
+  state?: string;
 }
 
 export interface ServerConfigurePendingSessionRequest {
@@ -3010,12 +3053,35 @@ export interface TypesClaudeOAuthCredentials {
   expiresAt?: number;
   rateLimitTier?: string;
   refreshToken?: string;
+  /**
+   * RefreshTokenExpiresAt is Unix milliseconds. This is the one that matters
+   * for "when must I sign in again": rotation does not extend it, so it is a
+   * hard deadline anchored to the original login.
+   */
+  refreshTokenExpiresAt?: number;
   scopes?: string[];
   subscriptionType?: string;
 }
 
 export interface TypesClaudeSubscription {
   access_token_expires_at?: string;
+  account_display_name?: string;
+  /**
+   * AccountEmail is the email of the Claude account the stored token
+   * authenticates as, fetched from Anthropic's /api/oauth/profile. It is the
+   * identity that gets billed and can differ from the Helix user/org (OwnerID)
+   * that connected the subscription. Best-effort: empty until a valid probe
+   * has enriched the row.
+   */
+  account_email?: string;
+  /**
+   * ClaudeOrganizationID is Anthropic's organization uuid for the credential,
+   * captured from the anthropic-organization-id header on the liveness probe.
+   * Unlike AccountEmail it needs no OAuth scope, so it is populated for setup
+   * tokens too — it is the only *verified* identity a setup token discloses.
+   * Two subscriptions sharing it are the same Claude subscription.
+   */
+  claude_organization_id?: string;
   created?: string;
   created_by?: string;
   /** "oauth" or "setup_token" */
@@ -3042,6 +3108,13 @@ export interface TypesClaudeSubscription {
   /** "user" or "org" */
   owner_type?: TypesOwnerType;
   rate_limit_tier?: string;
+  /**
+   * RefreshTokenExpiresAt is when the login itself dies and the user must
+   * re-authenticate. Refreshing keeps the 8h access token alive but does not
+   * move this, so it is the only honest basis for an expiry warning. Zero for
+   * setup tokens, which carry no refresh token.
+   */
+  refresh_token_expires_at?: string;
   scopes?: string[];
   /** "active", "expired", "error" */
   status?: string;
@@ -3304,6 +3377,14 @@ export interface TypesCodexAuthTokens {
 }
 
 export interface TypesCodexSubscription {
+  account_display_name?: string;
+  /**
+   * Identity of the ChatGPT account the stored credential authenticates as,
+   * read from claims OpenAI signed in the id_token (verified against their
+   * JWKS — never from user input). Distinct from OwnerID, which is the Helix
+   * user/org that connected it.
+   */
+  account_email?: string;
   account_id?: string;
   auth_mode?: string;
   created?: string;
@@ -3314,6 +3395,8 @@ export interface TypesCodexSubscription {
   name?: string;
   owner_id?: string;
   owner_type?: TypesOwnerType;
+  /** PlanType is OpenAI's chatgpt_plan_type ("pro", "plus", "team", …). */
+  plan_type?: string;
   status?: string;
   updated?: string;
 }
@@ -3400,6 +3483,12 @@ export interface TypesCreateBranchResponse {
 }
 
 export interface TypesCreateClaudeSubscriptionRequest {
+  /**
+   * Account identity is never accepted from the caller. It is derived from
+   * Anthropic: the profile fetch for oauth credentials, and the probe's
+   * organization header for setup tokens. Self-reported identity was
+   * unverifiable free text that rendered next to agents as if authoritative.
+   */
   credentials?: {
     claudeAiOauth?: TypesClaudeOAuthCredentials;
   };
@@ -8269,7 +8358,7 @@ export interface TypesVHostRoute {
   rotated_at?: string;
   target_id?: string;
   target_kind?: TypesVHostTargetKind;
-  /** public URL, populated by preview API handlers */
+  /** public URL, populated by API handlers returning routes */
   url?: string;
   /**
    * VerificationToken is only meaningful for custom domains awaiting
@@ -10277,6 +10366,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Disconnect a Claude subscription owned by the current user, or by an organization they own
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDelete
+     * @summary Delete a Claude subscription
+     * @request DELETE:/api/v1/claude-subscriptions/{id}
+     * @secure
+     */
+    v1ClaudeSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get details of a specific Claude subscription (no secrets)
      *
      * @tags Claude
@@ -10337,35 +10444,37 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Check if Claude credentials file has been written inside the desktop container
+     * @description Exchange the pasted authorization code for tokens and connect the subscription
      *
      * @tags Claude
-     * @name V1ClaudeSubscriptionsPollLoginDetail
-     * @summary Poll for Claude login credentials
-     * @request GET:/api/v1/claude-subscriptions/poll-login/{sessionId}
+     * @name V1ClaudeSubscriptionsOauthCompleteCreate
+     * @summary Complete a Claude subscription login
+     * @request POST:/api/v1/claude-subscriptions/oauth/complete
      * @secure
      */
-    v1ClaudeSubscriptionsPollLoginDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<ServerClaudePollLoginResponse, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
-        method: "GET",
+    v1ClaudeSubscriptionsOauthCompleteCreate: (body: ServerCompleteClaudeLoginRequest, params: RequestParams = {}) =>
+      this.request<TypesClaudeSubscription, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/oauth/complete`,
+        method: "POST",
+        body: body,
         secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
 
     /**
-     * @description Launch a temporary desktop session for interactive Claude OAuth login
+     * @description Build the Anthropic authorization URL and PKCE material for connecting a Claude subscription
      *
      * @tags Claude
-     * @name V1ClaudeSubscriptionsStartLoginCreate
-     * @summary Start a Claude login session
-     * @request POST:/api/v1/claude-subscriptions/start-login
+     * @name V1ClaudeSubscriptionsOauthStartCreate
+     * @summary Start a Claude subscription login
+     * @request POST:/api/v1/claude-subscriptions/oauth/start
      * @secure
      */
-    v1ClaudeSubscriptionsStartLoginCreate: (params: RequestParams = {}) =>
-      this.request<ServerClaudeLoginSessionResponse, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/start-login`,
+    v1ClaudeSubscriptionsOauthStartCreate: (params: RequestParams = {}) =>
+      this.request<ServerClaudeLoginStartResponse, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/oauth/start`,
         method: "POST",
         secure: true,
         format: "json",
