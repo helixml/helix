@@ -89,6 +89,26 @@ export const getDialogStyleTokens = (isLight: boolean, background: string) => {
   }
 }
 
+/**
+ * Shared dropdown behaviour for every Select: anchored below the field so it
+ * always opens downward from a fixed point rather than overlaying the control
+ * aligned to the selected item, and capped so long lists scroll.
+ *
+ * Spread this when a Select needs to override one part — passing `MenuProps`
+ * on a component replaces the theme default outright, so overriding naively
+ * loses the anchoring and the max height.
+ */
+export const SELECT_MENU_PROPS = {
+  sx: {
+    zIndex: 100003,
+  },
+  anchorOrigin: { vertical: 'bottom' as const, horizontal: 'left' as const },
+  transformOrigin: { vertical: 'top' as const, horizontal: 'left' as const },
+  PaperProps: {
+    sx: { maxHeight: 320 },
+  },
+}
+
 export const getFlatSelectOverrides = (isLight: boolean) => ({
   '&:has(> .MuiSelect-select)': {
     borderRadius: '6px',
@@ -473,11 +493,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         },
         MuiSelect: {
           defaultProps: {
-            MenuProps: {
-              sx: {
-                zIndex: 100003,
-              },
-            },
+            MenuProps: SELECT_MENU_PROPS,
           },
         },
         MuiOutlinedInput: {

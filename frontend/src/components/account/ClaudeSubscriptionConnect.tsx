@@ -29,7 +29,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useLightTheme from '../../hooks/useLightTheme'
-import { getFormSelectSx } from '../../contexts/theme'
+import { SELECT_MENU_PROPS } from '../../contexts/theme'
 import useAccount from '../../hooks/useAccount'
 import { getTokenExpiryStatus, formatClaudeAccountIdentity } from './claudeSubscriptionUtils'
 import { matchesAllTokens } from '../../utils/searchUtils'
@@ -280,6 +280,13 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       (account.admin ||
         (org.memberships || []).some((m) => m.user_id === currentUserID && m.role === 'owner')),
   )
+  // Multi-word search (AND across tokens), matching the rest of the app's
+  // filter boxes rather than a naive substring test.
+  const [ownerFilter, setOwnerFilter] = useState('')
+  const filteredOwnableOrgs = ownerFilter.trim()
+    ? ownableOrgs.filter((org) => matchesAllTokens(org.display_name || org.name || '', ownerFilter))
+    : ownableOrgs
+
   const orgLabel = (orgID: string) => {
     const org = organizations.find((o) => o.id === orgID)
     return org?.display_name || org?.name || orgID
@@ -531,11 +538,15 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           </Typography>
         </Box>
       ) : (
-      <FormControl size="small" fullWidth sx={getFormSelectSx(lightTheme.isLight)}>
+      <FormControl size="small" fullWidth>
         <InputLabel>Subscription owner</InputLabel>
         <Select
           value={ownerType === 'org' ? selectedOrgId : 'personal'}
           label="Subscription owner"
+          // autoFocus off so the menu does not steal focus from the search box
+          // for the selected item; everything else is the shared behaviour.
+          MenuProps={{ ...SELECT_MENU_PROPS, autoFocus: false }}
+          onClose={() => setOwnerFilter('')}
           onChange={(e) => {
             const val = e.target.value
             if (val === 'personal') {
@@ -547,12 +558,37 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             }
           }}
         >
+          <Box
+            sx={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 1,
+              px: 1,
+              pb: 1,
+              bgcolor: 'background.paper',
+            }}
+          >
+            <TextField
+              size="small"
+              fullWidth
+              autoFocus
+              placeholder="Search organizations"
+              value={ownerFilter}
+              onChange={(e) => setOwnerFilter(e.target.value)}
+              // Select swallows keystrokes for its own type-ahead, which would
+              // steal every character typed here.
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+          </Box>
           <MenuItem value="personal">Personal — only my own sessions</MenuItem>
-          {ownableOrgs.map((org) => (
+          {filteredOwnableOrgs.map((org) => (
             <MenuItem key={org.id} value={org.id as string}>
               {org.display_name || org.name} — shared with the whole organization
             </MenuItem>
           ))}
+          {filteredOwnableOrgs.length === 0 && ownerFilter.trim() !== '' && (
+            <MenuItem disabled>No organizations match &quot;{ownerFilter}&quot;</MenuItem>
+          )}
         </Select>
       </FormControl>
       )}
