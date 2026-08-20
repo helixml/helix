@@ -125,7 +125,6 @@ import useIsBigScreen from "../../hooks/useIsBigScreen";
 import useLightTheme from "../../hooks/useLightTheme";
 import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
 import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
-import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
 import {
   FileText,
   ChartNoAxesCombined,
@@ -432,17 +431,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Check the task-owned execution config for Claude subscription credentials.
   const { data: claudeSubscriptions } = useClaudeSubscriptions();
-  const claudeTokenExpiry = useMemo(() => {
-    if (
-      task?.code_agent_config?.runtime !== "claude_code" ||
-      task.code_agent_config.credential_type !== "subscription"
-    )
-      return null;
-    const sub = claudeSubscriptions?.[0];
-    if (!sub) return null;
-    if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
-    return getTokenExpiryStatus(sub.access_token_expires_at);
-  }, [task?.code_agent_config?.runtime, task?.code_agent_config?.credential_type, claudeSubscriptions]);
 
   // On mobile, 'chat' is a separate tab; on desktop, chat is always visible
   // Initialize from URL query param 'view' if present (only when syncing with URL)
@@ -2340,23 +2328,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       />
 
       {/* Claude subscription token expiry warning */}
-      {claudeTokenExpiry &&
-        (claudeTokenExpiry.isExpired || claudeTokenExpiry.isExpiringSoon) && (
-          <Alert
-            severity="warning"
-            sx={{ mx: 1, mt: 1, flexShrink: 0 }}
-            action={
-              <ClaudeSubscriptionConnect
-                variant="button"
-                orgId={project?.organization_id}
-              />
-            }
-          >
-            {claudeTokenExpiry.isExpired
-              ? `Claude token expired (${claudeTokenExpiry.label}). It will auto-refresh next time a session uses Claude Code, or re-authenticate now.`
-              : `Claude token expiring soon (${claudeTokenExpiry.label}). It will auto-refresh next time a session uses Claude Code, or re-authenticate now.`}
-          </Alert>
-        )}
 
       {/* Tab Content */}
       <Box

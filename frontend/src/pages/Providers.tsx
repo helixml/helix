@@ -19,7 +19,7 @@ import OpenAILogo from '../components/providers/logos/openai';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
 import CodexSubscriptionConnect from '../components/account/CodexSubscriptionConnect';
 import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
-import { formatClaudeAccountIdentity, getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils'
+import { formatClaudeAccountIdentity } from '../components/account/claudeSubscriptionUtils'
 import { formatCodexAccountIdentity } from '../components/account/codexSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
 import CodeAgentHarnessesSection from '../components/providers/CodeAgentHarnessesSection';
@@ -66,11 +66,9 @@ const Providers: React.FC = () => {
     subscription.owner_type === 'org' && subscription.owner_id === org?.id)
   const effectiveClaudeSubscription = personalClaudeSubscription || orgClaudeSubscription
   const hasClaudeSubscription = !!personalClaudeSubscription
-  const claudeIsSetupToken = personalClaudeSubscription?.credential_type === 'setup_token'
-  const claudeExpiry = hasClaudeSubscription && !claudeIsSetupToken
-    ? getTokenExpiryStatus(personalClaudeSubscription?.access_token_expires_at)
-    : null
-  const claudeIsExpired = claudeExpiry?.isExpired ?? false
+  // Background refresh keeps OAuth tokens alive, so only the server's status
+  // distinguishes a healthy subscription from one needing re-authentication.
+  const claudeIsBroken = !!personalClaudeSubscription && personalClaudeSubscription.status !== 'active'
   const { data: codexSubscriptions } = useCodexSubscriptions()
   const personalCodexSubscription = codexSubscriptions?.find(subscription => subscription.owner_type === 'user')
   const orgCodexSubscription = codexSubscriptions?.find(subscription =>
@@ -309,7 +307,7 @@ const Providers: React.FC = () => {
                 borderStyle: 'dashed',
                 borderWidth: 1,
                 borderColor: hasClaudeSubscription
-                  ? (claudeIsExpired ? 'error.main' : claudeExpiry?.isExpiringSoon ? 'warning.main' : 'success.main')
+                  ? (claudeIsBroken ? 'error.main' : 'success.main')
                   : 'divider',
                 opacity: hasClaudeSubscription ? 1 : 0.85,
                 transition: 'all 0.2s',

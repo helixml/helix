@@ -31,7 +31,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 import useLightTheme from '../../hooks/useLightTheme'
 import { SELECT_MENU_PROPS } from '../../contexts/theme'
 import useAccount from '../../hooks/useAccount'
-import { getTokenExpiryStatus, formatClaudeAccountIdentity } from './claudeSubscriptionUtils'
+import { formatClaudeAccountIdentity } from './claudeSubscriptionUtils'
 import { matchesAllTokens } from '../../utils/searchUtils'
 import { APP_MONO_FONT_FAMILY } from '../../styles/typography'
 import { codeAgentHarnessesQueryKey } from '../../services/codeAgentHarnessesService'
@@ -514,8 +514,9 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
 
   const firstSub = subscriptions?.[0]
   const isSetupToken = firstSub?.credential_type === 'setup_token'
-  const expiry = firstSub && !isSetupToken ? getTokenExpiryStatus(firstSub.access_token_expires_at) : null
-  const isExpired = expiry?.isExpired ?? false
+  // See the card above: status, not the clock, is what says a credential needs
+  // the user's attention now that refresh happens in the background.
+  const isExpired = !!firstSub && firstSub.status !== 'active'
 
   // Owner picker — only meaningful in the account variant, where you manage every
   // subscription you can see. The other variants are scoped by the `orgId` prop.
@@ -938,8 +939,10 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             ) : hasSubscription ? (
               subscriptions.map((sub) => {
                 const subIsSetupToken = sub.credential_type === 'setup_token'
-                const subExpiry = subIsSetupToken ? null : getTokenExpiryStatus(sub.access_token_expires_at)
-                const subIsExpired = subExpiry?.isExpired ?? false
+                // Background refresh keeps OAuth tokens alive; an expiry in the
+                // past is normal and self-heals. Only the server's status says
+                // whether this credential actually needs the user.
+                const subIsBroken = sub.status !== 'active'
                 // Same identity line the agent-settings caption shows (account ·
                 // plan · tier) — rendered here as one outlined pill in place of
                 // the old plan-only chip.
@@ -957,7 +960,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                       p: 2,
                       borderRadius: 1,
                       border: '1px solid',
-                      borderColor: subIsExpired ? 'error.main' : subExpiry?.isExpiringSoon ? 'warning.main' : 'divider',
+                      borderColor: subIsBroken ? 'error.main' : 'divider',
                       display: 'flex',
                       justifyContent: 'space-between',
                       // Top-aligned, not centred: the delegation list makes this row
@@ -971,20 +974,12 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                     <Box>
                       <Typography variant="subtitle1">{sub.name || 'Claude Subscription'}</Typography>
                       <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
-                        {subIsExpired && !subIsSetupToken ? (
-                          <Chip
-                            icon={<CircleAlert size={16} />}
-                            label={subExpiry?.label || 'Token expired'}
-                            color="error"
-                            size="small"
-                          />
-                        ) : (
-                          <Chip
-                            label={sub.status === 'active' ? 'Connected' : sub.status}
-                            color={sub.status === 'active' ? 'success' : 'warning'}
-                            size="small"
-                          />
-                        )}                        
+                        <Chip
+                          {...(subIsBroken ? { icon: <CircleAlert size={16} /> } : {})}
+                          label={subIsBroken ? 'Needs re-authentication' : 'Connected'}
+                          color={subIsBroken ? 'error' : 'success'}
+                          size="small"
+                        />
                         {subIdentity && (
                           <Chip label={subIdentity} size="small" variant="outlined" />
                         )}
@@ -997,16 +992,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                           />
                         ) : (
                           <Chip label="Personal" size="small" variant="outlined" />
-                        )}
-                        {subExpiry && !subIsExpired && (
-                          <Typography
-                            variant="caption"
-                            color={`${subExpiry.color}.main`}
-                            sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
-                          >
-                            {subExpiry.isExpiringSoon && <TriangleAlert size={14} />}
-                            {subExpiry.label}
-                          </Typography>
                         )}
                       </Box>
                       {sub.owner_type === 'org' && (
@@ -1026,13 +1011,13 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                     </Box>
                     <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexShrink: 0 }}>
                       <Button
-                        variant={subIsExpired ? 'contained' : 'outlined'}
-                        color={subIsExpired ? 'warning' : 'secondary'}
+                        variant={subIsBroken ? 'contained' : 'outlined'}
+                        color={subIsBroken ? 'warning' : 'secondary'}
                         size="small"
                         onClick={() => handleOpenTokenDialogFor(sub)}
                         sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
                       >
-                        {subIsExpired ? 'Re-authenticate' : 'Update token'}
+                        {subIsBroken ? 'Re-authenticate' : 'Update token'}
                       </Button>
                       <Tooltip title="Disconnect subscription">
                         <IconButton
@@ -1083,22 +1068,20 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
               Re-authenticate
             </Button>
           ) : (
-            <Tooltip title={expiry && !isSetupToken ? expiry.label : ''} disableHoverListener={!expiry || isSetupToken}>
-              <Button
-                size="small"
-                variant="outlined"
-                color="error"
-                onClick={() => {
-                  if (subscriptions?.[0]?.id) {
-                    setDeleteTarget(subscriptions[0].id)
-                    setDisconnectDialogOpen(true)
-                  }
-                }}
-                sx={connectButtonSx}
-              >
-                Disconnect
-              </Button>
-            </Tooltip>
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              onClick={() => {
+                if (subscriptions?.[0]?.id) {
+                  setDeleteTarget(subscriptions[0].id)
+                  setDisconnectDialogOpen(true)
+                }
+              }}
+              sx={connectButtonSx}
+            >
+              Disconnect
+            </Button>
           )
         ) : (
           <Button
@@ -1126,11 +1109,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             <Typography variant="body2" color="success.main">
               Claude subscription connected {isSetupToken ? '(setup token)' : ''}
             </Typography>
-            {expiry && !isSetupToken && (
-              <Typography variant="caption" color={`${expiry.color}.main`} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                ({expiry.label})
-              </Typography>
-            )}
             <Button
               size="small"
               variant="text"

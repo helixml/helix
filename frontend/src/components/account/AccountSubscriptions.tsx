@@ -7,7 +7,7 @@ import CodeAgentHarnessRow, { HarnessHealth } from '../providers/CodeAgentHarnes
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from './ClaudeSubscriptionConnect'
 import CodexSubscriptionConnect from './CodexSubscriptionConnect'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
-import { formatClaudeAccountIdentity, getTokenExpiryStatus } from './claudeSubscriptionUtils'
+import { formatClaudeAccountIdentity } from './claudeSubscriptionUtils'
 import { formatCodexAccountIdentity } from './codexSubscriptionUtils'
 import useLightTheme from '../../hooks/useLightTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -27,10 +27,10 @@ const AccountSubscriptions: FC = () => {
   const claudeSub = claudeSubscriptions?.find((sub) => sub.owner_type === 'user')
   const codexSub = codexSubscriptions?.find((sub) => sub.owner_type === 'user')
 
-  const claudeIsSetupToken = claudeSub?.credential_type === 'setup_token'
-  const claudeExpiry =
-    claudeSub && !claudeIsSetupToken ? getTokenExpiryStatus(claudeSub.access_token_expires_at) : null
-  const claudeIsExpired = claudeExpiry?.isExpired ?? false
+  // Helix refreshes OAuth tokens in the background, so a timestamp in the past
+  // is normal and self-healing. The server's status is the only signal that
+  // means the credential actually needs attention.
+  const claudeIsBroken = !!claudeSub && claudeSub.status !== 'active'
 
   // The identity Anthropic reported for the token — account email when the
   // profile fetch succeeded, else the verified Claude org, else the plan alone.
@@ -48,11 +48,11 @@ const AccountSubscriptions: FC = () => {
     ? 'Loading…'
     : !claudeSub
       ? 'Not connected'
-      : claudeIsExpired
-        ? 'Token expired — re-authenticate'
+      : claudeIsBroken
+        ? 'Needs re-authentication'
         : claudeIdentity || 'Connected'
 
-  const claudeHealth: HarnessHealth = !claudeSub ? 'unavailable' : claudeIsExpired ? 'attention' : 'ready'
+  const claudeHealth: HarnessHealth = !claudeSub ? 'unavailable' : claudeIsBroken ? 'attention' : 'ready'
 
   // The ChatGPT account OpenAI's signed id_token attests, same treatment as
   // the Claude row above.
