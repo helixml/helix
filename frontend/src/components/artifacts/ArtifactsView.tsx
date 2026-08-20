@@ -13,6 +13,7 @@ import Typography from '@mui/material/Typography'
 import { EllipsisVertical, ExternalLink, Pencil, Trash2 } from 'lucide-react'
 
 import { TypesArtifact, TypesArtifactKind } from '../../api/api'
+import useRouter from '../../hooks/useRouter'
 import { ViewMode } from '../widgets/ViewModeToggle'
 import ArtifactVisibilityBadge from './ArtifactVisibilityBadge'
 import CardGrid from '../widgets/CardGrid'
@@ -37,13 +38,13 @@ const artifactKindLabel = (artifact: TypesArtifact) => {
 }
 
 const ArtifactsView: FC<Props> = ({ artifacts, mode, onEdit, onDelete }) => {
+  const router = useRouter()
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
   const [currentArtifact, setCurrentArtifact] = useState<TypesArtifact>()
   const artifactKey = artifacts.map((artifact) => `${artifact.id}:${artifact.updated_at}`).join('|')
 
   const openArtifact = (artifact: TypesArtifact) => {
-    const url = artifactURL(artifact)
-    if (url) window.open(url, '_blank', 'noopener,noreferrer')
+    if (artifact.id) router.navigate('artifact_viewer', { artifact_id: artifact.id })
   }
 
   const openMenu = (event: MouseEvent<HTMLElement>, artifact: TypesArtifact) => {
@@ -73,8 +74,6 @@ const ArtifactsView: FC<Props> = ({ artifacts, mode, onEdit, onDelete }) => {
       <Typography variant="body2" sx={{ fontWeight: 600 }}>
         <a
           href={artifactURL(artifact)}
-          target="_blank"
-          rel="noreferrer"
           onClick={(event) => {
             event.preventDefault()
             event.stopPropagation()
