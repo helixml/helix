@@ -768,11 +768,7 @@ func (s *HelixAPIServer) populateArtifactURLs(r *http.Request, artifact *types.A
 		return fmt.Errorf("list artifact subdomains: %w", err)
 	}
 	if len(routes) > 0 && artifact.Visibility == types.ArtifactVisibilityPublic {
-		scheme := "https"
-		if parsed, parseErr := url.Parse(origin); parseErr == nil && parsed.Scheme == "http" {
-			scheme = "http"
-		}
-		artifact.SubdomainURL = scheme + "://" + routes[0].Hostname + "/"
+		artifact.SubdomainURL = s.vhostRouteURL(routes[0].Hostname) + "/"
 	}
 	return nil
 }
@@ -815,9 +811,9 @@ func (s *HelixAPIServer) serveArtifactEmbed(w http.ResponseWriter, r *http.Reque
 		http.NotFound(w, r)
 		return
 	}
-	scheme := artifactOriginScheme(artifactRequestOrigin(r, s.Cfg.WebServer.URL))
+	vhostOrigin := s.vhostRouteURL(routes[0].Hostname)
 	if artifact.Visibility == types.ArtifactVisibilityPublic {
-		http.Redirect(w, r, scheme+"://"+routes[0].Hostname+redirectPath, http.StatusTemporaryRedirect)
+		http.Redirect(w, r, vhostOrigin+redirectPath, http.StatusTemporaryRedirect)
 		return
 	}
 	if artifact.Visibility == types.ArtifactVisibilityProject {
@@ -835,7 +831,7 @@ func (s *HelixAPIServer) serveArtifactEmbed(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "create artifact access", http.StatusInternalServerError)
 			return
 		}
-		action := scheme + "://" + routes[0].Hostname + "/_helix/access"
+		action := vhostOrigin + "/_helix/access"
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -877,13 +873,6 @@ func artifactAccessRedirectPath(requested, rawQuery string) (string, error) {
 		redirectPath += "?" + rawQuery
 	}
 	return redirectPath, nil
-}
-
-func artifactOriginScheme(origin string) string {
-	if parsed, err := url.Parse(origin); err == nil && parsed.Scheme == "http" {
-		return "http"
-	}
-	return "https"
 }
 
 func (s *HelixAPIServer) signArtifactAccessToken(userID, artifactID, artifactPath, audience string, ttl time.Duration) (string, error) {
