@@ -2,7 +2,6 @@ import { FC, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 
-import { APP_MONO_FONT_FAMILY } from '../../styles/typography'
 
 const PLACEHOLDER_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789'
 
@@ -71,8 +70,12 @@ const RedactedText: FC<Props> = ({ value, ariaLabel = 'Hidden value', className 
           border: 0,
           background: 'transparent',
           color: 'inherit',
+          // Inherit the surrounding font rather than forcing mono. A monospace
+          // run at the same px is optically heavier than the text around it, so
+          // blurred it read as a solid bar rather than as hidden text — and the
+          // placeholder and the real value then render at different widths, so
+          // revealing jumped the layout.
           font: 'inherit',
-          fontFamily: APP_MONO_FONT_FAMILY,
           cursor: 'pointer',
           maxWidth: '100%',
           overflow: 'hidden',
@@ -81,7 +84,7 @@ const RedactedText: FC<Props> = ({ value, ariaLabel = 'Hidden value', className 
           verticalAlign: 'bottom',
           ...(revealed
             ? {}
-            : { filter: 'blur(3px)', userSelect: 'none' }),
+            : { filter: 'blur(2.5px)', userSelect: 'none' }),
           '&:focus-visible': {
             outline: '2px solid',
             outlineColor: 'secondary.main',
