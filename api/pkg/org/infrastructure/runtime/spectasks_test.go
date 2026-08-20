@@ -29,6 +29,21 @@ func TestNoopSpecTasks_AllVerbsUnsupported(t *testing.T) {
 	if _, err := st.StartPlanning(ctx, org, wid, "", "task_1"); !errors.Is(err, ErrSpecTasksUnsupported) {
 		t.Errorf("StartPlanning err = %v, want ErrSpecTasksUnsupported", err)
 	}
+	if _, err := st.SendAgentMessage(ctx, org, wid, "", "task_1", SpecTaskMessageInput{Content: "status?"}); !errors.Is(err, ErrSpecTasksUnsupported) {
+		t.Errorf("SendAgentMessage err = %v, want ErrSpecTasksUnsupported", err)
+	}
+	if _, err := st.ListAgentMessages(ctx, org, wid, "", "task_1", 20); !errors.Is(err, ErrSpecTasksUnsupported) {
+		t.Errorf("ListAgentMessages err = %v, want ErrSpecTasksUnsupported", err)
+	}
+	if _, err := st.StartAgent(ctx, org, wid, "", "task_1"); !errors.Is(err, ErrSpecTasksUnsupported) {
+		t.Errorf("StartAgent err = %v, want ErrSpecTasksUnsupported", err)
+	}
+	if _, err := st.StopAgent(ctx, org, wid, "", "task_1"); !errors.Is(err, ErrSpecTasksUnsupported) {
+		t.Errorf("StopAgent err = %v, want ErrSpecTasksUnsupported", err)
+	}
+	if _, err := st.RestartAgent(ctx, org, wid, "", "task_1"); !errors.Is(err, ErrSpecTasksUnsupported) {
+		t.Errorf("RestartAgent err = %v, want ErrSpecTasksUnsupported", err)
+	}
 	if _, err := st.ReviewSpec(ctx, org, wid, "", "task_1"); !errors.Is(err, ErrSpecTasksUnsupported) {
 		t.Errorf("ReviewSpec err = %v, want ErrSpecTasksUnsupported", err)
 	}

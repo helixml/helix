@@ -103,8 +103,8 @@ type Deps struct {
 	// (owner-only read/patch of a Bot's helix project config).
 	ProjectConfig runtime.ProjectConfig
 	// SpecTasks is the front-of-house application service backing the
-	// spec-task tools (create/list/get/start/review/approve/request-changes/
-	// create-PRs) scoped to the calling Worker's own project.
+	// spec-task tools (CRUD, agent chat/lifecycle, review/approval, and PR
+	// creation) scoped to the calling Worker's permitted projects.
 	SpecTasks *spectasks.Service
 	// Projects is the front-of-house application service backing the
 	// project-discovery tools (list_projects/get_project), scoped to the
@@ -444,12 +444,16 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		NewStartBot(deps),
 		NewStopBot(deps),
 		NewRestartBot(deps),
-		// Spec-task management — a Bot managing the spec tasks in its own
-		// Helix project. Granted per-Role (not in BaseReadTools).
+		// Spec-task management — a Bot managing tasks in its permitted Helix
+		// projects. Granted per-Role (not in BaseReadTools).
 		NewCreateSpecTask(deps),
 		NewUpdateSpecTask(deps),
 		NewStartSpecTaskPlanning(deps),
+		NewSendSpecTaskAgentMessage(deps),
+		NewListSpecTaskAgentMessages(deps),
+		NewStartSpecTaskAgent(deps),
 		NewStopSpecTaskAgent(deps),
+		NewRestartSpecTaskAgent(deps),
 		NewApproveSpecTaskSpec(deps),
 		NewRequestSpecTaskChanges(deps),
 		NewCreateSpecTaskPRs(deps),

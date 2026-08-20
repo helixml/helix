@@ -218,9 +218,22 @@ type SpecTasks interface {
 	// StartPlanning begins spec generation (or queues implementation
 	// when the task is in skip-planning / just-do-it mode).
 	StartPlanning(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
+	// SendAgentMessage queues a follow-up turn for the task's canonical
+	// planning session. A non-interrupt message waits for the current turn;
+	// an interrupt message cancels the current turn before delivery.
+	SendAgentMessage(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string, in SpecTaskMessageInput) (SpecTaskMessageView, error)
+	// ListAgentMessages returns the latest turns from the task's canonical
+	// planning session in chronological order.
+	ListAgentMessages(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string, limit int) ([]SpecTaskAgentMessageView, error)
+	// StartAgent resumes the task's existing stopped desktop and preserves its
+	// conversation thread. The task must already have a planning session.
+	StartAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskAgentActionView, error)
 	// StopAgent stops the task's running desktop, if any. It leaves the task
 	// and session records intact so work can be resumed.
 	StopAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
+	// RestartAgent recreates the task's desktop through the canonical session
+	// restart path, preserving a healthy conversation and recovering a wedged one.
+	RestartAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskAgentActionView, error)
 	// ReviewSpec returns the generated requirements/design/tasks for the
 	// caller to review before approving or requesting changes.
 	ReviewSpec(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecReviewView, error)
@@ -270,6 +283,46 @@ type UpdateSpecTaskInput struct {
 	Priority     *string   `json:"priority,omitempty"`
 	SkipPlanning *bool     `json:"skip_planning,omitempty"`
 	DependsOn    *[]string `json:"depends_on,omitempty"`
+}
+
+// SpecTaskMessageInput is one follow-up turn for a task's running agent.
+// Interrupt false preserves ordering by waiting for the current turn; true
+// cancels the current turn before the message is dispatched.
+type SpecTaskMessageInput struct {
+	Content   string `json:"content"`
+	Interrupt bool   `json:"interrupt,omitempty"`
+}
+
+// SpecTaskMessageView identifies the durable prompt queued for an agent.
+// Delivery is asynchronous; consumers observe the response through the
+// existing spec-task transcript/event surfaces.
+type SpecTaskMessageView struct {
+	TaskID    string `json:"task_id"`
+	SessionID string `json:"session_id"`
+	PromptID  string `json:"prompt_id"`
+}
+
+// SpecTaskAgentMessageView is the safe transcript projection exposed to org
+// agents. It deliberately excludes system prompts, tool payloads, and usage.
+type SpecTaskAgentMessageView struct {
+	InteractionID string    `json:"interaction_id"`
+	PromptID      string    `json:"prompt_id,omitempty"`
+	UserMessage   string    `json:"user_message,omitempty"`
+	AgentMessage  string    `json:"agent_message,omitempty"`
+	State         string    `json:"state"`
+	Error         string    `json:"error,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// SpecTaskAgentActionView reports the result of a desktop lifecycle action.
+// Restart-only fields are omitted for start.
+type SpecTaskAgentActionView struct {
+	TaskID       string `json:"task_id"`
+	SessionID    string `json:"session_id"`
+	Status       string `json:"status"`
+	PromptsReset int    `json:"prompts_reset,omitempty"`
+	ThreadReset  bool   `json:"thread_reset,omitempty"`
 }
 
 // ListSpecTasksFilter narrows a List call. Empty fields = no filter.
@@ -339,8 +392,20 @@ func (NoopSpecTasks) Update(_ context.Context, _ string, _ orgchart.NodeID, _, _
 func (NoopSpecTasks) StartPlanning(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
+func (NoopSpecTasks) SendAgentMessage(_ context.Context, _ string, _ orgchart.NodeID, _, _ string, _ SpecTaskMessageInput) (SpecTaskMessageView, error) {
+	return SpecTaskMessageView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) ListAgentMessages(_ context.Context, _ string, _ orgchart.NodeID, _, _ string, _ int) ([]SpecTaskAgentMessageView, error) {
+	return nil, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) StartAgent(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskAgentActionView, error) {
+	return SpecTaskAgentActionView{}, ErrSpecTasksUnsupported
+}
 func (NoopSpecTasks) StopAgent(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) RestartAgent(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskAgentActionView, error) {
+	return SpecTaskAgentActionView{}, ErrSpecTasksUnsupported
 }
 func (NoopSpecTasks) ReviewSpec(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecReviewView, error) {
 	return SpecReviewView{}, ErrSpecTasksUnsupported
