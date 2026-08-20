@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	helixstore "github.com/helixml/helix/api/pkg/store"
@@ -573,4 +574,72 @@ func mustBot(t *testing.T, id string, kind orgchart.NodeKind, now time.Time) org
 		t.Fatal(err)
 	}
 	return b.WithKind(kind)
+}
+
+// contextCapturingProjectService is a minimal ProjectService stub that
+// records the context passed to GetAppConfig so we can assert orgID is
+// stamped on it. Only GetAppConfig and UpdateAppConfig need real behaviour
+// for removeLegacyHelixOrgMCPs.
+type contextCapturingProjectService struct {
+	runtimehelix.ProjectService // embed to satisfy the full interface
+
+	capturedCtx context.Context
+	cfg         types.AppConfig
+}
+
+func (f *contextCapturingProjectService) GetAppConfig(ctx context.Context, _ string) (types.AppConfig, error) {
+	f.capturedCtx = ctx
+	return f.cfg, nil
+}
+
+func (f *contextCapturingProjectService) UpdateAppConfig(_ context.Context, _ string, _ types.AppConfig) error {
+	return nil
+}
+
+func (f *contextCapturingProjectService) GetApp(_ context.Context, _ string) (*types.App, error) {
+	return nil, helixstore.ErrNotFound
+}
+
+// TestRemoveLegacyHelixOrgMCPsStampsOrgIDOnContext verifies the fix for
+// issue #3072: orgID must be stamped onto the context before the inproc
+// ProjectService is called, otherwise the inproc client cannot resolve
+// the caller's identity and returns "no user or organization on context".
+func TestRemoveLegacyHelixOrgMCPsStampsOrgIDOnContext(t *testing.T) {
+	t.Parallel()
+	const orgID = "org-target"
+	ctx := context.Background() // bare context -- no orgID, no user
+
+	st := orgmemory.New()
+	now := time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)
+	// Add a bot with an AgentID so removeLegacyHelixOrgMCPs calls GetAppConfig.
+	// Create directly (not via mustBot) to use the correct org ID.
+	bot, err := orgchart.NewNode("bot-with-agent", "test bot", nil, now, orgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot = bot.WithAgentID("app-agent-1")
+	if err := st.Nodes.Create(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := &contextCapturingProjectService{
+		cfg: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				// No legacy helix-org MCP entry -- RemoveHelixOrgMCP will
+				// call GetAppConfig and return early without UpdateAppConfig.
+				Assistants: []types.AssistantConfig{{Name: "main"}},
+			},
+		},
+	}
+
+	if err := removeLegacyHelixOrgMCPs(ctx, orgID, st, svc); err != nil {
+		t.Fatalf("removeLegacyHelixOrgMCPs: %v", err)
+	}
+	if svc.capturedCtx == nil {
+		t.Fatal("GetAppConfig was never called -- bot with AgentID should trigger it")
+	}
+	got := helixorgserver.OrgIDFromContext(svc.capturedCtx)
+	if got != orgID {
+		t.Fatalf("orgID on context = %q, want %q", got, orgID)
+	}
 }
