@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/cli/api"
 	"github.com/helixml/helix/api/pkg/cli/app"
+	"github.com/helixml/helix/api/pkg/cli/artifact"
 	"github.com/helixml/helix/api/pkg/cli/chat"
 	"github.com/helixml/helix/api/pkg/cli/fs"
 	"github.com/helixml/helix/api/pkg/cli/knowledge"
@@ -43,6 +44,7 @@ func NewRootCmd() *cobra.Command {
 
 	// CLI commands (available on all platforms)
 	RootCmd.AddCommand(app.New())
+	RootCmd.AddCommand(artifact.New())
 	RootCmd.AddCommand(app.NewApplyCmd()) // Shortcut for apply
 	RootCmd.AddCommand(chat.New())
 	RootCmd.AddCommand(knowledge.New())

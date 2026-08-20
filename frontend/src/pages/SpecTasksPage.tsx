@@ -37,6 +37,7 @@ import {
   FolderOpen,
   GitMerge,
   UserPlus,
+  PanelsTopLeft,
 } from "lucide-react";
 
 import Page from "../components/system/Page";
@@ -880,6 +881,18 @@ const SpecTasksPage: FC = () => {
               alignItems: "center",
             }}
           >
+            <Button
+              variant="text"
+              color="secondary"
+              startIcon={<PanelsTopLeft size={18} />}
+              onClick={() => router.navigate("org_project-artifacts", {
+                org_id: router.params.org_id,
+                id: projectId,
+              })}
+              sx={{ flexShrink: 0, minHeight: 40, textTransform: "none", fontWeight: 500 }}
+            >
+              Artifacts
+            </Button>
             {!exploratorySessionData ? (
               <Tooltip title="Test your app and find tasks for your agents. Shared with your team.">
                 <Button

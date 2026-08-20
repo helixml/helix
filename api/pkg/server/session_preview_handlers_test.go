@@ -27,6 +27,12 @@ func TestSetSessionPreviewURL(t *testing.T) {
 			serverURL:   "http://localhost:8080",
 			expectedURL: "http://share-test.preview.example.com:8080",
 		},
+		{
+			name:        "https with nonstandard port",
+			https:       true,
+			serverURL:   "https://helix.example.com:8443",
+			expectedURL: "https://share-test.preview.example.com:8443",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &HelixAPIServer{Cfg: &config.ServerConfig{}}

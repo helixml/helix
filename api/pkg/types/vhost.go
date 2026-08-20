@@ -16,18 +16,25 @@ const (
 	// container for a "Share preview" dev URL. target_id is a session ID
 	// (ses_*) or sandbox ID (sbx_*).
 	VHostTargetSandboxPreview VHostTargetKind = "sandbox_preview"
+
+	// VHostTargetArtifact serves an Artifact's active static version directly
+	// from the filestore. target_id is an artifact ID (art_*).
+	VHostTargetArtifact VHostTargetKind = "artifact_static"
+
+	// VHostTargetArtifactPrivate serves a private Artifact through a short-lived,
+	// user-bound hostname. target_id is an artifact ID (art_*).
+	VHostTargetArtifactPrivate VHostTargetKind = "artifact_private"
 )
 
-// VHostRoute maps a hostname to a routable target inside Helix. The same
-// table holds project web service routes (user-named hostnames) and sandbox
-// preview tokens (random share-* hostnames).
+// VHostRoute maps a hostname to a routable target inside Helix. The same table
+// holds project web services, sandbox preview tokens, and artifact origins.
 type VHostRoute struct {
 	ID         string          `gorm:"primaryKey" json:"id"`
 	Hostname   string          `gorm:"uniqueIndex" json:"hostname"` // always lowercased
 	URL        string          `gorm:"-" json:"url,omitempty"`      // public URL, populated by preview API handlers
 	TargetKind VHostTargetKind `gorm:"index" json:"target_kind"`
 	TargetID   string          `gorm:"index" json:"target_id"`
-	Port       int             `json:"port"` // destination port inside the container
+	Port       int             `json:"port"` // destination port inside the container; zero for static artifacts
 
 	// IsDefault is true for project default subdomains (<slug>.<base>).
 	// User-added custom domains and preview tokens are false.
@@ -41,6 +48,12 @@ type VHostRoute struct {
 	// VerificationToken is only meaningful for custom domains awaiting
 	// DNS-based verification. Null for default and preview rows.
 	VerificationToken string `json:"verification_token,omitempty"`
+
+	// AccessUserID and ExpiresAt are set only on private artifact viewer routes.
+	// They are deliberately excluded from API responses: the route hostname is
+	// an internal viewer capability, not a share URL.
+	AccessUserID string     `gorm:"index" json:"-"`
+	ExpiresAt    *time.Time `gorm:"index" json:"-"`
 
 	CreatedAt time.Time  `json:"created_at"`
 	RotatedAt *time.Time `json:"rotated_at,omitempty"`
