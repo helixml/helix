@@ -63,6 +63,3 @@ func (r *triggersRepo) Update(ctx context.Context, t trigger.Trigger) error {
 func (r *triggersRepo) Delete(ctx context.Context, orgID, id string) error {
 	return r.Repository.Delete(ctx, store.WithOrg(orgID), store.WithID(id))
 }
-func (r *triggersRepo) Find(ctx context.Context, opts ...store.Option) ([]trigger.Trigger, error) {
-	return r.Repository.Find(ctx, opts...)
-}

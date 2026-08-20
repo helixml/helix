@@ -27,7 +27,7 @@ func setup(t *testing.T) (*store.Store, *processors.Processors, *slackrouting.Re
 	}
 	s := memory.New()
 	top := topics.New(topics.Deps{Topics: s.Topics, NewID: id})
-	procs := processors.New(processors.Deps{Processors: s.Processors, Topics: top, NewID: id})
+	procs := processors.New(processors.Deps{Processors: s.Processors, Topics: top, Attachments: s.WorkerAttachments, NewID: id})
 	rec := slackrouting.New(slackrouting.Deps{Nodes: s.Nodes, Subscriptions: s.Subscriptions, Processors: procs})
 	return s, procs, rec
 }

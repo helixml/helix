@@ -185,15 +185,13 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 	for _, sub := range subs {
 		targets = append(targets, orgchart.NodeID(sub.NodeID))
 	}
-	d.deliver(ctx, orgID, targets, orgchart.NodeID(e.Source), func() activation.Trigger {
-		return activation.Trigger{
-			Kind:      activation.TriggerEvent,
-			EventID:   e.ID,
-			TopicID:   e.TopicID,
-			Source:    e.Source,
-			Message:   msg, // full canonical envelope; rendered by the spawner into the activation prompt
-			CreatedAt: e.CreatedAt,
-		}
+	d.deliver(ctx, orgID, targets, orgchart.NodeID(e.Source), activation.Trigger{
+		Kind:      activation.TriggerEvent,
+		EventID:   e.ID,
+		TopicID:   e.TopicID,
+		Source:    e.Source,
+		Message:   msg, // full canonical envelope; rendered by the spawner into the activation prompt
+		CreatedAt: e.CreatedAt,
 	})
 	// Processor fan-out: hand the event + parsed message to the
 	// execution arm, which publishes each processor's output back
@@ -225,13 +223,11 @@ func (d *Dispatcher) DispatchSource(ctx context.Context, e eventsource.Event) er
 	for _, a := range rows {
 		targets = append(targets, a.WorkerID)
 	}
-	d.deliver(ctx, e.OrganizationID, targets, orgchart.NodeID(e.OriginatingWorkerID), func() activation.Trigger {
-		return activation.Trigger{Kind: activation.TriggerEvent, EventID: streaming.EventID(e.ID), EventSource: e.Source, Source: orgchart.NodeID(e.OriginatingWorkerID), Message: e.Message, CreatedAt: e.CreatedAt}
-	})
+	d.deliver(ctx, e.OrganizationID, targets, orgchart.NodeID(e.OriginatingWorkerID), activation.Trigger{Kind: activation.TriggerEvent, EventID: streaming.EventID(e.ID), EventSource: e.Source, Source: orgchart.NodeID(e.OriginatingWorkerID), Message: e.Message, CreatedAt: e.CreatedAt})
 	return nil
 }
 
-func (d *Dispatcher) deliver(ctx context.Context, orgID string, targets []orgchart.NodeID, origin orgchart.NodeID, newTrigger func() activation.Trigger) {
+func (d *Dispatcher) deliver(ctx context.Context, orgID string, targets []orgchart.NodeID, origin orgchart.NodeID, trigger activation.Trigger) {
 	seen := map[orgchart.NodeID]struct{}{}
 	for _, id := range targets {
 		if id == origin {
@@ -249,7 +245,7 @@ func (d *Dispatcher) deliver(ctx context.Context, orgID string, targets []orgcha
 		if node.IsHuman() {
 			continue
 		}
-		d.queue.Enqueue(orgID, node.ID, newTrigger())
+		d.queue.Enqueue(orgID, node.ID, trigger)
 	}
 }
 

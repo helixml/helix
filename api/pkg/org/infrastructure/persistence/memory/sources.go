@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/org/domain/attachment"
-	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 )
@@ -103,7 +102,6 @@ type attachmentsRepo struct {
 	rows map[orgKey]attachment.Attachment
 }
 
-func sourceEqual(a, b eventsource.SourceRef) bool { return a == b }
 func (r *attachmentsRepo) Create(_ context.Context, a attachment.Attachment) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -112,7 +110,7 @@ func (r *attachmentsRepo) Create(_ context.Context, a attachment.Attachment) err
 		return fmt.Errorf("attachment %q %w", a.ID, store.ErrConflict)
 	}
 	for _, x := range r.rows {
-		if x.OrganizationID == a.OrganizationID && x.WorkerID == a.WorkerID && sourceEqual(x.Source, a.Source) {
+		if x.OrganizationID == a.OrganizationID && x.WorkerID == a.WorkerID && x.Source == a.Source {
 			return fmt.Errorf("worker source attachment %w", store.ErrConflict)
 		}
 	}

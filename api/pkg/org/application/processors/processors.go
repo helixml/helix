@@ -36,6 +36,7 @@ var ErrCycle = errors.New("processor would create a cycle in the topic graph")
 // Topics. *topics.Topics satisfies it.
 type TopicWriter interface {
 	Create(ctx context.Context, orgID string, p topics.CreateParams) (streaming.Topic, error)
+	Get(ctx context.Context, orgID string, id streaming.TopicID) (streaming.Topic, error)
 	Delete(ctx context.Context, orgID string, id streaming.TopicID) error
 }
 
@@ -44,7 +45,6 @@ type Processors struct {
 	procs       store.Processors
 	topics      TopicWriter
 	attachments store.WorkerAttachments
-	topicReader store.Topics
 	now         func() time.Time
 	newID       func() string
 }
@@ -54,7 +54,6 @@ type Deps struct {
 	Processors  store.Processors
 	Topics      TopicWriter
 	Attachments store.WorkerAttachments
-	TopicReader store.Topics
 	Now         func() time.Time
 	NewID       func() string
 }
@@ -69,7 +68,7 @@ func New(deps Deps) *Processors {
 	if newID == nil {
 		newID = func() string { return "stub" }
 	}
-	return &Processors{procs: deps.Processors, topics: deps.Topics, attachments: deps.Attachments, topicReader: deps.TopicReader, now: now, newID: newID}
+	return &Processors{procs: deps.Processors, topics: deps.Topics, attachments: deps.Attachments, now: now, newID: newID}
 }
 
 // OutputSpec describes one desired output branch at create/update time.
@@ -288,17 +287,17 @@ func (s *Processors) AddOutput(ctx context.Context, orgID string, id processor.P
 }
 
 func (s *Processors) validateTopics(ctx context.Context, orgID string, input streaming.TopicID, outputs []OutputSpec) error {
-	if s.topicReader == nil {
-		return nil
+	if s.topics == nil {
+		return errors.New("validate processor topics: topic service is not configured")
 	}
 	if input != "" {
-		if _, err := s.topicReader.Get(ctx, orgID, input); err != nil {
+		if _, err := s.topics.Get(ctx, orgID, input); err != nil {
 			return fmt.Errorf("validate processor input topic %q: %w", input, err)
 		}
 	}
 	for _, out := range outputs {
 		if out.TopicID != "" {
-			if _, err := s.topicReader.Get(ctx, orgID, out.TopicID); err != nil {
+			if _, err := s.topics.Get(ctx, orgID, out.TopicID); err != nil {
 				return fmt.Errorf("validate processor output topic %q: %w", out.TopicID, err)
 			}
 		}
@@ -327,14 +326,15 @@ func (s *Processors) RemoveOutput(ctx context.Context, orgID string, id processo
 		return nil // already gone
 	}
 	removed := existing.Outputs[idx]
-	if s.attachments != nil {
-		attached, err := s.attachments.Find(ctx, store.WithOrg(orgID), store.WithProcessorID(id), store.WithOutputID(removed.ID), store.WithLimit(1))
-		if err != nil {
-			return fmt.Errorf("check output %q attachments: %w", removed.ID, err)
-		}
-		if len(attached) > 0 {
-			return fmt.Errorf("processor output %q has worker attachments: %w", removed.ID, store.ErrConflict)
-		}
+	if s.attachments == nil {
+		return errors.New("remove processor output: attachment repository is not configured")
+	}
+	attached, err := s.attachments.Find(ctx, store.WithOrg(orgID), store.WithProcessorID(id), store.WithOutputID(removed.ID), store.WithLimit(1))
+	if err != nil {
+		return fmt.Errorf("check output %q attachments: %w", removed.ID, err)
+	}
+	if len(attached) > 0 {
+		return fmt.Errorf("processor output %q has worker attachments: %w", removed.ID, store.ErrConflict)
 	}
 	existing.Outputs = append(existing.Outputs[:idx:idx], existing.Outputs[idx+1:]...)
 	if err := existing.Validate(); err != nil {
@@ -354,22 +354,23 @@ func (s *Processors) RemoveOutput(ctx context.Context, orgID string, id processo
 // Delete removes the Processor and the output Topics it owns (cascading
 // their subscriptions, as topic delete already does).
 func (s *Processors) Delete(ctx context.Context, orgID string, id processor.ProcessorID) error {
+	if s.attachments == nil {
+		return errors.New("delete processor: attachment repository is not configured")
+	}
 	existing, err := s.procs.Get(ctx, orgID, id)
 	if err != nil {
 		return err
 	}
+	attached, err := s.attachments.Find(ctx, store.WithOrg(orgID), store.WithProcessorID(id))
+	if err != nil {
+		return fmt.Errorf("delete processor: list attachments: %w", err)
+	}
 	if err := s.procs.Delete(ctx, orgID, id); err != nil {
 		return err
 	}
-	if s.attachments != nil {
-		attached, err := s.attachments.Find(ctx, store.WithOrg(orgID), store.WithProcessorID(id))
-		if err != nil {
-			return fmt.Errorf("processor deleted but list attachments: %w", err)
-		}
-		for _, a := range attached {
-			if err := s.attachments.Delete(ctx, orgID, a.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
-				return fmt.Errorf("processor deleted but attachment %q cleanup failed: %w", a.ID, err)
-			}
+	for _, a := range attached {
+		if err := s.attachments.Delete(ctx, orgID, a.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("processor deleted but attachment %q cleanup failed: %w", a.ID, err)
 		}
 	}
 	for _, o := range existing.Outputs {

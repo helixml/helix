@@ -97,6 +97,11 @@ func (s *Topics) Create(ctx context.Context, orgID string, p CreateParams) (stre
 	return topic, nil
 }
 
+// Get returns one Topic within its organization boundary.
+func (s *Topics) Get(ctx context.Context, orgID string, id streaming.TopicID) (streaming.Topic, error) {
+	return s.topics.Get(ctx, orgID, id)
+}
+
 // ensureNameAvailable returns store.ErrConflict when the org already has a
 // Topic with this name (the same exact-match the gorm unique index enforces).
 func (s *Topics) ensureNameAvailable(ctx context.Context, orgID, name string) error {

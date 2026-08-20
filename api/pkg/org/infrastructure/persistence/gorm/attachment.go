@@ -69,6 +69,3 @@ func (r *attachmentsRepo) Create(ctx context.Context, a attachment.Attachment) e
 func (r *attachmentsRepo) Delete(ctx context.Context, orgID, id string) error {
 	return r.Repository.Delete(ctx, store.WithOrg(orgID), store.WithID(id))
 }
-func (r *attachmentsRepo) Find(ctx context.Context, opts ...store.Option) ([]attachment.Attachment, error) {
-	return r.Repository.Find(ctx, opts...)
-}

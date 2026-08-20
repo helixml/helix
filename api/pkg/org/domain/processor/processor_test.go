@@ -20,7 +20,7 @@ func cfg(t *testing.T, v any) json.RawMessage {
 }
 
 func out(topic string) []processor.Output {
-	return []processor.Output{{TopicID: streaming.TopicID(topic)}}
+	return []processor.Output{{ID: "po-" + topic, TopicID: streaming.TopicID(topic)}}
 }
 
 func newTemplateProc(t *testing.T, tmpl string) processor.Processor {

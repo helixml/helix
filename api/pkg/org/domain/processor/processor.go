@@ -41,6 +41,10 @@ import (
 // a distinct named type (see orgchart/ids.go for the rationale).
 type ProcessorID = string
 
+// LegacyOutputID deterministically identifies a pre-ID branch by its immutable
+// compatibility Topic. It is used only by the eager upgrade migration.
+func LegacyOutputID(topicID streaming.TopicID) string { return "po-topic-" + string(topicID) }
+
 // Kind names the implementation that owns a Processor's behaviour.
 // Constants are defined alongside their Config in each Kind's own file
 // (KindTemplate in template.go, KindTruncate in truncate.go, …).
@@ -56,7 +60,7 @@ type Kind string
 //     filter Kind (see filter.go); transform Kinds require it empty.
 //   - Label is a human-facing name for the branch, shown on the chart.
 type Output struct {
-	ID      string `json:"-"`
+	ID      string `json:"id,omitempty"`
 	TopicID streaming.TopicID
 	Match   string
 	Label   string
@@ -164,16 +168,6 @@ func (p Processor) Automated() bool { return p.CreatedBy == SystemActor }
 // validated against the Kind's rules. createdBy is optional (cosmetic
 // anchor, like NewTopic).
 func NewProcessor(id ProcessorID, name string, inputTopicID streaming.TopicID, kind Kind, config json.RawMessage, outputs []Output, createdBy string, createdAt time.Time, orgID string) (Processor, error) {
-	// Compatibility adapter for pre-output-ID callers and upgraded rows. Topic
-	// IDs are immutable branch ownership keys in the Topic model, so this is
-	// exact recovery rather than label/position inference. The database
-	// migration persists these IDs before subsequent reads.
-	outputs = append([]Output(nil), outputs...)
-	for i := range outputs {
-		if outputs[i].ID == "" && outputs[i].TopicID != "" {
-			outputs[i].ID = "po-topic-" + string(outputs[i].TopicID)
-		}
-	}
 	p := Processor{
 		ID:             id,
 		OrganizationID: orgID,
@@ -217,6 +211,7 @@ func (p Processor) Validate() error {
 	if len(p.Outputs) == 0 {
 		return errors.New("processor has no outputs")
 	}
+	seenOutputIDs := make(map[string]struct{}, len(p.Outputs))
 	for i, o := range p.Outputs {
 		if o.ID == "" {
 			return fmt.Errorf("processor output %d has empty id", i)
@@ -224,9 +219,6 @@ func (p Processor) Validate() error {
 		if o.TopicID == "" {
 			return fmt.Errorf("processor output %d has empty topic id", i)
 		}
-	}
-	seenOutputIDs := make(map[string]struct{}, len(p.Outputs))
-	for _, o := range p.Outputs {
 		if _, exists := seenOutputIDs[o.ID]; exists {
 			return fmt.Errorf("processor output id %q is duplicated", o.ID)
 		}

@@ -2,12 +2,14 @@ package gorm
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/attachment"
 	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	"github.com/helixml/helix/api/pkg/org/domain/trigger"
@@ -54,7 +56,8 @@ func TestProcessorOutputIDUpgradeIsIdempotent(t *testing.T) {
 	require.NoError(t, migrateProcessorOutputIDs(db))
 	var got processorRow
 	require.NoError(t, db.First(&got, "id = ? AND org_id = ?", "p-1", "org-1").Error)
-	outputs, err := unmarshalProcessorOutputs([]byte(got.Outputs))
+	var outputs []processor.Output
+	err = json.Unmarshal([]byte(got.Outputs), &outputs)
 	require.NoError(t, err)
 	require.Equal(t, "po-topic-s-out", outputs[0].ID)
 }

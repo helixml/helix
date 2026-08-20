@@ -29,15 +29,15 @@ func New(d Deps) *Service {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	newID := d.NewID
-	if newID == nil {
-		newID = func() string { return "stub" }
-	}
 	return &Service{store: d.Store, now: now, newID: newID}
 }
 
 func (s *Service) Create(ctx context.Context, orgID string, workerID orgchart.NodeID, source eventsource.SourceRef, createdBy string) (attachment.Attachment, error) {
 	if s.store == nil || s.store.WorkerAttachments == nil {
 		return attachment.Attachment{}, errors.New("create worker attachment: attachment repository is not configured")
+	}
+	if s.newID == nil {
+		return attachment.Attachment{}, errors.New("create worker attachment: id generator is not configured")
 	}
 	worker, err := s.store.Nodes.Get(ctx, orgID, workerID)
 	if err != nil {

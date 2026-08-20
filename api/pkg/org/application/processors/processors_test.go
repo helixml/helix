@@ -32,7 +32,7 @@ func setup(t *testing.T) (*store.Store, *processors.Processors, *topics.Topics) 
 	id := func() string { n++; return time.Now().Format("150405.000") + "-" + string(rune('a'+n%26)) }
 	s := memory.New()
 	top := topics.New(topics.Deps{Topics: s.Topics, NewID: id})
-	svc := processors.New(processors.Deps{Processors: s.Processors, Topics: top, Attachments: s.WorkerAttachments, TopicReader: s.Topics, NewID: id})
+	svc := processors.New(processors.Deps{Processors: s.Processors, Topics: top, Attachments: s.WorkerAttachments, NewID: id})
 	return s, svc, top
 }
 
@@ -144,6 +144,23 @@ func TestCreateRejectsCrossTenantTopics(t *testing.T) {
 	_, err = svc.Create(ctx, org, processors.CreateParams{Name: "Bad input", InputTopicID: "s-foreign", Kind: processor.KindTemplate, Config: tmplCfg("x")})
 	require.ErrorIs(t, err, store.ErrNotFound)
 	require.ErrorContains(t, err, "validate processor input topic")
+}
+
+func TestLifecycleMutationsRequireAttachmentRepository(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	top := topics.New(topics.Deps{Topics: st.Topics, NewID: func() string { return "fixed" }})
+	svc := processors.New(processors.Deps{Processors: st.Processors, Topics: top, NewID: func() string { return "fixed" }})
+	_, err := top.Create(ctx, org, topics.CreateParams{ID: "s-deps-input", Name: "Deps input"})
+	require.NoError(t, err)
+	p, err := svc.Create(ctx, org, processors.CreateParams{Name: "Deps", InputTopicID: "s-deps-input", Kind: processor.KindTemplate, Config: tmplCfg("x")})
+	require.NoError(t, err)
+	err = svc.RemoveOutput(ctx, org, p.ID, p.Outputs[0].TopicID)
+	require.ErrorContains(t, err, "attachment repository is not configured")
+	err = svc.Delete(ctx, org, p.ID)
+	require.ErrorContains(t, err, "attachment repository is not configured")
+	_, err = st.Processors.Get(ctx, org, p.ID)
+	require.NoError(t, err)
 }
 
 func TestUpdateRevalidatesConfig(t *testing.T) {

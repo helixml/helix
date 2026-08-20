@@ -11,6 +11,11 @@ import (
 
 func newFilterProc(t *testing.T, outputs []processor.Output) processor.Processor {
 	t.Helper()
+	for i := range outputs {
+		if outputs[i].ID == "" {
+			outputs[i].ID = "po-" + string(outputs[i].TopicID)
+		}
+	}
 	p, err := processor.NewProcessor(
 		"p-filter", "Filter", "s-in", processor.KindFilter,
 		nil, outputs, "", time.Now(), "org-1",
@@ -90,7 +95,7 @@ func TestFilterEmptyPredicateIsUnconditional(t *testing.T) {
 func TestFilterMalformedPredicateRejected(t *testing.T) {
 	_, err := processor.NewProcessor(
 		"p-bad", "Bad", "s-in", processor.KindFilter,
-		nil, []processor.Output{{TopicID: "s-x", Match: "{{ if "}}, "", time.Now(), "org-1",
+		nil, []processor.Output{{ID: "po-x", TopicID: "s-x", Match: "{{ if "}}, "", time.Now(), "org-1",
 	)
 	if err == nil {
 		t.Fatal("want error for malformed predicate, got nil")
@@ -103,7 +108,7 @@ func TestFilterMalformedPredicateRejected(t *testing.T) {
 func TestFilterUnknownFuncRejected(t *testing.T) {
 	_, err := processor.NewProcessor(
 		"p-fn", "Fn", "s-in", processor.KindFilter,
-		nil, []processor.Output{{TopicID: "s-x", Match: `{{ if regexMatch "x" .Message.from }}1{{ end }}`}},
+		nil, []processor.Output{{ID: "po-x", TopicID: "s-x", Match: `{{ if regexMatch "x" .Message.from }}1{{ end }}`}},
 		"", time.Now(), "org-1",
 	)
 	if err == nil {

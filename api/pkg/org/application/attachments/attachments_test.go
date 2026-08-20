@@ -88,3 +88,10 @@ func TestMissingRepository(t *testing.T) {
 	require.ErrorContains(t, err, "not configured")
 	require.ErrorContains(t, svc.Delete(context.Background(), "org", "x"), "not configured")
 }
+
+func TestMissingIDGenerator(t *testing.T) {
+	ctx, st, _ := setup(t)
+	svc := attachments.New(attachments.Deps{Store: st})
+	_, err := svc.Create(ctx, "org-1", "w-one", eventsource.Trigger("tr-1"), "")
+	require.ErrorContains(t, err, "id generator is not configured")
+}

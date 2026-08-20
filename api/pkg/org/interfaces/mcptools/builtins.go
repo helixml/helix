@@ -256,7 +256,6 @@ func (c Config) processorsService() *processors.Processors {
 		Processors:  c.Store.Processors,
 		Topics:      c.topicsService(),
 		Attachments: c.Store.WorkerAttachments,
-		TopicReader: c.Store.Topics,
 		Now:         c.Now,
 		NewID:       c.NewID,
 	})

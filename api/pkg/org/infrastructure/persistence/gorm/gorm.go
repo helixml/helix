@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -192,12 +193,12 @@ func installAttachmentConstraints(db *gorm.DB) error {
 
 func migrateProcessorOutputIDs(db *gorm.DB) error {
 	var rows []processorRow
-	if err := db.Find(&rows).Error; err != nil {
+	if err := db.Where(`outputs NOT LIKE ?`, `%"id":%`).Find(&rows).Error; err != nil {
 		return err
 	}
 	for _, row := range rows {
-		outputs, err := unmarshalProcessorOutputs([]byte(row.Outputs))
-		if err != nil {
+		var outputs []processor.Output
+		if err := json.Unmarshal([]byte(row.Outputs), &outputs); err != nil {
 			return fmt.Errorf("processor %q outputs: %w", row.ID, err)
 		}
 		changed := false
@@ -207,7 +208,7 @@ func migrateProcessorOutputIDs(db *gorm.DB) error {
 				if outputs[i].TopicID == "" {
 					return fmt.Errorf("processor %q output %d has no topic id", row.ID, i)
 				}
-				outputs[i].ID = "po-topic-" + string(outputs[i].TopicID)
+				outputs[i].ID = processor.LegacyOutputID(outputs[i].TopicID)
 				changed = true
 			}
 			if _, ok := seen[outputs[i].ID]; ok {
@@ -216,7 +217,7 @@ func migrateProcessorOutputIDs(db *gorm.DB) error {
 			seen[outputs[i].ID] = struct{}{}
 		}
 		if changed {
-			encoded, err := marshalProcessorOutputs(outputs)
+			encoded, err := json.Marshal(outputs)
 			if err != nil {
 				return err
 			}
