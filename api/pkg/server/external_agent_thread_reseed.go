@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -117,16 +118,30 @@ func (apiServer *HelixAPIServer) buildThreadReseedPreamble(ctx context.Context, 
 // The turn being replayed is excluded: it is sent immediately after the seed,
 // and including it would have the agent read its own pending question as
 // something already asked and answered.
+//
+// Only the tail is fetched. Interaction ids are `int_<ulid>` (see
+// api/pkg/system/uuid.go), so id order is chronological and "id DESC" with a
+// limit reads the newest turns without dragging every prompt and response in
+// the session through the query — this runs on a turn that is already
+// recovering, and a long session's full history is a lot of text to pull for
+// six lines of summary. One extra row covers the replayed turn landing inside
+// the window; a turn with no text of its own simply yields fewer lines, which
+// is fine for a bounded summary.
 func (apiServer *HelixAPIServer) recentTranscript(ctx context.Context, sessionID, currentInteractionID string) string {
 	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    sessionID,
 		GenerationID: -1,
+		Order:        "id DESC",
+		PerPage:      reseedMaxTurns + 1,
 	})
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", sessionID).
 			Msg("thread reseed: could not list interactions for context preamble")
 		return ""
 	}
+	// Back to chronological, so the agent reads the exchange in the order it
+	// happened.
+	slices.Reverse(interactions)
 
 	var turns []string
 	for _, interaction := range interactions {

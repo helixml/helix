@@ -4639,10 +4639,19 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_UnrestorableAgentReplaysWithSee
 		ID: "spt_dsh", Name: "Audit the security findings",
 		OriginalPrompt: "review the container hardening", BranchName: "feature/000386-audit",
 	}, nil)
-	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{
-		{ID: "int-old", SessionID: "ses_dsh", PromptMessage: "start the audit", ResponseMessage: "logged 29 findings"},
-		pending,
-	}, int64(2), nil)
+	// Reads only the tail, newest-first, rather than the whole session.
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
+			s.Equal("ses_dsh", query.SessionID)
+			s.Equal("id DESC", query.Order)
+			s.Positive(query.PerPage)
+			s.LessOrEqual(query.PerPage, reseedMaxTurns+1)
+			return []*types.Interaction{
+				pending,
+				{ID: "int-old", SessionID: "ses_dsh", PromptMessage: "start the audit", ResponseMessage: "logged 29 findings"},
+			}, int64(2), nil
+		},
+	)
 
 	err := s.server.handleThreadLoadError("ses_dsh", &types.SyncMessage{
 		EventType: "thread_load_error",
@@ -4710,4 +4719,21 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_UnrestorableAgentKeepsThreadIDW
 	})
 	s.NoError(err)
 	s.Equal(threadID, session.Metadata.ZedThreadID)
+}
+
+// The store returns newest-first, so the preamble has to put the exchange back
+// in the order it happened — an agent reading its own history backwards is
+// worse than no history.
+func (s *WebSocketSyncSuite) TestThreadReseedPreamble_RendersTranscriptOldestFirst() {
+	session := &types.Session{ID: "ses_order"}
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{
+		{ID: "int-3", SessionID: "ses_order", PromptMessage: "third"},
+		{ID: "int-2", SessionID: "ses_order", PromptMessage: "second"},
+		{ID: "int-1", SessionID: "ses_order", PromptMessage: "first"},
+	}, int64(3), nil)
+
+	preamble := s.server.buildThreadReseedPreamble(context.Background(), session, "int-current")
+
+	s.Less(strings.Index(preamble, "first"), strings.Index(preamble, "second"))
+	s.Less(strings.Index(preamble, "second"), strings.Index(preamble, "third"))
 }
