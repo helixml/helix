@@ -26035,6 +26035,10 @@ const docTemplate = `{
                     "description": "human-readable owner (email / full name)",
                     "type": "string"
                 },
+                "refresh_token_expires_at": {
+                    "description": "RefreshTokenExpiresAt is when the user must sign in again. Refreshing\nkeeps the access token alive but does not move this, so it is the only\nhonest basis for an expiry warning.",
+                    "type": "string"
+                },
                 "status": {
                     "type": "string"
                 },
@@ -30112,6 +30116,10 @@ const docTemplate = `{
                 "refreshToken": {
                     "type": "string"
                 },
+                "refreshTokenExpiresAt": {
+                    "description": "RefreshTokenExpiresAt is Unix milliseconds. This is the one that matters\nfor \"when must I sign in again\": rotation does not extend it, so it is a\nhard deadline anchored to the original login.",
+                    "type": "integer"
+                },
                 "scopes": {
                     "type": "array",
                     "items": {
@@ -30185,6 +30193,10 @@ const docTemplate = `{
                     ]
                 },
                 "rate_limit_tier": {
+                    "type": "string"
+                },
+                "refresh_token_expires_at": {
+                    "description": "RefreshTokenExpiresAt is when the login itself dies and the user must\nre-authenticate. Refreshing keeps the 8h access token alive but does not\nmove this, so it is the only honest basis for an expiry warning. Zero for\nsetup tokens, which carry no refresh token.",
                     "type": "string"
                 },
                 "scopes": {

@@ -237,3 +237,66 @@ func TestRefreshClaudeToken_RequiresToken(t *testing.T) {
 		t.Fatal("refresh without a token must fail before any network call")
 	}
 }
+
+// Nothing used to record when the login itself dies, so there was no basis for
+// warning a user before it did. Both grants must surface it.
+func TestClaudeTokens_CarryLoginExpiry(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// 8h access token, ~9 day login — the shape Anthropic actually returns.
+		_, _ = w.Write([]byte(`{"access_token":"a","refresh_token":"b","expires_in":28800,"refresh_token_expires_in":777600}`))
+	}))
+	defer srv.Close()
+	orig := claudeTokenURL
+	claudeTokenURL = srv.URL
+	defer func() { claudeTokenURL = orig }()
+
+	for _, tc := range []struct {
+		name string
+		call func() (*ClaudeTokens, error)
+	}{
+		{"exchange", func() (*ClaudeTokens, error) {
+			return ExchangeClaudeCode(context.Background(), "code", "verifier", "state")
+		}},
+		{"refresh", func() (*ClaudeTokens, error) {
+			return RefreshClaudeToken(context.Background(), "old-refresh")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tokens, err := tc.call()
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if tokens.RefreshExpiresAt == 0 {
+				t.Fatal("RefreshExpiresAt must be set — without it there is no way to warn before a login dies")
+			}
+			days := time.Until(time.UnixMilli(tokens.RefreshExpiresAt)).Hours() / 24
+			if days < 8.5 || days > 9.5 {
+				t.Fatalf("login expiry = %.2f days out, want ~9", days)
+			}
+			// The access token expiry must stay separate: it is refreshed, the
+			// login deadline is not.
+			if tokens.ExpiresAt >= tokens.RefreshExpiresAt {
+				t.Fatal("access token must expire well before the login does")
+			}
+		})
+	}
+}
+
+// A response without the field must not invent a deadline.
+func TestClaudeTokens_NoLoginExpiryWhenAbsent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"access_token":"a","refresh_token":"b","expires_in":28800}`))
+	}))
+	defer srv.Close()
+	orig := claudeTokenURL
+	claudeTokenURL = srv.URL
+	defer func() { claudeTokenURL = orig }()
+
+	tokens, err := RefreshClaudeToken(context.Background(), "old")
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if tokens.RefreshExpiresAt != 0 {
+		t.Fatal("must stay zero rather than guessing a deadline")
+	}
+}

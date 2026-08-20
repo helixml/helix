@@ -119,7 +119,10 @@ type ClaudeTokens struct {
 	RefreshToken string
 	// ExpiresAt is Unix milliseconds, matching ClaudeOAuthCredentials.
 	ExpiresAt int64
-	Scopes    []string
+	// RefreshExpiresAt is when the login itself dies, in Unix milliseconds.
+	// Rotation does not extend it.
+	RefreshExpiresAt int64
+	Scopes           []string
 }
 
 // ExchangeClaudeCode trades the pasted authorization code for tokens. The
@@ -189,6 +192,9 @@ func ExchangeClaudeCode(ctx context.Context, code, verifier, state string) (*Cla
 	}
 	if parsed.ExpiresIn > 0 {
 		tokens.ExpiresAt = time.Now().Add(time.Duration(parsed.ExpiresIn) * time.Second).UnixMilli()
+	}
+	if parsed.RefreshTokenExpiresIn > 0 {
+		tokens.RefreshExpiresAt = time.Now().Add(time.Duration(parsed.RefreshTokenExpiresIn) * time.Second).UnixMilli()
 	}
 	if parsed.Scope != "" {
 		tokens.Scopes = strings.Fields(parsed.Scope)
@@ -265,6 +271,9 @@ func RefreshClaudeToken(ctx context.Context, refreshToken string) (*ClaudeTokens
 	}
 	if parsed.ExpiresIn > 0 {
 		tokens.ExpiresAt = time.Now().Add(time.Duration(parsed.ExpiresIn) * time.Second).UnixMilli()
+	}
+	if parsed.RefreshTokenExpiresIn > 0 {
+		tokens.RefreshExpiresAt = time.Now().Add(time.Duration(parsed.RefreshTokenExpiresIn) * time.Second).UnixMilli()
 	}
 	if parsed.Scope != "" {
 		tokens.Scopes = strings.Fields(parsed.Scope)

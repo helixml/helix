@@ -86,6 +86,7 @@ func (apiServer *HelixAPIServer) createClaudeSubscriptionFrom(ctx context.Contex
 	var encrypted string
 	var credentialType string
 	var expiresAt time.Time
+	var refreshTokenExpiresAt time.Time
 	var subscriptionType, rateLimitTier string
 	var scopes []string
 
@@ -143,6 +144,11 @@ func (apiServer *HelixAPIServer) createClaudeSubscriptionFrom(ctx context.Contex
 		if creds.ExpiresAt > 0 {
 			expiresAt = time.UnixMilli(creds.ExpiresAt)
 		}
+		// The credentials file carries this, and the PKCE exchange fills it in
+		// too. It is the deadline the user actually needs warning about.
+		if creds.RefreshTokenExpiresAt > 0 {
+			refreshTokenExpiresAt = time.UnixMilli(creds.RefreshTokenExpiresAt)
+		}
 	}
 
 	// Delete any existing subscriptions for this owner before creating a new one.
@@ -155,17 +161,18 @@ func (apiServer *HelixAPIServer) createClaudeSubscriptionFrom(ctx context.Contex
 	}
 
 	sub := &types.ClaudeSubscription{
-		OwnerID:              ownerID,
-		OwnerType:            ownerType,
-		Name:                 createReq.Name,
-		EncryptedCredentials: encrypted,
-		CredentialType:       credentialType,
-		SubscriptionType:     subscriptionType,
-		RateLimitTier:        rateLimitTier,
-		Scopes:               scopes,
-		AccessTokenExpiresAt: expiresAt,
-		Status:               "active",
-		CreatedBy:            user.ID,
+		OwnerID:               ownerID,
+		OwnerType:             ownerType,
+		Name:                  createReq.Name,
+		EncryptedCredentials:  encrypted,
+		CredentialType:        credentialType,
+		SubscriptionType:      subscriptionType,
+		RateLimitTier:         rateLimitTier,
+		Scopes:                scopes,
+		AccessTokenExpiresAt:  expiresAt,
+		RefreshTokenExpiresAt: refreshTokenExpiresAt,
+		Status:                "active",
+		CreatedBy:             user.ID,
 	}
 
 	created, err := apiServer.Store.CreateClaudeSubscription(ctx, sub)
@@ -309,10 +316,14 @@ type AppClaudeSubscriptionStatus struct {
 	// ClaudeOrganizationID is Anthropic's organization uuid for the credential.
 	// Populated for setup tokens too, which cannot be profiled — it lets the UI
 	// say "this is the same subscription as X" without anyone typing anything.
-	ClaudeOrganizationID string     `json:"claude_organization_id,omitempty"`
-	Status               string     `json:"status,omitempty"`
-	LastValidatedAt      *time.Time `json:"last_validated_at,omitempty"`
-	LastError            string     `json:"last_error,omitempty"`
+	ClaudeOrganizationID string `json:"claude_organization_id,omitempty"`
+	// RefreshTokenExpiresAt is when the user must sign in again. Refreshing
+	// keeps the access token alive but does not move this, so it is the only
+	// honest basis for an expiry warning.
+	RefreshTokenExpiresAt *time.Time `json:"refresh_token_expires_at,omitempty"`
+	Status                string     `json:"status,omitempty"`
+	LastValidatedAt       *time.Time `json:"last_validated_at,omitempty"`
+	LastError             string     `json:"last_error,omitempty"`
 }
 
 // @Summary Get the Claude subscription status for an agent's owner
@@ -374,6 +385,10 @@ func (apiServer *HelixAPIServer) getAppClaudeSubscriptionStatus(_ http.ResponseW
 	status.ClaudeAccountEmail = sub.AccountEmail
 	status.ClaudeAccountName = sub.AccountDisplayName
 	status.ClaudeOrganizationID = sub.ClaudeOrganizationID
+	if !sub.RefreshTokenExpiresAt.IsZero() {
+		expiry := sub.RefreshTokenExpiresAt
+		status.RefreshTokenExpiresAt = &expiry
+	}
 	// A setup token can never be profiled, but it does report its Claude org.
 	// If a subscription visible in this same context (the app owner's, or the
 	// app org's) has been profiled and sits on that org, it is by definition
@@ -847,8 +862,12 @@ func (apiServer *HelixAPIServer) updateSessionClaudeCredentials(_ http.ResponseW
 	if creds.ExpiresAt > 0 {
 		expiresAt = time.UnixMilli(creds.ExpiresAt)
 	}
+	refreshExpiresAt := time.Time{}
+	if creds.RefreshTokenExpiresAt > 0 {
+		refreshExpiresAt = time.UnixMilli(creds.RefreshTokenExpiresAt)
+	}
 	now := time.Now()
-	stored, err := apiServer.Store.UpdateClaudeSubscriptionCredentialsIfNewer(ctx, sub.ID, encrypted, expiresAt, now)
+	stored, err := apiServer.Store.UpdateClaudeSubscriptionCredentialsIfNewer(ctx, sub.ID, encrypted, expiresAt, refreshExpiresAt, now)
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to update subscription: " + err.Error())
 	}

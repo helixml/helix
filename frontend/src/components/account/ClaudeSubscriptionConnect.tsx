@@ -50,6 +50,9 @@ interface ClaudeSubscriptionData {
   claude_organization_id?: string
   status: string
   access_token_expires_at: string
+  // When the login itself dies and the user must sign in again. Zero/absent for
+  // setup tokens, which carry no refresh token.
+  refresh_token_expires_at?: string
   last_refreshed_at?: string
   owner_type: string
   owner_id: string

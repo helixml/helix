@@ -6506,18 +6506,18 @@ func (mr *MockStoreMockRecorder) UpdateClaudeSubscription(ctx, sub any) *gomock.
 }
 
 // UpdateClaudeSubscriptionCredentialsIfNewer mocks base method.
-func (m *MockStore) UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials string, expiresAt, refreshedAt time.Time) (bool, error) {
+func (m *MockStore) UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials string, expiresAt, refreshTokenExpiresAt, refreshedAt time.Time) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateClaudeSubscriptionCredentialsIfNewer", ctx, id, encryptedCredentials, expiresAt, refreshedAt)
+	ret := m.ctrl.Call(m, "UpdateClaudeSubscriptionCredentialsIfNewer", ctx, id, encryptedCredentials, expiresAt, refreshTokenExpiresAt, refreshedAt)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // UpdateClaudeSubscriptionCredentialsIfNewer indicates an expected call of UpdateClaudeSubscriptionCredentialsIfNewer.
-func (mr *MockStoreMockRecorder) UpdateClaudeSubscriptionCredentialsIfNewer(ctx, id, encryptedCredentials, expiresAt, refreshedAt any) *gomock.Call {
+func (mr *MockStoreMockRecorder) UpdateClaudeSubscriptionCredentialsIfNewer(ctx, id, encryptedCredentials, expiresAt, refreshTokenExpiresAt, refreshedAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateClaudeSubscriptionCredentialsIfNewer", reflect.TypeOf((*MockStore)(nil).UpdateClaudeSubscriptionCredentialsIfNewer), ctx, id, encryptedCredentials, expiresAt, refreshedAt)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateClaudeSubscriptionCredentialsIfNewer", reflect.TypeOf((*MockStore)(nil).UpdateClaudeSubscriptionCredentialsIfNewer), ctx, id, encryptedCredentials, expiresAt, refreshTokenExpiresAt, refreshedAt)
 }
 
 // UpdateClaudeSubscriptionStatus mocks base method.

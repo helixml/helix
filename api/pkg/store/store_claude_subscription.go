@@ -93,7 +93,7 @@ func (s *PostgresStore) UpdateClaudeSubscription(ctx context.Context, sub *types
 // Status is deliberately not touched: a working refresh proves the refresh
 // endpoint accepts the token, not that /v1/messages will. The liveness probe
 // owns Status.
-func (s *PostgresStore) UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials string, expiresAt, refreshedAt time.Time) (bool, error) {
+func (s *PostgresStore) UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials string, expiresAt, refreshTokenExpiresAt, refreshedAt time.Time) (bool, error) {
 	if id == "" {
 		return false, fmt.Errorf("id not specified")
 	}
@@ -105,6 +105,9 @@ func (s *PostgresStore) UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.C
 	// A credential with no stated expiry must not blank a known one.
 	if !expiresAt.IsZero() {
 		updates["access_token_expires_at"] = expiresAt
+	}
+	if !refreshTokenExpiresAt.IsZero() {
+		updates["refresh_token_expires_at"] = refreshTokenExpiresAt
 	}
 	result := s.gdb.WithContext(ctx).Model(&types.ClaudeSubscription{}).
 		Where("id = ? AND (last_refreshed_at IS NULL OR last_refreshed_at < ?)", id, refreshedAt).

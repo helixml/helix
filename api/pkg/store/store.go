@@ -927,7 +927,7 @@ type Store interface {
 	GetClaudeSubscription(ctx context.Context, id string) (*types.ClaudeSubscription, error)
 	GetClaudeSubscriptionForOwner(ctx context.Context, ownerID string, ownerType types.OwnerType) (*types.ClaudeSubscription, error)
 	UpdateClaudeSubscription(ctx context.Context, sub *types.ClaudeSubscription) (*types.ClaudeSubscription, error)
-	UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials string, expiresAt, refreshedAt time.Time) (bool, error)
+	UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials string, expiresAt, refreshTokenExpiresAt, refreshedAt time.Time) (bool, error)
 	UpdateClaudeSubscriptionStatus(ctx context.Context, sub *types.ClaudeSubscription) error
 	DeleteClaudeSubscription(ctx context.Context, id string) error
 	ListClaudeSubscriptions(ctx context.Context, ownerID string) ([]*types.ClaudeSubscription, error)

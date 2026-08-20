@@ -166,12 +166,14 @@ const ClaudeConnectMethodPicker: FC<Props> = ({ value, onChange }) => {
             <Typography
               variant="caption"
               color="text.secondary"
-              sx={{ display: 'block', mb: 1, lineHeight: 1.4 }}
+              // Fixed two-line box: descriptions differ in length, and without
+              // this the fact lists below start at three different heights.
+              sx={{ display: 'block', mb: 1.25, lineHeight: 1.4, minHeight: '2.8em' }}
             >
               {meta.description}
             </Typography>
 
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, mt: 'auto' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
               <Fact icon={<Clock size={13} />} text={meta.lifetime} />
               <Fact icon={<Terminal size={13} />} text={meta.requirement} />
               <Fact
@@ -194,7 +196,16 @@ const Fact: FC<{ icon: React.ReactNode; text: string; muted?: boolean }> = ({
   text,
   muted = false,
 }) => (
-  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75 }}>
+  <Box
+    sx={{
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: 0.75,
+      // Two-line box per fact, so the second and third rows stay level across
+      // cards even when one of them wraps and the others do not.
+      minHeight: '1.96rem',
+    }}
+  >
     <Box
       sx={{
         display: 'flex',
@@ -204,6 +215,9 @@ const Fact: FC<{ icon: React.ReactNode; text: string; muted?: boolean }> = ({
         // wrapped fact rather than floating above it.
         fontSize: '0.7rem',
         height: '1.4em',
+        // Nudge onto the text's optical centre: the box maths leaves the glyph
+        // fractionally high, which reads worst on the round clock face.
+        mt: '1px',
         flexShrink: 0,
         color: muted ? 'warning.main' : 'text.secondary',
       }}

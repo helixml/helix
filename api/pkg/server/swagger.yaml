@@ -1904,6 +1904,12 @@ definitions:
       owner_name:
         description: human-readable owner (email / full name)
         type: string
+      refresh_token_expires_at:
+        description: |-
+          RefreshTokenExpiresAt is when the user must sign in again. Refreshing
+          keeps the access token alive but does not move this, so it is the only
+          honest basis for an expiry warning.
+        type: string
       status:
         type: string
       subscription_owner_id:
@@ -4808,6 +4814,12 @@ definitions:
         type: string
       refreshToken:
         type: string
+      refreshTokenExpiresAt:
+        description: |-
+          RefreshTokenExpiresAt is Unix milliseconds. This is the one that matters
+          for "when must I sign in again": rotation does not extend it, so it is a
+          hard deadline anchored to the original login.
+        type: integer
       scopes:
         items:
           type: string
@@ -4876,6 +4888,13 @@ definitions:
         - $ref: '#/definitions/types.OwnerType'
         description: '"user" or "org"'
       rate_limit_tier:
+        type: string
+      refresh_token_expires_at:
+        description: |-
+          RefreshTokenExpiresAt is when the login itself dies and the user must
+          re-authenticate. Refreshing keeps the 8h access token alive but does not
+          move this, so it is the only honest basis for an expiry warning. Zero for
+          setup tokens, which carry no refresh token.
         type: string
       scopes:
         items:

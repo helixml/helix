@@ -1241,6 +1241,12 @@ export interface ServerAppClaudeSubscriptionStatus {
   owner_id?: string;
   /** human-readable owner (email / full name) */
   owner_name?: string;
+  /**
+   * RefreshTokenExpiresAt is when the user must sign in again. Refreshing
+   * keeps the access token alive but does not move this, so it is the only
+   * honest basis for an expiry warning.
+   */
+  refresh_token_expires_at?: string;
   status?: string;
   subscription_owner_id?: string;
   subscription_owner_is_current_user?: boolean;
@@ -3047,6 +3053,12 @@ export interface TypesClaudeOAuthCredentials {
   expiresAt?: number;
   rateLimitTier?: string;
   refreshToken?: string;
+  /**
+   * RefreshTokenExpiresAt is Unix milliseconds. This is the one that matters
+   * for "when must I sign in again": rotation does not extend it, so it is a
+   * hard deadline anchored to the original login.
+   */
+  refreshTokenExpiresAt?: number;
   scopes?: string[];
   subscriptionType?: string;
 }
@@ -3096,6 +3108,13 @@ export interface TypesClaudeSubscription {
   /** "user" or "org" */
   owner_type?: TypesOwnerType;
   rate_limit_tier?: string;
+  /**
+   * RefreshTokenExpiresAt is when the login itself dies and the user must
+   * re-authenticate. Refreshing keeps the 8h access token alive but does not
+   * move this, so it is the only honest basis for an expiry warning. Zero for
+   * setup tokens, which carry no refresh token.
+   */
+  refresh_token_expires_at?: string;
   scopes?: string[];
   /** "active", "expired", "error" */
   status?: string;

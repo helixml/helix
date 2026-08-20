@@ -22,7 +22,12 @@ type ClaudeSubscription struct {
 	RateLimitTier        string         `json:"rate_limit_tier"`
 	Scopes               pq.StringArray `json:"scopes" gorm:"type:text[]"`
 	AccessTokenExpiresAt time.Time      `json:"access_token_expires_at"`
-	Status               string         `json:"status"` // "active", "expired", "error"
+	// RefreshTokenExpiresAt is when the login itself dies and the user must
+	// re-authenticate. Refreshing keeps the 8h access token alive but does not
+	// move this, so it is the only honest basis for an expiry warning. Zero for
+	// setup tokens, which carry no refresh token.
+	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at"`
+	Status                string    `json:"status"` // "active", "expired", "error"
 
 	// DelegatedOrgIDs lists the organizations whose agent sessions may
 	// authenticate with this subscription on the owner's behalf, even when the
@@ -65,6 +70,10 @@ type ClaudeOAuthCredentials struct {
 	Scopes           []string `json:"scopes"`
 	SubscriptionType string   `json:"subscriptionType"`
 	RateLimitTier    string   `json:"rateLimitTier"`
+	// RefreshTokenExpiresAt is Unix milliseconds. This is the one that matters
+	// for "when must I sign in again": rotation does not extend it, so it is a
+	// hard deadline anchored to the original login.
+	RefreshTokenExpiresAt int64 `json:"refreshTokenExpiresAt"`
 }
 
 // ClaudeSetupTokenCredentials stores a token from `claude setup-token`.

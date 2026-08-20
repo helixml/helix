@@ -49,3 +49,47 @@ export function formatClaudeAccountIdentity(input: {
     : ''
   return [account, plan, formatRateLimitTier(input.tier)].filter(Boolean).join(' · ')
 }
+
+export interface ClaudeLoginExpiry {
+  /** The login is already dead; agents using it will fail. */
+  isExpired: boolean
+  /** Dies within a day — the point at which it is worth interrupting someone. */
+  isExpiringToday: boolean
+  /** "Expired 2h ago" / "Expires in 5h". */
+  label: string
+}
+
+/**
+ * How long until the user must sign in to Claude again.
+ *
+ * This reads refresh_token_expires_at, not the access token's expiry. The
+ * access token lives 8h and Helix refreshes it automatically, so it says
+ * nothing about whether anyone needs to act. The login behind it is a hard
+ * deadline — measured: rotation does not extend it — and that is the one worth
+ * warning about.
+ *
+ * Returns null when there is nothing to say: no recorded deadline (setup
+ * tokens, which carry no refresh token), or more than a day left.
+ */
+export function getClaudeLoginExpiry(refreshTokenExpiresAt?: string | null): ClaudeLoginExpiry | null {
+  if (!refreshTokenExpiresAt) return null
+  const expiresAt = new Date(refreshTokenExpiresAt)
+  if (isNaN(expiresAt.getTime())) return null
+
+  const diffMs = expiresAt.getTime() - Date.now()
+  const DAY_MS = 24 * 60 * 60 * 1000
+  if (diffMs > DAY_MS) return null
+
+  if (diffMs <= 0) {
+    return { isExpired: true, isExpiringToday: false, label: `Expired ${formatSpan(-diffMs)} ago` }
+  }
+  return { isExpired: false, isExpiringToday: true, label: `Expires in ${formatSpan(diffMs)}` }
+}
+
+function formatSpan(ms: number): string {
+  const minutes = Math.floor(ms / 60000)
+  if (minutes < 60) return `${Math.max(minutes, 1)}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  return `${Math.floor(hours / 24)}d`
+}

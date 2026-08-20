@@ -139,6 +139,9 @@ func (apiServer *HelixAPIServer) refreshClaudeSubscription(ctx context.Context, 
 	if tokens.ExpiresAt > 0 {
 		creds.ExpiresAt = tokens.ExpiresAt
 	}
+	if tokens.RefreshExpiresAt > 0 {
+		creds.RefreshTokenExpiresAt = tokens.RefreshExpiresAt
+	}
 	if len(tokens.Scopes) > 0 {
 		creds.Scopes = tokens.Scopes
 	}
@@ -157,6 +160,10 @@ func (apiServer *HelixAPIServer) refreshClaudeSubscription(ctx context.Context, 
 	if creds.ExpiresAt > 0 {
 		expiresAt = time.UnixMilli(creds.ExpiresAt)
 	}
+	refreshExpiresAt := time.Time{}
+	if creds.RefreshTokenExpiresAt > 0 {
+		refreshExpiresAt = time.UnixMilli(creds.RefreshTokenExpiresAt)
+	}
 
 	// Anthropic has already rotated the old refresh token, so the one we just
 	// received is the only usable credential in existence. Losing it to a
@@ -167,7 +174,7 @@ func (apiServer *HelixAPIServer) refreshClaudeSubscription(ctx context.Context, 
 	var persistErr error
 	for attempt := 0; attempt < claudeRefreshPersistAttempts; attempt++ {
 		persisted, persistErr = apiServer.Store.UpdateClaudeSubscriptionCredentialsIfNewer(
-			ctx, sub.ID, encrypted, expiresAt, now)
+			ctx, sub.ID, encrypted, expiresAt, refreshExpiresAt, now)
 		if persistErr == nil {
 			break
 		}
