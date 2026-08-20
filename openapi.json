@@ -3891,6 +3891,99 @@
                 }
             }
         },
+        "/api/v1/claude-subscriptions/oauth/complete": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exchange the pasted authorization code for tokens and connect the subscription",
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Complete a Claude subscription login",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.CompleteClaudeLoginRequest"
+                            }
+                        }
+                    },
+                    "description": "Authorization code and PKCE material",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ClaudeSubscription"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/claude-subscriptions/oauth/start": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Build the Anthropic authorization URL and PKCE material for connecting a Claude subscription",
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Start a Claude subscription login",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.ClaudeLoginStartResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/claude-subscriptions/poll-login/{sessionId}": {
             "get": {
                 "security": [
@@ -30365,6 +30458,20 @@
                     }
                 }
             },
+            "server.ClaudeLoginStartResponse": {
+                "type": "object",
+                "properties": {
+                    "authorize_url": {
+                        "type": "string"
+                    },
+                    "code_verifier": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string"
+                    }
+                }
+            },
             "server.ClaudeModel": {
                 "type": "object",
                 "properties": {
@@ -30450,6 +30557,33 @@
                         "type": "boolean"
                     },
                     "url": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.CompleteClaudeLoginRequest": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "code_verifier": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Same ownership knobs as a direct create.",
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "owner_id": {
+                        "type": "string"
+                    },
+                    "owner_type": {
+                        "$ref": "#/components/schemas/types.OwnerType"
+                    },
+                    "state": {
                         "type": "string"
                     }
                 }

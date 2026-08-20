@@ -1133,6 +1133,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/claude-subscriptions/{id}/delegation", system.Wrapper(apiServer.updateClaudeSubscriptionDelegation)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/claude-subscriptions/start-login", system.Wrapper(apiServer.startClaudeLogin)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/claude-subscriptions/poll-login/{sessionId}", system.Wrapper(apiServer.pollClaudeLogin)).Methods(http.MethodGet)
+	// Browser-side PKCE: no sandbox, no CLI. Distinct from the desktop-session
+	// login above, which drives the real Claude Code CLI inside a container.
+	authRouter.HandleFunc("/claude-subscriptions/oauth/start", system.Wrapper(apiServer.startClaudeOAuthLogin)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/claude-subscriptions/oauth/complete", system.Wrapper(apiServer.completeClaudeOAuthLogin)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.getSessionClaudeCredentials)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.updateSessionClaudeCredentials)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/codex-subscriptions", system.Wrapper(apiServer.createCodexSubscription)).Methods(http.MethodPost)

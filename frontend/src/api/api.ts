@@ -1293,6 +1293,12 @@ export interface ServerClaudeLoginSessionResponse {
   session_id?: string;
 }
 
+export interface ServerClaudeLoginStartResponse {
+  authorize_url?: string;
+  code_verifier?: string;
+  state?: string;
+}
+
 export interface ServerClaudeModel {
   description?: string;
   id?: string;
@@ -1330,6 +1336,17 @@ export interface ServerCodexPollLoginResponse {
   error?: string;
   found?: boolean;
   url?: string;
+}
+
+export interface ServerCompleteClaudeLoginRequest {
+  code?: string;
+  code_verifier?: string;
+  /** Same ownership knobs as a direct create. */
+  name?: string;
+  organization_id?: string;
+  owner_id?: string;
+  owner_type?: TypesOwnerType;
+  state?: string;
 }
 
 export interface ServerConfigurePendingSessionRequest {
@@ -10228,6 +10245,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServerClaudeModel[], any>({
         path: `/api/v1/claude-subscriptions/models`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Exchange the pasted authorization code for tokens and connect the subscription
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsOauthCompleteCreate
+     * @summary Complete a Claude subscription login
+     * @request POST:/api/v1/claude-subscriptions/oauth/complete
+     * @secure
+     */
+    v1ClaudeSubscriptionsOauthCompleteCreate: (body: ServerCompleteClaudeLoginRequest, params: RequestParams = {}) =>
+      this.request<TypesClaudeSubscription, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/oauth/complete`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Build the Anthropic authorization URL and PKCE material for connecting a Claude subscription
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsOauthStartCreate
+     * @summary Start a Claude subscription login
+     * @request POST:/api/v1/claude-subscriptions/oauth/start
+     * @secure
+     */
+    v1ClaudeSubscriptionsOauthStartCreate: (params: RequestParams = {}) =>
+      this.request<ServerClaudeLoginStartResponse, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/oauth/start`,
+        method: "POST",
         secure: true,
         format: "json",
         ...params,

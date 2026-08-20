@@ -43,6 +43,13 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 	if err := json.NewDecoder(req.Body).Decode(&createReq); err != nil {
 		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
 	}
+	return apiServer.createClaudeSubscriptionFrom(req.Context(), user, createReq)
+}
+
+// createClaudeSubscriptionFrom is the shared connect path: owner resolution,
+// credential encryption, liveness probe and harness enablement. Both the REST
+// create endpoint and the OAuth login completion go through it.
+func (apiServer *HelixAPIServer) createClaudeSubscriptionFrom(ctx context.Context, user *types.User, createReq types.CreateClaudeSubscriptionRequest) (*types.ClaudeSubscription, *system.HTTPError) {
 
 	// Determine owner
 	ownerID := user.ID
@@ -51,11 +58,11 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		if createReq.OwnerID == "" {
 			return nil, system.NewHTTPError400("owner_id required for org-level subscriptions")
 		}
-		org, err := apiServer.lookupOrg(req.Context(), createReq.OwnerID)
+		org, err := apiServer.lookupOrg(ctx, createReq.OwnerID)
 		if err != nil {
 			return nil, system.NewHTTPError404("organization not found")
 		}
-		_, err = apiServer.authorizeOrgOwner(req.Context(), user, org.ID)
+		_, err = apiServer.authorizeOrgOwner(ctx, user, org.ID)
 		if err != nil {
 			return nil, system.NewHTTPError403("not authorized to manage org subscriptions: " + err.Error())
 		}
@@ -64,11 +71,11 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 	}
 	harnessOrgID := ""
 	if createReq.OrganizationID != "" {
-		org, err := apiServer.lookupOrg(req.Context(), createReq.OrganizationID)
+		org, err := apiServer.lookupOrg(ctx, createReq.OrganizationID)
 		if err != nil {
 			return nil, system.NewHTTPError404("organization not found")
 		}
-		if _, err := apiServer.authorizeOrgOwner(req.Context(), user, org.ID); err != nil {
+		if _, err := apiServer.authorizeOrgOwner(ctx, user, org.ID); err != nil {
 			return nil, system.NewHTTPError403("not authorized to enable organization harness")
 		}
 		harnessOrgID = org.ID
@@ -139,10 +146,10 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 	}
 
 	// Delete any existing subscriptions for this owner before creating a new one.
-	existingSubs, _ := apiServer.Store.ListClaudeSubscriptions(req.Context(), ownerID)
+	existingSubs, _ := apiServer.Store.ListClaudeSubscriptions(ctx, ownerID)
 	for _, old := range existingSubs {
 		if old.OwnerType == ownerType {
-			_ = apiServer.Store.DeleteClaudeSubscription(req.Context(), old.ID)
+			_ = apiServer.Store.DeleteClaudeSubscription(ctx, old.ID)
 			log.Info().Str("old_subscription_id", old.ID).Msg("Deleted old Claude subscription on re-auth")
 		}
 	}
@@ -161,7 +168,7 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		CreatedBy:            user.ID,
 	}
 
-	created, err := apiServer.Store.CreateClaudeSubscription(req.Context(), sub)
+	created, err := apiServer.Store.CreateClaudeSubscription(ctx, sub)
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to create subscription: " + err.Error())
 	}
@@ -169,16 +176,16 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 	// Liveness-probe the freshly connected credentials so Status reflects reality
 	// instead of an unconditional "active". A dead token is caught here rather
 	// than at the first agent turn.
-	created = apiServer.revalidateClaudeSubscription(req.Context(), created)
+	created = apiServer.revalidateClaudeSubscription(ctx, created)
 	if created.Status == "active" {
-		if err := apiServer.enableSubscriptionCodeAgentHarness(req.Context(), harnessOrgID, user.ID, types.CodeAgentRuntimeClaudeCode); err != nil {
-			if deleteErr := apiServer.Store.DeleteClaudeSubscription(context.WithoutCancel(req.Context()), created.ID); deleteErr != nil {
+		if err := apiServer.enableSubscriptionCodeAgentHarness(ctx, harnessOrgID, user.ID, types.CodeAgentRuntimeClaudeCode); err != nil {
+			if deleteErr := apiServer.Store.DeleteClaudeSubscription(context.WithoutCancel(ctx), created.ID); deleteErr != nil {
 				log.Error().Err(deleteErr).Str("subscription_id", created.ID).Msg("failed to roll back Claude subscription")
 			}
 			return nil, system.NewHTTPError500("failed to enable Claude Code harness: " + err.Error())
 		}
 	}
-	if cleanupErr := apiServer.cleanupSubscriptionLoginSessionsForOwner(req.Context(), user.ID, claudeLoginSessionName, claudeLoginSessionProvider); cleanupErr != nil {
+	if cleanupErr := apiServer.cleanupSubscriptionLoginSessionsForOwner(ctx, user.ID, claudeLoginSessionName, claudeLoginSessionProvider); cleanupErr != nil {
 		log.Warn().Err(cleanupErr).Str("user_id", user.ID).Msg("failed to clean up completed Claude login sessions")
 	}
 
@@ -1077,4 +1084,106 @@ func (apiServer *HelixAPIServer) execInContainer(ctx context.Context, runnerID s
 	}
 
 	return result.Output, nil
+}
+
+// ClaudeLoginStartResponse hands the browser everything it needs to run the
+// PKCE flow. The verifier goes to the browser rather than being parked
+// server-side: the user's session is the OAuth client here, so keeping it in
+// API memory would add no security and would break across API replicas.
+type ClaudeLoginStartResponse struct {
+	AuthorizeURL string `json:"authorize_url"`
+	CodeVerifier string `json:"code_verifier"`
+	State        string `json:"state"`
+}
+
+// @Summary Start a Claude subscription login
+// @Description Build the Anthropic authorization URL and PKCE material for connecting a Claude subscription
+// @Tags Claude
+// @Produce json
+// @Success 200 {object} ClaudeLoginStartResponse
+// @Failure 401 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/claude-subscriptions/oauth/start [post]
+func (apiServer *HelixAPIServer) startClaudeOAuthLogin(_ http.ResponseWriter, req *http.Request) (*ClaudeLoginStartResponse, *system.HTTPError) {
+	if getRequestUser(req) == nil {
+		return nil, system.NewHTTPError401("authentication required")
+	}
+	challenge, err := anthropic.StartClaudeLogin()
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to start Claude login: " + err.Error())
+	}
+	return &ClaudeLoginStartResponse{
+		AuthorizeURL: challenge.AuthorizeURL,
+		CodeVerifier: challenge.CodeVerifier,
+		State:        challenge.State,
+	}, nil
+}
+
+// CompleteClaudeLoginRequest carries the code the user copied from Anthropic
+// back with the PKCE material the login started with.
+type CompleteClaudeLoginRequest struct {
+	Code         string `json:"code"`
+	CodeVerifier string `json:"code_verifier"`
+	State        string `json:"state"`
+	// Same ownership knobs as a direct create.
+	Name           string          `json:"name,omitempty"`
+	OwnerType      types.OwnerType `json:"owner_type,omitempty"`
+	OwnerID        string          `json:"owner_id,omitempty"`
+	OrganizationID string          `json:"organization_id,omitempty"`
+}
+
+// @Summary Complete a Claude subscription login
+// @Description Exchange the pasted authorization code for tokens and connect the subscription
+// @Tags Claude
+// @Accept json
+// @Produce json
+// @Param body body CompleteClaudeLoginRequest true "Authorization code and PKCE material"
+// @Success 200 {object} types.ClaudeSubscription
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/claude-subscriptions/oauth/complete [post]
+func (apiServer *HelixAPIServer) completeClaudeOAuthLogin(_ http.ResponseWriter, req *http.Request) (*types.ClaudeSubscription, *system.HTTPError) {
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError401("authentication required")
+	}
+	var loginReq CompleteClaudeLoginRequest
+	if err := json.NewDecoder(req.Body).Decode(&loginReq); err != nil {
+		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+	}
+
+	// Anthropic's callback page hands back "<code>#<state>"; accept either form.
+	code, pastedState := anthropic.SplitPastedCode(loginReq.Code)
+	if code == "" {
+		return nil, system.NewHTTPError400("paste the code Anthropic showed you after signing in")
+	}
+	state := loginReq.State
+	if pastedState != "" {
+		// The code carries the state it was issued against. If it disagrees with
+		// the login we started, this code belongs to a different attempt.
+		if state != "" && pastedState != state {
+			return nil, system.NewHTTPError400("that code is from a different login attempt — start again")
+		}
+		state = pastedState
+	}
+
+	tokens, err := anthropic.ExchangeClaudeCode(req.Context(), code, loginReq.CodeVerifier, state)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+
+	createReq := types.CreateClaudeSubscriptionRequest{
+		Name:           loginReq.Name,
+		OwnerType:      loginReq.OwnerType,
+		OwnerID:        loginReq.OwnerID,
+		OrganizationID: loginReq.OrganizationID,
+	}
+	createReq.Credentials.ClaudeAiOauth = types.ClaudeOAuthCredentials{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+		ExpiresAt:    tokens.ExpiresAt,
+		Scopes:       tokens.Scopes,
+	}
+	return apiServer.createClaudeSubscriptionFrom(req.Context(), user, createReq)
 }

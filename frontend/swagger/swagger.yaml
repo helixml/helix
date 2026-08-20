@@ -1974,6 +1974,15 @@ definitions:
       session_id:
         type: string
     type: object
+  server.ClaudeLoginStartResponse:
+    properties:
+      authorize_url:
+        type: string
+      code_verifier:
+        type: string
+      state:
+        type: string
+    type: object
   server.ClaudeModel:
     properties:
       description:
@@ -2030,6 +2039,24 @@ definitions:
       found:
         type: boolean
       url:
+        type: string
+    type: object
+  server.CompleteClaudeLoginRequest:
+    properties:
+      code:
+        type: string
+      code_verifier:
+        type: string
+      name:
+        description: Same ownership knobs as a direct create.
+        type: string
+      organization_id:
+        type: string
+      owner_id:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
+      state:
         type: string
     type: object
   server.ConfigurePendingSessionRequest:
@@ -15648,6 +15675,59 @@ paths:
       security:
       - BearerAuth: []
       summary: List available Claude models
+      tags:
+      - Claude
+  /api/v1/claude-subscriptions/oauth/complete:
+    post:
+      consumes:
+      - application/json
+      description: Exchange the pasted authorization code for tokens and connect the
+        subscription
+      parameters:
+      - description: Authorization code and PKCE material
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.CompleteClaudeLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ClaudeSubscription'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Complete a Claude subscription login
+      tags:
+      - Claude
+  /api/v1/claude-subscriptions/oauth/start:
+    post:
+      description: Build the Anthropic authorization URL and PKCE material for connecting
+        a Claude subscription
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ClaudeLoginStartResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Start a Claude subscription login
       tags:
       - Claude
   /api/v1/claude-subscriptions/poll-login/{sessionId}:
