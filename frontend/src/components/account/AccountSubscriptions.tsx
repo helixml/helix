@@ -1,5 +1,6 @@
 import { FC } from 'react'
 import Box from '@mui/material/Box'
+import Grid from '@mui/material/Grid'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 
@@ -78,7 +79,12 @@ const AccountSubscriptions: FC = () => {
   const codexHealth: HarnessHealth = codexSub ? 'ready' : 'unavailable'
 
   return (
-    <Box sx={{ mt: 2, backgroundColor: panelBg, p: 2, borderRadius: 2 }}>
+    // Grid container, not a plain Box, to match the panels around it. MUI's
+    // spacing applies a negative margin to the container, so a Box with the
+    // same padding paints its background 16px inside its Grid siblings — the
+    // card looked indented even though the text within it lined up.
+    <Grid container spacing={2} sx={{ mt: 2, backgroundColor: panelBg, p: 2, borderRadius: 2 }}>
+      <Grid item xs={12}>
       <Typography variant="h6">Coding agent subscriptions</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
         Connect a Claude or ChatGPT subscription to authenticate coding agents in your desktop
@@ -107,7 +113,8 @@ const AccountSubscriptions: FC = () => {
           <CodexSubscriptionConnect />
         </Stack>
       </CodeAgentHarnessRow>
-    </Box>
+      </Grid>
+    </Grid>
   )
 }
 
