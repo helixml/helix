@@ -8,11 +8,11 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// Only Codex still provisions a desktop to log in with. Claude connects through
+// server-side PKCE instead, so it needs no session to clean up.
 const (
-	claudeLoginSessionName     = "Claude Login"
-	claudeLoginSessionProvider = "anthropic"
-	codexLoginSessionName      = "Codex Login"
-	codexLoginSessionProvider  = "openai"
+	codexLoginSessionName     = "Codex Login"
+	codexLoginSessionProvider = "openai"
 )
 
 func (apiServer *HelixAPIServer) cleanupSubscriptionLoginSession(ctx context.Context, sessionID string) error {

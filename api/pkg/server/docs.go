@@ -3529,101 +3529,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/claude-subscriptions/poll-login/{sessionId}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Check if Claude credentials file has been written inside the desktop container",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Claude"
-                ],
-                "summary": "Poll for Claude login credentials",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session ID",
-                        "name": "sessionId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.ClaudePollLoginResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/claude-subscriptions/start-login": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Launch a temporary desktop session for interactive Claude OAuth login",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Claude"
-                ],
-                "summary": "Start a Claude login session",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.ClaudeLoginSessionResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/claude-subscriptions/{id}": {
             "get": {
                 "security": [
@@ -26204,14 +26109,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.ClaudeLoginSessionResponse": {
-            "type": "object",
-            "properties": {
-                "session_id": {
-                    "type": "string"
-                }
-            }
-        },
         "server.ClaudeLoginStartResponse": {
             "type": "object",
             "properties": {
@@ -26236,22 +26133,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "name": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.ClaudePollLoginResponse": {
-            "type": "object",
-            "properties": {
-                "credentials": {
-                    "description": "Raw credentials JSON",
-                    "type": "string"
-                },
-                "found": {
-                    "type": "boolean"
-                },
-                "url": {
-                    "description": "OAuth URL for native browser",
                     "type": "string"
                 }
             }
@@ -41627,7 +41508,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.VHostTargetKind"
                 },
                 "url": {
-                    "description": "public URL, populated by preview API handlers",
+                    "description": "public URL, populated by API handlers returning routes",
                     "type": "string"
                 },
                 "verification_token": {

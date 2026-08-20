@@ -1289,10 +1289,6 @@ export interface ServerBatchTaskUsageResponse {
   tasks?: Record<string, ServerBatchTaskUsageMetric[]>;
 }
 
-export interface ServerClaudeLoginSessionResponse {
-  session_id?: string;
-}
-
 export interface ServerClaudeLoginStartResponse {
   authorize_url?: string;
   code_verifier?: string;
@@ -1303,14 +1299,6 @@ export interface ServerClaudeModel {
   description?: string;
   id?: string;
   name?: string;
-}
-
-export interface ServerClaudePollLoginResponse {
-  /** Raw credentials JSON */
-  credentials?: string;
-  found?: boolean;
-  /** OAuth URL for native browser */
-  url?: string;
 }
 
 export interface ServerClientBufferStats {
@@ -8351,7 +8339,7 @@ export interface TypesVHostRoute {
   rotated_at?: string;
   target_id?: string;
   target_kind?: TypesVHostTargetKind;
-  /** public URL, populated by preview API handlers */
+  /** public URL, populated by API handlers returning routes */
   url?: string;
   /**
    * VerificationToken is only meaningful for custom domains awaiting
@@ -10468,42 +10456,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1ClaudeSubscriptionsOauthStartCreate: (params: RequestParams = {}) =>
       this.request<ServerClaudeLoginStartResponse, SystemHTTPError>({
         path: `/api/v1/claude-subscriptions/oauth/start`,
-        method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Check if Claude credentials file has been written inside the desktop container
-     *
-     * @tags Claude
-     * @name V1ClaudeSubscriptionsPollLoginDetail
-     * @summary Poll for Claude login credentials
-     * @request GET:/api/v1/claude-subscriptions/poll-login/{sessionId}
-     * @secure
-     */
-    v1ClaudeSubscriptionsPollLoginDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<ServerClaudePollLoginResponse, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Launch a temporary desktop session for interactive Claude OAuth login
-     *
-     * @tags Claude
-     * @name V1ClaudeSubscriptionsStartLoginCreate
-     * @summary Start a Claude login session
-     * @request POST:/api/v1/claude-subscriptions/start-login
-     * @secure
-     */
-    v1ClaudeSubscriptionsStartLoginCreate: (params: RequestParams = {}) =>
-      this.request<ServerClaudeLoginSessionResponse, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/start-login`,
         method: "POST",
         secure: true,
         format: "json",

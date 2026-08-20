@@ -1969,11 +1969,6 @@ definitions:
         description: keyed by task_id
         type: object
     type: object
-  server.ClaudeLoginSessionResponse:
-    properties:
-      session_id:
-        type: string
-    type: object
   server.ClaudeLoginStartResponse:
     properties:
       authorize_url:
@@ -1990,17 +1985,6 @@ definitions:
       id:
         type: string
       name:
-        type: string
-    type: object
-  server.ClaudePollLoginResponse:
-    properties:
-      credentials:
-        description: Raw credentials JSON
-        type: string
-      found:
-        type: boolean
-      url:
-        description: OAuth URL for native browser
         type: string
     type: object
   server.ClientBufferStats:
@@ -13268,7 +13252,7 @@ definitions:
       target_kind:
         $ref: '#/definitions/types.VHostTargetKind'
       url:
-        description: public URL, populated by preview API handlers
+        description: public URL, populated by API handlers returning routes
         type: string
       verification_token:
         description: |-
@@ -16005,68 +15989,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Start a Claude subscription login
-      tags:
-      - Claude
-  /api/v1/claude-subscriptions/poll-login/{sessionId}:
-    get:
-      description: Check if Claude credentials file has been written inside the desktop
-        container
-      parameters:
-      - description: Session ID
-        in: path
-        name: sessionId
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.ClaudePollLoginResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Poll for Claude login credentials
-      tags:
-      - Claude
-  /api/v1/claude-subscriptions/start-login:
-    post:
-      description: Launch a temporary desktop session for interactive Claude OAuth
-        login
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.ClaudeLoginSessionResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Start a Claude login session
       tags:
       - Claude
   /api/v1/clone-groups/{groupId}/progress:

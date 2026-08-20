@@ -176,6 +176,35 @@ So the identity ceiling is a property of the *credential*, not of Helix: setup
 token -> organization uuid only; credentials file -> full account identity.
 The dialog now says so at the point of choice.
 
+## Removed: the desktop-session login
+
+Helix already had a second Claude login: `POST /claude-subscriptions/start-login`
+provisioned a **full GNOME desktop** (`DesktopType: "ubuntu"`), ran
+`claude auth login` in it via `helix-claude-auth-wrapper.sh`, and
+`poll-login/{sessionId}` scraped either the OAuth URL from the wrapper's stdout
+or `~/.claude/.credentials.json` once the login finished. Giving the container a
+real browser is how it avoided having to feed a pasted code back into the CLI's
+stdin.
+
+It was never wired into the frontend — only the generated client had the
+methods, with no importers — which is why the connect dialog offered nothing but
+setup tokens until this branch.
+
+Server-side PKCE replaces it and is strictly cheaper: no container at all, so it
+still works when sandbox capacity is exhausted, and it yields the same
+credential (verified end-to-end — a real sign-in produced an `oauth` row with
+full identity, which the background refresher then kept alive).
+
+Removed: both handlers and their routes, `ClaudeLoginSessionResponse` /
+`ClaudePollLoginResponse`, the login-session constants, the wrapper script, its
+`Dockerfile.ubuntu-helix` install and the `helix-claude-auth-wrapper` entry in
+the desktop exec allowlist.
+
+Kept, because Codex still provisions a desktop for its device flow:
+`cleanupSubscriptionLoginSession*`, `isTemporarySubscriptionLoginSession`,
+`execInContainer`, and `npm` in the exec allowlist. The shared cleanup test now
+exercises the Codex constants rather than the deleted Claude ones.
+
 ## Problem 2: the liveness probe used a retired model and 404'd
 
 `ProbeClaudeSubscription` pinned `claude-3-5-haiku-latest` (a 2024 model).
