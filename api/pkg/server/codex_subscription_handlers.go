@@ -182,7 +182,7 @@ func applyCodexIdentity(ctx context.Context, sub *types.CodexSubscription, crede
 // and rows whose token was refreshed since. Persisting means the JWKS fetch
 // happens once per row, not on every list.
 func (apiServer *HelixAPIServer) backfillCodexIdentity(ctx context.Context, sub *types.CodexSubscription) {
-	if sub == nil || sub.AccountEmail != "" {
+	if sub == nil || sub.AccountEmail != "" || sub.PlanType != "" {
 		return
 	}
 	key, err := crypto.GetEncryptionKey()
@@ -198,10 +198,18 @@ func (apiServer *HelixAPIServer) backfillCodexIdentity(ctx context.Context, sub 
 		return
 	}
 	applyCodexIdentity(ctx, sub, credentials)
-	if sub.AccountEmail == "" {
+	// Some id_tokens carry no email but still name the account and plan. Gate on
+	// having derived anything, not on email specifically, or an email-less token
+	// is decrypted and signature-verified on every list request forever.
+	if sub.AccountEmail == "" && sub.AccountDisplayName == "" && sub.PlanType == "" {
 		return
 	}
-	if _, err := apiServer.Store.UpdateCodexSubscription(ctx, sub); err != nil {
+	// Identity columns only. This row was read at the top of a list handler and
+	// may already be stale, so a whole-row write would revert credentials a
+	// container refreshed in between.
+	if err := apiServer.Store.UpdateCodexSubscriptionIdentity(
+		ctx, sub.ID, sub.AccountEmail, sub.AccountDisplayName, sub.PlanType, sub.AccountID,
+	); err != nil {
 		log.Warn().Err(err).Str("subscription_id", sub.ID).Msg("failed to persist Codex identity")
 	}
 }

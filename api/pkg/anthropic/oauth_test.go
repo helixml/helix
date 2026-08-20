@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 )
 
 // The authorize URL must carry user:profile — that scope is the only reason
@@ -137,4 +138,102 @@ func indexOf(haystack, needle string) int {
 		}
 	}
 	return -1
+}
+
+// Anthropic rotates the refresh token on every use. Persisting the rotated one
+// is what keeps the window rolling; dropping it strands the subscription.
+func TestRefreshClaudeToken_PersistsRotatedRefreshToken(t *testing.T) {
+	var got map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"sk-ant-oat01-new","refresh_token":"sk-ant-ort01-rotated","expires_in":28800,"scope":"user:profile user:inference"}`))
+	}))
+	defer srv.Close()
+	orig := claudeTokenURL
+	claudeTokenURL = srv.URL
+	defer func() { claudeTokenURL = orig }()
+
+	before := time.Now()
+	tokens, err := RefreshClaudeToken(context.Background(), "sk-ant-ort01-old")
+	if err != nil {
+		t.Fatalf("RefreshClaudeToken() error = %v", err)
+	}
+	if got["grant_type"] != "refresh_token" || got["refresh_token"] != "sk-ant-ort01-old" {
+		t.Fatalf("refresh body wrong: %v", got)
+	}
+	if got["client_id"] != claudeOAuthClientID {
+		t.Fatalf("refresh must identify the client: %v", got)
+	}
+	if tokens.AccessToken != "sk-ant-oat01-new" {
+		t.Fatalf("AccessToken = %q", tokens.AccessToken)
+	}
+	if tokens.RefreshToken != "sk-ant-ort01-rotated" {
+		t.Fatalf("RefreshToken = %q, want the rotated one — keeping the old one strands the subscription", tokens.RefreshToken)
+	}
+	// expires_in must become an absolute instant roughly 8h out.
+	gotExpiry := time.UnixMilli(tokens.ExpiresAt)
+	if gotExpiry.Before(before.Add(7*time.Hour)) || gotExpiry.After(before.Add(9*time.Hour)) {
+		t.Fatalf("ExpiresAt = %s, want ~8h from now", gotExpiry)
+	}
+}
+
+// If Anthropic ever omits a rotated token, reusing the old one is the only way
+// the row can refresh again — dropping it to empty would brick the row.
+func TestRefreshClaudeToken_KeepsOldRefreshTokenWhenNotRotated(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"access_token":"sk-ant-oat01-new","expires_in":3600}`))
+	}))
+	defer srv.Close()
+	orig := claudeTokenURL
+	claudeTokenURL = srv.URL
+	defer func() { claudeTokenURL = orig }()
+
+	tokens, err := RefreshClaudeToken(context.Background(), "sk-ant-ort01-old")
+	if err != nil {
+		t.Fatalf("RefreshClaudeToken() error = %v", err)
+	}
+	if tokens.RefreshToken != "sk-ant-ort01-old" {
+		t.Fatalf("RefreshToken = %q, want the previous token carried forward", tokens.RefreshToken)
+	}
+}
+
+// A dead refresh token must surface as an error so the caller leaves Status
+// alone rather than persisting a half-updated credential.
+func TestRefreshClaudeToken_ErrorsOnRejection(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"refresh token expired"}`))
+	}))
+	defer srv.Close()
+	orig := claudeTokenURL
+	claudeTokenURL = srv.URL
+	defer func() { claudeTokenURL = orig }()
+
+	if _, err := RefreshClaudeToken(context.Background(), "sk-ant-ort01-dead"); err == nil {
+		t.Fatal("expected an error for a rejected refresh token")
+	} else if !contains(err.Error(), "refresh token expired") {
+		t.Fatalf("error = %q, want the provider detail surfaced", err)
+	}
+}
+
+// A 200 with no access token is not a usable refresh.
+func TestRefreshClaudeToken_ErrorsOnEmptyAccessToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"refresh_token":"sk-ant-ort01-rotated"}`))
+	}))
+	defer srv.Close()
+	orig := claudeTokenURL
+	claudeTokenURL = srv.URL
+	defer func() { claudeTokenURL = orig }()
+
+	if _, err := RefreshClaudeToken(context.Background(), "sk-ant-ort01-old"); err == nil {
+		t.Fatal("expected an error when no access token comes back")
+	}
+}
+
+func TestRefreshClaudeToken_RequiresToken(t *testing.T) {
+	if _, err := RefreshClaudeToken(context.Background(), ""); err == nil {
+		t.Fatal("refresh without a token must fail before any network call")
+	}
 }

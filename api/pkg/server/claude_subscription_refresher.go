@@ -27,6 +27,11 @@ const (
 	// claudeRefreshInterval is how often to sweep. Cheap: it only touches rows
 	// that are actually close to expiring.
 	claudeRefreshInterval = 15 * time.Minute
+
+	// A rotated refresh token exists only in memory until it is persisted, so a
+	// transient DB failure is retried rather than dropped.
+	claudeRefreshPersistAttempts = 3
+	claudeRefreshPersistBackoff  = 2 * time.Second
 )
 
 // StartClaudeSubscriptionRefresher keeps stored Claude OAuth credentials alive
@@ -143,24 +148,47 @@ func (apiServer *HelixAPIServer) refreshClaudeSubscription(ctx context.Context, 
 	}
 
 	now := time.Now()
-	sub.EncryptedCredentials = encrypted
-	sub.LastRefreshedAt = &now
+	expiresAt := time.Time{}
 	if creds.ExpiresAt > 0 {
-		sub.AccessTokenExpiresAt = time.UnixMilli(creds.ExpiresAt)
-	}
-	// A row that was showing an expiry-related error is demonstrably fine again.
-	if sub.Status != "active" {
-		sub.Status = "active"
-		sub.LastError = ""
+		expiresAt = time.UnixMilli(creds.ExpiresAt)
 	}
 
-	if _, err := apiServer.Store.UpdateClaudeSubscription(ctx, sub); err != nil {
-		log.Warn().Err(err).Str("subscription_id", sub.ID).Msg("Claude refresher: failed to persist refreshed credentials")
+	// Anthropic has already rotated the old refresh token, so the one we just
+	// received is the only usable credential in existence. Losing it to a
+	// transient DB error would brick the subscription permanently, which is
+	// worth retrying for — and worth logging as an error, not a warning, if the
+	// retries are exhausted.
+	var persisted bool
+	var persistErr error
+	for attempt := 0; attempt < claudeRefreshPersistAttempts; attempt++ {
+		persisted, persistErr = apiServer.Store.UpdateClaudeSubscriptionCredentialsIfNewer(
+			ctx, sub.ID, encrypted, expiresAt, now)
+		if persistErr == nil {
+			break
+		}
+		if attempt+1 < claudeRefreshPersistAttempts {
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(claudeRefreshPersistBackoff):
+			}
+		}
+	}
+	if persistErr != nil {
+		log.Error().Err(persistErr).Str("subscription_id", sub.ID).
+			Msg("Claude refresher: LOST a rotated refresh token — the stored one is now dead, re-authentication will be required")
 		return false
 	}
+	if !persisted {
+		// Something refreshed more recently than us — a container pushing its own
+		// rotation. Theirs wins; ours is stale and must not overwrite it.
+		log.Debug().Str("subscription_id", sub.ID).Msg("Claude refresher: newer credentials already stored, skipping")
+		return false
+	}
+
 	log.Info().
 		Str("subscription_id", sub.ID).
-		Time("expires_at", sub.AccessTokenExpiresAt).
+		Time("expires_at", expiresAt).
 		Msg("Refreshed Claude subscription token")
 	return true
 }

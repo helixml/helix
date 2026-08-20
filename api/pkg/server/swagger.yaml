@@ -15581,6 +15581,41 @@ paths:
       tags:
       - Claude
   /api/v1/claude-subscriptions/{id}:
+    delete:
+      description: Disconnect a Claude subscription owned by the current user, or
+        by an organization they own
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete a Claude subscription
+      tags:
+      - Claude
     get:
       description: Get details of a specific Claude subscription (no secrets)
       parameters:

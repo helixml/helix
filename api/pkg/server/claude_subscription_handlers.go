@@ -234,8 +234,15 @@ func (apiServer *HelixAPIServer) revalidateClaudeSubscription(ctx context.Contex
 			if profile, err := anthropic.FetchClaudeProfile(ctx, probe.Token); err != nil {
 				log.Debug().Str("subscription_id", sub.ID).Str("detail", err.Error()).Msg("Claude profile fetch failed; identity unchanged")
 			} else {
-				sub.AccountEmail = profile.AccountEmail
-				sub.AccountDisplayName = profile.AccountDisplayName
+				// Guarded like the plan fields below: FetchClaudeProfile succeeds on
+				// any parseable 200, so a partial body must not clear an identity
+				// we already have.
+				if profile.AccountEmail != "" {
+					sub.AccountEmail = profile.AccountEmail
+				}
+				if profile.AccountDisplayName != "" {
+					sub.AccountDisplayName = profile.AccountDisplayName
+				}
 				if profile.Plan != "" {
 					sub.SubscriptionType = profile.Plan
 				}
@@ -253,12 +260,15 @@ func (apiServer *HelixAPIServer) revalidateClaudeSubscription(ctx context.Contex
 		sub.LastValidatedAt = &now
 		log.Debug().Str("subscription_id", sub.ID).Str("detail", probe.Detail).Msg("Claude subscription probe inconclusive")
 	}
-	updated, err := apiServer.Store.UpdateClaudeSubscription(ctx, sub)
-	if err != nil {
+	// Status and identity only. This function holds its copy of the row across a
+	// probe and a profile fetch — up to ~18s — during which a container may push
+	// refreshed credentials. Writing the whole row back would revert them, and
+	// since Anthropic rotates the refresh token on every use, reverting a
+	// credential resurrects a dead token and bricks the subscription.
+	if err := apiServer.Store.UpdateClaudeSubscriptionStatus(ctx, sub); err != nil {
 		log.Warn().Err(err).Str("subscription_id", sub.ID).Msg("failed to persist Claude subscription validation result")
-		return sub
 	}
-	return updated
+	return sub
 }
 
 // claudeSubscriptionStatusMaxAge bounds how stale a persisted validation result
@@ -601,6 +611,17 @@ func (apiServer *HelixAPIServer) updateClaudeSubscriptionDelegation(_ http.Respo
 	return updated, nil
 }
 
+// @Summary Delete a Claude subscription
+// @Description Disconnect a Claude subscription owned by the current user, or by an organization they own
+// @Tags Claude
+// @Produce json
+// @Param id path string true "Subscription ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/claude-subscriptions/{id} [delete]
 func (apiServer *HelixAPIServer) deleteClaudeSubscription(_ http.ResponseWriter, req *http.Request) (map[string]string, *system.HTTPError) {
 	user := getRequestUser(req)
 	if user == nil {
@@ -822,17 +843,23 @@ func (apiServer *HelixAPIServer) updateSessionClaudeCredentials(_ http.ResponseW
 		return nil, system.NewHTTPError500("failed to encrypt credentials")
 	}
 
-	// Update the subscription
-	sub.EncryptedCredentials = encrypted
+	// Same guarded write the background refresher uses: whichever refresh
+	// happened later wins, so a container and the refresher cannot revert each
+	// other's rotated token.
+	expiresAt := time.Time{}
 	if creds.ExpiresAt > 0 {
-		sub.AccessTokenExpiresAt = time.UnixMilli(creds.ExpiresAt)
+		expiresAt = time.UnixMilli(creds.ExpiresAt)
 	}
 	now := time.Now()
-	sub.LastRefreshedAt = &now
-
-	if _, err := apiServer.Store.UpdateClaudeSubscription(ctx, sub); err != nil {
+	stored, err := apiServer.Store.UpdateClaudeSubscriptionCredentialsIfNewer(ctx, sub.ID, encrypted, expiresAt, now)
+	if err != nil {
 		return nil, system.NewHTTPError500("failed to update subscription: " + err.Error())
 	}
+	if !stored {
+		// Newer credentials already landed; the daemon retries with its own copy.
+		return map[string]string{"status": "stale"}, nil
+	}
+	sub.AccessTokenExpiresAt = expiresAt
 
 	log.Info().
 		Str("session_id", sessionID).

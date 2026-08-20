@@ -52,22 +52,40 @@ type codexJWKS struct {
 // reads from hammering OpenAI while still picking up new keys same-day.
 const codexJWKSCacheTTL = time.Hour
 
+// A failed fetch is cached too, briefly. Without this, one unreachable
+// auth.openai.com turns a list of N un-named subscriptions into N sequential
+// 10s fetches, all serialized behind this mutex, blocking every other request
+// that touches Codex identity.
+const codexJWKSFailureTTL = 30 * time.Second
+
 var (
-	codexJWKSMu       sync.Mutex
-	codexJWKSCache    map[string]*rsa.PublicKey
-	codexJWKSFetched  time.Time
-	codexJWKSCacheURL string
+	codexJWKSMu        sync.Mutex
+	codexJWKSCache     map[string]*rsa.PublicKey
+	codexJWKSFetched   time.Time
+	codexJWKSCacheURL  string
+	codexJWKSFailedAt  time.Time
+	codexJWKSFailedErr error
 )
 
-func fetchCodexJWKS(ctx context.Context) (map[string]*rsa.PublicKey, error) {
+func fetchCodexJWKS(ctx context.Context) (keys map[string]*rsa.PublicKey, err error) {
 	codexJWKSMu.Lock()
 	defer codexJWKSMu.Unlock()
+	defer func() {
+		if err != nil {
+			codexJWKSFailedAt, codexJWKSFailedErr, codexJWKSCacheURL = time.Now(), err, codexJWKSURL
+		}
+	}()
 
 	if codexJWKSCache != nil && codexJWKSCacheURL == codexJWKSURL && time.Since(codexJWKSFetched) < codexJWKSCacheTTL {
 		return codexJWKSCache, nil
 	}
+	if codexJWKSFailedErr != nil && codexJWKSCacheURL == codexJWKSURL && time.Since(codexJWKSFailedAt) < codexJWKSFailureTTL {
+		return nil, codexJWKSFailedErr
+	}
 
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Deliberately detached from the caller: this fills a process-wide cache, so
+	// one client hanging up must not cancel the fetch everyone else is queued on.
+	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, codexJWKSURL, nil)
 	if err != nil {
@@ -87,7 +105,7 @@ func fetchCodexJWKS(ctx context.Context) (map[string]*rsa.PublicKey, error) {
 		return nil, fmt.Errorf("failed to parse OpenAI JWKS: %w", err)
 	}
 
-	keys := map[string]*rsa.PublicKey{}
+	parsedKeys := map[string]*rsa.PublicKey{}
 	for _, key := range parsed.Keys {
 		if key.Kty != "RSA" || key.Kid == "" {
 			continue
@@ -100,19 +118,20 @@ func fetchCodexJWKS(ctx context.Context) (map[string]*rsa.PublicKey, error) {
 		if err != nil {
 			continue
 		}
-		keys[key.Kid] = &rsa.PublicKey{
+		parsedKeys[key.Kid] = &rsa.PublicKey{
 			N: new(big.Int).SetBytes(nBytes),
 			E: int(new(big.Int).SetBytes(eBytes).Int64()),
 		}
 	}
-	if len(keys) == 0 {
+	if len(parsedKeys) == 0 {
 		return nil, fmt.Errorf("OpenAI JWKS contained no usable RSA keys")
 	}
 
-	codexJWKSCache = keys
+	codexJWKSCache = parsedKeys
 	codexJWKSFetched = time.Now()
 	codexJWKSCacheURL = codexJWKSURL
-	return keys, nil
+	codexJWKSFailedErr = nil
+	return parsedKeys, nil
 }
 
 // ParseCodexIdentity verifies a Codex id_token against OpenAI's published JWKS
