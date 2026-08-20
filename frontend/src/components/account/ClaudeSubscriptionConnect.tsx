@@ -4,7 +4,6 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
-import Grid from '@mui/material/Grid'
 import Chip from '@mui/material/Chip'
 import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
@@ -923,13 +922,21 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   if (variant === 'account') {
     return (
       <>
-        <Grid
-          container
-          spacing={2}
+        <Box
           sx={embedded ? {} : { mt: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}
         >
-          <Grid item xs={12}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                // A phone has no room for prose beside the button; side by side
+                // the copy collapses into a ragged four-word column.
+                flexDirection: { xs: 'column', sm: 'row' },
+                justifyContent: 'space-between',
+                alignItems: { xs: 'stretch', sm: 'center' },
+                gap: { xs: 1.5, sm: 2 },
+                mb: 2,
+              }}
+            >
               <Box>
                 {!embedded && <Typography variant="h6">Claude Code Subscription</Typography>}
                 <Typography variant="body2" color="text.secondary">
@@ -988,6 +995,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                       border: '1px solid',
                       borderColor: subIsBroken ? 'error.main' : 'divider',
                       display: 'flex',
+                      flexDirection: { xs: 'column', sm: 'row' },
                       justifyContent: 'space-between',
                       // Top-aligned, not centred: the delegation list makes this row
                       // tall, and centring stranded Update Token / delete halfway down
@@ -1067,8 +1075,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                 </Typography>
               </Box>
             )}
-          </Grid>
-        </Grid>
+        </Box>
 
         {tokenDialog}
         {disconnectDialog}

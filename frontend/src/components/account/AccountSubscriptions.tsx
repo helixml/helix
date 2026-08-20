@@ -1,6 +1,4 @@
 import { FC } from 'react'
-import Box from '@mui/material/Box'
-import Grid from '@mui/material/Grid'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 
@@ -10,19 +8,14 @@ import CodexSubscriptionConnect from './CodexSubscriptionConnect'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import { formatClaudeAccountDetail, formatClaudeOrganizationRef } from './claudeSubscriptionUtils'
 import { formatCodexAccountDetail, formatCodexAccountRef } from './codexSubscriptionUtils'
+import SettingsPanel from './SettingsPanel'
 import SubscriptionIdentity from './SubscriptionIdentity'
-import useLightTheme from '../../hooks/useLightTheme'
-import useThemeConfig from '../../hooks/useThemeConfig'
 
 // Account settings shows the same expandable harness rows as the org providers
 // page, so a subscription looks and reads the same wherever you meet it. The
 // difference is scope: enabling a harness is an org decision, so these rows
 // carry no toggle — only the credential you personally hold.
 const AccountSubscriptions: FC = () => {
-  const themeConfig = useThemeConfig()
-  const lightTheme = useLightTheme()
-  const panelBg = lightTheme.isLight ? lightTheme.panelColor : themeConfig.darkPanel
-
   const { data: claudeSubscriptions, isLoading: claudeLoading } = useClaudeSubscriptions()
   const { data: codexSubscriptions, isLoading: codexLoading } = useCodexSubscriptions()
 
@@ -79,12 +72,7 @@ const AccountSubscriptions: FC = () => {
   const codexHealth: HarnessHealth = codexSub ? 'ready' : 'unavailable'
 
   return (
-    // Grid container, not a plain Box, to match the panels around it. MUI's
-    // spacing applies a negative margin to the container, so a Box with the
-    // same padding paints its background 16px inside its Grid siblings — the
-    // card looked indented even though the text within it lined up.
-    <Grid container spacing={2} sx={{ mt: 2, backgroundColor: panelBg, p: 2, borderRadius: 2 }}>
-      <Grid item xs={12}>
+    <SettingsPanel>
       <Typography variant="h6">Coding agent subscriptions</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
         Connect a Claude or ChatGPT subscription to authenticate coding agents in your desktop
@@ -113,8 +101,7 @@ const AccountSubscriptions: FC = () => {
           <CodexSubscriptionConnect />
         </Stack>
       </CodeAgentHarnessRow>
-      </Grid>
-    </Grid>
+    </SettingsPanel>
   )
 }
 
