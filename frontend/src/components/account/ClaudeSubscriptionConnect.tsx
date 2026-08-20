@@ -4,8 +4,6 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Grid from '@mui/material/Grid'
 import Chip from '@mui/material/Chip'
 import Dialog from '@mui/material/Dialog'
@@ -24,11 +22,13 @@ import Switch from '@mui/material/Switch'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Tooltip from '@mui/material/Tooltip'
-import { CircleAlert, CircleCheck, Copy, Trash2, TriangleAlert } from 'lucide-react'
+import { CircleAlert, CircleCheck, Copy, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useLightTheme from '../../hooks/useLightTheme'
+import { TypesOwnerType } from '../../api/api'
+import ClaudeConnectMethodPicker, { ClaudeConnectMethod } from './ClaudeConnectMethodPicker'
 import { SELECT_MENU_PROPS } from '../../contexts/theme'
 import useAccount from '../../hooks/useAccount'
 import { formatClaudeAccountIdentity } from './claudeSubscriptionUtils'
@@ -299,11 +299,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string>('')
   const disconnectMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return api.delete(`/api/v1/claude-subscriptions/${id}`, {}, {
-        snackbar: true,
-      })
-    },
+    mutationFn: async (id: string) => (await api.getApiClient().v1ClaudeSubscriptionsDelete(id)).data,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
       setDisconnectDialogOpen(false)
@@ -339,7 +335,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   // Credentials-file import is the default: it is the only path that yields the
   // account email and plan, because those tokens carry the user:profile scope
   // that setup tokens lack.
-  const [connectMethod, setConnectMethod] = useState<'oauth' | 'credentials' | 'setup_token'>('oauth')
+  const [connectMethod, setConnectMethod] = useState<ClaudeConnectMethod>('oauth')
   const [credentialsValue, setCredentialsValue] = useState('')
   // PKCE material for an in-flight sign-in. Held in component state because the
   // browser is the OAuth client: it started the login and it finishes it.
@@ -384,6 +380,15 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   }
 
   const handleStartOauth = async () => {
+    // If a previous attempt left a code in the field it belongs to the old
+    // challenge; submitting it against the new verifier would fail obscurely.
+    if (oauthChallenge) {
+      // Already have a live challenge — reopen it rather than minting another,
+      // so a code the user has already been shown stays valid.
+      window.open(oauthChallenge.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    setOauthCode('')
     setStartingOauth(true)
     setSubmitError(null)
     try {
@@ -424,7 +429,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             ? `${orgLabel(effectiveOrgIdForOauth)} Claude Subscription`
             : 'My Claude Subscription',
           ...(enableForOrgId ? { organization_id: enableForOrgId } : {}),
-          ...(effectiveOrgIdForOauth ? { owner_type: 'org' as any, owner_id: effectiveOrgIdForOauth } : {}),
+          ...(effectiveOrgIdForOauth ? { owner_type: TypesOwnerType.OwnerTypeOrg, owner_id: effectiveOrgIdForOauth } : {}),
         })
         queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
         if (enableForOrgId) {
@@ -473,11 +478,11 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     try {
       // Use orgId prop if provided (button/inline variants), otherwise use internal state (account variant)
       const effectiveOrgId = orgId || (ownerType === 'org' ? selectedOrgId : undefined)
-      await api.post('/api/v1/claude-subscriptions', {
+      await api.getApiClient().v1ClaudeSubscriptionsCreate({
         name: effectiveOrgId ? `${orgLabel(effectiveOrgId)} Claude Subscription` : 'My Claude Subscription',
         ...credentialPayload,
         ...(enableForOrgId ? { organization_id: enableForOrgId } : {}),
-        ...(effectiveOrgId ? { owner_type: 'org', owner_id: effectiveOrgId } : {}),
+        ...(effectiveOrgId ? { owner_type: TypesOwnerType.OwnerTypeOrg, owner_id: effectiveOrgId } : {}),
       })
       queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
       if (enableForOrgId) {
@@ -488,7 +493,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       setTokenDialogOpen(false)
       onConnected?.()
     } catch (err: any) {
-      setSubmitError(err?.message || 'Failed to save token')
+      setSubmitError(err?.response?.data?.error || err?.message || 'Failed to save token')
     } finally {
       setSubmitting(false)
     }
@@ -576,17 +581,34 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
               placeholder="Search organizations"
               value={ownerFilter}
               onChange={(e) => setOwnerFilter(e.target.value)}
-              // Select swallows keystrokes for its own type-ahead, which would
-              // steal every character typed here.
-              onKeyDown={(e) => e.stopPropagation()}
+              // Select's type-ahead would eat the characters typed here, but
+              // swallowing everything also killed Escape (MUI's Modal handles it
+              // as a synthetic onKeyDown) and the arrows that move into the list.
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' || e.key === 'Tab' || e.key.startsWith('Arrow')) return
+                e.stopPropagation()
+              }}
             />
           </Box>
           <MenuItem value="personal">Personal — only my own sessions</MenuItem>
-          {filteredOwnableOrgs.map((org) => (
-            <MenuItem key={org.id} value={org.id as string}>
-              {org.display_name || org.name} — shared with the whole organization
-            </MenuItem>
-          ))}
+          {ownableOrgs.map((org) => {
+            const orgID = org.id as string
+            const visible = filteredOwnableOrgs.some((candidate) => candidate.id === orgID)
+            // The selected item must stay mounted even when filtered out, or
+            // MUI cannot resolve the value to a label and renders the control
+            // blank while you type.
+            const isSelected = ownerType === 'org' && selectedOrgId === orgID
+            if (!visible && !isSelected) return null
+            return (
+              <MenuItem
+                key={orgID}
+                value={orgID}
+                sx={!visible ? { display: 'none' } : undefined}
+              >
+                {org.display_name || org.name} — shared with the whole organization
+              </MenuItem>
+            )
+          })}
           {filteredOwnableOrgs.length === 0 && ownerFilter.trim() !== '' && (
             <MenuItem disabled>No organizations match &quot;{ownerFilter}&quot;</MenuItem>
           )}
@@ -618,36 +640,17 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
         {ownerLocked ? 'Update Claude Subscription' : 'Connect Claude Subscription'}
       </DialogTitle>
       <DialogContent sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-        <ToggleButtonGroup
-          exclusive
-          size="small"
+        {/* The three methods differ in ways that matter after you pick one —
+            how long the credential lives, what you need installed, and whether
+            Helix can tell you whose subscription it is. The tiles state those
+            up front instead of hiding them behind a chosen tab. */}
+        <ClaudeConnectMethodPicker
           value={connectMethod}
-          onChange={(_e, next) => {
-            if (next) {
-              setConnectMethod(next)
-              setSubmitError(null)
-            }
+          onChange={(next) => {
+            setConnectMethod(next)
+            setSubmitError(null)
           }}
-          sx={{ alignSelf: 'flex-start' }}
-        >
-          <ToggleButton value="oauth" sx={{ textTransform: 'none' }}>
-            Sign in with Claude
-          </ToggleButton>
-          <ToggleButton value="credentials" sx={{ textTransform: 'none' }}>
-            Paste credentials
-          </ToggleButton>
-          <ToggleButton value="setup_token" sx={{ textTransform: 'none' }}>
-            Setup token
-          </ToggleButton>
-        </ToggleButtonGroup>
-
-        <Typography variant="body2" color="text.secondary">
-          {connectMethod === 'oauth'
-            ? 'Sign in to Claude in your browser and paste back the code it shows you. Nothing needs to be installed.'
-            : connectMethod === 'credentials'
-              ? 'Reuse a login you already did with `claude login` on your own machine.'
-              : 'Generate a setup token on your local machine, then paste it below. Setup tokens do not disclose the account behind them.'}
-        </Typography>
+        />
 
         {ownerPicker}
 

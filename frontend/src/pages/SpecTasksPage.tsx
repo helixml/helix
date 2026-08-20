@@ -75,8 +75,6 @@ import {
   isProjectAccessDeniedError,
 } from "../services/projectService";
 import { useListSessions, useGetSession } from "../services/sessionService";
-import { useClaudeSubscriptions } from "../components/account/ClaudeSubscriptionConnect";
-import ClaudeSubscriptionConnect from "../components/account/ClaudeSubscriptionConnect";
 import {
   useListProjectAccessGrants,
   useCreateProjectAccessGrant,
@@ -337,7 +335,6 @@ const SpecTasksPage: FC = () => {
   const exploratoryDisplaySettings = { width: 1920, height: 1080, fps: 60 };
 
   // Check if the project uses Claude Code with subscription credentials
-  const { data: claudeSubscriptions } = useClaudeSubscriptions();
 
   // Load tasks and apps on mount
   useEffect(() => {

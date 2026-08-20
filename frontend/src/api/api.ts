@@ -10191,6 +10191,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Disconnect a Claude subscription owned by the current user, or by an organization they own
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDelete
+     * @summary Delete a Claude subscription
+     * @request DELETE:/api/v1/claude-subscriptions/{id}
+     * @secure
+     */
+    v1ClaudeSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get details of a specific Claude subscription (no secrets)
      *
      * @tags Claude

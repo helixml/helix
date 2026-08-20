@@ -123,8 +123,6 @@ import {
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import useIsBigScreen from "../../hooks/useIsBigScreen";
 import useLightTheme from "../../hooks/useLightTheme";
-import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
-import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
 import {
   FileText,
   ChartNoAxesCombined,
@@ -430,7 +428,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const displaySettings = useMemo(() => deriveDisplaySettings(undefined), []);
 
   // Check the task-owned execution config for Claude subscription credentials.
-  const { data: claudeSubscriptions } = useClaudeSubscriptions();
 
   // On mobile, 'chat' is a separate tab; on desktop, chat is always visible
   // Initialize from URL query param 'view' if present (only when syncing with URL)
