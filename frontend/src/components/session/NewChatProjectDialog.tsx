@@ -206,7 +206,8 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
           }}
           placeholder="Search…"
           inputProps={{ 'aria-label': 'Search projects' }}
-          sx={{ flex: 1, fontSize: '15px' }}
+          // 16px minimum: below it iOS zooms the page in on focus.
+          sx={{ flex: 1, fontSize: '16px' }}
         />
       </Box>
 

@@ -123,7 +123,9 @@ const ProjectChatSidebarMobileBar: FC<ProjectChatSidebarMobileBarProps> = ({
                 onChange={(event) => onQueryChange(event.target.value)}
                 placeholder="Search"
                 inputProps={{ 'aria-label': 'Search chats' }}
-                sx={{ flex: 1, minWidth: 0, color: 'inherit', fontSize: '15px' }}
+                // 16px minimum: below it iOS zooms the page in on focus and does not
+                // zoom back out.
+                sx={{ flex: 1, minWidth: 0, color: 'inherit', fontSize: '16px' }}
               />
               <IconButton
                 aria-label="Clear search"

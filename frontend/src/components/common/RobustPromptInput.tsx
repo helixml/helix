@@ -1575,7 +1575,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               bgcolor: 'transparent',
               color: (theme) => getChatColors(theme).foreground,
               fontFamily: 'inherit',
-              fontSize: { xs: '0.9375rem', sm: '0.875rem' },
+              // 1rem on a phone, not 0.9375: under 16px iOS zooms in on focus.
+              fontSize: { xs: '1rem', sm: '0.875rem' },
               fontWeight: 450,
               lineHeight: 1.55,
               letterSpacing: '-0.005em',

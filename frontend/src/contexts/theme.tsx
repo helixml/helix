@@ -350,6 +350,16 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             'button, input, optgroup, select, textarea': {
               fontFamily: 'inherit',
             },
+            // iOS Safari zooms the page in when a text field smaller than 16px
+            // takes focus, and never zooms back out — leaving the layout panned,
+            // cut off one edge and short on the other. Every symptom of it looks
+            // like a layout bug and none of it is. A floor rather than a fixed
+            // size, so anything already larger keeps its size.
+            '@media (pointer: coarse)': {
+              'input, textarea, select': {
+                fontSize: 'max(16px, 1em) !important',
+              },
+            },
             '*': scrollbarStyles,
           },
         },
