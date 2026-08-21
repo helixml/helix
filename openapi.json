@@ -12307,6 +12307,137 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/agents/{id}/attachments": {
+            "get": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list agent attachments",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AttachmentListResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: attach an agent to a source",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.AttachmentWriteRequest"
+                            }
+                        }
+                    },
+                    "description": "Source",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AttachmentDTO"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/attachments/{attachment_id}": {
+            "delete": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete an agent attachment",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Attachment ID",
+                        "name": "attachment_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/agents/{id}/available-secrets": {
             "get": {
                 "security": [
@@ -15341,6 +15472,257 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/triggers": {
+            "get": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list triggers",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.TriggerListResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create a trigger",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "$ref": "#/components/requestBodies/api.TriggerWriteRequest"
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.TriggerDTO"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/triggers/{id}": {
+            "get": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get a trigger",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Trigger ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.TriggerDTO"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update a trigger",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Trigger ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "$ref": "#/components/requestBodies/api.TriggerWriteRequest"
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.TriggerDTO"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a trigger",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Trigger ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/triggers/{id}/events": {
+            "get": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list trigger events",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Trigger ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size (1-100)",
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Offset",
+                        "name": "offset",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.TriggerEventsResponse"
                                 }
                             }
                         }
@@ -27739,6 +28121,17 @@
                 "description": "Move project request",
                 "required": true
             },
+            "api.TriggerWriteRequest": {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/api.TriggerWriteRequest"
+                        }
+                    }
+                },
+                "description": "Trigger",
+                "required": true
+            },
             "types.Organization": {
                 "content": {
                     "application/json": {
@@ -27781,6 +28174,27 @@
             }
         },
         "schemas": {
+            "api.APIError": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "correlation_id": {
+                        "type": "string"
+                    },
+                    "field": {
+                        "type": "string"
+                    },
+                    "resource": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "summary": {
+                        "type": "string"
+                    }
+                }
+            },
             "api.AddBotParentRequest": {
                 "type": "object",
                 "properties": {
@@ -27974,6 +28388,42 @@
                         "items": {
                             "$ref": "#/components/schemas/api.AssetDTO"
                         }
+                    }
+                }
+            },
+            "api.AttachmentDTO": {
+                "type": "object",
+                "properties": {
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "$ref": "#/components/schemas/api.SourceRefDTO"
+                    },
+                    "worker_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.AttachmentListResponse": {
+                "type": "object",
+                "properties": {
+                    "attachments": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.AttachmentDTO"
+                        }
+                    }
+                }
+            },
+            "api.AttachmentWriteRequest": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "$ref": "#/components/schemas/api.SourceRefDTO"
                     }
                 }
             },
@@ -28580,6 +29030,9 @@
             "api.ProcessorOutputDTO": {
                 "type": "object",
                 "properties": {
+                    "id": {
+                        "type": "string"
+                    },
                     "label": {
                         "type": "string"
                     },
@@ -28799,6 +29252,23 @@
                     }
                 }
             },
+            "api.SourceRefDTO": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string"
+                    },
+                    "output_id": {
+                        "type": "string"
+                    },
+                    "processor_id": {
+                        "type": "string"
+                    },
+                    "trigger_id": {
+                        "type": "string"
+                    }
+                }
+            },
             "api.SubscribeBotRequest": {
                 "type": "object",
                 "properties": {
@@ -28891,6 +29361,102 @@
                         "additionalProperties": true
                     },
                     "kind": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.TriggerDTO": {
+                "type": "object",
+                "properties": {
+                    "config": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "revision": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.TriggerEventDTO": {
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.TriggerEventsResponse": {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.TriggerEventDTO"
+                        }
+                    },
+                    "limit": {
+                        "type": "integer"
+                    },
+                    "offset": {
+                        "type": "integer"
+                    },
+                    "total": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "api.TriggerListResponse": {
+                "type": "object",
+                "properties": {
+                    "triggers": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.TriggerDTO"
+                        }
+                    }
+                }
+            },
+            "api.TriggerWriteRequest": {
+                "type": "object",
+                "properties": {
+                    "config": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "revision": {
                         "type": "string"
                     }
                 }

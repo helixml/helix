@@ -266,6 +266,7 @@ export function useUnlinkAsset() {
 // flatten {data:{id,attributes}} resources into flat ProcessorDTOs.
 
 export interface ProcessorOutput {
+  id: string
   topic_id: string
   match?: string
   label?: string

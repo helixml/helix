@@ -57,7 +57,7 @@ describe('FocusedAgentDetails', () => {
       />,
     )
 
-    for (const title of ['General', 'Desktop', 'Instructions', 'Available tools', 'Subscriptions', 'Permissions']) {
+    for (const title of ['General', 'Desktop', 'Instructions', 'Available tools', 'Inbound attachments', 'Permissions']) {
       expect(screen.getByRole('heading', { name: title })).toBeInTheDocument()
     }
     for (const section of ['basics', 'runtime', 'instructions', 'tools', 'subscriptions', 'access']) {

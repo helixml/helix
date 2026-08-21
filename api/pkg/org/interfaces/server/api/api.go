@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/assets"
+	"github.com/helixml/helix/api/pkg/org/application/attachments"
 	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
@@ -19,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
+	triggerapp "github.com/helixml/helix/api/pkg/org/application/triggers"
 	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -89,7 +91,9 @@ type Deps struct {
 	AssetHealth   func(ctx context.Context, orgID, idOrName string) AssetHealthDTO
 	// Processors owns the processor CRUD + preview use cases. nil →
 	// the /processors routes return 503 (test wirings that skip it).
-	Processors *processors.Processors
+	Processors  *processors.Processors
+	Triggers    *triggerapp.Service
+	Attachments *attachments.Service
 	// ChartLayout owns free-placed canvas coordinates for the org chart
 	// UI. nil → /chart/positions routes return 503.
 	ChartLayout *chartlayout.Service
@@ -361,6 +365,15 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /settings", Handler: http.HandlerFunc(a.listSettings)},
 		{Pattern: "PUT /settings/{key}", Handler: http.HandlerFunc(a.setSetting)},
 		{Pattern: "DELETE /settings/{key}", Handler: http.HandlerFunc(a.deleteSetting)},
+		{Pattern: "GET /triggers", Handler: http.HandlerFunc(a.listTriggers)},
+		{Pattern: "POST /triggers", Handler: http.HandlerFunc(a.createTrigger)},
+		{Pattern: "GET /triggers/{id}", Handler: http.HandlerFunc(a.getTrigger)},
+		{Pattern: "PUT /triggers/{id}", Handler: http.HandlerFunc(a.updateTrigger)},
+		{Pattern: "DELETE /triggers/{id}", Handler: http.HandlerFunc(a.deleteTrigger)},
+		{Pattern: "GET /triggers/{id}/events", Handler: http.HandlerFunc(a.listTriggerEvents)},
+		{Pattern: "GET /agents/{id}/attachments", Handler: http.HandlerFunc(a.listAgentAttachments)},
+		{Pattern: "POST /agents/{id}/attachments", Handler: http.HandlerFunc(a.createAgentAttachment)},
+		{Pattern: "DELETE /agents/{id}/attachments/{attachment_id}", Handler: http.HandlerFunc(a.deleteAgentAttachment)},
 		{Pattern: "GET /topics", Handler: http.HandlerFunc(a.listTopics)},
 		{Pattern: "POST /topics", Handler: http.HandlerFunc(a.createTopic)},
 		{Pattern: "GET /topics/{id}", Handler: http.HandlerFunc(a.getTopic)},

@@ -67,6 +67,20 @@ func (s *Service) Delete(ctx context.Context, orgID, id string) error {
 	}
 	return nil
 }
+
+func (s *Service) ListForWorker(ctx context.Context, orgID string, workerID orgchart.NodeID) ([]attachment.Attachment, error) {
+	if s.store == nil || s.store.WorkerAttachments == nil {
+		return nil, errors.New("list worker attachments: attachment repository is not configured")
+	}
+	if _, err := s.store.Nodes.Get(ctx, orgID, workerID); err != nil {
+		return nil, fmt.Errorf("list worker attachments: get worker %q: %w", workerID, err)
+	}
+	rows, err := s.store.WorkerAttachments.Find(ctx, store.WithOrg(orgID), store.WithWorkerID(workerID), store.WithOrderAsc("created_at"), store.WithOrderAsc("id"))
+	if err != nil {
+		return nil, fmt.Errorf("list worker attachments: %w", err)
+	}
+	return rows, nil
+}
 func (s *Service) validateSource(ctx context.Context, orgID string, source eventsource.SourceRef) error {
 	if err := source.Validate(); err != nil {
 		return err

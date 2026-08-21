@@ -18,6 +18,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/assets"
+	"github.com/helixml/helix/api/pkg/org/application/attachments"
 	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
@@ -29,6 +30,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
+	triggerapp "github.com/helixml/helix/api/pkg/org/application/triggers"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -103,6 +105,8 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 			Attachments: st.WorkerAttachments,
 			Now:         clock, NewID: newID,
 		}),
+		Triggers:    triggerapp.New(triggerapp.Deps{Triggers: st.Triggers, Attachments: st.WorkerAttachments, Events: st.Events, Now: clock, NewID: newID}),
+		Attachments: attachments.New(attachments.Deps{Store: st, Now: clock, NewID: newID}),
 		ChartLayout: chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: clock}),
 		Configs:     reg,
 		Hub:         hub,

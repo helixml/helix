@@ -1,4 +1,18 @@
 definitions:
+  api.APIError:
+    properties:
+      code:
+        type: string
+      correlation_id:
+        type: string
+      field:
+        type: string
+      resource:
+        additionalProperties: {}
+        type: object
+      summary:
+        type: string
+    type: object
   api.AddBotParentRequest:
     properties:
       parent_id:
@@ -146,6 +160,29 @@ definitions:
         items:
           $ref: '#/definitions/api.AssetDTO'
         type: array
+    type: object
+  api.AttachmentDTO:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      source:
+        $ref: '#/definitions/api.SourceRefDTO'
+      worker_id:
+        type: string
+    type: object
+  api.AttachmentListResponse:
+    properties:
+      attachments:
+        items:
+          $ref: '#/definitions/api.AttachmentDTO'
+        type: array
+    type: object
+  api.AttachmentWriteRequest:
+    properties:
+      source:
+        $ref: '#/definitions/api.SourceRefDTO'
     type: object
   api.BotActivateDTO:
     properties:
@@ -603,6 +640,8 @@ definitions:
     type: object
   api.ProcessorOutputDTO:
     properties:
+      id:
+        type: string
       label:
         type: string
       managed_for:
@@ -752,6 +791,17 @@ definitions:
       value:
         type: string
     type: object
+  api.SourceRefDTO:
+    properties:
+      kind:
+        type: string
+      output_id:
+        type: string
+      processor_id:
+        type: string
+      trigger_id:
+        type: string
+    type: object
   api.SubscribeBotRequest:
     properties:
       topic_id:
@@ -813,6 +863,69 @@ definitions:
         additionalProperties: true
         type: object
       kind:
+        type: string
+    type: object
+  api.TriggerDTO:
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      revision:
+        type: string
+    type: object
+  api.TriggerEventDTO:
+    properties:
+      body:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      source:
+        type: string
+    type: object
+  api.TriggerEventsResponse:
+    properties:
+      events:
+        items:
+          $ref: '#/definitions/api.TriggerEventDTO'
+        type: array
+      limit:
+        type: integer
+      offset:
+        type: integer
+      total:
+        type: integer
+    type: object
+  api.TriggerListResponse:
+    properties:
+      triggers:
+        items:
+          $ref: '#/definitions/api.TriggerDTO'
+        type: array
+    type: object
+  api.TriggerWriteRequest:
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+      description:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      revision:
         type: string
     type: object
   api.UpdateAssetRequest:
@@ -20052,6 +20165,83 @@ paths:
       summary: 'Helix-org: activate an agent'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/agents/{id}/attachments:
+    get:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AttachmentListResponse'
+      summary: 'Helix-org: list agent attachments'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Source
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.AttachmentWriteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.AttachmentDTO'
+      summary: 'Helix-org: attach an agent to a source'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/agents/{id}/attachments/{attachment_id}:
+    delete:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Attachment ID
+        in: path
+        name: attachment_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: 'Helix-org: delete an agent attachment'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/agents/{id}/available-secrets:
     get:
       responses:
@@ -21691,6 +21881,159 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: publish a message to a topic'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/triggers:
+    get:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.TriggerListResponse'
+      summary: 'Helix-org: list triggers'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Trigger
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.TriggerWriteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.TriggerDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIError'
+      summary: 'Helix-org: create a trigger'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/triggers/{id}:
+    delete:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Trigger ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: 'Helix-org: delete a trigger'
+      tags:
+      - HelixOrg
+    get:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Trigger ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.TriggerDTO'
+      summary: 'Helix-org: get a trigger'
+      tags:
+      - HelixOrg
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Trigger ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Trigger
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.TriggerWriteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.TriggerDTO'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.APIError'
+      summary: 'Helix-org: update a trigger'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/triggers/{id}/events:
+    get:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Trigger ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Page size (1-100)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.TriggerEventsResponse'
+      summary: 'Helix-org: list trigger events'
       tags:
       - HelixOrg
   /api/v1/projects:

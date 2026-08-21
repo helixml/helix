@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	assetapp "github.com/helixml/helix/api/pkg/org/application/assets"
+	"github.com/helixml/helix/api/pkg/org/application/attachments"
 	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
@@ -36,6 +37,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
+	triggerapp "github.com/helixml/helix/api/pkg/org/application/triggers"
 	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
@@ -273,6 +275,8 @@ type orgServices struct {
 	Queries       *queries.Queries
 	Activations   *activations.Activations
 	Processors    *processors.Processors
+	Triggers      *triggerapp.Service
+	Attachments   *attachments.Service
 }
 
 // buildOrgServices constructs every org application service from the
@@ -290,6 +294,8 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 		Processors: processors.New(processors.Deps{
 			Processors: st.Processors, Topics: topicsSvc, Attachments: st.WorkerAttachments, Now: deps.Now, NewID: deps.NewID,
 		}),
+		Triggers:      triggerapp.New(triggerapp.Deps{Triggers: st.Triggers, Attachments: st.WorkerAttachments, Events: st.Events, Now: deps.Now, NewID: deps.NewID}),
+		Attachments:   attachments.New(attachments.Deps{Store: st, Now: deps.Now, NewID: deps.NewID}),
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Topics: st.Topics, Nodes: st.Nodes, Now: deps.Now}),
 		Publishing:    publishing.New(publishing.Deps{Topics: st.Topics, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
 		Queries:       queries.New(queries.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
@@ -1100,6 +1106,8 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Queries:       svc.Queries,
 		Activations:   svc.Activations,
 		Processors:    svc.Processors,
+		Triggers:      svc.Triggers,
+		Attachments:   svc.Attachments,
 		ChartLayout:   chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: deps.Now}),
 		WorkerSecrets: workerSecrets,
 		AuthorizeHumanContact: func(ctx context.Context, orgID, humanUserID string) error {

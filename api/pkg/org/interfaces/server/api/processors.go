@@ -15,6 +15,7 @@ import (
 
 // ProcessorOutputDTO is one output branch on the wire.
 type ProcessorOutputDTO struct {
+	ID      string `json:"id"`
 	TopicID string `json:"topic_id"`
 	Match   string `json:"match,omitempty"`
 	Label   string `json:"label,omitempty"`
@@ -82,7 +83,7 @@ func processorResource(p processor.Processor) jsonapi.Resource {
 	outs := make([]ProcessorOutputDTO, 0, len(p.Outputs))
 	for _, o := range p.Outputs {
 		outs = append(outs, ProcessorOutputDTO{
-			TopicID: string(o.TopicID), Match: o.Match, Label: o.Label, Owned: o.Owned, ManagedFor: o.ManagedFor,
+			ID: o.ID, TopicID: string(o.TopicID), Match: o.Match, Label: o.Label, Owned: o.Owned, ManagedFor: o.ManagedFor,
 		})
 	}
 	return jsonapi.Resource{

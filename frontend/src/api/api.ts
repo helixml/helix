@@ -9,6 +9,14 @@
  * ---------------------------------------------------------------
  */
 
+export interface ApiAPIError {
+  code?: string;
+  correlation_id?: string;
+  field?: string;
+  resource?: Record<string, any>;
+  summary?: string;
+}
+
 export interface ApiAddBotParentRequest {
   parent_id?: string;
 }
@@ -101,6 +109,21 @@ export interface ApiAssetLinksResponse {
 
 export interface ApiAssetsResponse {
   assets?: ApiAssetDTO[];
+}
+
+export interface ApiAttachmentDTO {
+  created_at?: string;
+  id?: string;
+  source?: ApiSourceRefDTO;
+  worker_id?: string;
+}
+
+export interface ApiAttachmentListResponse {
+  attachments?: ApiAttachmentDTO[];
+}
+
+export interface ApiAttachmentWriteRequest {
+  source?: ApiSourceRefDTO;
 }
 
 export interface ApiBotActivateDTO {
@@ -412,6 +435,7 @@ export interface ApiOrgOverview {
 }
 
 export interface ApiProcessorOutputDTO {
+  id?: string;
   label?: string;
   /**
    * ManagedFor is set when this route is auto-managed by a reconciler for
@@ -505,6 +529,13 @@ export interface ApiSettingsSpecDTO {
   value?: string;
 }
 
+export interface ApiSourceRefDTO {
+  kind?: string;
+  output_id?: string;
+  processor_id?: string;
+  trigger_id?: string;
+}
+
 export interface ApiSubscribeBotRequest {
   topic_id?: string;
 }
@@ -537,6 +568,42 @@ export interface ApiTopicsResponse {
 export interface ApiTransportRequestField {
   config?: Record<string, any>;
   kind?: string;
+}
+
+export interface ApiTriggerDTO {
+  config?: Record<string, any>;
+  created_at?: string;
+  description?: string;
+  id?: string;
+  kind?: string;
+  name?: string;
+  revision?: string;
+}
+
+export interface ApiTriggerEventDTO {
+  body?: string;
+  created_at?: string;
+  id?: string;
+  source?: string;
+}
+
+export interface ApiTriggerEventsResponse {
+  events?: ApiTriggerEventDTO[];
+  limit?: number;
+  offset?: number;
+  total?: number;
+}
+
+export interface ApiTriggerListResponse {
+  triggers?: ApiTriggerDTO[];
+}
+
+export interface ApiTriggerWriteRequest {
+  config?: Record<string, any>;
+  description?: string;
+  kind?: string;
+  name?: string;
+  revision?: string;
 }
 
 export interface ApiUpdateAssetRequest {
@@ -13562,6 +13629,60 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsAgentsAttachmentsDetail
+     * @summary Helix-org: list agent attachments
+     * @request GET:/api/v1/orgs/{org}/agents/{id}/attachments
+     */
+    v1OrgsAgentsAttachmentsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiAttachmentListResponse, any>({
+        path: `/api/v1/orgs/${org}/agents/${id}/attachments`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsAttachmentsCreate
+     * @summary Helix-org: attach an agent to a source
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/attachments
+     */
+    v1OrgsAgentsAttachmentsCreate: (
+      org: string,
+      id: string,
+      payload: ApiAttachmentWriteRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiAttachmentDTO, any>({
+        path: `/api/v1/orgs/${org}/agents/${id}/attachments`,
+        method: "POST",
+        body: payload,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsAttachmentsDelete
+     * @summary Helix-org: delete an agent attachment
+     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/attachments/{attachment_id}
+     */
+    v1OrgsAgentsAttachmentsDelete: (org: string, id: string, attachmentId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/agents/${id}/attachments/${attachmentId}`,
+        method: "DELETE",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsAgentsAvailableSecretsDetail
      * @summary List sources that may be granted to an Agent
      * @request GET:/api/v1/orgs/{org}/agents/{id}/available-secrets
@@ -14854,6 +14975,118 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: payload,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersDetail
+     * @summary Helix-org: list triggers
+     * @request GET:/api/v1/orgs/{org}/triggers
+     */
+    v1OrgsTriggersDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiTriggerListResponse, any>({
+        path: `/api/v1/orgs/${org}/triggers`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersCreate
+     * @summary Helix-org: create a trigger
+     * @request POST:/api/v1/orgs/{org}/triggers
+     */
+    v1OrgsTriggersCreate: (org: string, payload: ApiTriggerWriteRequest, params: RequestParams = {}) =>
+      this.request<ApiTriggerDTO, ApiAPIError>({
+        path: `/api/v1/orgs/${org}/triggers`,
+        method: "POST",
+        body: payload,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersDelete
+     * @summary Helix-org: delete a trigger
+     * @request DELETE:/api/v1/orgs/{org}/triggers/{id}
+     */
+    v1OrgsTriggersDelete: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}`,
+        method: "DELETE",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersDetail2
+     * @summary Helix-org: get a trigger
+     * @request GET:/api/v1/orgs/{org}/triggers/{id}
+     * @originalName v1OrgsTriggersDetail
+     * @duplicate
+     */
+    v1OrgsTriggersDetail2: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiTriggerDTO, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersUpdate
+     * @summary Helix-org: update a trigger
+     * @request PUT:/api/v1/orgs/{org}/triggers/{id}
+     */
+    v1OrgsTriggersUpdate: (org: string, id: string, payload: ApiTriggerWriteRequest, params: RequestParams = {}) =>
+      this.request<ApiTriggerDTO, ApiAPIError>({
+        path: `/api/v1/orgs/${org}/triggers/${id}`,
+        method: "PUT",
+        body: payload,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersEventsDetail
+     * @summary Helix-org: list trigger events
+     * @request GET:/api/v1/orgs/{org}/triggers/{id}/events
+     */
+    v1OrgsTriggersEventsDetail: (
+      org: string,
+      id: string,
+      query?: {
+        /** Page size (1-100) */
+        limit?: number;
+        /** Offset */
+        offset?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiTriggerEventsResponse, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}/events`,
+        method: "GET",
+        query: query,
         format: "json",
         ...params,
       }),
