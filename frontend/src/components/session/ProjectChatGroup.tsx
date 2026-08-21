@@ -364,7 +364,11 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             className="sidebar-group-new"
             component="button"
             type="button"
-            aria-label={`New task in ${groupName}`}
+            // The row around it already exposes this exact action, so to a
+            // screen reader this is a duplicate control with the same name —
+            // it stays as the visual hint and keeps out of the a11y tree.
+            aria-hidden="true"
+            tabIndex={-1}
             onClick={(event) => {
               event.stopPropagation()
               onNewTask()

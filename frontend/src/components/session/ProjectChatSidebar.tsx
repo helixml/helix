@@ -21,6 +21,7 @@ import {
 } from '../../api/api'
 import type { TypesAzureDevOps, TypesGitRepository, TypesProject } from '../../api/api'
 import useAccount from '../../hooks/useAccount'
+import useIsPhone from '../../hooks/useIsPhone'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -62,6 +63,9 @@ import SortableProject from './SortableProject'
 import useProjectChatSidebarDrag from './useProjectChatSidebarDrag'
 import useProjectChatSidebarPreferences from './useProjectChatSidebarPreferences'
 import ChatSidebarBrandHeader from './ChatSidebarBrandHeader'
+import NewChatProjectDialog from './NewChatProjectDialog'
+import type { NewChatTarget } from './NewChatProjectDialog'
+import ProjectChatSidebarMobileBar, { MOBILE_BAR_CLEARANCE } from './ProjectChatSidebarMobileBar'
 
 const RELATIVE_TIME_REFRESH_MS = 15000
 const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
@@ -96,6 +100,7 @@ const ProjectChatSidebar: FC<{
 }> = ({ onCollapse, onOpenSession }) => {
   const account = useAccount()
   const router = useRouter()
+  const isPhone = useIsPhone()
   const lightTheme = useLightTheme()
   const snackbar = useSnackbar()
   const { openDialog } = useSettingsDialog()
@@ -118,6 +123,7 @@ const ProjectChatSidebar: FC<{
   const [projectContextMenuPosition, setProjectContextMenuPosition] = useState<ProjectChatContextMenuPosition | null>(null)
   const [archivingItemId, setArchivingItemId] = useState<string | null>(null)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
+  const [newChatPickerOpen, setNewChatPickerOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [chatShortcutsVisible, setChatShortcutsVisible] = useState(false)
   const sidebarRef = useRef<HTMLDivElement | null>(null)
@@ -211,25 +217,31 @@ const ProjectChatSidebar: FC<{
     setManualProjectOrder,
   )
 
-  const openNewThread = useCallback(() => {
+  // Which project a chat belongs to is its first real decision, and picking it
+  // up front doubles as the quickest way to move between projects — so the
+  // compose affordances open the picker rather than dropping you into whichever
+  // project you happened to be looking at.
+  const openNewChatPicker = useCallback(() => setNewChatPickerOpen(true), [])
+
+  const startNewChat = useCallback(({ projectId }: NewChatTarget) => {
     setShowArchived(false)
-    account.orgNavigate('chat')
+    account.orgNavigate('chat', {}, projectId ? { project_id: projectId } : {})
     onOpenSession()
   }, [account, onOpenSession])
 
-  // openNewThread is the only dependency; keeping it in the array (rather than a
-  // route id) is what stops the listener from calling a stale navigate closure.
+  // openNewChatPicker is the only dependency; keeping it in the array (rather
+  // than a route id) is what stops the listener from calling a stale closure.
   useEffect(() => {
     const handleNewThreadShortcut = (event: KeyboardEvent) => {
       if (!isNewThreadShortcut(event)) return
 
       event.preventDefault()
-      openNewThread()
+      openNewChatPicker()
     }
 
     window.addEventListener('keydown', handleNewThreadShortcut, { capture: true })
     return () => window.removeEventListener('keydown', handleNewThreadShortcut, { capture: true })
-  }, [openNewThread])
+  }, [openNewChatPicker])
 
   useEffect(() => {
     const sidebar = sidebarRef.current
@@ -473,90 +485,10 @@ const ProjectChatSidebar: FC<{
   }
 
   const effectiveCollapsedGroups = query ? new Set<string>() : collapsedGroups
-  const groupsEnabled = !!account.user?.id && !!orgId
-
-  return (
-    <Box
-      ref={sidebarRef}
-      data-chat-shortcuts-visible={chatShortcutsVisible}
-      sx={{
-        height: '100%',
-        minHeight: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        fontFamily: T3_FONT_FAMILY,
-        color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-        backgroundColor: lightTheme.isLight ? '#fafafa' : '#000000',
-        '& .MuiTypography-root': { fontFamily: 'inherit' },
-        '&[data-chat-shortcuts-visible="true"] .project-chat-item[data-chat-shortcut]::after': {
-          content: 'attr(data-chat-shortcut)',
-          position: 'absolute',
-          right: 42,
-          top: 7,
-          width: 14,
-          height: 18,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: '4px',
-          color: lightTheme.isLight ? '#52525b' : '#d4d4d8',
-          backgroundColor: lightTheme.isLight ? 'rgba(39,39,42,0.08)' : 'rgba(241,243,247,0.12)',
-          fontSize: '10px',
-          fontWeight: 600,
-          lineHeight: 1,
-          fontVariantNumeric: 'tabular-nums',
-          pointerEvents: 'none',
-          zIndex: 1,
-        },
-        '&[data-chat-shortcuts-visible="true"] .project-chat-item[data-chat-shortcut] .sidebar-item-pin': {
-          opacity: 0,
-        },
-      }}
-    >
-      <ChatSidebarBrandHeader onCollapse={onCollapse} />
-
-      <Box
-        sx={{
-          height: 60,
-          minHeight: 60,
-          px: 1.5,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.5,
-        }}
-      >
-        <Search size={15} color="currentColor" style={{ opacity: 0.55, flexShrink: 0 }} />
-        <InputBase
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
-          inputProps={{ 'aria-label': 'Search' }}
-          sx={{
-            flex: 1,
-            minWidth: 0,
-            color: 'inherit',
-            fontFamily: 'inherit',
-            fontSize: '14px',
-            fontWeight: 500,
-            '& input::placeholder': {
-              color: lightTheme.isLight ? '#71717a' : '#a3a3a3',
-              opacity: 1,
-            },
-          }}
-        />
-        <Tooltip title="New thread (⌘⇧O / Ctrl+Shift+O)">
-          <IconButton
-            size="small"
-            onClick={openNewThread}
-            aria-label="New thread"
-            aria-keyshortcuts="Meta+Shift+O Control+Shift+O"
-          >
-            <SquarePen size={16} strokeWidth={1.7} />
-          </IconButton>
-        </Tooltip>
-      </Box>
-
-      <Box sx={{ pl: 0.75, pr: 0.75, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center' }}>
+  // The desktop toolbar's controls, reused verbatim in the phone's filter sheet
+  // so the two surfaces cannot offer different filters.
+  const filterControls = (
+    <>
         <ProjectChatSidebarProjectFilter
           projects={projects}
           selectedProjectId={projectFilter}
@@ -613,15 +545,165 @@ const ProjectChatSidebar: FC<{
             </span>
           </Tooltip>
         )}
-      </Box>
+    </>
+  )
+  const groupsEnabled = !!account.user?.id && !!orgId
+
+  return (
+    <Box
+      ref={sidebarRef}
+      data-chat-shortcuts-visible={chatShortcutsVisible}
+      sx={{
+        height: '100%',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        // Positioning context for the phone's floating bottom bar.
+        position: 'relative',
+        fontFamily: T3_FONT_FAMILY,
+        color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
+        backgroundColor: lightTheme.isLight ? '#fafafa' : '#000000',
+        '& .MuiTypography-root': { fontFamily: 'inherit' },
+        '&[data-chat-shortcuts-visible="true"] .project-chat-item[data-chat-shortcut]::after': {
+          content: 'attr(data-chat-shortcut)',
+          position: 'absolute',
+          right: 42,
+          top: 7,
+          width: 14,
+          height: 18,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: '4px',
+          color: lightTheme.isLight ? '#52525b' : '#d4d4d8',
+          backgroundColor: lightTheme.isLight ? 'rgba(39,39,42,0.08)' : 'rgba(241,243,247,0.12)',
+          fontSize: '10px',
+          fontWeight: 600,
+          lineHeight: 1,
+          fontVariantNumeric: 'tabular-nums',
+          pointerEvents: 'none',
+          zIndex: 1,
+        },
+        '&[data-chat-shortcuts-visible="true"] .project-chat-item[data-chat-shortcut] .sidebar-item-pin': {
+          opacity: 0,
+        },
+      }}
+    >
+      <ChatSidebarBrandHeader onCollapse={onCollapse} />
+
+      {!isPhone && (
+        <>
+        <Box
+          sx={{
+            height: 60,
+            minHeight: 60,
+            px: 1.5,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+          }}
+        >
+          <Search size={15} color="currentColor" style={{ opacity: 0.55, flexShrink: 0 }} />
+          <InputBase
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search"
+            inputProps={{ 'aria-label': 'Search' }}
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              color: 'inherit',
+              fontFamily: 'inherit',
+              fontSize: '14px',
+              fontWeight: 500,
+              '& input::placeholder': {
+                color: lightTheme.isLight ? '#71717a' : '#a3a3a3',
+                opacity: 1,
+              },
+            }}
+          />
+          <Tooltip title="New thread (⌘⇧O / Ctrl+Shift+O)">
+            <IconButton
+              size="small"
+              onClick={openNewChatPicker}
+              aria-label="New thread"
+              aria-keyshortcuts="Meta+Shift+O Control+Shift+O"
+            >
+              <SquarePen size={16} strokeWidth={1.7} />
+            </IconButton>
+          </Tooltip>
+        </Box>
+        <Box sx={{ pl: 0.75, pr: 0.75, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center' }}>
+          <ProjectChatSidebarProjectFilter
+            projects={projects}
+            selectedProjectId={projectFilter}
+            archived={showArchived}
+            onChange={selectProjectFilter}
+          />
+          {!focusMode && (
+            <ProjectChatSidebarOptions
+              projectSortOrder={preferences.projectSortOrder}
+              threadSortOrder={preferences.threadSortOrder}
+              visibleThreadCount={preferences.visibleThreadCount}
+              onProjectSortOrderChange={setProjectSortOrder}
+              onThreadSortOrderChange={setThreadSortOrder}
+              onVisibleThreadCountChange={setVisibleThreadCount}
+            />
+          )}
+          <ProjectChatSidebarPeopleFilter
+            members={selectableMembers}
+            currentUser={account.user}
+            selectedUserIds={selectedParticipantIds}
+            onSelectedUserIdsChange={updateSelectedParticipantIds}
+          />
+          <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
+            <IconButton
+              size="small"
+              onClick={() => setShowArchived((current) => !current)}
+              aria-label={showArchived ? 'Back to active chats' : 'Show archived'}
+              aria-pressed={showArchived}
+              sx={{
+                color: showArchived
+                  ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
+                  : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
+              }}
+            >
+              <Archive size={15} strokeWidth={1.7} />
+            </IconButton>
+          </Tooltip>
+          {!showArchived && (
+            <Tooltip title="New project">
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={() => setCreateProjectOpen(true)}
+                  disabled={!account.user?.id || !orgId}
+                  aria-label="New project"
+                  sx={{
+                    color: lightTheme.isLight
+                      ? 'rgba(113,113,122,0.65)'
+                      : 'rgba(163,163,163,0.55)',
+                  }}
+                >
+                  <FolderPlus size={15} strokeWidth={1.7} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
+        </Box>
+        </>
+      )}
 
       <Box
         sx={{
           flex: 1,
           minHeight: 0,
           overflowY: 'auto',
+          // Momentum scrolling, and a floor the floating bar cannot cover.
+          WebkitOverflowScrolling: 'touch',
+          overscrollBehavior: 'contain',
           px: 0.75,
-          pb: 1.5,
+          pb: isPhone ? `${MOBILE_BAR_CLEARANCE}px` : 1.5,
           scrollbarWidth: 'none',
           msOverflowStyle: 'none',
           '&::-webkit-scrollbar': { display: 'none' },
@@ -710,6 +792,22 @@ const ProjectChatSidebar: FC<{
           </>
         )}
       </Box>
+
+      {isPhone && (
+        <ProjectChatSidebarMobileBar
+          query={query}
+          onQueryChange={setQuery}
+          onNewChat={openNewChatPicker}
+          filters={filterControls}
+        />
+      )}
+
+      <NewChatProjectDialog
+        open={newChatPickerOpen}
+        projects={projects}
+        onClose={() => setNewChatPickerOpen(false)}
+        onSelect={startNewChat}
+      />
 
       <ProjectChatItemContextMenu
         item={contextMenuItem}
