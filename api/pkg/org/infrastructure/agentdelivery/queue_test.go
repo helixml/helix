@@ -46,6 +46,13 @@ func TestQueueRetriesFailedActivation(t *testing.T) {
 	mu.Unlock()
 }
 
+func TestRetryDelay(t *testing.T) {
+	require.Equal(t, time.Second, retryDelay(1))
+	require.Equal(t, 2*time.Second, retryDelay(2))
+	require.Equal(t, 30*time.Minute, retryDelay(12))
+	require.Equal(t, 30*time.Minute, retryDelay(^uint64(0)))
+}
+
 func TestQueueFansOutPerAgent(t *testing.T) {
 	n, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
