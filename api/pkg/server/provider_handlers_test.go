@@ -1173,3 +1173,93 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_Headers() {
 		})
 	}
 }
+
+// Flipping the admin UI's "Providers Management" toggle must be enough for a
+// non-admin to create a provider endpoint. Before, the handler also demanded
+// ENABLE_CUSTOM_USER_PROVIDERS=true and rejected with "Custom user providers
+// are not enabled" even though /config told the frontend the feature was on.
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_NonAdminAllowedBySystemSetting() {
+	s.server.authMiddleware = &authMiddleware{
+		store: s.store,
+		cfg:   authMiddlewareConfig{},
+	}
+	s.server.Cfg.Providers.EnableCustomUserProviders = false
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user_id"}, nil).AnyTimes()
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+
+	body, err := json.Marshal(types.ProviderEndpoint{
+		Name:         "my-openrouter",
+		BaseURL:      "https://openrouter.ai/api/v1",
+		APIKey:       "sk-secret",
+		EndpointType: types.ProviderEndpointTypeUser,
+	})
+	s.Require().NoError(err)
+
+	s.manager.EXPECT().ListProviders(gomock.Any(), "user_id").Return([]types.Provider{}, nil)
+	s.store.EXPECT().CreateProviderEndpoint(gomock.Any(), gomock.Any()).Return(&types.ProviderEndpoint{
+		ID:           "ep_openrouter",
+		Name:         "my-openrouter",
+		BaseURL:      "https://openrouter.ai/api/v1",
+		APIKey:       "sk-secret",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}, nil)
+
+	warmDone := make(chan struct{})
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *manager.GetClientRequest) (openai.Client, error) {
+			defer close(warmDone)
+			return s.openAiClient, nil
+		})
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{{ID: "gpt-4o"}}, nil)
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
+
+	req, err := http.NewRequest("POST", "/v1/provider-endpoints", bytes.NewReader(body))
+	s.Require().NoError(err)
+	req = req.WithContext(s.authCtx)
+
+	rr := httptest.NewRecorder()
+	s.server.createProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code, rr.Body.String())
+
+	select {
+	case <-warmDone:
+	case <-time.After(5 * time.Second):
+		s.Fail("cache warm goroutine did not complete in time")
+	}
+}
+
+// With both the system setting and the env var off, a non-admin is still denied.
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_NonAdminDeniedWhenDisabled() {
+	s.server.authMiddleware = &authMiddleware{
+		store: s.store,
+		cfg:   authMiddlewareConfig{},
+	}
+	s.server.Cfg.Providers.EnableCustomUserProviders = false
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user_id"}, nil).AnyTimes()
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: false,
+	}, nil)
+
+	body, err := json.Marshal(types.ProviderEndpoint{
+		Name:         "my-openrouter",
+		BaseURL:      "https://openrouter.ai/api/v1",
+		EndpointType: types.ProviderEndpointTypeUser,
+	})
+	s.Require().NoError(err)
+
+	req, err := http.NewRequest("POST", "/v1/provider-endpoints", bytes.NewReader(body))
+	s.Require().NoError(err)
+	req = req.WithContext(s.authCtx)
+
+	rr := httptest.NewRecorder()
+	s.server.createProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code, rr.Body.String())
+}

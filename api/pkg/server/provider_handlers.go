@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pricing"
@@ -49,12 +50,20 @@ func (s *HelixAPIServer) listProviders(rw http.ResponseWriter, r *http.Request) 
 
 var blankAPIKey = "********"
 
+// providersManagementEnabled reports whether non-admin users may manage their
+// own provider endpoints. Two operator controls grant this and they mean the
+// same thing: the static ENABLE_CUSTOM_USER_PROVIDERS env var and the admin
+// UI's "Providers Management" toggle stored in system settings.
+func providersManagementEnabled(settings *types.SystemSettings, cfg *config.ServerConfig) bool {
+	return settings.ProvidersManagementEnabled || cfg.Providers.EnableCustomUserProviders
+}
+
 func (s *HelixAPIServer) isProvidersManagementEnabled(ctx context.Context) bool {
 	systemSettings, err := s.Store.GetSystemSettings(ctx)
 	if err != nil {
-		return false
+		return s.Cfg.Providers.EnableCustomUserProviders
 	}
-	return systemSettings.ProvidersManagementEnabled
+	return providersManagementEnabled(systemSettings, s.Cfg)
 }
 
 // listProviderEndpoints godoc
@@ -621,11 +630,6 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
-	if !isAdmin && !s.Cfg.Providers.EnableCustomUserProviders {
-		http.Error(rw, "Custom user providers are not enabled", http.StatusForbidden)
-		return
-	}
-
 	var endpoint types.ProviderEndpoint
 	if err := json.NewDecoder(r.Body).Decode(&endpoint); err != nil {
 		log.Err(err).Msg("error decoding request body")
@@ -732,11 +736,6 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	// Check if providers management is enabled
 	if !s.isProvidersManagementEnabled(r.Context()) && !user.Admin {
 		http.Error(rw, "Providers management is not enabled", http.StatusForbidden)
-		return
-	}
-
-	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
-		http.Error(rw, "Custom user providers are not enabled", http.StatusForbidden)
 		return
 	}
 
@@ -1013,11 +1012,6 @@ func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.R
 		return
 	}
 
-	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
-		writeErrResponse(rw, errors.New("custom user providers are not enabled"), http.StatusForbidden)
-		return
-	}
-
 	from := time.Now().Add(-time.Hour * 24 * 7) // Last 7 days
 	to := time.Now()
 
@@ -1081,11 +1075,6 @@ func (s *HelixAPIServer) getProviderThroughputUsage(rw http.ResponseWriter, r *h
 
 	if !s.isProvidersManagementEnabled(r.Context()) && !user.Admin {
 		writeErrResponse(rw, errors.New("providers management is not enabled"), http.StatusForbidden)
-		return
-	}
-
-	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
-		writeErrResponse(rw, errors.New("custom user providers are not enabled"), http.StatusForbidden)
 		return
 	}
 
@@ -1166,11 +1155,6 @@ func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *h
 	// Check if providers management is enabled
 	if !s.isProvidersManagementEnabled(ctx) && !user.Admin {
 		writeErrResponse(rw, errors.New("providers management is not enabled"), http.StatusForbidden)
-		return
-	}
-
-	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
-		writeErrResponse(rw, errors.New("custom user providers are not enabled"), http.StatusForbidden)
 		return
 	}
 
