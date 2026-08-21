@@ -22,6 +22,7 @@ const WorkerSecretsPanel: FC<{ agentID?: string; projectID?: string; readOnly?: 
   const [newSecretValue, setNewSecretValue] = useState('')
   const [showSecretValue, setShowSecretValue] = useState(false)
   const [creatingSecret, setCreatingSecret] = useState(false)
+  const newSecretNameTaken = bindings.some((binding) => binding.name === newSecretName.trim())
 
   if (!agentID) return null
 
@@ -31,10 +32,20 @@ const WorkerSecretsPanel: FC<{ agentID?: string; projectID?: string; readOnly?: 
     setName(selected?.proposed_name ?? '')
     setUsage(selected?.usage ?? '')
   }
+  const grantSource = (selected: AvailableWorkerSecret, bindingName: string, bindingUsage: string) => put.mutateAsync({
+    name: bindingName,
+    payload: {
+      source_kind: selected.source_kind,
+      secret_id: selected.secret_id,
+      account_id: selected.account_id,
+      export_key: selected.export_key,
+      usage: bindingUsage,
+    },
+  })
   const grant = async () => {
     if (!source || !name.trim()) return
     try {
-      await put.mutateAsync({ name: name.trim(), payload: { source_kind: source.source_kind, secret_id: source.secret_id, account_id: source.account_id, export_key: source.export_key, usage } })
+      await grantSource(source, name.trim(), usage)
       setSourceID(''); setName(''); setUsage('')
       snackbar.success(`Granted ${name.trim()} to this Agent`)
     } catch (error: any) { snackbar.error(error?.response?.data?.error ?? error?.message ?? 'Failed to grant secret') }
@@ -60,16 +71,17 @@ const WorkerSecretsPanel: FC<{ agentID?: string; projectID?: string; readOnly?: 
         item.source_kind === WorkersecretSourceKind.SourceHelixSecret
         && (item.secret_id === created.id || item.label === created.name),
       )
+      if (!added) throw new Error('Secret was created but is not available to this Agent')
+      const bindingName = added.proposed_name?.trim() || created.name?.trim() || newSecretName.trim()
+      await grantSource(added, bindingName, added.usage ?? '')
       setNewSecretOpen(false)
       setNewSecretName('')
       setNewSecretValue('')
       setShowSecretValue(false)
-      if (added) {
-        setSourceID(id(added))
-        setName(added.proposed_name ?? '')
-        setUsage(added.usage ?? '')
-      }
-      snackbar.success('Secret created. Review its name, then grant it to this Agent.')
+      setSourceID('')
+      setName('')
+      setUsage('')
+      snackbar.success(`Secret created and granted as ${bindingName}`)
     } catch (error: any) {
       snackbar.error(error?.response?.data?.error ?? error?.message ?? 'Failed to create secret')
     } finally {
@@ -105,8 +117,8 @@ const WorkerSecretsPanel: FC<{ agentID?: string; projectID?: string; readOnly?: 
       <DialogTitle>New Project Secret</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
-          <Typography variant="body2" color="text.secondary">This encrypted secret is stored in the Agent’s project. After creating it, review the proposed name and grant it to the Agent.</Typography>
-          <TextField label="Secret name" value={newSecretName} onChange={(event) => setNewSecretName(event.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))} placeholder="API_TOKEN" autoFocus required />
+          <Typography variant="body2" color="text.secondary">This encrypted secret is stored in the Agent’s project and immediately granted to this Agent under the same name.</Typography>
+          <TextField label="Secret name" value={newSecretName} onChange={(event) => setNewSecretName(event.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))} placeholder="API_TOKEN" autoFocus required error={newSecretNameTaken} helperText={newSecretNameTaken ? 'This Agent already has a secret with this name.' : 'The Agent passes this name to get_secret.'} />
           <TextField
             label="Secret value"
             value={newSecretValue}
@@ -118,7 +130,7 @@ const WorkerSecretsPanel: FC<{ agentID?: string; projectID?: string; readOnly?: 
           />
         </Stack>
       </DialogContent>
-      <DialogActions><Button onClick={closeNewSecret} disabled={creatingSecret}>Cancel</Button><Button variant="contained" color="secondary" startIcon={creatingSecret ? <CircularProgress size={16}/> : <Plus size={16}/>} onClick={() => { void createSecret() }} disabled={creatingSecret || !newSecretName.trim() || !newSecretValue}>{creatingSecret ? 'Creating…' : 'Create Secret'}</Button></DialogActions>
+      <DialogActions><Button onClick={closeNewSecret} disabled={creatingSecret}>Cancel</Button><Button variant="contained" color="secondary" startIcon={creatingSecret ? <CircularProgress size={16}/> : <Plus size={16}/>} onClick={() => { void createSecret() }} disabled={creatingSecret || newSecretNameTaken || !newSecretName.trim() || !newSecretValue}>{creatingSecret ? 'Creating and granting…' : 'Create and Grant'}</Button></DialogActions>
     </Dialog>
   </>
 }
