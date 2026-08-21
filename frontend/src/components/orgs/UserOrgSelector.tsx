@@ -714,6 +714,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     return (
       <Box
         data-compact-user-menu
+        // The element `useUserMenuHeight` measures, so the sidebar's scroll
+        // column stops exactly where this menu starts. Marked explicitly rather
+        // than found by walking ancestors — see that hook. It is this box and
+        // not the wrapper above it, because in the expanded (non-compact) mode
+        // the wrapper is static and an absolutely-positioned child contributes
+        // nothing to its height.
+        data-user-menu-overlay
         sx={{
           position: 'absolute',
           left: 0,

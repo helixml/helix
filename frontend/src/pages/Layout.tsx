@@ -56,6 +56,7 @@ import useAccount from "../hooks/useAccount";
 import useLightTheme from "../hooks/useLightTheme";
 import useThemeConfig from "../hooks/useThemeConfig";
 import useIsBigScreen from "../hooks/useIsBigScreen";
+import useIsPhone from "../hooks/useIsPhone";
 import useApps from "../hooks/useApps";
 import useUserMenuHeight from "../hooks/useUserMenuHeight";
 import { LIGHT_SIDEBAR_COLORS } from "../styles/themeTokens";
@@ -253,6 +254,9 @@ const Layout: FC<{
   const themeConfig = useThemeConfig();
   const lightTheme = useLightTheme();
   const isBigScreen = useIsBigScreen();
+  // A phone has no room for the 300px drawer to sit beside the conversation —
+  // the chat list ends up a strip too narrow to read. It takes the screen.
+  const isPhone = useIsPhone();
   const router = useRouter();
   const account = useAccount();
   const apps = useApps();
@@ -714,8 +718,11 @@ const Layout: FC<{
                   ? isConversationRoute
                     ? visibleChatSidebarWidth
                     : themeConfig.drawerWidth
-                  : themeConfig.smallDrawerWidth
+                  : isPhone
+                    ? "100vw"
+                    : themeConfig.smallDrawerWidth
                 : 64,
+              maxWidth: "100vw",
               boxSizing: "border-box",
               overflowX: "hidden", // Prevent horizontal scrolling
               // Drawer takes full viewport height. The floating user menu is
