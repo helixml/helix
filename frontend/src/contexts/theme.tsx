@@ -465,7 +465,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
               // scrolling inside a fixed frame. `--app-height` tracks the visual
               // viewport (see index.html); the 100% fallback is what every
               // desktop browser resolves to anyway.
-              height: 'var(--app-height, 100%)',
+              height: 'min(var(--app-height, 100%), 100%)',
             },
             root: {
               zIndex: 100002, // Above floating windows (z-index 9999); tooltips (100004) render above

@@ -41,9 +41,13 @@
             html,
             body {
                 height: 100%;
+                width: 100%;
                 margin: 0;
                 padding: 0;
                 overflow: hidden;
+                /* Belt and braces: nothing in a fixed-shell app should ever be
+                   able to introduce a horizontal scroll. */
+                overflow-x: hidden;
                 /* Stops a rubber-band at the end of an inner scroller from
                    chaining out to the document and dragging the whole app. */
                 overscroll-behavior: none;
@@ -63,10 +67,16 @@
                 position: fixed;
                 top: 0;
                 left: 0;
-                width: 100%;
+                right: 0;
+                width: auto;
+                max-width: 100%;
                 height: 100%;
                 height: 100svh;
-                height: var(--app-height, 100svh);
+                /* Never taller than the small viewport, so collapsing browser
+                   chrome cannot grow the shell into the space that chrome is
+                   about to reclaim; never taller than the visual viewport, so
+                   the on-screen keyboard shrinks it. */
+                height: min(var(--app-height, 100svh), 100svh);
                 overflow: hidden;
                 overscroll-behavior: none;
             }

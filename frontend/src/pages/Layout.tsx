@@ -720,10 +720,10 @@ const Layout: FC<{
                     ? visibleChatSidebarWidth
                     : themeConfig.drawerWidth
                   : isPhone
-                    ? "100vw"
+                    ? "100%"
                     : themeConfig.smallDrawerWidth
                 : 64,
-              maxWidth: "100vw",
+              maxWidth: "100%",
               boxSizing: "border-box",
               overflowX: "hidden", // Prevent horizontal scrolling
               // Drawer takes full viewport height. The floating user menu is
@@ -732,7 +732,7 @@ const Layout: FC<{
               // visible gap below it. The shrink-by-userMenuHeight happens in
               // Sidebar.tsx for the secondary nav's content column only.
               // Use dvh (dynamic viewport height) for iOS Safari compatibility.
-              height: isBigScreen ? "100%" : "var(--app-height, 100svh)",
+              height: isBigScreen ? "100%" : "min(var(--app-height, 100svh), 100svh)",
               // The primary rail must remain viewport-anchored. Secondary
               // navigation owns its scrolling inside SlideMenuContainer.
               overflowY: "hidden",
