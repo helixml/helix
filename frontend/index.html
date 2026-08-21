@@ -42,6 +42,13 @@
             body,
             #root {
                 height: 100%;
+                /* iOS Safari resolves height:100% against the LARGE viewport —
+                   the one you get with the browser chrome hidden — so a
+                   bottom-docked toolbar renders underneath the floating URL
+                   bar. svh is the small viewport: the height with that chrome
+                   showing, which is the only one guaranteed to be visible.
+                   The 100% above stays as the fallback for older engines. */
+                height: 100svh;
                 margin: 0;
                 padding: 0;
                 overflow: hidden;

@@ -1609,16 +1609,28 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             mt: 1.25,
             minWidth: 0,
             flexWrap: 'nowrap',
-            ...(fill && {
-              flexShrink: 0,
-              // Rather than truncate a control to "Buil…", let the row scroll.
-              overflowX: 'auto',
-              scrollbarWidth: 'none',
-              '&::-webkit-scrollbar': { display: 'none' },
-            }),
+            ...(fill && { flexShrink: 0 }),
           }}
         >
-          {leadingActions}
+          {/* On a phone the model/sandbox controls are wider than the screen.
+              Only they scroll — attach and send stay pinned, because a send
+              button you have to scroll to find is worse than a cramped one. */}
+          {fill ? (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.5,
+                minWidth: 0,
+                overflowX: 'auto',
+                scrollbarWidth: 'none',
+                '&::-webkit-scrollbar': { display: 'none' },
+                '& > *': { flexShrink: 0 },
+              }}
+            >
+              {leadingActions}
+            </Box>
+          ) : leadingActions}
 
           {leadingActions && (
             <Box

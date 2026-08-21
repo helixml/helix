@@ -685,7 +685,7 @@ const Layout: FC<{
       <Box
         id="root-container"
         sx={{
-          minHeight: "100dvh",
+          minHeight: "100svh",
           height: "100%",
           display: "flex",
           backgroundColor: lightTheme.backgroundColor, // Extend background behind iOS safe area
@@ -731,7 +731,7 @@ const Layout: FC<{
               // visible gap below it. The shrink-by-userMenuHeight happens in
               // Sidebar.tsx for the secondary nav's content column only.
               // Use dvh (dynamic viewport height) for iOS Safari compatibility.
-              height: isBigScreen ? "100%" : "100dvh",
+              height: isBigScreen ? "100%" : "100svh",
               // The primary rail must remain viewport-anchored. Secondary
               // navigation owns its scrolling inside SlideMenuContainer.
               overflowY: "hidden",
