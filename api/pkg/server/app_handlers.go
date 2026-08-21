@@ -22,6 +22,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/oauth"
 	orgdomainstore "github.com/helixml/helix/api/pkg/org/domain/store"
@@ -1220,17 +1221,63 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+	restore := func(updateErr error) *system.HTTPError {
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+		defer cancel()
+		if _, rollbackErr := s.Store.UpdateApp(rollbackCtx, existing); rollbackErr != nil {
+			return system.NewHTTPError500(fmt.Sprintf("%v; restore agent app: %v", updateErr, rollbackErr))
+		}
+		return system.NewHTTPError500(updateErr.Error())
+	}
 
 	err = s.ensureKnowledge(r.Context(), updated)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, restore(err)
 	}
 
 	err = s.ensureTriggerConfigurations(r.Context(), updated)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, restore(err)
+	}
+	if err := s.syncOrgAgentProjectCodeAgentConfig(r.Context(), updated); err != nil {
+		return nil, restore(err)
 	}
 	return updated, nil
+}
+
+func (s *HelixAPIServer) syncOrgAgentProjectCodeAgentConfig(ctx context.Context, app *types.App) error {
+	if app.AgentKind != types.AgentKindOrg || app.OrganizationID == "" {
+		return nil
+	}
+	projects, err := s.Store.ListProjects(ctx, &store.ListProjectsQuery{OrganizationID: app.OrganizationID})
+	if err != nil {
+		return fmt.Errorf("list linked projects: %w", err)
+	}
+	var linked *types.Project
+	for _, project := range projects {
+		if project == nil || project.OrganizationID != app.OrganizationID || project.DefaultHelixAppID != app.ID {
+			continue
+		}
+		if linked != nil {
+			return fmt.Errorf("org agent %s is linked to more than one project", app.ID)
+		}
+		linked = project
+	}
+	if linked == nil {
+		return nil
+	}
+	desired, err := external_agent.MaterializeCodeAgentConfig(app, nil)
+	if err != nil {
+		return fmt.Errorf("materialize agent project config: %w", err)
+	}
+	if linked.CodeAgentConfig != nil {
+		desired.ServiceTier = linked.CodeAgentConfig.ServiceTier
+	}
+	linked.CodeAgentConfig = desired
+	if err := s.Store.UpdateProject(ctx, linked); err != nil {
+		return fmt.Errorf("sync linked project %s: %w", linked.ID, err)
+	}
+	return nil
 }
 
 // deleteAgent godoc
