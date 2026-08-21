@@ -47,6 +47,11 @@ import {
   providerSupportsCodeAgentRuntime,
   providersForCodeAgentRuntime,
 } from '../../utils/codeAgentProviders'
+import {
+  currentNativeModels,
+  isLegacyNativeModel,
+  nativeProviderForRuntime,
+} from '../../utils/nativeModels'
 
 type Runtime = TypesCodeAgentRuntime
 
@@ -64,25 +69,6 @@ interface ModelOption {
   provider?: TypesProviderEndpoint
   providerLabel: string
   credentialType: TypesCodeAgentCredentialType
-}
-
-const CURRENT_NATIVE_MODELS: Partial<Record<Runtime, string[]>> = {
-  [TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode]: [
-    'claude-opus-5',
-    'claude-fable-5',
-  ],
-  [TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI]: [
-    'gpt-5.6-sol',
-    'gpt-5.6-terra',
-    'gpt-5.6-luna',
-  ],
-}
-
-function isLegacyNativeModel(runtime: Runtime, modelID: string): boolean {
-  const current = CURRENT_NATIVE_MODELS[runtime]
-  if (!current) return false
-  const normalized = (modelID.split('/').pop() || modelID).toLowerCase()
-  return !current.some((id) => normalized === id || normalized.startsWith(`${id}-`))
 }
 
 export const SELECTABLE_CODE_AGENT_RUNTIMES: ReadonlyArray<Runtime> = [
@@ -160,7 +146,8 @@ function subscriptionModelOptions(runtime: Runtime): ModelOption[] {
 }
 
 function preferredModelOption(runtime: Runtime, options: ModelOption[]): ModelOption | undefined {
-  const preferredModels = CURRENT_NATIVE_MODELS[runtime] || []
+  const nativeProvider = nativeProviderForRuntime(runtime)
+  const preferredModels = currentNativeModels(nativeProvider)
   for (const preferred of preferredModels) {
     const option = options.find(({ id }) => {
       const normalized = (id.split('/').pop() || id).toLowerCase()
@@ -168,7 +155,7 @@ function preferredModelOption(runtime: Runtime, options: ModelOption[]): ModelOp
     })
     if (option) return option
   }
-  return options.find(({ id }) => !isLegacyNativeModel(runtime, id)) || options[0]
+  return options.find(({ id }) => !isLegacyNativeModel(id, nativeProvider)) || options[0]
 }
 
 function defaultCodeAgentConfig(
@@ -371,8 +358,11 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     model.providerLabel,
     getAgentHarnessLabel(runtime),
   ))
-  const currentModels = visibleModels.filter((model) => !isLegacyNativeModel(runtime, model.id))
-  const legacyModels = visibleModels.filter((model) => isLegacyNativeModel(runtime, model.id))
+  const nativeProvider = nativeProviderForRuntime(runtime)
+  const currentModels = visibleModels.filter((model) =>
+    !isLegacyNativeModel(model.id, nativeProvider))
+  const legacyModels = visibleModels.filter((model) =>
+    isLegacyNativeModel(model.id, nativeProvider))
   const configuredProviders = providersAllowedForHarness(
     providers,
     configuredRuntimeStatus,

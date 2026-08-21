@@ -44,6 +44,7 @@ import useLightTheme from '../../hooks/useLightTheme';
 import { useGetOrgByName } from '../../services/orgService';
 
 import useRouter from '../../hooks/useRouter';
+import { isLegacyNativeModel, nativeProviderForEndpoint } from '../../utils/nativeModels';
 
 interface AdvancedModelPickerProps {
   selectedModelId?: string;
@@ -210,6 +211,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   const dialogOpen = externalOpen !== undefined ? externalOpen : internalDialogOpen;
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyEnabled, setShowOnlyEnabled] = useState(true);
+  const [legacyModelsOpen, setLegacyModelsOpen] = useState(false);
 
   // Track the initially selected model when dialog opens (so it stays at top without jumping)
   const initialSelectedModelRef = useRef<string | undefined>(undefined);
@@ -218,6 +220,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   useEffect(() => {
     if (externalOpen) {
       setSearchQuery('');
+      setLegacyModelsOpen(false);
       initialSelectedModelRef.current = selectedModelId;
     }
   }, [externalOpen]);
@@ -376,8 +379,19 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     return models;
   }, [searchQuery, allModels, currentType, showOnlyEnabled, recommendedModels, dialogOpen]);
 
+  const currentModels = filteredModels.filter((model) =>
+    model.id === selectedModelId
+    || !isLegacyNativeModel(model.id || '', nativeProviderForEndpoint(model.provider)))
+  const legacyModels = filteredModels.filter((model) =>
+    model.id !== selectedModelId
+    && isLegacyNativeModel(model.id || '', nativeProviderForEndpoint(model.provider)))
+  const displayedModels: Array<ModelWithProvider | null> = searchQuery || legacyModels.length === 0
+    ? [...currentModels, ...legacyModels]
+    : [...currentModels, null, ...(legacyModelsOpen ? legacyModels : [])]
+
   const handleOpenDialog = () => {
     setSearchQuery('');
+    setLegacyModelsOpen(false);
     // Capture the initially selected model so we can pin it to the top without jumping
     initialSelectedModelRef.current = selectedModelId;
     setInternalDialogOpen(true);
@@ -554,7 +568,26 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                  <CircularProgress />
                </Box>
             )}
-            {!isLoading && filteredModels.map((model) => {
+            {!isLoading && displayedModels.map((model) => {
+              if (!model) {
+                return (
+                  <Button
+                    key="legacy-models"
+                    fullWidth
+                    aria-expanded={legacyModelsOpen}
+                    aria-label={`${legacyModelsOpen ? 'Hide' : 'Show'} Legacy models`}
+                    onClick={() => setLegacyModelsOpen((open) => !open)}
+                    endIcon={(
+                      <ArrowDropDownIcon
+                        sx={{ transform: legacyModelsOpen ? 'rotate(180deg)' : undefined }}
+                      />
+                    )}
+                    sx={{ justifyContent: 'space-between', color: 'text.secondary', textTransform: 'none' }}
+                  >
+                    Legacy models ({legacyModels.length})
+                  </Button>
+                )
+              }
               const formattedContextLength = formatContextLength(model.context_length);
               const isDisabled = !model.enabled;
               const isRecommended = recommendedModels.includes(model.id || '');
