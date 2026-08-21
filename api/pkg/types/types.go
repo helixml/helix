@@ -638,6 +638,10 @@ type ExternalAgentConfig struct {
 	DesktopType string `json:"desktop_type,omitempty"` // "ubuntu" (default) or "sway"
 	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k/5k)
 
+	// SandboxHostID pins the session's dev container to a specific sandbox
+	// host (SandboxInstance.ID). Empty means the dispatcher chooses.
+	SandboxHostID string `json:"sandbox_host_id,omitempty"`
+
 	// Video capture/encoding mode
 	VideoMode string `json:"video_mode,omitempty"` // "shm" (default), "native", or "zerocopy"
 }

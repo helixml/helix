@@ -75,16 +75,28 @@ Closes the remaining dispatch gaps for mixed GPU / CPU-only fleets:
 Tests: `TestPickSandboxInstance` (store), `TestResolveSandboxID*`
 (external-agent, gomock store), `TestSandboxInstanceAtMaxCapacity` (types).
 
-## Follow-up: per-session host selection (user picks the node)
+## PR 2: `feature/session-sandbox-host-pinning` — user picks the node (API)
 
-`DesktopAgent.SandboxID` already pins placement (used by golden builds and
-honoured first in `resolveSandboxID`), but is not exposed to users:
+`DesktopAgent.SandboxID` already pinned placement internally (golden builds;
+honoured first in `resolveSandboxID`); this exposes it to users:
 
-- API: accept optional `sandbox_id` on session / spec-task creation and
-  `CreateSandboxRequest`; validate the host is online and satisfies the
-  workload's display requirement — reject, never silently reschedule a pin.
-- Frontend: host dropdown at session creation (default **Auto**), populated
-  from the sandbox-instances listing; show hostname, GPU vendor, load.
+- `sandbox_host_id` on spec-task creation (`CreateTaskRequest` →
+  `SpecTask.SandboxHostID`, GORM AutoMigrate column) and on session start
+  (`ExternalAgentConfig.SandboxHostID`).
+- Validation at create time via `external_agent.ValidateSandboxHostPin`
+  (`api/pkg/external-agent/host_pin.go`): host must exist, be online, and be
+  display-capable unless the workload is headless
+  (`DesktopTypeRequiresDisplay`). Capacity is deliberately not checked — a
+  pin is an explicit "this host, full or not". Invalid pins are rejected,
+  never silently rescheduled.
+- The pin is honoured on every launch path: task start, just-do-it start,
+  restart-after-crash, and session resume (resume reads it off the spec
+  task, so the container returns to the host that has its workspace).
+- Host discovery for clients: the existing authenticated
+  `GET /api/v1/sandboxes` listing — no new endpoint.
+
+Follow-up (PR 3): frontend host dropdown at task/session creation (default
+**Auto**), populated from that listing; show hostname, GPU capability, load.
 
 ## Mode switching (headless ↔ desktop), for reference
 
