@@ -97,6 +97,26 @@ describe('EditProviderModelsDialog', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it('filters by several vendors at once', async () => {
+    renderDialog(<EditProviderModelsDialog open endpoint={endpoint} onClose={vi.fn()} refreshData={vi.fn()} />)
+
+    const vendorInput = screen.getByPlaceholderText('All 3 vendors')
+    fireEvent.mouseDown(vendorInput)
+    fireEvent.change(vendorInput, { target: { value: 'openai' } })
+    fireEvent.click(await screen.findByRole('option', { name: /openai/ }))
+
+    await waitFor(() => expect(screen.queryByText('Anthropic: Claude Opus 5')).not.toBeInTheDocument())
+    expect(screen.getByText('OpenAI: GPT-5.2')).toBeInTheDocument()
+
+    // A second vendor widens the selection rather than replacing it.
+    fireEvent.change(vendorInput, { target: { value: 'meta' } })
+    fireEvent.click(await screen.findByRole('option', { name: /meta/ }))
+
+    await waitFor(() => expect(screen.getByText('Meta: Llama 4 Base')).toBeInTheDocument())
+    expect(screen.getByText('OpenAI: GPT-5.2')).toBeInTheDocument()
+    expect(screen.queryByText('Anthropic: Claude Opus 5')).not.toBeInTheDocument()
+  })
+
   it('keeps models the provider no longer advertises when they are already enabled', async () => {
     catalogueState.data = { ...catalogue, enabled_models: ['pinned/gone-from-upstream'] }
     renderDialog(<EditProviderModelsDialog open endpoint={endpoint} onClose={vi.fn()} refreshData={vi.fn()} />)

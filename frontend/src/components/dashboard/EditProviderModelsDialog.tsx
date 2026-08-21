@@ -1,6 +1,7 @@
 import React, { FC, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Checkbox,
@@ -12,7 +13,6 @@ import {
   DialogTitle,
   IconButton,
   InputAdornment,
-  MenuItem,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -28,6 +28,7 @@ import {
   useUpdateProviderEndpointModels,
 } from '../../services/providersService';
 import { matchesAllTokens } from '../../utils/searchUtils';
+import { APP_MONO_FONT_FAMILY } from '../../styles/typography';
 
 interface EditProviderModelsDialogProps {
   open: boolean;
@@ -36,7 +37,6 @@ interface EditProviderModelsDialogProps {
   refreshData: () => void;
 }
 
-const ALL_VENDORS = '__all__';
 const ROW_HEIGHT = 56;
 const LIST_HEIGHT = 380;
 
@@ -62,7 +62,7 @@ const formatContextLength = (tokens?: number): string => {
 const EditProviderModelsDialog: FC<EditProviderModelsDialogProps> = ({ open, endpoint, onClose, refreshData }) => {
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [search, setSearch] = useState('');
-  const [vendor, setVendor] = useState<string>(ALL_VENDORS);
+  const [selectedVendors, setSelectedVendors] = useState<string[]>([]);
   const [showOnly, setShowOnly] = useState<'all' | 'enabled' | 'tools'>('all');
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -77,7 +77,7 @@ const EditProviderModelsDialog: FC<EditProviderModelsDialogProps> = ({ open, end
     if (!open) return;
     setSelectedModels(endpoint?.models || []);
     setSearch('');
-    setVendor(ALL_VENDORS);
+    setSelectedVendors([]);
     setShowOnly('all');
     setSaveError(null);
   }, [open, endpoint?.id]);
@@ -96,29 +96,36 @@ const EditProviderModelsDialog: FC<EditProviderModelsDialogProps> = ({ open, end
     setSelectedModels(data.enabled_models || []);
   }, [open, endpoint?.id, data]);
 
-  const vendors = useMemo(() => {
+  const vendorCounts = useMemo(() => {
     const counts = new Map<string, number>();
     availableModels.forEach((model) => {
       const v = vendorOf(model.id || '');
       if (!v) return;
       counts.set(v, (counts.get(v) || 0) + 1);
     });
-    return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    return counts;
   }, [availableModels]);
+
+  // Most models first: on an aggregator that is the order an operator scans in.
+  const vendors = useMemo(
+    () => Array.from(vendorCounts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
+    [vendorCounts],
+  );
 
   const hasToolMetadata = useMemo(() => catalogueReportsTools(availableModels), [availableModels]);
 
   const selectedSet = useMemo(() => new Set(selectedModels), [selectedModels]);
 
   const filteredModels = useMemo(() => {
+    const vendorFilter = new Set(selectedVendors);
     return availableModels.filter((model) => {
       const id = model.id || '';
-      if (vendor !== ALL_VENDORS && vendorOf(id) !== vendor) return false;
+      if (vendorFilter.size > 0 && !vendorFilter.has(vendorOf(id))) return false;
       if (showOnly === 'enabled' && !selectedSet.has(id)) return false;
       if (showOnly === 'tools' && !supportsTools(model)) return false;
       return matchesAllTokens(search, id, model.name, model.description);
     });
-  }, [availableModels, vendor, showOnly, selectedSet, search]);
+  }, [availableModels, selectedVendors, showOnly, selectedSet, search]);
 
   const toggleModel = useCallback((modelId: string) => {
     setSelectedModels((current) =>
@@ -174,7 +181,7 @@ const EditProviderModelsDialog: FC<EditProviderModelsDialogProps> = ({ open, end
           <Typography variant="body2" sx={{ fontWeight: 500 }} noWrap>
             {model.name || id}
           </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }} noWrap>
+          <Typography variant="caption" color="text.secondary" sx={{ fontFamily: APP_MONO_FONT_FAMILY }} noWrap>
             {id}
           </Typography>
         </Box>
@@ -236,7 +243,7 @@ const EditProviderModelsDialog: FC<EditProviderModelsDialogProps> = ({ open, end
             placeholder="Search models"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            sx={{ flexGrow: 1, minWidth: 220 }}
+            sx={{ flexGrow: 2, minWidth: 200 }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -246,21 +253,34 @@ const EditProviderModelsDialog: FC<EditProviderModelsDialogProps> = ({ open, end
             }}
           />
           {vendors.length > 1 && (
-            <TextField
+            <Autocomplete
+              multiple
+              disableCloseOnSelect
               size="small"
-              select
-              label="Vendor"
-              value={vendor}
-              onChange={(e) => setVendor(e.target.value)}
-              sx={{ minWidth: 180 }}
-            >
-              <MenuItem value={ALL_VENDORS}>All vendors ({totalCount})</MenuItem>
-              {vendors.map(([name, count]) => (
-                <MenuItem key={name} value={name}>
-                  {name} ({count})
-                </MenuItem>
-              ))}
-            </TextField>
+              options={vendors.map(([name]) => name)}
+              value={selectedVendors}
+              onChange={(_e, value) => setSelectedVendors(value)}
+              limitTags={1}
+              sx={{ minWidth: 220, maxWidth: 320, flexGrow: 1 }}
+              renderOption={(props, option, { selected }) => {
+                // MUI passes the option key inside props; React only sees it if
+                // it is set before the spread.
+                const { key, ...liProps } = props as typeof props & { key?: string };
+                return (
+                  <li key={key ?? option} {...liProps}>
+                    <Checkbox size="small" checked={selected} sx={{ mr: 1 }} />
+                    <Typography variant="body2" sx={{ flexGrow: 1 }} noWrap>{option}</Typography>
+                    <Typography variant="caption" color="text.secondary">{vendorCounts.get(option)}</Typography>
+                  </li>
+                );
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder={selectedVendors.length === 0 ? `All ${vendors.length} vendors` : ''}
+                />
+              )}
+            />
           )}
           <ToggleButtonGroup
             size="small"
