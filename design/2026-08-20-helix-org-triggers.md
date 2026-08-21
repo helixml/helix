@@ -954,6 +954,51 @@ installation end to end: external event -> Trigger -> optional Processor chain
 
 #### PR 5 implementation plan
 
+##### Entry gate and delivery sequence
+
+PR 5 starts only after rebasing onto the completed PR 4 cutover. Before writing
+the public contract, prove by repository search and the PR 4 tests that Trigger,
+Processor `SourceRef`, attachment, history, and provider-status application
+services are the only active backend path. Topic routes and MCP tools must
+already be absent. Do not make PR 5 compile against the transitional Topic
+services currently present before PR 4, and do not add adapters to bridge that
+gap.
+
+Deliver PR 5 in the following compile-safe slices within one PR:
+
+1. Freeze the REST DTOs, error codes, authorization matrix, ordering, and
+   concurrency preconditions in handler tests and Swagger.
+2. Add the handlers and generated client, then make the generated-client drift
+   check pass before starting frontend work.
+3. Add React Query services and shared source/error presentation components.
+4. Replace the Trigger list/detail/create surfaces and old-route tombstones.
+5. Replace Worker attachment, Processor source, and org-chart editing together
+   so there is never a frontend state in which a Processor can be selected
+   without an output ID.
+6. Remove first-party Topic callers and update MCP discovery, prompts, docs,
+   and QA.
+7. Run clean-install and upgraded-database API and Playwright acceptance suites.
+
+The API contract is the blocking design review. In particular, do not implement
+the frontend until the following decisions are represented in generated types:
+
+- `SourceRef` is a closed union of `{kind: "trigger", trigger_id}` and
+  `{kind: "processor_output", processor_id, output_id}`. Unknown kinds, mixed
+  fields, and a Processor without an output are invalid.
+- List responses use one cursor/limit convention, document their stable
+  tie-breaker, and never embed an unbounded event history or attachment list.
+- Mutations use an opaque revision or `If-Match` value. Missing preconditions
+  are rejected where lost updates are possible; stale preconditions return a
+  distinct stable error code rather than last-write-wins.
+- Request DTOs omit organization, creator, managed IDs, timestamps, provider
+  secrets, and provider-owned status. If compatibility in generated Go structs
+  makes one of those fields parseable, the handler explicitly rejects it; it
+  never trusts or persists it.
+- Error bodies contain a stable machine code, a safe summary, optional field
+  and resource metadata, and a correlation ID. They never contain wrapped
+  provider responses, credentials, signatures, SQL details, or foreign object
+  names.
+
 1. **Publish the final Trigger and attachment API contract.**
 
    - Add generated-client REST CRUD for Triggers, Processor source/output
@@ -1058,6 +1103,219 @@ installation end to end: external event -> Trigger -> optional Processor chain
      API integration tests, and the updated `api/pkg/org/QA.md` Playwright
      suite. Record any unavailable external-provider E2E as **NOT tested**;
      mocks do not satisfy that provider's release gate.
+
+##### API shape and handler ownership
+
+Keep handlers as adapters over PR 4 application services. Every organization
+route resolves `{org_id}` through `s.lookupOrg(ctx, orgStr)` at the outer server
+boundary before constructing the helix-org request context; handlers never use
+the raw slug as a repository key. Use the existing unified resource
+authorization function for every read and mutation. The proposed route groups
+are:
+
+- `/api/v1/orgs/{org_id}/triggers` and
+  `/api/v1/orgs/{org_id}/triggers/{trigger_id}` for CRUD.
+- `/api/v1/orgs/{org_id}/triggers/{trigger_id}/status` and explicit provider
+  setup/repair actions. A generic update must not provision an external
+  resource as a hidden side effect.
+- `/api/v1/orgs/{org_id}/sources/{source_kind}/{source_id}/events` for bounded
+  history. Processor sources require `output_id`; prefer a query parameter or a
+  separate generated route over packing two identities into `source_id`.
+- `/api/v1/orgs/{org_id}/workers/{worker_id}/attachments` for list/create and
+  `/.../attachments/{attachment_id}` for delete. The server derives the Worker
+  from the path and organization from authorization, not the body.
+- Processor CRUD exposes `input: SourceRef` and stable output IDs. A graph read
+  returns typed nodes and edges assembled server-side; the browser does not
+  infer attachment edges from names or provider configuration.
+
+Avoid a generic public "emit Trigger event" route. Provider ingress keeps its
+dedicated authentication boundary, and local/system-managed Trigger append is
+available only through the explicit internal action that owns it. Event-history
+reads are separate from ingress writes.
+
+##### User-resolution error catalogue
+
+Define the catalogue centrally and make both handler and frontend tests table
+driven. These are the minimum stable cases; implementation may add codes, but a
+new user-fixable code must include a tested resolution before merge.
+
+| Condition | HTTP/code | User-facing resolution |
+|---|---|---|
+| Missing/invalid field or invalid `SourceRef` | `400 validation_failed` | Identify the exact field and accepted value/shape. |
+| Duplicate Trigger name or attachment | `409 conflict` | Name the conflicting local resource; link to it or tell the user to choose another name/detach the duplicate. |
+| Stale revision or deleted source/output | `409 stale_resource` | Refresh current sources, identify the missing source, preserve unrelated form edits, and require reselection. |
+| Output still has attachments | `409 source_in_use` | List only same-org attached Workers and tell the user to detach them first. |
+| Connected Account absent/expired/insufficient | `412 provider_connection_required` | Link to **Organization Settings > Connected Accounts**, state the provider/scopes needed, and preserve form input. |
+| Provider resource needs reprovisioning | `409 provider_repair_required` | Offer the Trigger's explicit repair action and a safe status summary. |
+| Invalid cron/repository/event/provider selection | `400 validation_failed` | Show field-level correction text using provider-neutral safe metadata. |
+| Unauthenticated | `401 unauthenticated` | Ask the user to sign in again without revealing whether the resource exists. |
+| Unauthorized, foreign-org, or hidden resource | `404 not_found` | Use the same response body and timing class; never name the foreign resource. |
+| Unexpected/internal/provider failure | `500 internal_error` or `502 provider_error` | Give a meaningful safe summary and correlation ID; retain the user's input for retry. |
+
+The frontend maps codes, not English substrings. Unknown codes use the safe
+summary and correlation ID. Field errors render at the field; page/action errors
+render in the relevant panel and remain visible until the user changes the
+offending value or retries.
+
+##### High-level use-case test plan
+
+Tests are named for user outcomes and drive handlers/pages through their public
+interfaces. Component-internal snapshots, direct state mutation, and assertions
+that only prove a hook was called are insufficient. Prefer table-driven Go
+handler tests for API cases and user-visible React tests for deterministic error
+mapping; use Playwright for wired end-to-end flows.
+
+1. **An administrator creates and operates each inbound Trigger kind.** For
+   local, GitHub, GitLab, Slack, Postmark email, webhook, cron, and Helix-event:
+   create with the minimum valid config, read it, update every mutable inbound
+   field with a current revision, observe status, repair/setup where supported,
+   receive an authenticated event, see bounded history, and delete it. Cover
+   whitespace/Unicode names, duplicate names, invalid and boundary cron values,
+   unsupported kinds, malformed config, missing Connected Account, provider
+   rejection, stale revision, deleting twice, and deleting while attached.
+   Assert immutable/managed fields and secrets cannot be injected or changed.
+
+2. **A manager attaches a Worker to an exact source.** Attach one Worker to a
+   Trigger and to two outputs of the same Processor; attach multiple Workers to
+   one source; detach and reattach. Cover duplicate attachment, human node,
+   missing Worker, missing Trigger, missing Processor, missing/stale output,
+   Processor-without-output, mixed `SourceRef` fields, cross-org IDs that
+   collide, concurrent source deletion, and Worker deletion/recreation. Assert
+   only the selected output activates the Worker and the next normal Worker
+   operation succeeds after detach/delete/recreate.
+
+3. **A manager wires and rewires a Processor chain.** Create
+   Trigger -> Processor A output -> Processor B output -> Worker, reorder and
+   rename outputs without changing IDs, change a predicate/configuration, and
+   rewire an input with a valid revision. Cover zero-output and multi-output
+   Processors, duplicate output IDs, cycle creation, self-cycle, dangling
+   source, stale edit, attached-output removal, and branch producing zero/one/
+   many events. Assert deterministic branch and activation ordering, metadata
+   preservation, and no silent name/position retargeting.
+
+4. **A user finds and inspects Triggers.** Verify tokenized multi-word search,
+   kind/status filters, empty state, stable pagination across equal timestamps,
+   table/card persistence, detail navigation, a live event arriving while the
+   page is open, history pagination, invalid timestamps/payload summaries, and
+   inaccessible/deleted resources. The event view must remain bounded and must
+   render data as text, never executable markup.
+
+5. **A user recovers from setup and concurrency failures.** Start a form,
+   produce each user-fixable error in the catalogue, follow its resolution,
+   retry successfully, and verify unrelated input remains. Simulate an output
+   deleted by a second browser context and two editors updating the same
+   Trigger. Assert the stale editor refreshes selectable sources but does not
+   overwrite the winner or silently discard unrelated local edits.
+
+6. **An old bookmark fails deliberately and helpfully.** Visit old Topic list
+   and detail URLs with and without a former Topic ID. Redirect only where the
+   same-ID converted Trigger is known; otherwise show a tombstone explaining
+   that Topics were replaced and linking to Triggers. Never guess by name,
+   select the first Trigger, loop redirects, or issue a retired Topic API call.
+
+7. **An upgraded organization retains its workflow.** Seed the last Topic
+   release with every transport kind, a Processor chain, output subscriptions,
+   histories, and internal conversations; run the real upgrade; sign in and
+   inspect the converted Trigger graph. Send the next inbound event and perform
+   the next Worker operation. Assert same IDs/history, exact output attachments,
+   stripped outbound configuration, no duplicate activations, and no new Topic
+   or subscription rows.
+
+##### API and security test matrix
+
+For every Trigger, Processor-source, attachment, graph, status/setup, and
+history endpoint, run the same reusable authorization contract suite:
+
+| Caller/resource case | Expected result |
+|---|---|
+| No credentials or invalid credentials | `401`; no mutation and no resource existence detail. |
+| Authenticated org member without required permission | Same `404 not_found` shape as a foreign/missing resource; no mutation. |
+| Authorized caller using org ID | Success within that organization. |
+| Authorized caller using org slug/name | Resolves to the canonical ID and persists only that ID. |
+| Authorized caller targeting another organization | Same status/body schema as missing; no foreign names, IDs, counts, status, or timing-dependent detail. |
+| Two organizations with colliding object IDs | Only the path organization is read or mutated; cache/query keys cannot cross-contaminate. |
+| Body attempts to override org/owner/creator/managed fields | `400` or ignored exactly as specified; never persisted. |
+| Malformed, oversized, duplicate-key, or unknown-field JSON | Deterministic safe `400`/`413`; no partial mutation. |
+| Stale or replayed mutation precondition | Stable conflict; no lost update or duplicate side effect. |
+
+Add ingress-specific suites for each transport's existing authentication:
+missing/invalid/valid signature or token, wrong content type, malformed body,
+wrong repository/workspace/domain, disabled/deleted Trigger, foreign Trigger ID,
+and replay/idempotency behaviour as provided by PR 4. These tests pin existing
+semantics; broader ingress hardening remains deferred. Every denial asserts no
+event append, Processor run, attachment dispatch, activation, or provider
+side effect.
+
+Security assertions also cover:
+
+- JSON/script injection in names, labels, event payloads, provider errors, and
+  correlation IDs renders inertly in list, graph, selector, toast, and history.
+- Trigger responses, browser network logs, console, application/audit logs,
+  metrics, traces, and database error text contain no token, webhook secret,
+  signature, credential value, raw provider body, or foreign metadata canary.
+- History pagination and live updates enforce authorization on every request
+  and reconnect; changing the route organization cannot reuse cached data from
+  the previous organization.
+- Setup/repair actions are CSRF-protected according to the existing API auth
+  model, require mutation permission, are idempotent where promised, and cannot
+  be triggered by graph edge creation or a read request.
+- Attachment and Processor edits grant only inbound activation. Tests inspect
+  the Worker's tools/credentials before and after and prove no outbound tool,
+  Connected Account, secret, or permission was added.
+
+##### Playwright and release verification
+
+The repository currently has Vitest but no checked-in Playwright runner. Add
+`@playwright/test`, a `frontend/playwright.config.ts`, a `test:e2e` script, and
+focused specs under `frontend/e2e/`. Configure the web server as the existing
+local stack rather than starting a second mocked frontend. Keep credentials and
+provider callbacks in environment variables and exclude them from traces and
+failure attachments.
+
+Run Playwright against `http://localhost:8080` with the real frontend, API,
+Postgres, queue, and a live connected Worker. Use API setup only for fixtures
+the product UI intentionally cannot create; perform the acceptance action and
+assertion through the UI and inspect its network responses. Use separate
+browser contexts for concurrent editors and separate users/organizations for
+tenant tests.
+
+Maintain two reproducible database fixtures:
+
+- **Clean:** register, complete onboarding, create two organizations, then
+  build Trigger/Processor/attachment data through the final APIs/UI.
+- **Upgrade:** restore a fixture produced by the immediately preceding Topic
+  release, start the new stack so the real conversion runs, and retain it as an
+  artifact when a test fails. Never simulate conversion by inserting final
+  Trigger rows directly.
+
+The minimum browser acceptance set is: create/edit/delete Trigger; repair
+provider setup; attach exact Processor output; render and mutate graph edges;
+receive a live event; stale concurrent edit recovery; old URL behaviour;
+clean-install tenant isolation; upgraded-data tenant isolation; and the full
+live event -> Processor chain -> Worker activation -> next Worker operation.
+Test each externally available provider end to end when credentials and a
+callback are available. Mark each unavailable provider explicitly as
+`NOT tested: <provider and missing prerequisite>`; its mocked/API coverage does
+not count as external acceptance.
+
+Before merge, run and record:
+
+```text
+go test ./api/pkg/org/...
+go build ./api/pkg/server/ ./api/pkg/store/ ./api/pkg/types/
+cd frontend && yarn test
+cd frontend && yarn build
+cd frontend && yarn test:e2e
+./stack update_openapi followed by a clean generated-client diff check
+API integration and conversion suites against Postgres
+updated api/pkg/org/QA.md Playwright clean and upgrade suites
+repository search for retired Topic routes, tools, DTOs, hooks, and UI labels
+```
+
+Search results must be classified rather than blindly forced to zero: generic
+English uses of “topic”, the read-only legacy conversion input, and intentionally
+retained old-URL tombstones may remain. Any active first-party Topic API, MCP,
+subscription, publishing, or frontend caller fails the PR 5 gate.
 
 PR 5 is complete when the product exposes only Trigger/Processor/attachment
 concepts, every old Topic caller and table has been intentionally handled, the
