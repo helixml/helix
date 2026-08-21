@@ -1887,6 +1887,27 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 			continue
 		}
 
+		// Re-probe liveness under the per-session lock. The ListDevContainers
+		// snapshot above may pre-date a concurrent StopDesktop that already
+		// deleted this container from the sandbox. Trusting the stale snapshot
+		// resurrects a dead session as "running": a later StartDesktop then
+		// short-circuits on the phantom entry and never recreates the container,
+		// so every resume hangs until the API process restarts (#3067). A live
+		// GetDevContainer probe is the source of truth here, mirroring
+		// markMissingSessionsStopped. On any error or non-running status we skip
+		// — a genuinely-alive container whose probe transiently fails is simply
+		// re-discovered on the next sweep.
+		probed, probeErr := hydraClient.GetDevContainer(ctx, sessionID)
+		if probeErr != nil || probed == nil || probed.Status != hydra.DevContainerStatusRunning {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("container_id", container.containerID).
+				Err(probeErr).
+				Msg("Skipping discovery resurrection: container not confirmed running")
+			sessionLock.Unlock()
+			continue
+		}
+
 		// Check if session exists in database
 		dbSession, err := h.store.GetSession(ctx, sessionID)
 		if err != nil {

@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -76,32 +75,10 @@ func TestDiscoverContainersFromSandbox_ResurrectsStoppedSession(t *testing.T) {
 		ListSessionsBySandbox(gomock.Any(), sandboxID).
 		Return([]*types.Session{}, nil)
 
-	// Phase 2 reads the DB row to copy org/project ids and decide on an
-	// update. The row is in the post-idle-stop terminal state
-	// ("terminated_idle") — exactly the state stopIdleDesktop's final write
-	// leaves, which is what makes phase 2 corrupt the DB back to "running".
-	dbSession := &types.Session{
-		ID:        sessionID,
-		SandboxID: sandboxID,
-		Metadata: types.SessionMetadata{
-			ExternalAgentStatus: "terminated_idle",
-			ContainerName:       containerName,
-			ContainerID:         containerID,
-			ContainerIP:         "10.0.0.9",
-		},
-	}
-	mockStore.EXPECT().
-		GetSession(gomock.Any(), sessionID).
-		Return(dbSession, nil)
-
-	var updated *types.Session
-	mockStore.EXPECT().
-		UpdateSession(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, s types.Session) (*types.Session, error) {
-			updated = &s
-			return &s, nil
-		}).
-		Times(1)
+	// With the fix, phase 2 re-probes liveness under the per-session lock and
+	// the probe 404s, so it never reaches the DB: no GetSession read and no
+	// UpdateSession write. The session stays in its terminal "terminated_idle"
+	// state and is not resurrected.
 
 	// 2. Apply StopDesktop's effect deterministically: evict the in-memory
 	//    entry (hydra_executor.go StopDesktop deletes h.sessions before the
@@ -114,27 +91,18 @@ func TestDiscoverContainersFromSandbox_ResurrectsStoppedSession(t *testing.T) {
 	//    is about, captured before the stop but consumed after it.
 	require.NoError(t, h.DiscoverContainersFromSandbox(context.Background(), sandboxID))
 
-	// 4. BUG: the dead session is back in the map as "running", resurrected
-	//    from the stale snapshot. A fixed phase 2 would re-probe the
-	//    container under the per-session lock and refuse.
+	// 4. FIXED: phase 2 re-probes container liveness under the per-session lock
+	//    before resurrecting the entry; the probe returns 404 (the container was
+	//    deleted in step 2), so the dead session must NOT be resurrected as
+	//    "running" and the DB must NOT be written back to running.
 	h.mutex.RLock()
-	got, exists := h.sessions[sessionID]
+	_, stillTracked := h.sessions[sessionID]
 	h.mutex.RUnlock()
-	assert.True(t, exists, "phantom session resurrected by discovery despite the container being deleted")
-	assert.Equal(t, "running", got.Status)
-	assert.Equal(t, containerID, got.ContainerID)
-
-	// The DB was corrupted too: "terminated_idle" was written back to
-	// "running", so the self-healing reconcile (which only downgrades rows
-	// still claiming "running" is missing) skips this session forever.
-	require.NotNil(t, updated, "phase 2 should have written the DB back to running")
-	assert.Equal(t, "running", updated.Metadata.ExternalAgentStatus)
-
-	// Proof the snapshot was stale: a live probe of the container 404s — it
-	// was really gone the whole time.
-	probe := hydra.NewRevDialClient(h.connman, "hydra-"+sandboxID)
-	_, err := probe.GetDevContainer(context.Background(), sessionID)
-	assert.Error(t, err, "the container is provably gone; discovery resurrected it anyway from a stale snapshot")
+	assert.False(t, stillTracked, "phantom session must not be resurrected by discovery")
+	// No GetSession/UpdateSession calls are set up above: with the fix, phase 2
+	// skips after the 404 probe and never touches the DB. ctrl.Finish() below
+	// fails the test if any store method was called unexpectedly, so the DB
+	// staying in its terminal state is guaranteed by construction.
 }
 
 // fakeConnman serves canned HTTP responses over an in-memory connection,
