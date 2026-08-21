@@ -1,5 +1,34 @@
 # Helix Org — QA test plan
 
+> The Topic-era sections below are retained only as the upgrade fixture for
+> the PR 4 conversion. They are not the current product acceptance contract.
+> Run the Trigger acceptance gate immediately below for PR 5; remove the
+> legacy fixture instructions after the final deployed conversion is verified.
+
+## PR 5 Trigger acceptance gate
+
+1. Open `/orgs/<org>/triggers`. Verify tokenized multi-word search and switch
+   between table and card views; refresh and confirm the view persists.
+2. Create a local Trigger, open its detail page, edit its name/description with
+   the current revision, and confirm the bounded event history renders payloads
+   as inert text. A stale revision must return `409 stale_resource`.
+3. Open a live Org Agent's **Inbound attachments** section. Attach it to the
+   Trigger and to two distinct outputs of one Processor. Detach and reattach;
+   every Processor selection must include its stable output ID.
+4. Visit `/orgs/<org>/topics` and `/orgs/<org>/topics/<former-id>`. Both show
+   the deliberate Topics-retired tombstone and link to Triggers without making
+   a retired Topic API request.
+5. Repeat list/detail/attachment reads with a second organization containing
+   colliding IDs. No names, status, history, or attachments from the first
+   organization may appear in UI or network responses.
+6. Inspect the browser console and network responses. Trigger payloads must not
+   contain provider credentials, signatures, raw provider errors, or foreign
+   tenant metadata.
+
+Provider acceptance requires real credentials and callbacks. Record unavailable
+providers as `NOT tested: <provider and missing prerequisite>`; mocks do not
+satisfy this gate.
+
 End-to-end UI test for helix-org. Run before merging any change to
 `frontend/src/pages/HelixOrg*.tsx`, `frontend/src/components/orgs/`,
 `api/pkg/org/`, or `api/pkg/server/helix_org*.go`.
