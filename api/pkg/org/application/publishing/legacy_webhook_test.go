@@ -19,6 +19,7 @@ import (
 )
 
 func TestLegacyWebhookDeliveryIsIsolatedFromInbound(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	received := make(chan string, 1)
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,8 +46,8 @@ func TestLegacyWebhookDeliveryIsIsolatedFromInbound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Delivery == nil || result.Delivery.Provider != "webhook" || result.Delivery.Status != "queued" {
-		t.Fatalf("delivery = %#v", result.Delivery)
+	if result.Delivery != nil {
+		t.Fatalf("webhook compatibility delivery must not claim a synchronous receipt: %#v", result.Delivery)
 	}
 	select {
 	case body := <-received:
@@ -60,7 +61,14 @@ func TestLegacyWebhookDeliveryIsIsolatedFromInbound(t *testing.T) {
 	if _, err := svc.PublishInbound(context.Background(), "org-test", topic.ID, "", streaming.Message{Body: "inbound"}); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	if _, err := svc.Publish(context.Background(), "org-test", topic.ID, "", streaming.Message{Body: "processor output"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case body := <-received:
+		t.Fatalf("empty-source event echoed to webhook: %q", body)
+	case <-time.After(250 * time.Millisecond):
+	}
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("webhook calls = %d, want exactly one outbound call", got)
 	}

@@ -197,7 +197,7 @@ func TestPublish_SlackDeliversButInboundDoesNotEcho(t *testing.T) {
 	if _, err := svc.PublishInbound(context.Background(), "org-test", "s-1", "", streaming.Message{Body: "from Slack"}); err != nil {
 		t.Fatal(err)
 	}
-	if deliverer.calls != 2 {
+	if deliverer.calls != 1 {
 		t.Fatalf("inbound Slack event echoed outbound; calls = %d", deliverer.calls)
 	}
 }
@@ -309,8 +309,8 @@ func TestPublish_InboundProvenanceSuppressesNestedDelivery(t *testing.T) {
 	if _, err := svc.Publish(context.Background(), "org-test", "s-1", "", streaming.Message{Body: "automated"}); err != nil {
 		t.Fatal(err)
 	}
-	if deliverer.calls != 3 {
-		t.Fatalf("ordinary empty-source publish delivery calls = %d, want 3", deliverer.calls)
+	if deliverer.calls != 0 {
+		t.Fatalf("ordinary empty-source publish delivery calls = %d, want 0", deliverer.calls)
 	}
 }
 

@@ -178,7 +178,10 @@ func (p *Publishing) publish(ctx context.Context, orgID string, topicID streamin
 		p.dispatcher.Dispatch(ctx, event)
 	}
 	result := Result{Event: event}
-	if !isInbound(ctx) {
+	// Preserve the legacy loop guard exactly: only Worker-authored events
+	// (non-empty Source) may leave through a Topic compatibility deliverer.
+	// Inbound events and Processor outputs have an empty Source.
+	if !isInbound(ctx) && event.Source != "" {
 		receipt, delivered, err := p.legacyDelivery.Deliver(ctx, topic, event, msg)
 		if delivered {
 			result.Delivery = &receipt

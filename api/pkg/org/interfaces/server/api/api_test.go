@@ -688,7 +688,7 @@ func TestPublishSlackDeliveryFailureReturnsCreatedPartialSuccess(t *testing.T) {
 	}
 	deps.Publishing.RegisterDeliverer(transport.KindSlack, failingTopicDeliverer{})
 
-	rec := do(t, orgapi.Handler(deps), http.MethodPost, "/topics/s-slack-partial/publish", orgapi.PublishRequest{Body: "hello"})
+	rec := do(t, orgapi.Handler(deps), http.MethodPost, "/topics/s-slack-partial/publish", orgapi.PublishRequest{Body: "hello", As: "b-worker"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}

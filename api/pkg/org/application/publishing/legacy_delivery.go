@@ -8,7 +8,10 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
-var ErrLegacyDeliveryNotApplicable = errors.New("legacy delivery not applicable")
+var (
+	ErrLegacyDeliveryNotApplicable  = errors.New("legacy delivery not applicable")
+	ErrLegacyDeliveryWithoutReceipt = errors.New("legacy delivery has no synchronous receipt")
+)
 
 // LegacyDelivery is the single deletion-marked adapter that preserves
 // external delivery for the Topic REST/MCP compatibility surface through PR 4.
@@ -35,6 +38,9 @@ func (d *LegacyDelivery) Deliver(ctx context.Context, topic streaming.Topic, eve
 	}
 	receipt, err := deliverer.Deliver(ctx, topic, event, msg)
 	if errors.Is(err, ErrLegacyDeliveryNotApplicable) {
+		return DeliveryReceipt{}, false, nil
+	}
+	if errors.Is(err, ErrLegacyDeliveryWithoutReceipt) {
 		return DeliveryReceipt{}, false, nil
 	}
 	if err != nil {
