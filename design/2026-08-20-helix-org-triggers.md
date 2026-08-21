@@ -785,8 +785,8 @@ fallback to Topics.
 1. **Define and test the one-to-one conversion.**
 
    - Add a pure conversion from every persisted Topic to a Trigger. Preserve
-     organization, ID, name, creator, timestamps, and the inbound part of the
-     transport configuration.
+     organization, ID, name, description, creator, timestamps, and the inbound
+     part of the transport configuration.
    - Map every current Topic transport kind explicitly. Local Topics become
      local/internal Triggers; GitHub, GitLab, Slack, Postmark email, webhook,
      cron, and Helix-event Topics retain their inbound configuration. Strip

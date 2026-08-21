@@ -25,6 +25,13 @@ func TestTopicToTrigger(t *testing.T) {
 		{name: "slack retains inbound channel filter", transport: transport.Transport{Kind: transport.KindSlack, Config: json.RawMessage(`{"service_connection_id":"sc-1","channel_id":"C1"}`)}, wantConfig: `{"service_connection_id":"sc-1","channel_id":"C1"}`},
 		{name: "helix events strips ignored config", transport: transport.Transport{Kind: transport.KindHelixEvents, Config: json.RawMessage(`{"legacy":true}`)}},
 	}
+	convertedKinds := make([]transport.Kind, 0, len(tests))
+	for _, tc := range tests {
+		convertedKinds = append(convertedKinds, tc.transport.Kind)
+	}
+	if !sameKinds(convertedKinds, transport.KindValues()) {
+		t.Fatalf("conversion cases cover %v, registered transport kinds are %v", convertedKinds, transport.KindValues())
+	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -36,7 +43,7 @@ func TestTopicToTrigger(t *testing.T) {
 			if err != nil {
 				t.Fatalf("TopicToTrigger() error = %v", err)
 			}
-			if got.ID != "topic-1" || got.OrganizationID != "org-1" || got.Name != "Alerts" || got.CreatedBy != "worker-1" {
+			if got.ID != "topic-1" || got.OrganizationID != "org-1" || got.Name != "Alerts" || got.Description != "legacy description" || got.CreatedBy != "worker-1" {
 				t.Fatalf("TopicToTrigger() identity = %#v", got)
 			}
 			if !got.CreatedAt.Equal(createdAt) || got.CreatedAt.Location() != time.UTC {
@@ -50,6 +57,25 @@ func TestTopicToTrigger(t *testing.T) {
 			}
 		})
 	}
+}
+
+func sameKinds(left, right []transport.Kind) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	counts := make(map[transport.Kind]int, len(left))
+	for _, kind := range left {
+		counts[kind]++
+	}
+	for _, kind := range right {
+		counts[kind]--
+	}
+	for _, count := range counts {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func TestTopicToTriggerRejectsInvalidTransport(t *testing.T) {
@@ -69,5 +95,25 @@ func TestTopicToTriggerRejectsInvalidTransport(t *testing.T) {
 		if _, err := TopicToTrigger(topic); err == nil {
 			t.Fatalf("TopicToTrigger(%q) error = nil", value.Kind)
 		}
+	}
+}
+
+func TestTopicToTriggerIgnoresMalformedOutboundWebhookConfig(t *testing.T) {
+	topic := streaming.Topic{
+		ID:             "topic-1",
+		OrganizationID: "org-1",
+		Name:           "Outbound webhook",
+		CreatedAt:      time.Now(),
+		Transport: transport.Transport{
+			Kind:   transport.KindWebhook,
+			Config: json.RawMessage(`{"outbound_url":{"url":"https://example.com"}}`),
+		},
+	}
+	got, err := TopicToTrigger(topic)
+	if err != nil {
+		t.Fatalf("TopicToTrigger() error = %v", err)
+	}
+	if len(got.Config) != 0 {
+		t.Fatalf("TopicToTrigger() Config = %s, want empty", got.Config)
 	}
 }

@@ -26,7 +26,7 @@ func setup(t *testing.T) (context.Context, *store.Store, *attachments.Service) {
 	node, err := orgchart.NewNode("w-one", "work", nil, time.Now(), "org-1")
 	require.NoError(t, err)
 	require.NoError(t, st.Nodes.Create(ctx, node))
-	tr, err := trigger.New("tr-1", "org-1", "incoming", transport.KindLocal, nil, "", time.Now())
+	tr, err := trigger.New("tr-1", "org-1", "incoming", "", transport.KindLocal, nil, "", time.Now())
 	require.NoError(t, err)
 	require.NoError(t, st.Triggers.Create(ctx, tr))
 	n := 0

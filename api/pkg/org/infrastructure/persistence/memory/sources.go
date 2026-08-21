@@ -55,6 +55,7 @@ func (r *triggersRepo) Update(_ context.Context, t trigger.Trigger) error {
 		}
 	}
 	old.Name = t.Name
+	old.Description = t.Description
 	old.Kind = t.Kind
 	old.Config = t.Config
 	r.rows[k] = old

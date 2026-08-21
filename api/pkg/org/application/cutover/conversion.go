@@ -21,6 +21,7 @@ func TopicToTrigger(topic streaming.Topic) (trigger.Trigger, error) {
 		string(topic.ID),
 		topic.OrganizationID,
 		topic.Name,
+		topic.Description,
 		topic.Transport.Kind,
 		config,
 		topic.CreatedBy,
@@ -34,12 +35,7 @@ func TopicToTrigger(topic streaming.Topic) (trigger.Trigger, error) {
 
 func inboundConfig(value transport.Transport) (json.RawMessage, error) {
 	switch value.Kind {
-	case transport.KindLocal, transport.KindHelixEvents:
-		return nil, nil
-	case transport.KindWebhook:
-		if _, err := value.WebhookConfig(); err != nil {
-			return nil, err
-		}
+	case transport.KindLocal, transport.KindHelixEvents, transport.KindWebhook:
 		return nil, nil
 	case transport.KindEmail:
 		config, err := value.EmailConfig()
