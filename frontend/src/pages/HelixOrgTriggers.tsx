@@ -56,7 +56,7 @@ const HelixOrgTriggers: FC = () => {
   const tableData = useMemo(() => filtered.map((trigger) => ({
     id: trigger.id,
     _data: trigger,
-    name: <a href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); open(trigger.id) }} style={{ fontWeight: 600, color: 'inherit', textDecoration: 'none' }}>{trigger.name}</a>,
+    name: <Stack spacing={0.25}><a href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); open(trigger.id) }} style={{ fontWeight: 600, color: 'inherit', textDecoration: 'none' }}>{trigger.name}</a><Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>{trigger.id}</Typography></Stack>,
     kind: <Typography variant="body2" color="text.secondary">{trigger.kind}</Typography>,
     description: <Typography variant="body2" color="text.secondary">{trigger.description || '—'}</Typography>,
     created: <Typography variant="body2" color="text.secondary">{trigger.created_at ? new Date(trigger.created_at).toLocaleString() : '—'}</Typography>,
@@ -67,11 +67,11 @@ const HelixOrgTriggers: FC = () => {
       <Box sx={{ height: '100%', overflow: 'auto' }}><Container maxWidth="xl" sx={{ py: 3 }}><Stack spacing={2}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Box><Typography variant="h5">Triggers</Typography><Typography variant="body2" color="text.secondary">Events that start your agents, either immediately or after processing.</Typography></Box>
-          <Button variant="contained" startIcon={<Plus size={18} />} onClick={() => { setFormError(''); setCreateOpen(true) }}>New trigger</Button>
+          <Button variant="contained" color="secondary" startIcon={<Plus size={18} />} onClick={() => { setFormError(''); setCreateOpen(true) }}>New Trigger</Button>
         </Stack>
         <TextField size="small" placeholder="Search triggers" value={query} onChange={(e) => setQuery(e.target.value)} sx={{ maxWidth: 360 }} />
         <Stack direction="row" justifyContent="flex-end"><ViewModeToggle mode={mode} onChange={setMode} /></Stack>
-        {isLoading ? <LoadingSpinner /> : filtered.length === 0 ? <Typography color="text.secondary" sx={{ py: 6, textAlign: 'center' }}>{query ? 'No triggers match your search.' : 'No triggers yet.'}</Typography> : mode === 'table' ? (
+        {isLoading ? <LoadingSpinner /> : filtered.length === 0 ? <Box sx={{ py: 6, textAlign: 'center' }}><Typography color="text.secondary">{query ? 'No Triggers match your search.' : 'No Triggers yet.'}</Typography>{!query && <Button variant="contained" color="secondary" startIcon={<Plus size={18} />} onClick={() => { setFormError(''); setCreateOpen(true) }} sx={{ mt: 1 }}>New Trigger</Button>}</Box> : mode === 'table' ? (
           <SimpleTable authenticated fields={[{ name: 'name', title: 'Name' }, { name: 'kind', title: 'Source' }, { name: 'description', title: 'Description' }, { name: 'created', title: 'Created' }]} data={tableData} getActions={(row) => actions(row._data as TriggerDTO)} />
         ) : <CardGrid items={filtered} getKey={(t) => t.id!} renderCard={(trigger) => (
           <Card sx={{ border: '1px solid rgba(0, 0, 0, 0.08)', borderRadius: 1, boxShadow: 'none', height: '100%', '&:hover': { borderColor: 'rgba(0,0,0,0.12)', backgroundColor: 'rgba(0,0,0,0.01)' } }}>
@@ -81,7 +81,7 @@ const HelixOrgTriggers: FC = () => {
       </Stack></Container></Box>
       <Menu anchorEl={anchor} open={!!anchor} onClose={closeMenu}><MenuItem onClick={(e) => { e.stopPropagation(); const selected = current; closeMenu(); setDeleting(selected) }}><Trash2 size={20} /> Delete</MenuItem></Menu>
       {deleting && <DeleteConfirmWindow title="trigger" submitTitle="Delete" onCancel={() => setDeleting(undefined)} onSubmit={async () => { try { await remove.mutateAsync(deleting.id!); snackbar.success('Trigger deleted') } catch (e) { snackbar.error(apiMessage(e)) } finally { setDeleting(undefined) } }}><Typography>Delete <b>{deleting.name}</b>? If this Trigger starts any agents, remove it from those agents first.</Typography></DeleteConfirmWindow>}
-      <TriggerFormDialog open={createOpen} saving={create.isPending} error={formError} onClose={() => setCreateOpen(false)} onSubmit={async (payload) => { try { const trigger = await create.mutateAsync(payload); setCreateOpen(false); open(trigger.id) } catch (e) { setFormError(apiMessage(e)) } }} />
+      <TriggerFormDialog open={createOpen} saving={create.isPending} error={formError} onClose={() => setCreateOpen(false)} onSubmit={async (payload) => { try { await create.mutateAsync(payload); setCreateOpen(false); snackbar.success('Trigger created') } catch (e) { setFormError(apiMessage(e)) } }} />
     </HelixOrgShell>
   )
 }

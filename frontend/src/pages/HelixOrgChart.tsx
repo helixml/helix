@@ -97,6 +97,8 @@ import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrum
 import NewBotDialog from '../components/helix-org/NewBotDialog'
 import AssetConfigDrawer from '../components/helix-org/AssetConfigDrawer'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
+import TriggerDetailDrawer from '../components/helix-org/TriggerDetailDrawer'
+import TriggerFormDialog from '../components/helix-org/TriggerFormDialog'
 import ProcessorNode, { ProcessorNodeData } from '../components/helix-org/ProcessorNode'
 import {
   ASSET_H,
@@ -147,6 +149,7 @@ import {
 import {
   useAgentAttachmentsForWorkers,
   useCreateAgentAttachmentForChart,
+  useCreateTrigger,
   useDeleteAgentAttachmentForChart,
   useDeleteTrigger,
   useTriggerEventCounts,
@@ -2325,7 +2328,6 @@ const HelixOrgChart: FC = () => {
   const lightTheme = useLightTheme()
   const snackbar = useSnackbar()
   const router = useRouter()
-  const routeOrgID = router.params.org_id as string
   const account = useAccount()
   const orgID = account.organizationTools.organization?.id ?? ''
   const userID = account.user?.id ?? ''
@@ -2346,6 +2348,7 @@ const HelixOrgChart: FC = () => {
   const deleteBot = useDeleteBot()
   const deleteAsset = useDeleteAsset()
   const deleteTopic = useDeleteTrigger()
+  const createTrigger = useCreateTrigger()
   const deleteProcessor = useDeleteHelixOrgProcessor()
   const updateProcessor = useUpdateHelixOrgProcessor()
   const addParent = useAddBotParent()
@@ -2644,6 +2647,9 @@ const HelixOrgChart: FC = () => {
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [botDialogOpen, setBotDialogOpen] = useState(false)
+  const [triggerCreateOpen, setTriggerCreateOpen] = useState(false)
+  const [selectedTriggerID, setSelectedTriggerID] = useState<string>()
+  const [triggerFormError, setTriggerFormError] = useState('')
   const [newMenuEl, setNewMenuEl] = useState<null | HTMLElement>(null)
   const [assetDrawer, setAssetDrawer] = useState<{ open: boolean; assetID?: string }>({ open: false })
   // Processor drawer: { open, processor } — processor null = create mode.
@@ -2780,9 +2786,9 @@ const HelixOrgChart: FC = () => {
         setProcessorDrawer({ open: true, processor })
         return
       }
-      router.navigate('helix_org_trigger_detail', { org_id: routeOrgID, trigger_id: sourceID })
+      setSelectedTriggerID(sourceID)
     },
-    [processorsData, routeOrgID],
+    [processorsData],
   )
   const onDeleteTopic = useCallback((topicId: string) => setConfirmDelete({ kind: 'topic', id: topicId }), [])
   const onSelectProcessor = useCallback(
@@ -3069,7 +3075,7 @@ const HelixOrgChart: FC = () => {
                 <ListItemIcon><SmartToyOutlinedIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Agent</ListItemText>
               </MenuItem>
-              <MenuItem onClick={() => { setNewMenuEl(null); router.navigate('helix_org_triggers', { org_id: routeOrgID }) }}>
+              <MenuItem onClick={() => { setNewMenuEl(null); setPendingCreatePosition(undefined); setTriggerFormError(''); setTriggerCreateOpen(true) }}>
                 <ListItemIcon><HubOutlinedIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Trigger</ListItemText>
               </MenuItem>
@@ -3156,8 +3162,7 @@ const HelixOrgChart: FC = () => {
         </MenuItem>
         <MenuItem
           onClick={() => {
-            closeCtxMenu()
-            router.navigate('helix_org_triggers', { org_id: routeOrgID })
+            openCreateFromContext(() => { setTriggerFormError(''); setTriggerCreateOpen(true) })
           }}
         >
           <ListItemIcon><HubOutlinedIcon fontSize="small" /></ListItemIcon>
@@ -3195,6 +3200,26 @@ const HelixOrgChart: FC = () => {
         onClose={() => { setAssetDrawer({ open: false }); setPendingCreatePosition(undefined) }}
         onCreated={(id) => saveCreatedPosition('asset', id)}
         onDelete={onDeleteAsset}
+      />
+      <TriggerFormDialog
+        open={triggerCreateOpen}
+        saving={createTrigger.isPending}
+        error={triggerFormError}
+        onClose={() => { setTriggerCreateOpen(false); setPendingCreatePosition(undefined) }}
+        onSubmit={async (payload) => {
+          try {
+            const trigger = await createTrigger.mutateAsync(payload)
+            setTriggerCreateOpen(false)
+            if (trigger.id) saveCreatedPosition('topic', trigger.id)
+          } catch (error: any) {
+            setTriggerFormError(error?.response?.data?.summary ?? error?.message ?? 'Could not create Trigger')
+          }
+        }}
+      />
+      <TriggerDetailDrawer
+        triggerID={selectedTriggerID}
+        agentCount={selectedTriggerID ? attachedAgentsBySource.get(`trigger:${selectedTriggerID}`)?.length ?? 0 : 0}
+        onClose={() => setSelectedTriggerID(undefined)}
       />
       <ConfirmDeleteDialog
         open={confirmDelete !== null}
