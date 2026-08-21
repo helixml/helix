@@ -260,7 +260,7 @@ func TestPublishSlackDeliveryFailureReturnsPartialSuccess(t *testing.T) {
 
 func TestPublishDescriptionExplainsSlackDeliveryBoundary(t *testing.T) {
 	description := (&Publish{}).Description()
-	for _, want := range []string{"through Helix", "configured Slack Topic", "delivery receipt", "ask_human", "mint_credential", "reactions", "uploads", "edits"} {
+	for _, want := range []string{"through Helix", "configured Slack Topic", "delivery receipt", "ask_human", "get_secret", "reactions", "uploads", "edits"} {
 		if !strings.Contains(description, want) {
 			t.Fatalf("description %q missing %q", description, want)
 		}

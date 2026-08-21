@@ -52,6 +52,15 @@ func TestAppendProjectSecretsDropsLegacyWorkerIdentity(t *testing.T) {
 	}
 }
 
+func TestOrgWorkerDesktopSkipsProjectSecretInjection(t *testing.T) {
+	if !hasOrgWorkerIdentity([]string{"BASE=1", "HELIX_WORKER_ID=w-1"}) {
+		t.Fatal("org Worker identity was not detected")
+	}
+	if hasOrgWorkerIdentity([]string{"BASE=1"}) {
+		t.Fatal("ordinary project desktop detected as org Worker")
+	}
+}
+
 func TestApplySessionBootstrapRejectsPartialState(t *testing.T) {
 	for _, metadata := range []types.SessionMetadata{
 		{OrgWorkerID: "b-alex"},

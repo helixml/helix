@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	"github.com/helixml/helix/api/pkg/org/domain/trigger"
+	"github.com/helixml/helix/api/pkg/org/domain/workersecret"
 )
 
 // ErrNotFound signals that the requested record does not exist.
@@ -204,6 +205,14 @@ type WorkerAttachments interface {
 	Find(context.Context, ...Option) ([]attachment.Attachment, error)
 }
 
+type WorkerSecretBindings interface {
+	Create(context.Context, workersecret.Binding) error
+	Update(context.Context, workersecret.Binding) error
+	Get(context.Context, string, orgchart.NodeID, string) (workersecret.Binding, error)
+	List(context.Context, string, orgchart.NodeID) ([]workersecret.Binding, error)
+	Delete(context.Context, string, orgchart.NodeID, string) error
+}
+
 type Assets interface {
 	Create(ctx context.Context, a asset.Asset) error
 	Get(ctx context.Context, orgID string, id asset.ID) (asset.Asset, error)
@@ -261,19 +270,20 @@ type ChartPositions interface {
 // storage boundary is part of the domain package, not a parallel
 // declaration here. Lifted in B5.5.
 type Store struct {
-	Nodes             Nodes
-	ReportingLines    ReportingLines
-	NodeRuntimeState  NodeRuntimeState
-	Topics            Topics
-	Subscriptions     Subscriptions
-	Events            Events
-	Configs           Configs
-	Activations       activation.Repository
-	Processors        Processors
-	Triggers          Triggers
-	WorkerAttachments WorkerAttachments
-	Assets            Assets
-	AssetLinks        AssetLinks
+	Nodes                Nodes
+	ReportingLines       ReportingLines
+	NodeRuntimeState     NodeRuntimeState
+	Topics               Topics
+	Subscriptions        Subscriptions
+	Events               Events
+	Configs              Configs
+	Activations          activation.Repository
+	Processors           Processors
+	Triggers             Triggers
+	WorkerAttachments    WorkerAttachments
+	WorkerSecretBindings WorkerSecretBindings
+	Assets               Assets
+	AssetLinks           AssetLinks
 	// ChartPositions is the free-placed canvas layout for the org chart UI.
 	ChartPositions ChartPositions
 	// DomainEvents is the append-only decision/audit log (e.g. Slack

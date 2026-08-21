@@ -9,7 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
-	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	"github.com/helixml/helix/api/pkg/org/domain/workersecret"
 )
 
 // ListSecrets returns the calling Bot's own project secrets as a
@@ -17,7 +17,7 @@ import (
 // container's boot-time env-var injection: a project secret added AFTER
 // the desktop booted is not in the running shell's environment (a
 // process's env is frozen at start), so the agent reads it here and
-// exports it — the same shape as mint_credential feeding gh/git tokens
+// then retrieves one by name through get_secret immediately before use.
 // into the shell.
 //
 // Scope is the caller only: orgID and botID both come from
@@ -42,14 +42,8 @@ func (t *ListSecrets) Name() tool.Name                 { return ListSecretsName 
 func (t *ListSecrets) InputSchema() *jsonschema.Schema { return listSecretsSchema }
 
 func (t *ListSecrets) Description() string {
-	return "List your project's secrets as a name→value map (your own project only). " +
-		"Project secrets are injected as environment variables when your desktop starts, " +
-		"but a secret added AFTER your container booted is NOT yet in your shell — a running " +
-		"process's environment cannot change. Call this to read the current secrets and " +
-		"**export the ones you need before the command that uses them** " +
-		"(e.g. `export DRONE_TOKEN=$(list_secrets | jq -r '.secrets.DRONE_TOKEN')`). " +
-		"Re-read after you add or change a secret mid-session. " +
-		"Returns: { secrets: { NAME: value, ... } }."
+	return "List the names and usage metadata for credentials explicitly granted to this Worker. " +
+		"Values and backend source details are never returned. Call get_secret immediately before an authenticated operation and again after a 401/403."
 }
 
 func (t *ListSecrets) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
@@ -61,16 +55,14 @@ func (t *ListSecrets) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	if botID == "" {
 		return nil, fmt.Errorf("caller has no bot id")
 	}
-	cfg := t.deps.ProjectConfig
-	if cfg == nil {
-		return nil, runtime.ErrProjectConfigUnsupported
+	if t.deps.WorkerSecrets == nil {
+		return nil, fmt.Errorf("worker secrets are not configured")
 	}
-	secrets, err := cfg.ListWorkerProjectSecrets(ctx, orgID, orgchart.NodeID(botID))
+	secrets, err := t.deps.WorkerSecrets.Descriptors(ctx, orgID, orgchart.NodeID(botID))
 	if err != nil {
 		return nil, fmt.Errorf("list secrets: %w", err)
 	}
-	if secrets == nil {
-		secrets = map[string]string{}
-	}
-	return json.Marshal(map[string]any{"secrets": secrets})
+	return json.Marshal(struct {
+		Secrets []workersecret.Descriptor `json:"secrets"`
+	}{Secrets: secrets})
 }

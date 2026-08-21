@@ -58,6 +58,7 @@ import { useRouter as useRouter5 } from 'react-router5'
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import AgentConfigForm, { AgentConfigValue } from '../components/helix-org/BotRuntimeForm'
 import ToolPickerDialog from '../components/helix-org/ToolPickerDialog'
+import WorkerSecretsPanel from '../components/helix-org/WorkerSecretsPanel'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
@@ -662,6 +663,8 @@ const HelixOrgBotDetail: FC = () => {
                 </Box>
 
                 <SubscriptionsPanel botID={bot?.id} />
+                <Divider sx={{ my: 2 }} />
+                <WorkerSecretsPanel agentID={bot?.id} />
               </Stack>
             </Grid>
 

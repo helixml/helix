@@ -86,6 +86,7 @@ type ProjectService interface {
 	// decrypted name→value map, read live. Backs list_secrets so a bot can
 	// pick up a secret added after its container booted.
 	ListProjectSecrets(ctx context.Context, projectID string) (map[string]string, error)
+	ListProjectSecretRecords(ctx context.Context, projectID string) ([]types.Secret, error)
 
 	// CreateGitRepo creates a Helix-internal git repository. Used when
 	// project-apply doesn't auto-create one.

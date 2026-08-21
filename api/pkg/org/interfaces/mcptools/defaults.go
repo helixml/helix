@@ -19,10 +19,10 @@ import (
 // Order matters: it is preserved when appending to a Bot's tool list, so
 // the reconciled output is deterministic.
 //
-// The baseline also includes two safe actions: mint_credential obtains an
+// The baseline also includes two safe actions: get_secret obtains an
 // org-scoped external-provider credential, and ask_human contacts a human
 // node through their configured route. Neither mutates the org graph. Without
-// mint_credential,
+// get_secret,
 // a Bot has nothing to authenticate gh/git/auth-curl with — there is no
 // boot-time env-var fallback. Every Bot needs this, so it sits in the
 // baseline.
@@ -36,11 +36,11 @@ var BaseReadTools = []tool.Name{
 	ListTopicEventsName,
 	ReadEventsName,
 	BotLogName,
-	MintCredentialName,
+	GetSecretName,
 	AskHumanName,
 	// Every bot can read its own project secrets (its own project only) so
 	// it can export a secret added after boot — the read sibling of
-	// mint_credential, same reason it belongs in the baseline.
+	// get_secret, same reason it belongs in the baseline.
 	ListSecretsName,
 	// Processor introspection — safe reads so any bot can discover the
 	// transform/filter/js nodes feeding topics it may subscribe to.
@@ -68,7 +68,7 @@ var AssetManagementTools = []tool.Name{
 // universal base read set (via MergeBaseReadTools). It lives here —
 // beside the tool name constants and BaseReadTools — so the owner-seed
 // policy references the typed names directly and bootstrap can be handed
-// the list without importing this package. mint_credential arrives
+// the list without importing this package. get_secret arrives
 // through BaseReadTools, so it is not repeated in the mutation list.
 //
 // Repository tools (list/attach/detach) are here so CoS can equip the

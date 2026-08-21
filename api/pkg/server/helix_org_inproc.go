@@ -575,6 +575,24 @@ func (c *inProcHelixClient) ListProjectSecrets(ctx context.Context, projectID st
 	return parseEnvVarsToMap(envVars), nil
 }
 
+func (c *inProcHelixClient) ListProjectSecretRecords(ctx context.Context, projectID string) ([]types.Secret, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/projects/"+projectID+"/secrets", nil, map[string]string{"id": projectID})
+	if err != nil {
+		return nil, err
+	}
+	rows, herr := c.server.listProjectSecrets(nil, req)
+	if herr != nil {
+		return nil, fmt.Errorf("list project secrets: %s", herr.Error())
+	}
+	out := make([]types.Secret, 0, len(rows))
+	for _, row := range rows {
+		if row != nil {
+			out = append(out, *row)
+		}
+	}
+	return out, nil
+}
+
 // parseEnvVarsToMap splits `KEY=value` env-var strings back into a map.
 // Cut on the FIRST `=` so a value that itself contains `=` (base64, a
 // URL query, …) round-trips intact. Entries with no `=` or an empty name

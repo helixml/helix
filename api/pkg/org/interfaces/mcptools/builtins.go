@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/spectasks"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
+	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -116,7 +117,8 @@ type Deps struct {
 	// Repositories backs list_repositories / list_bot_repositories /
 	// attach_repository / detach_repository — org git repos attached to
 	// Bot projects so sandboxes can clone the code.
-	Repositories runtime.Repositories
+	Repositories  runtime.Repositories
+	WorkerSecrets *workersecrets.Service
 	// CredentialProviders is the registry mint_credential dispatches on.
 	CredentialProviders map[string]credential.Provider
 	// RecordCredential lets the host redact a minted token if the agent
@@ -155,6 +157,7 @@ type Config struct {
 	ToolChangeNotifier  func(context.Context, string)
 	HireHook            runtime.HireHook
 	ProjectConfig       runtime.ProjectConfig
+	WorkerSecrets       *workersecrets.Service
 	// SpecTasks is the runtime port the spec-task tools dispatch on. nil
 	// → Build defaults to runtime.NoopSpecTasks{} so the tools return a
 	// clear "not wired" error instead of nil-derefing.
@@ -219,6 +222,7 @@ func (c Config) Build() Deps {
 		AgentContentUpdater:  c.AgentContentUpdater,
 		AgentProfileReader:   c.AgentProfileReader,
 		ProjectConfig:        c.ProjectConfig,
+		WorkerSecrets:        c.WorkerSecrets,
 		SpecTasks:            c.specTasksService(),
 		Projects:             c.projectsService(),
 		Sandboxes:            c.sandboxesService(),
@@ -426,7 +430,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&DetachTool{deps: deps},
 		&DeleteBot{deps: deps},
 		&CreateTopic{deps: deps},
-		&MintCredential{deps: deps, providers: deps.CredentialProviders},
+		&GetSecret{deps: deps},
 		&TopicMembers{deps: deps},
 		&Subscribe{deps: deps},
 		&Unsubscribe{deps: deps},
