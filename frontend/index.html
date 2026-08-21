@@ -39,21 +39,69 @@
         />
         <style>
             html,
-            body,
-            #root {
+            body {
                 height: 100%;
-                /* iOS Safari resolves height:100% against the LARGE viewport —
-                   the one you get with the browser chrome hidden — so a
-                   bottom-docked toolbar renders underneath the floating URL
-                   bar. svh is the small viewport: the height with that chrome
-                   showing, which is the only one guaranteed to be visible.
-                   The 100% above stays as the fallback for older engines. */
-                height: 100svh;
                 margin: 0;
                 padding: 0;
                 overflow: hidden;
+                /* Stops a rubber-band at the end of an inner scroller from
+                   chaining out to the document and dragging the whole app. */
+                overscroll-behavior: none;
+            }
+
+            /* The app shell is a fixed pane, not a tall page.
+               `overflow: hidden` on html/body is not a lock on iOS Safari — it
+               still pans the document, which is what slid the top bar up under
+               the status bar. A fixed root has nothing to scroll.
+               The height is `svh` (the small viewport: the height with the
+               browser chrome showing) rather than 100%, because iOS resolves
+               both `100%` and fixed positioning against the LARGE viewport —
+               the height you get with that chrome hidden — so a bottom-docked
+               toolbar would sit underneath the floating URL bar. `100%` stays
+               above as the fallback for engines without `svh`. */
+            #root {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                height: 100svh;
+                height: var(--app-height, 100svh);
+                overflow: hidden;
+                overscroll-behavior: none;
             }
         </style>
+        <script type="text/javascript">
+            // Pin the app shell to the visible area.
+            //
+            // #root is fixed at 100svh, which keeps it clear of the browser
+            // chrome — but svh is a constant, and the visible area is not. The
+            // on-screen keyboard shrinks it (a bottom-docked toolbar would end
+            // up behind the keyboard) and collapsing the URL bar grows it. The
+            // visual viewport reports both, so the shell follows it.
+            (function () {
+                var vv = window.visualViewport;
+                if (!vv) return;
+                var root = document.documentElement;
+                function sync() {
+                    // Pinch-zoom shrinks the visual viewport too. Resizing the
+                    // app for a zoom would be wrong, and jarring.
+                    if (vv.scale > 1.01) return;
+                    root.style.setProperty('--app-height', vv.height + 'px');
+                }
+                vv.addEventListener('resize', function () {
+                    sync();
+                    // iOS scrolls the layout viewport to reveal a focused
+                    // field. The shell is fixed, so that only slides it out of
+                    // alignment — which is what pushed the top bar under the
+                    // status bar. Put it back.
+                    if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+                });
+                vv.addEventListener('scroll', sync);
+                window.addEventListener('orientationchange', sync);
+                sync();
+            })();
+        </script>
         <script type="text/javascript">
             // Set body bg + text color BEFORE React mounts so we don't flash
             // dark mode for users who prefer light. Mirrors the logic in

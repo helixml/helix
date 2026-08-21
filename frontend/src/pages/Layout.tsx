@@ -685,7 +685,8 @@ const Layout: FC<{
       <Box
         id="root-container"
         sx={{
-          minHeight: "100svh",
+          // The shell is exactly the fixed #root pane; a min-height here would
+          // be a second source of overflow to fight with.
           height: "100%",
           display: "flex",
           backgroundColor: lightTheme.backgroundColor, // Extend background behind iOS safe area

@@ -417,6 +417,9 @@ const Page: React.FC<{
           flexDirection: 'column',
           overflowY: disableContentScroll ? 'hidden' : 'auto',
           overflowX: 'hidden',
+          // The app shell is a fixed pane; a rubber-band at the end of this
+          // scroller must not chain out and drag it.
+          overscrollBehavior: 'contain',
           width: '100%',
           maxWidth: '100vw',
           minHeight: 0,

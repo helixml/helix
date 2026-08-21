@@ -1581,7 +1581,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               letterSpacing: '-0.005em',
               p: 0,
               ...(fill
-                ? { flex: 1, minHeight: 0, maxHeight: 'none', fontSize: '1.0625rem' }
+                ? {
+                    flex: 1,
+                    minHeight: 0,
+                    maxHeight: 'none',
+                    fontSize: '1.0625rem',
+                    overscrollBehavior: 'contain',
+                  }
                 : { minHeight: 70, maxHeight }),
               overflowY: 'auto',
               '&::placeholder': {
