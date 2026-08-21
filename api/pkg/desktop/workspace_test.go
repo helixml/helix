@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -144,17 +145,19 @@ func TestWorkspaceOnlyServerServesFilesAndDiffsWithoutDesktop(t *testing.T) {
 	_ = response.Body.Close()
 	require.Equal(t, http.StatusNotFound, response.StatusCode)
 
-	response, err = http.Post(baseURL+"/exec", "application/json", strings.NewReader(`{"command":["echo","test"]}`))
+	// /exec IS served headless — git identity sync and the subscription login
+	// flows run against headless containers. Its allowlist still applies.
+	response, err = http.Post(baseURL+"/exec", "application/json", strings.NewReader(`{"command":["rm","-rf","/"]}`))
 	require.NoError(t, err)
 	_ = response.Body.Close()
-	require.Equal(t, http.StatusNotFound, response.StatusCode)
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
 
 	cancel()
 	require.ErrorIs(t, <-errCh, context.Canceled)
 }
 
 func TestWorkspaceOnlyServerAllowsRestrictedExecForServerSetup(t *testing.T) {
-	server := NewServer(Config{WorkspaceOnly: true, AllowExec: true}, slog.Default())
+	server := NewServer(Config{WorkspaceOnly: true}, slog.Default())
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/exec", strings.NewReader(`{"command":["echo","ready"]}`))
@@ -544,4 +547,47 @@ fi
 	assert.Equal(t, "failed", resp.Repos[0].Action)
 	assert.Contains(t, resp.Repos[0].Error, "git commit",
 		"the error must mention git commit so the fork handler's wrapped message stays diagnostic")
+}
+
+// TestWorkspaceOnlyServerAcceptsChatAttachments proves a headless task can
+// receive a pasted/dropped chat attachment and serve it back. These routes
+// used to be registered on the desktop-only handler, so every upload to a
+// headless session came back as a bare 404 from the bridge.
+func TestWorkspaceOnlyServerAcceptsChatAttachments(t *testing.T) {
+	dir := t.TempDir()
+	original := incomingDir
+	incomingDir = filepath.Join(dir, "incoming")
+	t.Cleanup(func() { incomingDir = original })
+
+	server := NewServer(Config{WorkspaceOnly: true}, slog.Default())
+	handler := server.workspaceHTTPHandler()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreateFormFile("file", "screenshot.png")
+	require.NoError(t, err)
+	_, err = part.Write([]byte("fake-png-bytes"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/upload?open_file_manager=false", body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	handler.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	var uploaded struct {
+		Path     string `json:"path"`
+		Size     int64  `json:"size"`
+		Filename string `json:"filename"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &uploaded))
+	assert.Equal(t, "screenshot.png", uploaded.Filename)
+	assert.Equal(t, int64(len("fake-png-bytes")), uploaded.Size)
+	assert.Equal(t, filepath.Join(incomingDir, "screenshot.png"), uploaded.Path)
+
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/file?name=screenshot.png", nil))
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	assert.Equal(t, "fake-png-bytes", recorder.Body.String())
 }
