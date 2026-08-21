@@ -118,7 +118,7 @@ func NewGitHubOAuthResolver(manager *oauth.Manager, st helixstore.Store) func(co
 // installation-scoped GitHub API calls.
 //
 // ExpiresAt is populated for Mode="app" — GitHub App installation tokens
-// have a server-reported expiry (~1h) that the mint_credential MCP tool
+// have a server-reported expiry (~1h) that the Worker secret resolver
 // surfaces to the calling agent. It is the zero Time for Mode="oauth"
 // because borrowed user OAuth tokens have no comparable per-mint expiry
 // here.
@@ -145,7 +145,7 @@ type OrgGitHubIdentity struct {
 // mintFn is a seam: production wiring passes
 // github.MintInstallationCredential; unit tests stub it so they never make
 // the live GitHub call ghinstallation's Token() performs. The returned
-// expiry travels onto OrgGitHubIdentity.ExpiresAt so the mint_credential
+// expiry travels onto OrgGitHubIdentity.ExpiresAt so credential consumers
 // MCP tool can pass it back to the agent.
 // decryptAppKey decrypts a github_app ServiceConnection's stored PEM with the
 // server encryption key. Shared by the install-status, repo-aggregation and

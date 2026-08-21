@@ -31,7 +31,7 @@ import (
 //
 // Outbound: basic text is posted to the configured channel with Helix's
 // workspace credential. Rich Slack actions remain the agent's job via
-// mint_credential and the Slack Web API.
+// get_secret and the Slack Web API.
 const KindSlack Kind = "slack"
 
 // SlackConfig is the parsed shape of Transport.Config when

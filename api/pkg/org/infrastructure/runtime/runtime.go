@@ -142,7 +142,7 @@ type ProjectConfig interface {
 	// name→value map, read live so a secret added after the container
 	// booted is visible without a restart. Backs the list_secrets tool:
 	// the agent reads these and exports the ones it needs, the same way
-	// mint_credential feeds gh/git tokens into the shell.
+	// get_secret feeds explicitly bound gh/git tokens into the shell.
 	ListWorkerProjectSecrets(ctx context.Context, orgID string, workerID orgchart.NodeID) (map[string]string, error)
 }
 

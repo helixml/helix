@@ -38,7 +38,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
-	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	"github.com/helixml/helix/api/pkg/org/domain/workersecret"
@@ -483,7 +482,6 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	bc := wakebus.New(cfg.APIServer.pubsub)
 	deps := mcptools.DefaultDeps(st)
 	deps.Hub = bc
-	deps.RecordCredential = cfg.APIServer.recordCredential
 
 	// Operational config registry — chat backend creds, model
 	// selection, etc. Backed by the same Postgres rows so settings
@@ -600,17 +598,15 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// gitHubTokenResolver resolves a current GitHub OAuth access token
 	// for an org by walking the org's members + their oauth_connections
 	// (see helix_org_github.go). Drives the github topic transport's
-	// outbound `Token()` lookup; the worker-side mint path now flows
-	// through the mint_credential MCP tool + CredentialProvider, not a
-	// boot-time SecretInjector.
+	// outbound `Token()` lookup. Worker credentials resolve independently
+	// through explicit Worker secret bindings.
 	oauthResolver := helixorg.NewGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore)
 	// identityResolver prefers the installed Helix App bot over a borrowed
 	// member OAuth token: if the org has a github_app ServiceConnection it
 	// mints a short-lived installation token (decrypting the stored PEM with
 	// the server encryption key), else it falls back to oauthResolver.
 	// github.MintInstallationCredential is the production minter — it
-	// returns both the token and the server-reported expiry, which
-	// mint_credential surfaces to agents.
+	// returns both the token and the server-reported expiry.
 	identityResolver := helixorg.NewOrgGitHubIdentityResolver(
 		cfg.APIServer.getEncryptionKey,
 		helixStore,
@@ -628,8 +624,8 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// path. Returns the App installation token when one exists, else the
 	// legacy member OAuth token — so once an org installs the Helix App,
 	// its agents act as the bot rather than a human. (Worker shell-tool
-	// credentials no longer flow through this projection; they go through
-	// the per-org CredentialProvider wired into mint_credential below.)
+	// credentials no longer flow through this projection; they resolve from
+	// the explicitly bound Connected Account.)
 	gitHubTokenResolver := func(ctx context.Context, orgID string) (string, error) {
 		id, err := identityResolver(ctx, orgID)
 		if err != nil {
@@ -638,23 +634,6 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		return id.Token, nil
 	}
 
-	// credentialProviders backs the mint_credential MCP tool — the
-	// single surface every Worker uses to obtain an org-scoped
-	// external-provider credential on demand. Adding a new provider
-	// (Slack, …) is a new file under
-	// infrastructure/transports/<name>/credential_provider.go plus
-	// one entry here — no edits to mint_credential.go.
-	deps.CredentialProviders = map[string]credential.Provider{
-		"github": githubtransport.NewCredentialProvider(
-			func(ctx context.Context, orgID string) (githubtransport.Identity, error) {
-				id, err := identityResolver(ctx, orgID)
-				if err != nil {
-					return githubtransport.Identity{}, err
-				}
-				return githubtransport.Identity{Token: id.Token, ExpiresAt: id.ExpiresAt}, nil
-			},
-		),
-	}
 	// Transcript mirror — process-wide singleton shared by the spawner
 	// (Ensure), bootstrap (EnsureAll), and lifecycle.Fire (Stop).
 	mirror := runtimehelix.NewMirror(context.Background(), runtimehelix.MirrorConfig{
@@ -707,26 +686,12 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// POST their events. Slack/email emitters register the same way.
 	dispatcher.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(logger))
 	// Slack has no asynchronous dispatcher emitter. Basic Topic text uses
-	// the synchronous Publishing deliverer registered below; rich actions
-	// still use the Slack Web API with the workspace token returned by
-	// mint_credential. slackWS resolves the encrypted workspace install for
-	// both paths.
+	// the synchronous Publishing deliverer registered below. slackWS resolves
+	// the encrypted workspace install for that compatibility path and for
+	// Worker secret bindings.
 	slackWS := newSlackWorkspaces(helixStore, cfg.APIServer.getEncryptionKey)
 	// Auto-manage one Slack Topic per connected workspace.
 	slackTopics := &slackWorkspaceTopics{topics: st.Topics, logger: logger}
-	// mint_credential provider=slack hands a Worker the bot token for the
-	// workspace the message came from (resource = the event's
-	// extra.slack_team_id) so it can drive the Slack Web API directly —
-	// chat.postMessage, reactions.add, files.upload.
-	deps.CredentialProviders["slack"] = slacktransport.NewCredentialProvider(
-		func(ctx context.Context, orgID, teamID string) (slacktransport.Identity, error) {
-			ws, err := slackWS.resolveForOrg(ctx, orgID, teamID)
-			if err != nil {
-				return slacktransport.Identity{}, err
-			}
-			return slacktransport.Identity{Token: ws.BotToken}, nil
-		},
-	)
 	secretResolver := workersecrets.Resolver{
 		ValidateHelixSecret: func(ctx context.Context, b workersecret.Binding) error {
 			return projectConfig.ValidateWorkerProjectSecret(ctx, b.OrganizationID, b.WorkerID, b.SecretID)
@@ -740,23 +705,17 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 			if err != nil || conn.OrganizationID != b.OrganizationID {
 				return fmt.Errorf("connected account is unavailable")
 			}
-			provider := ""
 			switch b.ExportKey {
 			case "github_app/installation_token":
 				if conn.Type != types.ServiceConnectionTypeGitHubApp {
 					return fmt.Errorf("connected account export is unavailable")
 				}
-				provider = "github"
 			case "slack_workspace/bot_token":
 				if conn.Type != types.ServiceConnectionTypeSlackWorkspace {
 					return fmt.Errorf("connected account export is unavailable")
 				}
-				provider = "slack"
 			default:
 				return fmt.Errorf("connected account export %q is not approved", b.ExportKey)
-			}
-			if deps.CredentialProviders[provider] == nil {
-				return fmt.Errorf("connected account provider %q is unavailable", provider)
 			}
 			return nil
 		},
@@ -780,26 +739,21 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 				}
 				return workersecret.Resolved{Descriptor: workersecret.Descriptor{Usage: "export GH_TOKEN", Available: true}, Value: token}, nil
 			}
-			provider := "github"
-			resource := ""
 			if b.ExportKey == "slack_workspace/bot_token" {
-				provider = "slack"
 				conn, err := helixStore.GetServiceConnection(ctx, b.AccountID)
-				if err != nil || conn.OrganizationID != b.OrganizationID {
+				if err != nil || conn.OrganizationID != b.OrganizationID || conn.Type != types.ServiceConnectionTypeSlackWorkspace {
 					return workersecret.Resolved{}, fmt.Errorf("connected account is unavailable")
 				}
-				resource = conn.SlackTeamID
+				ws, err := slackWS.resolveForOrg(ctx, b.OrganizationID, conn.SlackTeamID)
+				if err != nil {
+					return workersecret.Resolved{}, err
+				}
+				if ws.BotToken == "" {
+					return workersecret.Resolved{}, fmt.Errorf("connected account is unavailable")
+				}
+				return workersecret.Resolved{Descriptor: workersecret.Descriptor{Usage: "use as a Slack Bearer token", Available: true}, Value: ws.BotToken}, nil
 			}
-			cred, err := deps.CredentialProviders[provider].Mint(ctx, b.OrganizationID, resource)
-			if err != nil {
-				return workersecret.Resolved{}, err
-			}
-			res := workersecret.Resolved{Descriptor: workersecret.Descriptor{Usage: cred.Usage, Available: true}, Value: cred.Token}
-			if !cred.ExpiresAt.IsZero() {
-				expiry := cred.ExpiresAt.UTC()
-				res.ExpiresAt = &expiry
-			}
-			return res, nil
+			return workersecret.Resolved{}, fmt.Errorf("connected account export %q is not approved", b.ExportKey)
 		},
 	}
 	catalog := func(ctx context.Context, orgID string, workerID orgchart.NodeID) ([]workersecret.AvailableSource, error) {
@@ -826,8 +780,8 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		return out, nil
 	}
 	workerSecrets, err := workersecrets.New(st.WorkerSecretBindings, st.Nodes, secretResolver, deps.Now, func(_ context.Context, orgID string, _ orgchart.NodeID, name, _ string, result workersecret.Resolved, err error) {
-		if err == nil && deps.RecordCredential != nil {
-			deps.RecordCredential(orgID, name, result.Value)
+		if err == nil {
+			cfg.APIServer.recordCredential(orgID, name, result.Value)
 		}
 	}, catalog)
 	if err != nil {
