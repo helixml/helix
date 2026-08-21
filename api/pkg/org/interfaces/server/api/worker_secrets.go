@@ -24,6 +24,7 @@ type WorkerSecretBindingDTO struct {
 	CreatedAt         time.Time               `json:"created_at"`
 	UpdatedAt         time.Time               `json:"updated_at"`
 }
+
 type PutWorkerSecretRequest struct {
 	Description       string                  `json:"description,omitempty"`
 	Usage             string                  `json:"usage,omitempty"`
@@ -36,7 +37,12 @@ type PutWorkerSecretRequest struct {
 }
 
 func bindingDTO(b workersecret.Binding) WorkerSecretBindingDTO {
-	return WorkerSecretBindingDTO{Name: b.Name, Description: b.Description, Usage: b.Usage, ContentType: b.ContentType, SuggestedFilename: b.SuggestedFilename, SourceKind: b.SourceKind, SecretID: b.SecretID, AccountID: b.AccountID, ExportKey: b.ExportKey, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt}
+	return WorkerSecretBindingDTO{
+		Name: b.Name, Description: b.Description, Usage: b.Usage,
+		ContentType: b.ContentType, SuggestedFilename: b.SuggestedFilename,
+		SourceKind: b.SourceKind, SecretID: b.SecretID, AccountID: b.AccountID,
+		ExportKey: b.ExportKey, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
+	}
 }
 
 // @Summary List an Agent's secret bindings
@@ -112,7 +118,11 @@ func (a *apiHandler) putWorkerSecret(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := a.deps.WorkerSecrets.Put(r.Context(), workersecret.Binding{OrganizationID: orgID, WorkerID: orgchart.NodeID(r.PathValue("id")), Name: r.PathValue("name"), Description: req.Description, Usage: req.Usage, ContentType: req.ContentType, SuggestedFilename: req.SuggestedFilename, SourceKind: req.SourceKind, SecretID: req.SecretID, AccountID: req.AccountID, ExportKey: req.ExportKey})
 	if err != nil {
-		writeError(w, 400, err)
+		status := errStatus(err)
+		if errors.Is(err, workersecret.ErrInvalidBinding) {
+			status = http.StatusBadRequest
+		}
+		writeError(w, status, err)
 		return
 	}
 	writeJSON(w, 200, bindingDTO(b))

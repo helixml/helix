@@ -38,7 +38,13 @@ func (r Resolver) Resolve(ctx context.Context, b workersecret.Binding) (workerse
 		return workersecret.Resolved{}, err
 	}
 	if b.SourceKind == workersecret.SourceHelixSecret {
+		if r.HelixSecret == nil {
+			return workersecret.Resolved{}, fmt.Errorf("Helix Secret resolution is unavailable")
+		}
 		return r.HelixSecret(ctx, b)
+	}
+	if r.ConnectedAccount == nil {
+		return workersecret.Resolved{}, fmt.Errorf("Connected Account resolution is unavailable")
 	}
 	return r.ConnectedAccount(ctx, b)
 }

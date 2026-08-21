@@ -702,7 +702,13 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		},
 		ValidateConnectedAccount: func(ctx context.Context, b workersecret.Binding) error {
 			conn, err := helixStore.GetServiceConnection(ctx, b.AccountID)
-			if err != nil || conn.OrganizationID != b.OrganizationID {
+			if errors.Is(err, helixstore.ErrNotFound) {
+				return fmt.Errorf("connected account is unavailable")
+			}
+			if err != nil {
+				return fmt.Errorf("load connected account: %w", err)
+			}
+			if conn.OrganizationID != b.OrganizationID {
 				return fmt.Errorf("connected account is unavailable")
 			}
 			switch b.ExportKey {
@@ -722,7 +728,13 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		ConnectedAccount: func(ctx context.Context, b workersecret.Binding) (workersecret.Resolved, error) {
 			if b.ExportKey == "github_app/installation_token" {
 				conn, err := helixStore.GetServiceConnection(ctx, b.AccountID)
-				if err != nil || conn.OrganizationID != b.OrganizationID || conn.Type != types.ServiceConnectionTypeGitHubApp {
+				if errors.Is(err, helixstore.ErrNotFound) {
+					return workersecret.Resolved{}, fmt.Errorf("connected account is unavailable")
+				}
+				if err != nil {
+					return workersecret.Resolved{}, fmt.Errorf("load connected account: %w", err)
+				}
+				if conn.OrganizationID != b.OrganizationID || conn.Type != types.ServiceConnectionTypeGitHubApp {
 					return workersecret.Resolved{}, fmt.Errorf("connected account is unavailable")
 				}
 				key, err := cfg.APIServer.getEncryptionKey()
@@ -733,15 +745,29 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 				if err != nil {
 					return workersecret.Resolved{}, fmt.Errorf("decrypt GitHub App credential: %w", err)
 				}
-				token, err := githubskill.MintInstallationToken(ctx, conn.GitHubAppID, conn.GitHubInstallationID, string(pem), conn.BaseURL)
+				credential, err := githubskill.MintInstallationCredential(ctx, conn.GitHubAppID, conn.GitHubInstallationID, string(pem), conn.BaseURL)
 				if err != nil {
 					return workersecret.Resolved{}, fmt.Errorf("mint GitHub installation token: %w", err)
 				}
-				return workersecret.Resolved{Descriptor: workersecret.Descriptor{Usage: "export GH_TOKEN", Available: true}, Value: token}, nil
+				descriptor := workersecret.Descriptor{Available: true}
+				if !credential.ExpiresAt.IsZero() {
+					expiresAt := credential.ExpiresAt.UTC()
+					descriptor.ExpiresAt = &expiresAt
+				}
+				return workersecret.Resolved{
+					Descriptor: descriptor,
+					Value:      credential.Token,
+				}, nil
 			}
 			if b.ExportKey == "slack_workspace/bot_token" {
 				conn, err := helixStore.GetServiceConnection(ctx, b.AccountID)
-				if err != nil || conn.OrganizationID != b.OrganizationID || conn.Type != types.ServiceConnectionTypeSlackWorkspace {
+				if errors.Is(err, helixstore.ErrNotFound) {
+					return workersecret.Resolved{}, fmt.Errorf("connected account is unavailable")
+				}
+				if err != nil {
+					return workersecret.Resolved{}, fmt.Errorf("load connected account: %w", err)
+				}
+				if conn.OrganizationID != b.OrganizationID || conn.Type != types.ServiceConnectionTypeSlackWorkspace {
 					return workersecret.Resolved{}, fmt.Errorf("connected account is unavailable")
 				}
 				ws, err := slackWS.resolveForOrg(ctx, b.OrganizationID, conn.SlackTeamID)
@@ -751,7 +777,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 				if ws.BotToken == "" {
 					return workersecret.Resolved{}, fmt.Errorf("connected account is unavailable")
 				}
-				return workersecret.Resolved{Descriptor: workersecret.Descriptor{Usage: "use as a Slack Bearer token", Available: true}, Value: ws.BotToken}, nil
+				return workersecret.Resolved{Descriptor: workersecret.Descriptor{Usage: "use as a Slack Bearer token", Available: true, ResourceID: conn.SlackTeamID}, Value: ws.BotToken}, nil
 			}
 			return workersecret.Resolved{}, fmt.Errorf("connected account export %q is not approved", b.ExportKey)
 		},
@@ -774,7 +800,12 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 			case types.ServiceConnectionTypeGitHubApp:
 				out = append(out, workersecret.AvailableSource{Group: "Connected Accounts", Label: conn.Name, SourceKind: workersecret.SourceConnectedAccount, AccountID: conn.ID, ExportKey: "github_app/installation_token", ProposedName: "GH_TOKEN", Usage: "export GH_TOKEN"})
 			case types.ServiceConnectionTypeSlackWorkspace:
-				out = append(out, workersecret.AvailableSource{Group: "Connected Accounts", Label: conn.SlackTeamName, SourceKind: workersecret.SourceConnectedAccount, AccountID: conn.ID, ExportKey: "slack_workspace/bot_token", ProposedName: "SLACK_BOT_TOKEN", Usage: "use as a Slack Bearer token"})
+				out = append(out, workersecret.AvailableSource{
+					Group: "Connected Accounts", Label: conn.SlackTeamName,
+					SourceKind: workersecret.SourceConnectedAccount, AccountID: conn.ID,
+					ExportKey: "slack_workspace/bot_token", ProposedName: "SLACK_BOT_TOKEN",
+					Usage: "use as a Slack Bearer token", ResourceID: conn.SlackTeamID,
+				})
 			}
 		}
 		return out, nil

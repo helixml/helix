@@ -12,18 +12,9 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/workersecret"
 )
 
-// ListSecrets returns the calling Bot's own project secrets as a
-// name→value map, read live. It is the read counterpart to the
-// container's boot-time env-var injection: a project secret added AFTER
-// the desktop booted is not in the running shell's environment (a
-// process's env is frozen at start), so the agent reads it here and
-// then retrieves one by name through get_secret immediately before use.
-// into the shell.
-//
-// Scope is the caller only: orgID and botID both come from
-// inv.Caller, never from args, so a Bot can read its own project's
-// secrets and no other's. No new exposure — these are the exact secrets
-// the Bot already receives as env vars at boot.
+// ListSecrets returns metadata for credentials explicitly bound to the
+// calling Worker. Values and backing source details are never returned.
+// Organization and Worker identity come only from inv.Caller.
 type ListSecrets struct {
 	deps Deps
 }

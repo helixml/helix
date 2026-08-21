@@ -274,9 +274,10 @@ MCP at the point of use:
 - There is no literal-value source. A user who wants to supply a value creates
   a project Secret through the existing Helix Secrets flow and grants it to the
   Worker.
-- No user-configured Secret or Connected Account value is injected into the
-  sandbox environment at boot. Helix-owned bootstrap variables required to run
-  the desktop remain a separate system concern.
+- Connected Account values are never injected into the sandbox environment at
+  boot. Existing project-Secret injection remains as a compatibility surface
+  until Worker binding management is user-visible; new dynamic access uses
+  `get_secret`. Helix-owned bootstrap variables remain a separate system concern.
 
 The Worker does not need to know the source. It may export a returned token,
 construct an authentication header, write a JSON credential file, pass the
@@ -404,15 +405,16 @@ security boundary. HTTPS credential brokering remains deferred.
      The agent remains free to retain a value when the provider semantics make
      that appropriate.
 
-5. **Keep environment injection out of the design.**
+5. **Do not expand environment injection.**
 
    - Do not add bindings to `CreateSandboxRequest`, `ExternalAgentConfig`,
      `DesktopAgent.Env`, Hydra requests, Docker configuration, startup scripts,
      or Session metadata.
-   - Stop injecting project Secrets into helix-org Worker desktops. Existing
-     non-org development workflows and production web-service Secret injection
-     are separate compatibility surfaces and are not redesigned in this PR;
-     the Worker path must use `get_secret`.
+   - Preserve existing project-Secret injection for helix-org Worker desktops
+     until binding management is user-visible, so deploying this backend does
+     not silently break existing Workers. Do not inject Connected Account
+     values or newly configured bindings. The later UI/configuration cutover
+     removes this compatibility path after users can grant replacements.
    - Do not prefetch values during activation or sandbox creation. A stopped or
      warm long-running Worker has the same secret interface, and rotating a
      Secret or account takes effect on the next `get_secret` call without a
@@ -551,8 +553,9 @@ security boundary. HTTPS credential brokering remains deferred.
 PR 2 is complete when Workers have one explicitly granted secret namespace,
 `list_secrets` never returns values, `get_secret` resolves current credential
 values from project Helix Secrets and organization-connected accounts in the
-same long-running Session, and no user/account value is injected at sandbox
-launch.
+same long-running Session, Connected Account values are never injected at
+sandbox launch, and existing project-Secret injection remains unchanged until
+the user-visible binding cutover.
 It must remove `mint_credential`, add no provider-action MCP wrapper, preserve
 the unrelated Topic compatibility surface, and introduce no Trigger/Processor
 cutover logic.

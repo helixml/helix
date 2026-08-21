@@ -46,7 +46,12 @@ func (r *workerSecretBindingsRepo) Update(ctx context.Context, b workersecret.Bi
 	if err := b.Validate(); err != nil {
 		return err
 	}
-	res := r.db.WithContext(ctx).Model(&workerSecretBindingRow{}).Where("org_id = ? AND worker_id = ? AND name = ?", b.OrganizationID, b.WorkerID, b.Name).Updates(bindingRow(b))
+	row := bindingRow(b)
+	res := r.db.WithContext(ctx).
+		Model(&workerSecretBindingRow{}).
+		Where("org_id = ? AND worker_id = ? AND name = ?", b.OrganizationID, b.WorkerID, b.Name).
+		Select("description", "usage", "content_type", "suggested_filename", "source_kind", "secret_id", "account_id", "export_key", "updated_at").
+		Updates(row)
 	if res.Error != nil {
 		return fmt.Errorf("update worker secret binding: %w", res.Error)
 	}
@@ -88,8 +93,20 @@ func (r *workerSecretBindingsRepo) Delete(ctx context.Context, orgID string, wor
 	return nil
 }
 func bindingRow(b workersecret.Binding) workerSecretBindingRow {
-	return workerSecretBindingRow{OrganizationID: b.OrganizationID, WorkerID: string(b.WorkerID), Name: b.Name, Description: b.Description, Usage: b.Usage, ContentType: b.ContentType, SuggestedFilename: b.SuggestedFilename, SourceKind: string(b.SourceKind), SecretID: b.SecretID, AccountID: b.AccountID, ExportKey: b.ExportKey, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt}
+	return workerSecretBindingRow{
+		OrganizationID: b.OrganizationID, WorkerID: string(b.WorkerID), Name: b.Name,
+		Description: b.Description, Usage: b.Usage, ContentType: b.ContentType,
+		SuggestedFilename: b.SuggestedFilename, SourceKind: string(b.SourceKind),
+		SecretID: b.SecretID, AccountID: b.AccountID, ExportKey: b.ExportKey,
+		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
+	}
 }
 func bindingDomain(r workerSecretBindingRow) workersecret.Binding {
-	return workersecret.Binding{OrganizationID: r.OrganizationID, WorkerID: orgchart.NodeID(r.WorkerID), Name: r.Name, Description: r.Description, Usage: r.Usage, ContentType: r.ContentType, SuggestedFilename: r.SuggestedFilename, SourceKind: workersecret.SourceKind(r.SourceKind), SecretID: r.SecretID, AccountID: r.AccountID, ExportKey: r.ExportKey, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+	return workersecret.Binding{
+		OrganizationID: r.OrganizationID, WorkerID: orgchart.NodeID(r.WorkerID), Name: r.Name,
+		Description: r.Description, Usage: r.Usage, ContentType: r.ContentType,
+		SuggestedFilename: r.SuggestedFilename, SourceKind: workersecret.SourceKind(r.SourceKind),
+		SecretID: r.SecretID, AccountID: r.AccountID, ExportKey: r.ExportKey,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
 }

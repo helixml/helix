@@ -8434,6 +8434,7 @@ export interface WorkersecretAvailableSource {
   group?: string;
   label?: string;
   proposed_name?: string;
+  resource_id?: string;
   secret_id?: string;
   source_kind?: WorkersecretSourceKind;
   usage?: string;

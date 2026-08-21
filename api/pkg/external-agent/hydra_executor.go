@@ -219,13 +219,11 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	}
 
 	// Org-worker identity is session state, not project state. Load it before
-	// considering project secrets so Worker desktops use get_secret exclusively.
+	// project secrets so the system identity wins duplicate-key resolution.
 	if err := h.attachSessionBootstrap(ctx, agent); err != nil {
 		return nil, err
 	}
-	isOrgWorker := hasOrgWorkerIdentity(agent.Env)
-
-	// Inject project secrets onto non-Worker agent environments so every fresh container picks up
+	// Inject project secrets onto agent environments so every fresh container picks up
 	// the project's secrets without each call site (spec task launch, exploratory
 	// session, resume, etc.) having to remember to load them.
 	//
@@ -234,7 +232,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// ...) appear later in agent.Env and therefore win duplicate-key resolution
 	// in Docker. This preserves the long-standing invariant that a user-defined
 	// project secret can't shadow the system-injected agent API tokens.
-	if h.getProjectSecrets != nil && agent.ProjectID != "" && !isOrgWorker {
+	if h.getProjectSecrets != nil && agent.ProjectID != "" {
 		projectSecrets, err := h.getProjectSecrets(ctx, agent.ProjectID)
 		if err != nil {
 			log.Warn().Err(err).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Failed to load project secrets, continuing without them")
@@ -682,15 +680,6 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		SandboxID:      sandboxID,
 		DevContainerID: resp.ContainerID, // Container ID for exploratory session tracking
 	}, nil
-}
-
-func hasOrgWorkerIdentity(env []string) bool {
-	for _, value := range env {
-		if strings.HasPrefix(value, "HELIX_WORKER_ID=") {
-			return true
-		}
-	}
-	return false
 }
 
 // resolveSpecTaskLaunchConfig applies the immutable runtime and fills a missing

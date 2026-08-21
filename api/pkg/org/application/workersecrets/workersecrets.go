@@ -70,9 +70,9 @@ func (s *Service) Available(ctx context.Context, orgID string, workerID orgchart
 }
 func availableSourceID(s workersecret.AvailableSource) string {
 	if s.SourceKind == workersecret.SourceHelixSecret {
-		return s.SecretID
+		return string(workersecret.SourceHelixSecret) + ":" + s.SecretID
 	}
-	return s.AccountID + "/" + s.ExportKey
+	return string(workersecret.SourceConnectedAccount) + ":" + s.AccountID + "/" + s.ExportKey
 }
 
 func (s *Service) Put(ctx context.Context, binding workersecret.Binding) (workersecret.Binding, error) {
@@ -84,7 +84,7 @@ func (s *Service) Put(ctx context.Context, binding workersecret.Binding) (worker
 		return workersecret.Binding{}, fmt.Errorf("get worker: %w", err)
 	}
 	if err := s.resolver.Validate(ctx, binding); err != nil {
-		return workersecret.Binding{}, fmt.Errorf("validate secret source: %w", err)
+		return workersecret.Binding{}, fmt.Errorf("%w: validate secret source: %v", workersecret.ErrInvalidBinding, err)
 	}
 	now := s.now().UTC()
 	existing, err := s.repo.Get(ctx, binding.OrganizationID, binding.WorkerID, binding.Name)
@@ -113,6 +113,9 @@ func (s *Service) List(ctx context.Context, orgID string, workerID orgchart.Node
 	return s.repo.List(ctx, orgID, workerID)
 }
 func (s *Service) Delete(ctx context.Context, orgID string, workerID orgchart.NodeID, name string) error {
+	if _, err := s.nodes.Get(ctx, orgID, workerID); err != nil {
+		return fmt.Errorf("get worker: %w", err)
+	}
 	return s.repo.Delete(ctx, orgID, workerID, name)
 }
 func (s *Service) Descriptors(ctx context.Context, orgID string, workerID orgchart.NodeID) ([]workersecret.Descriptor, error) {
@@ -120,19 +123,34 @@ func (s *Service) Descriptors(ctx context.Context, orgID string, workerID orgcha
 	if err != nil {
 		return nil, err
 	}
+	available := make(map[string]workersecret.AvailableSource)
+	if s.catalog != nil {
+		sources, err := s.catalog(ctx, orgID, workerID)
+		if err != nil {
+			return nil, err
+		}
+		for _, source := range sources {
+			available[availableSourceID(source)] = source
+		}
+	}
 	out := make([]workersecret.Descriptor, 0, len(bindings))
 	for _, b := range bindings {
 		d := descriptor(b)
-		if err := s.resolver.Validate(ctx, b); err != nil {
-			d.Available = false
+		if s.catalog != nil {
+			source, ok := available[sourceID(b)]
+			d.Available = ok
+			d.ResourceID = source.ResourceID
 		} else {
-			d.Available = true
+			d.Available = s.resolver.Validate(ctx, b) == nil
 		}
 		out = append(out, d)
 	}
 	return out, nil
 }
 func (s *Service) Get(ctx context.Context, orgID string, workerID orgchart.NodeID, name string) (workersecret.Resolved, error) {
+	if _, err := s.nodes.Get(ctx, orgID, workerID); err != nil {
+		return workersecret.Resolved{}, fmt.Errorf("get worker: %w", err)
+	}
 	b, err := s.repo.Get(ctx, orgID, workerID, strings.TrimSpace(name))
 	if err != nil {
 		return workersecret.Resolved{}, err
@@ -144,7 +162,11 @@ func (s *Service) Get(ctx context.Context, orgID string, workerID orgchart.NodeI
 	if err != nil {
 		return workersecret.Resolved{}, fmt.Errorf("resolve secret %q: %w", b.Name, err)
 	}
-	res.Name = b.Name
+	d := descriptor(b)
+	d.Available = res.Available
+	d.ExpiresAt = res.ExpiresAt
+	d.ResourceID = res.ResourceID
+	res.Descriptor = d
 	return res, nil
 }
 func descriptor(b workersecret.Binding) workersecret.Descriptor {
@@ -152,7 +174,7 @@ func descriptor(b workersecret.Binding) workersecret.Descriptor {
 }
 func sourceID(b workersecret.Binding) string {
 	if b.SourceKind == workersecret.SourceHelixSecret {
-		return b.SecretID
+		return string(workersecret.SourceHelixSecret) + ":" + b.SecretID
 	}
-	return b.AccountID + "/" + b.ExportKey
+	return string(workersecret.SourceConnectedAccount) + ":" + b.AccountID + "/" + b.ExportKey
 }

@@ -138,12 +138,6 @@ func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.NodeID, _ str
 type ProjectConfig interface {
 	GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.NodeID) (ProjectConfigSnapshot, error)
 	UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.NodeID, patch ProjectConfigPatch) (ProjectConfigSnapshot, error)
-	// ListWorkerProjectSecrets returns the worker's project secrets as a
-	// name→value map, read live so a secret added after the container
-	// booted is visible without a restart. Backs the list_secrets tool:
-	// the agent reads these and exports the ones it needs, the same way
-	// get_secret feeds explicitly bound gh/git tokens into the shell.
-	ListWorkerProjectSecrets(ctx context.Context, orgID string, workerID orgchart.NodeID) (map[string]string, error)
 }
 
 // ProjectConfigSnapshot is the read shape returned by
@@ -179,10 +173,6 @@ func (NoopProjectConfig) GetWorkerProjectConfig(_ context.Context, _ string, _ o
 
 func (NoopProjectConfig) UpdateWorkerProjectConfig(_ context.Context, _ string, _ orgchart.NodeID, _ ProjectConfigPatch) (ProjectConfigSnapshot, error) {
 	return ProjectConfigSnapshot{}, ErrProjectConfigUnsupported
-}
-
-func (NoopProjectConfig) ListWorkerProjectSecrets(_ context.Context, _ string, _ orgchart.NodeID) (map[string]string, error) {
-	return nil, ErrProjectConfigUnsupported
 }
 
 // ErrProjectConfigUnsupported is what the noop impl returns. Tools

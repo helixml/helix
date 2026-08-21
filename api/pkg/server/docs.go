@@ -41584,6 +41584,9 @@ const docTemplate = `{
                 "proposed_name": {
                     "type": "string"
                 },
+                "resource_id": {
+                    "type": "string"
+                },
                 "secret_id": {
                     "type": "string"
                 },

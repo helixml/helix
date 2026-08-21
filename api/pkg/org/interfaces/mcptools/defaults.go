@@ -38,9 +38,8 @@ var BaseReadTools = []tool.Name{
 	BotLogName,
 	GetSecretName,
 	AskHumanName,
-	// Every bot can read its own project secrets (its own project only) so
-	// it can export a secret added after boot — the read sibling of
-	// get_secret, same reason it belongs in the baseline.
+	// Every bot can discover metadata for credentials explicitly granted to it.
+	// Values remain behind the separately audited get_secret call.
 	ListSecretsName,
 	// Processor introspection — safe reads so any bot can discover the
 	// transform/filter/js nodes feeding topics it may subscribe to.
