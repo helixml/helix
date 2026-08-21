@@ -457,13 +457,25 @@ func (c *Controller) pickHostForSandbox(ctx context.Context, sandbox *types.Sand
 	if err != nil {
 		return nil, fmt.Errorf("list hosts: %w", err)
 	}
+	// Headless containers run no compositor and no encoder, so any online
+	// host under its ceiling will do - including CPU-only and inference
+	// accelerator hosts that cannot stream a desktop. Prefer those, so
+	// render-capable hosts keep their slots free for desktop work.
+	var renderCapable *types.SandboxInstance
 	for _, h := range hosts {
-		// Headless containers run no compositor and no encoder, so any
-		// online host will do - including CPU-only and inference
-		// accelerator hosts that cannot stream a desktop.
-		if h.Status == "online" {
-			return h, nil
+		if h.Status != "online" || h.AtMaxCapacity() {
+			continue
 		}
+		if h.CanHostDesktop() {
+			if renderCapable == nil {
+				renderCapable = h
+			}
+			continue
+		}
+		return h, nil
+	}
+	if renderCapable != nil {
+		return renderCapable, nil
 	}
 	return nil, errors.New("no available sandbox host with the requested runtime")
 }
