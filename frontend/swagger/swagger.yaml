@@ -7654,6 +7654,14 @@ definitions:
         type: boolean
       id:
         type: string
+      input_modalities:
+        description: |-
+          InputModalities is the model's accepted input types ("text", "image",
+          "file", ...). Same provenance and same nil-means-unknown rule as
+          SupportedParameters.
+        items:
+          type: string
+        type: array
       model_info:
         $ref: '#/definitions/types.ModelInfo'
       name:
@@ -7681,6 +7689,16 @@ definitions:
           because sending a value the provider rejects aborts the whole turn.
       root:
         type: string
+      supported_parameters:
+        description: |-
+          SupportedParameters is the set of request parameters the model accepts,
+          as reported by aggregators that publish it (OpenRouter's /v1/models does;
+          plain OpenAI-compatible servers don't). Used by the model picker to
+          filter a several-hundred-model catalogue down to, for example, the models
+          that can actually call tools. Nil means the provider didn't say.
+        items:
+          type: string
+        type: array
       type:
         type: string
     type: object
@@ -8937,6 +8955,21 @@ definitions:
         type: string
       vertex_region:
         type: string
+    type: object
+  types.ProviderEndpointModels:
+    properties:
+      enabled_models:
+        description: |-
+          EnabledModels is the operator's whitelist. Empty means every model in
+          Models is available — the default for a newly added provider.
+        items:
+          type: string
+        type: array
+      models:
+        description: Models is the provider's full upstream catalogue, unfiltered.
+        items:
+          $ref: '#/definitions/types.OpenAIModel'
+        type: array
     type: object
   types.ProviderEndpointStatus:
     enum:
@@ -12712,6 +12745,13 @@ definitions:
         type: string
       vertex_region:
         type: string
+    type: object
+  types.UpdateProviderEndpointModels:
+    properties:
+      models:
+        items:
+          type: string
+        type: array
     type: object
   types.UpdateSandboxRequest:
     properties:
@@ -23678,6 +23718,46 @@ paths:
             $ref: '#/definitions/types.UpdateProviderEndpoint'
       security:
       - BearerAuth: []
+  /api/v1/provider-endpoints/{id}/available-models:
+    get:
+      description: Returns every model the upstream provider advertises, plus the
+        subset currently enabled on the endpoint. Aggregators such as OpenRouter list
+        hundreds of models, so this is deliberately separate from the endpoint's effective
+        (enabled-only) model list.
+      parameters:
+      - description: Provider endpoint ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Bypass the cached catalogue and refetch from upstream
+        in: query
+        name: refresh
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProviderEndpointModels'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List a provider endpoint's full model catalogue
+      tags:
+      - providers
   /api/v1/provider-endpoints/{id}/daily-usage:
     get:
       consumes:
@@ -23721,6 +23801,48 @@ paths:
       security:
       - BearerAuth: []
       summary: Get provider daily usage
+      tags:
+      - providers
+  /api/v1/provider-endpoints/{id}/models:
+    put:
+      consumes:
+      - application/json
+      description: Replaces the endpoint's enabled-models whitelist. An empty list
+        enables the provider's whole catalogue.
+      parameters:
+      - description: Provider endpoint ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Enabled models
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateProviderEndpointModels'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProviderEndpoint'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Set the models enabled on a provider endpoint
       tags:
       - providers
   /api/v1/provider-endpoints/{id}/throughput-usage:

@@ -288,6 +288,14 @@ func modelCacheKey(name, owner string) string {
 	return fmt.Sprintf("%s:%s", name, owner)
 }
 
+// catalogueCacheKey is the key for a provider's FULL upstream model list, kept
+// separately from the effective (whitelist-applied) list under modelCacheKey.
+// The models-picker UI needs the full catalogue to offer choices; everything
+// else must only ever see the effective list.
+func catalogueCacheKey(name, owner string) string {
+	return fmt.Sprintf("catalogue:%s:%s", name, owner)
+}
+
 // globalProviderEndpoint builds the synthetic ProviderEndpoint for an
 // env-baked global provider (one that has no database row). Used both when
 // listing endpoints for the UI and when resolving a model's owning provider
@@ -403,6 +411,7 @@ func (s *HelixAPIServer) resolveModelProviderLive(ctx context.Context, modelName
 // provider continues serving stale models for up to modelCacheTTL.
 func (s *HelixAPIServer) invalidateProviderModelCache(name, owner string) {
 	s.cache.Del(modelCacheKey(name, owner))
+	s.cache.Del(catalogueCacheKey(name, owner))
 }
 
 // cachedModels is the cache payload — a model list plus the time it was
@@ -437,7 +446,20 @@ type ProviderModels struct {
 //     and serving cached models would mask the real failure. Those propagate
 //     as a hard error even if we have cached data.
 func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (ProviderModels, error) {
-	key := modelCacheKey(providerEndpoint.Name, providerEndpoint.Owner)
+	return s.readProviderModels(ctx, providerEndpoint, modelCacheKey(providerEndpoint.Name, providerEndpoint.Owner))
+}
+
+// getProviderCatalogue returns the provider's FULL upstream model list,
+// ignoring the endpoint's enabled-models whitelist. Only the models-picker UI
+// may use this: it is what the operator chooses from. Every other consumer
+// must go through getProviderModels so the whitelist is honoured.
+func (s *HelixAPIServer) getProviderCatalogue(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (ProviderModels, error) {
+	return s.readProviderModels(ctx, providerEndpoint, catalogueCacheKey(providerEndpoint.Name, providerEndpoint.Owner))
+}
+
+// readProviderModels implements the stale-while-revalidate read for one of the
+// two cache keys a refresh populates (effective list vs full catalogue).
+func (s *HelixAPIServer) readProviderModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint, key string) (ProviderModels, error) {
 	cached, hit := s.loadCachedModels(key)
 	if hit && time.Since(cached.FetchedAt) < s.Cfg.WebServer.ModelsCacheTTL {
 		return ProviderModels{Models: cached.Models}, nil
@@ -454,21 +476,63 @@ func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint
 	}
 }
 
-// refreshProviderModels fetches a fresh model list from upstream and writes
-// it to the cache. Returns the fetched list on success. On failure, the
-// returned error wraps errUpstreamUnreachable iff the failure was in the
-// /v1/models call itself (so callers may fall back to the cache); other
-// errors (provider construction, JSON marshal) are hard failures.
+// refreshProviderModels fetches a fresh model list from upstream, populates
+// both cache entries (the full catalogue and the whitelist-filtered effective
+// list) and returns the one belonging to `key`.
+//
+// On failure the returned error wraps errUpstreamUnreachable iff the failure
+// was in the /v1/models call itself (so callers may fall back to the cache);
+// other errors (provider construction, JSON marshal) are hard failures.
 func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint, key string) ([]types.OpenAIModel, error) {
-	// Singleflight keyed on BaseURL deduplicates concurrent fetches hitting
-	// the same provider — different endpoints (names/owners) can share a URL.
-	flightKey := providerEndpoint.BaseURL
-	result, err, _ := s.modelFetchGroup.Do(flightKey, func() (interface{}, error) {
-		// Double-check cache inside singleflight — another caller may have populated it.
-		if cached, hit := s.loadCachedModels(key); hit && time.Since(cached.FetchedAt) < s.Cfg.WebServer.ModelsCacheTTL {
-			return cached.Models, nil
-		}
+	// Double-check the cache — another caller may have populated it while we
+	// were queued behind the upstream fetch.
+	if cached, hit := s.loadCachedModels(key); hit && time.Since(cached.FetchedAt) < s.Cfg.WebServer.ModelsCacheTTL {
+		return cached.Models, nil
+	}
 
+	catalogueKey := catalogueCacheKey(providerEndpoint.Name, providerEndpoint.Owner)
+	wantCatalogue := key == catalogueKey
+
+	catalogue, fetchErr := s.fetchUpstreamModels(ctx, providerEndpoint)
+	if fetchErr != nil {
+		// Custom endpoints often don't expose /v1/models. If an explicit model
+		// list is configured, treat that as the source of truth so the picker
+		// and chat-completions routing both work. The catalogue read can't use
+		// that fallback — it exists to show what the upstream offers, so an
+		// unreachable upstream must surface as an error, not an empty list.
+		if wantCatalogue || len(providerEndpoint.Models) == 0 || !errors.Is(fetchErr, errUpstreamUnreachable) {
+			return nil, fetchErr
+		}
+		log.Debug().
+			Err(fetchErr).
+			Str("provider", providerEndpoint.Name).
+			Str("owner", providerEndpoint.Owner).
+			Strs("enabled_models", providerEndpoint.Models).
+			Msg("upstream /v1/models failed; using the endpoint's configured model list")
+		catalogue = nil
+	}
+
+	fetchedAt := time.Now()
+	if fetchErr == nil {
+		s.storeCachedModels(catalogueKey, catalogue, fetchedAt)
+	}
+
+	effective := s.decorateModels(ctx, providerEndpoint, applyModelWhitelist(providerEndpoint, catalogue))
+	s.storeCachedModels(modelCacheKey(providerEndpoint.Name, providerEndpoint.Owner), effective, fetchedAt)
+
+	if wantCatalogue {
+		return catalogue, nil
+	}
+	return effective, nil
+}
+
+// fetchUpstreamModels calls the provider's /v1/models. Concurrent calls for the
+// same BaseURL are collapsed into one upstream request — different endpoints
+// (names/owners/whitelists) can share a URL, and the raw catalogue is identical
+// for all of them. Per-endpoint work (whitelist, pricing, billing) happens
+// outside this singleflight, where it can't leak between endpoints.
+func (s *HelixAPIServer) fetchUpstreamModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint) ([]types.OpenAIModel, error) {
+	result, err, _ := s.modelFetchGroup.Do(providerEndpoint.BaseURL, func() (interface{}, error) {
 		clientRequest := &manager.GetClientRequest{
 			Provider: providerEndpoint.Name,
 			Owner:    providerEndpoint.Owner,
@@ -494,85 +558,116 @@ func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndp
 
 		models, listErr := provider.ListModels(fetchCtx)
 		if listErr != nil {
-			// Custom endpoints often don't expose /v1/models. If a static Models
-			// list is configured, treat that as the source of truth so the picker
-			// and chat-completions routing both work.
-			if len(providerEndpoint.Models) > 0 {
-				log.Debug().
-					Err(listErr).
-					Str("provider", providerEndpoint.Name).
-					Str("owner", providerEndpoint.Owner).
-					Strs("static_models", providerEndpoint.Models).
-					Msg("upstream /v1/models failed; using static Models list")
-				models = synthesizeModelsFromStaticList(providerEndpoint)
-			} else {
-				log.Err(listErr).
-					Str("provider", providerEndpoint.Name).
-					Str("owner", providerEndpoint.Owner).
-					Msg("error listing models")
-				// Wrap as errUpstreamUnreachable so the caller may serve from
-				// cache. fmt.Errorf with two %w preserves both sentinels for
-				// errors.Is checks.
-				return nil, fmt.Errorf("%w: %w", errUpstreamUnreachable, listErr)
-			}
+			log.Err(listErr).
+				Str("provider", providerEndpoint.Name).
+				Str("owner", providerEndpoint.Owner).
+				Msg("error listing models")
+			// Wrap as errUpstreamUnreachable so the caller may serve from
+			// cache. fmt.Errorf with two %w preserves both sentinels for
+			// errors.Is checks.
+			return nil, fmt.Errorf("%w: %w", errUpstreamUnreachable, listErr)
 		}
-
-		// Same fallback when upstream returned an empty list but the endpoint
-		// has a static Models list configured.
-		if len(models) == 0 && len(providerEndpoint.Models) > 0 {
-			models = synthesizeModelsFromStaticList(providerEndpoint)
-		}
-
-		for idx, m := range models {
-			modelInfo, err := s.modelInfoProvider.GetModelInfo(fetchCtx, &model.ModelInfoRequest{
-				BaseURL:  providerEndpoint.BaseURL,
-				Provider: providerEndpoint.Name,
-				Model:    m.ID,
-			})
-			if err == nil {
-				models[idx].ModelInfo = modelInfo
-			}
-
-			// Effort capability is resolved independently of the pricing
-			// catalogue: self-hosted models (vLLM and friends) have no catalogue
-			// entry and never will, but we still know what efforts they accept.
-			if profile, ok := model.LookupReasoningEfforts(m.ID); ok {
-				models[idx].ReasoningEfforts = profile
-			}
-
-			// If billing is enabled and we don't have pricing, disable the model
-			if providerEndpoint.BillingEnabled {
-				if modelInfo == nil {
-					models[idx].Enabled = false
-					continue
-				}
-				// Got model info, checking the price
-				cost, _ := pricing.CalculateTokenPrice(modelInfo, pricing.TokenUsage{
-					PromptTokens:     10,
-					CompletionTokens: 10,
-				})
-				if cost.PromptCost == 0 && cost.CompletionCost == 0 {
-					models[idx].Enabled = false
-				}
-			}
-		}
-
-		payload, err := json.Marshal(cachedModels{Models: models, FetchedAt: time.Now()})
-		if err != nil {
-			return nil, err
-		}
-		ttl := modelCacheTTL
-		if len(models) == 0 {
-			ttl = emptyModelCacheTTL
-		}
-		s.cache.SetWithTTL(key, string(payload), 1, ttl)
-
 		return models, nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return result.([]types.OpenAIModel), nil
+}
+
+// applyModelWhitelist reduces a provider's upstream catalogue to the models the
+// operator enabled on the endpoint. An empty list means "everything upstream
+// offers" — the default for a freshly added provider. Enabled ids the upstream
+// doesn't advertise are still returned, synthesized: that is what makes a
+// custom endpoint with no working /v1/models usable, and it keeps a pinned
+// model working when an aggregator temporarily drops it from its listing.
+func applyModelWhitelist(providerEndpoint *types.ProviderEndpoint, catalogue []types.OpenAIModel) []types.OpenAIModel {
+	if len(providerEndpoint.Models) == 0 {
+		return catalogue
+	}
+
+	byID := make(map[string]types.OpenAIModel, len(catalogue))
+	for _, m := range catalogue {
+		byID[m.ID] = m
+	}
+
+	models := make([]types.OpenAIModel, 0, len(providerEndpoint.Models))
+	seen := make(map[string]bool, len(providerEndpoint.Models))
+	for _, id := range providerEndpoint.Models {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if m, ok := byID[id]; ok {
+			models = append(models, m)
+			continue
+		}
+		models = append(models, types.OpenAIModel{
+			ID:      id,
+			Object:  "model",
+			OwnedBy: providerEndpoint.Name,
+			Type:    "chat",
+			Enabled: true,
+		})
+	}
+	return models
+}
+
+// decorateModels attaches per-endpoint metadata: pricing (from the model info
+// catalogue), reasoning-effort capability, and the billing gate. This is
+// deliberately outside the upstream singleflight — BillingEnabled is a property
+// of the endpoint, not of the URL, so two endpoints sharing an upstream must
+// not inherit each other's decoration.
+func (s *HelixAPIServer) decorateModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint, models []types.OpenAIModel) []types.OpenAIModel {
+	for idx, m := range models {
+		modelInfo, err := s.modelInfoProvider.GetModelInfo(ctx, &model.ModelInfoRequest{
+			BaseURL:  providerEndpoint.BaseURL,
+			Provider: providerEndpoint.Name,
+			Model:    m.ID,
+		})
+		if err == nil {
+			models[idx].ModelInfo = modelInfo
+		}
+
+		// Effort capability is resolved independently of the pricing
+		// catalogue: self-hosted models (vLLM and friends) have no catalogue
+		// entry and never will, but we still know what efforts they accept.
+		if profile, ok := model.LookupReasoningEfforts(m.ID); ok {
+			models[idx].ReasoningEfforts = profile
+		}
+
+		// If billing is enabled and we don't have pricing, disable the model
+		if providerEndpoint.BillingEnabled {
+			if modelInfo == nil {
+				models[idx].Enabled = false
+				continue
+			}
+			// Got model info, checking the price
+			cost, _ := pricing.CalculateTokenPrice(modelInfo, pricing.TokenUsage{
+				PromptTokens:     10,
+				CompletionTokens: 10,
+			})
+			if cost.PromptCost == 0 && cost.CompletionCost == 0 {
+				models[idx].Enabled = false
+			}
+		}
+	}
+	return models
+}
+
+// storeCachedModels writes a model list to the cache. An empty list gets a much
+// shorter TTL — see emptyModelCacheTTL.
+func (s *HelixAPIServer) storeCachedModels(key string, models []types.OpenAIModel, fetchedAt time.Time) {
+	payload, err := json.Marshal(cachedModels{Models: models, FetchedAt: fetchedAt})
+	if err != nil {
+		log.Warn().Err(err).Str("cache_key", key).Msg("failed to marshal provider models for cache")
+		return
+	}
+	ttl := modelCacheTTL
+	if len(models) == 0 {
+		ttl = emptyModelCacheTTL
+	}
+	s.cache.SetWithTTL(key, string(payload), 1, ttl)
 }
 
 // loadCachedModels reads and parses the cache payload. A corrupt entry is
@@ -590,24 +685,6 @@ func (s *HelixAPIServer) loadCachedModels(key string) (cachedModels, bool) {
 		return cachedModels{}, false
 	}
 	return c, true
-}
-
-// synthesizeModelsFromStaticList builds OpenAIModel entries from the endpoint's
-// static Models list. Used when the upstream doesn't expose /v1/models — this
-// lets users register a custom endpoint with a preset model and have it appear
-// in the model picker and resolve correctly in /v1/chat/completions routing.
-func synthesizeModelsFromStaticList(providerEndpoint *types.ProviderEndpoint) []types.OpenAIModel {
-	models := make([]types.OpenAIModel, 0, len(providerEndpoint.Models))
-	for _, name := range providerEndpoint.Models {
-		models = append(models, types.OpenAIModel{
-			ID:      name,
-			Object:  "model",
-			OwnedBy: providerEndpoint.Name,
-			Type:    "chat",
-			Enabled: true,
-		})
-	}
-	return models
 }
 
 // createProviderEndpoint godoc
@@ -917,6 +994,147 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+}
+
+// loadEditableProviderEndpoint loads a provider endpoint and authorizes the
+// caller to change it. Same rules as updateProviderEndpoint: providers
+// management must be on (or the caller an admin), org endpoints need org
+// ownership, user endpoints need to be the caller's own, and global endpoints
+// are admin-only.
+func (s *HelixAPIServer) loadEditableProviderEndpoint(rw http.ResponseWriter, r *http.Request) (*types.ProviderEndpoint, bool) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+
+	if !s.isProvidersManagementEnabled(ctx) && !user.Admin {
+		http.Error(rw, "Providers management is not enabled", http.StatusForbidden)
+		return nil, false
+	}
+
+	endpoint, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: getID(r)})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "Provider endpoint not found", http.StatusNotFound)
+			return nil, false
+		}
+		log.Err(err).Msg("error getting provider endpoint")
+		http.Error(rw, "Error getting provider endpoint: "+err.Error(), http.StatusInternalServerError)
+		return nil, false
+	}
+
+	if endpoint.OwnerType == types.OwnerTypeOrg {
+		if _, err := s.authorizeOrgOwner(ctx, user, endpoint.Owner); err != nil {
+			log.Err(err).Msg("error authorizing org member")
+			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
+			return nil, false
+		}
+	} else if endpoint.Owner != user.ID && !user.Admin {
+		http.Error(rw, "Unauthorized", http.StatusUnauthorized)
+		return nil, false
+	}
+
+	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal && !user.Admin {
+		http.Error(rw, "Only admins can update global endpoints", http.StatusForbidden)
+		return nil, false
+	}
+
+	return endpoint, true
+}
+
+// listProviderEndpointModels godoc
+// @Summary List a provider endpoint's full model catalogue
+// @Description Returns every model the upstream provider advertises, plus the subset currently enabled on the endpoint. Aggregators such as OpenRouter list hundreds of models, so this is deliberately separate from the endpoint's effective (enabled-only) model list.
+// @Tags    providers
+// @Produce json
+// @Param   id path string true "Provider endpoint ID"
+// @Param   refresh query bool false "Bypass the cached catalogue and refetch from upstream"
+// @Success 200 {object} types.ProviderEndpointModels
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 502 {object} system.HTTPError
+// @Router /api/v1/provider-endpoints/{id}/available-models [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) listProviderEndpointModels(rw http.ResponseWriter, r *http.Request) {
+	endpoint, ok := s.loadEditableProviderEndpoint(rw, r)
+	if !ok {
+		return
+	}
+
+	if r.URL.Query().Get("refresh") == "true" {
+		s.invalidateProviderModelCache(endpoint.Name, endpoint.Owner)
+	}
+
+	catalogue, err := s.getProviderCatalogue(r.Context(), endpoint)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("provider", endpoint.Name).
+			Msg("error listing models for provider endpoint")
+		writeErrResponse(rw, fmt.Errorf("could not list models from %s: %w", endpoint.Name, err), http.StatusBadGateway)
+		return
+	}
+
+	enabled := endpoint.Models
+	if enabled == nil {
+		enabled = []string{}
+	}
+
+	writeResponse(rw, types.ProviderEndpointModels{
+		Models:        catalogue.Models,
+		EnabledModels: enabled,
+	}, http.StatusOK)
+}
+
+// updateProviderEndpointModels godoc
+// @Summary Set the models enabled on a provider endpoint
+// @Description Replaces the endpoint's enabled-models whitelist. An empty list enables the provider's whole catalogue.
+// @Tags    providers
+// @Accept  json
+// @Produce json
+// @Param   id path string true "Provider endpoint ID"
+// @Param   request body types.UpdateProviderEndpointModels true "Enabled models"
+// @Success 200 {object} types.ProviderEndpoint
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Router /api/v1/provider-endpoints/{id}/models [put]
+// @Security BearerAuth
+func (s *HelixAPIServer) updateProviderEndpointModels(rw http.ResponseWriter, r *http.Request) {
+	endpoint, ok := s.loadEditableProviderEndpoint(rw, r)
+	if !ok {
+		return
+	}
+
+	var req types.UpdateProviderEndpointModels
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	models := make([]string, 0, len(req.Models))
+	seen := make(map[string]bool, len(req.Models))
+	for _, m := range req.Models {
+		m = strings.TrimSpace(m)
+		if m == "" || seen[m] {
+			continue
+		}
+		seen[m] = true
+		models = append(models, m)
+	}
+	endpoint.Models = models
+
+	saved, err := s.Store.UpdateProviderEndpoint(r.Context(), endpoint)
+	if err != nil {
+		log.Err(err).Msg("error updating provider endpoint models")
+		http.Error(rw, "Error updating provider endpoint: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// The effective model list is derived from the whitelist, so it has to be
+	// refetched — otherwise the picker keeps serving the previous selection for
+	// up to modelCacheTTL.
+	s.invalidateProviderModelCache(saved.Name, saved.Owner)
+
+	saved.APIKey = "*****"
+	writeResponse(rw, saved, http.StatusOK)
 }
 
 // deleteProviderEndpoint godoc

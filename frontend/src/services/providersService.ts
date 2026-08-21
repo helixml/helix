@@ -5,6 +5,7 @@ import {
   RequestParams,
   TypesAggregatedUsageMetric,
   TypesProviderEndpoint,
+  TypesProviderEndpointModels,
   TypesUpdateProviderEndpoint,
   TypesUsersAggregatedUsageMetric,
 } from '../api/api';
@@ -123,6 +124,62 @@ export function useCreateProviderEndpoint() {
       queryClient.invalidateQueries({ queryKey: ['providers'] })
     }
   });
+}
+
+export const providerAvailableModelsQueryKey = (id: string) => ['providers', 'available-models', id]
+
+// The endpoint's full upstream catalogue — what the "edit models" picker offers,
+// as opposed to the enabled subset every other surface sees.
+export function useProviderAvailableModels(endpointId: string | undefined, enabled: boolean) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: providerAvailableModelsQueryKey(endpointId || ''),
+    queryFn: async (): Promise<TypesProviderEndpointModels> => {
+      const result = await apiClient.v1ProviderEndpointsAvailableModelsDetail(endpointId!)
+      return result.data
+    },
+    enabled: enabled && Boolean(endpointId),
+    staleTime: 60 * 1000,
+    retry: false,
+  })
+}
+
+// Forces a refetch from the upstream provider, bypassing the server-side
+// catalogue cache, then lets the query above pick up the warmed result.
+export function useRefreshProviderAvailableModels() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (endpointId: string): Promise<TypesProviderEndpointModels> => {
+      const result = await apiClient.v1ProviderEndpointsAvailableModelsDetail(endpointId, { refresh: true })
+      return result.data
+    },
+    onSuccess: (_data, endpointId) => {
+      queryClient.invalidateQueries({ queryKey: providerAvailableModelsQueryKey(endpointId) })
+      queryClient.invalidateQueries({ queryKey: ['providers'] })
+    },
+  })
+}
+
+export function useUpdateProviderEndpointModels() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ id, models }: { id: string; models: string[] }) => {
+      const result = await apiClient.v1ProviderEndpointsModelsUpdate(id, { models })
+      return result.data
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['providers'] })
+      queryClient.invalidateQueries({ queryKey: providerAvailableModelsQueryKey(variables.id) })
+    },
+  })
 }
 
 export interface DetectedProvider {

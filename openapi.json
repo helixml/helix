@@ -18622,6 +18622,81 @@
                 }
             }
         },
+        "/api/v1/provider-endpoints/{id}/available-models": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every model the upstream provider advertises, plus the subset currently enabled on the endpoint. Aggregators such as OpenRouter list hundreds of models, so this is deliberately separate from the endpoint's effective (enabled-only) model list.",
+                "tags": [
+                    "providers"
+                ],
+                "summary": "List a provider endpoint's full model catalogue",
+                "parameters": [
+                    {
+                        "description": "Provider endpoint ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Bypass the cached catalogue and refetch from upstream",
+                        "name": "refresh",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ProviderEndpointModels"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/provider-endpoints/{id}/daily-usage": {
             "get": {
                 "security": [
@@ -18697,6 +18772,84 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/provider-endpoints/{id}/models": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces the endpoint's enabled-models whitelist. An empty list enables the provider's whole catalogue.",
+                "tags": [
+                    "providers"
+                ],
+                "summary": "Set the models enabled on a provider endpoint",
+                "parameters": [
+                    {
+                        "description": "Provider endpoint ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.UpdateProviderEndpointModels"
+                            }
+                        }
+                    },
+                    "description": "Enabled models",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ProviderEndpoint"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -38549,6 +38702,13 @@
                     "id": {
                         "type": "string"
                     },
+                    "input_modalities": {
+                        "description": "InputModalities is the model's accepted input types (\"text\", \"image\",\n\"file\", ...). Same provenance and same nil-means-unknown rule as\nSupportedParameters.",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "model_info": {
                         "$ref": "#/components/schemas/types.ModelInfo"
                     },
@@ -38580,6 +38740,13 @@
                     },
                     "root": {
                         "type": "string"
+                    },
+                    "supported_parameters": {
+                        "description": "SupportedParameters is the set of request parameters the model accepts,\nas reported by aggregators that publish it (OpenRouter's /v1/models does;\nplain OpenAI-compatible servers don't). Used by the model picker to\nfilter a several-hundred-model catalogue down to, for example, the models\nthat can actually call tools. Nil means the provider didn't say.",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     },
                     "type": {
                         "type": "string"
@@ -40373,6 +40540,25 @@
                     },
                     "vertex_region": {
                         "type": "string"
+                    }
+                }
+            },
+            "types.ProviderEndpointModels": {
+                "type": "object",
+                "properties": {
+                    "enabled_models": {
+                        "description": "EnabledModels is the operator's whitelist. Empty means every model in\nModels is available — the default for a newly added provider.",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "models": {
+                        "description": "Models is the provider's full upstream catalogue, unfiltered.",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.OpenAIModel"
+                        }
                     }
                 }
             },
@@ -45322,6 +45508,17 @@
                     },
                     "vertex_region": {
                         "type": "string"
+                    }
+                }
+            },
+            "types.UpdateProviderEndpointModels": {
+                "type": "object",
+                "properties": {
+                    "models": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     }
                 }
             },
