@@ -114,8 +114,8 @@ type SessionSandboxStateResponse struct {
 // @Produce json
 // @Param sandbox_id query string false "Sandbox instance ID to query"
 // @Success 200 {object} AgentSandboxesDebugResponse
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
+// @Failure 401 {object} types.APIError
+// @Failure 500 {object} types.APIError
 // @Security ApiKeyAuth
 // @Router /api/v1/admin/agent-sandboxes/debug [get]
 func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, req *http.Request) {
@@ -387,8 +387,8 @@ func formatDuration(d time.Duration) string {
 // @Accept json
 // @Produce text/event-stream
 // @Success 200 {string} string "event: message"
-// @Failure 401 {object} system.HTTPError
-// @Failure 501 {object} system.HTTPError
+// @Failure 401 {object} types.APIError
+// @Failure 501 {object} types.APIError
 // @Security ApiKeyAuth
 // @Router /api/v1/admin/agent-sandboxes/events [get]
 func (apiServer *HelixAPIServer) getAgentSandboxesEvents(rw http.ResponseWriter, req *http.Request) {
@@ -403,10 +403,10 @@ func (apiServer *HelixAPIServer) getAgentSandboxesEvents(rw http.ResponseWriter,
 // @Produce json
 // @Param id path string true "Session ID"
 // @Success 200 {object} SessionSandboxStateResponse
-// @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
+// @Failure 401 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
 // @Security BearerAuth
 // @Router /api/v1/sessions/{id}/sandbox-state [get]
 func (apiServer *HelixAPIServer) getSessionSandboxState(rw http.ResponseWriter, req *http.Request) {

@@ -55,10 +55,10 @@ func (apiServer *HelixAPIServer) callSessionDesktopJSON(ctx context.Context, ses
 // @Param base query string false "Base ref (default main)"
 // @Param ignore_whitespace query bool false "Ignore whitespace-only changes"
 // @Success 200 {object} types.WorkspaceReviewResponse
-// @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 503 {object} system.HTTPError
+// @Failure 401 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 503 {object} types.APIError
 // @Router /api/v1/external-agents/{sessionID}/workspace-review [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getWorkspaceReview(w http.ResponseWriter, req *http.Request) {
@@ -150,11 +150,11 @@ func (apiServer *HelixAPIServer) downloadWorkspaceFile(w http.ResponseWriter, re
 // @Param sessionID path string true "Session ID"
 // @Param request body types.WorkspaceFileWriteRequest true "Workspace file update"
 // @Success 200 {object} types.WorkspaceFileResponse
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Failure 409 {object} system.HTTPError
-// @Failure 503 {object} system.HTTPError
+// @Failure 400 {object} types.APIError
+// @Failure 401 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Failure 409 {object} types.APIError
+// @Failure 503 {object} types.APIError
 // @Router /api/v1/external-agents/{sessionID}/workspace-file [put]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) putWorkspaceFile(w http.ResponseWriter, req *http.Request) {

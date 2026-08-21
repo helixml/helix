@@ -95,8 +95,22 @@ honoured first in `resolveSandboxID`); this exposes it to users:
 - Host discovery for clients: the existing authenticated
   `GET /api/v1/sandboxes` listing — no new endpoint.
 
-Follow-up (PR 3): frontend host dropdown at task/session creation (default
-**Auto**), populated from that listing; show hostname, GPU capability, load.
+## PR 3: `feature/sandbox-host-selector-ui` — host selector in the task form
+
+- `SandboxHostSelect` (`frontend/src/components/tasks/SandboxHostSelect.tsx`):
+  compact dropdown in the new-task form, default **Auto (least loaded)**,
+  listing online hosts with hostname, GPU vendor (or "cpu-only"), and
+  active/max load. Renders nothing on single-node installs (fewer than two
+  online hosts) so the common case stays uncluttered. Desktop runtimes only
+  offer display-capable hosts (mirrors `CanHostDesktop`); switching runtime
+  clears a pin that became invalid.
+- `NewSpecTaskForm` sends `sandbox_host_id` on create.
+- Regenerated swagger + TS client (`./stack update_openapi` steps). Fixed
+  pre-existing generator breakage on main: five handler files annotated
+  `system.HTTPError` (or `types.Role`) without importing the package, which
+  aborted `swag init`; also note swag must run with working VCS stamping or
+  `GOFLAGS=-buildvcs=false`, else it emits fully-qualified definition names
+  and renames half the generated TS types.
 
 ## Mode switching (headless ↔ desktop), for reference
 

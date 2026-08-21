@@ -5670,6 +5670,12 @@ definitions:
         type: string
       prompt:
         type: string
+      sandbox_host_id:
+        description: |-
+          SandboxHostID optionally pins the task's desktop container to a specific
+          sandbox host (SandboxInstance.ID). The host must be online and satisfy
+          the runtime's display requirement, or task creation fails.
+        type: string
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
       sandbox_runtime:
@@ -6042,6 +6048,11 @@ definitions:
       resolution:
         description: Display resolution - either use Resolution preset or explicit
           dimensions
+        type: string
+      sandbox_host_id:
+        description: |-
+          SandboxHostID pins the session's dev container to a specific sandbox
+          host (SandboxInstance.ID). Empty means the dispatcher chooses.
         type: string
       video_mode:
         description: Video capture/encoding mode
@@ -11061,6 +11072,13 @@ definitions:
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
         type: string
+      sandbox_host_id:
+        description: |-
+          SandboxHostID pins this task's desktop container to a specific sandbox
+          host (SandboxInstance.ID). Empty means the dispatcher chooses. Also
+          honoured on resume, so the task returns to the host that has its
+          workspace on disk.
+        type: string
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
       sandbox_runtime:
@@ -11715,6 +11733,13 @@ definitions:
         type: array
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
+        type: string
+      sandbox_host_id:
+        description: |-
+          SandboxHostID pins this task's desktop container to a specific sandbox
+          host (SandboxInstance.ID). Empty means the dispatcher chooses. Also
+          honoured on resume, so the task returns to the host that has its
+          workspace on disk.
         type: string
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
@@ -13685,11 +13710,11 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - ApiKeyAuth: []
       summary: Get sandbox debugging data
@@ -13710,11 +13735,11 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "501":
           description: Not Implemented
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - ApiKeyAuth: []
       summary: Get sandbox real-time events (SSE)
@@ -15788,7 +15813,7 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Bandwidth probe for adaptive bitrate
@@ -16263,11 +16288,11 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Get session clipboard content
@@ -16295,11 +16320,11 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Set session clipboard content
@@ -16369,11 +16394,11 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Execute command in sandbox
@@ -16404,23 +16429,23 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Read an uploaded chat attachment
@@ -16457,23 +16482,23 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Upload file to sandbox
@@ -16536,23 +16561,23 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Update a workspace file
@@ -16616,19 +16641,19 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Get workspace review sources
@@ -16712,19 +16737,19 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Get workspaces from container
@@ -16746,19 +16771,19 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Direct WebSocket input for PipeWire/GNOME sessions
@@ -16780,19 +16805,19 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Direct WebSocket video streaming for PipeWire/GNOME sessions
@@ -23709,15 +23734,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Get provider daily usage
@@ -23762,15 +23787,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Get provider throughput usage
@@ -23807,15 +23832,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Get provider daily usage per user
@@ -25798,19 +25823,19 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/system.HTTPError'
+            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Get sandbox state for a session

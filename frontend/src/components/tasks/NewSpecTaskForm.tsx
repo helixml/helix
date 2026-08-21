@@ -31,6 +31,7 @@ import { ChevronDown, X } from "lucide-react";
 import AssigneeSelector from "./AssigneeSelector";
 import OrganizationUserAvatar, { resolveOrganizationUser } from "../widgets/OrganizationUserAvatar";
 import GooseRecipeSelector from "./GooseRecipeSelector";
+import SandboxHostSelect from "./SandboxHostSelect";
 import {
   TypesCodeAgentExecutionConfig,
   TypesCreateTaskRequest,
@@ -152,6 +153,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const [sandboxRuntime, setSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
     preferredSpecTaskSandboxRuntime(projectId),
   );
+  // Sandbox host pin; empty string means the dispatcher chooses. Only offered
+  // on multi-node installs (SandboxHostSelect renders nothing otherwise).
+  const [sandboxHostId, setSandboxHostId] = useState("");
   // Goose recipe selection — only meaningful when the selected agent's runtime
   // is goose_code. Empty selectedRecipeName means "use vanilla goose"; the
   // backend skips baking and the agent's declared recipes are still available
@@ -410,6 +414,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     );
     setSelectedRecipeName("");
     setRecipeParams({});
+    setSandboxHostId("");
     // justDoItMode and autoStart intentionally kept — they persist to the next
     // task via localStorage (see handleJustDoItChange / handleAutoStartChange)
     setBranchMode(TypesBranchMode.BranchModeNew);
@@ -479,6 +484,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             : undefined,
         sandbox_resource_overrides: sandboxResourceOverrides,
         sandbox_runtime: sandboxRuntime,
+        sandbox_host_id: sandboxHostId || undefined,
       };
 
       const response = await api
@@ -1120,6 +1126,14 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 onSandboxResourceOverridesChange={setSandboxResourceOverrides}
                 onSandboxRuntimeChange={handleSandboxRuntimeChange}
                 autoSelectDefault
+              />
+              <SandboxHostSelect
+                value={sandboxHostId}
+                onChange={setSandboxHostId}
+                requiresDisplay={
+                  sandboxRuntime !==
+                  TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu
+                }
               />
               {selectedAgentIsGoose && (
                 <GooseRecipeSelector
