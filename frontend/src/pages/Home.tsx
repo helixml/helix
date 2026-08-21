@@ -25,6 +25,7 @@ import Page from '../components/system/Page'
 import { useAccount } from '../contexts/account'
 import { useStreaming } from '../contexts/streaming'
 import { getBrowserLocale } from '../hooks/useBrowserLocale'
+import useIsPhone from '../hooks/useIsPhone'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -103,6 +104,7 @@ function errorMessage(error: any, fallback: string): string {
 
 const Home: FC = () => {
   const account = useAccount()
+  const isPhone = useIsPhone()
   const lightTheme = useLightTheme()
   const router = useRouter()
   const snackbar = useSnackbar()
@@ -498,30 +500,42 @@ const Home: FC = () => {
           height: '100%',
           minHeight: 0,
           display: 'flex',
-          alignItems: 'center',
+          // A phone fills the screen and works top-down; a wide screen keeps
+          // the centred card.
+          alignItems: isPhone ? 'stretch' : 'center',
           justifyContent: 'center',
           px: { xs: 2, sm: 3 },
-          pb: { xs: 4, md: 12 },
+          // The shell already carries the safe-area inset.
+          pb: isPhone ? 1 : { xs: 4, md: 12 },
+          pt: isPhone ? 1 : 0,
           backgroundColor: lightTheme.isLight ? '#f7f7f8' : '#080808',
           fontFamily: T3_FONT_FAMILY,
           '& .MuiTypography-root, & .MuiButton-root': { fontFamily: 'inherit' },
         }}
       >
-        <Box sx={{ width: '100%', maxWidth: 768 }}>
-          <Typography
-            component="h1"
-            sx={{
-              mb: 3.5,
-              color: 'text.primary',
-              fontSize: { xs: '1.65rem', sm: '1.9rem' },
-              fontWeight: 560,
-              lineHeight: 1.2,
-              letterSpacing: '-0.025em',
-              textAlign: 'center',
-            }}
-          >
-            {newChatHeading(selectedProject?.name)}
-          </Typography>
+        <Box
+          sx={{
+            width: '100%',
+            maxWidth: 768,
+            ...(isPhone && { display: 'flex', flexDirection: 'column', minHeight: 0 }),
+          }}
+        >
+          {!isPhone && (
+            <Typography
+              component="h1"
+              sx={{
+                mb: 3.5,
+                color: 'text.primary',
+                fontSize: { xs: '1.65rem', sm: '1.9rem' },
+                fontWeight: 560,
+                lineHeight: 1.2,
+                letterSpacing: '-0.025em',
+                textAlign: 'center',
+              }}
+            >
+              {newChatHeading(selectedProject?.name)}
+            </Typography>
+          )}
 
           {requestedProjectId && projectsLoading ? (
             <Box sx={{ height: 150, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -533,6 +547,7 @@ const Home: FC = () => {
               sessionId={`new-thread:${selectedProjectId || 'none'}`}
               sendMode="direct"
               autoFocus
+              fill={isPhone}
               disabled={submitting || (isProjectContext && !taskCodeAgentConfig?.model)}
               placeholder={isProjectContext ? 'Describe what you want to build' : 'Ask anything'}
               inlineImageAttachments={!isProjectContext}
@@ -546,12 +561,12 @@ const Home: FC = () => {
             />
           )}
 
-          <Box sx={{ mt: 1, px: 2 }}>
+          <Box sx={isPhone ? { order: -1, mb: 0.5, flexShrink: 0 } : { mt: 1, px: 2 }}>
             <Button
               startIcon={isProjectContext ? <Folder size={14} /> : <MessageCircle size={14} />}
               endIcon={<ChevronDown size={12} />}
               onClick={(event) => setProjectMenuAnchor(event.currentTarget)}
-              sx={{ ...selectorButtonSx, fontSize: '0.7rem' }}
+              sx={{ ...selectorButtonSx, fontSize: isPhone ? '0.8rem' : '0.7rem' }}
             >
               {selectedProject?.name || 'None'}
             </Button>

@@ -350,6 +350,19 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             'button, input, optgroup, select, textarea': {
               fontFamily: 'inherit',
             },
+            // iOS Safari zooms the page in when a text field smaller than 16px
+            // takes focus, and never zooms back out — leaving the layout panned,
+            // cut off one edge and short on the other. Every symptom of it looks
+            // like a layout bug and none of it is. A floor rather than a fixed
+            // size, so anything already larger keeps its size.
+            '@media (pointer: coarse)': {
+              // contenteditable counts: iOS zooms for anything it can put a
+              // caret in, not just form controls, and the task chat's composer
+              // is a contenteditable div rather than a textarea.
+              'input, textarea, select, [contenteditable]:not([contenteditable="false"])': {
+                fontSize: 'max(16px, 1em) !important',
+              },
+            },
             '*': scrollbarStyles,
           },
         },
@@ -440,6 +453,27 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             },
           },
         },
+        MuiDrawer: {
+          styleOverrides: {
+            // Same reasoning as MuiDialog root below: portalled out of the
+            // shell, so it has to follow the visual viewport itself. Applied to
+            // the modal root rather than the paper, because the paper's
+            // transform belongs to the slide transition.
+            root: {
+              transform: 'translateY(var(--app-offset-y, 0px))',
+            },
+            // Scoped to the left-anchored nav drawer: a bottom sheet wants a
+            // bottom inset, not a top one, and sets its own.
+            paperAnchorLeft: {
+              boxSizing: 'border-box',
+              paddingTop: 'env(safe-area-inset-top)',
+              paddingLeft: 'env(safe-area-inset-left)',
+            },
+            paperAnchorBottom: {
+              boxSizing: 'border-box',
+            },
+          },
+        },
         MuiDialog: {
           defaultProps: {
             disableEnforceFocus: true,
@@ -457,9 +491,24 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
               boxShadow: dialogStyles.shadow,
               transition: 'all 0.2s ease-in-out',
             },
+            container: {
+              // A full-screen dialog has to be bounded by the VISIBLE viewport,
+              // not the layout one. With the on-screen keyboard open the layout
+              // viewport is the taller of the two, so the sheet overflows it and
+              // the whole thing pans — header and all — instead of its list
+              // scrolling inside a fixed frame. `--app-height` tracks the visual
+              // viewport (see index.html); the 100% fallback is what every
+              // desktop browser resolves to anyway.
+              height: 'min(var(--app-height, 100%), 100%)',
+            },
             root: {
               zIndex: 100002, // Above floating windows (z-index 9999); tooltips (100004) render above
               transition: 'all 0.2s ease-in-out',
+              // Portalled outside #root, so the shell's anchoring does not
+              // reach it. `position: fixed` resolves against the layout
+              // viewport, which iOS Safari pans the visual viewport inside —
+              // this follows that pan so a sheet cannot drift off screen.
+              transform: 'translateY(var(--app-offset-y, 0px))',
               '& .MuiBackdrop-root': {
                 backgroundColor: dialogStyles.backdropFallback,
                 background: dialogStyles.backdrop,

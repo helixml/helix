@@ -417,8 +417,13 @@ const Page: React.FC<{
           flexDirection: 'column',
           overflowY: disableContentScroll ? 'hidden' : 'auto',
           overflowX: 'hidden',
+          // The app shell is a fixed pane; a rubber-band at the end of this
+          // scroller must not chain out and drag it.
+          overscrollBehavior: 'contain',
           width: '100%',
-          maxWidth: '100vw',
+          // 100% of the shell, not 100vw: vw is the layout viewport, which is
+          // not the width on screen once the visual viewport is offset or scaled.
+          maxWidth: '100%',
           minHeight: 0,
         }}
       >

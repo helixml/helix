@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCacheHitRatioChartData,
   getAggregateCacheHitRatio,
+  getAggregateToolCallErrorRate,
   getCacheHitRatio,
+  getToolCallErrorRate,
   getTotalInputTokens,
   getUncachedInputTokens,
 } from './usageMetrics'
@@ -74,5 +76,31 @@ describe('usage metrics', () => {
       { date: '2026-08-02T00:00:00Z', claude_code: 0.9, 'agent-1': 0.5 },
       { date: '2026-08-03T00:00:00Z' },
     ])
+  })
+})
+
+describe('tool call error rate', () => {
+  it('divides errored requests by requests that returned tool calls', () => {
+    expect(getToolCallErrorRate({ tool_call_requests: 200, tool_call_error_requests: 8 })).toBe(0.04)
+  })
+
+  it('reports nothing for a bucket too small to be meaningful', () => {
+    expect(getToolCallErrorRate({ tool_call_requests: 2, tool_call_error_requests: 1 })).toBeNull()
+    expect(getToolCallErrorRate({})).toBeNull()
+  })
+
+  it('aggregates as a ratio of sums, not a mean of daily ratios', () => {
+    const rate = getAggregateToolCallErrorRate([
+      { tool_call_requests: 2, tool_call_error_requests: 1 },
+      { tool_call_requests: 998, tool_call_error_requests: 9 },
+    ])
+
+    // Mean of the daily ratios would be ~25%; the busy day dominates instead.
+    expect(rate).toBeCloseTo(10 / 1_000)
+  })
+
+  it('has no aggregate when no request returned a tool call', () => {
+    expect(getAggregateToolCallErrorRate([{ tool_call_requests: 0 }])).toBeNull()
+    expect(getAggregateToolCallErrorRate([])).toBeNull()
   })
 })
