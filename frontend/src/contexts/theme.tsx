@@ -356,7 +356,10 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             // like a layout bug and none of it is. A floor rather than a fixed
             // size, so anything already larger keeps its size.
             '@media (pointer: coarse)': {
-              'input, textarea, select': {
+              // contenteditable counts: iOS zooms for anything it can put a
+              // caret in, not just form controls, and the task chat's composer
+              // is a contenteditable div rather than a textarea.
+              'input, textarea, select, [contenteditable]:not([contenteditable="false"])': {
                 fontSize: 'max(16px, 1em) !important',
               },
             },
