@@ -732,7 +732,7 @@ const Layout: FC<{
               // visible gap below it. The shrink-by-userMenuHeight happens in
               // Sidebar.tsx for the secondary nav's content column only.
               // Use dvh (dynamic viewport height) for iOS Safari compatibility.
-              height: isBigScreen ? "100%" : "100svh",
+              height: isBigScreen ? "100%" : "var(--app-height, 100svh)",
               // The primary rail must remain viewport-anchored. Secondary
               // navigation owns its scrolling inside SlideMenuContainer.
               overflowY: "hidden",

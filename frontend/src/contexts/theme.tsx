@@ -457,6 +457,16 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
               boxShadow: dialogStyles.shadow,
               transition: 'all 0.2s ease-in-out',
             },
+            container: {
+              // A full-screen dialog has to be bounded by the VISIBLE viewport,
+              // not the layout one. With the on-screen keyboard open the layout
+              // viewport is the taller of the two, so the sheet overflows it and
+              // the whole thing pans — header and all — instead of its list
+              // scrolling inside a fixed frame. `--app-height` tracks the visual
+              // viewport (see index.html); the 100% fallback is what every
+              // desktop browser resolves to anyway.
+              height: 'var(--app-height, 100%)',
+            },
             root: {
               zIndex: 100002, // Above floating windows (z-index 9999); tooltips (100004) render above
               transition: 'all 0.2s ease-in-out',

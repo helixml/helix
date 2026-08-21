@@ -144,6 +144,8 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
             ? {
                 m: 0,
                 borderRadius: 0,
+                height: '100%',
+                maxHeight: '100%',
                 pt: 'env(safe-area-inset-top)',
                 pb: 'env(safe-area-inset-bottom)',
               }
@@ -208,7 +210,16 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
         />
       </Box>
 
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', py: 1 }}>
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          overscrollBehavior: 'contain',
+          WebkitOverflowScrolling: 'touch',
+          py: 1,
+        }}
+      >
         <Typography
           sx={{
             px: 2,
