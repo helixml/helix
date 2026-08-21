@@ -62,12 +62,12 @@ const TriggerFormDialog: FC<Props> = ({ open, trigger, saving, error, onClose, o
           {(error || fieldError) && <Alert severity="error">{fieldError || error}</Alert>}
           <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
           <TextField label="Description" value={description} onChange={(e) => setDescription(e.target.value)} multiline minRows={2} />
-          <TextField select label="Inbound source" value={kind} onChange={(e) => { setKind(e.target.value); setConfig('{}') }} disabled={!!trigger}>
+          <TextField select label="Trigger type" value={kind} onChange={(e) => { setKind(e.target.value); setConfig('{}') }} disabled={!!trigger}>
             {KINDS.map((value) => <MenuItem key={value} value={value}>{value.replace('_', ' ')}</MenuItem>)}
           </TextField>
           {kind !== 'local' && kind !== 'helix_events' && (
             <TextField
-              label="Inbound configuration"
+              label="Trigger settings"
               value={config}
               onChange={(e) => setConfig(e.target.value)}
               multiline

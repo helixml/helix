@@ -258,7 +258,7 @@ const OrgAgentSettings: FC<{
     type SourceOption = { key: string; label: string; description: string; source: { kind: string; trigger_id?: string; processor_id?: string; output_id?: string } }
     const options: SourceOption[] = [
       ...triggers.map((trigger) => ({ key: `trigger:${trigger.id}`, label: trigger.name || trigger.id!, description: `Trigger · ${trigger.kind}`, source: { kind: 'trigger', trigger_id: trigger.id } })),
-      ...processors.flatMap((processor) => processor.outputs.map((output) => ({ key: `processor_output:${processor.id}:${output.id}`, label: `${processor.name} · ${output.label || output.id}`, description: `Processor output · ${output.id}`, source: { kind: 'processor_output', processor_id: processor.id, output_id: output.id } }))),
+      ...processors.flatMap((processor) => processor.outputs.map((output) => ({ key: `processor_output:${processor.id}:${output.id}`, label: `${processor.name} · ${output.label || output.id}`, description: `Processed event · ${output.id}`, source: { kind: 'processor_output', processor_id: processor.id, output_id: output.id } }))),
     ]
     const sourceKey = (source: { kind?: string; trigger_id?: string; processor_id?: string; output_id?: string }) => source.kind === 'trigger' ? `trigger:${source.trigger_id}` : `processor_output:${source.processor_id}:${source.output_id}`
     const attachedKeys = new Set(attachments.map((item) => sourceKey(item.source ?? {})))
@@ -268,9 +268,9 @@ const OrgAgentSettings: FC<{
     return (
       <Box sx={{ mb: embedded ? 0 : 3 }}>
         {!embedded && (<>
-        <Typography variant="h6" sx={{ mb: 0.5 }}>Inbound attachments</Typography>
+        <Typography variant="h6" sx={{ mb: 0.5 }}>Triggers</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Triggers and exact Processor outputs that activate this org agent.
+          Choose what starts this agent. You can use a Trigger directly or the result of a Processor.
         </Typography>
         </>)}
         <Autocomplete
@@ -287,9 +287,9 @@ const OrgAgentSettings: FC<{
             try {
               for (const source of toAdd) await attach.mutateAsync({ source: source.source })
               for (const item of toRemove) await detach.mutateAsync(item.id!)
-              if (toAdd.length || toRemove.length) snackbar.success('Inbound attachments updated')
+              if (toAdd.length || toRemove.length) snackbar.success('Triggers updated')
             } catch (error: any) {
-              snackbar.error(error?.response?.data?.summary ?? error?.message ?? 'attachment update failed')
+              snackbar.error(error?.response?.data?.summary ?? error?.message ?? 'Could not update triggers')
             }
           }}
           getOptionLabel={(source) => source.label}
@@ -322,7 +322,7 @@ const OrgAgentSettings: FC<{
               />
             )
           })}
-          renderInput={(params) => <TextField {...params} label="Inbound sources" placeholder="Select Triggers or Processor outputs" />}
+          renderInput={(params) => <TextField {...params} label="Starts when" placeholder="Choose triggers or processed events" />}
         />
       </Box>
     )

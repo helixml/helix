@@ -170,8 +170,8 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
           </AgentSettingsSection>
 
           <AgentSettingsSection
-            title="Inbound attachments"
-            description="Choose the Triggers or exact Processor outputs that activate this Worker."
+            title="Triggers"
+            description="Choose what starts this agent. You can use a Trigger directly or the result of a Processor."
           >
             <AgentSettingsRow>
               <OrgAgentSettings

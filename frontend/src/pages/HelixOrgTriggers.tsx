@@ -66,7 +66,7 @@ const HelixOrgTriggers: FC = () => {
     <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle="Triggers">
       <Box sx={{ height: '100%', overflow: 'auto' }}><Container maxWidth="xl" sx={{ py: 3 }}><Stack spacing={2}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
-          <Box><Typography variant="h5">Triggers</Typography><Typography variant="body2" color="text.secondary">Inbound events that can activate Workers directly or through Processor outputs.</Typography></Box>
+          <Box><Typography variant="h5">Triggers</Typography><Typography variant="body2" color="text.secondary">Events that start your agents, either immediately or after processing.</Typography></Box>
           <Button variant="contained" startIcon={<Plus size={18} />} onClick={() => { setFormError(''); setCreateOpen(true) }}>New trigger</Button>
         </Stack>
         <TextField size="small" placeholder="Search triggers" value={query} onChange={(e) => setQuery(e.target.value)} sx={{ maxWidth: 360 }} />
@@ -80,7 +80,7 @@ const HelixOrgTriggers: FC = () => {
         )} />}
       </Stack></Container></Box>
       <Menu anchorEl={anchor} open={!!anchor} onClose={closeMenu}><MenuItem onClick={(e) => { e.stopPropagation(); const selected = current; closeMenu(); setDeleting(selected) }}><Trash2 size={20} /> Delete</MenuItem></Menu>
-      {deleting && <DeleteConfirmWindow title="trigger" submitTitle="Delete" onCancel={() => setDeleting(undefined)} onSubmit={async () => { try { await remove.mutateAsync(deleting.id!); snackbar.success('Trigger deleted') } catch (e) { snackbar.error(apiMessage(e)) } finally { setDeleting(undefined) } }}><Typography>Delete <b>{deleting.name}</b>? Attached Workers must be detached first.</Typography></DeleteConfirmWindow>}
+      {deleting && <DeleteConfirmWindow title="trigger" submitTitle="Delete" onCancel={() => setDeleting(undefined)} onSubmit={async () => { try { await remove.mutateAsync(deleting.id!); snackbar.success('Trigger deleted') } catch (e) { snackbar.error(apiMessage(e)) } finally { setDeleting(undefined) } }}><Typography>Delete <b>{deleting.name}</b>? If this Trigger starts any agents, remove it from those agents first.</Typography></DeleteConfirmWindow>}
       <TriggerFormDialog open={createOpen} saving={create.isPending} error={formError} onClose={() => setCreateOpen(false)} onSubmit={async (payload) => { try { const trigger = await create.mutateAsync(payload); setCreateOpen(false); open(trigger.id) } catch (e) { setFormError(apiMessage(e)) } }} />
     </HelixOrgShell>
   )

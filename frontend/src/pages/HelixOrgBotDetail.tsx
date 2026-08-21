@@ -875,7 +875,7 @@ const AttachmentsPanel: FC<{ botID?: string }> = ({ botID }) => {
   const detach = useDeleteAgentAttachment(botID)
   const options = useMemo<SourceOption[]>(() => [
     ...triggers.map((trigger) => ({ key: `trigger:${trigger.id}`, label: trigger.name || trigger.id!, description: `Trigger · ${trigger.kind}`, source: { kind: 'trigger', trigger_id: trigger.id } })),
-    ...processors.flatMap((processor) => processor.outputs.map((output) => ({ key: `processor_output:${processor.id}:${output.id}`, label: `${processor.name} · ${output.label || output.id}`, description: `Processor output · ${output.id}`, source: { kind: 'processor_output', processor_id: processor.id, output_id: output.id } }))),
+    ...processors.flatMap((processor) => processor.outputs.map((output) => ({ key: `processor_output:${processor.id}:${output.id}`, label: `${processor.name} · ${output.label || output.id}`, description: `Processed event · ${output.id}`, source: { kind: 'processor_output', processor_id: processor.id, output_id: output.id } }))),
   ], [triggers, processors])
   const attachmentKey = (source: { kind?: string; trigger_id?: string; processor_id?: string; output_id?: string }) => source.kind === 'trigger' ? `trigger:${source.trigger_id}` : `processor_output:${source.processor_id}:${source.output_id}`
   const selectedKeys = useMemo(() => new Set(attachments.map((item) => attachmentKey(item.source ?? {}))), [attachments])
@@ -893,17 +893,17 @@ const AttachmentsPanel: FC<{ botID?: string }> = ({ botID }) => {
       for (const source of toAdd) await attach.mutateAsync({ source: source.source })
       for (const item of toRemove) await detach.mutateAsync(item.id!)
       if (toAdd.length || toRemove.length) {
-        snackbar.success(`attachments updated (${toAdd.length} added, ${toRemove.length} removed)`)
+        snackbar.success(`Triggers updated (${toAdd.length} added, ${toRemove.length} removed)`)
       }
     } catch (err: any) {
-      snackbar.error(err?.response?.data?.summary ?? err?.message ?? 'attachment update failed')
+      snackbar.error(err?.response?.data?.summary ?? err?.message ?? 'Could not update triggers')
     }
   }
 
   return (
     <Box>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Inbound attachments ({selected.length})
+        Triggers ({selected.length})
       </Typography>
       <Autocomplete
         multiple
@@ -931,7 +931,7 @@ const AttachmentsPanel: FC<{ botID?: string }> = ({ botID }) => {
         renderInput={(params) => (
           <TextField
             {...params}
-            placeholder={selected.length === 0 ? 'Attach this agent to a Trigger or Processor output…' : ''}
+            placeholder={selected.length === 0 ? 'Choose triggers or processed events…' : ''}
             variant="outlined"
             size="small"
           />
@@ -951,7 +951,7 @@ const AttachmentsPanel: FC<{ botID?: string }> = ({ botID }) => {
         }
       />
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-        Attachments activate this agent from inbound events. Selecting a Processor always targets one stable output.
+        This agent starts when any selected Trigger or processed event occurs.
       </Typography>
     </Box>
   )
