@@ -4,7 +4,7 @@ import { KeyRound, Trash2 } from 'lucide-react'
 import useSnackbar from '../../hooks/useSnackbar'
 import { AvailableWorkerSecret, useAvailableWorkerSecrets, useDeleteWorkerSecret, usePutWorkerSecret, useWorkerSecrets } from '../../services/helixOrgService'
 
-const WorkerSecretsPanel: FC<{ agentID?: string }> = ({ agentID }) => {
+const WorkerSecretsPanel: FC<{ agentID?: string; readOnly?: boolean }> = ({ agentID, readOnly = false }) => {
   const snackbar = useSnackbar()
   const { data: bindings = [] } = useWorkerSecrets(agentID)
   const { data: sources = [] } = useAvailableWorkerSecrets(agentID)
@@ -37,12 +37,12 @@ const WorkerSecretsPanel: FC<{ agentID?: string }> = ({ agentID }) => {
     <Alert severity="warning">Granting a binding authorizes this Agent to retrieve and use the credential value. Values are never shown on this page.</Alert>
     {bindings.map((binding) => <Box key={binding.name} sx={{ display: 'flex', alignItems: 'center', gap: 1, border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }}>
       <Box sx={{ flex: 1, minWidth: 0 }}><Typography variant="body2" sx={{ fontFamily: 'var(--helix-font-mono)', fontWeight: 600 }}>{binding.name}</Typography><Typography variant="caption" color="text.secondary">{binding.usage || binding.source_kind}</Typography></Box>
-      <Tooltip title="Remove secret grant"><IconButton aria-label={`Remove ${binding.name}`} size="small" onClick={async () => { try { await del.mutateAsync(binding.name!); snackbar.success(`Removed ${binding.name}`) } catch (error: any) { snackbar.error(error?.response?.data?.error ?? error?.message ?? 'Failed to remove secret') } }}><Trash2 size={18}/></IconButton></Tooltip>
+      <Tooltip title="Remove secret grant"><span><IconButton aria-label={`Remove ${binding.name}`} size="small" disabled={readOnly || del.isPending} onClick={async () => { try { await del.mutateAsync(binding.name!); snackbar.success(`Removed ${binding.name}`) } catch (error: any) { snackbar.error(error?.response?.data?.error ?? error?.message ?? 'Failed to remove secret') } }}><Trash2 size={18}/></IconButton></span></Tooltip>
     </Box>)}
-    <TextField select size="small" label="Source" value={sourceID} onChange={(event) => selectSource(event.target.value)}>
+    <TextField select size="small" label="Source" value={sourceID} onChange={(event) => selectSource(event.target.value)} disabled={readOnly}>
       {sources.map((item) => <MenuItem key={id(item)} value={id(item)} disabled={item.already_bound}>{item.group}: {item.label}{item.already_bound ? ' (granted)' : ''}</MenuItem>)}
     </TextField>
-    {source && <><TextField size="small" label="Name" value={name} onChange={(event) => setName(event.target.value)} helperText="The stable name the Agent passes to get_secret"/><TextField size="small" label="Usage" value={usage} onChange={(event) => setUsage(event.target.value)}/><Button variant="outlined" onClick={() => { void grant() }} disabled={!name.trim() || put.isPending}>Grant secret</Button></>}
+    {source && <><TextField size="small" label="Name" value={name} onChange={(event) => setName(event.target.value)} helperText="The stable name the Agent passes to get_secret" disabled={readOnly}/><TextField size="small" label="Usage" value={usage} onChange={(event) => setUsage(event.target.value)} disabled={readOnly}/><Button variant="outlined" onClick={() => { void grant() }} disabled={readOnly || !name.trim() || put.isPending}>Grant secret</Button></>}
     {sources.length === 0 && <Typography variant="caption" color="text.secondary">Create a project Secret or connect an organization account to make a source available.</Typography>}
   </Stack>
 }

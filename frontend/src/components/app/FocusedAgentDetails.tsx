@@ -5,6 +5,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import { IAppFlatState } from '../../types'
 import AppSettings from './AppSettings'
 import OrgAgentSettings from './OrgAgentSettings'
+import WorkerSecretsPanel from '../helix-org/WorkerSecretsPanel'
 import { BotDetailDTO } from '../../services/helixOrgService'
 import {
   AgentSettingsPage,
@@ -181,6 +182,15 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
                 detail={orgAgentDetail}
                 embedded
               />
+            </AgentSettingsRow>
+          </AgentSettingsSection>
+
+          <AgentSettingsSection
+            title="Secrets"
+            description="Choose which credentials this agent may retrieve when it needs them."
+          >
+            <AgentSettingsRow>
+              <WorkerSecretsPanel agentID={orgAgentDetail?.bot?.id} readOnly={readOnly} />
             </AgentSettingsRow>
           </AgentSettingsSection>
 
