@@ -117,7 +117,7 @@ func TestSlackTopicDelivererUsesConfiguredChannelAndThread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := deliverer.Deliver(context.Background(), topic, streaming.Message{Body: "hello", ThreadID: "1699999999.000001"})
+	receipt, err := deliverer.Deliver(context.Background(), topic, streaming.Event{}, streaming.Message{Body: "hello", ThreadID: "1699999999.000001"})
 	if err != nil {
 		t.Fatal(err)
 	}

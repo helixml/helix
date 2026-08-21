@@ -195,7 +195,7 @@ type slackTopicDeliverer struct {
 	client     func(string) slacktransport.MessageAPI
 }
 
-func (d slackTopicDeliverer) Deliver(ctx context.Context, topic streaming.Topic, msg streaming.Message) (publishing.DeliveryReceipt, error) {
+func (d slackTopicDeliverer) Deliver(ctx context.Context, topic streaming.Topic, _ streaming.Event, msg streaming.Message) (publishing.DeliveryReceipt, error) {
 	cfg, err := topic.Transport.SlackConfig()
 	if err != nil {
 		return publishing.DeliveryReceipt{}, err

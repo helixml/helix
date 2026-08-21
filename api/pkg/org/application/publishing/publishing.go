@@ -50,8 +50,10 @@ type DeliveryReceipt struct {
 	Error       string `json:"error,omitempty"`
 }
 
-type Deliverer interface {
-	Deliver(ctx context.Context, topic streaming.Topic, msg streaming.Message) (DeliveryReceipt, error)
+// LegacyDeliverer is implemented only by the temporary Topic compatibility
+// path. New Worker actions must use native provider APIs with get_secret.
+type LegacyDeliverer interface {
+	Deliver(ctx context.Context, topic streaming.Topic, event streaming.Event, msg streaming.Message) (DeliveryReceipt, error)
 }
 
 type Result struct {
@@ -61,13 +63,13 @@ type Result struct {
 
 // Publishing owns the publish use case.
 type Publishing struct {
-	topics     store.Topics
-	events     store.Events
-	hub        Notifier
-	dispatcher Dispatcher
-	deliverers map[transport.Kind]Deliverer
-	now        func() time.Time
-	newID      func() string
+	topics         store.Topics
+	events         store.Events
+	hub            Notifier
+	dispatcher     Dispatcher
+	legacyDelivery *LegacyDelivery
+	now            func() time.Time
+	newID          func() string
 }
 
 // Deps are the constructor-injected collaborators for New. Hub and
@@ -78,7 +80,7 @@ type Deps struct {
 	Events     store.Events
 	Hub        Notifier
 	Dispatcher Dispatcher
-	Deliverers map[transport.Kind]Deliverer
+	Deliverers map[transport.Kind]LegacyDeliverer
 	Now        func() time.Time
 	NewID      func() string
 }
@@ -90,21 +92,18 @@ func New(deps Deps) *Publishing {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &Publishing{
-		topics:     deps.Topics,
-		events:     deps.Events,
-		hub:        deps.Hub,
-		dispatcher: deps.Dispatcher,
-		deliverers: deps.Deliverers,
-		now:        now,
-		newID:      deps.NewID,
+		topics:         deps.Topics,
+		events:         deps.Events,
+		hub:            deps.Hub,
+		dispatcher:     deps.Dispatcher,
+		legacyDelivery: NewLegacyDelivery(deps.Deliverers),
+		now:            now,
+		newID:          deps.NewID,
 	}
 }
 
-func (p *Publishing) RegisterDeliverer(kind transport.Kind, deliverer Deliverer) {
-	if p.deliverers == nil {
-		p.deliverers = map[transport.Kind]Deliverer{}
-	}
-	p.deliverers[kind] = deliverer
+func (p *Publishing) RegisterDeliverer(kind transport.Kind, deliverer LegacyDeliverer) {
+	p.legacyDelivery.Register(kind, deliverer)
 }
 
 // Publish appends a Message Event to the Topic attributed to `from`,
@@ -180,18 +179,12 @@ func (p *Publishing) publish(ctx context.Context, orgID string, topicID streamin
 	}
 	result := Result{Event: event}
 	if !isInbound(ctx) {
-		if deliverer := p.deliverers[topic.Transport.Kind]; deliverer != nil {
-			receipt, err := deliverer.Deliver(ctx, topic, msg)
-			if err != nil {
-				receipt.Status = "failed"
-				if receipt.Provider == "" {
-					receipt.Provider = string(topic.Transport.Kind)
-				}
-				receipt.Error = "do not retry publish: " + err.Error()
-				result.Delivery = &receipt
-				return result, fmt.Errorf("deliver topic %q: %w", topicID, err)
-			}
+		receipt, delivered, err := p.legacyDelivery.Deliver(ctx, topic, event, msg)
+		if delivered {
 			result.Delivery = &receipt
+		}
+		if err != nil {
+			return result, fmt.Errorf("deliver topic %q: %w", topicID, err)
 		}
 	}
 	return result, nil

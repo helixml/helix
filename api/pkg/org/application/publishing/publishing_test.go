@@ -43,7 +43,7 @@ type recDeliverer struct {
 	err   error
 }
 
-func (d *recDeliverer) Deliver(_ context.Context, _ streaming.Topic, _ streaming.Message) (DeliveryReceipt, error) {
+func (d *recDeliverer) Deliver(_ context.Context, _ streaming.Topic, _ streaming.Event, _ streaming.Message) (DeliveryReceipt, error) {
 	d.calls++
 	return DeliveryReceipt{Status: "delivered", Provider: "slack", Destination: "C1", MessageID: "1.2"}, d.err
 }
@@ -181,7 +181,7 @@ func TestPublish_SlackDeliversButInboundDoesNotEcho(t *testing.T) {
 			id++
 			return fmt.Sprint(id)
 		},
-		Deliverers: map[transport.Kind]Deliverer{transport.KindSlack: deliverer},
+		Deliverers: map[transport.Kind]LegacyDeliverer{transport.KindSlack: deliverer},
 	})
 
 	result, err := svc.PublishWithReceipt(context.Background(), "org-test", "s-1", "b-worker", streaming.Message{Body: "hello"})
@@ -224,7 +224,7 @@ func TestPublish_SlackWithoutChannelRejectedBeforeSideEffects(t *testing.T) {
 					idCalls++
 					return "fixed"
 				},
-				Deliverers: map[transport.Kind]Deliverer{transport.KindSlack: deliverer},
+				Deliverers: map[transport.Kind]LegacyDeliverer{transport.KindSlack: deliverer},
 			})
 
 			var result Result
@@ -262,7 +262,7 @@ func TestPublishInbound_SlackWithoutChannelAllowed(t *testing.T) {
 		Dispatcher: &recDispatcher{log: &log},
 		Now:        fixedClock,
 		NewID:      func() string { return "fixed" },
-		Deliverers: map[transport.Kind]Deliverer{transport.KindSlack: deliverer},
+		Deliverers: map[transport.Kind]LegacyDeliverer{transport.KindSlack: deliverer},
 	})
 
 	event, err := svc.PublishInbound(context.Background(), "org-test", "s-1", "", streaming.Message{Body: "from Slack"})
@@ -289,7 +289,7 @@ func TestPublish_InboundProvenanceSuppressesNestedDelivery(t *testing.T) {
 			id++
 			return fmt.Sprint(id)
 		},
-		Deliverers: map[transport.Kind]Deliverer{transport.KindSlack: deliverer},
+		Deliverers: map[transport.Kind]LegacyDeliverer{transport.KindSlack: deliverer},
 	})
 	dispatcher.svc = svc
 
@@ -320,7 +320,7 @@ func TestPublish_SlackFailureIsExplicitAfterAuditAppend(t *testing.T) {
 	deliverer := &recDeliverer{err: errors.New("not_in_channel")}
 	svc := New(Deps{
 		Topics: st.Topics, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" },
-		Deliverers: map[transport.Kind]Deliverer{transport.KindSlack: deliverer},
+		Deliverers: map[transport.Kind]LegacyDeliverer{transport.KindSlack: deliverer},
 	})
 
 	result, err := svc.PublishWithReceipt(context.Background(), "org-test", "s-1", "b-worker", streaming.Message{Body: "hello"})

@@ -1,7 +1,6 @@
 // Package webhook is the infrastructure side of the webhook transport:
-// the outbound emitter that POSTs an appended Event to a Topic's
-// configured OutboundURL. The dispatcher (application) dispatches to it
-// via the streaming.Outbound port — it owns the HTTP mechanics
+// the legacy Topic adapter that POSTs an appended Event to a Topic's
+// configured OutboundURL. It owns the HTTP mechanics
 // (client, timeout, headers, status handling) so that delivery detail
 // stays out of the core dispatcher.
 package webhook
@@ -13,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
@@ -22,8 +22,8 @@ import (
 // speak HTTP back fail fast.
 const outboundTimeout = 5 * time.Second
 
-// OutboundEmitter POSTs Events to a webhook Topic's OutboundURL. It
-// satisfies streaming.Outbound.
+// OutboundEmitter POSTs Events to a webhook Topic's OutboundURL for the
+// temporary Topic compatibility adapter.
 type OutboundEmitter struct {
 	client *http.Client
 	logger *slog.Logger
@@ -39,6 +39,17 @@ func NewOutboundEmitter(logger *slog.Logger) *OutboundEmitter {
 
 // SetHTTPClient replaces the HTTP client. Intended for tests.
 func (e *OutboundEmitter) SetHTTPClient(c *http.Client) { e.client = c }
+
+func (e *OutboundEmitter) Deliver(_ context.Context, topic streaming.Topic, event streaming.Event, _ streaming.Message) (publishing.DeliveryReceipt, error) {
+	cfg, err := topic.Transport.WebhookConfig()
+	if err != nil || cfg.OutboundURL == "" {
+		return publishing.DeliveryReceipt{}, publishing.ErrLegacyDeliveryNotApplicable
+	}
+	go func() { //nolint:gosec // legacy delivery intentionally outlives the publish request
+		_ = e.Emit(context.Background(), topic, event)
+	}()
+	return publishing.DeliveryReceipt{Status: "queued", Provider: "webhook", Destination: cfg.OutboundURL}, nil
+}
 
 // Emit POSTs the Event body to the Topic's configured OutboundURL. A
 // topic with no OutboundURL (or unparseable config) is a no-op. Uses a
@@ -78,5 +89,4 @@ func (e *OutboundEmitter) Emit(_ context.Context, topic streaming.Topic, event s
 	return nil
 }
 
-// compile-time assertion that the emitter satisfies the port.
-var _ streaming.Outbound = (*OutboundEmitter)(nil)
+var _ publishing.LegacyDeliverer = (*OutboundEmitter)(nil)

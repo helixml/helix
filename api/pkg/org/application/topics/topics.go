@@ -175,12 +175,12 @@ func (s *Topics) Delete(ctx context.Context, orgID string, id streaming.TopicID)
 // ---- Inbound transport wiring -------------------------------------------
 //
 // The inbound/outbound transport ports (streaming.Inbound /
-// streaming.Outbound) and their value types are domain ports in the
+// streaming.Inbound) and their value types are domain ports in the
 // streaming package. What lives here is the application orchestration over
 // the inbound port: InstallInbound / InboundStatus read the Topic,
 // dispatch to the provisioner registered for its transport Kind, and
 // persist the result. (The outbound side is driven by the dispatcher,
-// which owns its own streaming.Outbound registry — there is no
+// which owns its own temporary legacy-delivery registry — there is no
 // topics-service seam for it.)
 
 // InstallInbound provisions the provider-side inbound hook for a Topic

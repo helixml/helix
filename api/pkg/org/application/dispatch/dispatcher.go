@@ -33,15 +33,12 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 )
 
 // Dispatcher routes Events to subscribed AI Workers and runs the
-// configured Spawner for each one. It also fans Events out to the
-// registered streaming.Outbound emitter for the Topic's Transport Kind
-// (webhook, email, …) — but it knows nothing about how each transport
-// delivers; that lives behind the streaming.Outbound port.
+// configured Spawner for each one. External delivery is deliberately not
+// part of dispatch; legacy Topic delivery is isolated in publishing.
 //
 // The per-Worker serialisation logic (one in-flight Spawn per Worker,
 // queued triggers drained one at a time in arrival order) moved out to
@@ -51,7 +48,6 @@ type Dispatcher struct {
 	store           *store.Store
 	queue           ActivationQueue
 	logger          *slog.Logger
-	outbound        map[transport.Kind]streaming.Outbound
 	processorRunner ProcessorRunner
 }
 
@@ -63,39 +59,28 @@ type ActivationQueue interface {
 // into the Processor outputs its Topic feeds. application/processing.Runner
 // satisfies it; declared here (not imported) so dispatch does not depend
 // on processing — the wiring is Dispatcher.New → build publishing →
-// build Runner → RegisterProcessorRunner, exactly like RegisterOutbound.
+// build Runner → RegisterProcessorRunner.
 type ProcessorRunner interface {
 	Run(ctx context.Context, e streaming.Event, msg streaming.Message)
 }
 
 // New returns a Dispatcher. spawner may be nil to disable activation
-// (useful for tests). logger must be non-nil. Outbound emitters are
-// registered separately via RegisterOutbound.
+// (useful for tests). logger must be non-nil.
 func New(s *store.Store, spawner runtime.Spawner, logger *slog.Logger) *Dispatcher {
 	var spawn activation.Spawn
 	if spawner != nil {
 		spawn = activation.Spawn(spawner)
 	}
 	return &Dispatcher{
-		store:    s,
-		queue:    activation.NewQueue(spawn, logger),
-		logger:   logger,
-		outbound: map[transport.Kind]streaming.Outbound{},
+		store:  s,
+		queue:  activation.NewQueue(spawn, logger),
+		logger: logger,
 	}
-}
-
-// RegisterOutbound wires the streaming.Outbound emitter for a transport
-// Kind. Late-binding (rather than constructor injection) because some
-// transports also take the Dispatcher for inbound activation, so the
-// wiring is Dispatcher.New → Transport.New → RegisterOutbound. Kinds
-// with no registered emitter no-op on outbound.
-func (d *Dispatcher) RegisterOutbound(kind transport.Kind, e streaming.Outbound) {
-	d.outbound[kind] = e
 }
 
 // RegisterProcessorRunner wires the execution arm that fans an Event
 // out to the Processors reading its Topic. Late-bound for the same
-// reason as RegisterOutbound: the Runner depends on the publishing
+// reason: the Runner depends on the publishing
 // service, which is built after the Dispatcher. nil runner → Dispatch's
 // processor fan-out no-ops.
 func (d *Dispatcher) RegisterProcessorRunner(r ProcessorRunner) {
@@ -147,11 +132,8 @@ func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID or
 }
 
 // Dispatch fans an Event out to every AI Worker subscribed to its
-// Topic (skipping the Worker that sourced the event) and emits an
-// outbound webhook POST if the Topic's Transport is configured for
-// it. Each fan-out target — subscriber activation, outbound POST —
-// runs on its own goroutine with its own background context, so a
-// slow target never stalls the publish that triggered Dispatch.
+// Topic (skipping the Worker that sourced the event), then traverses
+// processors. It never performs external delivery.
 //
 // Returns immediately. A per-Worker queue serialises overlapping
 // subscriber activations within a Worker, draining them one trigger at
@@ -159,14 +141,12 @@ func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID or
 // guarantee.
 func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 	orgID := e.OrganizationID
-	d.emitOutbound(ctx, e)
 	// Parse the canonical Message envelope. Every production write
 	// goes through Message.Encode via streaming.NewMessageEvent, so a
 	// parse failure here is a programming bug — a hand-poked DB row,
 	// or a regression in a future write path. Skip fan-out so a bad
 	// event doesn't render a half-formed activation prompt; the error
-	// is logged so the bug is visible. Outbound emission already
-	// fired above and is unaffected.
+	// is logged so the bug is visible.
 	msg, err := e.Message()
 	if err != nil {
 		d.logger.Error("dispatch: parse message — skipping fan-out", "event", e.ID, "err", err)
@@ -247,43 +227,4 @@ func (d *Dispatcher) deliver(ctx context.Context, orgID string, targets []orgcha
 		}
 		d.queue.Enqueue(orgID, node.ID, trigger)
 	}
-}
-
-// emitOutbound dispatches Event-level outbound traffic for Topics
-// whose Transport is configured for it: webhook (HTTP POST) or email
-// (Postmark API). No-op for local Topics or for transports without
-// the necessary config. Failures are logged and dropped — the
-// underlying append has already succeeded.
-//
-// Events with empty Source ("system-emitted", typically inbound
-// events from this transport's own webhook handler) are not
-// re-emitted. Otherwise a bidirectional Topic (one that's both
-// inbound and outbound on the same provider) would echo every
-// inbound message straight back out to itself — never useful, often
-// catastrophic. Worker-published events (Source != "") still emit.
-//
-// Runs on a goroutine with its own background context so a slow
-// target never stalls the caller.
-func (d *Dispatcher) emitOutbound(ctx context.Context, e streaming.Event) {
-	if e.Source == "" {
-		return
-	}
-	topic, err := d.store.Topics.Get(ctx, e.OrganizationID, e.TopicID)
-	if err != nil {
-		// Topic was deleted, or store error. Either way nothing to emit;
-		// the append-side code path has already logged anything material.
-		return
-	}
-	emitter, ok := d.outbound[topic.Transport.Kind]
-	if !ok {
-		return // local topic, or a transport with no outbound emitter
-	}
-	// Fire on a goroutine with a background context: the delivery must
-	// outlive the request that triggered Dispatch. The emitter owns its
-	// own timeout, config parsing, and failure logging.
-	go func() { //nolint:gosec // intentional: the send outlives the triggering request
-		if err := emitter.Emit(context.Background(), topic, e); err != nil {
-			d.logger.Warn("dispatch.emit", "topic", e.TopicID, "event", e.ID, "kind", topic.Transport.Kind, "err", err)
-		}
-	}()
 }

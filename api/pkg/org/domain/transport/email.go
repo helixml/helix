@@ -17,7 +17,7 @@ import (
 // To=[recipient], Subject, Body, MessageID, InReplyTo, ThreadID
 // populated from the email's headers.
 //
-// Outbound: every Event appended to an email Topic is rendered to a
+// Legacy Topic compatibility only: every Event appended to an email Topic is rendered to a
 // provider API call (Postmark /email today). The Message envelope's
 // From/To/Subject/InReplyTo/ThreadID drive the outbound headers; the
 // global `from` from server config is the envelope sender unless the

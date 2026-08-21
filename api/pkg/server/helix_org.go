@@ -681,10 +681,6 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		dispatcher.RegisterActivationQueue(durableQueue)
 		agentDelivery = durableQueue
 	}
-	// Outbound webhook delivery is a transport concern, not the
-	// dispatcher's: register the webhook emitter so KindWebhook topics
-	// POST their events. Slack/email emitters register the same way.
-	dispatcher.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(logger))
 	// Slack has no asynchronous dispatcher emitter. Basic Topic text uses
 	// the synchronous Publishing deliverer registered below. slackWS resolves
 	// the encrypted workspace install for that compatibility path and for
@@ -915,6 +911,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// (the composition root) from the store + collaborators; the api
 	// package holds these services, never the store (Phase-D seam).
 	svc := buildOrgServices(st, &deps, bc, dispatcher, inboundProvisioners)
+	svc.Publishing.RegisterDeliverer(transport.KindWebhook, webhook.NewOutboundEmitter(logger))
 	svc.Publishing.RegisterDeliverer(transport.KindSlack, slackTopicDeliverer{workspaces: slackWS})
 	// Create (the lifecycle's create half) delegates the bot-row creation to
 	// the bots service so the base-tool union + id minting are shared with

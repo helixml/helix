@@ -625,13 +625,13 @@ func TestPublishGitLabTopicReturnsConflict(t *testing.T) {
 
 type failingTopicDeliverer struct{}
 
-func (failingTopicDeliverer) Deliver(context.Context, streaming.Topic, streaming.Message) (publishing.DeliveryReceipt, error) {
+func (failingTopicDeliverer) Deliver(context.Context, streaming.Topic, streaming.Event, streaming.Message) (publishing.DeliveryReceipt, error) {
 	return publishing.DeliveryReceipt{Provider: "slack", Destination: "C1"}, errors.New("not_in_channel")
 }
 
 type countingTopicDeliverer struct{ calls int }
 
-func (d *countingTopicDeliverer) Deliver(context.Context, streaming.Topic, streaming.Message) (publishing.DeliveryReceipt, error) {
+func (d *countingTopicDeliverer) Deliver(context.Context, streaming.Topic, streaming.Event, streaming.Message) (publishing.DeliveryReceipt, error) {
 	d.calls++
 	return publishing.DeliveryReceipt{}, nil
 }
@@ -660,7 +660,7 @@ func TestPublishSlackWithoutChannelReturnsConflictBeforeSideEffects(t *testing.T
 	deps.Publishing = publishing.New(publishing.Deps{
 		Topics: st.Topics, Events: st.Events, Dispatcher: dispatcher,
 		Now: time.Now, NewID: func() string { return "should-not-run" },
-		Deliverers: map[transport.Kind]publishing.Deliverer{transport.KindSlack: deliverer},
+		Deliverers: map[transport.Kind]publishing.LegacyDeliverer{transport.KindSlack: deliverer},
 	})
 
 	rec := do(t, orgapi.Handler(deps), http.MethodPost, "/topics/s-slack-inbound/publish", orgapi.PublishRequest{Body: "hello"})

@@ -16,7 +16,7 @@ Replace it with four concepts:
   Processor emits events through the same output interface as a Trigger, so
   Workers and other Processors can attach to it directly.
 - **Tool** — an action initiated by a running Worker, including email, Slack,
-  DMs, team briefings, and other internal or external actions.
+  DMs, Chats, and other internal or external actions.
 - **Session (later)** — the existing Helix Session owned by a Worker. Trigger
   events and internal messages become Session interactions; Session history is
   the transcript and activity record.
@@ -566,7 +566,7 @@ Remove outbound communication from Topic semantics while retaining the current
 Topic frontend:
 
 - Inventory every outbound use of Topic publishing, including Slack, email,
-  webhook delivery, DMs, team briefings, and human delivery.
+  webhook delivery, DMs, Chats, and human delivery.
 - Replace external delivery with native sandbox commands using values obtained
   through PR 2 `get_secret`. Add no provider-specific MCP send wrappers.
 - Keep MCP tools only where Helix itself must enforce org-graph policy, such as
@@ -615,7 +615,7 @@ edges.
        Do not add a generic server-side URL-fetch MCP tool.
      - Human contact: keep `ask_human` and the `HumanDelivery` port. Its in-app
        and Slack-DM routes are explicit Helix delivery, not Topic publishing.
-     - One-to-one Worker messaging and team briefing: keep the existing `dm`
+     - One-to-one Worker messaging and Chats: keep the existing `dm`
        and `reports` + `publish` compatibility paths in this PR. They are
        Helix-internal delivery, not external provider actions; PR 4 decides the
        smallest direct-messaging surface while replacing their Topic storage.
@@ -671,15 +671,14 @@ edges.
      validation unchanged. These tools enforce Helix graph/contact policy and
      therefore are legitimate domain primitives, unlike provider-specific send
      wrappers.
-   - Keep team briefing on `reports` + `publish` until PR 4. Designing its
+   - Keep Chats on `reports` + `publish` until PR 4. Designing their
      direct replacement before Topic subscriptions become attachments would
      create another temporary abstraction. PR 4 should decide whether `dm` can
-     grow a direct-reports target or whether one generic internal-message tool
-     should replace both DM and briefing.
+     remain separate from one generic `chat` action.
    - Do not migrate DM channels, team channels, human reply routing,
      reconcilers, event history, or their current response fields in this PR.
      Compatibility tests must keep these workflows unchanged, including the
-     immediately following reply after a DM or briefing.
+     immediately following reply after a DM or Chat message.
 
 5. **Move legacy Topic delivery behind one compatibility adapter.**
 
@@ -739,7 +738,7 @@ edges.
      live long-running Worker Session, exercise email and Slack delivery, `gh`,
      token refresh through a second `get_secret`, `ask_human`, a controlled
      webhook, and writing a structured credential to a file. Exercise `dm` and
-     team briefing through the unchanged compatibility path, including the
+     a Chat message through the unchanged compatibility path, including the
      recipient's next normal operation. Also exercise the unchanged frontend
      Topic publish flow for each externally delivering legacy kind. Tests must
      assert provider receipt and the specified absence/presence of Topic events
@@ -768,7 +767,7 @@ API shape for the unchanged frontend:
 - Convert Slack routing and other reconcilers to Processor outputs and Worker
   attachments.
 - Convert internal Worker messaging away from Topics, including `dm`,
-  `reports`, `ask_human`, team briefing, and lifecycle reconciliation. Keep
+  `reports`, `ask_human`, Chats, and lifecycle reconciliation. Keep
   Session transcript consolidation as later work.
 - Migrate existing Trigger-like Topics, Processor edges, and Worker
   subscriptions to the new records. Classify legacy local and outbound Topics
@@ -780,6 +779,249 @@ API shape for the unchanged frontend:
 The new Trigger, Processor, attachment, and action services are authoritative
 after this PR. The compatibility adapter may translate requests and responses,
 but must not dual-write or retain separate business rules.
+
+#### PR 4 implementation plan
+
+PR 4 is the data-plane cutover. It may change internal storage and service
+boundaries, but every existing Topic REST response and frontend workflow must
+remain compatible. Run it as one-way, idempotent migration followed by a
+single authoritative implementation; do not keep a runtime fallback to the
+old Topic path.
+
+1. **Freeze the cutover mapping before changing runtime wiring.**
+
+   - Produce a checked-in migration matrix for every existing Topic transport
+     and managed Topic kind. Each row names its target Trigger, Processor
+     source/output, Worker attachment, system-managed DM/Chat Trigger,
+     compatibility-only projection, or explicit operator action. Unknown rows
+     are a migration error; do not guess from names or silently leave them on
+     the old path.
+   - Classify `local` Topics by provenance and references. Processor-owned
+     output Topics become Processor output IDs; reconciler-owned transcript,
+     team and DM Topics become system-managed Chat and DM Triggers;
+     manually created local Topics remain compatibility-only until PR 5 and
+     cannot be attached as new target-model sources.
+   - Add a migration preflight command/report that counts source rows, target
+     rows, ambiguous rows, dangling subscriptions, missing Processor outputs,
+     invalid cross-organization references, and unsupported transport
+     configurations without mutating data. Production rollout is blocked while
+     any ambiguous or invalid count is non-zero.
+
+2. **Add source-based Processor inputs and execution.**
+
+   - Replace `Processor.InputTopicID` with an exact `eventsource.SourceRef` and
+     make every branch emit an `eventsource.Event` from its durable output ID.
+     A Processor input may reference one Trigger or one exact Processor output;
+     it may not reference another Processor without an output ID.
+   - Extend graph validation to load all Processor source edges within the
+     organization and reject direct cycles, indirect cycles, self-reference,
+     dangling sources, cross-tenant sources, duplicate output IDs, and a chain
+     deeper than the documented runtime limit. Keep the runtime hop guard as
+     defence in depth.
+   - Make the runner preserve event ID/correlation metadata, organization,
+     originating Worker, and deterministic branch order. Each emitted branch
+     receives a distinct derived event ID so retries can be deduplicated
+     without collapsing two legitimate outputs.
+   - Remove output-Topic creation/update/deletion from the Processor service.
+     Processor lifecycle owns only the Processor and its outputs; attachment
+     lifecycle handles attached Workers.
+
+3. **Make Triggers the control-plane owner of inbound transports.**
+
+   - Add one Trigger application service for create, update, delete, list/get,
+     validation, provisioning, and reconciliation. Provider-specific webhook,
+     socket, scheduler, and alias setup remains behind transport adapters.
+   - Convert GitHub, GitLab, Slack, Postmark inbound email, generic webhook,
+     cron, and Helix-event handlers to resolve an organization-scoped Trigger
+     and emit one canonical `eventsource.Event`. They must never accept a
+     caller-supplied organization or source reference as authoritative.
+   - Authenticate ingress before parsing or dispatch: verify GitHub/GitLab/
+     Slack/webhook signatures with constant-time comparison where applicable,
+     validate Postmark's configured ingress authentication, reject replayed
+     delivery IDs inside the retention window, bound body size, and reject
+     unsupported content types before any durable event or activation is
+     created.
+   - Reconcile provider resources idempotently. Updating a Trigger preserves
+     its ID and attachments; changing a provider resource re-provisions before
+     committing the new configuration and returns a meaningful error if the
+     provider cannot complete the operation. Deletion revokes provider ingress
+     before or atomically with making the Trigger unavailable locally.
+   - Scheduler/socket managers must enumerate Triggers, not compatibility
+     Topics. Restart reconciliation creates no duplicate jobs, sockets,
+     webhooks, or events.
+
+4. **Cut dispatch from subscriptions to attachments exactly once.**
+
+   - Wire every inbound transport and Processor output to source dispatch.
+     Resolve attachments by `(organization, exact SourceRef)`, preserve
+     repository ordering, deduplicate Workers, suppress the originating
+     Worker, reject human nodes, and enqueue through the existing activation
+     queue.
+   - Remove subscription lookup and Topic Processor traversal from the active
+     inbound path in the same commit that enables attachment dispatch. A
+     compatibility Topic request translates once into the authoritative source
+     service; it must not publish through both paths.
+   - Define retry/idempotency at the ingress boundary. Replaying the same
+     provider delivery or event ID must not enqueue a second activation, while
+     two distinct events with identical bodies must both be delivered.
+   - Preserve the ordering contract for one source and one Worker. Document
+     that ordering across independent Triggers is unspecified unless the queue
+     already provides a stronger guarantee.
+
+5. **Model DMs and Chats as system-managed Triggers.**
+
+   - Reuse the Trigger event, attachment, dispatch, ordering, deduplication,
+     and history path for internal communication. Add explicit system-managed
+     DM and Chat Trigger kinds. A DM/Chat is an inbound source from the
+     recipient Worker's perspective; invoking `dm` or `chat` is still an
+     explicit action by the sender.
+   - A DM Trigger represents one reporting-line conversation and has the two
+     participants attached. A Chat Trigger represents one named multi-Worker
+     conversation and has its current participants attached. Sending appends
+     one canonical event to that Trigger; originating-Worker suppression means
+     all other attached participants wake exactly once while the sender does
+     not wake itself.
+   - System-managed DM/Chat Triggers are not arbitrary publish/subscribe
+     channels. They cannot be created, retyped, attached to, or published
+     through generic Trigger CRUD. Only the lifecycle reconciler may manage DM
+     participants from reporting lines, and only an authorized Chat membership
+     operation may manage Chat participants. Only `dm` and `chat` may append
+     Worker-authored events to them.
+   - `dm` and `chat` resolve organization and sender from `tool.Invocation`.
+     `dm` permits only a current manager or direct report. `chat` requires the
+     sender to be a current participant and targets a stable Chat ID, never an
+     arbitrary Trigger ID. Neither action accepts source references,
+     attachment IDs, organization IDs, or sender identity from model
+     arguments.
+   - Replace the current `reports` + `publish` sending workflow with `chat`.
+     A reporting-line team becomes a system-managed Chat whose membership is
+     the manager plus current direct reports; it is called a Chat everywhere
+     in the API, MCP descriptions, prompts, tests, and UI.
+   - `ask_human` retains `HumanDelivery` and reply correlation. If human replies
+     are moved onto the Trigger path, use a dedicated system-managed human
+     conversation Trigger with the requesting Worker attached; do not expose a
+     generic append or attachment operation.
+   - Key retained history directly by the DM/Chat Trigger source reference.
+     Do not add a parallel `InternalMessage`, channel, membership, or delivery
+     abstraction that duplicates Trigger events and attachments.
+   - Test the immediately following operation for every lifecycle transition:
+     DM then reply, Chat message then recipient response, human question then
+     reply, reporting-line removal then denied DM, Chat participant removal
+     then denied send/no wake, and Worker deletion then recreation with the
+     same display identity.
+
+6. **Migrate existing data idempotently and transactionally.**
+
+   - Version the migration and run it before target-model readers start. Use
+     deterministic IDs derived from the old row identity only where the
+     mapping is one-to-one; preserve the already-migrated Processor output IDs.
+   - Migrate inbound transport Topics to Triggers, Processor inputs/outputs to
+     source references, and eligible subscriptions to exact Worker
+     attachments. Validate the Worker and source in the same organization
+     before inserting. Deduplicate identical subscriptions but report corrupt
+     cross-tenant or dangling rows instead of discarding them.
+   - Migrate history separately from routing so a large event table cannot
+     leave half-migrated control-plane state. Use bounded batches with durable
+     checkpoints and repeat-safe inserts. Keep old tables read-only through PR
+     4 for rollback inspection; do not drop them until PR 5.
+   - After migration, compare per-organization counts and semantic checksums,
+     then mark that organization cut over. A failed organization remains
+     unavailable with an operator-facing diagnostic rather than falling back
+     to old routing.
+   - Test clean install, every supported prior schema, interrupted migration
+     followed by rerun, duplicate rows, maximum-size batches, colliding IDs in
+     two organizations, malformed JSON/configuration, and a migration run
+     concurrently with blocked ingress. Do not accept live writes to both
+     schemas.
+
+7. **Keep one read/write Topic compatibility projection.**
+
+   - Implement old Topic REST, Processor DTO, graph, publish, and history
+     responses as explicit projections over Trigger, Processor, attachment,
+     system-managed DM/Chat Triggers and retained event services. Projection
+     code performs
+     shape translation only; authorization, validation, provisioning, and
+     lifecycle decisions stay in the authoritative services.
+   - Define which legacy creates/updates remain representable. Reject an
+     operation that has no unambiguous target-model meaning with a stable
+     `unsupported_legacy_operation` error and instructions to use the Trigger
+     API after PR 5; never create a hidden compatibility-only domain object.
+   - Add contract fixtures captured from the pre-cutover API and compare status,
+     pagination, ordering, mutable fields, error codes, and JSON shape. Secret
+     fields and obsolete outbound configuration must not reappear merely to
+     satisfy a fixture.
+   - Instrument adapter calls by route and operation. PR 5 removal is blocked
+     until supported first-party callers are at zero and every remaining call
+     has an identified external owner or an approved breaking-change note.
+
+8. **Return safe, actionable errors at every user boundary.**
+
+   - Use typed application errors with stable machine codes. Map validation to
+     400/422, unauthenticated to 401, unauthorized or tenant-hidden missing
+     resources to a uniform 404, conflicts to 409, payload limits to 413,
+     provider throttling/unavailability to 429/503 where retry is safe, and
+     unexpected failures to a correlation ID plus a meaningful generic error.
+   - User-fixable errors state the resolution without leaking secrets or
+     hidden resources: reconnect the provider account, reinstall/repair the
+     webhook, choose a current Processor output, detach Workers before removing
+     an output, fix a cycle, grant Worker configuration permission, or retry
+     after the stated provider backoff. Include the exact UI location only
+     when that UI exists in the deployed PR.
+   - Non-user-fixable errors say what failed and include a support correlation
+     ID. Logs may include safe internal identifiers and wrapped provider error
+     classes, never signatures, tokens, complete request bodies, or credential-
+     bearing configuration.
+
+9. **Test behaviour through use cases and real boundaries.**
+
+   - Application tests exercise complete use cases: create/update/delete each
+     Trigger kind; attach/detach Workers; process one/many/no matching branches;
+     chain Processors; reject cycles; dispatch ordered fan-out; suppress the
+     originating Worker; retry a duplicate delivery; reconcile after restart;
+     delete an attached source/output; and migrate an existing organization.
+     Assert returned results, persisted state, emitted events, queue order, and
+     absence of unintended side effects.
+   - Table-drive edge cases: empty/oversized payloads, empty IDs, Unicode names,
+     duplicate names/output IDs, missing/deleted endpoints, stale attachment,
+     zero recipients, duplicate recipients, provider timeout/rate limit,
+     malformed provider payload, replayed IDs, equal timestamps, deep chains,
+     fan-out limits, concurrent update/delete/dispatch, and organization-ID
+     collisions.
+   - DM/Chat security tests cover forged sender identity, a foreign or guessed
+     Chat ID, a sender removed concurrently with send, a reporting line removed
+     before DM dispatch, attempts to append through generic Trigger APIs,
+     attempts to attach an unapproved participant, source-Worker suppression,
+     and colliding conversation IDs in different organizations. Every denied
+     case creates no event, history row, attachment, or activation.
+   - REST tests use the real router and authorization middleware for every
+     compatibility route and any internal Trigger route. Cover organization ID
+     and slug, unauthenticated caller, member without configure permission,
+     authorized member, outside-organization caller, mass-assigned ownership
+     fields, foreign Trigger/Processor/Worker IDs, pagination bounds, and error
+     response redaction.
+   - Ingress API tests send signed and unsigned requests to every provider
+     endpoint. Assert valid requests create exactly one event and the expected
+     activations; invalid signature, stale timestamp, replay, oversized body,
+     wrong content type, foreign provider resource, and disabled/deleted
+     Trigger create no event, activation, or observable tenant oracle.
+   - Run the existing Topic/Processor/Slack/email/GitHub/GitLab/webhook/cron/
+     human-delivery suites as compatibility gates. Then run an upgraded-stack
+     API test from external event through Trigger, two Processor branches, and
+     attached Workers, checking database rows and activation order.
+   - Browser acceptance in PR 4 uses Playwright against the real local stack,
+     not mocked handlers: register/sign in, complete onboarding, open the old
+     Topics UI on clean and migrated data, create/edit/delete every supported
+     Topic projection, edit Processor wiring, attach a Worker, publish or send
+     signed ingress, observe live history, and perform the next normal action.
+     Inspect network responses and browser console. No first-party flow may
+     call a removed route or receive a 5xx.
+
+PR 4 is complete when all production ingress and Processor output uses exact
+source references, all Worker activation uses attachments, internal messaging
+no longer relies on Topics, migration is repeat-safe, and the unchanged
+frontend passes against the projection adapter. It must contain no dual-write,
+runtime fallback, Topic table deletion, public frontend cutover, or Session
+transcript consolidation.
 
 ### PR 5: Frontend cutover and Topic removal
 
@@ -805,6 +1047,130 @@ This is the only PR allowed to break the old Topic API, and it must include the
 corresponding frontend changes. Verify both an upgraded database and a clean
 installation end to end: external event -> Trigger -> optional Processor chain
 -> attached Worker.
+
+#### PR 5 implementation plan
+
+1. **Publish the final Trigger and attachment API contract.**
+
+   - Add generated-client REST CRUD for Triggers, Processor source/output
+     wiring, Worker attachments, source event history, provider setup/status,
+     and graph reads. Resolve every `{org_id}` with `lookupOrg`; ignore or
+     reject ownership fields supplied in request bodies.
+   - Use source references as a closed discriminated union. Processor output
+     IDs are required wherever a Processor is selected. Responses include the
+     display metadata the UI needs without forcing it to join or interpret
+     provider secrets.
+   - Specify pagination, stable ordering, optimistic-concurrency behaviour,
+     provider status, and typed error bodies in Swagger; regenerate the API
+     client and use it everywhere. Do not retain raw frontend `fetch` calls or
+     hand-maintained duplicate DTOs.
+
+2. **Replace Topics navigation and list/detail surfaces with Triggers.**
+
+   - Replace the Topics sidebar route, list, cards, create flow, detail editor,
+     status, setup actions, and event tail with Trigger equivalents. Preserve a
+     deliberate redirect or explanatory tombstone for old bookmarked Topic
+     URLs; never render a blank page or silently select the wrong Trigger.
+   - Use `SimpleTable`, `CardGrid`, `ViewModeToggle`, Lucide toolbar icons, and
+     generated-client React Query hooks. Invalidate queries after mutations and
+     use `matchesAllTokens()` for filtering.
+   - Provider forms expose inbound fields only. Secrets use the existing
+     Connected Account/Worker-secret surfaces and never round-trip through a
+     Trigger form. Show provisioning state and actionable repair steps without
+     displaying webhook secrets, tokens, or raw provider failures.
+
+3. **Make source attachments explicit in Worker and graph editing.**
+
+   - Replace Worker Topic subscriptions with attachments to Triggers or exact
+     Processor outputs. Selectors group sources by type, show stable output
+     labels plus IDs where needed for disambiguation, and prevent selecting a
+     whole multi-output Processor.
+   - Update the org chart so Trigger and Processor-output edges are visually
+     distinct from reporting lines. Edge creation/deletion calls attachment or
+     Processor APIs directly; no graph gesture publishes, grants a tool, or
+     authorizes outbound access.
+   - Handle concurrent deletion and stale output IDs: refresh the source list,
+     preserve unsaved unrelated edits, identify the missing source, and tell
+     the user to select a current Trigger/output. Never silently retarget by
+     name or array position.
+
+4. **Cut public MCP and REST surfaces atomically.**
+
+   - Remove Topic CRUD, subscribe/unsubscribe, generic publish/read-topic, and
+     Topic-member tools after all seed Roles and internal callers use Trigger,
+     attachment, DM/Chat Trigger, or explicit action interfaces. Keep only
+     tools that express org-graph primitives.
+   - Remove old Topic routes and DTOs in the same PR as the frontend migration.
+     Return a documented 404/410 error with upgrade instructions for obsolete
+     external callers rather than routing them to compatibility behaviour.
+   - Update Role prompts, MCP help, examples, API docs, and tests together.
+     MCP discovery tests assert removed tools are absent and current tools have
+     no legacy Topic arguments.
+
+5. **Delete the compatibility implementation and obsolete storage.**
+
+   - Delete application Topic/subscription/publishing services, domain Topic
+     and outbound abstractions, repositories, projection adapter, provider
+     delivery decorator, auto-provisioned Processor Topic logic, frontend Topic
+     components, and dead composition-root wiring. Use repository search and
+     compile-time interface removal to prove no caller remains.
+   - Drop legacy tables only after the PR 4 migration marker and semantic
+     verification succeed. Copy any retained history to source/internal-
+     message storage first. The migration must refuse to drop tables when
+     unmapped control-plane rows remain and provide operators the preflight
+     command needed to resolve them.
+   - Remove compatibility metrics after a defined observation window, not in
+     the same deployment that first makes their value zero. Document backup
+     and restore procedure; rollback after table removal is a database restore,
+     not runtime fallback.
+
+6. **Make UI and API errors resolve the user's problem.**
+
+   - Render field-level validation beside the offending Trigger/source field.
+     Conflicts identify the name/output involved. Provider setup failures link
+     to **Organization Settings > Connected Accounts** or the Trigger's repair
+     action. Attached-output deletion tells the user which Workers to detach.
+   - Permission and cross-tenant failures remain indistinguishable where
+     disclosure would create an oracle. Unexpected errors show a correlation ID
+     and preserve the user's form input for retry.
+   - Test the mapping from every stable backend code to its UI resolution text.
+     A new user-fixable backend error cannot ship without a mapped resolution;
+     non-user-fixable errors require a meaningful summary and correlation ID.
+
+7. **Verify the final product, security boundary, and upgrade.**
+
+   - High-level frontend tests cover the user use cases rather than component
+     internals: create each Trigger kind, repair a failed provider setup, edit
+     while preserving managed fields, connect Trigger -> Processor output ->
+     Worker, detach/delete, filter/list, view live history, follow an old URL,
+     and recover from a stale concurrent edit.
+   - Playwright runs against the real local stack for both a clean database and
+     a database upgraded from the last Topic release. Create two organizations
+     with colliding Trigger, Processor, output, and Worker IDs. Verify each
+     user's list, graph, selectors, event history, provider status, and network
+     responses contain only their organization.
+   - Exercise every ingress API with a valid signed event and all signature,
+     replay, body-limit, disabled-source, and cross-tenant failures. Exercise
+     every Trigger/Processor/attachment REST mutation with unauthenticated,
+     underprivileged, authorized, and foreign-organization callers.
+   - Complete the canonical live flow for every transport:
+     `external event -> Trigger -> optional multi-stage Processor -> attached
+     Worker -> activation -> next Worker operation`. Assert exactly-once
+     activation for replay-protected providers, branch selection, ordering,
+     source metadata, and absence of outbound side effects.
+   - Inspect browser console, network payloads, application/audit logs, metrics,
+     traces, and database rows using unique canaries. Provider secrets,
+     signatures, credential values, and foreign-tenant metadata must be absent.
+   - Run `go test ./api/pkg/org/...`, required server/store builds, frontend
+     unit tests, `yarn build`, generated-client drift checks, migration tests,
+     API integration tests, and the updated `api/pkg/org/QA.md` Playwright
+     suite. Record any unavailable external-provider E2E as **NOT tested**;
+     mocks do not satisfy that provider's release gate.
+
+PR 5 is complete when the product exposes only Trigger/Processor/attachment
+concepts, every old Topic caller and table has been intentionally handled, the
+clean-install and upgrade Playwright suites pass, and API/security tests prove
+authorization and tenant isolation at every public and ingress boundary.
 
 ## Deferred work
 
