@@ -122,6 +122,7 @@ import {
 } from "react-resizable-panels";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import useIsBigScreen from "../../hooks/useIsBigScreen";
+import useIsPhone from "../../hooks/useIsPhone";
 import useLightTheme from "../../hooks/useLightTheme";
 import {
   FileText,
@@ -254,6 +255,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Use md breakpoint (900px) to enable split view on tablets
   const isBigScreen = useIsBigScreen({ breakpoint: "md" });
+  const isPhone = useIsPhone();
   const lightTheme = useLightTheme();
   const savedSpecTaskChatLayout = loadPanelLayout(
     SPEC_TASK_CHAT_LAYOUT_KEY,
@@ -2235,7 +2237,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     </Box>
   );
 
-  const taskChatMetadata = task?.project_id ? (
+  // Project, repo and branch are reference, not controls, and on a phone they
+  // cost a whole row directly under the composer — where the space is worth
+  // more to the message being written. They stay one tap away in Details.
+  const taskChatMetadata = task?.project_id && !isPhone ? (
     <TaskChatMetadata
       projectName={project?.name}
       onOpenProject={() => account.orgNavigate("project-specs", { id: task.project_id })}
