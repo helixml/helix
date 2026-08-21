@@ -3822,6 +3822,10 @@ definitions:
         type: integer
       sandbox_cost:
         type: number
+      tool_call_error_requests:
+        type: integer
+      tool_call_requests:
+        type: integer
       total_cost:
         description: Prompt + completion + cache read + cache write
         type: number
@@ -7120,6 +7124,12 @@ definitions:
         type: integer
       error:
         type: string
+      finish_reason:
+        description: |-
+          FinishReason is the provider's reason for stopping ("stop", "tool_calls",
+          "length", ...). Anthropic's stop_reason is normalised onto the same
+          vocabulary so the two proxies stay comparable.
+        type: string
       id:
         type: string
       interaction_id:
@@ -7164,6 +7174,21 @@ definitions:
           generation stays normal). 0 means no chunk was received (the call errored
           or was cut before the first token). For non-streaming calls it equals the
           time to the full response.
+        type: integer
+      tool_call_error_kinds:
+        type: string
+      tool_call_errors:
+        type: integer
+      tool_calls_returned:
+        type: integer
+      tools_offered:
+        description: |-
+          Tool call validity. ToolsOffered is how many tools the request carried,
+          ToolCallsReturned how many calls came back, ToolCallErrors how many of
+          those were structurally unusable, and ToolCallErrorKinds which buckets
+          they fell into (see api/pkg/toolcall). Tools offered with no calls
+          returned is not an error — it is a turn the model chose to answer in
+          prose.
         type: integer
       total_cost:
         description: Prompt + completion + cache read + cache write
@@ -12790,6 +12815,10 @@ definitions:
         type: string
       started_at:
         type: string
+      tool_call_error_requests:
+        type: integer
+      tool_call_requests:
+        type: integer
       total_cost:
         type: number
       total_requests:

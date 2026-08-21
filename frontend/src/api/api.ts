@@ -2446,6 +2446,8 @@ export interface TypesAggregatedUsageMetric {
   request_size_bytes?: number;
   response_size_bytes?: number;
   sandbox_cost?: number;
+  tool_call_error_requests?: number;
+  tool_call_requests?: number;
   /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_requests?: number;
@@ -4539,6 +4541,12 @@ export interface TypesLLMCall {
   created?: string;
   duration_ms?: number;
   error?: string;
+  /**
+   * FinishReason is the provider's reason for stopping ("stop", "tool_calls",
+   * "length", ...). Anthropic's stop_reason is normalised onto the same
+   * vocabulary so the two proxies stay comparable.
+   */
+  finish_reason?: string;
   id?: string;
   interaction_id?: string;
   model?: string;
@@ -4563,6 +4571,18 @@ export interface TypesLLMCall {
    * time to the full response.
    */
   time_to_first_token_ms?: number;
+  tool_call_error_kinds?: string;
+  tool_call_errors?: number;
+  tool_calls_returned?: number;
+  /**
+   * Tool call validity. ToolsOffered is how many tools the request carried,
+   * ToolCallsReturned how many calls came back, ToolCallErrors how many of
+   * those were structurally unusable, and ToolCallErrorKinds which buckets
+   * they fell into (see api/pkg/toolcall). Tools offered with no calls
+   * returned is not an error — it is a turn the model chose to answer in
+   * prose.
+   */
+  tools_offered?: number;
   /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_tokens?: number;
@@ -8050,6 +8070,8 @@ export interface TypesUsageBreakdownRow {
   session_count?: number;
   session_id?: string;
   started_at?: string;
+  tool_call_error_requests?: number;
+  tool_call_requests?: number;
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;

@@ -32,8 +32,10 @@ import helixLogo from '../../../assets/img/logo.png'
 import {
   buildCacheHitRatioChartData,
   getAggregateCacheHitRatio,
+  getAggregateToolCallErrorRate,
   getCacheHitRatio,
   getCacheUsageSeriesKey,
+  getToolCallErrorRate,
   getTotalInputTokens,
   getUncachedInputTokens,
 } from '../../utils/usageMetrics'
@@ -854,6 +856,37 @@ const OrgUsage: FC = () => {
     label: item.name || item.provider || 'Unknown',
     color: providerColor(item.provider || 'unknown', index, lightTheme.isLight),
   }))
+  // Tool call error rate per provider: of the requests that came back with
+  // tool calls, how many contained a call the caller could not dispatch —
+  // unparseable arguments, a tool that was never offered, or arguments that
+  // miss the tool's schema. It is a provider-quality signal, not an agent one:
+  // the same model behind two endpoints can differ here.
+  const toolCallErrorChartData = useMemo<UsageChartRow[]>(() => {
+    const byDate = new Map<string, UsageChartRow>()
+    for (const series of providerTimeSeries) {
+      const key = series.provider || 'unknown'
+      for (const metric of series.metrics || []) {
+        const date = metric.date || ''
+        let row = byDate.get(date)
+        if (!row) {
+          row = { date }
+          byDate.set(date, row)
+        }
+        // Days below the volume floor return null and stay absent from the
+        // row. That covers the zero-filled points the API emits for providers
+        // that weren't used that day, which would otherwise plot as a
+        // confident 0% rather than "no data".
+        const rate = getToolCallErrorRate(metric)
+        if (rate === null) continue
+        row[key] = rate
+      }
+    }
+    return Array.from(byDate.values()).sort((a, b) => String(a.date).localeCompare(String(b.date)))
+  }, [providerTimeSeries])
+  const toolCallErrorHeadline = useMemo(() => formatPercent(
+    getAggregateToolCallErrorRate(providerTimeSeries.flatMap(series => series.metrics || [])),
+  ), [providerTimeSeries])
+
   const latencyHeadline = useMemo(() => {
     const values = latencyChartData.flatMap(row => latencyChartSeries
       .map(s => Number(row[s.key]) || 0)
@@ -1269,6 +1302,20 @@ const OrgUsage: FC = () => {
                     />
                   </UsagePanel>
                 </Box>
+
+                <UsagePanel>
+                  <ShadcnAreaChart
+                    title="TOOL CALL ERROR RATE BY PROVIDER"
+                    headline={toolCallErrorHeadline}
+                    data={toolCallErrorChartData}
+                    series={providerChartSeries}
+                    valueFormatter={value => formatPercent(value)}
+                    stacked={false}
+                    zeroIsData
+                    variant="line"
+                    connectNulls
+                  />
+                </UsagePanel>
 
                 <UsagePanel>
                   <ShadcnAreaChart

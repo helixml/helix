@@ -56,6 +56,8 @@ import useAccount from "../hooks/useAccount";
 import useLightTheme from "../hooks/useLightTheme";
 import useThemeConfig from "../hooks/useThemeConfig";
 import useIsBigScreen from "../hooks/useIsBigScreen";
+import useIsPhone from "../hooks/useIsPhone";
+import { isNavigationRouteActive } from "../components/orgs/UserOrgSelector.logic";
 import useApps from "../hooks/useApps";
 import useUserMenuHeight from "../hooks/useUserMenuHeight";
 import { LIGHT_SIDEBAR_COLORS } from "../styles/themeTokens";
@@ -253,6 +255,9 @@ const Layout: FC<{
   const themeConfig = useThemeConfig();
   const lightTheme = useLightTheme();
   const isBigScreen = useIsBigScreen();
+  // A phone has no room for the 300px drawer to sit beside the conversation —
+  // the chat list ends up a strip too narrow to read. It takes the screen.
+  const isPhone = useIsPhone();
   const router = useRouter();
   const account = useAccount();
   const apps = useApps();
@@ -530,6 +535,20 @@ const Layout: FC<{
     !isFocusedAgentRoute &&
     !(router.name === "org_new" && router.params.app_id);
 
+  // On a phone the drawer holds the chat list, so opening a thread has to hide
+  // it — otherwise the thread you just picked sits behind the list you picked
+  // it from. Driven by the route rather than wired into each navigation, so it
+  // holds however you arrive: tapping a row, sending from the composer, or a
+  // link straight into a thread.
+  useEffect(() => {
+    if (!isPhone) return;
+    if (isNavigationRouteActive(router.name, ["session", "chat-task"])) {
+      account.setMobileMenuOpen(false);
+    }
+    // account is a context object and must not be a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPhone, router.name]);
+
   if (shouldShowSidebar) {
     // Determine which sidebar to show based on route
     sidebarMenu = getSidebarForRoute(router.name, () => {
@@ -681,7 +700,8 @@ const Layout: FC<{
       <Box
         id="root-container"
         sx={{
-          minHeight: "100dvh",
+          // The shell is exactly the fixed #root pane; a min-height here would
+          // be a second source of overflow to fight with.
           height: "100%",
           display: "flex",
           backgroundColor: lightTheme.backgroundColor, // Extend background behind iOS safe area
@@ -714,8 +734,11 @@ const Layout: FC<{
                   ? isConversationRoute
                     ? visibleChatSidebarWidth
                     : themeConfig.drawerWidth
-                  : themeConfig.smallDrawerWidth
+                  : isPhone
+                    ? "100%"
+                    : themeConfig.smallDrawerWidth
                 : 64,
+              maxWidth: "100%",
               boxSizing: "border-box",
               overflowX: "hidden", // Prevent horizontal scrolling
               // Drawer takes full viewport height. The floating user menu is
@@ -724,7 +747,7 @@ const Layout: FC<{
               // visible gap below it. The shrink-by-userMenuHeight happens in
               // Sidebar.tsx for the secondary nav's content column only.
               // Use dvh (dynamic viewport height) for iOS Safari compatibility.
-              height: isBigScreen ? "100%" : "100dvh",
+              height: isBigScreen ? "100%" : "min(var(--app-height, 100svh), 100svh)",
               // The primary rail must remain viewport-anchored. Secondary
               // navigation owns its scrolling inside SlideMenuContainer.
               overflowY: "hidden",

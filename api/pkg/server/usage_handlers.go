@@ -400,6 +400,8 @@ func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types
 		aggregate.row.PromptTokens += row.PromptTokens
 		aggregate.row.CompletionTokens += row.CompletionTokens
 		aggregate.row.TotalTokens += row.TotalTokens
+		aggregate.row.ToolCallRequests += row.ToolCallRequests
+		aggregate.row.ToolCallErrorRequests += row.ToolCallErrorRequests
 		aggregate.row.CacheReadTokens += row.CacheReadTokens
 		aggregate.row.CacheWriteTokens += row.CacheWriteTokens
 		aggregate.row.TotalCost += estimatedCost
@@ -412,6 +414,8 @@ func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types
 		metric.PromptTokens += row.PromptTokens
 		metric.CompletionTokens += row.CompletionTokens
 		metric.TotalTokens += row.TotalTokens
+		metric.ToolCallRequests += row.ToolCallRequests
+		metric.ToolCallErrorRequests += row.ToolCallErrorRequests
 		metric.CacheReadTokens += row.CacheReadTokens
 		metric.CacheWriteTokens += row.CacheWriteTokens
 		metric.TotalCost += estimatedCost

@@ -33,6 +33,7 @@ import {
   X,
 } from "lucide-react";
 import { useElementWidth } from "../../hooks/useElementWidth";
+import useIsPhone from "../../hooks/useIsPhone";
 
 export type TaskView =
   | "chat"
@@ -108,6 +109,12 @@ interface ViewTab {
   sessionOnly: boolean;
   /** Chat is a tab only when chat has no panel of its own. */
   chatOnly?: boolean;
+  /**
+   * Folded into the overflow menu on a phone. Six tabs plus the lifecycle
+   * controls do not fit across 390px, and these three are the ones you visit
+   * deliberately rather than flick between.
+   */
+  foldOnPhone?: boolean;
 }
 
 const VIEW_TABS: ViewTab[] = [
@@ -118,15 +125,16 @@ const VIEW_TABS: ViewTab[] = [
     sessionOnly: true,
     chatOnly: true,
   },
-  { value: "desktop", label: "Desktop", icon: MonitorPlay, sessionOnly: true },
+  { value: "desktop", label: "Desktop", icon: MonitorPlay, sessionOnly: true, foldOnPhone: true },
   { value: "browser", label: "Browser", icon: Globe2, sessionOnly: true },
   { value: "changes", label: "Diff", icon: GitCompare, sessionOnly: true },
-  { value: "files", label: "Files", icon: Files, sessionOnly: true },
+  { value: "files", label: "Files", icon: Files, sessionOnly: true, foldOnPhone: true },
   {
     value: "details",
     label: "Details",
     icon: SlidersHorizontal,
     sessionOnly: false,
+    foldOnPhone: true,
   },
 ];
 
@@ -233,6 +241,7 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
 
   // Density comes from the toolbar's own width, not the viewport: in split view
   // the toolbar lives in the right panel, which is far narrower than the window.
+  const isPhone = useIsPhone();
   const [toolbarRef, toolbarWidth] = useElementWidth<HTMLDivElement>();
   const density = toolbarDensityForWidth(toolbarWidth);
 
@@ -240,11 +249,13 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   const iconButtonSx = toolbarIconButtonSx(density);
   const controlIconSize = ICON_BUTTON_METRICS[density].icon;
 
-  const tabs = VIEW_TABS.filter(
+  const availableTabs = VIEW_TABS.filter(
     (t) => (!t.sessionOnly || hasSession)
       && (!t.chatOnly || showChatTab)
       && (t.value !== "desktop" || showDesktop),
   );
+  const tabs = availableTabs.filter((t) => !(isPhone && t.foldOnPhone));
+  const foldedTabs = availableTabs.filter((t) => isPhone && t.foldOnPhone);
 
   const controls: SecondaryControl[] = [];
   if (onRestoreSplit) {
@@ -332,7 +343,7 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   const overflow = controls.filter((c) => !keepInline.includes(c));
 
   const extraMenuItems = renderMenuItems?.(closeMenu);
-  const hasMenu = overflow.length > 0 || !!extraMenuItems;
+  const hasMenu = overflow.length > 0 || foldedTabs.length > 0 || !!extraMenuItems;
 
   return (
     <Box
@@ -462,7 +473,7 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
               <PanelRight size={controlIconSize} />
             </IconButton>
           </Tooltip>
-        ) : onClosePanel ? (
+        ) : onClosePanel && !isPhone ? (
           <Tooltip title="Close">
             <IconButton
               size="small"
@@ -481,6 +492,21 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
         open={Boolean(menuAnchorEl)}
         onClose={closeMenu}
       >
+        {foldedTabs.map(({ value, label, icon: Icon }) => (
+          <MenuItem
+            key={`view-${value}`}
+            selected={currentView === value}
+            onClick={() => {
+              closeMenu();
+              onViewChange(value);
+            }}
+          >
+            <ListItemIcon>
+              <Icon size={18} />
+            </ListItemIcon>
+            <ListItemText>{label}</ListItemText>
+          </MenuItem>
+        ))}
         {overflow.map((control) => (
           <MenuItem
             key={control.key}

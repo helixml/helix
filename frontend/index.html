@@ -39,14 +39,212 @@
         />
         <style>
             html,
-            body,
-            #root {
+            body {
+                /* Sized to the visible window, not to `100%`.
+                   `100%` resolves against the initial containing block, which
+                   real Mobile Safari reports as 714px while window.innerHeight
+                   is 712 — and those 2px are pannable. 2px is all Safari needs
+                   to treat the page as scrollable and start collapsing its
+                   chrome, which is what kept dragging the top bar out of view.
+                   Same clamp as the shell: follow the visual viewport, never
+                   exceed the small viewport. */
                 height: 100%;
+                height: 100svh;
+                height: min(var(--app-height, 100svh), 100svh);
+                width: 100%;
                 margin: 0;
                 padding: 0;
                 overflow: hidden;
+                /* Belt and braces: nothing in a fixed-shell app should ever be
+                   able to introduce a horizontal scroll. */
+                overflow-x: hidden;
+                /* Stops a rubber-band at the end of an inner scroller from
+                   chaining out to the document and dragging the whole app. */
+                overscroll-behavior: none;
+            }
+
+            /* The app shell is a fixed pane, not a tall page.
+               `overflow: hidden` on html/body is not a lock on iOS Safari — it
+               still pans the document, which is what slid the top bar up under
+               the status bar. A fixed root has nothing to scroll.
+               The height is `svh` (the small viewport: the height with the
+               browser chrome showing) rather than 100%, because iOS resolves
+               both `100%` and fixed positioning against the LARGE viewport —
+               the height you get with that chrome hidden — so a bottom-docked
+               toolbar would sit underneath the floating URL bar. `100%` stays
+               above as the fallback for engines without `svh`. */
+            #root {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                width: auto;
+                max-width: 100%;
+                height: 100%;
+                height: 100svh;
+                /* Never taller than the small viewport, so collapsing browser
+                   chrome cannot grow the shell into the space that chrome is
+                   about to reclaim; never taller than the visual viewport, so
+                   the on-screen keyboard shrinks it. */
+                height: min(var(--app-height, 100svh), 100svh);
+                /* `viewport-fit=cover` paints edge to edge, and svh includes
+                   the safe areas — without this the top bar sits under the
+                   status bar and the notch, and in landscape the edges of the
+                   UI are lost under the rounded corners. Everything inside the
+                   shell inherits the inset rather than repeating it. */
+                box-sizing: border-box;
+                padding: env(safe-area-inset-top) env(safe-area-inset-right)
+                         env(safe-area-inset-bottom) env(safe-area-inset-left);
+                /* Anchored to the visual viewport, not the layout viewport.
+                   `position: fixed` resolves against the layout viewport, and
+                   iOS Safari pans the visual viewport inside it as its chrome
+                   collapses — which slides a "fixed" shell out of view even
+                   though nothing is scrollable. --app-offset-* follows that
+                   pan; see the script below. */
+                transform: translateY(var(--app-offset-y, 0px));
+                overflow: hidden;
+                overscroll-behavior: none;
             }
         </style>
+        <script type="text/javascript">
+            // Pin the app shell to the visible area.
+            //
+            // #root is fixed at 100svh, which keeps it clear of the browser
+            // chrome — but svh is a constant, and the visible area is not. The
+            // on-screen keyboard shrinks it (a bottom-docked toolbar would end
+            // up behind the keyboard) and collapsing the URL bar grows it. The
+            // visual viewport reports both, so the shell follows it.
+            (function () {
+                var vv = window.visualViewport;
+                if (!vv) return;
+                var root = document.documentElement;
+                function sync() {
+                    // Pinch-zoom shrinks and offsets the visual viewport too.
+                    // Resizing or moving the app for a zoom would be wrong, and
+                    // jarring — leave the page alone and let the user pan it.
+                    if (vv.scale > 1.01) {
+                        root.style.setProperty('--app-offset-y', '0px');
+                        return;
+                    }
+                    root.style.setProperty('--app-height', vv.height + 'px');
+                    // Vertical only. Translating horizontally as well pushed the
+                    // shell sideways inside a viewport that was already
+                    // accounting for the offset — costing pixels off one edge
+                    // and cutting the other. iOS only offsets horizontally
+                    // under a zoom, which is excluded above anyway.
+                    root.style.setProperty('--app-offset-y', vv.offsetTop + 'px');
+                }
+                vv.addEventListener('resize', function () {
+                    sync();
+                    // iOS scrolls the layout viewport to reveal a focused
+                    // field. The shell is fixed, so that only slides it out of
+                    // alignment — which is what pushed the top bar under the
+                    // status bar. Put it back.
+                    if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+                });
+                vv.addEventListener('scroll', sync);
+                window.addEventListener('orientationchange', sync);
+                sync();
+            })();
+        </script>
+        <script type="text/javascript">
+            // Viewport readout for debugging mobile layout: add ?vpdebug=1 to
+            // any URL (sticks until ?vpdebug=0). Off otherwise.
+            //
+            // The layout bugs that only appear on a real phone — the shell
+            // sliding under the status bar, a bottom bar behind the URL bar, a
+            // stray pixel of horizontal scroll — all come down to numbers no
+            // desktop browser can produce: iOS Safari's two viewports, its
+            // dynamic chrome, and the safe-area insets. This prints them, so a
+            // single screenshot from the device settles what is actually wrong
+            // instead of another round of guessing.
+            (function () {
+                var on = null;
+                try {
+                    var q = new URLSearchParams(window.location.search).get('vpdebug');
+                    if (q === '1') localStorage.setItem('vpdebug', '1');
+                    if (q === '0') localStorage.removeItem('vpdebug');
+                    on = localStorage.getItem('vpdebug') === '1';
+                } catch (e) {}
+                if (!on) return;
+
+                var el = document.createElement('div');
+                el.id = 'vpdebug';
+                el.style.cssText = [
+                    'position:fixed', 'z-index:2147483647', 'left:0', 'top:0', 'right:0',
+                    'font:11px/1.35 ui-monospace,monospace', 'white-space:pre',
+                    'background:rgba(0,0,0,0.82)', 'color:#0f0', 'padding:4px 6px',
+                    'pointer-events:none'
+                ].join(';');
+
+                function insets() {
+                    var probe = document.createElement('div');
+                    probe.style.cssText = 'position:fixed;top:0;left:0;' +
+                        'padding:env(safe-area-inset-top) env(safe-area-inset-right)' +
+                        ' env(safe-area-inset-bottom) env(safe-area-inset-left);' +
+                        'visibility:hidden;pointer-events:none';
+                    document.body.appendChild(probe);
+                    var cs = getComputedStyle(probe);
+                    var out = [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft]
+                        .map(function (v) { return Math.round(parseFloat(v) || 0); });
+                    probe.remove();
+                    return out;
+                }
+
+                function unit(u) {
+                    var probe = document.createElement('div');
+                    probe.style.cssText = 'position:fixed;height:100' + u + ';visibility:hidden';
+                    document.body.appendChild(probe);
+                    var h = Math.round(probe.getBoundingClientRect().height);
+                    probe.remove();
+                    return h;
+                }
+
+                function render() {
+                    var vv = window.visualViewport;
+                    var de = document.documentElement;
+                    var root = document.getElementById('root');
+                    var i = insets();
+                    el.textContent = [
+                        'win  ' + window.innerWidth + 'x' + window.innerHeight +
+                            '  scroll ' + Math.round(window.scrollX) + ',' + Math.round(window.scrollY),
+                        'vv   ' + (vv ? Math.round(vv.width) + 'x' + Math.round(vv.height) +
+                            '  off ' + Math.round(vv.offsetLeft) + ',' + Math.round(vv.offsetTop) +
+                            '  scale ' + vv.scale.toFixed(2) : 'n/a'),
+                        'svh ' + unit('svh') + '  lvh ' + unit('lvh') + '  dvh ' + unit('dvh'),
+                        'doc  scrollWH ' + de.scrollWidth + 'x' + de.scrollHeight +
+                            '  clientWH ' + de.clientWidth + 'x' + de.clientHeight,
+                        'root ' + (root ? Math.round(root.getBoundingClientRect().width) + 'x' +
+                            Math.round(root.getBoundingClientRect().height) +
+                            ' @' + Math.round(root.getBoundingClientRect().top) : 'n/a'),
+                        'safe t' + i[0] + ' r' + i[1] + ' b' + i[2] + ' l' + i[3],
+                        'html ' + getComputedStyle(de).height +
+                            '  body ' + getComputedStyle(document.body).height +
+                            '  se ' + (document.scrollingElement
+                                ? document.scrollingElement.scrollHeight + '/' +
+                                  document.scrollingElement.clientHeight +
+                                  ' top ' + Math.round(document.scrollingElement.scrollTop)
+                                : 'n/a')
+                    ].join('\n');
+                }
+
+                function start() {
+                    document.body.appendChild(el);
+                    render();
+                    ['resize', 'scroll', 'orientationchange'].forEach(function (e) {
+                        window.addEventListener(e, render, { passive: true });
+                    });
+                    if (window.visualViewport) {
+                        window.visualViewport.addEventListener('resize', render);
+                        window.visualViewport.addEventListener('scroll', render);
+                    }
+                    setInterval(render, 500);
+                }
+
+                if (document.body) start();
+                else document.addEventListener('DOMContentLoaded', start);
+            })();
+        </script>
         <script type="text/javascript">
             // Set body bg + text color BEFORE React mounts so we don't flash
             // dark mode for users who prefer light. Mirrors the logic in

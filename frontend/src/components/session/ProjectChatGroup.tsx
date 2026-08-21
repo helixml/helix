@@ -1,4 +1,4 @@
-import { FC, MouseEvent, MutableRefObject, useState } from 'react'
+import { FC, MouseEvent, MutableRefObject, ReactElement, useState } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -19,6 +19,8 @@ import {
 
 import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary, TypesUser } from '../../api/api'
 import type { TypesPinnedChat } from '../../api/api'
+import useApps from '../../hooks/useApps'
+import useIsPhone from '../../hooks/useIsPhone'
 import useLightTheme from '../../hooks/useLightTheme'
 import useApi from '../../hooks/useApi'
 import { useListSessions } from '../../services/sessionService'
@@ -37,6 +39,9 @@ import type { SidebarItem } from './ProjectChatSidebar.logic'
 import type { SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
 import type { SortableProjectHandleProps } from './SortableProject'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
+import AgentHarness from '../agent/AgentHarness'
+import { GitBranch } from 'lucide-react'
+import { getProjectChatItemDetails, resolveProjectChatItemBranch } from './projectChatItemDetails'
 
 const SHOW_MORE_COUNT = 20
 
@@ -108,6 +113,10 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
 }) => {
   const api = useApi()
   const lightTheme = useLightTheme()
+  const { apps } = useApps()
+  // No hover on a phone, so the facts the tooltip carries have to live on the
+  // row itself. That makes the row two lines, and taller.
+  const isPhone = useIsPhone()
   const [additionalVisibleCount, setAdditionalVisibleCount] = useState(0)
   const visibleCount = visibleThreadCount + additionalVisibleCount
   const projectId = project?.id
@@ -209,6 +218,8 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const isFetchingMore = sessionsQuery.isFetching || tasksQuery.isFetching
   const hasError = sessionsQuery.isError || tasksQuery.isError
   const archiveVerb = archived ? 'Unarchive' : 'Archive'
+  // Archived groups have no "new task", so there the name keeps its old job.
+  const activateGroup = onNewTask || onToggle
   const paginationButtonSx = {
     appearance: 'none',
     border: 0,
@@ -247,7 +258,10 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             event.stopPropagation()
             return
           }
-          onToggle()
+          // The name is the project's primary action: start work here. Only the
+          // chevron collapses, so reaching a project no longer costs a round
+          // trip through a collapse you did not want.
+          activateGroup()
         }}
         onContextMenu={(event) => {
           if (!project || !onOpenProjectContextMenu) return
@@ -259,9 +273,10 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
           if (event.target !== event.currentTarget) return
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
-            onToggle()
+            activateGroup()
           }
         }}
+        aria-label={onNewTask ? `New task in ${groupName}` : groupName}
         sx={{
           width: '100%',
           height: 32,
@@ -288,7 +303,40 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
           } : undefined,
         }}
       >
-        {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+        <Box
+          component="button"
+          type="button"
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${groupName}`}
+          aria-expanded={!collapsed}
+          // Must not reach the row's click (new chat) or the drag sensor.
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggle()
+          }}
+          sx={{
+            appearance: 'none',
+            border: 0,
+            p: 0,
+            m: 0,
+            backgroundColor: 'transparent',
+            color: 'inherit',
+            cursor: 'pointer',
+            flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            // A 13px glyph is not a touch target; the box around it is.
+            width: isPhone ? 28 : 16,
+            height: isPhone ? 28 : 16,
+            borderRadius: '4px',
+            '&:hover': {
+              backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(241,243,247,0.12)',
+            },
+          }}
+        >
+          {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+        </Box>
         <Folder size={14} style={{ opacity: 0.72 }} />
         <Typography
           component="span"
@@ -316,7 +364,11 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             className="sidebar-group-new"
             component="button"
             type="button"
-            aria-label={`New task in ${groupName}`}
+            // The row around it already exposes this exact action, so to a
+            // screen reader this is a duplicate control with the same name —
+            // it stays as the visual hint and keeps out of the a11y tree.
+            aria-hidden="true"
+            tabIndex={-1}
             onClick={(event) => {
               event.stopPropagation()
               onNewTask()
@@ -382,12 +434,29 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             const taskPersonId = item.task?.assignee_id || item.task?.created_by || ''
             const taskPerson = resolveOrganizationUser(taskPersonId, organizationMembers, currentUser)
             const taskPersonRole = item.task?.assignee_id ? 'Assigned to' : 'Created by'
+            const branch = resolveProjectChatItemBranch(item, project?.default_branch)
+            // Only resolved for the phone layout — on desktop the tooltip does
+            // its own lookup when it actually opens.
+            const details = isPhone
+              ? getProjectChatItemDetails({ item, apps, repository: repositoryName, branch })
+              : undefined
+            const subLine = details
+              ? [
+                  details.branch && { key: 'branch', icon: <GitBranch size={11} />, value: details.branch },
+                  details.harness && {
+                    key: 'harness',
+                    icon: <AgentHarness runtime={details.runtime || ''} variant="short" size={11} showTooltip={false} />,
+                    value: details.harness,
+                  },
+                ].filter(Boolean) as Array<{ key: string; icon: ReactElement; value: string }>
+              : []
             return (
               <ProjectChatItemTooltip
                 key={`${item.kind}:${item.id}`}
                 item={item}
                 repository={repositoryName}
-                branch={item.task?.branch_name || item.task?.base_branch || project?.default_branch}
+                branch={branch}
+                disabled={isPhone}
               >
               <Box
                 className="project-chat-item"
@@ -405,12 +474,14 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                 sx={{
                   width: '100%',
                   minWidth: 0,
-                  height: 32,
+                  // Two lines and a 48px touch target on a phone; the dense
+                  // single-line row everywhere else.
+                  ...(isPhone
+                    ? { minHeight: 52, py: 0.75, flexDirection: 'column', alignItems: 'stretch', gap: 0.25 }
+                    : { height: 32, flexDirection: 'row', alignItems: 'center', gap: 0.75 }),
                   px: 1,
                   borderRadius: '6px',
                   display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.75,
                   color: active
                     ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
                     : (lightTheme.isLight ? '#71717a' : 'rgba(163,163,163,0.80)'),
@@ -429,12 +500,30 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                   },
                   '&:hover .sidebar-item-time, &:focus-within .sidebar-item-time': { opacity: 0 },
                   '&:hover .sidebar-item-archive, &:focus-within .sidebar-item-archive': { opacity: 1 },
+                  // Without hover the archive button can never appear, so on a
+                  // coarse pointer it is always shown. On a phone it gets its
+                  // own column instead (below), so the time stays visible too.
                   '@media (hover: none)': {
-                    '& .sidebar-item-time': { opacity: 0 },
+                    '& .sidebar-item-time': { opacity: isPhone ? 1 : 0 },
                     '& .sidebar-item-archive': { opacity: 1 },
                   },
+                  ...(isPhone && {
+                    // Rows are tall enough on a phone that adjacent ones read as
+                    // one block without a divider between them.
+                    borderBottom: '1px solid',
+                    borderColor: lightTheme.isLight
+                      ? 'rgba(0,0,0,0.06)'
+                      : 'rgba(241,243,247,0.07)',
+                    borderRadius: 0,
+                    '&:last-of-type': { borderBottom: 'none' },
+                  }),
                 }}
               >
+                <Box
+                  sx={isPhone
+                    ? { display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%' }
+                    : { display: 'contents' }}
+                >
                 {item.kind === 'spec-task' && (
                   <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
                     <Tooltip title={pullRequestIcon?.tooltip || ''}>
@@ -539,14 +628,19 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                     </Box>
                   </Tooltip>
                 )}
-                <Box sx={{ width: 28, height: 28, flexShrink: 0, position: 'relative' }}>
+                <Box
+                  sx={isPhone
+                    ? { display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }
+                    : { width: 28, height: 28, flexShrink: 0, position: 'relative' }}
+                >
                   <Typography
                     className="sidebar-item-time"
                     component="span"
                     title={item.updatedAt ? new Date(item.updatedAt).toLocaleString() : undefined}
                     sx={{
-                      position: 'absolute',
-                      inset: 0,
+                      ...(isPhone
+                        ? { position: 'static' }
+                        : { position: 'absolute', inset: 0 }),
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'flex-end',
@@ -573,12 +667,9 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                         onArchiveItem(item)
                       }}
                       sx={{
-                        position: 'absolute',
-                        top: 0,
-                        right: 0,
-                        bottom: 0,
-                        width: 20,
-                        height: 28,
+                        ...(isPhone
+                          ? { position: 'static', width: 28, height: 28 }
+                          : { position: 'absolute', top: 0, right: 0, bottom: 0, width: 20, height: 28 }),
                         opacity: 0,
                         color: 'inherit',
                         transition: 'opacity 100ms ease',
@@ -590,6 +681,50 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                     </IconButton>
                   </Tooltip>
                 </Box>
+                </Box>
+                {isPhone && subLine.length > 0 && (
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.25,
+                      minWidth: 0,
+                      color: lightTheme.isLight
+                        ? 'rgba(113,113,122,0.85)'
+                        : 'rgba(163,163,163,0.72)',
+                    }}
+                  >
+                    {subLine.map((entry) => (
+                      <Box
+                        key={entry.key}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.5,
+                          minWidth: 0,
+                          // The branch takes the slack; the harness name is
+                          // short and should stay whole.
+                          flexShrink: entry.key === 'branch' ? 1 : 0,
+                        }}
+                      >
+                        <Box sx={{ display: 'inline-flex', flexShrink: 0 }}>{entry.icon}</Box>
+                        <Typography
+                          component="span"
+                          sx={{
+                            minWidth: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontSize: '11px',
+                            lineHeight: '15px',
+                          }}
+                        >
+                          {entry.value}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
               </Box>
               </ProjectChatItemTooltip>
             )

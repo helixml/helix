@@ -18,6 +18,7 @@ import (
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/pricing"
+	"github.com/helixml/helix/api/pkg/toolcall"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -397,6 +398,8 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		Float64("total_cost", totalCost).
 		Msg("logging LLM call")
 
+	tools := validateToolCalls(req, resp)
+
 	llmCall := &types.LLMCall{
 		Created:            createdAt,
 		AppID:              appID,
@@ -424,6 +427,11 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		Stream:             stream,
 		ProjectID:          vals.ProjectID,
 		SpecTaskID:         vals.SpecTaskID,
+		FinishReason:       finishReason(resp),
+		ToolsOffered:       tools.ToolsOffered,
+		ToolCallsReturned:  tools.Calls,
+		ToolCallErrors:     tools.Errors,
+		ToolCallErrorKinds: tools.KindsString(),
 	}
 
 	if apiError != nil {
@@ -634,4 +642,54 @@ func (m *LoggingMiddleware) CreateFlexibleEmbeddings(ctx context.Context, reques
 	}
 
 	return resp, err
+}
+
+// finishReason reports why the provider stopped. Streaming responses carry it
+// on the accumulated choice just like non-streaming ones.
+func finishReason(resp *openai.ChatCompletionResponse) string {
+	if resp == nil || len(resp.Choices) == 0 {
+		return ""
+	}
+	return string(resp.Choices[0].FinishReason)
+}
+
+// validateToolCalls checks the tool calls in the response against the schemas
+// the request offered. Legacy function_call responses are not checked — no
+// current model emits them, and folding them in would mix two argument shapes
+// into one counter.
+func validateToolCalls(req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse) toolcall.Result {
+	if req == nil || resp == nil || len(resp.Choices) == 0 {
+		return toolcall.Result{}
+	}
+
+	tools := make([]toolcall.Tool, 0, len(req.Tools))
+	for _, tool := range req.Tools {
+		if tool.Function == nil {
+			continue
+		}
+		var schema json.RawMessage
+		if tool.Function.Parameters != nil {
+			encoded, err := json.Marshal(tool.Function.Parameters)
+			if err != nil {
+				// An unencodable schema is the caller's problem, not the
+				// model's: treat the tool as unconstrained rather than
+				// charging every call against it.
+				log.Debug().Err(err).Str("tool", tool.Function.Name).Msg("failed to encode tool schema")
+			} else {
+				schema = encoded
+			}
+		}
+		tools = append(tools, toolcall.Tool{Name: tool.Function.Name, Schema: schema})
+	}
+
+	returned := resp.Choices[0].Message.ToolCalls
+	calls := make([]toolcall.Call, 0, len(returned))
+	for _, call := range returned {
+		calls = append(calls, toolcall.Call{
+			Name:      call.Function.Name,
+			Arguments: call.Function.Arguments,
+		})
+	}
+
+	return toolcall.Validate(tools, calls)
 }
