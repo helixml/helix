@@ -57,6 +57,7 @@ import useLightTheme from "../hooks/useLightTheme";
 import useThemeConfig from "../hooks/useThemeConfig";
 import useIsBigScreen from "../hooks/useIsBigScreen";
 import useIsPhone from "../hooks/useIsPhone";
+import { isNavigationRouteActive } from "../components/orgs/UserOrgSelector.logic";
 import useApps from "../hooks/useApps";
 import useUserMenuHeight from "../hooks/useUserMenuHeight";
 import { LIGHT_SIDEBAR_COLORS } from "../styles/themeTokens";
@@ -533,6 +534,20 @@ const Layout: FC<{
     !isProjectsIndex &&
     !isFocusedAgentRoute &&
     !(router.name === "org_new" && router.params.app_id);
+
+  // On a phone the drawer holds the chat list, so opening a thread has to hide
+  // it — otherwise the thread you just picked sits behind the list you picked
+  // it from. Driven by the route rather than wired into each navigation, so it
+  // holds however you arrive: tapping a row, sending from the composer, or a
+  // link straight into a thread.
+  useEffect(() => {
+    if (!isPhone) return;
+    if (isNavigationRouteActive(router.name, ["session", "chat-task"])) {
+      account.setMobileMenuOpen(false);
+    }
+    // account is a context object and must not be a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPhone, router.name]);
 
   if (shouldShowSidebar) {
     // Determine which sidebar to show based on route

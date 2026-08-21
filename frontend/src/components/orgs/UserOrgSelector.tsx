@@ -34,6 +34,7 @@ import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
+import useIsPhone from '../../hooks/useIsPhone'
 import TokenUsageDisplay from '../system/TokenUsageDisplay'
 import LowCreditsDisplay from '../system/LowCreditsDisplay'
 import SubscriptionStatusBanner from '../subscription/SubscriptionStatusBanner'
@@ -46,6 +47,7 @@ import { orgLandingRoute } from '../../utils/organizations'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
 import {
+  chatRailAction,
   isNavigationRouteActive,
   isOrgProjectSettingsRoute,
 } from './UserOrgSelector.logic'
@@ -178,6 +180,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const lightTheme = useLightTheme()
   const themeConfig = useThemeConfig()
   const isBigScreen = useIsBigScreen()
+  const isPhone = useIsPhone()
   const settingsDialog = useSettingsDialog()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
@@ -340,6 +343,16 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     account.setMobileMenuOpen(false)
   }
 
+  const handleChatClick = () => {
+    const action = chatRailAction(isPhone, isActive(['chat', 'session']))
+    if (!action.keepDrawerOpen) {
+      orgNavigateTo('chat')
+      return
+    }
+    if (action.navigate) account.orgNavigate('chat')
+    account.setMobileMenuOpen(true)
+  }
+
   const orgNavigateTo = (path: string, params: Record<string, any> = {}) => {
     // Check if this is navigation to an org page
     if (path.startsWith('org_') || (params && params.org_id)) {
@@ -392,7 +405,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
         tooltip: "AI chat assistant",
         isActive: isActive(['chat', 'session']),
-        onClick: () => orgNavigateTo('chat'),
+        onClick: handleChatClick,
         label: "Chat",
       },
       {
@@ -425,13 +438,15 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         onClick: () => orgNavigateTo('tasks'),
         label: "Tasks",
       },
-      {
+      // Sandboxes are a desktop workflow — a terminal, a file tree and an exec
+      // log are not usable on a phone, so the rail does not offer the trip.
+      ...(isPhone ? [] : [{
         icon: <Container size={NAV_BUTTON_SIZE} />,
         tooltip: "View sandboxes",
         isActive: isActive(['sandboxes', 'sandbox_detail']),
         onClick: () => orgNavigateTo('sandboxes'),
         label: "Sandbox",
-      },
+      }]),
       // TODO: re-enable once we have the files editor working
       // {
       //   icon: <FileText size={NAV_BUTTON_SIZE} />,
@@ -472,7 +487,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-  }, [isActive, isOrgProjectSettings, currentOrgSlug, router.name])
+    // isPhone changes what tapping Chat does, so it belongs in here.
+  }, [isActive, isOrgProjectSettings, currentOrgSlug, router.name, isPhone])
 
   const isAccountSettingsActive = settingsDialog.activeDialog === 'account'
 

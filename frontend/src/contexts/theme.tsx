@@ -447,7 +447,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             // the modal root rather than the paper, because the paper's
             // transform belongs to the slide transition.
             root: {
-              transform: 'translate(var(--app-offset-x, 0px), var(--app-offset-y, 0px))',
+              transform: 'translateY(var(--app-offset-y, 0px))',
             },
             // Scoped to the left-anchored nav drawer: a bottom sheet wants a
             // bottom inset, not a top one, and sets its own.
@@ -495,7 +495,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
               // reach it. `position: fixed` resolves against the layout
               // viewport, which iOS Safari pans the visual viewport inside —
               // this follows that pan so a sheet cannot drift off screen.
-              transform: 'translate(var(--app-offset-x, 0px), var(--app-offset-y, 0px))',
+              transform: 'translateY(var(--app-offset-y, 0px))',
               '& .MuiBackdrop-root': {
                 backgroundColor: dialogStyles.backdropFallback,
                 background: dialogStyles.backdrop,
