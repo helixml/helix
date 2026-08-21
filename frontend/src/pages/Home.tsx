@@ -505,7 +505,8 @@ const Home: FC = () => {
           alignItems: isPhone ? 'stretch' : 'center',
           justifyContent: 'center',
           px: { xs: 2, sm: 3 },
-          pb: isPhone ? 'calc(8px + env(safe-area-inset-bottom))' : { xs: 4, md: 12 },
+          // The shell already carries the safe-area inset.
+          pb: isPhone ? 1 : { xs: 4, md: 12 },
           pt: isPhone ? 1 : 0,
           backgroundColor: lightTheme.isLight ? '#f7f7f8' : '#080808',
           fontFamily: T3_FONT_FAMILY,
