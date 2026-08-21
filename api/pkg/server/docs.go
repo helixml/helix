@@ -28784,6 +28784,12 @@ const docTemplate = `{
                 "sandbox_cost": {
                     "type": "number"
                 },
+                "tool_call_error_requests": {
+                    "type": "integer"
+                },
+                "tool_call_requests": {
+                    "type": "integer"
+                },
                 "total_cost": {
                     "description": "Prompt + completion + cache read + cache write",
                     "type": "number"
@@ -33216,6 +33222,10 @@ const docTemplate = `{
                 "error": {
                     "type": "string"
                 },
+                "finish_reason": {
+                    "description": "FinishReason is the provider's reason for stopping (\"stop\", \"tool_calls\",\n\"length\", ...). Anthropic's stop_reason is normalised onto the same\nvocabulary so the two proxies stay comparable.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -33272,6 +33282,19 @@ const docTemplate = `{
                 },
                 "time_to_first_token_ms": {
                     "description": "TimeToFirstTokenMs is the wall time from request start to the first\nstreamed chunk. It isolates provider prefill / cold-start latency from\ngeneration time (a cold or overloaded provider shows a large TTFT while\ngeneration stays normal). 0 means no chunk was received (the call errored\nor was cut before the first token). For non-streaming calls it equals the\ntime to the full response.",
+                    "type": "integer"
+                },
+                "tool_call_error_kinds": {
+                    "type": "string"
+                },
+                "tool_call_errors": {
+                    "type": "integer"
+                },
+                "tool_calls_returned": {
+                    "type": "integer"
+                },
+                "tools_offered": {
+                    "description": "Tool call validity. ToolsOffered is how many tools the request carried,\nToolCallsReturned how many calls came back, ToolCallErrors how many of\nthose were structurally unusable, and ToolCallErrorKinds which buckets\nthey fell into (see api/pkg/toolcall). Tools offered with no calls\nreturned is not an error — it is a turn the model chose to answer in\nprose.",
                     "type": "integer"
                 },
                 "total_cost": {
@@ -40855,6 +40878,12 @@ const docTemplate = `{
                 },
                 "started_at": {
                     "type": "string"
+                },
+                "tool_call_error_requests": {
+                    "type": "integer"
+                },
+                "tool_call_requests": {
+                    "type": "integer"
                 },
                 "total_cost": {
                     "type": "number"

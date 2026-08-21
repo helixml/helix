@@ -21,6 +21,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/toolcall"
 	"github.com/helixml/helix/api/pkg/types"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go" // imported as anthropic
@@ -497,6 +498,8 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		Float64("total_cost", totalCost).
 		Msg("logging LLM call")
 
+	tools := validateToolCalls(vals.OriginalRequest, &respMessage)
+
 	llmCall := &types.LLMCall{
 		Created:          createdAt,
 		SessionID:        vals.SessionID,
@@ -522,6 +525,12 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		TotalCost:        totalCost,
 		UserID:           vals.OwnerID,
 		Stream:           stream,
+
+		FinishReason:       normalizeStopReason(respMessage.StopReason),
+		ToolsOffered:       tools.ToolsOffered,
+		ToolCallsReturned:  tools.Calls,
+		ToolCallErrors:     tools.Errors,
+		ToolCallErrorKinds: tools.KindsString(),
 	}
 
 	if apiError != nil {
@@ -625,4 +634,58 @@ func isNumeric(s string) bool {
 		}
 	}
 	return true
+}
+
+// normalizeStopReason maps Anthropic's stop_reason onto the OpenAI finish
+// reason vocabulary, so a query over llm_calls does not have to know which
+// proxy wrote the row. Reasons with no OpenAI equivalent (pause_turn, refusal)
+// pass through unchanged.
+func normalizeStopReason(reason anthropic.StopReason) string {
+	switch reason {
+	case anthropic.StopReasonToolUse:
+		return "tool_calls"
+	case anthropic.StopReasonEndTurn, anthropic.StopReasonStopSequence:
+		return "stop"
+	case anthropic.StopReasonMaxTokens:
+		return "length"
+	default:
+		return string(reason)
+	}
+}
+
+// validateToolCalls checks the tool_use blocks in the response against the
+// input schemas the request offered. Anthropic hands back already-decoded
+// input, so the invalid-JSON bucket cannot fire here — only unknown tool names
+// and schema mismatches. Server-side tools (bash, text_editor, web_search)
+// carry no input_schema and are therefore unconstrained.
+func validateToolCalls(request []byte, resp *anthropic.Message) toolcall.Result {
+	if len(request) == 0 || resp == nil {
+		return toolcall.Result{}
+	}
+
+	var body struct {
+		Tools []struct {
+			Name        string          `json:"name"`
+			InputSchema json.RawMessage `json:"input_schema"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(request, &body); err != nil {
+		log.Debug().Err(err).Msg("failed to parse anthropic request for tool schemas")
+		return toolcall.Result{}
+	}
+
+	tools := make([]toolcall.Tool, 0, len(body.Tools))
+	for _, tool := range body.Tools {
+		tools = append(tools, toolcall.Tool{Name: tool.Name, Schema: tool.InputSchema})
+	}
+
+	var calls []toolcall.Call
+	for _, block := range resp.Content {
+		if block.Type != "tool_use" {
+			continue
+		}
+		calls = append(calls, toolcall.Call{Name: block.Name, Arguments: string(block.Input)})
+	}
+
+	return toolcall.Validate(tools, calls)
 }
