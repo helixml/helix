@@ -484,6 +484,12 @@ const ProjectChatSidebar: FC<{
     }
   }
 
+  // Starting a chat has its own button in the phone's bottom bar, so a project
+  // row there does not need to offer it a second time. Without a "new task"
+  // handler the row goes back to collapsing the group — which is the only thing
+  // left for it to do, and what the chevron beside it already suggests.
+  const groupsOfferNewTask = !showArchived && !isPhone
+
   const effectiveCollapsedGroups = query ? new Set<string>() : collapsedGroups
   // The desktop toolbar's controls, reused verbatim in the phone's filter sheet
   // so the two surfaces cannot offer different filters.
@@ -732,7 +738,7 @@ const ProjectChatSidebar: FC<{
               pinnedChats={pinnedChats}
               archivingItemId={archivingItemId}
               onToggle={() => toggleGroup('default')}
-              onNewTask={showArchived ? undefined : () => account.orgNavigate('chat')}
+              onNewTask={groupsOfferNewTask ? () => account.orgNavigate('chat') : undefined}
               onOpenItem={openItem}
               onOpenItemContextMenu={openItemContextMenu}
               onArchiveItem={requestArchive}
@@ -772,9 +778,9 @@ const ProjectChatSidebar: FC<{
                         pinnedChats={pinnedChats}
                         archivingItemId={archivingItemId}
                         onToggle={() => toggleGroup(project.id!)}
-                        onNewTask={showArchived
-                          ? undefined
-                          : () => account.orgNavigate('chat', {}, { project_id: project.id })}
+                        onNewTask={groupsOfferNewTask
+                          ? () => account.orgNavigate('chat', {}, { project_id: project.id })
+                          : undefined}
                         onOpenItem={openItem}
                         onOpenItemContextMenu={openItemContextMenu}
                         onOpenProjectContextMenu={openProjectContextMenu}
