@@ -190,7 +190,7 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
             description="Choose which credentials this agent may retrieve when it needs them."
           >
             <AgentSettingsRow>
-              <WorkerSecretsPanel agentID={orgAgentDetail?.bot?.id} readOnly={readOnly} />
+              <WorkerSecretsPanel agentID={orgAgentDetail?.bot?.id} projectID={orgAgentDetail?.project_id} readOnly={readOnly} />
             </AgentSettingsRow>
           </AgentSettingsSection>
 

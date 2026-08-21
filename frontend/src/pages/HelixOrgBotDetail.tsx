@@ -667,7 +667,7 @@ const HelixOrgBotDetail: FC = () => {
 
                 <AttachmentsPanel botID={bot?.id} />
                 <Divider sx={{ my: 2 }} />
-                <WorkerSecretsPanel agentID={bot?.id} />
+                <WorkerSecretsPanel agentID={bot?.id} projectID={projectID} />
               </Stack>
             </Grid>
 
