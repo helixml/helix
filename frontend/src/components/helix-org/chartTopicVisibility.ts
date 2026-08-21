@@ -1,6 +1,6 @@
 export const CHART_TOPIC_FILTERS = [
   { id: 'direct_messages', label: 'Direct messages' },
-  { id: 'local', label: 'Local topics' },
+  { id: 'local', label: 'Local triggers' },
   { id: 'webhook', label: 'Webhooks' },
   { id: 'github', label: 'GitHub' },
   { id: 'gitlab', label: 'GitLab' },
@@ -11,7 +11,7 @@ export const CHART_TOPIC_FILTERS = [
 
 export type ChartTopicFilter = (typeof CHART_TOPIC_FILTERS)[number]['id']
 
-export const DEFAULT_CHART_TOPIC_FILTERS: ChartTopicFilter[] = []
+export const DEFAULT_CHART_TOPIC_FILTERS: ChartTopicFilter[] = CHART_TOPIC_FILTERS.map((filter) => filter.id)
 
 type TopicIdentity = {
   name: string
@@ -21,7 +21,7 @@ type TopicIdentity = {
 const filterIds = new Set<ChartTopicFilter>(CHART_TOPIC_FILTERS.map((filter) => filter.id))
 
 const storageKey = (userId: string, orgId: string): string =>
-  `helix.orgChart.topicVisibility.${userId}.${orgId}`
+  `helix.orgChart.triggerVisibility.v1.${userId}.${orgId}`
 
 export const chartTopicFilterFor = (topic: TopicIdentity): ChartTopicFilter => {
   if (topic.name.trimStart().toLowerCase().startsWith('dm:')) return 'direct_messages'

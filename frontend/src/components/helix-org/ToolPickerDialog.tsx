@@ -48,8 +48,8 @@ export const TOOL_CAPABILITY_GROUPS: ToolCapabilityGroup[] = [
   },
   {
     key: 'topics',
-    title: 'Topics & automation',
-    description: 'Publish and route events, manage subscriptions, and build processors that transform topic traffic.',
+    title: 'Triggers & automation',
+    description: 'Route events, choose what starts agents, and build processors that transform incoming events.',
   },
   {
     key: 'delivery',

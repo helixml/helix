@@ -10,12 +10,12 @@ const ChartTopicVisibilityMenu: FC<{
 }> = ({ selected, onChange }) => {
   return (
     <ChartVisibilityMenu
-      label="Topics"
+      label="Triggers"
       icon={<FilterListIcon />}
       options={CHART_TOPIC_FILTERS}
       selected={selected}
       onChange={(filters) => onChange(filters as ChartTopicFilter[])}
-      allLabel="All topic types"
+      allLabel="All trigger types"
     />
   )
 }

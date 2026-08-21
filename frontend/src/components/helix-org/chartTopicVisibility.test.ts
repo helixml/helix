@@ -15,8 +15,10 @@ describe('chartTopicVisibility', () => {
     window.localStorage.clear()
   })
 
-  it('hides all topics by default', () => {
-    expect(DEFAULT_CHART_TOPIC_FILTERS).toEqual([])
+  it('shows all triggers by default', () => {
+    expect(DEFAULT_CHART_TOPIC_FILTERS).toEqual([
+      'direct_messages', 'local', 'webhook', 'github', 'gitlab', 'postmark', 'cron', 'other',
+    ])
   })
 
   it('separates direct messages from other local topics', () => {
@@ -46,7 +48,7 @@ describe('chartTopicVisibility', () => {
   })
 
   it('returns null for missing or invalid settings', () => {
-    const key = `helix.orgChart.topicVisibility.${userId}.${orgId}`
+    const key = `helix.orgChart.triggerVisibility.v1.${userId}.${orgId}`
     expect(loadChartTopicVisibility(userId, orgId)).toBeNull()
     window.localStorage.setItem(key, JSON.stringify(['cron', 'not-a-filter']))
     expect(loadChartTopicVisibility(userId, orgId)).toBeNull()

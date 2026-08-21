@@ -150,7 +150,7 @@ export const GitHubAppConnect: FC<{ mode: 'panel' | 'gate'; onChange?: () => voi
     <Paper variant="outlined" sx={{ p: 3 }}>
       <Typography variant="h6" sx={{ mb: 0.5 }}>GitHub App</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Helix acts on GitHub as a bot via an org-owned GitHub App: Workers clone / push / open PRs as the bot, and GitHub topic events are delivered through the app's webhook.
+        Helix acts on GitHub through your organization's GitHub App. Agents can clone, push, and open pull requests, while GitHub events start agents through Triggers.
       </Typography>
       <Stack spacing={2}>
         {steps}

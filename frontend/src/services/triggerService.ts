@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ApiAttachmentDTO,
   ApiAttachmentWriteRequest,
@@ -50,6 +50,22 @@ export function useTriggerEvents(id?: string) {
   })
 }
 
+export function useTriggerEventCounts(triggerIDs: string[]) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  const results = useQueries({
+    queries: triggerIDs.map((id) => ({
+      queryKey: [...TRIGGER_QUERY_KEYS.events(orgID, id), 'count'],
+      queryFn: async () => (await api.getApiClient().v1OrgsTriggersEventsDetail(orgID, id, { limit: 1 })).data.total ?? 0,
+      enabled: !!orgID && !!id,
+    })),
+  })
+  return triggerIDs.reduce<Record<string, number>>((counts, id, index) => {
+    counts[id] = results[index]?.data ?? 0
+    return counts
+  }, {})
+}
+
 export function useCreateTrigger() {
   const api = useApi()
   const qc = useQueryClient()
@@ -90,6 +106,44 @@ export function useAgentAttachments(workerID?: string) {
     queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, workerID ?? ''),
     queryFn: async () => (await api.getApiClient().v1OrgsAgentsAttachmentsDetail(orgID, workerID!)).data.attachments ?? [],
     enabled: !!orgID && !!workerID,
+  })
+}
+
+export function useAgentAttachmentsForWorkers(workerIDs: string[]) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  const results = useQueries({
+    queries: workerIDs.map((workerID) => ({
+      queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, workerID),
+      queryFn: async () => (await api.getApiClient().v1OrgsAgentsAttachmentsDetail(orgID, workerID)).data.attachments ?? [],
+      enabled: !!orgID && !!workerID,
+    })),
+  })
+  return {
+    attachments: results.flatMap((result) => result.data ?? []),
+    isLoading: results.some((result) => result.isLoading),
+  }
+}
+
+export function useCreateAgentAttachmentForChart() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ workerID, source }: { workerID: string; source: ApiAttachmentWriteRequest['source'] }) =>
+      (await api.getApiClient().v1OrgsAgentsAttachmentsCreate(orgID, workerID, { source })).data,
+    onSuccess: async (_data, { workerID }) => qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, workerID) }),
+  })
+}
+
+export function useDeleteAgentAttachmentForChart() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ workerID, attachmentID }: { workerID: string; attachmentID: string }) =>
+      api.getApiClient().v1OrgsAgentsAttachmentsDelete(orgID, workerID, attachmentID),
+    onSuccess: async (_data, { workerID }) => qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, workerID) }),
   })
 }
 

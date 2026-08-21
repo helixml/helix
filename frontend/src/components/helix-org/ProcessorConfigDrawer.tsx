@@ -363,7 +363,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
           outputs,
         })
         onCreated?.(created.id)
-        snackbar.success(`created ${created.id} → ${created.outputs?.[0]?.topic_id ?? 'output topic'}`)
+        snackbar.success(`Created ${created.id}`)
       }
       onClose()
     } catch (err: any) {
@@ -410,8 +410,8 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
             />
           </HelixOrgOverviewCard>
           <Typography variant="body2" color="text.secondary">
-            A processor sits between topics: it reads messages from one topic,
-            then rewrites, shortens, sorts, or runs JavaScript on them onto new topics that bots can subscribe to.
+            A Processor changes an event before it starts an agent. It can rewrite,
+            shorten, sort, filter, or run JavaScript on incoming events.
           </Typography>
           <TextField
             size="small" label="Name" value={name} fullWidth required
@@ -437,7 +437,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
           <TextField
             select size="small" label="Read messages from" value={inputTopicId} fullWidth required
             onChange={(e) => setInputTopicId(e.target.value)}
-            helperText="The topic this processor listens to. You can also connect a topic to the IN port on the chart."
+            helperText="Choose the Trigger that sends events to this Processor. You can also connect it on the chart."
           >
             {topics.map((tp) => (
               <MenuItem key={tp.id} value={tp.id ?? ''} sx={{ fontFamily: 'monospace' }}>
@@ -512,7 +512,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
               <Typography variant="body2" color="text.secondary">
                 Add branches like a sorting tray. Each branch has a short name and a rule.
                 When a message arrives, every branch whose rule matches gets a copy
-                (we create a topic per branch automatically). Leave a rule blank to catch everything else.
+                Each branch becomes a processed event that can start different agents. Leave a rule blank to catch everything else.
                 {isEdit ? ' Branches cannot be changed after create — make a new processor to redesign them.' : ''}
               </Typography>
               {filterRows.map((row, i) => (
@@ -591,7 +591,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
             </Typography>
             {!inputTopicId ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
-                Choose a topic above to preview a recent message.
+                Choose a Trigger above to preview a recent event.
               </Typography>
             ) : sampleLoading ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
@@ -599,7 +599,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
               </Typography>
             ) : !sample ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
-                No messages on this topic yet.
+                No events from this Trigger yet.
               </Typography>
             ) : (
               <Box
