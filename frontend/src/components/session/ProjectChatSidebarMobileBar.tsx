@@ -157,6 +157,13 @@ const ProjectChatSidebarMobileBar: FC<ProjectChatSidebarMobileBarProps> = ({
             borderTopLeftRadius: 16,
             borderTopRightRadius: 16,
             pb: 'calc(16px + env(safe-area-inset-bottom))',
+            // MUI's default paper elevation tint reads as light grey against
+            // the near-black list. The sheet belongs to the sidebar, so it
+            // takes the sidebar's surface.
+            backgroundColor: lightTheme.isLight ? '#fafafa' : '#0a0a0a',
+            backgroundImage: 'none',
+            borderTop: '1px solid',
+            borderColor: border,
           },
         }}
       >
