@@ -23,7 +23,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
@@ -189,14 +188,6 @@ func (c *inProcHelixClient) UpdateAgent(ctx context.Context, appID string, patch
 	if err != nil {
 		return err
 	}
-	priorJSON, err := json.Marshal(existing)
-	if err != nil {
-		return fmt.Errorf("snapshot agent app: %w", err)
-	}
-	var prior types.App
-	if err := json.Unmarshal(priorJSON, &prior); err != nil {
-		return fmt.Errorf("snapshot agent app: %w", err)
-	}
 	if err := c.server.authorizeUserToApp(ctx, user, existing, types.ActionUpdate); err != nil {
 		return err
 	}
@@ -241,11 +232,6 @@ func (c *inProcHelixClient) UpdateAgent(ctx context.Context, appID string, patch
 		return err
 	}
 	if _, herr := c.server.updateAgent(nil, r); herr != nil {
-		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		if _, rollbackErr := c.server.Store.UpdateApp(rollbackCtx, &prior); rollbackErr != nil {
-			return fmt.Errorf("%s; restore agent app: %w", herr.Error(), rollbackErr)
-		}
 		return errors.New(herr.Error())
 	}
 	return nil

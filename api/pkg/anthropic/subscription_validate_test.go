@@ -42,11 +42,11 @@ func TestValidateSubscription_LongExpiredOAuthIsInvalid(t *testing.T) {
 		ExpiresAt:    time.Now().Add(-20 * 24 * time.Hour).UnixMilli(),
 	})
 
-	got, detail := ValidateSubscription(context.Background(), sub)
-	if got != ProbeInvalid {
-		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeInvalid", got, detail)
+	probe := ValidateSubscription(context.Background(), sub)
+	if probe.Result != ProbeInvalid {
+		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeInvalid", probe.Result, probe.Detail)
 	}
-	if detail == "" {
+	if probe.Detail == "" {
 		t.Fatal("expected a human-readable detail explaining the staleness")
 	}
 }
@@ -60,9 +60,9 @@ func TestValidateSubscription_RecentlyExpiredOAuthIsInconclusive(t *testing.T) {
 		ExpiresAt:    time.Now().Add(-5 * time.Minute).UnixMilli(),
 	})
 
-	got, detail := ValidateSubscription(context.Background(), sub)
-	if got != ProbeInconclusive {
-		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeInconclusive", got, detail)
+	probe := ValidateSubscription(context.Background(), sub)
+	if probe.Result != ProbeInconclusive {
+		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeInconclusive", probe.Result, probe.Detail)
 	}
 }
 
@@ -82,9 +82,9 @@ func TestValidateSubscription_ExpiredOAuthWithoutRefreshTokenIsProbed(t *testing
 		ExpiresAt:   time.Now().Add(-20 * 24 * time.Hour).UnixMilli(),
 	})
 
-	got, detail := ValidateSubscription(context.Background(), sub)
-	if got != ProbeInvalid {
-		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeInvalid", got, detail)
+	probe := ValidateSubscription(context.Background(), sub)
+	if probe.Result != ProbeInvalid {
+		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeInvalid", probe.Result, probe.Detail)
 	}
 }
 
@@ -104,9 +104,9 @@ func TestValidateSubscription_LiveOAuthIsValid(t *testing.T) {
 		ExpiresAt:    time.Now().Add(8 * time.Hour).UnixMilli(),
 	})
 
-	got, detail := ValidateSubscription(context.Background(), sub)
-	if got != ProbeValid {
-		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeValid", got, detail)
+	probe := ValidateSubscription(context.Background(), sub)
+	if probe.Result != ProbeValid {
+		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeValid", probe.Result, probe.Detail)
 	}
 }
 
@@ -123,8 +123,8 @@ func TestValidateSubscription_SetupTokenRejectedIsInvalid(t *testing.T) {
 
 	sub := encSub(t, "setup_token", types.ClaudeSetupTokenCredentials{SetupToken: "sk-ant-oat-setup"})
 
-	got, detail := ValidateSubscription(context.Background(), sub)
-	if got != ProbeInvalid {
-		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeInvalid", got, detail)
+	probe := ValidateSubscription(context.Background(), sub)
+	if probe.Result != ProbeInvalid {
+		t.Fatalf("ValidateSubscription() = %v (%q), want ProbeInvalid", probe.Result, probe.Detail)
 	}
 }

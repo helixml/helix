@@ -75,7 +75,7 @@ func hostnameOf(serverURL string) string {
 // VHostMiddleware dispatches incoming requests by Host header:
 //   - canonical hostname → fall through to the main mux
 //   - <share-*>.<base>   → look up vhost_routes (sandbox_preview)
-//   - other host with a matching vhost_routes row → project web service
+//   - other host with a matching vhost_routes row → project web service or artifact
 //   - everything else    → fall through to the main mux (404s from there)
 //
 // This replaces the old SubdomainProxyMiddleware (deleted) and the
@@ -119,8 +119,9 @@ func (m *VHostMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. Project web services — any other hostname that has a verified row.
-	m.serveVHostLookup(w, r, host, types.VHostTargetProjectWebService)
+	// 3. Project web services and static artifacts — any other hostname that
+	// has a verified row. The route row determines the target kind.
+	m.serveVHostLookup(w, r, host, "")
 }
 
 // serveVHostLookup resolves a hostname via vhost_routes and dispatches
@@ -140,7 +141,7 @@ func (m *VHostMiddleware) serveVHostLookup(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "vhost lookup failed", http.StatusInternalServerError)
 		return
 	}
-	if route.TargetKind != expectedKind {
+	if expectedKind != "" && route.TargetKind != expectedKind {
 		// Misrouted (likely a misconfiguration or someone trying to use
 		// the wrong dispatch branch). Treat as unknown.
 		m.next.ServeHTTP(w, r)
@@ -156,9 +157,24 @@ func (m *VHostMiddleware) serveVHostLookup(w http.ResponseWriter, r *http.Reques
 		m.dispatchSandboxPreview(w, r, route)
 	case types.VHostTargetProjectWebService:
 		m.dispatchProjectWebService(w, r, route)
+	case types.VHostTargetArtifact, types.VHostTargetArtifactPrivate:
+		m.dispatchArtifact(w, r, route)
 	default:
 		http.Error(w, "unknown route target kind", http.StatusInternalServerError)
 	}
+}
+
+func (m *VHostMiddleware) dispatchArtifact(w http.ResponseWriter, r *http.Request, route *types.VHostRoute) {
+	artifact, err := m.apiServer.Store.GetArtifact(r.Context(), route.TargetID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if artifact.Visibility != types.ArtifactVisibilityPublic {
+		m.apiServer.servePrivateArtifactVHost(w, r, artifact, route, strings.TrimPrefix(r.URL.Path, "/"))
+		return
+	}
+	m.apiServer.serveArtifactFile(w, r, artifact, strings.TrimPrefix(r.URL.Path, "/"))
 }
 
 // dispatchSandboxPreview proxies a preview-token request to the

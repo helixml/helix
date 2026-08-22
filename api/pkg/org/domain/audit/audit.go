@@ -22,11 +22,21 @@ const (
 	StatusFailed    Status = "failed"
 )
 
+// SelfDescribingActor is implemented by callers that know their own actor
+// kind. Callers that do not implement it are recorded as Bots, which is what
+// every org-graph caller is.
+type SelfDescribingActor interface {
+	AuditActorType() ActorType
+}
+
 type ActorType string
 
 const (
 	ActorBot  ActorType = "bot"
 	ActorUser ActorType = "user"
+	// ActorSpecTask is a spec task's own coding agent calling the project-scoped
+	// MCP surface. Its ActorID is the spec task ID, not a Bot ID.
+	ActorSpecTask ActorType = "spec_task"
 )
 
 type Metadata struct {

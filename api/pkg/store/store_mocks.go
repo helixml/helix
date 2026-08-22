@@ -356,6 +356,20 @@ func (mr *MockStoreMockRecorder) CreateApp(ctx, tool any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApp", reflect.TypeOf((*MockStore)(nil).CreateApp), ctx, tool)
 }
 
+// CreateArtifact mocks base method.
+func (m *MockStore) CreateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateArtifact", ctx, artifact, version)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateArtifact indicates an expected call of CreateArtifact.
+func (mr *MockStoreMockRecorder) CreateArtifact(ctx, artifact, version any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateArtifact", reflect.TypeOf((*MockStore)(nil).CreateArtifact), ctx, artifact, version)
+}
+
 // CreateAttentionEvent mocks base method.
 func (m *MockStore) CreateAttentionEvent(ctx context.Context, event *types.AttentionEvent) (*types.AttentionEvent, error) {
 	m.ctrl.T.Helper()
@@ -1397,6 +1411,20 @@ func (m *MockStore) DeleteApp(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteApp(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteApp", reflect.TypeOf((*MockStore)(nil).DeleteApp), ctx, id)
+}
+
+// DeleteArtifact mocks base method.
+func (m *MockStore) DeleteArtifact(ctx context.Context, artifactID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteArtifact", ctx, artifactID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteArtifact indicates an expected call of DeleteArtifact.
+func (mr *MockStoreMockRecorder) DeleteArtifact(ctx, artifactID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteArtifact", reflect.TypeOf((*MockStore)(nil).DeleteArtifact), ctx, artifactID)
 }
 
 // DeleteClaudeSubscription mocks base method.
@@ -2493,6 +2521,21 @@ func (m *MockStore) GetAppWithTools(ctx context.Context, id string) (*types.App,
 func (mr *MockStoreMockRecorder) GetAppWithTools(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAppWithTools", reflect.TypeOf((*MockStore)(nil).GetAppWithTools), ctx, id)
+}
+
+// GetArtifact mocks base method.
+func (m *MockStore) GetArtifact(ctx context.Context, artifactID string) (*types.Artifact, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetArtifact", ctx, artifactID)
+	ret0, _ := ret[0].(*types.Artifact)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetArtifact indicates an expected call of GetArtifact.
+func (mr *MockStoreMockRecorder) GetArtifact(ctx, artifactID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetArtifact", reflect.TypeOf((*MockStore)(nil).GetArtifact), ctx, artifactID)
 }
 
 // GetAttentionEvent mocks base method.
@@ -4429,6 +4472,36 @@ func (m *MockStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.Ap
 func (mr *MockStoreMockRecorder) ListApps(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListApps", reflect.TypeOf((*MockStore)(nil).ListApps), ctx, q)
+}
+
+// ListArtifactVersions mocks base method.
+func (m *MockStore) ListArtifactVersions(ctx context.Context, artifactID string) ([]*types.ArtifactVersion, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListArtifactVersions", ctx, artifactID)
+	ret0, _ := ret[0].([]*types.ArtifactVersion)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListArtifactVersions indicates an expected call of ListArtifactVersions.
+func (mr *MockStoreMockRecorder) ListArtifactVersions(ctx, artifactID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListArtifactVersions", reflect.TypeOf((*MockStore)(nil).ListArtifactVersions), ctx, artifactID)
+}
+
+// ListArtifacts mocks base method.
+func (m *MockStore) ListArtifacts(ctx context.Context, query *ListArtifactsQuery) ([]*types.Artifact, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListArtifacts", ctx, query)
+	ret0, _ := ret[0].([]*types.Artifact)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListArtifacts indicates an expected call of ListArtifacts.
+func (mr *MockStoreMockRecorder) ListArtifacts(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListArtifacts", reflect.TypeOf((*MockStore)(nil).ListArtifacts), ctx, query)
 }
 
 // ListAttentionEvents mocks base method.
@@ -6389,6 +6462,20 @@ func (mr *MockStoreMockRecorder) UpdateApp(ctx, tool any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateApp", reflect.TypeOf((*MockStore)(nil).UpdateApp), ctx, tool)
 }
 
+// UpdateArtifact mocks base method.
+func (m *MockStore) UpdateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateArtifact", ctx, artifact, version)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateArtifact indicates an expected call of UpdateArtifact.
+func (mr *MockStoreMockRecorder) UpdateArtifact(ctx, artifact, version any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateArtifact", reflect.TypeOf((*MockStore)(nil).UpdateArtifact), ctx, artifact, version)
+}
+
 // UpdateAttentionEvent mocks base method.
 func (m *MockStore) UpdateAttentionEvent(ctx context.Context, id string, update *types.AttentionEventUpdateRequest) error {
 	m.ctrl.T.Helper()
@@ -6416,6 +6503,35 @@ func (m *MockStore) UpdateClaudeSubscription(ctx context.Context, sub *types.Cla
 func (mr *MockStoreMockRecorder) UpdateClaudeSubscription(ctx, sub any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateClaudeSubscription", reflect.TypeOf((*MockStore)(nil).UpdateClaudeSubscription), ctx, sub)
+}
+
+// UpdateClaudeSubscriptionCredentialsIfNewer mocks base method.
+func (m *MockStore) UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials string, expiresAt, refreshTokenExpiresAt, refreshedAt time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateClaudeSubscriptionCredentialsIfNewer", ctx, id, encryptedCredentials, expiresAt, refreshTokenExpiresAt, refreshedAt)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateClaudeSubscriptionCredentialsIfNewer indicates an expected call of UpdateClaudeSubscriptionCredentialsIfNewer.
+func (mr *MockStoreMockRecorder) UpdateClaudeSubscriptionCredentialsIfNewer(ctx, id, encryptedCredentials, expiresAt, refreshTokenExpiresAt, refreshedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateClaudeSubscriptionCredentialsIfNewer", reflect.TypeOf((*MockStore)(nil).UpdateClaudeSubscriptionCredentialsIfNewer), ctx, id, encryptedCredentials, expiresAt, refreshTokenExpiresAt, refreshedAt)
+}
+
+// UpdateClaudeSubscriptionStatus mocks base method.
+func (m *MockStore) UpdateClaudeSubscriptionStatus(ctx context.Context, sub *types.ClaudeSubscription) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateClaudeSubscriptionStatus", ctx, sub)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateClaudeSubscriptionStatus indicates an expected call of UpdateClaudeSubscriptionStatus.
+func (mr *MockStoreMockRecorder) UpdateClaudeSubscriptionStatus(ctx, sub any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateClaudeSubscriptionStatus", reflect.TypeOf((*MockStore)(nil).UpdateClaudeSubscriptionStatus), ctx, sub)
 }
 
 // UpdateCodexSubscription mocks base method.
@@ -6446,6 +6562,20 @@ func (m *MockStore) UpdateCodexSubscriptionCredentialsIfNewer(ctx context.Contex
 func (mr *MockStoreMockRecorder) UpdateCodexSubscriptionCredentialsIfNewer(ctx, id, encryptedCredentials, accountID, refreshedAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCodexSubscriptionCredentialsIfNewer", reflect.TypeOf((*MockStore)(nil).UpdateCodexSubscriptionCredentialsIfNewer), ctx, id, encryptedCredentials, accountID, refreshedAt)
+}
+
+// UpdateCodexSubscriptionIdentity mocks base method.
+func (m *MockStore) UpdateCodexSubscriptionIdentity(ctx context.Context, id, accountEmail, accountDisplayName, planType, accountID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCodexSubscriptionIdentity", ctx, id, accountEmail, accountDisplayName, planType, accountID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCodexSubscriptionIdentity indicates an expected call of UpdateCodexSubscriptionIdentity.
+func (mr *MockStoreMockRecorder) UpdateCodexSubscriptionIdentity(ctx, id, accountEmail, accountDisplayName, planType, accountID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCodexSubscriptionIdentity", reflect.TypeOf((*MockStore)(nil).UpdateCodexSubscriptionIdentity), ctx, id, accountEmail, accountDisplayName, planType, accountID)
 }
 
 // UpdateCommentAgentResponse mocks base method.

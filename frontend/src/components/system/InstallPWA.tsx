@@ -98,7 +98,8 @@ const InstallPWA: React.FC = () => {
           right: 0,
           zIndex: 9999,
           p: 2,
-          pb: 'calc(env(safe-area-inset-bottom) + 16px)',
+          // Inside the shell, which already carries the safe-area inset.
+          pb: 2,
           background: 'linear-gradient(135deg, #1a1a2e 0%, #0d0d0d 100%)',
           borderTop: '1px solid rgba(74, 222, 128, 0.3)',
           boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.5)',

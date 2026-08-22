@@ -79,6 +79,67 @@ func (s *PostgresStore) UpdateClaudeSubscription(ctx context.Context, sub *types
 	return s.GetClaudeSubscription(ctx, sub.ID)
 }
 
+// UpdateClaudeSubscriptionCredentialsIfNewer writes rotated credentials only when
+// they are newer than what is stored, and touches only the credential columns.
+//
+// Three writers race over one row: this API's background refresher, a container
+// pushing credentials it refreshed itself, and the status/identity writers. A
+// full-row Save from any of them reverts the others — and because Anthropic
+// rotates the refresh token on every use, reverting a credential resurrects a
+// refresh token that is already dead, permanently bricking the subscription.
+// The refreshed_at predicate makes the older write lose instead. This mirrors
+// UpdateCodexSubscriptionCredentialsIfNewer.
+//
+// Status is deliberately not touched: a working refresh proves the refresh
+// endpoint accepts the token, not that /v1/messages will. The liveness probe
+// owns Status.
+func (s *PostgresStore) UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials string, expiresAt, refreshTokenExpiresAt, refreshedAt time.Time) (bool, error) {
+	if id == "" {
+		return false, fmt.Errorf("id not specified")
+	}
+	updates := map[string]interface{}{
+		"encrypted_credentials": encryptedCredentials,
+		"last_refreshed_at":     refreshedAt,
+		"updated":               time.Now(),
+	}
+	// A credential with no stated expiry must not blank a known one.
+	if !expiresAt.IsZero() {
+		updates["access_token_expires_at"] = expiresAt
+	}
+	if !refreshTokenExpiresAt.IsZero() {
+		updates["refresh_token_expires_at"] = refreshTokenExpiresAt
+	}
+	result := s.gdb.WithContext(ctx).Model(&types.ClaudeSubscription{}).
+		Where("id = ? AND (last_refreshed_at IS NULL OR last_refreshed_at < ?)", id, refreshedAt).
+		Updates(updates)
+	return result.RowsAffected == 1, result.Error
+}
+
+// UpdateClaudeSubscriptionStatus persists the outcome of a liveness probe and
+// the identity it discovered, without touching encrypted_credentials.
+//
+// The probe plus profile fetch can take ~18s, during which a container may push
+// refreshed credentials. Writing the whole row back afterwards would revert
+// them; restricting the write to these columns cannot.
+func (s *PostgresStore) UpdateClaudeSubscriptionStatus(ctx context.Context, sub *types.ClaudeSubscription) error {
+	if sub == nil || sub.ID == "" {
+		return fmt.Errorf("id not specified")
+	}
+	return s.gdb.WithContext(ctx).Model(&types.ClaudeSubscription{}).
+		Where("id = ?", sub.ID).
+		Updates(map[string]interface{}{
+			"status":                 sub.Status,
+			"last_error":             sub.LastError,
+			"last_validated_at":      sub.LastValidatedAt,
+			"subscription_type":      sub.SubscriptionType,
+			"rate_limit_tier":        sub.RateLimitTier,
+			"account_email":          sub.AccountEmail,
+			"account_display_name":   sub.AccountDisplayName,
+			"claude_organization_id": sub.ClaudeOrganizationID,
+			"updated":                time.Now(),
+		}).Error
+}
+
 func (s *PostgresStore) DeleteClaudeSubscription(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id not specified")

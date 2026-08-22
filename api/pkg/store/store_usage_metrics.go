@@ -131,6 +131,8 @@ func (s *PostgresStore) GetAppDailyUsageMetrics(ctx context.Context, appID strin
 			SUM(total_tokens) as total_tokens,
 			SUM(cache_read_tokens) as cache_read_tokens,
 			SUM(cache_write_tokens) as cache_write_tokens,
+			SUM(tool_call_requests) as tool_call_requests,
+			SUM(tool_call_error_requests) as tool_call_error_requests,
 			SUM(total_cost) as total_cost,
 			SUM(cache_read_cost) as cache_read_cost,
 			SUM(cache_write_cost) as cache_write_cost,
@@ -165,6 +167,8 @@ func (s *PostgresStore) GetProviderDailyUsageMetrics(ctx context.Context, provid
 			SUM(total_tokens) as total_tokens,
 			SUM(cache_read_tokens) as cache_read_tokens,
 			SUM(cache_write_tokens) as cache_write_tokens,
+			SUM(tool_call_requests) as tool_call_requests,
+			SUM(tool_call_error_requests) as tool_call_error_requests,
 			SUM(prompt_cost) as prompt_cost,
 			SUM(completion_cost) as completion_cost,
 			SUM(cache_read_cost) as cache_read_cost,
@@ -195,22 +199,24 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 
 	// First get the aggregated metrics per user
 	var userMetrics []struct {
-		UserID            string    `gorm:"column:user_id"`
-		Date              time.Time `gorm:"column:date"`
-		PromptTokens      int       `gorm:"column:prompt_tokens"`
-		CompletionTokens  int       `gorm:"column:completion_tokens"`
-		TotalTokens       int       `gorm:"column:total_tokens"`
-		CacheReadTokens   int       `gorm:"column:cache_read_tokens"`
-		CacheWriteTokens  int       `gorm:"column:cache_write_tokens"`
-		PromptCost        float64   `gorm:"column:prompt_cost"`
-		CompletionCost    float64   `gorm:"column:completion_cost"`
-		CacheReadCost     float64   `gorm:"column:cache_read_cost"`
-		CacheWriteCost    float64   `gorm:"column:cache_write_cost"`
-		TotalCost         float64   `gorm:"column:total_cost"`
-		DurationMs        float64   `gorm:"column:duration_ms"`
-		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
-		ResponseSizeBytes int       `gorm:"column:response_size_bytes"`
-		TotalRequests     int       `gorm:"column:total_requests"`
+		UserID                string    `gorm:"column:user_id"`
+		Date                  time.Time `gorm:"column:date"`
+		PromptTokens          int       `gorm:"column:prompt_tokens"`
+		CompletionTokens      int       `gorm:"column:completion_tokens"`
+		TotalTokens           int       `gorm:"column:total_tokens"`
+		CacheReadTokens       int       `gorm:"column:cache_read_tokens"`
+		CacheWriteTokens      int       `gorm:"column:cache_write_tokens"`
+		ToolCallRequests      int       `gorm:"column:tool_call_requests"`
+		ToolCallErrorRequests int       `gorm:"column:tool_call_error_requests"`
+		PromptCost            float64   `gorm:"column:prompt_cost"`
+		CompletionCost        float64   `gorm:"column:completion_cost"`
+		CacheReadCost         float64   `gorm:"column:cache_read_cost"`
+		CacheWriteCost        float64   `gorm:"column:cache_write_cost"`
+		TotalCost             float64   `gorm:"column:total_cost"`
+		DurationMs            float64   `gorm:"column:duration_ms"`
+		RequestSizeBytes      int       `gorm:"column:request_size_bytes"`
+		ResponseSizeBytes     int       `gorm:"column:response_size_bytes"`
+		TotalRequests         int       `gorm:"column:total_requests"`
 	}
 
 	err := s.gdb.WithContext(ctx).
@@ -223,6 +229,8 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 			SUM(total_tokens) as total_tokens,
 			SUM(cache_read_tokens) as cache_read_tokens,
 			SUM(cache_write_tokens) as cache_write_tokens,
+			SUM(tool_call_requests) as tool_call_requests,
+			SUM(tool_call_error_requests) as tool_call_error_requests,
 			SUM(prompt_cost) as prompt_cost,
 			SUM(completion_cost) as completion_cost,
 			SUM(cache_read_cost) as cache_read_cost,
@@ -249,21 +257,23 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 	for _, m := range userMetrics {
 		userIDs[m.UserID] = true
 		userMetricsMap[m.UserID] = append(userMetricsMap[m.UserID], &types.AggregatedUsageMetric{
-			Date:              m.Date,
-			PromptTokens:      m.PromptTokens,
-			CompletionTokens:  m.CompletionTokens,
-			TotalTokens:       m.TotalTokens,
-			CacheReadTokens:   m.CacheReadTokens,
-			CacheWriteTokens:  m.CacheWriteTokens,
-			PromptCost:        m.PromptCost,
-			CompletionCost:    m.CompletionCost,
-			CacheReadCost:     m.CacheReadCost,
-			CacheWriteCost:    m.CacheWriteCost,
-			TotalCost:         m.TotalCost,
-			LatencyMs:         m.DurationMs,
-			RequestSizeBytes:  m.RequestSizeBytes,
-			ResponseSizeBytes: m.ResponseSizeBytes,
-			TotalRequests:     m.TotalRequests,
+			Date:                  m.Date,
+			PromptTokens:          m.PromptTokens,
+			CompletionTokens:      m.CompletionTokens,
+			TotalTokens:           m.TotalTokens,
+			CacheReadTokens:       m.CacheReadTokens,
+			CacheWriteTokens:      m.CacheWriteTokens,
+			ToolCallRequests:      m.ToolCallRequests,
+			ToolCallErrorRequests: m.ToolCallErrorRequests,
+			PromptCost:            m.PromptCost,
+			CompletionCost:        m.CompletionCost,
+			CacheReadCost:         m.CacheReadCost,
+			CacheWriteCost:        m.CacheWriteCost,
+			TotalCost:             m.TotalCost,
+			LatencyMs:             m.DurationMs,
+			RequestSizeBytes:      m.RequestSizeBytes,
+			ResponseSizeBytes:     m.ResponseSizeBytes,
+			TotalRequests:         m.TotalRequests,
 		})
 	}
 
@@ -343,6 +353,8 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 			SUM(usage_metrics.completion_tokens) as completion_tokens,
 			SUM(usage_metrics.cache_read_tokens) as cache_read_tokens,
 			SUM(usage_metrics.cache_write_tokens) as cache_write_tokens,
+			SUM(usage_metrics.tool_call_requests) as tool_call_requests,
+			SUM(usage_metrics.tool_call_error_requests) as tool_call_error_requests,
 			SUM(usage_metrics.prompt_cost) as prompt_cost,
 			SUM(usage_metrics.completion_cost) as completion_cost,
 			SUM(usage_metrics.cache_read_cost) as cache_read_cost,
@@ -565,6 +577,8 @@ func (s *PostgresStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSu
 				SUM(usage_metrics.total_tokens) as total_tokens,
 				SUM(usage_metrics.cache_read_tokens) as cache_read_tokens,
 				SUM(usage_metrics.cache_write_tokens) as cache_write_tokens,
+				SUM(usage_metrics.tool_call_requests) as tool_call_requests,
+				SUM(usage_metrics.tool_call_error_requests) as tool_call_error_requests,
 				SUM(usage_metrics.prompt_cost) as prompt_cost,
 				SUM(usage_metrics.completion_cost) as completion_cost,
 				SUM(usage_metrics.cache_read_cost) as cache_read_cost,
@@ -674,6 +688,8 @@ func (s *PostgresStore) orgUsageBreakdownQuery(ctx context.Context, q *GetOrgUsa
 		SUM(usage_metrics.completion_tokens) as completion_tokens,
 		SUM(usage_metrics.cache_read_tokens) as cache_read_tokens,
 		SUM(usage_metrics.cache_write_tokens) as cache_write_tokens,
+		SUM(usage_metrics.tool_call_requests) as tool_call_requests,
+		SUM(usage_metrics.tool_call_error_requests) as tool_call_error_requests,
 		SUM(usage_metrics.prompt_cost) as prompt_cost,
 		SUM(usage_metrics.completion_cost) as completion_cost,
 		SUM(usage_metrics.cache_read_cost) as cache_read_cost,
@@ -947,23 +963,25 @@ func (s *PostgresStore) getOrgUsageModelTimeSeries(ctx context.Context, q *GetOr
 	}
 
 	var rows []struct {
-		Date              time.Time `gorm:"column:date"`
-		Provider          string    `gorm:"column:provider"`
-		Model             string    `gorm:"column:model"`
-		PromptTokens      int       `gorm:"column:prompt_tokens"`
-		CompletionTokens  int       `gorm:"column:completion_tokens"`
-		CacheReadTokens   int       `gorm:"column:cache_read_tokens"`
-		CacheWriteTokens  int       `gorm:"column:cache_write_tokens"`
-		TotalTokens       int       `gorm:"column:total_tokens"`
-		PromptCost        float64   `gorm:"column:prompt_cost"`
-		CompletionCost    float64   `gorm:"column:completion_cost"`
-		CacheReadCost     float64   `gorm:"column:cache_read_cost"`
-		CacheWriteCost    float64   `gorm:"column:cache_write_cost"`
-		TotalCost         float64   `gorm:"column:total_cost"`
-		LatencyMs         float64   `gorm:"column:latency_ms"`
-		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
-		ResponseSizeBytes int       `gorm:"column:response_size_bytes"`
-		TotalRequests     int       `gorm:"column:total_requests"`
+		Date                  time.Time `gorm:"column:date"`
+		Provider              string    `gorm:"column:provider"`
+		Model                 string    `gorm:"column:model"`
+		PromptTokens          int       `gorm:"column:prompt_tokens"`
+		CompletionTokens      int       `gorm:"column:completion_tokens"`
+		CacheReadTokens       int       `gorm:"column:cache_read_tokens"`
+		CacheWriteTokens      int       `gorm:"column:cache_write_tokens"`
+		ToolCallRequests      int       `gorm:"column:tool_call_requests"`
+		ToolCallErrorRequests int       `gorm:"column:tool_call_error_requests"`
+		TotalTokens           int       `gorm:"column:total_tokens"`
+		PromptCost            float64   `gorm:"column:prompt_cost"`
+		CompletionCost        float64   `gorm:"column:completion_cost"`
+		CacheReadCost         float64   `gorm:"column:cache_read_cost"`
+		CacheWriteCost        float64   `gorm:"column:cache_write_cost"`
+		TotalCost             float64   `gorm:"column:total_cost"`
+		LatencyMs             float64   `gorm:"column:latency_ms"`
+		RequestSizeBytes      int       `gorm:"column:request_size_bytes"`
+		ResponseSizeBytes     int       `gorm:"column:response_size_bytes"`
+		TotalRequests         int       `gorm:"column:total_requests"`
 	}
 
 	// Restrict to the (provider, model) pairs we actually need to chart.
@@ -978,6 +996,8 @@ func (s *PostgresStore) getOrgUsageModelTimeSeries(ctx context.Context, q *GetOr
 			SUM(usage_metrics.completion_tokens) as completion_tokens,
 			SUM(usage_metrics.cache_read_tokens) as cache_read_tokens,
 			SUM(usage_metrics.cache_write_tokens) as cache_write_tokens,
+			SUM(usage_metrics.tool_call_requests) as tool_call_requests,
+			SUM(usage_metrics.tool_call_error_requests) as tool_call_error_requests,
 			SUM(usage_metrics.total_tokens) as total_tokens,
 			SUM(usage_metrics.prompt_cost) as prompt_cost,
 			SUM(usage_metrics.completion_cost) as completion_cost,
@@ -1005,21 +1025,23 @@ func (s *PostgresStore) getOrgUsageModelTimeSeries(ctx context.Context, q *GetOr
 			continue
 		}
 		metricsByModel[id] = append(metricsByModel[id], &types.AggregatedUsageMetric{
-			Date:              row.Date,
-			PromptTokens:      row.PromptTokens,
-			CompletionTokens:  row.CompletionTokens,
-			CacheReadTokens:   row.CacheReadTokens,
-			CacheWriteTokens:  row.CacheWriteTokens,
-			TotalTokens:       row.TotalTokens,
-			PromptCost:        row.PromptCost,
-			CompletionCost:    row.CompletionCost,
-			CacheReadCost:     row.CacheReadCost,
-			CacheWriteCost:    row.CacheWriteCost,
-			TotalCost:         row.TotalCost,
-			LatencyMs:         row.LatencyMs,
-			RequestSizeBytes:  row.RequestSizeBytes,
-			ResponseSizeBytes: row.ResponseSizeBytes,
-			TotalRequests:     row.TotalRequests,
+			Date:                  row.Date,
+			PromptTokens:          row.PromptTokens,
+			CompletionTokens:      row.CompletionTokens,
+			CacheReadTokens:       row.CacheReadTokens,
+			CacheWriteTokens:      row.CacheWriteTokens,
+			ToolCallRequests:      row.ToolCallRequests,
+			ToolCallErrorRequests: row.ToolCallErrorRequests,
+			TotalTokens:           row.TotalTokens,
+			PromptCost:            row.PromptCost,
+			CompletionCost:        row.CompletionCost,
+			CacheReadCost:         row.CacheReadCost,
+			CacheWriteCost:        row.CacheWriteCost,
+			TotalCost:             row.TotalCost,
+			LatencyMs:             row.LatencyMs,
+			RequestSizeBytes:      row.RequestSizeBytes,
+			ResponseSizeBytes:     row.ResponseSizeBytes,
+			TotalRequests:         row.TotalRequests,
 		})
 	}
 
@@ -1051,13 +1073,15 @@ func (s *PostgresStore) getOrgUsageAgentRuntimeTimeSeries(ctx context.Context, q
 		'unattributed'
 	)`
 	var rows []struct {
-		Date             time.Time `gorm:"column:date"`
-		Runtime          string    `gorm:"column:runtime"`
-		PromptTokens     int       `gorm:"column:prompt_tokens"`
-		CompletionTokens int       `gorm:"column:completion_tokens"`
-		CacheReadTokens  int       `gorm:"column:cache_read_tokens"`
-		CacheWriteTokens int       `gorm:"column:cache_write_tokens"`
-		TotalTokens      int       `gorm:"column:total_tokens"`
+		Date                  time.Time `gorm:"column:date"`
+		Runtime               string    `gorm:"column:runtime"`
+		PromptTokens          int       `gorm:"column:prompt_tokens"`
+		CompletionTokens      int       `gorm:"column:completion_tokens"`
+		CacheReadTokens       int       `gorm:"column:cache_read_tokens"`
+		CacheWriteTokens      int       `gorm:"column:cache_write_tokens"`
+		ToolCallRequests      int       `gorm:"column:tool_call_requests"`
+		ToolCallErrorRequests int       `gorm:"column:tool_call_error_requests"`
+		TotalTokens           int       `gorm:"column:total_tokens"`
 	}
 	err := s.orgUsageBaseQuery(ctx, q).
 		Select(`
@@ -1067,6 +1091,8 @@ func (s *PostgresStore) getOrgUsageAgentRuntimeTimeSeries(ctx context.Context, q
 			SUM(usage_metrics.completion_tokens) as completion_tokens,
 			SUM(usage_metrics.cache_read_tokens) as cache_read_tokens,
 			SUM(usage_metrics.cache_write_tokens) as cache_write_tokens,
+			SUM(usage_metrics.tool_call_requests) as tool_call_requests,
+			SUM(usage_metrics.tool_call_error_requests) as tool_call_error_requests,
 			SUM(usage_metrics.total_tokens) as total_tokens
 		`).
 		Group("usage_metrics.date, " + runtimeExpr).
@@ -1084,12 +1110,14 @@ func (s *PostgresStore) getOrgUsageAgentRuntimeTimeSeries(ctx context.Context, q
 			runtime = unattributedRuntime
 		}
 		metricsByRuntime[runtime] = append(metricsByRuntime[runtime], &types.AggregatedUsageMetric{
-			Date:             row.Date,
-			PromptTokens:     row.PromptTokens,
-			CompletionTokens: row.CompletionTokens,
-			CacheReadTokens:  row.CacheReadTokens,
-			CacheWriteTokens: row.CacheWriteTokens,
-			TotalTokens:      row.TotalTokens,
+			Date:                  row.Date,
+			PromptTokens:          row.PromptTokens,
+			CompletionTokens:      row.CompletionTokens,
+			CacheReadTokens:       row.CacheReadTokens,
+			CacheWriteTokens:      row.CacheWriteTokens,
+			ToolCallRequests:      row.ToolCallRequests,
+			ToolCallErrorRequests: row.ToolCallErrorRequests,
+			TotalTokens:           row.TotalTokens,
 		})
 		tokensByRuntime[runtime] += row.TotalTokens
 	}
@@ -1206,22 +1234,24 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 
 	// First get the aggregated metrics per user
 	var userMetrics []struct {
-		UserID            string    `gorm:"column:user_id"`
-		Date              time.Time `gorm:"column:date"`
-		PromptTokens      int       `gorm:"column:prompt_tokens"`
-		CompletionTokens  int       `gorm:"column:completion_tokens"`
-		TotalTokens       int       `gorm:"column:total_tokens"`
-		CacheReadTokens   int       `gorm:"column:cache_read_tokens"`
-		CacheWriteTokens  int       `gorm:"column:cache_write_tokens"`
-		PromptCost        float64   `gorm:"column:prompt_cost"`
-		CompletionCost    float64   `gorm:"column:completion_cost"`
-		CacheReadCost     float64   `gorm:"column:cache_read_cost"`
-		CacheWriteCost    float64   `gorm:"column:cache_write_cost"`
-		TotalCost         float64   `gorm:"column:total_cost"`
-		DurationMs        float64   `gorm:"column:duration_ms"`
-		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
-		ResponseSizeBytes int       `gorm:"column:response_size_bytes"`
-		TotalRequests     int       `gorm:"column:total_requests"` // Grouped by interaction_id
+		UserID                string    `gorm:"column:user_id"`
+		Date                  time.Time `gorm:"column:date"`
+		PromptTokens          int       `gorm:"column:prompt_tokens"`
+		CompletionTokens      int       `gorm:"column:completion_tokens"`
+		TotalTokens           int       `gorm:"column:total_tokens"`
+		CacheReadTokens       int       `gorm:"column:cache_read_tokens"`
+		CacheWriteTokens      int       `gorm:"column:cache_write_tokens"`
+		ToolCallRequests      int       `gorm:"column:tool_call_requests"`
+		ToolCallErrorRequests int       `gorm:"column:tool_call_error_requests"`
+		PromptCost            float64   `gorm:"column:prompt_cost"`
+		CompletionCost        float64   `gorm:"column:completion_cost"`
+		CacheReadCost         float64   `gorm:"column:cache_read_cost"`
+		CacheWriteCost        float64   `gorm:"column:cache_write_cost"`
+		TotalCost             float64   `gorm:"column:total_cost"`
+		DurationMs            float64   `gorm:"column:duration_ms"`
+		RequestSizeBytes      int       `gorm:"column:request_size_bytes"`
+		ResponseSizeBytes     int       `gorm:"column:response_size_bytes"`
+		TotalRequests         int       `gorm:"column:total_requests"` // Grouped by interaction_id
 	}
 
 	err := s.gdb.WithContext(ctx).
@@ -1234,6 +1264,8 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 			SUM(total_tokens) as total_tokens,
 			SUM(cache_read_tokens) as cache_read_tokens,
 			SUM(cache_write_tokens) as cache_write_tokens,
+			SUM(tool_call_requests) as tool_call_requests,
+			SUM(tool_call_error_requests) as tool_call_error_requests,
 			SUM(prompt_cost) as prompt_cost,
 			SUM(completion_cost) as completion_cost,
 			SUM(cache_read_cost) as cache_read_cost,
@@ -1260,21 +1292,23 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 	for _, m := range userMetrics {
 		userIDs[m.UserID] = true
 		userMetricsMap[m.UserID] = append(userMetricsMap[m.UserID], &types.AggregatedUsageMetric{
-			Date:              m.Date,
-			PromptTokens:      m.PromptTokens,
-			CompletionTokens:  m.CompletionTokens,
-			TotalTokens:       m.TotalTokens,
-			CacheReadTokens:   m.CacheReadTokens,
-			CacheWriteTokens:  m.CacheWriteTokens,
-			TotalCost:         m.TotalCost,
-			PromptCost:        m.PromptCost,
-			CompletionCost:    m.CompletionCost,
-			CacheReadCost:     m.CacheReadCost,
-			CacheWriteCost:    m.CacheWriteCost,
-			LatencyMs:         m.DurationMs,
-			RequestSizeBytes:  m.RequestSizeBytes,
-			ResponseSizeBytes: m.ResponseSizeBytes,
-			TotalRequests:     m.TotalRequests,
+			Date:                  m.Date,
+			PromptTokens:          m.PromptTokens,
+			CompletionTokens:      m.CompletionTokens,
+			TotalTokens:           m.TotalTokens,
+			CacheReadTokens:       m.CacheReadTokens,
+			CacheWriteTokens:      m.CacheWriteTokens,
+			ToolCallRequests:      m.ToolCallRequests,
+			ToolCallErrorRequests: m.ToolCallErrorRequests,
+			TotalCost:             m.TotalCost,
+			PromptCost:            m.PromptCost,
+			CompletionCost:        m.CompletionCost,
+			CacheReadCost:         m.CacheReadCost,
+			CacheWriteCost:        m.CacheWriteCost,
+			LatencyMs:             m.DurationMs,
+			RequestSizeBytes:      m.RequestSizeBytes,
+			ResponseSizeBytes:     m.ResponseSizeBytes,
+			TotalRequests:         m.TotalRequests,
 		})
 	}
 

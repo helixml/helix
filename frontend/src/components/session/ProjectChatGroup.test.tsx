@@ -179,13 +179,98 @@ describe('ProjectChatGroup', () => {
       />,
     )
 
-    fireEvent.contextMenu(screen.getByRole('button', { name: /Project Test/ }))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Project Test' }))
 
     expect(onOpenProjectContextMenu).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ id: 'project-test' }),
     )
     expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  it('starts a new chat when the project name is clicked, rather than collapsing', () => {
+    const onToggle = vi.fn()
+    const onNewTask = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={onToggle}
+        onNewTask={onNewTask}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'New task in Project Test' }))
+
+    expect(onNewTask).toHaveBeenCalled()
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  it('collapses from the chevron, and only from the chevron', () => {
+    const onToggle = vi.fn()
+    const onNewTask = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={onToggle}
+        onNewTask={onNewTask}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Project Test' }))
+
+    expect(onToggle).toHaveBeenCalledTimes(1)
+    expect(onNewTask).not.toHaveBeenCalled()
+  })
+
+  it('keeps the name collapsing an archived group, which has no new task', () => {
+    const onToggle = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        archived
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={onToggle}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project Test' }))
+
+    expect(onToggle).toHaveBeenCalledTimes(1)
   })
 
   it('shows a pin indicator next to a pinned chat', () => {

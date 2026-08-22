@@ -19,7 +19,10 @@ import OpenAILogo from '../components/providers/logos/openai';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
 import CodexSubscriptionConnect from '../components/account/CodexSubscriptionConnect';
 import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
-import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
+import { formatClaudeAccountDetail, formatClaudeOrganizationRef } from '../components/account/claudeSubscriptionUtils'
+import SubscriptionIdentity from '../components/account/SubscriptionIdentity'
+import type { ReactNode } from 'react'
+import { formatCodexAccountDetail, formatCodexAccountRef } from '../components/account/codexSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
 import CodeAgentHarnessesSection from '../components/providers/CodeAgentHarnessesSection';
 import {
@@ -65,11 +68,9 @@ const Providers: React.FC = () => {
     subscription.owner_type === 'org' && subscription.owner_id === org?.id)
   const effectiveClaudeSubscription = personalClaudeSubscription || orgClaudeSubscription
   const hasClaudeSubscription = !!personalClaudeSubscription
-  const claudeIsSetupToken = personalClaudeSubscription?.credential_type === 'setup_token'
-  const claudeExpiry = hasClaudeSubscription && !claudeIsSetupToken
-    ? getTokenExpiryStatus(personalClaudeSubscription?.access_token_expires_at)
-    : null
-  const claudeIsExpired = claudeExpiry?.isExpired ?? false
+  // Background refresh keeps OAuth tokens alive, so only the server's status
+  // distinguishes a healthy subscription from one needing re-authentication.
+  const claudeIsBroken = !!personalClaudeSubscription && personalClaudeSubscription.status !== 'active'
   const { data: codexSubscriptions } = useCodexSubscriptions()
   const personalCodexSubscription = codexSubscriptions?.find(subscription => subscription.owner_type === 'user')
   const orgCodexSubscription = codexSubscriptions?.find(subscription =>
@@ -77,19 +78,39 @@ const Providers: React.FC = () => {
   const effectiveCodexSubscription = personalCodexSubscription || orgCodexSubscription
   const hasCodexSubscription = !!personalCodexSubscription
 
-  const subscriptionIdentity = (runtime: string): string | undefined => {
+  // Name the Claude *account* the token authenticates as, not the row's label:
+  // the question this row answers is "whose subscription would this spend?".
+  // Anthropic supplies it (profile email, else the verified org uuid); the
+  // subscription name only stands in when Anthropic told us nothing.
+  const subscriptionIdentity = (runtime: string): ReactNode => {
     if (runtime === 'claude_code') {
       const subscription = effectiveClaudeSubscription
       if (!subscription) return undefined
-      const plan = subscription.subscription_type
-        ? `Claude ${subscription.subscription_type.charAt(0).toUpperCase()}${subscription.subscription_type.slice(1)} Subscription`
-        : 'Claude Subscription'
-      return [subscription.name, plan].filter(Boolean).join(' · ')
+      return (
+        <SubscriptionIdentity
+          email={subscription.account_email}
+          fallback={subscription.account_display_name || formatClaudeOrganizationRef(subscription.claude_organization_id) || subscription.name}
+          detail={formatClaudeAccountDetail({
+            plan: subscription.subscription_type,
+            tier: subscription.rate_limit_tier,
+          })}
+          ariaLabel="Claude account email"
+      showPrefix
+        />
+      )
     }
     if (runtime === 'codex_cli') {
       const subscription = effectiveCodexSubscription
       if (!subscription) return undefined
-      return [subscription.name, 'ChatGPT Subscription'].filter(Boolean).join(' · ')
+      return (
+        <SubscriptionIdentity
+          email={subscription.account_email}
+          fallback={subscription.account_display_name || formatCodexAccountRef(subscription.account_id) || subscription.name}
+          detail={formatCodexAccountDetail(subscription.plan_type)}
+          ariaLabel="ChatGPT account email"
+      showPrefix
+        />
+      )
     }
     return undefined
   }
@@ -294,7 +315,7 @@ const Providers: React.FC = () => {
                 borderStyle: 'dashed',
                 borderWidth: 1,
                 borderColor: hasClaudeSubscription
-                  ? (claudeIsExpired ? 'error.main' : claudeExpiry?.isExpiringSoon ? 'warning.main' : 'success.main')
+                  ? (claudeIsBroken ? 'error.main' : 'success.main')
                   : 'divider',
                 opacity: hasClaudeSubscription ? 1 : 0.85,
                 transition: 'all 0.2s',

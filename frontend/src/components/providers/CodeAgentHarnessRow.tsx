@@ -27,11 +27,14 @@ const HEALTH_COLOR: Record<HarnessHealth, string> = {
 const CodeAgentHarnessRow: FC<{
   runtime: string
   health: HarnessHealth
-  status: string
+  // A node, not a string: the identity line embeds a click-to-reveal email.
+  status: ReactNode
   enabled: boolean
   disabled?: boolean
   children: ReactNode
-  onToggle: (enabled: boolean) => void
+  // Omitted in account scope: enabling a harness is an org-level decision, but
+  // the row keeps the switch's width as an empty slot so both surfaces align.
+  onToggle?: (enabled: boolean) => void
 }> = ({ runtime, health, status, enabled, disabled = false, children, onToggle }) => {
   const [expanded, setExpanded] = useState(false)
   const label = getAgentHarnessLabel(runtime)
@@ -129,13 +132,15 @@ const CodeAgentHarnessRow: FC<{
           sx={HARNESS_SWITCH_SLOT_SX}
           onClick={(event) => event.stopPropagation()}
         >
-          <Switch
-            color="secondary"
-            checked={enabled}
-            disabled={disabled}
-            onChange={(event) => onToggle(event.target.checked)}
-            inputProps={{ 'aria-label': `Enable ${label}` }}
-          />
+          {onToggle && (
+            <Switch
+              color="secondary"
+              checked={enabled}
+              disabled={disabled}
+              onChange={(event) => onToggle(event.target.checked)}
+              inputProps={{ 'aria-label': `Enable ${label}` }}
+            />
+          )}
         </Box>
       </Stack>
 

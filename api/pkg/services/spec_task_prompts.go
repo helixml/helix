@@ -17,6 +17,7 @@ type PlanningPromptData struct {
 	KoditSection       string // Dynamic MCP tool documentation from kodit (empty when disabled)
 	RepositorySection  string // Available repositories section (local + Kodit repos)
 	AttachmentsSection string // User-attached files section (empty when no attachments)
+	AgentToolsSection  string // Helix task-management tools granted to this task (empty when none)
 	TaskDirName        string // Directory name for task (e.g., "0042-add-dark-mode")
 	ProjectID          string
 	TaskType           string
@@ -47,7 +48,7 @@ ALL work happens in /home/retro/work/. No other paths.
 - /home/retro/work/helix-specs/ = Your design docs go here (ALREADY EXISTS - don't create it)
 - /home/retro/work/<repo>/ = Code repos (don't touch these - implementation happens later)
 {{.RepositorySection}}
-{{.AttachmentsSection}}## Your Task Directory
+{{.AttachmentsSection}}{{.AgentToolsSection}}## Your Task Directory
 
 Create exactly 3 files in /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/ (directory already exists):
 1. requirements.md - User stories + acceptance criteria
@@ -229,7 +230,7 @@ func humanSize(n int64) string {
 // guidelines contains concatenated organization + project guidelines (can be empty)
 // repoSection is the pre-built repository access section (from BuildRepositorySection)
 // attachmentsSection is the pre-built attachments section (from BuildAttachmentsSection)
-func BuildPlanningPrompt(task *types.SpecTask, guidelines, koditSection, repoSection, attachmentsSection string) string {
+func BuildPlanningPrompt(task *types.SpecTask, guidelines, koditSection, repoSection, attachmentsSection, agentToolsSection string) string {
 	// Use DesignDocPath if set (new human-readable format), fall back to task ID
 	taskDirName := task.DesignDocPath
 	if taskDirName == "" {
@@ -313,6 +314,7 @@ contain everything learned during the original implementation - use this knowled
 		KoditSection:       koditSection,
 		RepositorySection:  repoSection,
 		AttachmentsSection: attachmentsSection,
+		AgentToolsSection:  agentToolsSection,
 		ClonedTaskPreamble: clonedTaskPreamble,
 		TaskDirName:        taskDirName,
 		ProjectID:          task.ProjectID,
@@ -327,6 +329,37 @@ contain everything learned during the original implementation - use this knowled
 		return "Error generating planning prompt: " + err.Error()
 	}
 	return buf.String()
+}
+
+// BuildAgentToolsSection tells the agent it can delegate. The tools already
+// appear in its MCP tool list, but nothing in the prompt says delegation is an
+// option, so unprompted an agent never reaches for them. Returns empty when the
+// project and task grant nothing, which is the default.
+func BuildAgentToolsSection(projectTools, taskTools []string) string {
+	tools := types.EffectiveAgentTools(projectTools, taskTools)
+	if len(tools) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Delegating to other spec tasks\n\n")
+	b.WriteString("You can create and manage other spec tasks in this project as sub-agents, ")
+	b.WriteString("through these Helix tools:\n\n")
+	for _, name := range tools {
+		b.WriteString("- `" + name + "`\n")
+	}
+	b.WriteString(`
+Use them when a piece of work is genuinely separable — a self-contained chunk
+another agent could pick up without waiting on you. Do NOT split work that is
+faster to just do yourself; a sub-task costs a whole sandbox.
+
+A new task starts in **backlog** and does nothing until you call
+` + "`start_spectask_planning`" + ` on it. Give each one a description that stands on
+its own: the sub-agent cannot see this conversation.
+
+You are scoped to this project. You cannot reach tasks in any other project.
+
+`)
+	return b.String()
 }
 
 // BuildRepositorySection builds a markdown section listing available repositories

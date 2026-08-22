@@ -53,6 +53,8 @@ import {
   useUploadSpecTaskAttachments,
 } from "../../services/specTaskAttachmentsService";
 import CodeAgentExecutionControls from "../agent/CodeAgentExecutionControls";
+import { useSeedProjectCodeAgentConfig } from "../../hooks/useSeedProjectCodeAgentConfig";
+import { CodeAgentConfigChangeSource } from "../../utils/codeAgentExecutionConfig";
 import NoCodeAgentsDialog from "../agent/NoCodeAgentsDialog";
 import { useHasEnabledCodeAgentHarnesses } from "../../services/codeAgentHarnessesService";
 import {
@@ -349,6 +351,16 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const handleSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
     setSandboxRuntime(runtime);
     saveSpecTaskSandboxRuntimePreference(projectId, runtime);
+  };
+
+  const seedProjectCodeAgentConfig = useSeedProjectCodeAgentConfig(project);
+
+  const handleCodeAgentConfigChange = (
+    next: TypesCodeAgentExecutionConfig,
+    source: CodeAgentConfigChangeSource,
+  ) => {
+    setCodeAgentConfig(next);
+    seedProjectCodeAgentConfig(next, source);
   };
 
   useEffect(() => {
@@ -1114,7 +1126,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
               <CodeAgentExecutionControls
                 value={codeAgentConfig}
-                onChange={setCodeAgentConfig}
+                onChange={handleCodeAgentConfigChange}
                 sandboxResourceOverrides={sandboxResourceOverrides}
                 sandboxRuntime={sandboxRuntime}
                 onSandboxResourceOverridesChange={setSandboxResourceOverrides}

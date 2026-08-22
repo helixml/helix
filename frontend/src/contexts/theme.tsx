@@ -89,6 +89,26 @@ export const getDialogStyleTokens = (isLight: boolean, background: string) => {
   }
 }
 
+/**
+ * Shared dropdown behaviour for every Select: anchored below the field so it
+ * always opens downward from a fixed point rather than overlaying the control
+ * aligned to the selected item, and capped so long lists scroll.
+ *
+ * Spread this when a Select needs to override one part — passing `MenuProps`
+ * on a component replaces the theme default outright, so overriding naively
+ * loses the anchoring and the max height.
+ */
+export const SELECT_MENU_PROPS = {
+  sx: {
+    zIndex: 100003,
+  },
+  anchorOrigin: { vertical: 'bottom' as const, horizontal: 'left' as const },
+  transformOrigin: { vertical: 'top' as const, horizontal: 'left' as const },
+  PaperProps: {
+    sx: { maxHeight: 320 },
+  },
+}
+
 export const getFlatSelectOverrides = (isLight: boolean) => ({
   '&:has(> .MuiSelect-select)': {
     borderRadius: '6px',
@@ -245,6 +265,30 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         }),
       },
       components: {
+        // MUI floats an outlined input's label into a notch cut out of the
+        // border. That reads fine on a text field you type into, but on a
+        // select — where the value is already a full sentence and the control
+        // is denser — the label lands half inside the box and looks crooked.
+        // Site-wide, selects get a static left-aligned label above the control
+        // and no notch. Scoped with :has() so text fields keep floating labels.
+        MuiInputLabel: {
+          styleOverrides: {
+            root: {
+              '.MuiFormControl-root:has(.MuiSelect-select) &': {
+                position: 'static',
+                transform: 'none',
+                maxWidth: '100%',
+                fontSize: '0.75rem',
+                marginBottom: 4,
+                // The floating label relies on shrink state for colour; pinned
+                // above the field it should read as a quiet field label instead.
+                '&.Mui-focused': {
+                  color: 'inherit',
+                },
+              },
+            },
+          },
+        },
         MuiSwitch: {
           styleOverrides: {
             root: {
@@ -305,6 +349,19 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             },
             'button, input, optgroup, select, textarea': {
               fontFamily: 'inherit',
+            },
+            // iOS Safari zooms the page in when a text field smaller than 16px
+            // takes focus, and never zooms back out — leaving the layout panned,
+            // cut off one edge and short on the other. Every symptom of it looks
+            // like a layout bug and none of it is. A floor rather than a fixed
+            // size, so anything already larger keeps its size.
+            '@media (pointer: coarse)': {
+              // contenteditable counts: iOS zooms for anything it can put a
+              // caret in, not just form controls, and the task chat's composer
+              // is a contenteditable div rather than a textarea.
+              'input, textarea, select, [contenteditable]:not([contenteditable="false"])': {
+                fontSize: 'max(16px, 1em) !important',
+              },
             },
             '*': scrollbarStyles,
           },
@@ -396,6 +453,27 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             },
           },
         },
+        MuiDrawer: {
+          styleOverrides: {
+            // Same reasoning as MuiDialog root below: portalled out of the
+            // shell, so it has to follow the visual viewport itself. Applied to
+            // the modal root rather than the paper, because the paper's
+            // transform belongs to the slide transition.
+            root: {
+              transform: 'translateY(var(--app-offset-y, 0px))',
+            },
+            // Scoped to the left-anchored nav drawer: a bottom sheet wants a
+            // bottom inset, not a top one, and sets its own.
+            paperAnchorLeft: {
+              boxSizing: 'border-box',
+              paddingTop: 'env(safe-area-inset-top)',
+              paddingLeft: 'env(safe-area-inset-left)',
+            },
+            paperAnchorBottom: {
+              boxSizing: 'border-box',
+            },
+          },
+        },
         MuiDialog: {
           defaultProps: {
             disableEnforceFocus: true,
@@ -413,9 +491,24 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
               boxShadow: dialogStyles.shadow,
               transition: 'all 0.2s ease-in-out',
             },
+            container: {
+              // A full-screen dialog has to be bounded by the VISIBLE viewport,
+              // not the layout one. With the on-screen keyboard open the layout
+              // viewport is the taller of the two, so the sheet overflows it and
+              // the whole thing pans — header and all — instead of its list
+              // scrolling inside a fixed frame. `--app-height` tracks the visual
+              // viewport (see index.html); the 100% fallback is what every
+              // desktop browser resolves to anyway.
+              height: 'min(var(--app-height, 100%), 100%)',
+            },
             root: {
               zIndex: 100002, // Above floating windows (z-index 9999); tooltips (100004) render above
               transition: 'all 0.2s ease-in-out',
+              // Portalled outside #root, so the shell's anchoring does not
+              // reach it. `position: fixed` resolves against the layout
+              // viewport, which iOS Safari pans the visual viewport inside —
+              // this follows that pan so a sheet cannot drift off screen.
+              transform: 'translateY(var(--app-offset-y, 0px))',
               '& .MuiBackdrop-root': {
                 backgroundColor: dialogStyles.backdropFallback,
                 background: dialogStyles.backdrop,
@@ -449,16 +542,20 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         },
         MuiSelect: {
           defaultProps: {
-            MenuProps: {
-              sx: {
-                zIndex: 100003,
-              },
-            },
+            MenuProps: SELECT_MENU_PROPS,
           },
         },
         MuiOutlinedInput: {
           styleOverrides: {
             root: getFlatSelectOverrides(isLight),
+            notchedOutline: {
+              // The label is pinned above the control for selects, so there is
+              // nothing to cut a notch for — and on a flat select there is no
+              // border to cut it out of anyway.
+              '.MuiFormControl-root:has(.MuiSelect-select) & legend': {
+                display: 'none',
+              },
+            },
           },
         },
         MuiInput: {

@@ -1219,6 +1219,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		task.KeepAlive = *updateReq.KeepAlive
 	}
 	// Update assignee (pointer allows clearing with empty string to unassign)
+	if updateReq.AgentTools != nil {
+		task.AgentTools = sanitizeAgentTools(*updateReq.AgentTools)
+	}
+
 	if updateReq.AssigneeID != nil {
 		newAssigneeID := *updateReq.AssigneeID
 		if err := s.validateAssigneeIsOrgMember(ctx, task.OrganizationID, newAssigneeID); err != nil {

@@ -17,11 +17,11 @@ func TestDurableConsumerRedeliversNak(t *testing.T) {
 	defer cancel()
 
 	require.NoError(t, n.EnsurePersistentStream(ctx, "DURABLE_REDELIVERY", []string{"durable.redelivery.*"}))
-	deliveries := make(chan []byte, 2)
+	deliveries := make(chan *Message, 2)
 	attempts := 0
 	sub, err := n.ConsumeDurable(ctx, "DURABLE_REDELIVERY", "worker-one", "durable.redelivery.one", time.Second, func(msg *Message) error {
 		attempts++
-		deliveries <- msg.Data
+		deliveries <- msg
 		if attempts == 1 {
 			return msg.Nak()
 		}
@@ -31,8 +31,12 @@ func TestDurableConsumerRedeliversNak(t *testing.T) {
 	defer sub.Unsubscribe()
 	require.NoError(t, n.PublishDurable(ctx, "DURABLE_REDELIVERY", "durable.redelivery.one", []byte("hello")))
 
-	require.Equal(t, []byte("hello"), <-deliveries)
-	require.Equal(t, []byte("hello"), <-deliveries)
+	first := <-deliveries
+	require.Equal(t, []byte("hello"), first.Data)
+	require.Equal(t, uint64(1), first.NumDelivered)
+	second := <-deliveries
+	require.Equal(t, []byte("hello"), second.Data)
+	require.Equal(t, uint64(2), second.NumDelivered)
 
 	stream, err := n.js.Stream(ctx, "DURABLE_REDELIVERY")
 	require.NoError(t, err)

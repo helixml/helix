@@ -51,12 +51,14 @@ describe("ProjectCodeAgentDefaults", () => {
       TypesCodeAgentRuntime.CodeAgentRuntimeDeepSeekHarness,
     );
     expect(controls.props.value.model).toBe("qwen3.8-27b");
-    expect(controls.props.grouped).toBe(true);
+    // Ungrouped: the SettingRow around this supplies the "Agent" label, so the
+    // control's own inline one would print it twice.
+    expect(controls.props.grouped).toBeFalsy();
     // The whole point of this section is the agent picker, so computeOnly must
     // stay off — that flag is what hid the harness from project settings.
     expect(controls.props.computeOnly).toBeFalsy();
-    // Compute lives on the Sandbox tab. Passing no sandbox handlers is what
-    // makes this render the agent row alone.
+    // Compute is a sibling SettingRow rendered by ProjectTaskDefaults. Passing
+    // no sandbox handlers is what makes this render the agent controls alone.
     expect(controls.props.onSandboxResourceOverridesChange).toBeUndefined();
     expect(controls.props.onSandboxRuntimeChange).toBeUndefined();
   });
