@@ -1,6 +1,6 @@
 import { FC, ReactNode } from 'react'
 import { Box, Typography } from '@mui/material'
-import { SxProps, Theme } from '@mui/material/styles'
+import { SystemCssProperties, Theme } from '@mui/system'
 
 interface SettingRowProps {
   /** What the setting is called. Replaces the control's own floating label. */
@@ -15,7 +15,7 @@ interface SettingRowProps {
    */
   align?: 'center' | 'start'
   /** Width of the control column. */
-  controlWidth?: SxProps<Theme>['width']
+  controlWidth?: SystemCssProperties<Theme>['width']
   /** The control, plus any adornment (a settings shortcut, a unit suffix). */
   children: ReactNode
 }
