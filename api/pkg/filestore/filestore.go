@@ -70,3 +70,13 @@ func GetAppPrefix(filestorePrefix, appID string) string {
 func GetSpecTaskAttachmentsPrefix(filestorePrefix, specTaskID string) string {
 	return filepath.Join(filestorePrefix, "spec-tasks", specTaskID, "attachments")
 }
+
+// GetArtifactVersionPrefix returns the immutable filestore root for one
+// project artifact deployment.
+func GetArtifactVersionPrefix(filestorePrefix, projectID, artifactID, versionID string) string {
+	return filepath.Join(filestorePrefix, "projects", projectID, "artifacts", artifactID, "versions", versionID)
+}
+
+func GetArtifactPrefix(filestorePrefix, projectID, artifactID string) string {
+	return filepath.Join(filestorePrefix, "projects", projectID, "artifacts", artifactID)
+}

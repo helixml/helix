@@ -25,7 +25,6 @@ type Config struct {
 	XDGRuntimeDir string // XDG_RUNTIME_DIR for sockets
 	SessionID     string // HELIX_SESSION_ID for session identification
 	WorkspaceOnly bool   // Serve workspace APIs without compositor/video initialization
-	AllowExec     bool   // Expose the restricted command endpoint for server setup sessions
 }
 
 // Server is the main desktop integration server.
@@ -524,11 +523,8 @@ func (s *Server) httpHandler() http.Handler {
 
 	mux.HandleFunc("/screenshot", s.handleScreenshot)
 	mux.HandleFunc("/clipboard", s.handleClipboard)
-	mux.HandleFunc("/upload", s.handleUpload)
-	mux.HandleFunc("/file", s.handleFile)
 	mux.HandleFunc("/ws/input", s.handleWSInput)   // Direct WebSocket input
 	mux.HandleFunc("/ws/stream", s.handleWSStream) // Direct WebSocket video streaming
-	mux.HandleFunc("/exec", s.handleExec)          // Execute command in container (for benchmarking)
 	s.registerWorkspaceRoutes(mux)
 	mux.HandleFunc("/clients", s.handleClients)
 	mux.HandleFunc("/video/stats", s.handleVideoStats)
@@ -547,13 +543,19 @@ func (s *Server) httpHandler() http.Handler {
 func (s *Server) workspaceHTTPHandler() http.Handler {
 	mux := http.NewServeMux()
 	s.registerWorkspaceRoutes(mux)
-	if s.config.AllowExec {
-		mux.HandleFunc("/exec", s.handleExec)
-	}
 	return mux
 }
 
 func (s *Server) registerWorkspaceRoutes(mux *http.ServeMux) {
+	// Chat attachments are a workspace concern, not a desktop one: a headless
+	// task has no compositor but still needs to receive pasted/dropped files
+	// and serve them back to the UI.
+	mux.HandleFunc("/upload", s.handleUpload)
+	mux.HandleFunc("/file", s.handleFile)
+	// /exec is not desktop-specific either: git identity sync on spec approval
+	// and the Claude/Codex subscription login flows all target headless
+	// containers. Its own allowlist (see exec.go) is the security boundary.
+	mux.HandleFunc("/exec", s.handleExec)
 	mux.HandleFunc("/workspaces", s.handleWorkspaces)
 	mux.HandleFunc("/workspace/review", s.handleWorkspaceReview)
 	mux.HandleFunc("/workspace/files", s.handleWorkspaceFiles)

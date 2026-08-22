@@ -695,7 +695,13 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 			}
 			continue
 		}
-		if appErr := requireAgentKind(app, types.AgentKindCoding, "project agent configuration"); appErr != nil {
+		// Both remaining fields name a *Helix* agent, as their column names say.
+		// They are driven by RunBlockingSession (see HelixCodeReviewTrigger), a
+		// plain inference session — a coding/org agent needs a sandbox and a Zed
+		// to run at all, so it cannot serve either role. Requiring AgentKindCoding
+		// here contradicted project creation, which assigns the helix-agent
+		// Optimus as project manager.
+		if appErr := requireAgentKind(app, types.AgentKindHelix, "project agent configuration"); appErr != nil {
 			return nil, system.NewHTTPError400(appErr.Error())
 		}
 	}
@@ -729,6 +735,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	}
 	if req.AutoStartBacklogTasks != nil {
 		project.AutoStartBacklogTasks = *req.AutoStartBacklogTasks
+	}
+	if req.AgentTools != nil {
+		project.AgentTools = sanitizeAgentTools(*req.AgentTools)
 	}
 	if req.DefaultHelixAppID != nil {
 		project.DefaultHelixAppID = *req.DefaultHelixAppID
@@ -1006,6 +1015,18 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 					log.Warn().Err(stopErr).Str("session_id", task.PlanningSessionID).Msg("Failed to stop session (continuing with deletion)")
 				}
 			}
+		}
+	}
+
+	// Static artifacts inherit project ownership, so project deletion must
+	// remove their routes, blobs, and metadata before archiving the project.
+	artifacts, err := s.Store.ListArtifacts(r.Context(), &store.ListArtifactsQuery{ProjectID: projectID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("list project artifacts: %s", err))
+	}
+	for _, artifact := range artifacts {
+		if err := s.deleteArtifactResources(r.Context(), artifact); err != nil {
+			return nil, system.NewHTTPError500(err.Error())
 		}
 	}
 

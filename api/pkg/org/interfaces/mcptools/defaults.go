@@ -127,3 +127,38 @@ func OwnerBotTools() []tool.Name {
 func MergeBaseReadTools(existing []tool.Name) []tool.Name {
 	return nodes.MergeTools(existing, BaseReadTools)
 }
+
+// SpecTaskAgentTools is the catalogue offered to a spec task's coding agent —
+// the tools that work when the caller is a project principal rather than a Bot
+// (see runtime.ProjectPrincipal). Every entry resolves its target project from
+// the caller, so a task can only ever reach its own project's tasks.
+//
+// This is the whole eligibility policy: a project/task tool selection is
+// intersected with this list before it reaches MCP, so a stale or hand-crafted
+// name can never widen the surface. Adding a tool here is a data edit.
+var SpecTaskAgentTools = []tool.Name{
+	CreateSpecTaskName,
+	ListSpecTasksName,
+	GetSpecTaskName,
+	UpdateSpecTaskName,
+	StartSpecTaskPlanningName,
+	SendSpecTaskAgentMessageName,
+	ListSpecTaskAgentMessagesName,
+	StartSpecTaskAgentName,
+	StopSpecTaskAgentName,
+	RestartSpecTaskAgentName,
+	ReviewSpecTaskSpecName,
+	ApproveSpecTaskSpecName,
+	RequestSpecTaskChangesName,
+	CreateSpecTaskPRsName,
+}
+
+// IsSpecTaskAgentTool reports whether name is in SpecTaskAgentTools.
+func IsSpecTaskAgentTool(name tool.Name) bool {
+	for _, n := range SpecTaskAgentTools {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}

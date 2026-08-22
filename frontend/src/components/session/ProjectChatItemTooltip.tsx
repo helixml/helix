@@ -4,67 +4,36 @@ import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { BrainCircuit, Cpu, FolderGit2, GitBranch, Monitor, SquareTerminal } from 'lucide-react'
 
-import { TypesSandboxRuntime } from '../../api/api'
 import useApps from '../../hooks/useApps'
-import { effectiveSpecTaskSandboxRuntime } from '../../utils/specTaskSandboxRuntime'
-import AgentHarness, { getAgentHarnessModel, getAgentHarnessRuntime } from '../agent/AgentHarness'
+import AgentHarness from '../agent/AgentHarness'
+import { getProjectChatItemDetails } from './projectChatItemDetails'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 
 type ProjectChatItemTooltipProps = {
   item: SidebarItem
   repository?: string
   branch?: string
+  /**
+   * Phones show the same facts on the row's second line, so the tooltip would
+   * be a duplicate they cannot dismiss.
+   */
+  disabled?: boolean
   children: ReactElement
-}
-
-const runtimeLabel = (runtime?: string): string => {
-  switch (runtime) {
-    case 'claude_code': return 'Claude Code'
-    case 'codex_cli': return 'Codex'
-    case 'qwen_code': return 'Qwen Code'
-    case 'goose_code': return 'Goose'
-    case 'opencode': return 'opencode'
-    case 'deepseek_harness': return 'DeepSeek Harness'
-    case 'zed_agent': return 'Zed Agent'
-    case 'zed_external': return 'External Agent'
-    case 'helix': return 'Helix'
-    default: return runtime || ''
-  }
-}
-
-const sandboxDetails = (item: SidebarItem): { compute?: string; environment?: string } => {
-  if (item.kind !== 'spec-task' || !item.task) return {}
-
-  const vcpus = item.task.sandbox_resource_overrides?.vcpus || 4
-  const memoryMb = item.task.sandbox_resource_overrides?.memory_mb || 8192
-  const memory = memoryMb % 1024 === 0
-    ? `${memoryMb / 1024} GB RAM`
-    : `${memoryMb} MB RAM`
-  const environment = effectiveSpecTaskSandboxRuntime(item.task.sandbox_runtime)
-    === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu
-    ? 'Headless'
-    : 'Full Desktop'
-
-  return { compute: `${vcpus} vCPU · ${memory}`, environment }
 }
 
 const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
   item,
   repository,
   branch,
+  disabled = false,
   children,
 }) => {
   const { apps } = useApps()
-  const configuredAppID = item.kind === 'spec-task' ? undefined : item.session?.app_id
-  const configuredApp = apps.find((app) => app.id === configuredAppID)
-  const runtime = item.task?.code_agent_config?.runtime || (configuredApp
-    ? getAgentHarnessRuntime(configuredApp)
-    : item.session?.metadata?.code_agent_runtime || item.session?.metadata?.agent_type)
-  const harness = runtimeLabel(runtime)
-  const model = item.task?.code_agent_config?.model || (configuredApp
-    ? getAgentHarnessModel(configuredApp)
-    : item.session?.model_name)
-  const { compute, environment } = sandboxDetails(item)
+  const details = getProjectChatItemDetails({ item, apps, repository, branch })
+  const { harness, model, compute, environment, runtime } = details
+
+  if (disabled) return children
+
   const rows = [
     repository && { icon: <FolderGit2 size={13} />, value: repository },
     branch && { icon: <GitBranch size={13} />, value: branch },

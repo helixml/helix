@@ -1878,6 +1878,16 @@ definitions:
     type: object
   server.AppClaudeSubscriptionStatus:
     properties:
+      claude_account_email:
+        type: string
+      claude_account_name:
+        type: string
+      claude_organization_id:
+        description: |-
+          ClaudeOrganizationID is Anthropic's organization uuid for the credential.
+          Populated for setup tokens too, which cannot be profiled — it lets the UI
+          say "this is the same subscription as X" without anyone typing anything.
+        type: string
       connected:
         description: owner has a subscription connected at all
         type: boolean
@@ -1894,10 +1904,43 @@ definitions:
       owner_name:
         description: human-readable owner (email / full name)
         type: string
+      refresh_token_expires_at:
+        description: |-
+          RefreshTokenExpiresAt is when the user must sign in again. Refreshing
+          keeps the access token alive but does not move this, so it is the only
+          honest basis for an expiry warning.
+        type: string
       status:
+        type: string
+      subscription_owner_id:
+        type: string
+      subscription_owner_is_current_user:
+        type: boolean
+      subscription_owner_name:
         type: string
       subscription_owner_type:
         description: '"user" or "org" — where the effective sub resolved'
+        type: string
+      subscription_rate_limit_tier:
+        description: |-
+          SubscriptionRateLimitTier is the Claude org's rate-limit tier as Anthropic
+          reports it, e.g. "default_claude_max_20x"; empty when unknown.
+        type: string
+      subscription_type:
+        description: |-
+          Identity of the Claude subscription itself, populated when Connected.
+          SubscriptionType is the plan ("pro" / "max"), empty for setup-token
+          connections where the plan is unknown.
+          SubscriptionOwnerName is the subscription owner's email (user-owned) or
+          org name (org-owned) — i.e. WHOSE subscription authenticates the agent.
+          SubscriptionOwnerIsCurrentUser is true when that owner is the requesting
+          user's own subscription ("is it mine?" — yes).
+
+          ClaudeAccountEmail/ClaudeAccountName identify the actual Claude account
+          the token authenticates as (fetched from Anthropic's /api/oauth/profile) —
+          the identity that gets billed. It can differ from SubscriptionOwnerName
+          (the Helix user who connected the subscription); when no valid probe has
+          enriched the row yet they are empty and consumers fall back to the owner.
         type: string
       valid:
         description: that subscription passed its last liveness probe
@@ -1932,9 +1975,13 @@ definitions:
         description: keyed by task_id
         type: object
     type: object
-  server.ClaudeLoginSessionResponse:
+  server.ClaudeLoginStartResponse:
     properties:
-      session_id:
+      authorize_url:
+        type: string
+      code_verifier:
+        type: string
+      state:
         type: string
     type: object
   server.ClaudeModel:
@@ -1944,17 +1991,6 @@ definitions:
       id:
         type: string
       name:
-        type: string
-    type: object
-  server.ClaudePollLoginResponse:
-    properties:
-      credentials:
-        description: Raw credentials JSON
-        type: string
-      found:
-        type: boolean
-      url:
-        description: OAuth URL for native browser
         type: string
     type: object
   server.ClientBufferStats:
@@ -1993,6 +2029,24 @@ definitions:
       found:
         type: boolean
       url:
+        type: string
+    type: object
+  server.CompleteClaudeLoginRequest:
+    properties:
+      code:
+        type: string
+      code_verifier:
+        type: string
+      name:
+        description: Same ownership knobs as a direct create.
+        type: string
+      organization_id:
+        type: string
+      owner_id:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
+      state:
         type: string
     type: object
   server.ConfigurePendingSessionRequest:
@@ -3711,6 +3765,13 @@ definitions:
           $ref: '#/definitions/types.Trigger'
         type: array
     type: object
+  types.AgentToolInfo:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    type: object
   types.AgentType:
     enum:
     - helix_basic
@@ -3768,6 +3829,10 @@ definitions:
         type: integer
       sandbox_cost:
         type: number
+      tool_call_error_requests:
+        type: integer
+      tool_call_requests:
+        type: integer
       total_cost:
         description: Prompt + completion + cache read + cache write
         type: number
@@ -3804,6 +3869,142 @@ definitions:
         type: string
       type:
         $ref: '#/definitions/types.APIKeyType'
+    type: object
+  types.Artifact:
+    properties:
+      active_version:
+        $ref: '#/definitions/types.ArtifactVersion'
+      active_version_id:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      description:
+        type: string
+      entrypoint:
+        type: string
+      id:
+        type: string
+      kind:
+        $ref: '#/definitions/types.ArtifactKind'
+      name:
+        type: string
+      organization_id:
+        type: string
+      project_id:
+        type: string
+      subdomain_url:
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      url:
+        type: string
+      visibility:
+        $ref: '#/definitions/types.ArtifactVisibility'
+    type: object
+  types.ArtifactFile:
+    properties:
+      content_type:
+        type: string
+      path:
+        type: string
+      sha256:
+        type: string
+      size:
+        type: integer
+    type: object
+  types.ArtifactKind:
+    enum:
+    - single_file
+    - spa
+    - pdf
+    - image
+    type: string
+    x-enum-varnames:
+    - ArtifactKindSingleFile
+    - ArtifactKindSPA
+    - ArtifactKindPDF
+    - ArtifactKindImage
+  types.ArtifactVersion:
+    properties:
+      artifact_id:
+        type: string
+      content_sha256:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      file_count:
+        type: integer
+      files:
+        items:
+          $ref: '#/definitions/types.ArtifactFile'
+        type: array
+      id:
+        type: string
+      source_session_id:
+        type: string
+      source_spec_task_id:
+        type: string
+      total_bytes:
+        type: integer
+      version:
+        type: integer
+    type: object
+  types.ArtifactVersionsListResponse:
+    properties:
+      versions:
+        items:
+          $ref: '#/definitions/types.ArtifactVersion'
+        type: array
+    type: object
+  types.ArtifactViewerResponse:
+    properties:
+      active_version_id:
+        type: string
+      can_edit:
+        type: boolean
+      description:
+        type: string
+      id:
+        type: string
+      kind:
+        $ref: '#/definitions/types.ArtifactKind'
+      name:
+        type: string
+      organization_id:
+        type: string
+      organization_name:
+        type: string
+      project_id:
+        type: string
+      project_name:
+        type: string
+      subdomain_url:
+        type: string
+      visibility:
+        $ref: '#/definitions/types.ArtifactVisibility'
+    type: object
+  types.ArtifactVisibility:
+    enum:
+    - project
+    - public
+    type: string
+    x-enum-varnames:
+    - ArtifactVisibilityProject
+    - ArtifactVisibilityPublic
+  types.ArtifactsListResponse:
+    properties:
+      artifacts:
+        items:
+          $ref: '#/definitions/types.Artifact'
+        type: array
     type: object
   types.AssistantAPI:
     properties:
@@ -4624,6 +4825,12 @@ definitions:
         type: string
       refreshToken:
         type: string
+      refreshTokenExpiresAt:
+        description: |-
+          RefreshTokenExpiresAt is Unix milliseconds. This is the one that matters
+          for "when must I sign in again": rotation does not extend it, so it is a
+          hard deadline anchored to the original login.
+        type: integer
       scopes:
         items:
           type: string
@@ -4634,6 +4841,24 @@ definitions:
   types.ClaudeSubscription:
     properties:
       access_token_expires_at:
+        type: string
+      account_display_name:
+        type: string
+      account_email:
+        description: |-
+          AccountEmail is the email of the Claude account the stored token
+          authenticates as, fetched from Anthropic's /api/oauth/profile. It is the
+          identity that gets billed and can differ from the Helix user/org (OwnerID)
+          that connected the subscription. Best-effort: empty until a valid probe
+          has enriched the row.
+        type: string
+      claude_organization_id:
+        description: |-
+          ClaudeOrganizationID is Anthropic's organization uuid for the credential,
+          captured from the anthropic-organization-id header on the liveness probe.
+          Unlike AccountEmail it needs no OAuth scope, so it is populated for setup
+          tokens too — it is the only *verified* identity a setup token discloses.
+          Two subscriptions sharing it are the same Claude subscription.
         type: string
       created:
         type: string
@@ -4674,6 +4899,13 @@ definitions:
         - $ref: '#/definitions/types.OwnerType'
         description: '"user" or "org"'
       rate_limit_tier:
+        type: string
+      refresh_token_expires_at:
+        description: |-
+          RefreshTokenExpiresAt is when the login itself dies and the user must
+          re-authenticate. Refreshing keeps the 8h access token alive but does not
+          move this, so it is the only honest basis for an expiry warning. Zero for
+          setup tokens, which carry no refresh token.
         type: string
       scopes:
         items:
@@ -5070,6 +5302,15 @@ definitions:
     type: object
   types.CodexSubscription:
     properties:
+      account_display_name:
+        type: string
+      account_email:
+        description: |-
+          Identity of the ChatGPT account the stored credential authenticates as,
+          read from claims OpenAI signed in the id_token (verified against their
+          JWKS — never from user input). Distinct from OwnerID, which is the Helix
+          user/org that connected it.
+        type: string
       account_id:
         type: string
       auth_mode:
@@ -5090,6 +5331,10 @@ definitions:
         type: string
       owner_type:
         $ref: '#/definitions/types.OwnerType'
+      plan_type:
+        description: PlanType is OpenAI's chatgpt_plan_type ("pro", "plus", "team",
+          …).
+        type: string
       status:
         type: string
       updated:
@@ -5226,6 +5471,11 @@ definitions:
   types.CreateClaudeSubscriptionRequest:
     properties:
       credentials:
+        description: |-
+          Account identity is never accepted from the caller. It is derived from
+          Anthropic: the profile fetch for oauth credentials, and the probe's
+          organization header for setup tokens. Self-reported identity was
+          unverifiable free text that rendered next to agents as if authoritative.
         properties:
           claudeAiOauth:
             $ref: '#/definitions/types.ClaudeOAuthCredentials'
@@ -6881,6 +7131,12 @@ definitions:
         type: integer
       error:
         type: string
+      finish_reason:
+        description: |-
+          FinishReason is the provider's reason for stopping ("stop", "tool_calls",
+          "length", ...). Anthropic's stop_reason is normalised onto the same
+          vocabulary so the two proxies stay comparable.
+        type: string
       id:
         type: string
       interaction_id:
@@ -6925,6 +7181,21 @@ definitions:
           generation stays normal). 0 means no chunk was received (the call errored
           or was cut before the first token). For non-streaming calls it equals the
           time to the full response.
+        type: integer
+      tool_call_error_kinds:
+        type: string
+      tool_call_errors:
+        type: integer
+      tool_calls_returned:
+        type: integer
+      tools_offered:
+        description: |-
+          Tool call validity. ToolsOffered is how many tools the request carried,
+          ToolCallsReturned how many calls came back, ToolCallErrors how many of
+          those were structurally unusable, and ToolCallErrorKinds which buckets
+          they fell into (see api/pkg/toolcall). Tools offered with no calls
+          returned is not an error — it is a turn the model chose to answer in
+          prose.
         type: integer
       total_cost:
         description: Prompt + completion + cache read + cache write
@@ -7390,6 +7661,14 @@ definitions:
         type: boolean
       id:
         type: string
+      input_modalities:
+        description: |-
+          InputModalities is the model's accepted input types ("text", "image",
+          "file", ...). Same provenance and same nil-means-unknown rule as
+          SupportedParameters.
+        items:
+          type: string
+        type: array
       model_info:
         $ref: '#/definitions/types.ModelInfo'
       name:
@@ -7417,6 +7696,16 @@ definitions:
           because sending a value the provider rejects aborts the whole turn.
       root:
         type: string
+      supported_parameters:
+        description: |-
+          SupportedParameters is the set of request parameters the model accepts,
+          as reported by aggregators that publish it (OpenRouter's /v1/models does;
+          plain OpenAI-compatible servers don't). Used by the model picker to
+          filter a several-hundred-model catalogue down to, for example, the models
+          that can actually call tools. Nil means the provider didn't say.
+        items:
+          type: string
+        type: array
       type:
         type: string
     type: object
@@ -7989,6 +8278,13 @@ definitions:
     type: object
   types.Project:
     properties:
+      agent_tools:
+        description: |-
+          AgentTools is the Helix MCP tool allowlist every spec task in this
+          project inherits. Empty means no Helix MCP surface at all.
+        items:
+          type: string
+        type: array
       auto_start_backlog_tasks:
         description: Automation settings
         type: boolean
@@ -8381,6 +8677,11 @@ definitions:
     type: object
   types.ProjectUpdateRequest:
     properties:
+      agent_tools:
+        description: Helix MCP tools granted to every spec task
+        items:
+          type: string
+        type: array
       auto_start_backlog_tasks:
         type: boolean
       code_agent_config:
@@ -8673,6 +8974,21 @@ definitions:
         type: string
       vertex_region:
         type: string
+    type: object
+  types.ProviderEndpointModels:
+    properties:
+      enabled_models:
+        description: |-
+          EnabledModels is the operator's whitelist. Empty means every model in
+          Models is available — the default for a newly added provider.
+        items:
+          type: string
+        type: array
+      models:
+        description: Models is the provider's full upstream catalogue, unfiltered.
+        items:
+          $ref: '#/definitions/types.OpenAIModel'
+        type: array
     type: object
   types.ProviderEndpointStatus:
     enum:
@@ -10594,6 +10910,13 @@ definitions:
     type: object
   types.SpecTask:
     properties:
+      agent_tools:
+        description: |-
+          AgentTools are Helix MCP tools granted to this task on top of the
+          project's list. The effective surface is the union of the two.
+        items:
+          type: string
+        type: array
       agent_work_state:
         allOf:
         - $ref: '#/definitions/types.AgentWorkState'
@@ -11215,6 +11538,11 @@ definitions:
     - TaskStatusImplementationFailed
   types.SpecTaskUpdateRequest:
     properties:
+      agent_tools:
+        description: Extra Helix MCP tools for this task, on top of the project's
+        items:
+          type: string
+        type: array
       assignee_id:
         description: Pointer to allow clearing (set to empty string to unassign)
         type: string
@@ -11247,6 +11575,13 @@ definitions:
     type: object
   types.SpecTaskWithProject:
     properties:
+      agent_tools:
+        description: |-
+          AgentTools are Helix MCP tools granted to this task on top of the
+          project's list. The effective surface is the union of the two.
+        items:
+          type: string
+        type: array
       agent_work_state:
         allOf:
         - $ref: '#/definitions/types.AgentWorkState'
@@ -12449,6 +12784,13 @@ definitions:
       vertex_region:
         type: string
     type: object
+  types.UpdateProviderEndpointModels:
+    properties:
+      models:
+        items:
+          type: string
+        type: array
+    type: object
   types.UpdateSandboxRequest:
     properties:
       name:
@@ -12551,6 +12893,10 @@ definitions:
         type: string
       started_at:
         type: string
+      tool_call_error_requests:
+        type: integer
+      tool_call_requests:
+        type: integer
       total_cost:
         type: number
       total_requests:
@@ -13023,7 +13369,7 @@ definitions:
           User-added custom domains and preview tokens are false.
         type: boolean
       port:
-        description: destination port inside the container
+        description: destination port inside the container; zero for static artifacts
         type: integer
       rotated_at:
         type: string
@@ -13032,7 +13378,7 @@ definitions:
       target_kind:
         $ref: '#/definitions/types.VHostTargetKind'
       url:
-        description: public URL, populated by preview API handlers
+        description: public URL, populated by API handlers returning routes
         type: string
       verification_token:
         description: |-
@@ -13050,10 +13396,14 @@ definitions:
     enum:
     - project_web_service
     - sandbox_preview
+    - artifact_static
+    - artifact_private
     type: string
     x-enum-varnames:
     - VHostTargetProjectWebService
     - VHostTargetSandboxPreview
+    - VHostTargetArtifact
+    - VHostTargetArtifactPrivate
   types.WIPLimits:
     properties:
       implementation:
@@ -14128,6 +14478,25 @@ paths:
       summary: Activate a trial for a user (Admin, cloud only)
       tags:
       - users
+  /api/v1/agent-tools:
+    get:
+      description: Returns the catalogue backing the project and task tool pickers.
+        The set is static per deployment; a project grants a subset to all its tasks
+        and a task may add more on top.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AgentToolInfo'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List the Helix MCP tools that can be granted to spec tasks
+      tags:
+      - spec-driven-tasks
   /api/v1/agents:
     get:
       description: List agents for the user. Agents are pre-configured to spawn sessions
@@ -15114,6 +15483,108 @@ paths:
       summary: Create a new API key
       tags:
       - api-keys
+  /api/v1/artifacts/{artifact_id}:
+    delete:
+      parameters:
+      - description: Artifact ID
+        in: path
+        name: artifact_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Delete an artifact
+      tags:
+      - Artifacts
+    get:
+      parameters:
+      - description: Artifact ID
+        in: path
+        name: artifact_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Artifact'
+      security:
+      - BearerAuth: []
+      summary: Get an artifact
+      tags:
+      - Artifacts
+    put:
+      consumes:
+      - multipart/form-data
+      description: Patch metadata and optionally upload replacement HTML, PDF, image,
+        or ZIP content as a new version.
+      parameters:
+      - description: Artifact ID
+        in: path
+        name: artifact_id
+        required: true
+        type: string
+      - description: Artifact name
+        in: formData
+        name: name
+        type: string
+      - description: Description
+        in: formData
+        name: description
+        type: string
+      - description: HTML entrypoint
+        in: formData
+        name: entrypoint
+        type: string
+      - description: project or public
+        in: formData
+        name: visibility
+        type: string
+      - description: Allocate or retain a public default subdomain
+        in: formData
+        name: with_subdomain
+        type: boolean
+      - description: Replacement HTML, PDF, image, or ZIP content
+        in: formData
+        name: artifact
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Artifact'
+      security:
+      - BearerAuth: []
+      summary: Update an artifact
+      tags:
+      - Artifacts
+  /api/v1/artifacts/{artifact_id}/versions:
+    get:
+      parameters:
+      - description: Artifact ID
+        in: path
+        name: artifact_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ArtifactVersionsListResponse'
+      security:
+      - BearerAuth: []
+      summary: List artifact versions
+      tags:
+      - Artifacts
   /api/v1/attention-events:
     get:
       description: Returns attention events that need human action for the current
@@ -15481,6 +15952,41 @@ paths:
       tags:
       - Claude
   /api/v1/claude-subscriptions/{id}:
+    delete:
+      description: Disconnect a Claude subscription owned by the current user, or
+        by an organization they own
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete a Claude subscription
+      tags:
+      - Claude
     get:
       description: Get details of a specific Claude subscription (no secrets)
       parameters:
@@ -15577,66 +16083,57 @@ paths:
       summary: List available Claude models
       tags:
       - Claude
-  /api/v1/claude-subscriptions/poll-login/{sessionId}:
-    get:
-      description: Check if Claude credentials file has been written inside the desktop
-        container
+  /api/v1/claude-subscriptions/oauth/complete:
+    post:
+      consumes:
+      - application/json
+      description: Exchange the pasted authorization code for tokens and connect the
+        subscription
       parameters:
-      - description: Session ID
-        in: path
-        name: sessionId
+      - description: Authorization code and PKCE material
+        in: body
+        name: body
         required: true
-        type: string
+        schema:
+          $ref: '#/definitions/server.CompleteClaudeLoginRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/server.ClaudePollLoginResponse'
+            $ref: '#/definitions/types.ClaudeSubscription'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
         "401":
           description: Unauthorized
           schema:
             $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
-      summary: Poll for Claude login credentials
+      summary: Complete a Claude subscription login
       tags:
       - Claude
-  /api/v1/claude-subscriptions/start-login:
+  /api/v1/claude-subscriptions/oauth/start:
     post:
-      description: Launch a temporary desktop session for interactive Claude OAuth
-        login
+      description: Build the Anthropic authorization URL and PKCE material for connecting
+        a Claude subscription
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/server.ClaudeLoginSessionResponse'
+            $ref: '#/definitions/server.ClaudeLoginStartResponse'
         "401":
           description: Unauthorized
           schema:
             $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
-      summary: Start a Claude login session
+      summary: Start a Claude subscription login
       tags:
       - Claude
   /api/v1/clone-groups/{groupId}/progress:
@@ -21784,6 +22281,77 @@ paths:
       summary: Grant access to a project to a team or organization member
       tags:
       - projects
+  /api/v1/projects/{id}/artifacts:
+    get:
+      description: List static artifacts in a project. Access is inherited from the
+        project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ArtifactsListResponse'
+      security:
+      - BearerAuth: []
+      summary: List project artifacts
+      tags:
+      - Artifacts
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload one HTML, PDF, or image file, or a ZIP containing a compiled
+        static SPA.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Artifact name
+        in: formData
+        name: name
+        required: true
+        type: string
+      - description: Description
+        in: formData
+        name: description
+        type: string
+      - description: HTML entrypoint (default index.html)
+        in: formData
+        name: entrypoint
+        type: string
+      - description: project or public
+        in: formData
+        name: visibility
+        type: string
+      - description: 'Deprecated: public artifacts always receive a share subdomain'
+        in: formData
+        name: with_subdomain
+        type: boolean
+      - description: HTML, PDF, image, or ZIP bundle
+        in: formData
+        name: artifact
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.Artifact'
+      security:
+      - BearerAuth: []
+      summary: Create a project artifact
+      tags:
+      - Artifacts
   /api/v1/projects/{id}/audit-logs:
     get:
       consumes:
@@ -23207,6 +23775,46 @@ paths:
             $ref: '#/definitions/types.UpdateProviderEndpoint'
       security:
       - BearerAuth: []
+  /api/v1/provider-endpoints/{id}/available-models:
+    get:
+      description: Returns every model the upstream provider advertises, plus the
+        subset currently enabled on the endpoint. Aggregators such as OpenRouter list
+        hundreds of models, so this is deliberately separate from the endpoint's effective
+        (enabled-only) model list.
+      parameters:
+      - description: Provider endpoint ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Bypass the cached catalogue and refetch from upstream
+        in: query
+        name: refresh
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProviderEndpointModels'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List a provider endpoint's full model catalogue
+      tags:
+      - providers
   /api/v1/provider-endpoints/{id}/daily-usage:
     get:
       consumes:
@@ -23250,6 +23858,48 @@ paths:
       security:
       - BearerAuth: []
       summary: Get provider daily usage
+      tags:
+      - providers
+  /api/v1/provider-endpoints/{id}/models:
+    put:
+      consumes:
+      - application/json
+      description: Replaces the endpoint's enabled-models whitelist. An empty list
+        enables the provider's whole catalogue.
+      parameters:
+      - description: Provider endpoint ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Enabled models
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateProviderEndpointModels'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProviderEndpoint'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Set the models enabled on a provider endpoint
       tags:
       - providers
   /api/v1/provider-endpoints/{id}/throughput-usage:
@@ -23361,6 +24011,26 @@ paths:
             type: array
       security:
       - BearerAuth: []
+  /api/v1/public/artifacts/{artifact_id}:
+    get:
+      description: Returns safe display metadata for public artifacts without authentication.
+        Private artifacts require project access.
+      parameters:
+      - description: Artifact ID
+        in: path
+        name: artifact_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ArtifactViewerResponse'
+      summary: Get artifact viewer metadata
+      tags:
+      - Artifacts
   /api/v1/quotas:
     get:
       description: Get quotas for the user. Returns current usage and limits for desktops,

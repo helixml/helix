@@ -31,7 +31,7 @@ const CodeAgentHarnessesSection: FC<{
   loading?: boolean
   readOnly?: boolean
   subscriptionAction?: (runtime: string) => ReactNode
-  subscriptionIdentity?: (runtime: string) => string | undefined
+  subscriptionIdentity?: (runtime: string) => ReactNode
   onChange: (update: TypesOrgCodeAgentHarnessUpdate) => void
 }> = ({
   harnesses,

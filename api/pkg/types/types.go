@@ -2673,6 +2673,20 @@ type LLMCall struct {
 	TotalCost          float64 `json:"total_cost"` // Prompt + completion + cache read + cache write
 	Stream             bool    `json:"stream"`
 	Error              string  `json:"error"`
+	// FinishReason is the provider's reason for stopping ("stop", "tool_calls",
+	// "length", ...). Anthropic's stop_reason is normalised onto the same
+	// vocabulary so the two proxies stay comparable.
+	FinishReason string `json:"finish_reason"`
+	// Tool call validity. ToolsOffered is how many tools the request carried,
+	// ToolCallsReturned how many calls came back, ToolCallErrors how many of
+	// those were structurally unusable, and ToolCallErrorKinds which buckets
+	// they fell into (see api/pkg/toolcall). Tools offered with no calls
+	// returned is not an error — it is a turn the model chose to answer in
+	// prose.
+	ToolsOffered       int    `json:"tools_offered"`
+	ToolCallsReturned  int    `json:"tool_calls_returned"`
+	ToolCallErrors     int    `json:"tool_call_errors"`
+	ToolCallErrorKinds string `json:"tool_call_error_kinds"`
 }
 
 // SecretScope controls which environment a project secret is injected into.
@@ -2895,6 +2909,15 @@ type UsageMetric struct {
 	DurationMs        int               `json:"duration_ms"`
 	RequestSizeBytes  int               `json:"request_size_bytes"`
 	ResponseSizeBytes int               `json:"response_size_bytes"`
+	// ToolCallRequests counts requests that returned at least one tool call,
+	// ToolCallErrorRequests how many of those returned at least one
+	// structurally invalid call. Stored as counters rather than a ratio so the
+	// daily/provider/model rollups can sum them — a stored ratio would have to
+	// be averaged, weighting a quiet day the same as a busy one. Sources with
+	// no request body (subscription/ACP usage) leave both at zero and so drop
+	// out of the denominator instead of diluting it.
+	ToolCallRequests      int `json:"tool_call_requests"`
+	ToolCallErrorRequests int `json:"tool_call_error_requests"`
 }
 
 type UsersAggregatedUsageMetric struct {
@@ -2945,6 +2968,9 @@ type AggregatedUsageMetric struct {
 	RequestSizeBytes  int     `json:"request_size_bytes"`
 	ResponseSizeBytes int     `json:"response_size_bytes"`
 	TotalRequests     int     `json:"total_requests"`
+
+	ToolCallRequests      int `json:"tool_call_requests"`
+	ToolCallErrorRequests int `json:"tool_call_error_requests"`
 }
 
 // UsageComputeDailyPoint is one day of sandbox compute spend, split by
@@ -2990,36 +3016,40 @@ type OrgComputeUsage struct {
 }
 
 type UsageBreakdownRow struct {
-	ID                string     `json:"id"`
-	Name              string     `json:"name"`
-	Email             string     `json:"email,omitempty"`
-	Username          string     `json:"username,omitempty"`
-	Provider          string     `json:"provider,omitempty"`
-	Model             string     `json:"model,omitempty"`
-	SessionID         string     `json:"session_id,omitempty"`
-	InteractionID     string     `json:"interaction_id,omitempty"`
-	PromptTokens      int        `json:"prompt_tokens"`
-	CompletionTokens  int        `json:"completion_tokens"`
-	TotalTokens       int        `json:"total_tokens"`
-	CacheReadTokens   int        `json:"cache_read_tokens"`
-	CacheWriteTokens  int        `json:"cache_write_tokens"`
-	PromptCost        float64    `json:"prompt_cost"`
-	CompletionCost    float64    `json:"completion_cost"`
-	CacheReadCost     float64    `json:"cache_read_cost"`
-	CacheWriteCost    float64    `json:"cache_write_cost"`
-	TotalCost         float64    `json:"total_cost"`
-	LatencyMs         float64    `json:"latency_ms"`
-	RequestSizeBytes  int        `json:"request_size_bytes"`
-	ResponseSizeBytes int        `json:"response_size_bytes"`
-	TotalRequests     int        `json:"total_requests"`
-	SessionCount      int        `json:"session_count"`
-	UniqueUsers       int        `json:"unique_users"`
-	UniqueSessions    int        `json:"unique_sessions"`
-	UniqueProjects    int        `json:"unique_projects"`
-	UniqueApps        int        `json:"unique_apps"`
-	StartedAt         *time.Time `json:"started_at,omitempty"`
-	EndedAt           *time.Time `json:"ended_at,omitempty"`
-	LastActivityAt    *time.Time `json:"last_activity_at,omitempty"`
+	ID                string  `json:"id"`
+	Name              string  `json:"name"`
+	Email             string  `json:"email,omitempty"`
+	Username          string  `json:"username,omitempty"`
+	Provider          string  `json:"provider,omitempty"`
+	Model             string  `json:"model,omitempty"`
+	SessionID         string  `json:"session_id,omitempty"`
+	InteractionID     string  `json:"interaction_id,omitempty"`
+	PromptTokens      int     `json:"prompt_tokens"`
+	CompletionTokens  int     `json:"completion_tokens"`
+	TotalTokens       int     `json:"total_tokens"`
+	CacheReadTokens   int     `json:"cache_read_tokens"`
+	CacheWriteTokens  int     `json:"cache_write_tokens"`
+	PromptCost        float64 `json:"prompt_cost"`
+	CompletionCost    float64 `json:"completion_cost"`
+	CacheReadCost     float64 `json:"cache_read_cost"`
+	CacheWriteCost    float64 `json:"cache_write_cost"`
+	TotalCost         float64 `json:"total_cost"`
+	LatencyMs         float64 `json:"latency_ms"`
+	RequestSizeBytes  int     `json:"request_size_bytes"`
+	ResponseSizeBytes int     `json:"response_size_bytes"`
+	TotalRequests     int     `json:"total_requests"`
+
+	ToolCallRequests      int `json:"tool_call_requests"`
+	ToolCallErrorRequests int `json:"tool_call_error_requests"`
+
+	SessionCount   int        `json:"session_count"`
+	UniqueUsers    int        `json:"unique_users"`
+	UniqueSessions int        `json:"unique_sessions"`
+	UniqueProjects int        `json:"unique_projects"`
+	UniqueApps     int        `json:"unique_apps"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	EndedAt        *time.Time `json:"ended_at,omitempty"`
+	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
 }
 
 type UsageModelTimeSeries struct {
@@ -3067,6 +3097,9 @@ type UsageCostBreakdownRow struct {
 	// and diverge from the provider breakdown whenever model info remaps it.
 	DurationMs    float64 `json:"-"`
 	TotalRequests int     `json:"-"`
+
+	ToolCallRequests      int `json:"-"`
+	ToolCallErrorRequests int `json:"-"`
 }
 
 type UsageFilterOption struct {

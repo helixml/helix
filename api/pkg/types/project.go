@@ -259,6 +259,10 @@ type Project struct {
 	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"` // When guidelines were last updated
 	GuidelinesUpdatedBy string    `json:"guidelines_updated_by"` // User ID who last updated guidelines
 
+	// AgentTools is the Helix MCP tool allowlist every spec task in this
+	// project inherits. Empty means no Helix MCP surface at all.
+	AgentTools []string `json:"agent_tools,omitempty" gorm:"type:jsonb;serializer:json"`
+
 	// Project-level skills - these overlay on top of agent skills
 	// Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
 	Skills *AssistantSkills `json:"skills,omitempty" gorm:"type:jsonb;serializer:json"`
@@ -409,6 +413,7 @@ type ProjectUpdateRequest struct {
 	KoditEnabled                    *bool                     `json:"kodit_enabled,omitempty"`                      // Whether Kodit code intelligence is enabled
 	Guidelines                      *string                   `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
 	Skills                          *AssistantSkills          `json:"skills,omitempty"`                             // Project-level skills
+	AgentTools                      *[]string                 `json:"agent_tools,omitempty"`                        // Helix MCP tools granted to every spec task
 	Metadata                        *ProjectMetadata          `json:"metadata,omitempty"`
 }
 

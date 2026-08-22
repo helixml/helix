@@ -76,6 +76,7 @@ func GetRawScreenshotBaseURL(repo *types.GitRepository, taskDirName string) stri
 type ApprovalPromptData struct {
 	Guidelines            string   // Formatted guidelines section
 	KoditSection          string   // Dynamic MCP tool documentation from kodit (empty when disabled)
+	AgentToolsSection     string   // Helix task-management tools granted to this task (empty when none)
 	RepositorySection     string   // Available repositories section (local + Kodit repos)
 	PrimaryRepoName       string   // Name of the primary repository (e.g., "my-app")
 	NonPrimaryRepoNames   []string // Names of non-primary repositories (for per-repo PR descriptions)
@@ -151,6 +152,7 @@ If you use an internal to-do tool instead of tasks.md, users cannot see your pro
 1. **/home/retro/work/helix-specs/** = Design docs and progress tracking (push to helix-specs branch)
 2. **/home/retro/work/{{.PrimaryRepoName}}/** = Code changes (push to feature branch) - THIS IS YOUR PRIMARY PROJECT
 {{.RepositorySection}}
+{{.AgentToolsSection}}
 ## Task Checklist
 
 Your checklist: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks.md
@@ -464,7 +466,7 @@ git push origin helix-specs
 // guidelines contains concatenated organization + project guidelines (can be empty)
 // primaryRepoName is the name of the primary project repository (e.g., "my-app")
 // repoSection is the pre-built repository access section (from BuildRepositorySection)
-func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName, koditSection, repoSection string, nonPrimaryRepoNames []string, screenshotBaseURL string) string {
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName, koditSection, repoSection, agentToolsSection string, nonPrimaryRepoNames []string, screenshotBaseURL string) string {
 	taskDirName := GetTaskDirName(task)
 
 	// Build guidelines section if provided
@@ -524,6 +526,7 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 	data := ApprovalPromptData{
 		Guidelines:            guidelinesSection,
 		KoditSection:          koditSection,
+		AgentToolsSection:     agentToolsSection,
 		RepositorySection:     repoSection,
 		PrimaryRepoName:       primaryRepoName,
 		NonPrimaryRepoNames:   nonPrimaryRepoNames,
@@ -638,7 +641,11 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 		}
 	}
 
-	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, nonPrimaryRepoNames, screenshotBaseURL)
+	agentToolsSection := ""
+	if project != nil {
+		agentToolsSection = BuildAgentToolsSection(project.AgentTools, task.AgentTools)
+	}
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, agentToolsSection, nonPrimaryRepoNames, screenshotBaseURL)
 
 	log.Info().
 		Str("session_id", sessionID).

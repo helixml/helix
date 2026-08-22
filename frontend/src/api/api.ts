@@ -1223,6 +1223,14 @@ export interface ServerAgentStartupErrorResponse {
 }
 
 export interface ServerAppClaudeSubscriptionStatus {
+  claude_account_email?: string;
+  claude_account_name?: string;
+  /**
+   * ClaudeOrganizationID is Anthropic's organization uuid for the credential.
+   * Populated for setup tokens too, which cannot be profiled — it lets the UI
+   * say "this is the same subscription as X" without anyone typing anything.
+   */
+  claude_organization_id?: string;
   /** owner has a subscription connected at all */
   connected?: boolean;
   /** true when the editor IS the owner */
@@ -1233,9 +1241,39 @@ export interface ServerAppClaudeSubscriptionStatus {
   owner_id?: string;
   /** human-readable owner (email / full name) */
   owner_name?: string;
+  /**
+   * RefreshTokenExpiresAt is when the user must sign in again. Refreshing
+   * keeps the access token alive but does not move this, so it is the only
+   * honest basis for an expiry warning.
+   */
+  refresh_token_expires_at?: string;
   status?: string;
+  subscription_owner_id?: string;
+  subscription_owner_is_current_user?: boolean;
+  subscription_owner_name?: string;
   /** "user" or "org" — where the effective sub resolved */
   subscription_owner_type?: string;
+  /**
+   * SubscriptionRateLimitTier is the Claude org's rate-limit tier as Anthropic
+   * reports it, e.g. "default_claude_max_20x"; empty when unknown.
+   */
+  subscription_rate_limit_tier?: string;
+  /**
+   * Identity of the Claude subscription itself, populated when Connected.
+   * SubscriptionType is the plan ("pro" / "max"), empty for setup-token
+   * connections where the plan is unknown.
+   * SubscriptionOwnerName is the subscription owner's email (user-owned) or
+   * org name (org-owned) — i.e. WHOSE subscription authenticates the agent.
+   * SubscriptionOwnerIsCurrentUser is true when that owner is the requesting
+   * user's own subscription ("is it mine?" — yes).
+   *
+   * ClaudeAccountEmail/ClaudeAccountName identify the actual Claude account
+   * the token authenticates as (fetched from Anthropic's /api/oauth/profile) —
+   * the identity that gets billed. It can differ from SubscriptionOwnerName
+   * (the Helix user who connected the subscription); when no valid probe has
+   * enriched the row yet they are empty and consumers fall back to the owner.
+   */
+  subscription_type?: string;
   /** that subscription passed its last liveness probe */
   valid?: boolean;
 }
@@ -1257,22 +1295,16 @@ export interface ServerBatchTaskUsageResponse {
   tasks?: Record<string, ServerBatchTaskUsageMetric[]>;
 }
 
-export interface ServerClaudeLoginSessionResponse {
-  session_id?: string;
+export interface ServerClaudeLoginStartResponse {
+  authorize_url?: string;
+  code_verifier?: string;
+  state?: string;
 }
 
 export interface ServerClaudeModel {
   description?: string;
   id?: string;
   name?: string;
-}
-
-export interface ServerClaudePollLoginResponse {
-  /** Raw credentials JSON */
-  credentials?: string;
-  found?: boolean;
-  /** OAuth URL for native browser */
-  url?: string;
 }
 
 export interface ServerClientBufferStats {
@@ -1298,6 +1330,17 @@ export interface ServerCodexPollLoginResponse {
   error?: string;
   found?: boolean;
   url?: string;
+}
+
+export interface ServerCompleteClaudeLoginRequest {
+  code?: string;
+  code_verifier?: string;
+  /** Same ownership knobs as a direct create. */
+  name?: string;
+  organization_id?: string;
+  owner_id?: string;
+  owner_type?: TypesOwnerType;
+  state?: string;
 }
 
 export interface ServerConfigurePendingSessionRequest {
@@ -2376,6 +2419,11 @@ export interface TypesAgentHelixConfig {
   triggers?: TypesTrigger[];
 }
 
+export interface TypesAgentToolInfo {
+  description?: string;
+  name?: string;
+}
+
 export enum TypesAgentType {
   AgentTypeHelixBasic = "helix_basic",
   AgentTypeHelixAgent = "helix_agent",
@@ -2403,6 +2451,8 @@ export interface TypesAggregatedUsageMetric {
   request_size_bytes?: number;
   response_size_bytes?: number;
   sandbox_cost?: number;
+  tool_call_error_requests?: number;
+  tool_call_requests?: number;
   /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_requests?: number;
@@ -2425,6 +2475,82 @@ export interface TypesApiKey {
   /** Used for isolation and metrics tracking */
   spec_task_id?: string;
   type?: TypesAPIKeyType;
+}
+
+export interface TypesArtifact {
+  active_version?: TypesArtifactVersion;
+  active_version_id?: string;
+  created_at?: string;
+  created_by?: string;
+  deleted_at?: GormDeletedAt;
+  description?: string;
+  entrypoint?: string;
+  id?: string;
+  kind?: TypesArtifactKind;
+  name?: string;
+  organization_id?: string;
+  project_id?: string;
+  subdomain_url?: string;
+  updated_at?: string;
+  updated_by?: string;
+  url?: string;
+  visibility?: TypesArtifactVisibility;
+}
+
+export interface TypesArtifactFile {
+  content_type?: string;
+  path?: string;
+  sha256?: string;
+  size?: number;
+}
+
+export enum TypesArtifactKind {
+  ArtifactKindSingleFile = "single_file",
+  ArtifactKindSPA = "spa",
+  ArtifactKindPDF = "pdf",
+  ArtifactKindImage = "image",
+}
+
+export interface TypesArtifactVersion {
+  artifact_id?: string;
+  content_sha256?: string;
+  created_at?: string;
+  created_by?: string;
+  file_count?: number;
+  files?: TypesArtifactFile[];
+  id?: string;
+  source_session_id?: string;
+  source_spec_task_id?: string;
+  total_bytes?: number;
+  version?: number;
+}
+
+export interface TypesArtifactVersionsListResponse {
+  versions?: TypesArtifactVersion[];
+}
+
+export interface TypesArtifactViewerResponse {
+  active_version_id?: string;
+  can_edit?: boolean;
+  description?: string;
+  id?: string;
+  kind?: TypesArtifactKind;
+  name?: string;
+  organization_id?: string;
+  organization_name?: string;
+  project_id?: string;
+  project_name?: string;
+  subdomain_url?: string;
+  visibility?: TypesArtifactVisibility;
+}
+
+export enum TypesArtifactVisibility {
+  ArtifactVisibilityProject = "project",
+  ArtifactVisibilityPublic = "public",
+}
+
+export interface TypesArtifactsListResponse {
+  artifacts?: TypesArtifact[];
 }
 
 export interface TypesAssistantAPI {
@@ -2934,12 +3060,35 @@ export interface TypesClaudeOAuthCredentials {
   expiresAt?: number;
   rateLimitTier?: string;
   refreshToken?: string;
+  /**
+   * RefreshTokenExpiresAt is Unix milliseconds. This is the one that matters
+   * for "when must I sign in again": rotation does not extend it, so it is a
+   * hard deadline anchored to the original login.
+   */
+  refreshTokenExpiresAt?: number;
   scopes?: string[];
   subscriptionType?: string;
 }
 
 export interface TypesClaudeSubscription {
   access_token_expires_at?: string;
+  account_display_name?: string;
+  /**
+   * AccountEmail is the email of the Claude account the stored token
+   * authenticates as, fetched from Anthropic's /api/oauth/profile. It is the
+   * identity that gets billed and can differ from the Helix user/org (OwnerID)
+   * that connected the subscription. Best-effort: empty until a valid probe
+   * has enriched the row.
+   */
+  account_email?: string;
+  /**
+   * ClaudeOrganizationID is Anthropic's organization uuid for the credential,
+   * captured from the anthropic-organization-id header on the liveness probe.
+   * Unlike AccountEmail it needs no OAuth scope, so it is populated for setup
+   * tokens too — it is the only *verified* identity a setup token discloses.
+   * Two subscriptions sharing it are the same Claude subscription.
+   */
+  claude_organization_id?: string;
   created?: string;
   created_by?: string;
   /** "oauth" or "setup_token" */
@@ -2966,6 +3115,13 @@ export interface TypesClaudeSubscription {
   /** "user" or "org" */
   owner_type?: TypesOwnerType;
   rate_limit_tier?: string;
+  /**
+   * RefreshTokenExpiresAt is when the login itself dies and the user must
+   * re-authenticate. Refreshing keeps the 8h access token alive but does not
+   * move this, so it is the only honest basis for an expiry warning. Zero for
+   * setup tokens, which carry no refresh token.
+   */
+  refresh_token_expires_at?: string;
   scopes?: string[];
   /** "active", "expired", "error" */
   status?: string;
@@ -3228,6 +3384,14 @@ export interface TypesCodexAuthTokens {
 }
 
 export interface TypesCodexSubscription {
+  account_display_name?: string;
+  /**
+   * Identity of the ChatGPT account the stored credential authenticates as,
+   * read from claims OpenAI signed in the id_token (verified against their
+   * JWKS — never from user input). Distinct from OwnerID, which is the Helix
+   * user/org that connected it.
+   */
+  account_email?: string;
   account_id?: string;
   auth_mode?: string;
   created?: string;
@@ -3238,6 +3402,8 @@ export interface TypesCodexSubscription {
   name?: string;
   owner_id?: string;
   owner_type?: TypesOwnerType;
+  /** PlanType is OpenAI's chatgpt_plan_type ("pro", "plus", "team", …). */
+  plan_type?: string;
   status?: string;
   updated?: string;
 }
@@ -3324,6 +3490,12 @@ export interface TypesCreateBranchResponse {
 }
 
 export interface TypesCreateClaudeSubscriptionRequest {
+  /**
+   * Account identity is never accepted from the caller. It is derived from
+   * Anthropic: the profile fetch for oauth credentials, and the probe's
+   * organization header for setup tokens. Self-reported identity was
+   * unverifiable free text that rendered next to agents as if authoritative.
+   */
   credentials?: {
     claudeAiOauth?: TypesClaudeOAuthCredentials;
   };
@@ -4374,6 +4546,12 @@ export interface TypesLLMCall {
   created?: string;
   duration_ms?: number;
   error?: string;
+  /**
+   * FinishReason is the provider's reason for stopping ("stop", "tool_calls",
+   * "length", ...). Anthropic's stop_reason is normalised onto the same
+   * vocabulary so the two proxies stay comparable.
+   */
+  finish_reason?: string;
   id?: string;
   interaction_id?: string;
   model?: string;
@@ -4398,6 +4576,18 @@ export interface TypesLLMCall {
    * time to the full response.
    */
   time_to_first_token_ms?: number;
+  tool_call_error_kinds?: string;
+  tool_call_errors?: number;
+  tool_calls_returned?: number;
+  /**
+   * Tool call validity. ToolsOffered is how many tools the request carried,
+   * ToolCallsReturned how many calls came back, ToolCallErrors how many of
+   * those were structurally unusable, and ToolCallErrorKinds which buckets
+   * they fell into (see api/pkg/toolcall). Tools offered with no calls
+   * returned is not an error — it is a turn the model chose to answer in
+   * prose.
+   */
+  tools_offered?: number;
   /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_tokens?: number;
@@ -4678,6 +4868,12 @@ export interface TypesOpenAIModel {
   enabled?: boolean;
   hide?: boolean;
   id?: string;
+  /**
+   * InputModalities is the model's accepted input types ("text", "image",
+   * "file", ...). Same provenance and same nil-means-unknown rule as
+   * SupportedParameters.
+   */
+  input_modalities?: string[];
   model_info?: TypesModelInfo;
   name?: string;
   object?: string;
@@ -4695,6 +4891,14 @@ export interface TypesOpenAIModel {
    */
   reasoning_efforts?: TypesReasoningEffortProfile;
   root?: string;
+  /**
+   * SupportedParameters is the set of request parameters the model accepts,
+   * as reported by aggregators that publish it (OpenRouter's /v1/models does;
+   * plain OpenAI-compatible servers don't). Used by the model picker to
+   * filter a several-hundred-model catalogue down to, for example, the models
+   * that can actually call tools. Nil means the provider didn't say.
+   */
+  supported_parameters?: string[];
   type?: string;
 }
 
@@ -5006,6 +5210,11 @@ export interface TypesProfileModel {
 }
 
 export interface TypesProject {
+  /**
+   * AgentTools is the Helix MCP tool allowlist every spec task in this
+   * project inherits. Empty means no Helix MCP surface at all.
+   */
+  agent_tools?: string[];
   /** Automation settings */
   auto_start_backlog_tasks?: boolean;
   /** CodeAgentConfig is the project default copied into each new SpecTask. */
@@ -5258,6 +5467,8 @@ export interface TypesProjectTaskSpec {
 }
 
 export interface TypesProjectUpdateRequest {
+  /** Helix MCP tools granted to every spec task */
+  agent_tools?: string[];
   auto_start_backlog_tasks?: boolean;
   code_agent_config?: TypesCodeAgentExecutionConfig;
   default_branch?: string;
@@ -5443,6 +5654,16 @@ export interface TypesProviderEndpoint {
   /** Google Vertex AI fields — when VertexProjectID is set, this endpoint routes through Vertex */
   vertex_project_id?: string;
   vertex_region?: string;
+}
+
+export interface TypesProviderEndpointModels {
+  /**
+   * EnabledModels is the operator's whitelist. Empty means every model in
+   * Models is available — the default for a newly added provider.
+   */
+  enabled_models?: string[];
+  /** Models is the provider's full upstream catalogue, unfiltered. */
+  models?: TypesOpenAIModel[];
 }
 
 export enum TypesProviderEndpointStatus {
@@ -6705,6 +6926,11 @@ export interface TypesSpecApprovalResponse {
 }
 
 export interface TypesSpecTask {
+  /**
+   * AgentTools are Helix MCP tools granted to this task on top of the
+   * project's list. The effective surface is the union of the two.
+   */
+  agent_tools?: string[];
   /** Current agent work state (idle/working/done) from activity tracking */
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
@@ -7070,6 +7296,8 @@ export enum TypesSpecTaskStatus {
 }
 
 export interface TypesSpecTaskUpdateRequest {
+  /** Extra Helix MCP tools for this task, on top of the project's */
+  agent_tools?: string[];
   /** Pointer to allow clearing (set to empty string to unassign) */
   assignee_id?: string;
   /** IDs of tasks this task depends on */
@@ -7089,6 +7317,11 @@ export interface TypesSpecTaskUpdateRequest {
 }
 
 export interface TypesSpecTaskWithProject {
+  /**
+   * AgentTools are Helix MCP tools granted to this task on top of the
+   * project's list. The effective surface is the union of the two.
+   */
+  agent_tools?: string[];
   /** Current agent work state (idle/working/done) from activity tracking */
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
@@ -7826,6 +8059,10 @@ export interface TypesUpdateProviderEndpoint {
   vertex_region?: string;
 }
 
+export interface TypesUpdateProviderEndpointModels {
+  models?: string[];
+}
+
 export interface TypesUpdateSandboxRequest {
   name?: string;
   tags?: Record<string, string>;
@@ -7885,6 +8122,8 @@ export interface TypesUsageBreakdownRow {
   session_count?: number;
   session_id?: string;
   started_at?: string;
+  tool_call_error_requests?: number;
+  tool_call_requests?: number;
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
@@ -8188,12 +8427,12 @@ export interface TypesVHostRoute {
    * User-added custom domains and preview tokens are false.
    */
   is_default?: boolean;
-  /** destination port inside the container */
+  /** destination port inside the container; zero for static artifacts */
   port?: number;
   rotated_at?: string;
   target_id?: string;
   target_kind?: TypesVHostTargetKind;
-  /** public URL, populated by preview API handlers */
+  /** public URL, populated by API handlers returning routes */
   url?: string;
   /**
    * VerificationToken is only meaningful for custom domains awaiting
@@ -8211,6 +8450,8 @@ export interface TypesVHostRoute {
 export enum TypesVHostTargetKind {
   VHostTargetProjectWebService = "project_web_service",
   VHostTargetSandboxPreview = "sandbox_preview",
+  VHostTargetArtifact = "artifact_static",
+  VHostTargetArtifactPrivate = "artifact_private",
 }
 
 export interface TypesWIPLimits {
@@ -9045,6 +9286,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns the catalogue backing the project and task tool pickers. The set is static per deployment; a project grants a subset to all its tasks and a task may add more on top.
+     *
+     * @tags spec-driven-tasks
+     * @name V1AgentToolsList
+     * @summary List the Helix MCP tools that can be granted to spec tasks
+     * @request GET:/api/v1/agent-tools
+     * @secure
+     */
+    v1AgentToolsList: (params: RequestParams = {}) =>
+      this.request<TypesAgentToolInfo[], any>({
+        path: `/api/v1/agent-tools`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List agents for the user. Agents are pre-configured to spawn sessions with specific tools and config.
      *
      * @tags agents
@@ -9781,6 +10040,96 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * No description
+     *
+     * @tags Artifacts
+     * @name V1ArtifactsDelete
+     * @summary Delete an artifact
+     * @request DELETE:/api/v1/artifacts/{artifact_id}
+     * @secure
+     */
+    v1ArtifactsDelete: (artifactId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/artifacts/${artifactId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Artifacts
+     * @name V1ArtifactsDetail
+     * @summary Get an artifact
+     * @request GET:/api/v1/artifacts/{artifact_id}
+     * @secure
+     */
+    v1ArtifactsDetail: (artifactId: string, params: RequestParams = {}) =>
+      this.request<TypesArtifact, any>({
+        path: `/api/v1/artifacts/${artifactId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Patch metadata and optionally upload replacement HTML, PDF, image, or ZIP content as a new version.
+     *
+     * @tags Artifacts
+     * @name V1ArtifactsUpdate
+     * @summary Update an artifact
+     * @request PUT:/api/v1/artifacts/{artifact_id}
+     * @secure
+     */
+    v1ArtifactsUpdate: (
+      artifactId: string,
+      data: {
+        /** Artifact name */
+        name?: string;
+        /** Description */
+        description?: string;
+        /** HTML entrypoint */
+        entrypoint?: string;
+        /** project or public */
+        visibility?: string;
+        /** Allocate or retain a public default subdomain */
+        with_subdomain?: boolean;
+        /** Replacement HTML, PDF, image, or ZIP content */
+        artifact?: File;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesArtifact, any>({
+        path: `/api/v1/artifacts/${artifactId}`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Artifacts
+     * @name V1ArtifactsVersionsDetail
+     * @summary List artifact versions
+     * @request GET:/api/v1/artifacts/{artifact_id}/versions
+     * @secure
+     */
+    v1ArtifactsVersionsDetail: (artifactId: string, params: RequestParams = {}) =>
+      this.request<TypesArtifactVersionsListResponse, any>({
+        path: `/api/v1/artifacts/${artifactId}/versions`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Returns attention events that need human action for the current user. Only returns events that have not been dismissed and are not currently snoozed.
      *
      * @tags attention-events
@@ -10109,6 +10458,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Disconnect a Claude subscription owned by the current user, or by an organization they own
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDelete
+     * @summary Delete a Claude subscription
+     * @request DELETE:/api/v1/claude-subscriptions/{id}
+     * @secure
+     */
+    v1ClaudeSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get details of a specific Claude subscription (no secrets)
      *
      * @tags Claude
@@ -10169,35 +10536,37 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Check if Claude credentials file has been written inside the desktop container
+     * @description Exchange the pasted authorization code for tokens and connect the subscription
      *
      * @tags Claude
-     * @name V1ClaudeSubscriptionsPollLoginDetail
-     * @summary Poll for Claude login credentials
-     * @request GET:/api/v1/claude-subscriptions/poll-login/{sessionId}
+     * @name V1ClaudeSubscriptionsOauthCompleteCreate
+     * @summary Complete a Claude subscription login
+     * @request POST:/api/v1/claude-subscriptions/oauth/complete
      * @secure
      */
-    v1ClaudeSubscriptionsPollLoginDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<ServerClaudePollLoginResponse, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
-        method: "GET",
+    v1ClaudeSubscriptionsOauthCompleteCreate: (body: ServerCompleteClaudeLoginRequest, params: RequestParams = {}) =>
+      this.request<TypesClaudeSubscription, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/oauth/complete`,
+        method: "POST",
+        body: body,
         secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
 
     /**
-     * @description Launch a temporary desktop session for interactive Claude OAuth login
+     * @description Build the Anthropic authorization URL and PKCE material for connecting a Claude subscription
      *
      * @tags Claude
-     * @name V1ClaudeSubscriptionsStartLoginCreate
-     * @summary Start a Claude login session
-     * @request POST:/api/v1/claude-subscriptions/start-login
+     * @name V1ClaudeSubscriptionsOauthStartCreate
+     * @summary Start a Claude subscription login
+     * @request POST:/api/v1/claude-subscriptions/oauth/start
      * @secure
      */
-    v1ClaudeSubscriptionsStartLoginCreate: (params: RequestParams = {}) =>
-      this.request<ServerClaudeLoginSessionResponse, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/start-login`,
+    v1ClaudeSubscriptionsOauthStartCreate: (params: RequestParams = {}) =>
+      this.request<ServerClaudeLoginStartResponse, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/oauth/start`,
         method: "POST",
         secure: true,
         format: "json",
@@ -14880,6 +15249,61 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List static artifacts in a project. Access is inherited from the project.
+     *
+     * @tags Artifacts
+     * @name V1ProjectsArtifactsDetail
+     * @summary List project artifacts
+     * @request GET:/api/v1/projects/{id}/artifacts
+     * @secure
+     */
+    v1ProjectsArtifactsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesArtifactsListResponse, any>({
+        path: `/api/v1/projects/${id}/artifacts`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Upload one HTML, PDF, or image file, or a ZIP containing a compiled static SPA.
+     *
+     * @tags Artifacts
+     * @name V1ProjectsArtifactsCreate
+     * @summary Create a project artifact
+     * @request POST:/api/v1/projects/{id}/artifacts
+     * @secure
+     */
+    v1ProjectsArtifactsCreate: (
+      id: string,
+      data: {
+        /** Artifact name */
+        name: string;
+        /** Description */
+        description?: string;
+        /** HTML entrypoint (default index.html) */
+        entrypoint?: string;
+        /** project or public */
+        visibility?: string;
+        /** Deprecated: public artifacts always receive a share subdomain */
+        with_subdomain?: boolean;
+        /** HTML, PDF, image, or ZIP bundle */
+        artifact: File;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesArtifact, any>({
+        path: `/api/v1/projects/${id}/artifacts`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get paginated audit logs for a project
      *
      * @tags Projects
@@ -15743,6 +16167,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns every model the upstream provider advertises, plus the subset currently enabled on the endpoint. Aggregators such as OpenRouter list hundreds of models, so this is deliberately separate from the endpoint's effective (enabled-only) model list.
+     *
+     * @tags providers
+     * @name V1ProviderEndpointsAvailableModelsDetail
+     * @summary List a provider endpoint's full model catalogue
+     * @request GET:/api/v1/provider-endpoints/{id}/available-models
+     * @secure
+     */
+    v1ProviderEndpointsAvailableModelsDetail: (
+      id: string,
+      query?: {
+        /** Bypass the cached catalogue and refetch from upstream */
+        refresh?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesProviderEndpointModels, SystemHTTPError>({
+        path: `/api/v1/provider-endpoints/${id}/available-models`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get provider daily usage
      *
      * @tags providers
@@ -15765,6 +16215,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/provider-endpoints/${id}/daily-usage`,
         method: "GET",
         query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Replaces the endpoint's enabled-models whitelist. An empty list enables the provider's whole catalogue.
+     *
+     * @tags providers
+     * @name V1ProviderEndpointsModelsUpdate
+     * @summary Set the models enabled on a provider endpoint
+     * @request PUT:/api/v1/provider-endpoints/{id}/models
+     * @secure
+     */
+    v1ProviderEndpointsModelsUpdate: (
+      id: string,
+      request: TypesUpdateProviderEndpointModels,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesProviderEndpoint, SystemHTTPError>({
+        path: `/api/v1/provider-endpoints/${id}/models`,
+        method: "PUT",
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -15846,6 +16320,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/providers`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns safe display metadata for public artifacts without authentication. Private artifacts require project access.
+     *
+     * @tags Artifacts
+     * @name V1PublicArtifactsDetail
+     * @summary Get artifact viewer metadata
+     * @request GET:/api/v1/public/artifacts/{artifact_id}
+     */
+    v1PublicArtifactsDetail: (artifactId: string, params: RequestParams = {}) =>
+      this.request<TypesArtifactViewerResponse, any>({
+        path: `/api/v1/public/artifacts/${artifactId}`,
+        method: "GET",
+        format: "json",
         ...params,
       }),
 

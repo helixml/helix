@@ -31,3 +31,62 @@ export async function copyTextToClipboard(text: string): Promise<void> {
     textArea.remove()
   }
 }
+
+function hasFullClipboardApi(): boolean {
+  if (!window.isSecureContext) return false
+
+  try {
+    const clipboard = navigator.clipboard
+    return Boolean(
+      clipboard &&
+      typeof clipboard.write === 'function' &&
+      typeof clipboard.writeText === 'function'
+    )
+  } catch {
+    return false
+  }
+}
+
+function createMonacoClipboardService() {
+  const typedText = new Map<string, string>()
+  let findText = ''
+
+  return {
+    triggerPaste: () => undefined,
+    writeText: async (text: string, type?: string) => {
+      if (type) {
+        typedText.set(type, text)
+        return
+      }
+      await copyTextToClipboard(text)
+    },
+    readText: async (type?: string) => {
+      if (type) return typedText.get(type) ?? ''
+      if (!window.isSecureContext) return ''
+
+      try {
+        const clipboard = navigator.clipboard
+        if (clipboard && typeof clipboard.readText === 'function') {
+          return await clipboard.readText()
+        }
+      } catch {
+        // Browser paste handling remains available when programmatic reads fail.
+      }
+
+      return ''
+    },
+    readFindText: async () => findText,
+    writeFindText: async (text: string) => {
+      findText = text
+    },
+    readResources: async () => [],
+    clearInternalState: () => {
+      typedText.clear()
+    },
+  }
+}
+
+export function getMonacoClipboardOverrideServices(): Record<string, unknown> {
+  if (hasFullClipboardApi()) return {}
+  return { clipboardService: createMonacoClipboardService() }
+}

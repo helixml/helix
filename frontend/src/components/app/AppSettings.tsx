@@ -1,4 +1,4 @@
-import React, { useState, useEffect, FC, useRef, useMemo } from 'react'
+import React, { useState, useEffect, FC, ReactNode, useRef, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -50,6 +50,8 @@ import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
 import { useListProviders } from '../../services/providersService'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
+import { formatClaudeAccountDetail } from '../account/claudeSubscriptionUtils'
+import SubscriptionIdentity from '../account/SubscriptionIdentity'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import useRouter from '../../hooks/useRouter'
 import { useGetOrgByName } from '../../services/orgService'
@@ -184,6 +186,28 @@ const BarsIcon = ({ effort }: { effort: string }) => {
   )
 }
 
+// Caption next to the Claude Subscription radio: the Claude account the token
+// authenticates as (its plan and rate-limit tier) — the identity that gets
+// billed. Same shared formatter as the account-settings pills; falls back to
+// the Helix user/org that connected the subscription when the Claude account
+// is unknown.
+function formatSubscriptionOwner(
+  status: api.ServerAppClaudeSubscriptionStatus | undefined
+): ReactNode {
+  if (!status?.connected) return null
+  return (
+    <SubscriptionIdentity
+      email={status.claude_account_email}
+      fallback={status.claude_account_name || status.subscription_owner_name}
+      detail={formatClaudeAccountDetail({
+        plan: status.subscription_type,
+        tier: status.subscription_rate_limit_tier,
+      })}
+      ariaLabel="Claude account email"
+    />
+  )
+}
+
 const AppSettings: FC<AppSettingsProps> = ({
   id,
   app,
@@ -281,6 +305,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const ownerClaudeValid = ownerClaudeStatus !== undefined
     ? !!ownerClaudeStatus.valid
     : (claudeSubscriptions?.length ?? 0) > 0
+  const claudeSubOwnerLabel = formatSubscriptionOwner(ownerClaudeStatus)
   const hasAnthropicProvider = providerEndpoints.some(ep => ep.name === 'anthropic')
   const hasOpenAIProvider = providerEndpoints.some(ep => ep.name === 'openai')
 
@@ -844,6 +869,11 @@ const AppSettings: FC<AppSettingsProps> = ({
                             ) : (
                               <Typography variant="caption" color="text.secondary">(not connected)</Typography>
                             )}
+                            {code_agent_runtime === 'claude_code' && claudeSubOwnerLabel ? (
+                              <Typography variant="caption" color="text.secondary">
+                                {claudeSubOwnerLabel}
+                              </Typography>
+                            ) : null}
                           </Box>
                         }
                       />

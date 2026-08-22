@@ -18,6 +18,7 @@ import (
 const (
 	streamName    = "HELIX_ORG_AGENT_ACTIVATIONS"
 	subjectPrefix = "helix-org.agent-activations"
+	maxRetryDelay = 30 * time.Minute
 )
 
 type envelope struct {
@@ -171,7 +172,7 @@ func (q *Queue) handle(msg *pubsub.Message) {
 	var delivery envelope
 	if err := json.Unmarshal(msg.Data, &delivery); err != nil {
 		q.logger.Error("agent delivery: decode", "err", err)
-		_ = msg.NakWithDelay(time.Second)
+		_ = msg.NakWithDelay(retryDelay(msg.NumDelivered))
 		return
 	}
 	done := make(chan struct{})
@@ -191,12 +192,23 @@ func (q *Queue) handle(msg *pubsub.Message) {
 	close(done)
 	if err != nil {
 		q.logger.Warn("agent delivery: activation failed", "agent", delivery.AgentID, "err", err)
-		_ = msg.NakWithDelay(time.Second)
+		_ = msg.NakWithDelay(retryDelay(msg.NumDelivered))
 		return
 	}
 	if err := msg.Ack(); err != nil {
 		q.logger.Error("agent delivery: ack", "agent", delivery.AgentID, "err", err)
 	}
+}
+
+func retryDelay(numDelivered uint64) time.Duration {
+	delay := time.Second
+	for delivered := uint64(1); delivered < numDelivered && delay < maxRetryDelay; delivered++ {
+		delay *= 2
+	}
+	if delay > maxRetryDelay {
+		return maxRetryDelay
+	}
+	return delay
 }
 
 func subjectFor(orgID string, agentID orgchart.NodeID) string {

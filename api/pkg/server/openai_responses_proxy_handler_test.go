@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	openailogger "github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/toolcall"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -328,4 +329,44 @@ func TestNewOpenAIResponsesTransport(t *testing.T) {
 	require.NotSame(t, http.DefaultTransport, transport)
 	require.NotNil(t, transport.TLSClientConfig)
 	require.True(t, transport.TLSClientConfig.InsecureSkipVerify)
+}
+
+func TestValidateResponsesToolCalls(t *testing.T) {
+	request := []byte(`{
+		"model": "gpt-5-codex",
+		"tools": [
+			{"type": "function", "name": "shell", "parameters": {"type": "object", "properties": {"command": {"type": "array", "items": {"type": "string"}}}, "required": ["command"]}},
+			{"type": "web_search"}
+		]
+	}`)
+
+	t.Run("streaming terminal event", func(t *testing.T) {
+		response := []byte(`{"type":"response.completed","response":{"status":"completed","output":[{"type":"function_call","name":"shell","arguments":"{\"command\":[\"ls\"]}"}]}}`)
+		verdict := validateResponsesToolCalls(request, response)
+		require.Equal(t, 1, verdict.Result.ToolsOffered)
+		require.Equal(t, 1, verdict.Result.Calls)
+		require.Equal(t, 0, verdict.Result.Errors)
+		require.Equal(t, "tool_calls", verdict.FinishReason)
+	})
+
+	t.Run("non-streaming envelope with bad arguments", func(t *testing.T) {
+		response := []byte(`{"status":"completed","output":[{"type":"function_call","name":"shell","arguments":"{\"command\":\"ls\"}"}]}`)
+		verdict := validateResponsesToolCalls(request, response)
+		require.Equal(t, 1, verdict.Result.Errors)
+		require.Equal(t, toolcall.KindSchemaMismatch, verdict.Result.KindsString())
+	})
+
+	t.Run("unparseable arguments", func(t *testing.T) {
+		response := []byte(`{"status":"completed","output":[{"type":"function_call","name":"shell","arguments":"{\"command\":"}]}`)
+		verdict := validateResponsesToolCalls(request, response)
+		require.Equal(t, 1, verdict.Result.Errors)
+		require.Equal(t, toolcall.KindInvalidJSON, verdict.Result.KindsString())
+	})
+
+	t.Run("message output keeps the response status", func(t *testing.T) {
+		response := []byte(`{"status":"completed","output":[{"type":"message"}]}`)
+		verdict := validateResponsesToolCalls(request, response)
+		require.Equal(t, 0, verdict.Result.Calls)
+		require.Equal(t, "completed", verdict.FinishReason)
+	})
 }
