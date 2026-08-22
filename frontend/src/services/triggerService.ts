@@ -2,6 +2,10 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import {
   ApiAttachmentDTO,
   ApiAttachmentWriteRequest,
+  ApiGitHubWebhookStatusResponse,
+  ApiGitLabWebhookStatusResponse,
+  ApiInstallGitHubWebhookResponse,
+  ApiInstallGitLabWebhookResponse,
   ApiTriggerDTO,
   ApiTriggerWriteRequest,
 } from '../api/api'
@@ -17,6 +21,79 @@ export const TRIGGER_QUERY_KEYS = {
   one: (orgID: string, id: string) => ['helix-org', orgID, 'triggers', id] as const,
   events: (orgID: string, id: string) => ['helix-org', orgID, 'triggers', id, 'events'] as const,
   attachments: (orgID: string, workerID: string) => ['helix-org', orgID, 'agents', workerID, 'attachments'] as const,
+  webhookStatus: (orgID: string, id: string) => ['helix-org', orgID, 'triggers', id, 'webhook-status'] as const,
+}
+
+export type GitHubWebhookStatusResponse = ApiGitHubWebhookStatusResponse
+export type GitLabWebhookStatusResponse = ApiGitLabWebhookStatusResponse
+export type InstallGitHubWebhookResponse = ApiInstallGitHubWebhookResponse
+export type InstallGitLabWebhookResponse = ApiInstallGitLabWebhookResponse
+
+// InstallWebhookFailedError marks a failure whose error snackbar the API
+// layer already showed, so callers skip their own redundant toast.
+export class InstallWebhookFailedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'InstallWebhookFailedError'
+  }
+}
+
+// useGitHubWebhookStatus asks GitHub whether a webhook for this
+// Trigger's payload URL actually exists. Live truth beats the stored
+// config, which goes stale when the hook is deleted on GitHub.
+export function useGitHubWebhookStatus(triggerID: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: TRIGGER_QUERY_KEYS.webhookStatus(orgID, triggerID ?? ''),
+    queryFn: async () => (await api.getApiClient().v1OrgsTriggersGithubWebhookStatusDetail(triggerID!, orgID)).data,
+    enabled: !!orgID && !!triggerID && (options?.enabled ?? true),
+  })
+}
+
+export function useGitLabWebhookStatus(triggerID: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: [...TRIGGER_QUERY_KEYS.webhookStatus(orgID, triggerID ?? ''), 'gitlab'] as const,
+    queryFn: async () => (await api.getApiClient().v1OrgsTriggersGitlabWebhookStatusDetail(triggerID!, orgID)).data,
+    enabled: !!orgID && !!triggerID && (options?.enabled ?? true),
+  })
+}
+
+// Throws InstallWebhookFailedError on non-2xx so callers can detect the
+// "snackbar already shown" sentinel and skip their own toast.
+export function useInstallGitHubWebhook() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (triggerID: string) => {
+      try {
+        return (await api.getApiClient().v1OrgsTriggersGithubInstallWebhookCreate(triggerID, orgID)).data
+      } catch (e: any) {
+        throw new InstallWebhookFailedError(e?.response?.data?.error ?? e?.message ?? 'install webhook failed')
+      }
+    },
+    onSuccess: async (_data, triggerID) => {
+      await qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.one(orgID, triggerID) })
+      await qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.all(orgID) })
+      await qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.webhookStatus(orgID, triggerID) })
+    },
+  })
+}
+
+export function useInstallGitLabWebhook() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (triggerID: string) => (await api.getApiClient().v1OrgsTriggersGitlabInstallWebhookCreate(triggerID, orgID)).data,
+    onSuccess: async (_data, triggerID) => {
+      await qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.one(orgID, triggerID) })
+      await qc.invalidateQueries({ queryKey: [...TRIGGER_QUERY_KEYS.webhookStatus(orgID, triggerID), 'gitlab'] })
+    },
+  })
 }
 
 export function useTriggers() {
@@ -47,6 +124,23 @@ export function useTriggerEvents(id?: string) {
     queryFn: async () => (await api.getApiClient().v1OrgsTriggersEventsDetail(orgID, id!, { limit: 50 })).data,
     enabled: !!orgID && !!id,
     refetchInterval: 5000,
+  })
+}
+
+// useTriggerSampleEvent fetches the single most recent REAL event on a
+// Trigger (page size 1) so the processor drawer can show "what an event
+// from this source looks like". Returns null when the Trigger has none —
+// no synthetic data.
+export function useTriggerSampleEvent(id?: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: [...TRIGGER_QUERY_KEYS.events(orgID, id ?? ''), 'sample'] as const,
+    queryFn: async () => {
+      const res = await api.getApiClient().v1OrgsTriggersEventsDetail(orgID, id!, { limit: 1 })
+      return res.data.events?.[0] ?? null
+    },
+    enabled: !!orgID && !!id && (options?.enabled ?? true),
   })
 }
 

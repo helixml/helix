@@ -47,8 +47,20 @@ describe('chartTopicVisibility', () => {
     expect(loadChartTopicVisibility(userId, 'other_org')).toBeNull()
   })
 
+  // The Topic → Trigger rename must not reset anyone's saved chart.
+  // Preferences written before the rename live under this exact key and
+  // hold the same filter ids, so they must still load.
+  it('reads preferences saved under the pre-rename storage key', () => {
+    window.localStorage.setItem(
+      `helix.orgChart.topicVisibility.${userId}.${orgId}`,
+      JSON.stringify(['github', 'cron']),
+    )
+
+    expect(loadChartTopicVisibility(userId, orgId)).toEqual(['github', 'cron'])
+  })
+
   it('returns null for missing or invalid settings', () => {
-    const key = `helix.orgChart.triggerVisibility.v1.${userId}.${orgId}`
+    const key = `helix.orgChart.topicVisibility.${userId}.${orgId}`
     expect(loadChartTopicVisibility(userId, orgId)).toBeNull()
     window.localStorage.setItem(key, JSON.stringify(['cron', 'not-a-filter']))
     expect(loadChartTopicVisibility(userId, orgId)).toBeNull()

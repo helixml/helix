@@ -87,13 +87,18 @@ const HelixOrgAgentRedirect = () => {
   return null
 }
 
-const RouteRedirect = ({ route }: { route: string }) => {
+const RouteRedirect = ({ route, mapParams }: { route: string; mapParams?: (params: Record<string, any>) => Record<string, any> }) => {
   const { navigateReplace, params } = useRouter()
   React.useEffect(() => {
-    navigateReplace(route, params)
+    navigateReplace(route, mapParams ? mapParams(params) : params)
   }, [])
   return null
 }
+
+// A Topic kept its id when it became a Trigger, so an old per-topic link
+// resolves to exactly the same thing under the new URL — send the user
+// straight there instead of to a generic "Topics are now Triggers" page.
+const topicIDToTriggerID = ({ topic_id, ...rest }: Record<string, any>) => ({ ...rest, trigger_id: topic_id })
 
 
 const routes: IApplicationRoute[] = [
@@ -683,13 +688,13 @@ const routes: IApplicationRoute[] = [
 }, {
   name: 'helix_org_topic_detail',
   path: '/orgs/:org_id/topics/:topic_id',
-  meta: { drawer: false, title: 'Topic retired' },
-  render: () => <HelixOrgTopicsRetired />,
+  meta: { drawer: false, title: 'Trigger' },
+  render: () => <RouteRedirect route="helix_org_trigger_detail" mapParams={topicIDToTriggerID} />,
 }, {
   name: 'helix_org_topic_detail_legacy',
   path: '/orgs/:org_id/helix-org/topics/:topic_id',
   meta: { drawer: false },
-  render: () => <HelixOrgTopicsRetired />,
+  render: () => <RouteRedirect route="helix_org_trigger_detail" mapParams={topicIDToTriggerID} />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

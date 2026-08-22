@@ -1,12 +1,13 @@
 // ProcessorConfigDrawer creates or edits a Processor — the transform /
-// filter node interposed between a Topic and the Workers that read it.
+// filter node interposed between a source and the Workers that read it.
 // Opened from the Chart's "Processor" button (create) and from clicking
 // a processor node (edit, `processor` prop set).
 //
-// The drawer shows the most recent REAL message on the chosen input
-// topic (no synthetic/fake data, no client-side transform) so the
-// operator can see what their template/predicate will run against. The
-// actual rendering happens server-side at runtime.
+// The input is a terminal source: a Trigger, or another Processor's
+// output branch. When it is a Trigger the drawer shows that Trigger's
+// most recent REAL event (no synthetic data, no client-side transform)
+// so the operator can see what their template/predicate will run
+// against. The actual rendering happens server-side at runtime.
 
 import { FC, useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
@@ -35,9 +36,10 @@ import {
   ProcessorDTO,
   useCreateHelixOrgProcessor,
   useUpdateHelixOrgProcessor,
-  useListHelixOrgTopics,
-  useTopicSampleMessage,
+  useListHelixOrgProcessors,
 } from '../../services/helixOrgService'
+import { useTriggers, useTriggerSampleEvent } from '../../services/triggerService'
+import { buildSourceOptions, parseTriggerSource } from './sourceOptions'
 
 export type ProcessorConfigDrawerProps = {
   open: boolean
@@ -45,8 +47,8 @@ export type ProcessorConfigDrawerProps = {
   onCreated?: (id: string) => void
   // Edit mode when set; otherwise create.
   processor?: ProcessorDTO | null
-  // Prefill the input topic (e.g. opened from a topic context).
-  presetInputTopicId?: string
+  // Prefill the input source, e.g. "trigger:s-gh".
+  presetInputSource?: string
 }
 
 const KINDS = [
@@ -77,7 +79,7 @@ type FilterRow = { label: string; match: string }
 type ProcessorForm = {
   name: string
   kind: string
-  inputTopicId: string
+  inputSource: string
   template: string
   jsCode: string
   maxBytes: string
@@ -247,17 +249,18 @@ const SyntaxHelp: FC<{ kind: string }> = ({ kind }) => {
   )
 }
 
-const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, onCreated, processor, presetInputTopicId }) => {
+const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, onCreated, processor, presetInputSource }) => {
   const router = useRouter()
   const snackbar = useSnackbar()
   const isEdit = Boolean(processor)
   const createProc = useCreateHelixOrgProcessor()
   const updateProc = useUpdateHelixOrgProcessor()
-  const { data: topicsData } = useListHelixOrgTopics({ enabled: open })
+  const { data: triggers } = useTriggers()
+  const { data: processors } = useListHelixOrgProcessors({ enabled: open })
 
   const [name, setName] = useState('')
   const [kind, setKind] = useState('template')
-  const [inputTopicId, setInputTopicId] = useState('')
+  const [inputSource, setInputSource] = useState('')
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE)
   const [jsCode, setJsCode] = useState(DEFAULT_JS_CODE)
   const [maxBytes, setMaxBytes] = useState('500')
@@ -266,8 +269,18 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   const [showHelp, setShowHelp] = useState(false)
   const [savedForm, setSavedForm] = useState<ProcessorForm | null>(null)
 
-  // Most recent real message on the input topic (null = topic has none).
-  const { data: sample, isFetching: sampleLoading } = useTopicSampleMessage(inputTopicId, { enabled: open && !!inputTopicId })
+  // Most recent real event on the input Trigger (null = none yet).
+  // Processor output branches have no event log of their own, so they
+  // get no preview.
+  // A Processor cannot read its own branches — the server rejects the
+  // cycle, so the picker never offers it.
+  const sourceOptions = useMemo(
+    () => buildSourceOptions(triggers ?? [], processors ?? [], processor?.id),
+    [triggers, processors, processor?.id],
+  )
+
+  const sampleTriggerId = parseTriggerSource(inputSource)
+  const { data: sample, isFetching: sampleLoading } = useTriggerSampleEvent(sampleTriggerId, { enabled: open && !!sampleTriggerId })
 
   // Reset form each open from the processor under edit (or defaults).
   useEffect(() => {
@@ -275,7 +288,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
     if (processor) {
       const nextName = processor.name ?? ''
       const nextKind = processor.kind ?? 'template'
-      const nextInputTopicId = processor.input_topic_id ?? ''
+      const nextInputSource = processor.input_source ?? ''
       const nextTemplate = (processor.config?.template as string) ?? DEFAULT_TEMPLATE
       const nextJsCode = (processor.config?.code as string) ?? DEFAULT_JS_CODE
       const nextMaxBytes = String((processor.config?.max_bytes as number) ?? 500)
@@ -284,17 +297,17 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
       const nextThreadFollow = Boolean(processor.config?.thread_follow)
       setName(nextName)
       setKind(nextKind)
-      setInputTopicId(nextInputTopicId)
+      setInputSource(nextInputSource)
       setTemplate(nextTemplate)
       setJsCode(nextJsCode)
       setMaxBytes(nextMaxBytes)
       setFilterRows(nextFilterRows)
       setThreadFollow(nextThreadFollow)
-      setSavedForm({ name: nextName, kind: nextKind, inputTopicId: nextInputTopicId, template: nextTemplate, jsCode: nextJsCode, maxBytes: nextMaxBytes, filterRows: nextFilterRows, threadFollow: nextThreadFollow })
+      setSavedForm({ name: nextName, kind: nextKind, inputSource: nextInputSource, template: nextTemplate, jsCode: nextJsCode, maxBytes: nextMaxBytes, filterRows: nextFilterRows, threadFollow: nextThreadFollow })
     } else {
       setName('')
       setKind('template')
-      setInputTopicId(presetInputTopicId ?? '')
+      setInputSource(presetInputSource ?? '')
       setTemplate(DEFAULT_TEMPLATE)
       setJsCode(DEFAULT_JS_CODE)
       setMaxBytes('500')
@@ -302,9 +315,9 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
       setThreadFollow(false)
       setSavedForm(null)
     }
-  }, [open, processor, presetInputTopicId])
+  }, [open, processor, presetInputSource])
 
-  const topics = topicsData?.topics ?? []
+
 
   const config = useMemo<Record<string, unknown>>(() => {
     if (kind === 'truncate') return { max_bytes: parseInt(maxBytes, 10) || 0 }
@@ -322,13 +335,13 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   const currentForm = useMemo<ProcessorForm>(() => ({
     name,
     kind,
-    inputTopicId,
+    inputSource,
     template,
     jsCode,
     maxBytes,
     filterRows,
     threadFollow,
-  }), [name, kind, inputTopicId, template, jsCode, maxBytes, filterRows, threadFollow])
+  }), [name, kind, inputSource, template, jsCode, maxBytes, filterRows, threadFollow])
   const dirty = !isEdit || !savedForm || JSON.stringify(currentForm) !== JSON.stringify(savedForm)
 
   // Filter/js multi-branch outputs carry labels (and filter predicates).
@@ -346,18 +359,18 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
     return filterRows.map((rw) => ({ label: rw.label, match: rw.match }))
   }, [kind, filterRows])
 
-  const canSubmit = Boolean(name.trim()) && (isEdit || Boolean(inputTopicId))
+  const canSubmit = Boolean(name.trim()) && (isEdit || Boolean(inputSource))
 
   const submit = async () => {
     try {
       if (isEdit && processor) {
-        await updateProc.mutateAsync({ id: processor.id, attrs: { name: name.trim(), kind, config, input_topic_id: inputTopicId } })
+        await updateProc.mutateAsync({ id: processor.id, attrs: { name: name.trim(), kind, config, input_source: inputSource } })
         setSavedForm(currentForm)
         snackbar.success(`updated ${processor.id}`)
       } else {
         const created = await createProc.mutateAsync({
           name: name.trim(),
-          input_topic_id: inputTopicId,
+          input_source: inputSource,
           kind,
           config,
           outputs,
@@ -435,13 +448,13 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
             {KINDS.map((k) => <MenuItem key={k.value} value={k.value}>{k.label}</MenuItem>)}
           </TextField>
           <TextField
-            select size="small" label="Read messages from" value={inputTopicId} fullWidth required
-            onChange={(e) => setInputTopicId(e.target.value)}
-            helperText="Choose the Trigger that sends events to this Processor. You can also connect it on the chart."
+            select size="small" label="Read messages from" value={inputSource} fullWidth required
+            onChange={(e) => setInputSource(e.target.value)}
+            helperText="Choose the Trigger — or another Processor's branch — that sends events here. You can also connect it on the chart."
           >
-            {topics.map((tp) => (
-              <MenuItem key={tp.id} value={tp.id ?? ''} sx={{ fontFamily: 'monospace' }}>
-                {tp.id}{tp.name ? ` — ${tp.name}` : ''}
+            {sourceOptions.map((opt) => (
+              <MenuItem key={opt.source} value={opt.source} sx={{ fontFamily: 'monospace' }}>
+                {opt.label}
               </MenuItem>
             ))}
           </TextField>
@@ -585,13 +598,17 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
 
           <Box sx={{ mt: 0.5 }}>
             <Typography variant="caption" color="text.secondary">
-              {inputTopicId
-                ? `Example: latest real message on ${inputTopicId}`
+              {sampleTriggerId
+                ? `Example: latest real event from ${sampleTriggerId}`
                 : 'Example message'}
             </Typography>
-            {!inputTopicId ? (
+            {!inputSource ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
                 Choose a Trigger above to preview a recent event.
+              </Typography>
+            ) : !sampleTriggerId ? (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                Previews are only available for Triggers — a Processor branch keeps no event log of its own.
               </Typography>
             ) : sampleLoading ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
@@ -616,7 +633,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
                   maxHeight: 220,
                 }}
               >
-                {prettyJson(sample.raw) || JSON.stringify({ from: sample.from, subject: sample.subject, body: sample.body }, null, 2)}
+                {prettyJson(sample.body) || JSON.stringify(sample, null, 2)}
               </Box>
             )}
           </Box>

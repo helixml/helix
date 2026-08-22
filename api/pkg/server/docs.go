@@ -23794,6 +23794,13 @@ const docTemplate = `{
         "api.TriggerDTO": {
             "type": "object",
             "properties": {
+                "attached_workers": {
+                    "description": "AttachedWorkers are the Workers this Trigger activates — the\nattachment-model successor of the Topics page's subscriber list.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "config": {
                     "type": "object",
                     "additionalProperties": {}
@@ -23802,6 +23809,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "description": {
+                    "type": "string"
+                },
+                "effective_public_url": {
+                    "description": "EffectivePublicURL is helix's public base URL (SERVER_URL), set\nonly for provider Triggers whose webhook payload URL must be\nreachable from the internet, so the UI can warn on loopback.",
                     "type": "string"
                 },
                 "id": {

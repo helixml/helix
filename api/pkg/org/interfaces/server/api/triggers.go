@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	triggerapp "github.com/helixml/helix/api/pkg/org/application/triggers"
 	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
@@ -39,6 +41,13 @@ type TriggerDTO struct {
 	Config      map[string]any `json:"config,omitempty"`
 	CreatedAt   string         `json:"created_at"`
 	Revision    string         `json:"revision"`
+	// AttachedWorkers are the Workers this Trigger activates — the
+	// attachment-model successor of the Topics page's subscriber list.
+	AttachedWorkers []string `json:"attached_workers,omitempty"`
+	// EffectivePublicURL is helix's public base URL (SERVER_URL), set
+	// only for provider Triggers whose webhook payload URL must be
+	// reachable from the internet, so the UI can warn on loopback.
+	EffectivePublicURL string `json:"effective_public_url,omitempty"`
 }
 
 type TriggerWriteRequest struct {
@@ -86,12 +95,25 @@ func writeAPIError(w http.ResponseWriter, status int, code, summary string) {
 	writeJSON(w, status, APIError{Code: code, Summary: summary})
 }
 
-func triggerDTO(t trigger.Trigger) TriggerDTO {
+func (a *apiHandler) triggerDTO(ctx context.Context, orgID string, t trigger.Trigger) TriggerDTO {
 	var config map[string]any
 	if len(t.Config) > 0 {
 		_ = json.Unmarshal(t.Config, &config)
 	}
-	return TriggerDTO{ID: t.ID, Name: t.Name, Description: t.Description, Kind: string(t.Kind), Config: config, CreatedAt: t.CreatedAt.Format("2006-01-02T15:04:05Z07:00"), Revision: triggerapp.Revision(t)}
+	dto := TriggerDTO{ID: t.ID, Name: t.Name, Description: t.Description, Kind: string(t.Kind), Config: config, CreatedAt: t.CreatedAt.Format("2006-01-02T15:04:05Z07:00"), Revision: triggerapp.Revision(t)}
+	if t.Kind == transport.KindGitHub || t.Kind == transport.KindGitLab {
+		dto.EffectivePublicURL = strings.TrimSpace(a.deps.PublicServerURL)
+	}
+	// Attachments are a separate aggregate; a read failure here must
+	// not fail the whole list, so the column just comes back empty.
+	if a.deps.Queries != nil {
+		if members, err := a.deps.Queries.TriggerMembers(ctx, orgID, t.ID); err == nil {
+			for _, m := range members {
+				dto.AttachedWorkers = append(dto.AttachedWorkers, string(m.WorkerID))
+			}
+		}
+	}
+	return dto
 }
 
 func triggerConfig(config map[string]any) (json.RawMessage, error) {
@@ -144,7 +166,7 @@ func (a *apiHandler) listTriggers(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]TriggerDTO, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, triggerDTO(row))
+		out = append(out, a.triggerDTO(r.Context(), orgID, row))
 	}
 	writeJSON(w, http.StatusOK, TriggerListResponse{Triggers: out})
 }
@@ -186,7 +208,7 @@ func (a *apiHandler) createTrigger(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, status, code, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, triggerDTO(t))
+	writeJSON(w, http.StatusCreated, a.triggerDTO(r.Context(), orgID, t))
 }
 
 // @Summary Helix-org: get a trigger
@@ -210,7 +232,7 @@ func (a *apiHandler) getTrigger(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, 404, "not_found", "Trigger not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, triggerDTO(t))
+	writeJSON(w, http.StatusOK, a.triggerDTO(r.Context(), orgID, t))
 }
 
 // @Summary Helix-org: update a trigger
@@ -257,7 +279,7 @@ func (a *apiHandler) updateTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	writeJSON(w, http.StatusOK, triggerDTO(t))
+	writeJSON(w, http.StatusOK, a.triggerDTO(r.Context(), orgID, t))
 }
 
 // @Summary Helix-org: delete a trigger

@@ -450,9 +450,20 @@ export interface ApiToolDTO {
 }
 
 export interface ApiTriggerDTO {
+  /**
+   * AttachedWorkers are the Workers this Trigger activates — the
+   * attachment-model successor of the Topics page's subscriber list.
+   */
+  attached_workers?: string[];
   config?: Record<string, any>;
   created_at?: string;
   description?: string;
+  /**
+   * EffectivePublicURL is helix's public base URL (SERVER_URL), set
+   * only for provider Triggers whose webhook payload URL must be
+   * reachable from the internet, so the UI can warn on loopback.
+   */
+  effective_public_url?: string;
   id?: string;
   kind?: string;
   name?: string;

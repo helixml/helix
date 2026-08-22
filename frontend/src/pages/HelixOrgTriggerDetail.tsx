@@ -13,6 +13,7 @@ import CronScheduleFields from '../components/helix-org/CronScheduleFields'
 import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
 import { GitHubBranchesField } from '../components/helix-org/GitHubTopicConfigFields'
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import TriggerWebhookPanel from '../components/helix-org/TriggerWebhookPanel'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import CopyButtonWithCheck from '../components/session/CopyButtonWithCheck'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
@@ -137,6 +138,24 @@ const HelixOrgTriggerDetail: FC = () => {
           <Box><Stack direction="row" spacing={1} alignItems="center"><Typography variant="h5" sx={{ fontFamily: 'monospace' }}>{trigger.id}</Typography><CopyButtonWithCheck text={trigger.id ?? ''} /><Chip size="small" label={trigger.kind} /></Stack><Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{trigger.name}</Typography>{trigger.description && <Typography variant="body2" sx={{ mt: 1 }}>{trigger.description}</Typography>}<Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>{trigger.created_at ? new Date(trigger.created_at).toLocaleString() : ''}</Typography></Box>
           <Divider />
           <TriggerConfiguration trigger={trigger} />
+          {trigger.kind === 'github' && <TriggerWebhookPanel trigger={trigger} orgSlug={router.params.org_id as string} />}
+          <Divider />
+          <Box>
+            <Typography variant="h6" gutterBottom>Agents started</Typography>
+            {!trigger.attached_workers?.length
+              ? <Typography variant="body2" color="text.secondary">No agents are attached to this Trigger yet. Attach one from the org chart.</Typography>
+              : <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                  {trigger.attached_workers.map((workerID) => (
+                    <Chip
+                      key={workerID}
+                      size="small"
+                      label={workerID}
+                      onClick={() => router.navigate('helix_org_bot_detail', { org_id: router.params.org_id as string, bot_id: workerID })}
+                      sx={{ fontFamily: 'monospace' }}
+                    />
+                  ))}
+                </Stack>}
+          </Box>
           <Divider />
           <Box><Typography variant="h6" gutterBottom>Event history</Typography><Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Newest first · bounded to 50 events · refreshes automatically</Typography>
             {!history?.events?.length ? <Typography color="text.secondary">No events received yet.</Typography> : <Stack spacing={1}>{history.events.map((event) => <Paper key={event.id} variant="outlined" sx={{ p: 1.5 }}><Stack direction="row" justifyContent="space-between"><Typography variant="caption" color="text.secondary">{event.source || 'external'}</Typography><Typography variant="caption" color="text.secondary">{event.created_at ? new Date(event.created_at).toLocaleString() : ''}</Typography></Stack><Typography component="pre" variant="body2" sx={{ m: 0, mt: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{event.body}</Typography></Paper>)}</Stack>}

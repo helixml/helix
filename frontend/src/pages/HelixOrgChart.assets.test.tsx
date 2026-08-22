@@ -176,8 +176,8 @@ describe('HelixOrgChart processors and people panel', () => {
       ],
       {},
       [
-        { id: 'p-first', name: 'First', kind: 'template', inputTopicId: 'topic-input', outputs: [{ topicId: 's-first', label: 'default', match: '', owned: true }] },
-        { id: 'p-second', name: 'Second', kind: 'template', inputTopicId: 's-first', outputs: [{ topicId: 's-second', label: 'default', match: '', owned: true }] },
+        { id: 'p-first', name: 'First', kind: 'template', inputNodeId: 'topic-input', outputs: [{ topicId: 's-first', label: 'default', match: '' }] },
+        { id: 'p-second', name: 'Second', kind: 'template', inputNodeId: 's-first', outputs: [{ topicId: 's-second', label: 'default', match: '' }] },
       ],
       [],
       {},

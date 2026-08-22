@@ -12,13 +12,18 @@ import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import useRouter from '../hooks/useRouter'
-import { useHelixOrgProcessor } from '../services/helixOrgService'
+import { useHelixOrgProcessor, useListHelixOrgProcessors } from '../services/helixOrgService'
+import { useTriggers } from '../services/triggerService'
+import { buildSourceOptions, sourceLabel } from '../components/helix-org/sourceOptions'
 
 const HelixOrgProcessorDetail: FC = () => {
   const router = useRouter()
   const processorId = router.params.processor_id as string | undefined
   const { data: processor, isLoading } = useHelixOrgProcessor(processorId)
   const [editing, setEditing] = useState(false)
+  const { data: triggers } = useTriggers()
+  const { data: processors } = useListHelixOrgProcessors()
+  const inputLabel = sourceLabel(processor?.input_source ?? '', buildSourceOptions(triggers ?? [], processors ?? []))
   const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Chart', routeName: 'helix_org_chart' })
 
   return (
@@ -42,15 +47,15 @@ const HelixOrgProcessorDetail: FC = () => {
                 <Button variant="contained" startIcon={<EditIcon />} onClick={() => setEditing(true)}>Edit</Button>
               </Stack>
               <Box>
-                <Typography variant="overline" color="text.secondary">Input topic</Typography>
-                <Typography sx={{ fontFamily: 'monospace' }}>{processor.input_topic_id}</Typography>
+                <Typography variant="overline" color="text.secondary">Reads from</Typography>
+                <Typography sx={{ fontFamily: 'monospace' }}>{inputLabel || '—'}</Typography>
               </Box>
               <Box>
                 <Typography variant="overline" color="text.secondary">Outputs</Typography>
                 <Stack spacing={1}>
                   {processor.outputs.map((output) => (
-                    <Box key={output.topic_id} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{output.topic_id}</Typography>
+                    <Box key={output.id} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{output.id}</Typography>
                       {(output.label || output.match) && (
                         <Typography variant="caption" color="text.secondary">
                           {[output.label, output.match].filter(Boolean).join(' · ')}

@@ -97,6 +97,7 @@ import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrum
 import NewBotDialog from '../components/helix-org/NewBotDialog'
 import AssetConfigDrawer from '../components/helix-org/AssetConfigDrawer'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
+import { chartNodeIDForSource, sourceForChartNodeID } from '../components/helix-org/sourceOptions'
 import TriggerDetailDrawer from '../components/helix-org/TriggerDetailDrawer'
 import TriggerFormDialog from '../components/helix-org/TriggerFormDialog'
 import ProcessorNode, { ProcessorNodeData } from '../components/helix-org/ProcessorNode'
@@ -1043,8 +1044,10 @@ type ProcessorSummary = {
   id: string
   name: string
   kind: string
-  inputTopicId: string
-  outputs: { topicId: string; label: string; match: string; owned: boolean }[]
+  // inputNodeId is the chart node this Processor reads: a bare Trigger
+  // id, or a `processor_output:<p>:<o>` branch handle.
+  inputNodeId: string
+  outputs: { topicId: string; label: string; match: string }[]
 }
 
 // layoutTopicColumns positions bot-anchored topic nodes to the right of
@@ -1243,14 +1246,17 @@ export const buildGraph = (
   //    their own Topic boxes. We still need their subscriber lists below
   //    to draw the branch → Bot edges, so they stay in `topics` (just not
   //    rendered).
+  // Every branch belongs to the Processor that declares it, so every
+  // branch node is collapsed into that Processor's card.
   const ownedOutputTopicIds = new Set<string>()
-  // branchOwner maps a (collapsed) output-topic id → the processor that
-  // produces it, so a downstream processor reading that topic can be wired
-  // straight from the upstream branch port (chaining).
+  // branchOwner maps a (collapsed) branch id → the processor that
+  // produces it, so a downstream processor reading that branch can be
+  // wired straight from the upstream branch port (chaining).
   const branchOwner = new Map<string, string>()
   for (const p of processors) for (const o of p.outputs) {
-    if (o.owned && o.topicId) ownedOutputTopicIds.add(o.topicId)
-    if (o.topicId) branchOwner.set(o.topicId, p.id)
+    if (!o.topicId) continue
+    ownedOutputTopicIds.add(o.topicId)
+    branchOwner.set(o.topicId, p.id)
   }
 
   // Bounds for the topic-column auto-layout use *dagre* bot positions,
@@ -1441,7 +1447,7 @@ export const buildGraph = (
     }
 
     for (const p of processors) {
-      const inPos = p.inputTopicId ? topicPosById.get(p.inputTopicId) : undefined
+      const inPos = p.inputNodeId ? topicPosById.get(p.inputNodeId) : undefined
       const h = procNodeHeight(p.outputs.length)
       const saved = savedPositions[chartPositionKey('processor', p.id)]
       let pos: { x: number; y: number }
@@ -1474,24 +1480,24 @@ export const buildGraph = (
         selectable: true,
       })
 
-      if (p.inputTopicId && topicNodeIds.has(p.inputTopicId)) {
+      if (p.inputNodeId && topicNodeIds.has(p.inputNodeId)) {
         edges.push({
-          id: `procin:${p.inputTopicId}->${p.id}`,
-          source: `topic:${p.inputTopicId}`,
+          id: `procin:${p.inputNodeId}->${p.id}`,
+          source: `topic:${p.inputNodeId}`,
           sourceHandle: 'src',
           target: `processor:${p.id}`,
           type: 'closest',
           data: { kind: 'proc_in', processorId: p.id },
           style: { stroke: procStroke, strokeWidth: 1.5 },
         })
-      } else if (p.inputTopicId && branchOwner.has(p.inputTopicId) && branchOwner.get(p.inputTopicId) !== p.id) {
+      } else if (p.inputNodeId && branchOwner.has(p.inputNodeId) && branchOwner.get(p.inputNodeId) !== p.id) {
         // Chained: this processor reads an upstream processor's output
         // branch — draw the edge from that branch port to this IN port.
-        const upstream = branchOwner.get(p.inputTopicId)!
+        const upstream = branchOwner.get(p.inputNodeId)!
         edges.push({
-          id: `procchain:${upstream}:${p.inputTopicId}->${p.id}`,
+          id: `procchain:${upstream}:${p.inputNodeId}->${p.id}`,
           source: `processor:${upstream}`,
-          sourceHandle: p.inputTopicId,
+          sourceHandle: p.inputNodeId,
           target: `processor:${p.id}`,
           type: 'closest',
           data: { kind: 'proc_in', processorId: p.id },
@@ -2486,8 +2492,9 @@ const HelixOrgChart: FC = () => {
   const processorConsumerCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const processor of processorsData ?? []) {
-      if (!processor.input_topic_id) continue
-      counts.set(processor.input_topic_id, (counts.get(processor.input_topic_id) ?? 0) + 1)
+      const inputNodeID = chartNodeIDForSource(processor.input_source ?? '')
+      if (!inputNodeID) continue
+      counts.set(inputNodeID, (counts.get(inputNodeID) ?? 0) + 1)
     }
     return counts
   }, [processorsData])
@@ -2592,6 +2599,18 @@ const HelixOrgChart: FC = () => {
     && entityVisibilityScopeRef.current === visibilityScope
     && topicVisibilityScopeRef.current === visibilityScope
 
+  // The Triggers menu filters by category, but its badge counts the
+  // Triggers actually on the chart — the thing the operator is looking
+  // for — not how many category checkboxes are ticked.
+  const triggerVisibilityCounts = useMemo(() => {
+    const selected = new Set(visibleTopicFilters)
+    const shown = triggers.filter((trigger) => selected.has(chartTopicFilterFor({
+      name: trigger.name ?? '',
+      kind: trigger.kind ?? '',
+    }))).length
+    return { shown, total: triggers.length }
+  }, [triggers, visibleTopicFilters])
+
   const onTopicFiltersChange = useCallback((filters: ChartTopicFilter[]) => {
     setVisibleTopicFilters(filters)
     saveChartTopicVisibility(userID, orgID, filters)
@@ -2618,12 +2637,11 @@ const HelixOrgChart: FC = () => {
       id: p.id,
       name: p.name ?? p.id,
       kind: p.kind ?? '',
-      inputTopicId: p.input_topic_id ?? '',
+      inputNodeId: chartNodeIDForSource(p.input_source ?? ''),
       outputs: (p.outputs ?? []).map((o) => ({
         topicId: o.id ? `processor_output:${p.id}:${o.id}` : '',
         label: o.label ?? '',
         match: o.match ?? '',
-        owned: !!o.owned,
       })),
     })),
     [processorsData],
@@ -2904,7 +2922,7 @@ const HelixOrgChart: FC = () => {
       try {
         await updateProcessor.mutateAsync({
           id: processorId,
-          attrs: { name: p.name ?? processorId, kind: p.kind ?? 'template', config: p.config, input_topic_id: topicId },
+          attrs: { name: p.name ?? processorId, kind: p.kind ?? 'template', config: p.config, input_source: sourceForChartNodeID(topicId) },
         })
         snackbar.success(topicId ? `${processorId} now reads ${topicId}` : `${processorId} disconnected from its input`)
       } catch (err: any) {
@@ -2987,7 +3005,7 @@ const HelixOrgChart: FC = () => {
     }
     if (confirmDelete.kind === 'processor') {
       const p = (processorsData ?? []).find((x) => x.id === confirmDelete.id)
-      const owned = (p?.outputs ?? []).filter((o) => o.owned).map((o) => o.topic_id)
+      const owned = (p?.outputs ?? []).map((o) => o.id)
       return [
         `Deleting processor ${confirmDelete.id}:`,
         `  • removes the Processor`,
@@ -3034,7 +3052,7 @@ const HelixOrgChart: FC = () => {
           }}
         >
           {visibilityReady && !isLoading && !assetsLoading && !processorsLoading && !triggersLoading && !attachmentsLoading && <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
-            <ChartTopicVisibilityMenu selected={visibleTopicFilters} onChange={onTopicFiltersChange} />
+            <ChartTopicVisibilityMenu selected={visibleTopicFilters} onChange={onTopicFiltersChange} counts={triggerVisibilityCounts} />
             <ChartVisibilityMenu
               label="Agents"
               icon={<SmartToyOutlinedIcon />}

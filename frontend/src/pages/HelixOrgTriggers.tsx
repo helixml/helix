@@ -43,7 +43,7 @@ const HelixOrgTriggers: FC = () => {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [formError, setFormError] = useState('')
   const orgID = router.params.org_id as string
-  const filtered = useMemo(() => data.filter((t) => matchesAllTokens(query, [t.name, t.id, t.kind, t.description].filter(Boolean).join(' '))), [data, query])
+  const filtered = useMemo(() => data.filter((t) => matchesAllTokens(query, [t.name, t.id, t.kind, t.description, ...(t.attached_workers ?? [])].filter(Boolean).join(' '))), [data, query])
   const open = (id?: string) => id && router.navigate('helix_org_trigger_detail', { org_id: orgID, trigger_id: id })
   const openMenu = (event: MouseEvent<HTMLElement>, trigger: TriggerDTO) => { event.stopPropagation(); setCurrent(trigger); setAnchor(event.currentTarget) }
   const closeMenu = () => { setAnchor(null); setCurrent(undefined) }
@@ -58,6 +58,7 @@ const HelixOrgTriggers: FC = () => {
     _data: trigger,
     name: <Stack spacing={0.25}><a href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); open(trigger.id) }} style={{ fontWeight: 600, color: 'inherit', textDecoration: 'none' }}>{trigger.name}</a><Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>{trigger.id}</Typography></Stack>,
     kind: <Typography variant="body2" color="text.secondary">{trigger.kind}</Typography>,
+    agents: <Tooltip title={(trigger.attached_workers ?? []).join(', ')}><Typography variant="body2" color="text.secondary">{trigger.attached_workers?.length ?? 0}</Typography></Tooltip>,
     description: <Typography variant="body2" color="text.secondary">{trigger.description || '—'}</Typography>,
     created: <Typography variant="body2" color="text.secondary">{trigger.created_at ? new Date(trigger.created_at).toLocaleString() : '—'}</Typography>,
   })), [filtered, orgID])
@@ -72,10 +73,10 @@ const HelixOrgTriggers: FC = () => {
         <TextField size="small" placeholder="Search triggers" value={query} onChange={(e) => setQuery(e.target.value)} sx={{ maxWidth: 360 }} />
         <Stack direction="row" justifyContent="flex-end"><ViewModeToggle mode={mode} onChange={setMode} /></Stack>
         {isLoading ? <LoadingSpinner /> : filtered.length === 0 ? <Box sx={{ py: 6, textAlign: 'center' }}><Typography color="text.secondary">{query ? 'No Triggers match your search.' : 'No Triggers yet.'}</Typography>{!query && <Button variant="contained" color="secondary" startIcon={<Plus size={18} />} onClick={() => { setFormError(''); setCreateOpen(true) }} sx={{ mt: 1 }}>New Trigger</Button>}</Box> : mode === 'table' ? (
-          <SimpleTable authenticated fields={[{ name: 'name', title: 'Name' }, { name: 'kind', title: 'Source' }, { name: 'description', title: 'Description' }, { name: 'created', title: 'Created' }]} data={tableData} getActions={(row) => actions(row._data as TriggerDTO)} />
+          <SimpleTable authenticated fields={[{ name: 'name', title: 'Name' }, { name: 'kind', title: 'Source' }, { name: 'agents', title: 'Agents started' }, { name: 'description', title: 'Description' }, { name: 'created', title: 'Created' }]} data={tableData} getActions={(row) => actions(row._data as TriggerDTO)} />
         ) : <CardGrid items={filtered} getKey={(t) => t.id!} renderCard={(trigger) => (
           <Card sx={{ border: '1px solid rgba(0, 0, 0, 0.08)', borderRadius: 1, boxShadow: 'none', height: '100%', '&:hover': { borderColor: 'rgba(0,0,0,0.12)', backgroundColor: 'rgba(0,0,0,0.01)' } }}>
-            <CardContent onClick={() => open(trigger.id)} sx={{ p: 2, '&:last-child': { pb: 2 }, cursor: 'pointer' }}><Stack direction="row" justifyContent="space-between"><Box><Typography fontWeight={600}>{trigger.name}</Typography><Typography variant="caption" color="text.secondary">{trigger.kind}</Typography></Box>{actions(trigger)}</Stack><Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>{trigger.description || 'No description'}</Typography></CardContent>
+            <CardContent onClick={() => open(trigger.id)} sx={{ p: 2, '&:last-child': { pb: 2 }, cursor: 'pointer' }}><Stack direction="row" justifyContent="space-between"><Box><Typography fontWeight={600}>{trigger.name}</Typography><Typography variant="caption" color="text.secondary">{trigger.kind}</Typography></Box>{actions(trigger)}</Stack><Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>{trigger.description || 'No description'}</Typography><Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>Starts {trigger.attached_workers?.length ?? 0} agent{(trigger.attached_workers?.length ?? 0) === 1 ? '' : 's'}</Typography></CardContent>
           </Card>
         )} />}
       </Stack></Container></Box>

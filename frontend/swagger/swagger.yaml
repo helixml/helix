@@ -666,12 +666,25 @@ definitions:
     type: object
   api.TriggerDTO:
     properties:
+      attached_workers:
+        description: |-
+          AttachedWorkers are the Workers this Trigger activates — the
+          attachment-model successor of the Topics page's subscriber list.
+        items:
+          type: string
+        type: array
       config:
         additionalProperties: {}
         type: object
       created_at:
         type: string
       description:
+        type: string
+      effective_public_url:
+        description: |-
+          EffectivePublicURL is helix's public base URL (SERVER_URL), set
+          only for provider Triggers whose webhook payload URL must be
+          reachable from the internet, so the UI can warn on loopback.
         type: string
       id:
         type: string

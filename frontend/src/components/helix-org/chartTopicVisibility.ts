@@ -20,8 +20,12 @@ type TopicIdentity = {
 
 const filterIds = new Set<ChartTopicFilter>(CHART_TOPIC_FILTERS.map((filter) => filter.id))
 
+// The key predates the Topic → Trigger rename and is deliberately left
+// alone: the stored payload is a list of filter ids, and those ids did
+// not change. Renaming it would silently reset every existing user's
+// saved chart visibility on upgrade.
 const storageKey = (userId: string, orgId: string): string =>
-  `helix.orgChart.triggerVisibility.v1.${userId}.${orgId}`
+  `helix.orgChart.topicVisibility.${userId}.${orgId}`
 
 export const chartTopicFilterFor = (topic: TopicIdentity): ChartTopicFilter => {
   if (topic.name.trimStart().toLowerCase().startsWith('dm:')) return 'direct_messages'
