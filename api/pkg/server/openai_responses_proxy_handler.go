@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/external-agent"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/system"

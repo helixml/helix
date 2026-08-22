@@ -15,7 +15,7 @@ func (a *apiHandler) listAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Summary Helix-org: create an agent
-// @Description Create a canonical Agent with its org-chart position, communication topics, tools, and Agent App configuration.
+// @Description Create a canonical Agent with its org-chart position, trigger attachments, tools, and Agent App configuration.
 // @Tags HelixOrg
 // @Accept json
 // @Produce json
@@ -46,7 +46,7 @@ func (a *apiHandler) updateAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Summary Helix-org: delete an agent
-// @Description Delete an Agent after archiving its runtime-owned project and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. Repositories are preserved.
+// @Description Delete an Agent after archiving its runtime-owned project and deleting its Agent App, knowledge, runtime state, attachments, reporting lines, and org-chart row. Repositories are preserved.
 // @Tags HelixOrg
 // @Param org path string true "Organization slug or ID"
 // @Param id path string true "Agent ID"
@@ -141,43 +141,4 @@ func (a *apiHandler) stopAgent(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/orgs/{org}/agents/{id}/restart-agent [post]
 func (a *apiHandler) restartAgent(w http.ResponseWriter, r *http.Request) {
 	a.restartBotAgent(w, r)
-}
-
-// @Summary Helix-org: list an agent's subscriptions
-// @Tags HelixOrg
-// @Param org path string true "Organization slug or ID"
-// @Param id path string true "Agent ID"
-// @Success 200 {object} api.BotSubscriptionsResponse
-// @Failure 404 {object} api.ErrorResponse
-// @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/agents/{id}/subscriptions [get]
-func (a *apiHandler) listAgentSubscriptions(w http.ResponseWriter, r *http.Request) {
-	a.listBotSubscriptions(w, r)
-}
-
-// @Summary Helix-org: subscribe an agent to a topic
-// @Tags HelixOrg
-// @Param org path string true "Organization slug or ID"
-// @Param id path string true "Agent ID"
-// @Param payload body api.SubscribeBotRequest true "Topic to subscribe the Agent to"
-// @Success 200 {object} api.BotSubscriptionDTO
-// @Success 201 {object} api.BotSubscriptionDTO
-// @Failure 404 {object} api.ErrorResponse
-// @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/agents/{id}/subscriptions [post]
-func (a *apiHandler) subscribeAgent(w http.ResponseWriter, r *http.Request) {
-	a.subscribeBot(w, r)
-}
-
-// @Summary Helix-org: unsubscribe an agent from a topic
-// @Tags HelixOrg
-// @Param org path string true "Organization slug or ID"
-// @Param id path string true "Agent ID"
-// @Param topic_id path string true "Topic ID"
-// @Success 204
-// @Failure 404 {object} api.ErrorResponse
-// @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/agents/{id}/subscriptions/{topic_id} [delete]
-func (a *apiHandler) unsubscribeAgent(w http.ResponseWriter, r *http.Request) {
-	a.unsubscribeBot(w, r)
 }

@@ -27,8 +27,6 @@ var orgRowTypes = []any{
 	&nodeRow{},
 	&reportingLineRow{},
 	&nodeRuntimeStateRow{},
-	&topicRow{},
-	&subscriptionRow{},
 	&eventRow{},
 	&configRow{},
 	&activationRow{},
@@ -53,8 +51,6 @@ var orgTableNames = []string{
 	"org_bots",
 	"org_reporting_lines",
 	"org_bot_runtime_state",
-	"org_topics",
-	"org_subscriptions",
 	"org_events",
 	"org_configs",
 	"org_activations",
@@ -150,9 +146,7 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		Nodes:                bots,
 		ReportingLines:       newReportingLinesRepo(db),
 		NodeRuntimeState:     newNodeRuntimeStateRepo(db),
-		Topics:               newTopicsRepo(db),
-		Subscriptions:        newSubscriptionsRepo(db),
-		Events:               newEventsRepo(db, bots),
+		Events:               newEventsRepo(db),
 		Configs:              newConfigsRepo(db),
 		Activations:          newActivationsRepo(db),
 		Processors:           newProcessorsRepo(db),
@@ -163,6 +157,10 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		AssetLinks:           newAssetLinksRepo(db),
 		ChartPositions:       newChartPositionsRepo(db),
 		DomainEvents:         newDomainEventsRepo(db),
+
+		RetiredTopics:          newRetiredReader(db),
+		RetiredSubscriptions:   newRetiredSubscriptionReader(db),
+		RetiredProcessorInputs: newRetiredProcessorInputReader(db),
 	}, nil
 }
 
@@ -227,10 +225,10 @@ func migrateProcessorOutputIDs(db *gorm.DB) error {
 		seen := map[string]struct{}{}
 		for i := range outputs {
 			if outputs[i].ID == "" {
-				if outputs[i].TopicID == "" {
+				if outputs[i].StreamID == "" {
 					return fmt.Errorf("processor %q output %d has no topic id", row.ID, i)
 				}
-				outputs[i].ID = processor.LegacyOutputID(outputs[i].TopicID)
+				outputs[i].ID = processor.LegacyOutputID(outputs[i].StreamID)
 				changed = true
 			}
 			if _, ok := seen[outputs[i].ID]; ok {
@@ -554,6 +552,11 @@ var renamedColumns = []struct{ table, from, to string }{
 var renamedIndexes = []struct{ table, from, to string }{
 	{table: "org_topics", from: "idx_stream_org_name", to: "idx_topic_org_name"},
 }
+
+// The org_topics / org_subscriptions rename entries above still apply:
+// the tables are no longer AutoMigrated, but the conversion in
+// application/cutover reads them, and an upgrade from a pre-rename
+// release must still find its data under the current names.
 
 // renameLegacyTables applies renamedTables, renamedColumns and
 // renamedIndexes before AutoMigrate. Each step is guarded so the whole

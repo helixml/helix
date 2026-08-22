@@ -9,6 +9,7 @@ import (
 	"github.com/slack-go/slack"
 
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
@@ -43,7 +44,7 @@ type slackThreadRecorder interface {
 }
 
 func validateSlackReplyRouter(router processor.Processor, workspaceID, workerID string) error {
-	if !router.Automated() || router.Kind != processor.KindFilter || router.InputTopicID != slackWorkspaceTopicID(workspaceID) {
+	if !router.Automated() || router.Kind != processor.KindFilter || router.InputSource != eventsource.Trigger(slackWorkspaceTriggerID(workspaceID)) {
 		return fmt.Errorf("processor is not the workspace's automated Slack router")
 	}
 	if !slackrouting.ThreadFollowEnabled(router.Config) {

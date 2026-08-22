@@ -10006,7 +10006,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Create a canonical Agent with its org-chart position, communication topics, tools, and Agent App configuration.",
+                "description": "Create a canonical Agent with its org-chart position, trigger attachments, tools, and Agent App configuration.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10109,7 +10109,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Delete an Agent after archiving its runtime-owned project and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. Repositories are preserved.",
+                "description": "Delete an Agent after archiving its runtime-owned project and deleting its Agent App, knowledge, runtime state, attachments, reporting lines, and org-chart row. Repositories are preserved.",
                 "tags": [
                     "HelixOrg"
                 ],
@@ -10621,152 +10621,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/agents/{id}/subscriptions": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: list an agent's subscriptions",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.BotSubscriptionsResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: subscribe an agent to a topic",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Topic to subscribe the Agent to",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.SubscribeBotRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.BotSubscriptionDTO"
-                        }
-                    },
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/api.BotSubscriptionDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}/subscriptions/{topic_id}": {
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: unsubscribe an agent from a topic",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Topic ID",
-                        "name": "topic_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/orgs/{org}/assets": {
             "get": {
                 "security": [
@@ -11037,7 +10891,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Create a Bot. Wraps the lifecycle Create so REST + chat creates share semantics (base-tool union, reporting line, transcript topics, create dispatch).",
+                "description": "Create a Bot. Wraps the lifecycle Create so REST + chat creates share semantics (base-tool union, reporting line, transcript channel, create dispatch).",
                 "consumes": [
                     "application/json"
                 ],
@@ -11132,7 +10986,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Delete a Bot. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Repositories and activations are preserved.",
+                "description": "Delete a Bot. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops attachments + reporting lines, then the bot row. Repositories and activations are preserved.",
                 "tags": [
                     "HelixOrg"
                 ],
@@ -11491,131 +11345,6 @@ const docTemplate = `{
                     },
                     "501": {
                         "description": "Not Implemented",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/bots/{id}/subscriptions": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: list a bot's subscriptions",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bot ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.BotSubscriptionsResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: subscribe a bot to a topic",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bot ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "topic to subscribe to",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.SubscribeBotRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.BotSubscriptionDTO"
-                        }
-                    },
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/api.BotSubscriptionDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/bots/{id}/subscriptions/{topic_id}": {
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: unsubscribe a bot from a topic",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bot ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Topic ID",
-                        "name": "topic_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -12353,231 +12082,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/topics": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: list topics",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.TopicsResponse"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: create a topic",
-                "parameters": [
-                    {
-                        "description": "Topic spec",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.CreateTopicRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/api.TopicDTO"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/topics/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: get a topic",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Topic ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.TopicDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: update a topic",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Topic ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Topic patch",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.UpdateTopicRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.TopicDTO"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: delete a topic",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Topic ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/topics/{id}/events": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "produces": [
-                    "text/event-stream"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: SSE topic of events for one topic",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Topic ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "SSE: event: message / data: [EventCard,...]",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/topics/{id}/github/install-webhook": {
+        "/api/v1/orgs/{org}/triggers/{id}/github/install-webhook": {
             "post": {
                 "security": [
                     {
@@ -12594,7 +12099,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Topic ID",
+                        "description": "Trigger ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -12628,7 +12133,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/topics/{id}/github/webhook-status": {
+        "/api/v1/orgs/{org}/triggers/{id}/github/webhook-status": {
             "get": {
                 "security": [
                     {
@@ -12645,7 +12150,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Topic ID",
+                        "description": "Trigger ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -12667,7 +12172,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook": {
+        "/api/v1/orgs/{org}/triggers/{id}/gitlab/install-webhook": {
             "post": {
                 "security": [
                     {
@@ -12680,11 +12185,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: auto-install the webhook for a GitLab topic",
+                "summary": "Helix-org: auto-install the webhook for a GitLab Trigger",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Topic ID",
+                        "description": "Trigger ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -12700,7 +12205,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status": {
+        "/api/v1/orgs/{org}/triggers/{id}/gitlab/webhook-status": {
             "get": {
                 "security": [
                     {
@@ -12713,11 +12218,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: live webhook status for a GitLab topic",
+                "summary": "Helix-org: live webhook status for a GitLab Trigger",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Topic ID",
+                        "description": "Trigger ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -12728,151 +12233,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/api.GitLabWebhookStatusResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/topics/{id}/messages": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/vnd.api+json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: list a topic's messages (JSON:API, paginated)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Topic ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "1-based page number (default 1)",
-                        "name": "page[number]",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "page size (default 50, max 200)",
-                        "name": "page[size]",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.MessagesDocument"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: clear all messages from a topic",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Topic ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/topics/{id}/publish": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: publish a message to a topic",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Topic ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Message body+optional subject/to",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.PublishRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/api.PublishResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     }
                 }
@@ -23533,31 +22893,6 @@ const docTemplate = `{
                 }
             }
         },
-        "api.BotSubscriptionDTO": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "topic_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.BotSubscriptionsResponse": {
-            "type": "object",
-            "properties": {
-                "bot_id": {
-                    "type": "string"
-                },
-                "subscriptions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.BotSubscriptionDTO"
-                    }
-                }
-            }
-        },
         "api.ChartPositionDTO": {
             "type": "object",
             "properties": {
@@ -23651,7 +22986,7 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
-                "topics": {
+                "triggers": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -23670,66 +23005,10 @@ const docTemplate = `{
                 }
             }
         },
-        "api.CreateTopicRequest": {
-            "type": "object",
-            "properties": {
-                "as": {
-                    "description": "As is the Bot that creates the topic — the bot whose chat\nthe human is in. Empty leaves the topic unattributed (CreatedBy is\ncosmetic: it only anchors the node on the chart).",
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "transport": {
-                    "$ref": "#/definitions/api.TransportRequestField"
-                }
-            }
-        },
         "api.ErrorResponse": {
             "type": "object",
             "properties": {
                 "error": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.EventCard": {
-            "type": "object",
-            "properties": {
-                "body": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "from": {
-                    "type": "string"
-                },
-                "has_message": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "message_body": {
-                    "type": "string"
-                },
-                "source": {
-                    "type": "string"
-                },
-                "subject": {
-                    "type": "string"
-                },
-                "to": {
-                    "type": "string"
-                },
-                "topic_id": {
                     "type": "string"
                 }
             }
@@ -23881,93 +23160,6 @@ const docTemplate = `{
                 }
             }
         },
-        "api.MessageAttributes": {
-            "type": "object",
-            "properties": {
-                "body": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "from": {
-                    "type": "string"
-                },
-                "has_message": {
-                    "type": "boolean"
-                },
-                "raw": {
-                    "description": "Raw is the canonical Message envelope JSON exactly as stored — the\nsame shape a processor's ` + "`" + `.Message` + "`" + ` template/filter context sees\n({\"from\":…,\"subject\":…,\"body\":…,\"thread_id\":…,…}). Lets the UI show\noperators which fields are available.",
-                    "type": "string"
-                },
-                "source": {
-                    "type": "string"
-                },
-                "subject": {
-                    "type": "string"
-                },
-                "to": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "topic_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.MessageResource": {
-            "type": "object",
-            "properties": {
-                "attributes": {
-                    "$ref": "#/definitions/api.MessageAttributes"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.MessagesDocument": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.MessageResource"
-                    }
-                },
-                "links": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "meta": {
-                    "$ref": "#/definitions/api.MessagesMeta"
-                }
-            }
-        },
-        "api.MessagesMeta": {
-            "type": "object",
-            "properties": {
-                "page": {
-                    "type": "integer"
-                },
-                "size": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
-                },
-                "total_pages": {
-                    "type": "integer"
-                }
-            }
-        },
         "api.OrgOverview": {
             "type": "object",
             "properties": {
@@ -23982,6 +23174,9 @@ const docTemplate = `{
         "api.ProcessorOutputDTO": {
             "type": "object",
             "properties": {
+                "id": {
+                    "type": "string"
+                },
                 "label": {
                     "type": "string"
                 },
@@ -23992,10 +23187,7 @@ const docTemplate = `{
                 "match": {
                     "type": "string"
                 },
-                "owned": {
-                    "type": "boolean"
-                },
-                "topic_id": {
+                "source": {
                     "type": "string"
                 }
             }
@@ -24016,7 +23208,7 @@ const docTemplate = `{
                                 "created_by": {
                                     "type": "string"
                                 },
-                                "input_topic_id": {
+                                "input_source": {
                                     "type": "string"
                                 },
                                 "kind": {
@@ -24037,41 +23229,6 @@ const docTemplate = `{
                             "type": "string"
                         }
                     }
-                }
-            }
-        },
-        "api.PublishRequest": {
-            "type": "object",
-            "properties": {
-                "as": {
-                    "description": "As is the Bot the message is sent as — the bot whose chat the\nhuman is in. Empty means human/system-origin (the dispatcher treats\nit as such). There is no global \"owner\" sender any more.",
-                    "type": "string"
-                },
-                "body": {
-                    "type": "string"
-                },
-                "subject": {
-                    "type": "string"
-                },
-                "threadId": {
-                    "type": "string"
-                },
-                "to": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "api.PublishResponse": {
-            "type": "object",
-            "properties": {
-                "delivery": {
-                    "$ref": "#/definitions/publishing.DeliveryReceipt"
-                },
-                "event_id": {
-                    "type": "string"
                 }
             }
         },
@@ -24201,14 +23358,6 @@ const docTemplate = `{
                 }
             }
         },
-        "api.SubscribeBotRequest": {
-            "type": "object",
-            "properties": {
-                "topic_id": {
-                    "type": "string"
-                }
-            }
-        },
         "api.ToolDTO": {
             "type": "object",
             "properties": {
@@ -24216,83 +23365,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "name": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.TopicDTO": {
-            "type": "object",
-            "properties": {
-                "can_publish": {
-                    "type": "boolean"
-                },
-                "config": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "created_by": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "disable_reason": {
-                    "type": "string"
-                },
-                "effective_public_url": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "kind": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "recent_events": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.EventCard"
-                    }
-                },
-                "subscribers": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "api.TopicsResponse": {
-            "type": "object",
-            "properties": {
-                "recent": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.EventCard"
-                    }
-                },
-                "topics": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.TopicDTO"
-                    }
-                }
-            }
-        },
-        "api.TransportRequestField": {
-            "type": "object",
-            "properties": {
-                "config": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "kind": {
                     "type": "string"
                 }
             }
@@ -24385,20 +23457,6 @@ const docTemplate = `{
                 },
                 "user": {
                     "type": "string"
-                }
-            }
-        },
-        "api.UpdateTopicRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "transport": {
-                    "$ref": "#/definitions/api.TransportRequestField"
                 }
             }
         },
@@ -25655,26 +24713,6 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "severity": {
-                    "type": "string"
-                }
-            }
-        },
-        "publishing.DeliveryReceipt": {
-            "type": "object",
-            "properties": {
-                "destination": {
-                    "type": "string"
-                },
-                "error": {
-                    "type": "string"
-                },
-                "messageId": {
-                    "type": "string"
-                },
-                "provider": {
-                    "type": "string"
-                },
-                "status": {
                     "type": "string"
                 }
             }

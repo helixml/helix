@@ -148,15 +148,15 @@ func inferServerType(ownedBy string) string {
 }
 
 type LocalModel struct {
-	Key              string              `json:"key"`
-	Type             string              `json:"type"`
-	DisplayName      string              `json:"display_name,omitempty"`
-	Architecture     string              `json:"architecture,omitempty"`
-	Quantization     *LocalModelQuant    `json:"quantization,omitempty"`
-	SizeBytes        int64               `json:"size_bytes"`
-	ParamsString     string              `json:"params_string,omitempty"`
-	MaxContextLength int                 `json:"max_context_length"`
-	Format           string              `json:"format,omitempty"`
+	Key              string               `json:"key"`
+	Type             string               `json:"type"`
+	DisplayName      string               `json:"display_name,omitempty"`
+	Architecture     string               `json:"architecture,omitempty"`
+	Quantization     *LocalModelQuant     `json:"quantization,omitempty"`
+	SizeBytes        int64                `json:"size_bytes"`
+	ParamsString     string               `json:"params_string,omitempty"`
+	MaxContextLength int                  `json:"max_context_length"`
+	Format           string               `json:"format,omitempty"`
 	LoadedInstances  []LocalModelInstance `json:"loaded_instances"`
 }
 

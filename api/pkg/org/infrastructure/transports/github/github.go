@@ -1,6 +1,6 @@
 // Package github implements helix-org's inbound GitHub webhooks
 // transport. A single HTTP handler at /github/webhook turns every
-// signed delivery into Events on the Topics configured for that
+// signed delivery into events on the Triggers configured for that
 // repo.
 //
 // Server-level configuration lives in the operational config
@@ -11,16 +11,15 @@
 //	  "webhook_secret": "<random hex>"         // HMAC-SHA256 over body
 //	}
 //
-// Topics declare `{"repo":"owner/name","events":[...]}`. The
-// transport HMAC-verifies the delivery, fans it out to every Topic
+// Triggers declare `{"repo":"owner/name","events":[...]}`. The
+// transport HMAC-verifies the delivery, fans it out to every Trigger
 // whose `repo` matches `payload.repository.full_name` and whose
 // `events` whitelist contains the X-GitHub-Event header value, and
 // builds a canonical Message envelope per the design doc.
 //
 // Outbound is intentionally not supported. Workers act on the repo
-// via `gh` in their Environment; publish to a github topic is
-// rejected at the publish tool with an explanatory error. See
-// design/github-transport.md.
+// via `gh` in their Environment, authenticated with a credential
+// fetched through get_secret. See design/github-transport.md.
 package github
 
 import (
@@ -44,7 +43,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
-	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 )
 
 // Config is the parsed shape of the operational-config row
@@ -81,11 +80,12 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// Dispatcher is the subset of the dispatcher this transport needs:
-// fan an Event out to subscribed AI Workers after appending it.
-// Defining the interface here keeps the import edge one-directional.
-type Dispatcher interface {
-	Dispatch(ctx context.Context, event streaming.Event)
+// Publisher appends one inbound delivery to its Trigger and routes it
+// to the Workers attached to that Trigger. *publishing.Publishing
+// satisfies it; defining the interface here keeps the import edge
+// one-directional.
+type Publisher interface {
+	PublishDelivery(ctx context.Context, orgID, triggerID string, eventID streaming.EventID, msg streaming.Message) (streaming.Event, error)
 }
 
 // TokenResolver returns the GitHub access token to use for outbound
@@ -103,25 +103,21 @@ type Transport struct {
 	orgID         string
 	registry      *configregistry.Registry
 	store         *store.Store
-	broadcaster   *wakebus.Bus
-	dispatcher    Dispatcher
+	publisher     Publisher
 	tokenResolver TokenResolver
 	logger        *slog.Logger
 }
 
-// New returns a Transport bound to the given config registry, store,
-// broadcaster (for waking long-poll observers on inbound) and
-// dispatcher (for activating subscribed Workers on inbound).
-// dispatcher and broadcaster may be nil for tests that don't
-// exercise those paths.
-func New(orgID string, reg *configregistry.Registry, st *store.Store, bc *wakebus.Bus, d Dispatcher, logger *slog.Logger) *Transport {
+// New returns a Transport bound to the given config registry, store and
+// publisher (which appends each delivery to its Trigger and activates
+// the Workers attached to it).
+func New(orgID string, reg *configregistry.Registry, st *store.Store, publisher Publisher, logger *slog.Logger) *Transport {
 	return &Transport{
-		orgID:       orgID,
-		registry:    reg,
-		store:       st,
-		broadcaster: bc,
-		dispatcher:  d,
-		logger:      logger,
+		orgID:     orgID,
+		registry:  reg,
+		store:     st,
+		publisher: publisher,
+		logger:    logger,
 	}
 }
 
@@ -285,19 +281,19 @@ func (t *Transport) HandleInbound() http.Handler {
 			return
 		}
 
-		// Find every topic this delivery should fan out to.
+		// Find every trigger this delivery should fan out to.
 		branch := payloadBranch(eventType, payload)
-		topics, err := t.matchingTopics(r.Context(), repo, eventType, branch)
+		triggers, err := t.matchingTriggers(r.Context(), repo, eventType, branch)
 		if err != nil {
-			t.logger.Error("github.inbound: match topics", "repo", repo, "err", err)
+			t.logger.Error("github.inbound: match triggers", "repo", repo, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		if len(topics) == 0 {
-			// Either no Topic is configured for this repo, or none of
+		if len(triggers) == 0 {
+			// Either no Trigger is configured for this repo, or none of
 			// them want this event type. Log so misconfigurations are
 			// visible; respond 2xx so GitHub stops retrying.
-			t.logger.Info("github.inbound: no matching topics", "repo", repo, "event", eventType, "delivery", deliveryID)
+			t.logger.Info("github.inbound: no matching triggers", "repo", repo, "event", eventType, "delivery", deliveryID)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -323,18 +319,17 @@ func (t *Transport) HandleInbound() http.Handler {
 			Extra:     extraJSON,
 		}
 
-		now := nowUTC()
-		for _, s := range topics {
-			appended, err := t.appendInbound(r.Context(), s.ID, deliveryID, msg, now)
+		for _, s := range triggers {
+			appended, err := t.appendInbound(r.Context(), s.ID, deliveryID, msg)
 			if err != nil {
-				t.logger.Error("github.inbound: append", "topic", s.ID, "err", err)
+				t.logger.Error("github.inbound: append", "trigger", s.ID, "err", err)
 				continue
 			}
 			if !appended {
 				continue
 			}
 			t.logger.Info("github.inbound",
-				"topic", s.ID, "repo", repo, "event", eventType,
+				"trigger", s.ID, "repo", repo, "event", eventType,
 				"delivery", deliveryID, "from", msg.From)
 		}
 
@@ -342,17 +337,17 @@ func (t *Transport) HandleInbound() http.Handler {
 	})
 }
 
-// HandleInboundForTopic is the per-topic variant of HandleInbound.
+// HandleInboundForTrigger is the per-Trigger variant of HandleInbound.
 // It HMAC-verifies the delivery the same way, but pins fanout to a
-// single Topic identified by topicID rather than scanning every
-// github topic in the org. The topic's own (repo, events)
+// single Trigger identified by triggerID rather than scanning every
+// github Trigger in the org. The Trigger's own (repo, events)
 // configuration still applies — a delivery for the wrong repo or
-// for an event the topic doesn't whitelist returns 204 (dropped)
+// for an event the Trigger doesn't whitelist returns 204 (dropped)
 // so GitHub stops retrying. Use this handler when you want one
-// GitHub webhook → one helix topic (the recommended setup on the
+// GitHub webhook → one Trigger (the recommended setup on the
 // detail page); the org-level handler stays for fan-out delivery
-// across every matching github topic.
-func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handler {
+// across every matching github Trigger.
+func (t *Transport) HandleInboundForTrigger(triggerID string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -360,7 +355,7 @@ func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handle
 		}
 		cfg, err := t.config(r.Context())
 		if err != nil {
-			t.logger.Error("github.inbound.topic: config", "err", err)
+			t.logger.Error("github.inbound.trigger: config", "err", err)
 			http.Error(w, "transport not configured", http.StatusServiceUnavailable)
 			return
 		}
@@ -370,8 +365,8 @@ func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handle
 			return
 		}
 		if !verifySignature(cfg.WebhookSecret, body, r.Header.Get("X-Hub-Signature-256")) {
-			t.logger.Warn("github.inbound.topic: bad signature",
-				"topic", topicID,
+			t.logger.Warn("github.inbound.trigger: bad signature",
+				"trigger", triggerID,
 				"delivery", r.Header.Get("X-GitHub-Delivery"),
 				"event", r.Header.Get("X-GitHub-Event"))
 			http.Error(w, "invalid signature", http.StatusUnauthorized)
@@ -379,54 +374,55 @@ func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handle
 		}
 		payload, err := decodeWebhookPayload(r.Header.Get("Content-Type"), body)
 		if err != nil {
-			t.logger.Warn("github.inbound.topic: decode body", "topic", topicID, "err", err)
+			t.logger.Warn("github.inbound.trigger: decode body", "trigger", triggerID, "err", err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		eventType := r.Header.Get("X-GitHub-Event")
 		deliveryID := r.Header.Get("X-GitHub-Delivery")
-		topic, err := t.store.Topics.Get(r.Context(), t.orgID, topicID)
-		if err != nil {
-			t.logger.Warn("github.inbound.topic: lookup", "topic", topicID, "err", err)
-			http.Error(w, "topic not found", http.StatusNotFound)
+		rows, err := t.store.Triggers.Find(r.Context(), store.WithOrg(t.orgID), store.WithID(triggerID), store.WithLimit(1))
+		if err != nil || len(rows) == 0 {
+			t.logger.Warn("github.inbound.trigger: lookup", "trigger", triggerID, "err", err)
+			http.Error(w, "trigger not found", http.StatusNotFound)
 			return
 		}
-		if topic.Transport.Kind != transport.KindGitHub {
-			http.Error(w, "topic is not a github transport", http.StatusBadRequest)
+		trg := rows[0]
+		if trg.Kind != transport.KindGitHub {
+			http.Error(w, "trigger is not a github transport", http.StatusBadRequest)
 			return
 		}
-		topicCfg, err := topic.Transport.GitHubConfig()
+		triggerCfg, err := trg.Transport().GitHubConfig()
 		if err != nil {
-			t.logger.Error("github.inbound.topic: parse topic config", "topic", topicID, "err", err)
-			http.Error(w, "topic config invalid", http.StatusInternalServerError)
+			t.logger.Error("github.inbound.trigger: parse trigger config", "trigger", triggerID, "err", err)
+			http.Error(w, "trigger config invalid", http.StatusInternalServerError)
 			return
 		}
 		repo := repoFullName(payload)
 		if repo == "" {
-			t.logger.Info("github.inbound.topic: no repository in payload",
-				"topic", topicID, "event", eventType, "delivery", deliveryID)
+			t.logger.Info("github.inbound.trigger: no repository in payload",
+				"trigger", triggerID, "event", eventType, "delivery", deliveryID)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		// Topic-level filters: drop on repo or event-whitelist
+		// Trigger-level filters: drop on repo or event-whitelist
 		// mismatch with 204 so GitHub stops retrying. This is the
 		// same drop semantics as the org-level handler.
-		if !repoMatches(topicCfg.Repo, repo) {
-			t.logger.Info("github.inbound.topic: repo mismatch",
-				"topic", topicID, "topic_repo", topicCfg.Repo, "payload_repo", repo,
+		if !repoMatches(triggerCfg.Repo, repo) {
+			t.logger.Info("github.inbound.trigger: repo mismatch",
+				"trigger", triggerID, "trigger_repo", triggerCfg.Repo, "payload_repo", repo,
 				"event", eventType, "delivery", deliveryID)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if !contains(topicCfg.Events, eventType) {
-			t.logger.Info("github.inbound.topic: event not whitelisted",
-				"topic", topicID, "event", eventType, "delivery", deliveryID)
+		if !contains(triggerCfg.Events, eventType) {
+			t.logger.Info("github.inbound.trigger: event not whitelisted",
+				"trigger", triggerID, "event", eventType, "delivery", deliveryID)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if !branchAllowed(topicCfg.Branches, payloadBranch(eventType, payload)) {
-			t.logger.Info("github.inbound.topic: branch not in filter",
-				"topic", topicID, "event", eventType, "delivery", deliveryID)
+		if !branchAllowed(triggerCfg.Branches, payloadBranch(eventType, payload)) {
+			t.logger.Info("github.inbound.trigger: branch not in filter",
+				"trigger", triggerID, "event", eventType, "delivery", deliveryID)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -435,7 +431,7 @@ func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handle
 		payload["event"] = eventType
 		extraJSON, err := json.Marshal(payload)
 		if err != nil {
-			t.logger.Error("github.inbound.topic: re-marshal", "err", err)
+			t.logger.Error("github.inbound.trigger: re-marshal", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -447,10 +443,9 @@ func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handle
 			MessageID: deliveryID,
 			Extra:     extraJSON,
 		}
-		now := nowUTC()
-		appended, err := t.appendInbound(r.Context(), topic.ID, deliveryID, msg, now)
+		appended, err := t.appendInbound(r.Context(), trg.ID, deliveryID, msg)
 		if err != nil {
-			t.logger.Error("github.inbound.topic: append", "topic", topicID, "err", err)
+			t.logger.Error("github.inbound.trigger: append", "trigger", triggerID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -458,55 +453,46 @@ func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handle
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		t.logger.Info("github.inbound.topic",
-			"topic", topic.ID, "repo", repo, "event", eventType,
+		t.logger.Info("github.inbound.trigger",
+			"trigger", trg.ID, "repo", repo, "event", eventType,
 			"delivery", deliveryID, "from", msg.From)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
 
-func (t *Transport) appendInbound(ctx context.Context, topicID streaming.TopicID, deliveryID string, msg streaming.Message, now time.Time) (bool, error) {
+// appendInbound publishes one delivery to a Trigger under a
+// delivery-derived event id, so a GitHub redelivery collides on the
+// events primary key and is dropped rather than double-processed.
+// Returns false (no error) for that duplicate case.
+func (t *Transport) appendInbound(ctx context.Context, triggerID, deliveryID string, msg streaming.Message) (bool, error) {
 	eventID := streaming.EventID("e-" + uuid.NewString())
 	if deliveryID != "" {
-		eventID = streaming.EventID("e-" + uuid.NewSHA1(uuid.NameSpaceOID, []byte(string(topicID)+"\x00"+deliveryID)).String())
+		eventID = streaming.EventID("e-" + uuid.NewSHA1(uuid.NameSpaceOID, []byte(triggerID+"\x00"+deliveryID)).String())
 	}
-	event, err := streaming.NewMessageEvent(eventID, topicID, "", msg, now, t.orgID)
-	if err != nil {
-		return false, err
-	}
-	if err := t.store.Events.Append(ctx, event); err != nil {
+	if _, err := t.publisher.PublishDelivery(ctx, t.orgID, triggerID, eventID, msg); err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			return false, nil
 		}
 		return false, err
 	}
-	if t.broadcaster != nil {
-		t.broadcaster.Notify(t.orgID, topicID)
-	}
-	if t.dispatcher != nil {
-		t.dispatcher.Dispatch(ctx, event)
-	}
 	return true, nil
 }
 
-// matchingTopics returns every github-transport Topic whose repo
+// matchingTriggers returns every github-transport Trigger whose repo
 // matches `repo` (case-insensitive) and whose events whitelist
 // contains `eventType`. Linear scan is fine at the scale we expect;
 // indexed lookups are an obvious follow-on if installations ever
-// grow many github topics.
-func (t *Transport) matchingTopics(ctx context.Context, repo, eventType, branch string) ([]streaming.Topic, error) {
-	all, err := t.store.Topics.List(ctx, t.orgID)
+// grow many github triggers.
+func (t *Transport) matchingTriggers(ctx context.Context, repo, eventType, branch string) ([]trigger.Trigger, error) {
+	all, err := t.store.Triggers.Find(ctx, store.WithOrg(t.orgID), store.WithTransportKind(string(transport.KindGitHub)))
 	if err != nil {
-		return nil, fmt.Errorf("list topics: %w", err)
+		return nil, fmt.Errorf("list github triggers: %w", err)
 	}
-	var matched []streaming.Topic
+	var matched []trigger.Trigger
 	for _, s := range all {
-		if s.Transport.Kind != transport.KindGitHub {
-			continue
-		}
-		cfg, err := s.Transport.GitHubConfig()
+		cfg, err := s.Transport().GitHubConfig()
 		if err != nil {
-			t.logger.Warn("github.inbound: topic config parse", "topic", s.ID, "err", err)
+			t.logger.Warn("github.inbound: trigger config parse", "trigger", s.ID, "err", err)
 			continue
 		}
 		if !repoMatches(cfg.Repo, repo) {

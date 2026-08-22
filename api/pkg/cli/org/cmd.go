@@ -1,4 +1,4 @@
-// Package org is the helix CLI surface for helix-org (agents, topics,
+// Package org is the helix CLI surface for helix-org (agents, triggers,
 // processors, assets, chat). Auth: $HELIX_API_KEY + $HELIX_URL (default
 // http://localhost:8080). Org: --org / $HELIX_ORG / first membership.
 package org
@@ -11,7 +11,7 @@ import (
 func New() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "org",
-		Short:   "Helix-org: agents, topics, processors, assets, and chat",
+		Short:   "Helix-org: agents, triggers, processors, assets, and chat",
 		Aliases: []string{"helix-org", "ho"},
 		Long: `Operate on a helix-org organization graph from the CLI.
 
@@ -20,7 +20,7 @@ Examples:
   helix org agents get chief-of-staff --org unmanned-org
   helix org agents start chief-of-staff --org unmanned-org
   helix org agents chat chief-of-staff --org unmanned-org "What agents exist?"
-  helix org topics list --org unmanned-org
+  helix org triggers list --org unmanned-org
   helix org processors list --org unmanned-org
   helix org assets list --org unmanned-org
   helix org assets create server production --org unmanned-org --address 10.0.0.8 --user ubuntu
@@ -29,7 +29,7 @@ Auth via HELIX_URL + HELIX_API_KEY. For raw REST, use: helix api GET /orgs/{org}
 `,
 	}
 	cmd.AddCommand(newBotsCmd())
-	cmd.AddCommand(newTopicsCmd())
+	cmd.AddCommand(newTriggersCmd())
 	cmd.AddCommand(newProcessorsCmd())
 	cmd.AddCommand(newAssetsCmd())
 	return cmd

@@ -12,9 +12,9 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 )
@@ -84,7 +84,7 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 // line, topology reconcile, create-activation dispatch).
 //
 // @Summary Helix-org: create a bot
-// @Description Create a Bot. Wraps the lifecycle Create so REST + chat creates share semantics (base-tool union, reporting line, transcript topics, create dispatch).
+// @Description Create a Bot. Wraps the lifecycle Create so REST + chat creates share semantics (base-tool union, reporting line, transcript channel, create dispatch).
 // @Tags HelixOrg
 // @Accept json
 // @Produce json
@@ -128,11 +128,12 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 	// REST and chat-driven creates share lifecycle.Create — one
 	// implementation.
 	res, err := a.deps.Lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
-		ID:              strings.TrimSpace(req.ID),
-		Name:            strings.TrimSpace(req.Name),
-		Content:         req.Content,
-		Tools:           tools,
-		Topics:          toTopicIDs(req.Topics),
+		ID:      strings.TrimSpace(req.ID),
+		Name:    strings.TrimSpace(req.Name),
+		Content: req.Content,
+		Tools:   tools,
+
+		Sources:         toTriggerSources(req.Triggers),
 		ParentID:        orgchart.NodeID(strings.TrimSpace(req.ParentID)),
 		PreserveContext: req.PreserveContext,
 		DeferActivation: deferActivation,
@@ -238,8 +239,8 @@ func (a *apiHandler) getAgent(w http.ResponseWriter, r *http.Request) {
 	a.getBot(w, r)
 }
 
-// updateBot rewrites a Bot's content / tools / topics. A nil field is
-// left unchanged (content-only edit preserves Tools/Topics).
+// updateBot rewrites a Bot's content / tools. A nil field is
+// left unchanged (a content-only edit preserves Tools).
 //
 // @Summary Helix-org: update a bot
 // @Tags HelixOrg
@@ -357,11 +358,11 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteBot tears down a Bot via the lifecycle service. Cascades the
-// Helix app, runtime state, subscriptions, reporting lines, then the bot
+// Helix app, runtime state, attachments, reporting lines, then the bot
 // row. Its runtime-owned project is archived and repositories are preserved.
 //
 // @Summary Helix-org: delete a bot
-// @Description Delete a Bot. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Repositories and activations are preserved.
+// @Description Delete a Bot. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops attachments + reporting lines, then the bot row. Repositories and activations are preserved.
 // @Tags HelixOrg
 // @Param id path string true "Bot ID"
 // @Success 204
@@ -439,7 +440,7 @@ func (a *apiHandler) addBotParent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The service validates both endpoints, guards the DAG against
-	// cycles, wires the line, and reconciles the activation/team Topics
+	// cycles, wires the line, and reconciles the transcript/team channels
 	// the new edge implies — one place, shared invariants.
 	switch err := a.deps.Nodes.AddParent(ctx, orgID, id, managerID); {
 	case err == nil:
@@ -479,9 +480,9 @@ func (a *apiHandler) removeBotParent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("bot id and parent_id are required"))
 		return
 	}
-	// The service drops the line and reconciles the Topics the dropped
+	// The service drops the line and reconciles the channels the dropped
 	// edge implies (unsubscribe ex-manager from the report's activation
-	// topic, remove report from the ex-manager's team topic).
+	// channel, remove report from the ex-manager's team chat).
 	switch err := a.deps.Nodes.RemoveParent(ctx, orgID, id, managerID); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
@@ -779,14 +780,17 @@ func toToolNames(in []string) []tool.Name {
 	return out
 }
 
-func toTopicIDs(in []string) []streaming.TopicID {
+// toTriggerSources turns the create request's Trigger ids into terminal
+// source references. Attaching to a Processor branch at creation goes
+// through the attachment endpoints, not this shorthand.
+func toTriggerSources(in []string) []eventsource.SourceRef {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make([]streaming.TopicID, 0, len(in))
+	out := make([]eventsource.SourceRef, 0, len(in))
 	for _, s := range in {
 		if t := strings.TrimSpace(s); t != "" {
-			out = append(out, streaming.TopicID(t))
+			out = append(out, eventsource.Trigger(t))
 		}
 	}
 	return out

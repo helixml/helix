@@ -53,7 +53,7 @@ func TestCreateBotRunsInjectedOrgReconcilers(t *testing.T) {
 
 	rec := reconcile.New(reconcile.Deps{
 		Nodes: st.Nodes, ReportingLines: st.ReportingLines,
-		Topics: st.Topics, Subscriptions: st.Subscriptions, Now: deps.Now,
+		Triggers: st.Triggers, Attachments: st.WorkerAttachments, Now: deps.Now,
 	})
 	botSvc := nodes.New(nodes.Deps{
 		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: rec,
@@ -70,7 +70,7 @@ func TestCreateBotRunsInjectedOrgReconcilers(t *testing.T) {
 	}
 
 	tl := &CreateBot{deps: deps.Build()}
-	args, _ := json.Marshal(createBotArgs{ID: "b-alice", Content: "# Alice", Tools: []string{}, Topics: []string{}})
+	args, _ := json.Marshal(createBotArgs{ID: "b-alice", Content: "# Alice", Tools: []string{}, Triggers: []string{}})
 	if _, err := tl.Invoke(context.Background(), tool.Invocation{
 		Caller: botCaller{id: "b-owner", orgID: "org-test"},
 		Args:   args,

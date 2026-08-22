@@ -32,10 +32,10 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/processors"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
 // ProcessorService is the slice of the processors application service the
@@ -43,26 +43,32 @@ import (
 type ProcessorService interface {
 	List(ctx context.Context, orgID string) ([]processor.Processor, error)
 	AddOutput(ctx context.Context, orgID string, id processor.ProcessorID, spec processors.OutputSpec) (processor.Output, error)
-	RemoveOutput(ctx context.Context, orgID string, id processor.ProcessorID, topicID streaming.TopicID) error
+	RemoveOutput(ctx context.Context, orgID string, id processor.ProcessorID, outputID string) error
+}
+
+// Attacher is the slice of the attachment service the reconciler drives.
+// *attachments.Service satisfies it.
+type Attacher interface {
+	AttachAll(ctx context.Context, orgID string, workerID orgchart.NodeID, sources []eventsource.SourceRef, createdBy string) error
 }
 
 // Reconciler converges Automated Slack routers' managed routes onto the
 // org's Nodes. Construct with New.
 type Reconciler struct {
-	bots   store.Nodes
-	subs   store.Subscriptions
-	procs  ProcessorService
-	now    func() time.Time
-	logger *slog.Logger
+	bots     store.Nodes
+	attacher Attacher
+	procs    ProcessorService
+	now      func() time.Time
+	logger   *slog.Logger
 }
 
 // Deps are the constructor-injected collaborators.
 type Deps struct {
-	Nodes         store.Nodes
-	Subscriptions store.Subscriptions
-	Processors    ProcessorService
-	Now           func() time.Time
-	Logger        *slog.Logger
+	Nodes       store.Nodes
+	Attachments Attacher
+	Processors  ProcessorService
+	Now         func() time.Time
+	Logger      *slog.Logger
 }
 
 // New builds a Reconciler. A nil Nodes or Processors repo yields a
@@ -78,11 +84,11 @@ func New(deps Deps) *Reconciler {
 		logger = slog.Default()
 	}
 	return &Reconciler{
-		bots:   deps.Nodes,
-		subs:   deps.Subscriptions,
-		procs:  deps.Processors,
-		now:    now,
-		logger: logger,
+		bots:     deps.Nodes,
+		attacher: deps.Attachments,
+		procs:    deps.Processors,
+		now:      now,
+		logger:   logger,
 	}
 }
 
@@ -141,17 +147,17 @@ func (r *Reconciler) reconcileRouter(ctx context.Context, orgID string, router p
 		if _, ok := botIDs[botID]; ok {
 			continue
 		}
-		if err := r.procs.RemoveOutput(ctx, orgID, router.ID, out.TopicID); err != nil {
+		if err := r.procs.RemoveOutput(ctx, orgID, router.ID, out.ID); err != nil {
 			return fmt.Errorf("slackrouting: remove route for %q: %w", botID, err)
 		}
 		r.logger.Info("slackrouting: removed route for departed bot", "router", router.ID, "bot", botID)
 	}
 
 	// Add a managed route for every Bot that lacks one; self-heal the
-	// subscription for those that already have one.
+	// attachment for those that already have one.
 	for botID := range botIDs {
 		if out, ok := managed[botID]; ok {
-			if err := r.ensureSubscribed(ctx, orgID, botID, out.TopicID); err != nil {
+			if err := r.ensureAttached(ctx, orgID, botID, router.ID, out.ID); err != nil {
 				return err
 			}
 			continue
@@ -164,33 +170,24 @@ func (r *Reconciler) reconcileRouter(ctx context.Context, orgID string, router p
 		if err != nil {
 			return fmt.Errorf("slackrouting: add route for %q: %w", botID, err)
 		}
-		if err := r.ensureSubscribed(ctx, orgID, botID, out.TopicID); err != nil {
+		if err := r.ensureAttached(ctx, orgID, botID, router.ID, out.ID); err != nil {
 			return err
 		}
-		r.logger.Info("slackrouting: added route for bot", "router", router.ID, "bot", botID, "topic", out.TopicID)
+		r.logger.Info("slackrouting: added route for bot", "router", router.ID, "bot", botID, "output", out.ID)
 	}
 	return nil
 }
 
-// ensureSubscribed idempotently subscribes the Bot to the route's output
-// Topic, so a managed route always delivers even if the subscription was
+// ensureAttached idempotently attaches the Bot to the route's output
+// branch, so a managed route always delivers even if the attachment was
 // dropped out-of-band.
-func (r *Reconciler) ensureSubscribed(ctx context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) error {
-	if r.subs == nil {
+func (r *Reconciler) ensureAttached(ctx context.Context, orgID string, botID orgchart.NodeID, routerID processor.ProcessorID, outputID string) error {
+	if r.attacher == nil {
 		return nil
 	}
-	if _, err := r.subs.Find(ctx, orgID, botID, topicID); err == nil {
-		return nil // already subscribed
-	}
-	sub, err := streaming.NewSubscription(string(botID), topicID, r.now(), orgID)
-	if err != nil {
-		return fmt.Errorf("slackrouting: build subscription %q→%q: %w", botID, topicID, err)
-	}
-	if err := r.subs.Create(ctx, sub); err != nil {
-		// Lost a create race? A now-present row means success.
-		if _, findErr := r.subs.Find(ctx, orgID, botID, topicID); findErr != nil {
-			return fmt.Errorf("slackrouting: subscribe %q→%q: %w", botID, topicID, err)
-		}
+	src := eventsource.ProcessorOutput(routerID, outputID)
+	if err := r.attacher.AttachAll(ctx, orgID, botID, []eventsource.SourceRef{src}, processor.SystemActor); err != nil {
+		return fmt.Errorf("slackrouting: attach %q→%s: %w", botID, src.Key(), err)
 	}
 	return nil
 }

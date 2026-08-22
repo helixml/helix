@@ -14,8 +14,9 @@ import (
 	"time"
 
 	githubclient "github.com/helixml/helix/api/pkg/github"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/aggregate"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
 
@@ -307,12 +308,15 @@ func TestReconcileCanonicalHookAndCleansStaleState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := st.Topics.Create(context.Background(), streaming.Topic{
-			ID:             "topic-" + strconv.Itoa(i),
-			OrganizationID: "org-test",
-			Name:           "topic-" + strconv.Itoa(i),
-			CreatedAt:      time.Now(),
-			Transport:      transport.Transport{Kind: transport.KindGitHub, Config: cfg},
+		if err := st.Triggers.Create(context.Background(), trigger.Trigger{
+			Aggregate: aggregate.Aggregate{
+				ID:             "trigger-" + strconv.Itoa(i),
+				OrganizationID: "org-test",
+				CreatedAt:      time.Now(),
+			},
+			Name:   "trigger-" + strconv.Itoa(i),
+			Kind:   transport.KindGitHub,
+			Config: cfg,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -350,7 +354,7 @@ func TestReconcileCanonicalHookAndCleansStaleState(t *testing.T) {
 	}
 
 	for i := range 2 {
-		if err := st.Topics.Delete(context.Background(), "org-test", "topic-"+strconv.Itoa(i)); err != nil {
+		if err := st.Triggers.Delete(context.Background(), "org-test", "trigger-"+strconv.Itoa(i)); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 )
@@ -38,29 +39,26 @@ type recordingPublisher struct {
 	calls []publishCall
 }
 type publishCall struct {
-	orgID   string
-	topicID streaming.TopicID
-	from    string
-	msg     streaming.Message
+	orgID     string
+	triggerID string
+	from      string
+	msg       streaming.Message
 }
 
-func (p *recordingPublisher) PublishInbound(_ context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error) {
-	p.calls = append(p.calls, publishCall{orgID, topicID, from, msg})
+func (p *recordingPublisher) PublishToTrigger(_ context.Context, orgID, triggerID, from string, msg streaming.Message) (streaming.Event, error) {
+	p.calls = append(p.calls, publishCall{orgID, triggerID, from, msg})
 	return streaming.Event{}, nil
 }
 
-func seedSlackTopic(t *testing.T, s *store.Store, orgID, id, connID, channelID string) {
+func seedSlackTrigger(t *testing.T, s *store.Store, orgID, id, connID, channelID string) {
 	t.Helper()
 	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: connID, ChannelID: channelID})
-	tp, err := streaming.NewTopic(
-		streaming.TopicID(id), "slack-"+id, "", "", time.Now().UTC(),
-		transport.Transport{Kind: transport.KindSlack, Config: cfg}, orgID,
-	)
+	row, err := trigger.New(id, orgID, "slack-"+id, "", transport.KindSlack, cfg, "", time.Now().UTC())
 	if err != nil {
-		t.Fatalf("NewTopic: %v", err)
+		t.Fatalf("trigger.New: %v", err)
 	}
-	if err := s.Topics.Create(context.Background(), tp); err != nil {
-		t.Fatalf("Topics.Create: %v", err)
+	if err := s.Triggers.Create(context.Background(), row); err != nil {
+		t.Fatalf("Triggers.Create: %v", err)
 	}
 }
 
@@ -74,7 +72,7 @@ func newTestIngest(t *testing.T) (*Ingest, *recordingPublisher, *store.Store) {
 
 func TestIngest_BotEvent_Dropped(t *testing.T) {
 	ing, pub, s := newTestIngest(t)
-	seedSlackTopic(t, s, "org1", "tp1", "sc1", "")
+	seedSlackTrigger(t, s, "org1", "tp1", "sc1", "")
 
 	err := ing.OnEvent(context.Background(), "T1", slackcore.Event{Channel: "C1", Text: "hi", BotID: "B1"})
 	if err != nil {
@@ -87,7 +85,7 @@ func TestIngest_BotEvent_Dropped(t *testing.T) {
 
 func TestIngest_UnknownTeam_Dropped(t *testing.T) {
 	ing, pub, s := newTestIngest(t)
-	seedSlackTopic(t, s, "org1", "tp1", "sc1", "")
+	seedSlackTrigger(t, s, "org1", "tp1", "sc1", "")
 
 	if err := ing.OnEvent(context.Background(), "T-unknown", slackcore.Event{Channel: "C1", User: "U1", Text: "hi"}); err != nil {
 		t.Fatalf("OnEvent: %v", err)
@@ -98,10 +96,10 @@ func TestIngest_UnknownTeam_Dropped(t *testing.T) {
 }
 
 // Workspace-scoped: a message from ANY channel of the workspace publishes
-// onto the workspace topic, with the channel carried in the message Extra.
+// onto the workspace Trigger, with the channel carried in the message Extra.
 func TestIngest_AnyChannel_Published(t *testing.T) {
 	ing, pub, s := newTestIngest(t)
-	seedSlackTopic(t, s, "org1", "tp1", "sc1", "")
+	seedSlackTrigger(t, s, "org1", "tp1", "sc1", "")
 
 	err := ing.OnEvent(context.Background(), "T1", slackcore.Event{
 		Channel: "C-random", ChannelType: "channel", User: "U1", Text: "!qa-bot help", TS: "1700.1", ThreadTS: "1699.9",
@@ -113,7 +111,7 @@ func TestIngest_AnyChannel_Published(t *testing.T) {
 		t.Fatalf("want 1 publish, got %d", len(pub.calls))
 	}
 	c := pub.calls[0]
-	if c.orgID != "org1" || c.topicID != "tp1" || c.from != "" {
+	if c.orgID != "org1" || c.triggerID != "tp1" || c.from != "" {
 		t.Fatalf("publish args mismatch: %+v", c)
 	}
 	if c.msg.Body != "!qa-bot help" || c.msg.MessageID != "1700.1" || c.msg.ThreadID != "1699.9" || c.msg.From != "U1" {
@@ -128,7 +126,7 @@ func TestIngest_AnyChannel_Published(t *testing.T) {
 	}
 	// The transport stamps a ReplyHint carrying the concrete coordinates
 	// the agent needs to reply through publish or use the Slack API for rich actions.
-	for _, want := range []string{"workspace-wide ingress Topic tp1 is inbound-only", "list_topics, find this ingress Topic by ID", "identify its service_connection_id", "If publish is available", "service_connection_id matches that ingress Topic", "channel_id is C-random", "If publish is unavailable or no matching Topic exists", "get_secret", "chat.postMessage", "reactions.add", "files.upload", "conversations.replies", "conversations.history"} {
+	for _, want := range []string{"workspace-wide ingress Trigger tp1", "The Trigger is inbound-only", "get_secret", "chat.postMessage", "reactions.add", "files.upload", "conversations.replies", "conversations.history"} {
 		if !strings.Contains(c.msg.ReplyHint, want) {
 			t.Fatalf("ReplyHint %q missing %q", c.msg.ReplyHint, want)
 		}
@@ -142,62 +140,62 @@ func TestIngest_AnyChannel_Published(t *testing.T) {
 
 func TestIngest_DMDoesNotEnterChannelBoundTopic(t *testing.T) {
 	ing, pub, s := newTestIngest(t)
-	seedSlackTopic(t, s, "org1", "tp1", "sc1", "C1")
+	seedSlackTrigger(t, s, "org1", "tp1", "sc1", "C1")
 
 	if err := ing.OnEvent(context.Background(), "T1", slackcore.Event{Channel: "D1", ChannelType: "im", User: "U1", Text: "hi"}); err != nil {
 		t.Fatalf("OnEvent: %v", err)
 	}
 	if len(pub.calls) != 0 {
-		t.Fatalf("DM must not publish to a channel-bound topic; got %d calls", len(pub.calls))
+		t.Fatalf("DM must not publish to a channel-bound trigger; got %d calls", len(pub.calls))
 	}
 }
 
 func TestIngest_ExactChannelOverridesWorkspaceFallback(t *testing.T) {
 	ing, pub, s := newTestIngest(t)
-	seedSlackTopic(t, s, "org1", "tp1", "sc1", "C1")
-	seedSlackTopic(t, s, "org1", "tp-wide", "sc1", "")
+	seedSlackTrigger(t, s, "org1", "tp1", "sc1", "C1")
+	seedSlackTrigger(t, s, "org1", "tp-wide", "sc1", "")
 
 	if err := ing.OnEvent(context.Background(), "T1", slackcore.Event{Channel: "C1", ChannelType: "channel", User: "U1", Text: "hi"}); err != nil {
 		t.Fatalf("OnEvent: %v", err)
 	}
-	if len(pub.calls) != 1 || pub.calls[0].topicID != "tp1" {
+	if len(pub.calls) != 1 || pub.calls[0].triggerID != "tp1" {
 		t.Fatalf("matching channel publishes = %+v", pub.calls)
 	}
-	for _, want := range []string{"if publish is available", "call publish on Topic tp1", "Otherwise call get_secret"} {
+	for _, want := range []string{"channel-bound ingress Trigger tp1", "call get_secret for the granted Slack token", "chat.postMessage with channel=C1"} {
 		if !strings.Contains(pub.calls[0].msg.ReplyHint, want) {
-			t.Fatalf("exact topic reply hint %q missing %q", pub.calls[0].msg.ReplyHint, want)
+			t.Fatalf("exact trigger reply hint %q missing %q", pub.calls[0].msg.ReplyHint, want)
 		}
 	}
-	if strings.Contains(pub.calls[0].msg.ReplyHint, "list_topics") {
-		t.Fatalf("exact topic reply hint = %q", pub.calls[0].msg.ReplyHint)
+	if strings.Contains(pub.calls[0].msg.ReplyHint, "workspace-wide") {
+		t.Fatalf("exact trigger reply hint = %q", pub.calls[0].msg.ReplyHint)
 	}
 }
 
 func TestIngest_WorkspaceFallbackUsedWithoutExactChannel(t *testing.T) {
 	ing, pub, s := newTestIngest(t)
-	seedSlackTopic(t, s, "org1", "tp-wide", "sc1", "")
-	seedSlackTopic(t, s, "org1", "tp-other", "sc1", "C2")
+	seedSlackTrigger(t, s, "org1", "tp-wide", "sc1", "")
+	seedSlackTrigger(t, s, "org1", "tp-other", "sc1", "C2")
 
 	if err := ing.OnEvent(context.Background(), "T1", slackcore.Event{Channel: "C1", ChannelType: "channel", User: "U1", Text: "hi"}); err != nil {
 		t.Fatalf("OnEvent: %v", err)
 	}
-	if len(pub.calls) != 1 || pub.calls[0].topicID != "tp-wide" {
+	if len(pub.calls) != 1 || pub.calls[0].triggerID != "tp-wide" {
 		t.Fatalf("fallback publishes = %+v", pub.calls)
 	}
 }
 
-func TestIngest_MultipleExactChannelTopicsAllReceive(t *testing.T) {
+func TestIngest_MultipleExactChannelTriggersAllReceive(t *testing.T) {
 	ing, pub, s := newTestIngest(t)
-	seedSlackTopic(t, s, "org1", "tp-exact-1", "sc1", "C1")
-	seedSlackTopic(t, s, "org1", "tp-exact-2", "sc1", "C1")
-	seedSlackTopic(t, s, "org1", "tp-wide", "sc1", "")
+	seedSlackTrigger(t, s, "org1", "tp-exact-1", "sc1", "C1")
+	seedSlackTrigger(t, s, "org1", "tp-exact-2", "sc1", "C1")
+	seedSlackTrigger(t, s, "org1", "tp-wide", "sc1", "")
 
 	if err := ing.OnEvent(context.Background(), "T1", slackcore.Event{Channel: "C1", ChannelType: "channel", User: "U1", Text: "hi"}); err != nil {
 		t.Fatalf("OnEvent: %v", err)
 	}
-	got := map[streaming.TopicID]bool{}
+	got := map[string]bool{}
 	for _, call := range pub.calls {
-		got[call.topicID] = true
+		got[call.triggerID] = true
 	}
 	if len(pub.calls) != 2 || !got["tp-exact-1"] || !got["tp-exact-2"] {
 		t.Fatalf("exact publishes = %+v", pub.calls)
@@ -206,20 +204,20 @@ func TestIngest_MultipleExactChannelTopicsAllReceive(t *testing.T) {
 
 func TestReplyHint_TopLevelDMOmitsThreadTS(t *testing.T) {
 	hint := replyHint("tp-wide", false, "T1", "D1", "im", "1700.1", "")
-	if !strings.Contains(hint, "omit threadId and reply at the DM root") {
+	if !strings.Contains(hint, "omit thread_ts and reply at the DM root") {
 		t.Fatalf("top-level DM hint must stay at root: %q", hint)
 	}
-	if strings.Contains(hint, "threadId=1700.1") {
+	if strings.Contains(hint, "thread_ts=1700.1") {
 		t.Fatalf("top-level DM hint must not invent a thread: %q", hint)
 	}
 }
 
 func TestReplyHint_ThreadedDMUsesIncomingThread(t *testing.T) {
 	hint := replyHint("tp-wide", false, "T1", "D1", "im", "1700.2", "1699.9")
-	if !strings.Contains(hint, "threadId=1699.9") || !strings.Contains(hint, "conversations.replies with channel=D1 and ts=1699.9") {
+	if !strings.Contains(hint, "thread_ts=1699.9") || !strings.Contains(hint, "conversations.replies with channel=D1 and ts=1699.9") {
 		t.Fatalf("threaded DM hint must preserve incoming root: %q", hint)
 	}
-	if strings.Contains(hint, "omit threadId") {
+	if strings.Contains(hint, "omit thread_ts") {
 		t.Fatalf("threaded DM hint must not instruct a root reply: %q", hint)
 	}
 }
@@ -227,12 +225,12 @@ func TestReplyHint_ThreadedDMUsesIncomingThread(t *testing.T) {
 func TestIngest_WrongWorkspaceBinding_NotPublished(t *testing.T) {
 	ing, pub, s := newTestIngest(t)
 	// Topic bound to a DIFFERENT workspace connection (sc2).
-	seedSlackTopic(t, s, "org1", "tp1", "sc2", "")
+	seedSlackTrigger(t, s, "org1", "tp1", "sc2", "")
 
 	if err := ing.OnEvent(context.Background(), "T1", slackcore.Event{Channel: "C1", User: "U1", Text: "hi"}); err != nil {
 		t.Fatalf("OnEvent: %v", err)
 	}
 	if len(pub.calls) != 0 {
-		t.Fatalf("topic bound to another workspace must not publish; got %d", len(pub.calls))
+		t.Fatalf("trigger bound to another workspace must not publish; got %d", len(pub.calls))
 	}
 }

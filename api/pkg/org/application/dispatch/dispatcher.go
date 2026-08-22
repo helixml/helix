@@ -1,5 +1,5 @@
-// Package dispatch turns a publish on a Topic into one activation per
-// subscribed AI Worker. The server is the event bus; Workers are
+// Package dispatch turns a published event into one activation per
+// attached AI Worker. The server is the event bus; Workers are
 // reactors. Each activation is a single fresh run of the Spawner — no
 // long-running agent loops, no in-process state per worker beyond a
 // per-Worker queue that serialises overlapping events.
@@ -7,8 +7,9 @@
 // Lifecycle:
 //   - hire_worker calls DispatchHire to fire a TriggerHire activation
 //     (the new Worker's first run).
-//   - publish calls Dispatch with the freshly-appended Event to fan it
-//     out to every subscribed AI Worker as a TriggerEvent activation.
+//   - publish calls Route with the freshly-appended event to fan it out
+//     to every Worker attached to its source as a TriggerEvent
+//     activation, then on to the Processors reading that source.
 //
 // Both calls return immediately; activations run on goroutines. Each
 // Worker has a single runner goroutine that drains a per-Worker
@@ -36,9 +37,10 @@ import (
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 )
 
-// Dispatcher routes Events to subscribed AI Workers and runs the
+// Dispatcher routes events to attached AI Workers and runs the
 // configured Spawner for each one. External delivery is deliberately not
-// part of dispatch; legacy Topic delivery is isolated in publishing.
+// part of dispatch: a Worker acts on a provider with its own credentials
+// and that provider's native API.
 //
 // The per-Worker serialisation logic (one in-flight Spawn per Worker,
 // queued triggers drained one at a time in arrival order) moved out to
@@ -55,13 +57,14 @@ type ActivationQueue interface {
 	Enqueue(orgID string, agentID orgchart.NodeID, trigger activation.Trigger)
 }
 
-// ProcessorRunner is the late-bound execution arm that turns an Event
-// into the Processor outputs its Topic feeds. application/processing.Runner
-// satisfies it; declared here (not imported) so dispatch does not depend
-// on processing — the wiring is Dispatcher.New → build publishing →
-// build Runner → RegisterProcessorRunner.
+// ProcessorRunner is the late-bound execution arm that turns an event
+// into the outputs the Processors reading its source produce.
+// application/processing.Runner satisfies it; declared here (not
+// imported) so dispatch does not depend on processing — the wiring is
+// Dispatcher.New → build publishing → build Runner →
+// RegisterProcessorRunner.
 type ProcessorRunner interface {
-	Run(ctx context.Context, e streaming.Event, msg streaming.Message)
+	Run(ctx context.Context, e eventsource.Event)
 }
 
 // New returns a Dispatcher. spawner may be nil to disable activation
@@ -131,79 +134,51 @@ func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID or
 	})
 }
 
-// Dispatch fans an Event out to every AI Worker subscribed to its
-// Topic (skipping the Worker that sourced the event), then traverses
-// processors. It never performs external delivery.
+// Route fans an event out to every AI Worker attached to its source
+// (skipping the Worker that originated it), then hands it to the
+// Processors reading that source. It never performs external delivery.
 //
-// Returns immediately. A per-Worker queue serialises overlapping
-// subscriber activations within a Worker, draining them one trigger at
-// a time in arrival order; outbound POSTs have no such ordering
-// guarantee.
-func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
-	orgID := e.OrganizationID
-	// Parse the canonical Message envelope. Every production write
-	// goes through Message.Encode via streaming.NewMessageEvent, so a
-	// parse failure here is a programming bug — a hand-poked DB row,
-	// or a regression in a future write path. Skip fan-out so a bad
-	// event doesn't render a half-formed activation prompt; the error
-	// is logged so the bug is visible.
-	msg, err := e.Message()
-	if err != nil {
-		d.logger.Error("dispatch: parse message — skipping fan-out", "event", e.ID, "err", err)
-		return
-	}
-	subs, err := d.store.Subscriptions.ListForTopic(ctx, orgID, e.TopicID)
-	if err != nil {
-		d.logger.Error("dispatch: list subscriptions", "topic", e.TopicID, "err", err)
-		return
-	}
-	// Subscriptions are bot-anchored: each subscription names the bot to
-	// activate directly. A subscription pointing at a fired bot silently
-	// dispatches to nobody (the row is dropped on fire — see
-	// lifecycle.Fire).
-	targets := make([]orgchart.NodeID, 0, len(subs))
-	for _, sub := range subs {
-		targets = append(targets, orgchart.NodeID(sub.NodeID))
-	}
-	d.deliver(ctx, orgID, targets, orgchart.NodeID(e.Source), activation.Trigger{
-		Kind:      activation.TriggerEvent,
-		EventID:   e.ID,
-		TopicID:   e.TopicID,
-		Source:    e.Source,
-		Message:   msg, // full canonical envelope; rendered by the spawner into the activation prompt
-		CreatedAt: e.CreatedAt,
-	})
-	// Processor fan-out: hand the event + parsed message to the
-	// execution arm, which publishes each processor's output back
-	// through the same publish→dispatch path (so output topics dispatch
-	// to their own subscribers, and processor chains just recurse).
-	// Late-bound; no-op until RegisterProcessorRunner is called.
-	if d.processorRunner != nil {
-		d.processorRunner.Run(ctx, e, msg)
-	}
-}
-
-// DispatchSource routes a Trigger or exact Processor-output event through
-// Worker attachments. Production transports remain on Dispatch until PR 3.
-func (d *Dispatcher) DispatchSource(ctx context.Context, e eventsource.Event) error {
+// Returns once the attachments have been resolved and enqueued; the
+// activations themselves run on the per-Worker queue, which serialises
+// overlapping triggers within a Worker and drains them one at a time in
+// arrival order.
+func (d *Dispatcher) Route(ctx context.Context, e eventsource.Event) error {
 	if d.store.WorkerAttachments == nil {
-		return errors.New("dispatch source: attachment repository is not configured")
+		return errors.New("route: attachment repository is not configured")
 	}
 	opts := []store.Option{store.WithOrg(e.OrganizationID)}
-	if e.Source.Kind == eventsource.KindTrigger {
+	switch e.Source.Kind {
+	case eventsource.KindTrigger:
 		opts = append(opts, store.WithTriggerID(e.Source.TriggerID))
-	} else {
+	case eventsource.KindProcessorOutput:
 		opts = append(opts, store.WithProcessorID(e.Source.ProcessorID), store.WithOutputID(e.Source.OutputID))
+	default:
+		return fmt.Errorf("route: unknown source kind %q", e.Source.Kind)
 	}
-	rows, err := d.store.WorkerAttachments.Find(ctx, opts...)
+	rows, err := d.store.WorkerAttachments.Find(ctx, append(opts, store.WithOrderAsc("created_at"), store.WithOrderAsc("id"))...)
 	if err != nil {
-		return fmt.Errorf("dispatch source: find attachments: %w", err)
+		return fmt.Errorf("route: find attachments: %w", err)
 	}
 	targets := make([]orgchart.NodeID, 0, len(rows))
 	for _, a := range rows {
 		targets = append(targets, a.WorkerID)
 	}
-	d.deliver(ctx, e.OrganizationID, targets, orgchart.NodeID(e.OriginatingWorkerID), activation.Trigger{Kind: activation.TriggerEvent, EventID: streaming.EventID(e.ID), EventSource: e.Source, Source: orgchart.NodeID(e.OriginatingWorkerID), Message: e.Message, CreatedAt: e.CreatedAt})
+	d.deliver(ctx, e.OrganizationID, targets, orgchart.NodeID(e.OriginatingWorkerID), activation.Trigger{
+		Kind:        activation.TriggerEvent,
+		EventID:     streaming.EventID(e.ID),
+		EventSource: e.Source,
+		Source:      orgchart.NodeID(e.OriginatingWorkerID),
+		Message:     e.Message, // full canonical envelope; rendered by the spawner into the activation prompt
+		CreatedAt:   e.CreatedAt,
+	})
+	// Processor fan-out: hand the event to the execution arm, which
+	// publishes each branch's output back through the same publish→route
+	// path (so branch events route to their own attachments, and
+	// Processor chains just recurse). Late-bound; no-op until
+	// RegisterProcessorRunner is called.
+	if d.processorRunner != nil {
+		d.processorRunner.Run(ctx, e)
+	}
 	return nil
 }
 

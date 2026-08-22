@@ -35,7 +35,7 @@ func (failingNodeReconciler) Reconcile(context.Context, string, ...orgchart.Node
 // the row creation to nodes.Nodes service, so one is wired over the same
 // memory store.
 func newHireService(st *store.Store) *lifecycle.Service {
-	rec := reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: hireClock})
+	rec := reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Triggers: st.Triggers, Attachments: st.WorkerAttachments, Now: hireClock})
 	botSvc := nodes.New(nodes.Deps{
 		Nodes:      st.Nodes,
 		Lines:      st.ReportingLines,
@@ -91,8 +91,9 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	if len(managers) != 1 || managers[0] != "w-boss" {
 		t.Fatalf("reporting line not wired: %v", managers)
 	}
-	// The reconciler created the new bot's transcript.
-	if _, err := st.Topics.Get(ctx, "org-test", "s-transcript-w-new"); err != nil {
+	// The reconciler created the new bot's transcript channel.
+	rows, err := st.Triggers.Find(ctx, store.WithOrg("org-test"), store.WithID("s-transcript-w-new"), store.WithLimit(1))
+	if err != nil || len(rows) == 0 {
 		t.Fatalf("transcript not reconciled: %v", err)
 	}
 }

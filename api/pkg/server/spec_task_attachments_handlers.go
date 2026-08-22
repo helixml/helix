@@ -20,13 +20,13 @@ import (
 // Statuses past which attachments are read-only — the agent has already started using
 // them and changing them mid-flight would be confusing.
 var specTaskAttachmentReadOnlyStatuses = map[types.SpecTaskStatus]bool{
-	types.TaskStatusSpecApproved:           true,
-	types.TaskStatusImplementationQueued:   true,
-	types.TaskStatusImplementation:         true,
-	types.TaskStatusImplementationReview:   true,
-	types.TaskStatusPullRequest:            true,
-	types.TaskStatusDone:                   true,
-	types.TaskStatusImplementationFailed:   true,
+	types.TaskStatusSpecApproved:         true,
+	types.TaskStatusImplementationQueued: true,
+	types.TaskStatusImplementation:       true,
+	types.TaskStatusImplementationReview: true,
+	types.TaskStatusPullRequest:          true,
+	types.TaskStatusDone:                 true,
+	types.TaskStatusImplementationFailed: true,
 }
 
 func specTaskAttachmentsLocked(status types.SpecTaskStatus) bool {
@@ -416,4 +416,3 @@ func svgContainsScript(body []byte) bool {
 	lower := strings.ToLower(string(body))
 	return strings.Contains(lower, "<script")
 }
-
