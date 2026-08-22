@@ -21,7 +21,7 @@ var pmBotTemplate string
 // registration shell — all the guidance lives in templates/pm_bot.md. It
 // exists as its own prompt (rather than folding into /role) because a PM
 // bot has a specific, repeatable shape: discover projects, grant the
-// spec-task + discovery tools, subscribe to the projects' spec-task topics.
+// spec-task + discovery tools, attach to the projects' spec-task Triggers.
 type PMBot struct{}
 
 func (PMBot) Name() Name    { return PMBotName }
