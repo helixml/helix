@@ -153,3 +153,6 @@ nohup.out
 # Database dumps under design/ — never check in (can contain live secrets;
 # a committed org-graph.sql dump leaked real credentials and tripped CI).
 design/**/*.sql
+
+# Local dev-stack state snapshots (scripts/backup-dev-state.sh) — contain .env secrets
+dev-state-backups/
