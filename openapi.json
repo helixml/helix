@@ -1355,6 +1355,35 @@
                 }
             }
         },
+        "/api/v1/agent-tools": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the catalogue backing the project and task tool pickers. The set is static per deployment; a project grants a subset to all its tasks and a task may add more on top.",
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "List the Helix MCP tools that can be granted to spec tasks",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.AgentToolInfo"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/agents": {
             "get": {
                 "security": [
@@ -3217,6 +3246,176 @@
                 }
             }
         },
+        "/api/v1/artifacts/{artifact_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "Get an artifact",
+                "parameters": [
+                    {
+                        "description": "Artifact ID",
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.Artifact"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Patch metadata and optionally upload replacement HTML, PDF, image, or ZIP content as a new version.",
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "Update an artifact",
+                "parameters": [
+                    {
+                        "description": "Artifact ID",
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "description": "Artifact name",
+                                        "type": "string"
+                                    },
+                                    "description": {
+                                        "description": "Description",
+                                        "type": "string"
+                                    },
+                                    "entrypoint": {
+                                        "description": "HTML entrypoint",
+                                        "type": "string"
+                                    },
+                                    "visibility": {
+                                        "description": "project or public",
+                                        "type": "string"
+                                    },
+                                    "with_subdomain": {
+                                        "description": "Allocate or retain a public default subdomain",
+                                        "type": "boolean"
+                                    },
+                                    "artifact": {
+                                        "description": "Replacement HTML, PDF, image, or ZIP content",
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.Artifact"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "Delete an artifact",
+                "parameters": [
+                    {
+                        "description": "Artifact ID",
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/artifacts/{artifact_id}/versions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "List artifact versions",
+                "parameters": [
+                    {
+                        "description": "Artifact ID",
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ArtifactVersionsListResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/attention-events": {
             "get": {
                 "description": "Returns attention events that need human action for the current user. Only returns events that have not been dismissed and are not currently snoozed.",
@@ -3891,72 +4090,52 @@
                 }
             }
         },
-        "/api/v1/claude-subscriptions/poll-login/{sessionId}": {
-            "get": {
+        "/api/v1/claude-subscriptions/oauth/complete": {
+            "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Check if Claude credentials file has been written inside the desktop container",
+                "description": "Exchange the pasted authorization code for tokens and connect the subscription",
                 "tags": [
                     "Claude"
                 ],
-                "summary": "Poll for Claude login credentials",
-                "parameters": [
-                    {
-                        "description": "Session ID",
-                        "name": "sessionId",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
+                "summary": "Complete a Claude subscription login",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.CompleteClaudeLoginRequest"
+                            }
                         }
-                    }
-                ],
+                    },
+                    "description": "Authorization code and PKCE material",
+                    "required": true
+                },
                 "responses": {
                     "200": {
                         "description": "OK",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/server.ClaudePollLoginResponse"
+                                    "$ref": "#/components/schemas/types.ClaudeSubscription"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
                                 }
                             }
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3968,41 +4147,31 @@
                 }
             }
         },
-        "/api/v1/claude-subscriptions/start-login": {
+        "/api/v1/claude-subscriptions/oauth/start": {
             "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Launch a temporary desktop session for interactive Claude OAuth login",
+                "description": "Build the Anthropic authorization URL and PKCE material for connecting a Claude subscription",
                 "tags": [
                     "Claude"
                 ],
-                "summary": "Start a Claude login session",
+                "summary": "Start a Claude subscription login",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/server.ClaudeLoginSessionResponse"
+                                    "$ref": "#/components/schemas/server.ClaudeLoginStartResponse"
                                 }
                             }
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -4044,6 +4213,74 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/types.ClaudeSubscription"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Disconnect a Claude subscription owned by the current user, or by an organization they own",
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Delete a Claude subscription",
+                "parameters": [
+                    {
+                        "description": "Subscription ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         }
@@ -15107,6 +15344,119 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/artifacts": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List static artifacts in a project. Access is inherited from the project.",
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "List project artifacts",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ArtifactsListResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload one HTML, PDF, or image file, or a ZIP containing a compiled static SPA.",
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "Create a project artifact",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "description": "Artifact name",
+                                        "type": "string"
+                                    },
+                                    "description": {
+                                        "description": "Description",
+                                        "type": "string"
+                                    },
+                                    "entrypoint": {
+                                        "description": "HTML entrypoint (default index.html)",
+                                        "type": "string"
+                                    },
+                                    "visibility": {
+                                        "description": "project or public",
+                                        "type": "string"
+                                    },
+                                    "with_subdomain": {
+                                        "description": "Deprecated: public artifacts always receive a share subdomain",
+                                        "type": "boolean"
+                                    },
+                                    "artifact": {
+                                        "description": "HTML, PDF, image, or ZIP bundle",
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "required": [
+                                    "name",
+                                    "artifact"
+                                ]
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.Artifact"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/audit-logs": {
             "get": {
                 "security": [
@@ -17635,6 +17985,81 @@
                 }
             }
         },
+        "/api/v1/provider-endpoints/{id}/available-models": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every model the upstream provider advertises, plus the subset currently enabled on the endpoint. Aggregators such as OpenRouter list hundreds of models, so this is deliberately separate from the endpoint's effective (enabled-only) model list.",
+                "tags": [
+                    "providers"
+                ],
+                "summary": "List a provider endpoint's full model catalogue",
+                "parameters": [
+                    {
+                        "description": "Provider endpoint ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Bypass the cached catalogue and refetch from upstream",
+                        "name": "refresh",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ProviderEndpointModels"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/provider-endpoints/{id}/daily-usage": {
             "get": {
                 "security": [
@@ -17710,6 +18135,84 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/provider-endpoints/{id}/models": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces the endpoint's enabled-models whitelist. An empty list enables the provider's whole catalogue.",
+                "tags": [
+                    "providers"
+                ],
+                "summary": "Set the models enabled on a provider endpoint",
+                "parameters": [
+                    {
+                        "description": "Provider endpoint ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.UpdateProviderEndpointModels"
+                            }
+                        }
+                    },
+                    "description": "Enabled models",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ProviderEndpoint"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -17923,6 +18426,38 @@
                                     "items": {
                                         "$ref": "#/components/schemas/types.Provider"
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/public/artifacts/{artifact_id}": {
+            "get": {
+                "description": "Returns safe display metadata for public artifacts without authentication. Private artifacts require project access.",
+                "tags": [
+                    "Artifacts"
+                ],
+                "summary": "Get artifact viewer metadata",
+                "parameters": [
+                    {
+                        "description": "Artifact ID",
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ArtifactViewerResponse"
                                 }
                             }
                         }
@@ -29330,6 +29865,16 @@
             "server.AppClaudeSubscriptionStatus": {
                 "type": "object",
                 "properties": {
+                    "claude_account_email": {
+                        "type": "string"
+                    },
+                    "claude_account_name": {
+                        "type": "string"
+                    },
+                    "claude_organization_id": {
+                        "description": "ClaudeOrganizationID is Anthropic's organization uuid for the credential.\nPopulated for setup tokens too, which cannot be profiled — it lets the UI\nsay \"this is the same subscription as X\" without anyone typing anything.",
+                        "type": "string"
+                    },
                     "connected": {
                         "description": "owner has a subscription connected at all",
                         "type": "boolean"
@@ -29352,11 +29897,32 @@
                         "description": "human-readable owner (email / full name)",
                         "type": "string"
                     },
+                    "refresh_token_expires_at": {
+                        "description": "RefreshTokenExpiresAt is when the user must sign in again. Refreshing\nkeeps the access token alive but does not move this, so it is the only\nhonest basis for an expiry warning.",
+                        "type": "string"
+                    },
                     "status": {
+                        "type": "string"
+                    },
+                    "subscription_owner_id": {
+                        "type": "string"
+                    },
+                    "subscription_owner_is_current_user": {
+                        "type": "boolean"
+                    },
+                    "subscription_owner_name": {
                         "type": "string"
                     },
                     "subscription_owner_type": {
                         "description": "\"user\" or \"org\" — where the effective sub resolved",
+                        "type": "string"
+                    },
+                    "subscription_rate_limit_tier": {
+                        "description": "SubscriptionRateLimitTier is the Claude org's rate-limit tier as Anthropic\nreports it, e.g. \"default_claude_max_20x\"; empty when unknown.",
+                        "type": "string"
+                    },
+                    "subscription_type": {
+                        "description": "Identity of the Claude subscription itself, populated when Connected.\nSubscriptionType is the plan (\"pro\" / \"max\"), empty for setup-token\nconnections where the plan is unknown.\nSubscriptionOwnerName is the subscription owner's email (user-owned) or\norg name (org-owned) — i.e. WHOSE subscription authenticates the agent.\nSubscriptionOwnerIsCurrentUser is true when that owner is the requesting\nuser's own subscription (\"is it mine?\" — yes).\n\nClaudeAccountEmail/ClaudeAccountName identify the actual Claude account\nthe token authenticates as (fetched from Anthropic's /api/oauth/profile) —\nthe identity that gets billed. It can differ from SubscriptionOwnerName\n(the Helix user who connected the subscription); when no valid probe has\nenriched the row yet they are empty and consumers fall back to the owner.",
                         "type": "string"
                     },
                     "valid": {
@@ -29409,10 +29975,16 @@
                     }
                 }
             },
-            "server.ClaudeLoginSessionResponse": {
+            "server.ClaudeLoginStartResponse": {
                 "type": "object",
                 "properties": {
-                    "session_id": {
+                    "authorize_url": {
+                        "type": "string"
+                    },
+                    "code_verifier": {
+                        "type": "string"
+                    },
+                    "state": {
                         "type": "string"
                     }
                 }
@@ -29427,22 +29999,6 @@
                         "type": "string"
                     },
                     "name": {
-                        "type": "string"
-                    }
-                }
-            },
-            "server.ClaudePollLoginResponse": {
-                "type": "object",
-                "properties": {
-                    "credentials": {
-                        "description": "Raw credentials JSON",
-                        "type": "string"
-                    },
-                    "found": {
-                        "type": "boolean"
-                    },
-                    "url": {
-                        "description": "OAuth URL for native browser",
                         "type": "string"
                     }
                 }
@@ -29502,6 +30058,33 @@
                         "type": "boolean"
                     },
                     "url": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.CompleteClaudeLoginRequest": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "code_verifier": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Same ownership knobs as a direct create.",
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "owner_id": {
+                        "type": "string"
+                    },
+                    "owner_type": {
+                        "$ref": "#/components/schemas/types.OwnerType"
+                    },
+                    "state": {
                         "type": "string"
                     }
                 }
@@ -31984,6 +32567,17 @@
                     }
                 }
             },
+            "types.AgentToolInfo": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.AgentType": {
                 "type": "string",
                 "enum": [
@@ -32063,6 +32657,12 @@
                     "sandbox_cost": {
                         "type": "number"
                     },
+                    "tool_call_error_requests": {
+                        "type": "integer"
+                    },
+                    "tool_call_requests": {
+                        "type": "integer"
+                    },
                     "total_cost": {
                         "description": "Prompt + completion + cache read + cache write",
                         "type": "number"
@@ -32114,6 +32714,209 @@
                     },
                     "type": {
                         "$ref": "#/components/schemas/types.APIKeyType"
+                    }
+                }
+            },
+            "types.Artifact": {
+                "type": "object",
+                "properties": {
+                    "active_version": {
+                        "$ref": "#/components/schemas/types.ArtifactVersion"
+                    },
+                    "active_version_id": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "created_by": {
+                        "type": "string"
+                    },
+                    "deleted_at": {
+                        "$ref": "#/components/schemas/gorm.DeletedAt"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "entrypoint": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/types.ArtifactKind"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "subdomain_url": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    },
+                    "updated_by": {
+                        "type": "string"
+                    },
+                    "url": {
+                        "type": "string"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/types.ArtifactVisibility"
+                    }
+                }
+            },
+            "types.ArtifactFile": {
+                "type": "object",
+                "properties": {
+                    "content_type": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "sha256": {
+                        "type": "string"
+                    },
+                    "size": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "types.ArtifactKind": {
+                "type": "string",
+                "enum": [
+                    "single_file",
+                    "spa",
+                    "pdf",
+                    "image"
+                ],
+                "x-enum-varnames": [
+                    "ArtifactKindSingleFile",
+                    "ArtifactKindSPA",
+                    "ArtifactKindPDF",
+                    "ArtifactKindImage"
+                ]
+            },
+            "types.ArtifactVersion": {
+                "type": "object",
+                "properties": {
+                    "artifact_id": {
+                        "type": "string"
+                    },
+                    "content_sha256": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "created_by": {
+                        "type": "string"
+                    },
+                    "file_count": {
+                        "type": "integer"
+                    },
+                    "files": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.ArtifactFile"
+                        }
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "source_session_id": {
+                        "type": "string"
+                    },
+                    "source_spec_task_id": {
+                        "type": "string"
+                    },
+                    "total_bytes": {
+                        "type": "integer"
+                    },
+                    "version": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "types.ArtifactVersionsListResponse": {
+                "type": "object",
+                "properties": {
+                    "versions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.ArtifactVersion"
+                        }
+                    }
+                }
+            },
+            "types.ArtifactViewerResponse": {
+                "type": "object",
+                "properties": {
+                    "active_version_id": {
+                        "type": "string"
+                    },
+                    "can_edit": {
+                        "type": "boolean"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/types.ArtifactKind"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "organization_name": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "project_name": {
+                        "type": "string"
+                    },
+                    "subdomain_url": {
+                        "type": "string"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/types.ArtifactVisibility"
+                    }
+                }
+            },
+            "types.ArtifactVisibility": {
+                "type": "string",
+                "enum": [
+                    "project",
+                    "public"
+                ],
+                "x-enum-varnames": [
+                    "ArtifactVisibilityProject",
+                    "ArtifactVisibilityPublic"
+                ]
+            },
+            "types.ArtifactsListResponse": {
+                "type": "object",
+                "properties": {
+                    "artifacts": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.Artifact"
+                        }
                     }
                 }
             },
@@ -33192,6 +33995,10 @@
                     "refreshToken": {
                         "type": "string"
                     },
+                    "refreshTokenExpiresAt": {
+                        "description": "RefreshTokenExpiresAt is Unix milliseconds. This is the one that matters\nfor \"when must I sign in again\": rotation does not extend it, so it is a\nhard deadline anchored to the original login.",
+                        "type": "integer"
+                    },
                     "scopes": {
                         "type": "array",
                         "items": {
@@ -33207,6 +34014,17 @@
                 "type": "object",
                 "properties": {
                     "access_token_expires_at": {
+                        "type": "string"
+                    },
+                    "account_display_name": {
+                        "type": "string"
+                    },
+                    "account_email": {
+                        "description": "AccountEmail is the email of the Claude account the stored token\nauthenticates as, fetched from Anthropic's /api/oauth/profile. It is the\nidentity that gets billed and can differ from the Helix user/org (OwnerID)\nthat connected the subscription. Best-effort: empty until a valid probe\nhas enriched the row.",
+                        "type": "string"
+                    },
+                    "claude_organization_id": {
+                        "description": "ClaudeOrganizationID is Anthropic's organization uuid for the credential,\ncaptured from the anthropic-organization-id header on the liveness probe.\nUnlike AccountEmail it needs no OAuth scope, so it is populated for setup\ntokens too — it is the only *verified* identity a setup token discloses.\nTwo subscriptions sharing it are the same Claude subscription.",
                         "type": "string"
                     },
                     "created": {
@@ -33254,6 +34072,10 @@
                         ]
                     },
                     "rate_limit_tier": {
+                        "type": "string"
+                    },
+                    "refresh_token_expires_at": {
+                        "description": "RefreshTokenExpiresAt is when the login itself dies and the user must\nre-authenticate. Refreshing keeps the 8h access token alive but does not\nmove this, so it is the only honest basis for an expiry warning. Zero for\nsetup tokens, which carry no refresh token.",
                         "type": "string"
                     },
                     "scopes": {
@@ -33779,6 +34601,13 @@
             "types.CodexSubscription": {
                 "type": "object",
                 "properties": {
+                    "account_display_name": {
+                        "type": "string"
+                    },
+                    "account_email": {
+                        "description": "Identity of the ChatGPT account the stored credential authenticates as,\nread from claims OpenAI signed in the id_token (verified against their\nJWKS — never from user input). Distinct from OwnerID, which is the Helix\nuser/org that connected it.",
+                        "type": "string"
+                    },
                     "account_id": {
                         "type": "string"
                     },
@@ -33808,6 +34637,10 @@
                     },
                     "owner_type": {
                         "$ref": "#/components/schemas/types.OwnerType"
+                    },
+                    "plan_type": {
+                        "description": "PlanType is OpenAI's chatgpt_plan_type (\"pro\", \"plus\", \"team\", …).",
+                        "type": "string"
                     },
                     "status": {
                         "type": "string"
@@ -34013,6 +34846,7 @@
                 "type": "object",
                 "properties": {
                     "credentials": {
+                        "description": "Account identity is never accepted from the caller. It is derived from\nAnthropic: the profile fetch for oauth credentials, and the probe's\norganization header for setup tokens. Self-reported identity was\nunverifiable free text that rendered next to agents as if authoritative.",
                         "type": "object",
                         "properties": {
                             "claudeAiOauth": {
@@ -36261,6 +37095,10 @@
                     "error": {
                         "type": "string"
                     },
+                    "finish_reason": {
+                        "description": "FinishReason is the provider's reason for stopping (\"stop\", \"tool_calls\",\n\"length\", ...). Anthropic's stop_reason is normalised onto the same\nvocabulary so the two proxies stay comparable.",
+                        "type": "string"
+                    },
                     "id": {
                         "type": "string"
                     },
@@ -36317,6 +37155,19 @@
                     },
                     "time_to_first_token_ms": {
                         "description": "TimeToFirstTokenMs is the wall time from request start to the first\nstreamed chunk. It isolates provider prefill / cold-start latency from\ngeneration time (a cold or overloaded provider shows a large TTFT while\ngeneration stays normal). 0 means no chunk was received (the call errored\nor was cut before the first token). For non-streaming calls it equals the\ntime to the full response.",
+                        "type": "integer"
+                    },
+                    "tool_call_error_kinds": {
+                        "type": "string"
+                    },
+                    "tool_call_errors": {
+                        "type": "integer"
+                    },
+                    "tool_calls_returned": {
+                        "type": "integer"
+                    },
+                    "tools_offered": {
+                        "description": "Tool call validity. ToolsOffered is how many tools the request carried,\nToolCallsReturned how many calls came back, ToolCallErrors how many of\nthose were structurally unusable, and ToolCallErrorKinds which buckets\nthey fell into (see api/pkg/toolcall). Tools offered with no calls\nreturned is not an error — it is a turn the model chose to answer in\nprose.",
                         "type": "integer"
                     },
                     "total_cost": {
@@ -36970,6 +37821,13 @@
                     "id": {
                         "type": "string"
                     },
+                    "input_modalities": {
+                        "description": "InputModalities is the model's accepted input types (\"text\", \"image\",\n\"file\", ...). Same provenance and same nil-means-unknown rule as\nSupportedParameters.",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "model_info": {
                         "$ref": "#/components/schemas/types.ModelInfo"
                     },
@@ -37001,6 +37859,13 @@
                     },
                     "root": {
                         "type": "string"
+                    },
+                    "supported_parameters": {
+                        "description": "SupportedParameters is the set of request parameters the model accepts,\nas reported by aggregators that publish it (OpenRouter's /v1/models does;\nplain OpenAI-compatible servers don't). Used by the model picker to\nfilter a several-hundred-model catalogue down to, for example, the models\nthat can actually call tools. Nil means the provider didn't say.",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     },
                     "type": {
                         "type": "string"
@@ -37830,6 +38695,13 @@
             "types.Project": {
                 "type": "object",
                 "properties": {
+                    "agent_tools": {
+                        "description": "AgentTools is the Helix MCP tool allowlist every spec task in this\nproject inherits. Empty means no Helix MCP surface at all.",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "auto_start_backlog_tasks": {
                         "description": "Automation settings",
                         "type": "boolean"
@@ -38397,6 +39269,13 @@
             "types.ProjectUpdateRequest": {
                 "type": "object",
                 "properties": {
+                    "agent_tools": {
+                        "description": "Helix MCP tools granted to every spec task",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "auto_start_backlog_tasks": {
                         "type": "boolean"
                     },
@@ -38794,6 +39673,25 @@
                     },
                     "vertex_region": {
                         "type": "string"
+                    }
+                }
+            },
+            "types.ProviderEndpointModels": {
+                "type": "object",
+                "properties": {
+                    "enabled_models": {
+                        "description": "EnabledModels is the operator's whitelist. Empty means every model in\nModels is available — the default for a newly added provider.",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "models": {
+                        "description": "Models is the provider's full upstream catalogue, unfiltered.",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.OpenAIModel"
+                        }
                     }
                 }
             },
@@ -41248,6 +42146,13 @@
             "types.SpecTask": {
                 "type": "object",
                 "properties": {
+                    "agent_tools": {
+                        "description": "AgentTools are Helix MCP tools granted to this task on top of the\nproject's list. The effective surface is the union of the two.",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "agent_work_state": {
                         "description": "Current agent work state (idle/working/done) from activity tracking",
                         "allOf": [
@@ -42048,6 +42953,13 @@
             "types.SpecTaskUpdateRequest": {
                 "type": "object",
                 "properties": {
+                    "agent_tools": {
+                        "description": "Extra Helix MCP tools for this task, on top of the project's",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "assignee_id": {
                         "description": "Pointer to allow clearing (set to empty string to unassign)",
                         "type": "string"
@@ -42092,6 +43004,13 @@
             "types.SpecTaskWithProject": {
                 "type": "object",
                 "properties": {
+                    "agent_tools": {
+                        "description": "AgentTools are Helix MCP tools granted to this task on top of the\nproject's list. The effective surface is the union of the two.",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "agent_work_state": {
                         "description": "Current agent work state (idle/working/done) from activity tracking",
                         "allOf": [
@@ -43746,6 +44665,17 @@
                     }
                 }
             },
+            "types.UpdateProviderEndpointModels": {
+                "type": "object",
+                "properties": {
+                    "models": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
             "types.UpdateSandboxRequest": {
                 "type": "object",
                 "properties": {
@@ -43900,6 +44830,12 @@
                     },
                     "started_at": {
                         "type": "string"
+                    },
+                    "tool_call_error_requests": {
+                        "type": "integer"
+                    },
+                    "tool_call_requests": {
+                        "type": "integer"
                     },
                     "total_cost": {
                         "type": "number"
@@ -44552,7 +45488,7 @@
                         "type": "boolean"
                     },
                     "port": {
-                        "description": "destination port inside the container",
+                        "description": "destination port inside the container; zero for static artifacts",
                         "type": "integer"
                     },
                     "rotated_at": {
@@ -44565,7 +45501,7 @@
                         "$ref": "#/components/schemas/types.VHostTargetKind"
                     },
                     "url": {
-                        "description": "public URL, populated by preview API handlers",
+                        "description": "public URL, populated by API handlers returning routes",
                         "type": "string"
                     },
                     "verification_token": {
@@ -44582,11 +45518,15 @@
                 "type": "string",
                 "enum": [
                     "project_web_service",
-                    "sandbox_preview"
+                    "sandbox_preview",
+                    "artifact_static",
+                    "artifact_private"
                 ],
                 "x-enum-varnames": [
                     "VHostTargetProjectWebService",
-                    "VHostTargetSandboxPreview"
+                    "VHostTargetSandboxPreview",
+                    "VHostTargetArtifact",
+                    "VHostTargetArtifactPrivate"
                 ]
             },
             "types.WIPLimits": {

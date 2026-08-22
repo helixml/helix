@@ -28,6 +28,10 @@ const harnessMeta: Record<string, HarnessMeta> = {
   deepseek_harness: { label: 'DeepSeek Harness', color: '#4d6bfe' },
   opencode: { label: 'opencode', color: '' },
   zed_agent: { label: 'Zed Agent', color: '' },
+  // An externally-driven Zed. Same mark, different label — it is not Helix's
+  // own agent turn.
+  zed_external: { label: 'External Agent', color: '' },
+  helix: { label: 'Helix', color: '' },
 }
 
 export const getAgentHarnessLabel = (runtime?: string): string => {
@@ -106,7 +110,7 @@ const HarnessMark: FC<{ runtime: string; size: number; color: string }> = ({ run
   if (runtime === 'goose_code') return <MaskMark runtime={runtime} src={gooseMark} size={size} color={color} />
   if (runtime === 'opencode') return <MaskMark runtime={runtime} src={openCodeMark} size={size} color={color} />
   if (runtime === 'deepseek_harness') return <MaskMark runtime={runtime} src={deepSeekHarnessMark} size={size} color={color} />
-  if (runtime === 'zed_agent') return <MaskMark runtime={runtime} src={zedAgentMark} size={size} color={color} />
+  if (runtime === 'zed_agent' || runtime === 'zed_external') return <MaskMark runtime={runtime} src={zedAgentMark} size={size} color={color} />
   return <Bot size={size} color={color} aria-hidden="true" />
 }
 

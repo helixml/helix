@@ -286,6 +286,9 @@ func TestDeleteOrganization_DeletesRepositoriesBeforeOrganization(t *testing.T) 
 			OrganizationID:        orgID,
 			IncludeExternalAgents: true,
 		}).Return([]*types.Session{}, int64(0), nil),
+		mockStore.EXPECT().ListArtifacts(gomock.Any(), &store.ListArtifactsQuery{
+			OrganizationID: orgID,
+		}).Return([]*types.Artifact{}, nil),
 		mockStore.EXPECT().DeleteOrganization(gomock.Any(), orgID).Return(nil),
 	)
 

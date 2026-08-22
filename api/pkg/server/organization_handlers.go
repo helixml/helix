@@ -448,6 +448,21 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	// backstop, so a teardown failure must not block the org delete.
 	apiServer.stopOrgDesktops(r.Context(), orgID)
 
+	// Public artifacts remain independently addressable, so deleting only the
+	// project rows would orphan live content. Remove every artifact route and
+	// blob owned by the organization before deleting its database graph.
+	artifacts, err := apiServer.Store.ListArtifacts(r.Context(), &store.ListArtifactsQuery{OrganizationID: orgID})
+	if err != nil {
+		http.Error(rw, "Could not list organization artifacts: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, artifact := range artifacts {
+		if err := apiServer.deleteArtifactResources(r.Context(), artifact); err != nil {
+			http.Error(rw, "Could not delete organization artifact: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	err = apiServer.Store.DeleteOrganization(r.Context(), orgID)
 	if err != nil {
 		log.Err(err).Msg("error deleting organization")

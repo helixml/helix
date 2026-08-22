@@ -15,12 +15,13 @@ const SyntaxHighlighter = SyntaxHighlighterTS as any;
 interface MarkdownCodeBlockProps {
   children: string;
   language?: string;
+  defaultWrapped?: boolean;
 }
 
 const MarkdownCodeBlock: FC<MarkdownCodeBlockProps> = React.memo(
-  ({ children, language = "text" }) => {
+  ({ children, language = "text", defaultWrapped = false }) => {
     const [copied, setCopied] = useState(false);
-    const [wrapped, setWrapped] = useState(false);
+    const [wrapped, setWrapped] = useState(defaultWrapped);
     const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const theme = useTheme();
     const chatColors = getChatColors(theme);

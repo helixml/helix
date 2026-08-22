@@ -1173,3 +1173,179 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_Headers() {
 		})
 	}
 }
+
+// Flipping the admin UI's "Providers Management" toggle must be enough for a
+// non-admin to create a provider endpoint. Before, the handler also demanded
+// ENABLE_CUSTOM_USER_PROVIDERS=true and rejected with "Custom user providers
+// are not enabled" even though /config told the frontend the feature was on.
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_NonAdminAllowedBySystemSetting() {
+	s.server.authMiddleware = &authMiddleware{
+		store: s.store,
+		cfg:   authMiddlewareConfig{},
+	}
+	s.server.Cfg.Providers.EnableCustomUserProviders = false
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user_id"}, nil).AnyTimes()
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+
+	body, err := json.Marshal(types.ProviderEndpoint{
+		Name:         "my-openrouter",
+		BaseURL:      "https://openrouter.ai/api/v1",
+		APIKey:       "sk-secret",
+		EndpointType: types.ProviderEndpointTypeUser,
+	})
+	s.Require().NoError(err)
+
+	s.manager.EXPECT().ListProviders(gomock.Any(), "user_id").Return([]types.Provider{}, nil)
+	s.store.EXPECT().CreateProviderEndpoint(gomock.Any(), gomock.Any()).Return(&types.ProviderEndpoint{
+		ID:           "ep_openrouter",
+		Name:         "my-openrouter",
+		BaseURL:      "https://openrouter.ai/api/v1",
+		APIKey:       "sk-secret",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}, nil)
+
+	warmDone := make(chan struct{})
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *manager.GetClientRequest) (openai.Client, error) {
+			defer close(warmDone)
+			return s.openAiClient, nil
+		})
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{{ID: "gpt-4o"}}, nil)
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
+
+	req, err := http.NewRequest("POST", "/v1/provider-endpoints", bytes.NewReader(body))
+	s.Require().NoError(err)
+	req = req.WithContext(s.authCtx)
+
+	rr := httptest.NewRecorder()
+	s.server.createProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code, rr.Body.String())
+
+	select {
+	case <-warmDone:
+	case <-time.After(5 * time.Second):
+		s.Fail("cache warm goroutine did not complete in time")
+	}
+}
+
+// With both the system setting and the env var off, a non-admin is still denied.
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_NonAdminDeniedWhenDisabled() {
+	s.server.authMiddleware = &authMiddleware{
+		store: s.store,
+		cfg:   authMiddlewareConfig{},
+	}
+	s.server.Cfg.Providers.EnableCustomUserProviders = false
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user_id"}, nil).AnyTimes()
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: false,
+	}, nil)
+
+	body, err := json.Marshal(types.ProviderEndpoint{
+		Name:         "my-openrouter",
+		BaseURL:      "https://openrouter.ai/api/v1",
+		EndpointType: types.ProviderEndpointTypeUser,
+	})
+	s.Require().NoError(err)
+
+	req, err := http.NewRequest("POST", "/v1/provider-endpoints", bytes.NewReader(body))
+	s.Require().NoError(err)
+	req = req.WithContext(s.authCtx)
+
+	rr := httptest.NewRecorder()
+	s.server.createProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code, rr.Body.String())
+}
+
+// An endpoint with an explicit model list must expose only those models, even
+// when upstream /v1/models answers with a full catalogue. This is what makes
+// the "edit models" whitelist mean anything for an aggregator like OpenRouter,
+// which lists 400+ models the operator may not want to offer.
+func (s *ProviderHandlersSuite) TestGetProviderModels_EnabledListFiltersCatalogue() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "openrouter",
+		Owner:   "user_wl",
+		BaseURL: "https://openrouter.ai/api/v1",
+		Models:  []string{"anthropic/claude-opus-5", "pinned/not-upstream"},
+	}
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{
+		{ID: "anthropic/claude-opus-5", ContextLength: 200000},
+		{ID: "openai/gpt-5.2"},
+		{ID: "meta/llama-4"},
+	}, nil)
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+
+	result, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.Require().Len(result.Models, 2)
+	// Upstream metadata is kept for models that exist upstream...
+	s.Equal("anthropic/claude-opus-5", result.Models[0].ID)
+	s.Equal(200000, result.Models[0].ContextLength)
+	// ...and an enabled id the upstream doesn't advertise is still offered, so
+	// pinning a model an aggregator temporarily drops keeps working.
+	s.Equal("pinned/not-upstream", result.Models[1].ID)
+	s.True(result.Models[1].Enabled)
+}
+
+// The catalogue read powers the model picker itself, so it must NOT apply the
+// whitelist — otherwise the operator could only ever re-pick what they already
+// enabled and could never add a model back.
+func (s *ProviderHandlersSuite) TestGetProviderCatalogue_IgnoresEnabledList() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "openrouter-cat",
+		Owner:   "user_cat",
+		BaseURL: "https://openrouter.ai/api/v1/cat",
+		Models:  []string{"anthropic/claude-opus-5"},
+	}
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil).AnyTimes()
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{
+		{ID: "anthropic/claude-opus-5"},
+		{ID: "openai/gpt-5.2"},
+		{ID: "meta/llama-4"},
+	}, nil).AnyTimes()
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+
+	catalogue, err := s.server.getProviderCatalogue(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.Require().Len(catalogue.Models, 3)
+
+	// The effective list for the same endpoint is filtered.
+	effective, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.Require().Len(effective.Models, 1)
+	s.Equal("anthropic/claude-opus-5", effective.Models[0].ID)
+}
+
+// Two endpoints sharing a BaseURL have independent whitelists. The upstream
+// fetch is still deduplicated, but the filtering must not leak between them.
+func (s *ProviderHandlersSuite) TestGetProviderModels_SharedBaseURLKeepsSeparateEnabledLists() {
+	shared := "http://shared.local/v1"
+	a := &types.ProviderEndpoint{Name: "prov-a", Owner: "user_a", BaseURL: shared, Models: []string{"model-a"}}
+	b := &types.ProviderEndpoint{Name: "prov-b", Owner: "user_b", BaseURL: shared, Models: []string{"model-b"}}
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil).AnyTimes()
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{
+		{ID: "model-a"}, {ID: "model-b"}, {ID: "model-c"},
+	}, nil).AnyTimes()
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+
+	resA, err := s.server.getProviderModels(context.Background(), a)
+	s.Require().NoError(err)
+	s.Require().Len(resA.Models, 1)
+	s.Equal("model-a", resA.Models[0].ID)
+
+	resB, err := s.server.getProviderModels(context.Background(), b)
+	s.Require().NoError(err)
+	s.Require().Len(resB.Models, 1)
+	s.Equal("model-b", resB.Models[0].ID)
+}

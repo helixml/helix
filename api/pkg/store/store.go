@@ -753,6 +753,14 @@ type Store interface {
 	GetProjectsCount(ctx context.Context, query *GetProjectsCountQuery) (int64, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error
+
+	// Project artifacts
+	CreateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error
+	GetArtifact(ctx context.Context, artifactID string) (*types.Artifact, error)
+	ListArtifacts(ctx context.Context, query *ListArtifactsQuery) ([]*types.Artifact, error)
+	UpdateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error
+	ListArtifactVersions(ctx context.Context, artifactID string) ([]*types.ArtifactVersion, error)
+	DeleteArtifact(ctx context.Context, artifactID string) error
 	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
 	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
 	DetachRepositoryFromProject(ctx context.Context, projectID string, repoID string) error // NOTE: signature changed to include projectID
@@ -919,6 +927,8 @@ type Store interface {
 	GetClaudeSubscription(ctx context.Context, id string) (*types.ClaudeSubscription, error)
 	GetClaudeSubscriptionForOwner(ctx context.Context, ownerID string, ownerType types.OwnerType) (*types.ClaudeSubscription, error)
 	UpdateClaudeSubscription(ctx context.Context, sub *types.ClaudeSubscription) (*types.ClaudeSubscription, error)
+	UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials string, expiresAt, refreshTokenExpiresAt, refreshedAt time.Time) (bool, error)
+	UpdateClaudeSubscriptionStatus(ctx context.Context, sub *types.ClaudeSubscription) error
 	DeleteClaudeSubscription(ctx context.Context, id string) error
 	ListClaudeSubscriptions(ctx context.Context, ownerID string) ([]*types.ClaudeSubscription, error)
 	GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error)
@@ -928,6 +938,7 @@ type Store interface {
 	GetCodexSubscriptionForOwner(ctx context.Context, ownerID string, ownerType types.OwnerType) (*types.CodexSubscription, error)
 	UpdateCodexSubscription(ctx context.Context, sub *types.CodexSubscription) (*types.CodexSubscription, error)
 	UpdateCodexSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials, accountID string, refreshedAt time.Time) (bool, error)
+	UpdateCodexSubscriptionIdentity(ctx context.Context, id, accountEmail, accountDisplayName, planType, accountID string) error
 	DeleteCodexSubscription(ctx context.Context, id string) error
 	ListCodexSubscriptions(ctx context.Context, ownerID string) ([]*types.CodexSubscription, error)
 	GetEffectiveCodexSubscription(ctx context.Context, userID, orgID string) (*types.CodexSubscription, error)

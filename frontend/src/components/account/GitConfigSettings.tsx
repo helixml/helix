@@ -1,21 +1,17 @@
 import React, { FC, useEffect, useState } from 'react'
+import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Grid from '@mui/material/Grid'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 
+import SettingsPanel from './SettingsPanel'
 import useAccount from '../../hooks/useAccount'
-import useLightTheme from '../../hooks/useLightTheme'
 import useSnackbar from '../../hooks/useSnackbar'
-import useThemeConfig from '../../hooks/useThemeConfig'
 import { useGetCurrentUser, useUpdateAccount } from '../../services/userService'
 
 const GitConfigSettings: FC = () => {
   const account = useAccount()
   const snackbar = useSnackbar()
-  const themeConfig = useThemeConfig()
-  const lightTheme = useLightTheme()
-  const panelBg = lightTheme.isLight ? lightTheme.panelColor : themeConfig.darkPanel
   const { data: currentUser } = useGetCurrentUser()
   const updateAccount = useUpdateAccount()
 
@@ -80,14 +76,18 @@ const GitConfigSettings: FC = () => {
 
   return (
     <>
-      <Grid container spacing={2} sx={{ backgroundColor: panelBg, p: 2, borderRadius: 2 }}>
-        <Grid item xs={12}>
-          <Typography variant="h6">Commit Identity</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
-            Override the name and email used for commits created by Helix. Leave either field empty to use your account value.
-          </Typography>
-        </Grid>
-        <Grid item xs={12} md={6}>
+      <SettingsPanel>
+        <Typography variant="h6">Commit Identity</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+          Override the name and email used for commits created by Helix. Leave either field empty to use your account value.
+        </Typography>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' },
+            gap: 2,
+          }}
+        >
           <TextField
             fullWidth
             label="Commit username"
@@ -96,8 +96,6 @@ const GitConfigSettings: FC = () => {
             onChange={(e) => setGitCommitName(e.target.value)}
             disabled={updateAccount.isPending}
           />
-        </Grid>
-        <Grid item xs={12} md={6}>
           <TextField
             fullWidth
             label="Commit email"
@@ -107,8 +105,8 @@ const GitConfigSettings: FC = () => {
             onChange={(e) => setGitCommitEmail(e.target.value)}
             disabled={updateAccount.isPending}
           />
-        </Grid>
-        <Grid item xs={12} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
           <Button
             variant="contained"
             onClick={handleCommitIdentitySave}
@@ -119,32 +117,39 @@ const GitConfigSettings: FC = () => {
           >
             Save commit identity
           </Button>
-        </Grid>
-      </Grid>
+        </Box>
+      </SettingsPanel>
 
-      <Grid container spacing={2} sx={{ mt: 2, backgroundColor: panelBg, p: 2, borderRadius: 2 }}>
-        <Grid item xs={12}>
-          <Typography variant="h6">Pull Request Footer</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
-            Markdown appended to pull requests created by Helix. An empty footer disables it. Available template values: {'{{.HelixTaskURL}}'} and {'{{.SpecDocsURL}}'}.
-          </Typography>
-          <TextField
-            fullWidth
-            multiline
-            minRows={10}
-            value={prFooter}
-            onChange={(e) => {
-              setPRFooter(e.target.value)
-              setUsesDefaultPRFooter(false)
-            }}
-            disabled={updateAccount.isPending}
-            inputProps={{
-              'aria-label': 'Pull request footer template',
-              style: { fontFamily: 'monospace', fontSize: '0.85rem' },
-            }}
-          />
-        </Grid>
-        <Grid item xs={12} sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+      <SettingsPanel sx={{ mb: 0 }}>
+        <Typography variant="h6">Pull Request Footer</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+          Markdown appended to pull requests created by Helix. An empty footer disables it. Available template values: {'{{.HelixTaskURL}}'} and {'{{.SpecDocsURL}}'}.
+        </Typography>
+        <TextField
+          fullWidth
+          multiline
+          minRows={10}
+          value={prFooter}
+          onChange={(e) => {
+            setPRFooter(e.target.value)
+            setUsesDefaultPRFooter(false)
+          }}
+          disabled={updateAccount.isPending}
+          inputProps={{
+            'aria-label': 'Pull request footer template',
+            style: { fontFamily: 'monospace', fontSize: '0.85rem' },
+          }}
+        />
+        <Box
+          sx={{
+            display: 'flex',
+            // Two full-width buttons stack rather than crowd on a phone.
+            flexDirection: { xs: 'column-reverse', sm: 'row' },
+            justifyContent: 'flex-end',
+            gap: 1,
+            mt: 2,
+          }}
+        >
           <Button
             variant="outlined"
             onClick={handlePRFooterReset}
@@ -162,8 +167,8 @@ const GitConfigSettings: FC = () => {
           >
             Save footer
           </Button>
-        </Grid>
-      </Grid>
+        </Box>
+      </SettingsPanel>
     </>
   )
 }
