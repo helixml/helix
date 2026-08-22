@@ -1191,7 +1191,7 @@ func (s *HelixAPIServer) handleListOAuthConnectionRepositories(_ http.ResponseWr
 				FullName:      fullName,
 				CloneURL:      cloneURL,
 				HTMLURL:       htmlURL,
-				Description:   "", // ADO repos don't have description in the basic response
+				Description:   "",   // ADO repos don't have description in the basic response
 				Private:       true, // ADO repos are private by default
 				DefaultBranch: defaultBranch,
 				CanWrite:      true, // ADO permission introspection not yet wired up; preserve prior behaviour

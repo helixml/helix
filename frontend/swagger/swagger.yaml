@@ -305,22 +305,6 @@ definitions:
       project_id:
         type: string
     type: object
-  api.BotSubscriptionDTO:
-    properties:
-      created_at:
-        type: string
-      topic_id:
-        type: string
-    type: object
-  api.BotSubscriptionsResponse:
-    properties:
-      bot_id:
-        type: string
-      subscriptions:
-        items:
-          $ref: '#/definitions/api.BotSubscriptionDTO'
-        type: array
-    type: object
   api.ChartPositionDTO:
     properties:
       id:
@@ -391,7 +375,7 @@ definitions:
         items:
           type: string
         type: array
-      topics:
+      triggers:
         items:
           type: string
         type: array
@@ -403,49 +387,9 @@ definitions:
       id:
         type: string
     type: object
-  api.CreateTopicRequest:
-    properties:
-      as:
-        description: |-
-          As is the Bot that creates the topic — the bot whose chat
-          the human is in. Empty leaves the topic unattributed (CreatedBy is
-          cosmetic: it only anchors the node on the chart).
-        type: string
-      description:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      transport:
-        $ref: '#/definitions/api.TransportRequestField'
-    type: object
   api.ErrorResponse:
     properties:
       error:
-        type: string
-    type: object
-  api.EventCard:
-    properties:
-      body:
-        type: string
-      created_at:
-        type: string
-      from:
-        type: string
-      has_message:
-        type: boolean
-      id:
-        type: string
-      message_body:
-        type: string
-      source:
-        type: string
-      subject:
-        type: string
-      to:
-        type: string
-      topic_id:
         type: string
     type: object
   api.GitHubInstallationStatus:
@@ -570,67 +514,6 @@ definitions:
       webhook_id:
         type: integer
     type: object
-  api.MessageAttributes:
-    properties:
-      body:
-        type: string
-      created_at:
-        type: string
-      from:
-        type: string
-      has_message:
-        type: boolean
-      raw:
-        description: |-
-          Raw is the canonical Message envelope JSON exactly as stored — the
-          same shape a processor's `.Message` template/filter context sees
-          ({"from":…,"subject":…,"body":…,"thread_id":…,…}). Lets the UI show
-          operators which fields are available.
-        type: string
-      source:
-        type: string
-      subject:
-        type: string
-      to:
-        items:
-          type: string
-        type: array
-      topic_id:
-        type: string
-    type: object
-  api.MessageResource:
-    properties:
-      attributes:
-        $ref: '#/definitions/api.MessageAttributes'
-      id:
-        type: string
-      type:
-        type: string
-    type: object
-  api.MessagesDocument:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/api.MessageResource'
-        type: array
-      links:
-        additionalProperties:
-          type: string
-        type: object
-      meta:
-        $ref: '#/definitions/api.MessagesMeta'
-    type: object
-  api.MessagesMeta:
-    properties:
-      page:
-        type: integer
-      size:
-        type: integer
-      total:
-        type: integer
-      total_pages:
-        type: integer
-    type: object
   api.OrgOverview:
     properties:
       bots:
@@ -652,9 +535,7 @@ definitions:
         type: string
       match:
         type: string
-      owned:
-        type: boolean
-      topic_id:
+      source:
         type: string
     type: object
   api.ProcessorWriteRequest:
@@ -668,7 +549,7 @@ definitions:
                 type: object
               created_by:
                 type: string
-              input_topic_id:
+              input_source:
                 type: string
               kind:
                 type: string
@@ -682,32 +563,6 @@ definitions:
           type:
             type: string
         type: object
-    type: object
-  api.PublishRequest:
-    properties:
-      as:
-        description: |-
-          As is the Bot the message is sent as — the bot whose chat the
-          human is in. Empty means human/system-origin (the dispatcher treats
-          it as such). There is no global "owner" sender any more.
-        type: string
-      body:
-        type: string
-      subject:
-        type: string
-      threadId:
-        type: string
-      to:
-        items:
-          type: string
-        type: array
-    type: object
-  api.PublishResponse:
-    properties:
-      delivery:
-        $ref: '#/definitions/publishing.DeliveryReceipt'
-      event_id:
-        type: string
     type: object
   api.PutWorkerSecretRequest:
     properties:
@@ -802,67 +657,11 @@ definitions:
       trigger_id:
         type: string
     type: object
-  api.SubscribeBotRequest:
-    properties:
-      topic_id:
-        type: string
-    type: object
   api.ToolDTO:
     properties:
       description:
         type: string
       name:
-        type: string
-    type: object
-  api.TopicDTO:
-    properties:
-      can_publish:
-        type: boolean
-      config:
-        additionalProperties: true
-        type: object
-      created_at:
-        type: string
-      created_by:
-        type: string
-      description:
-        type: string
-      disable_reason:
-        type: string
-      effective_public_url:
-        type: string
-      id:
-        type: string
-      kind:
-        type: string
-      name:
-        type: string
-      recent_events:
-        items:
-          $ref: '#/definitions/api.EventCard'
-        type: array
-      subscribers:
-        items:
-          type: string
-        type: array
-    type: object
-  api.TopicsResponse:
-    properties:
-      recent:
-        items:
-          $ref: '#/definitions/api.EventCard'
-        type: array
-      topics:
-        items:
-          $ref: '#/definitions/api.TopicDTO'
-        type: array
-    type: object
-  api.TransportRequestField:
-    properties:
-      config:
-        additionalProperties: true
-        type: object
-      kind:
         type: string
     type: object
   api.TriggerDTO:
@@ -990,15 +789,6 @@ definitions:
         type: integer
       user:
         type: string
-    type: object
-  api.UpdateTopicRequest:
-    properties:
-      description:
-        type: string
-      name:
-        type: string
-      transport:
-        $ref: '#/definitions/api.TransportRequestField'
     type: object
   api.UpsertChartPositionsRequest:
     properties:
@@ -1922,19 +1712,6 @@ definitions:
       filtered:
         type: boolean
       severity:
-        type: string
-    type: object
-  publishing.DeliveryReceipt:
-    properties:
-      destination:
-        type: string
-      error:
-        type: string
-      messageId:
-        type: string
-      provider:
-        type: string
-      status:
         type: string
     type: object
   server.ActivateTrialRequest:
@@ -19998,8 +19775,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Create a canonical Agent with its org-chart position, communication
-        topics, tools, and Agent App configuration.
+      description: Create a canonical Agent with its org-chart position, trigger attachments,
+        tools, and Agent App configuration.
       parameters:
       - description: Organization slug or ID
         in: path
@@ -20035,7 +19812,7 @@ paths:
   /api/v1/orgs/{org}/agents/{id}:
     delete:
       description: Delete an Agent after archiving its runtime-owned project and deleting
-        its Agent App, knowledge, runtime state, subscriptions, reporting lines, and
+        its Agent App, knowledge, runtime state, attachments, reporting lines, and
         org-chart row. Repositories are preserved.
       parameters:
       - description: Organization slug or ID
@@ -20468,99 +20245,6 @@ paths:
       summary: 'Helix-org: stop an agent desktop'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/subscriptions:
-    get:
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.BotSubscriptionsResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list an agent''s subscriptions'
-      tags:
-      - HelixOrg
-    post:
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Topic to subscribe the Agent to
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.SubscribeBotRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.BotSubscriptionDTO'
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.BotSubscriptionDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: subscribe an agent to a topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/subscriptions/{topic_id}:
-    delete:
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Topic ID
-        in: path
-        name: topic_id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: unsubscribe an agent from a topic'
-      tags:
-      - HelixOrg
   /api/v1/orgs/{org}/assets:
     get:
       produces:
@@ -20722,7 +20406,7 @@ paths:
       consumes:
       - application/json
       description: Create a Bot. Wraps the lifecycle Create so REST + chat creates
-        share semantics (base-tool union, reporting line, transcript topics, create
+        share semantics (base-tool union, reporting line, transcript channel, create
         dispatch).
       parameters:
       - description: Organization slug or id
@@ -20759,8 +20443,8 @@ paths:
   /api/v1/orgs/{org}/bots/{id}:
     delete:
       description: 'Delete a Bot. Cascades: archives its runtime-owned project, detaches
-        and deletes the Helix agent app, clears runtime state, drops subscriptions
-        + reporting lines, then the bot row. Repositories and activations are preserved.'
+        and deletes the Helix agent app, clears runtime state, drops attachments +
+        reporting lines, then the bot row. Repositories and activations are preserved.'
       parameters:
       - description: Bot ID
         in: path
@@ -21013,84 +20697,6 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: stop a bot''s agent desktop'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/bots/{id}/subscriptions:
-    get:
-      parameters:
-      - description: Bot ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.BotSubscriptionsResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list a bot''s subscriptions'
-      tags:
-      - HelixOrg
-    post:
-      parameters:
-      - description: Bot ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: topic to subscribe to
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.SubscribeBotRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.BotSubscriptionDTO'
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.BotSubscriptionDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: subscribe a bot to a topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/bots/{id}/subscriptions/{topic_id}:
-    delete:
-      parameters:
-      - description: Bot ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Topic ID
-        in: path
-        name: topic_id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: unsubscribe a bot from a topic'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/chart/positions:
@@ -21558,331 +21164,6 @@ paths:
       summary: 'Helix-org: list available MCP tools'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/topics:
-    get:
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.TopicsResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list topics'
-      tags:
-      - HelixOrg
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Topic spec
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.CreateTopicRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.TopicDTO'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: create a topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}:
-    delete:
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: delete a topic'
-      tags:
-      - HelixOrg
-    get:
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.TopicDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: get a topic'
-      tags:
-      - HelixOrg
-    put:
-      consumes:
-      - application/json
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Topic patch
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.UpdateTopicRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.TopicDTO'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: update a topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/events:
-    get:
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - text/event-stream
-      responses:
-        "200":
-          description: 'SSE: event: message / data: [EventCard,...]'
-          schema:
-            type: string
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: SSE topic of events for one topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/github/install-webhook:
-    post:
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.InstallGitHubWebhookResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "412":
-          description: pre-conditions not met
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "502":
-          description: GitHub API call failed
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: auto-install the webhook for a github topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/github/webhook-status:
-    get:
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.GitHubWebhookStatusResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: live webhook status for a github topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook:
-    post:
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.InstallGitLabWebhookResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: auto-install the webhook for a GitLab topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status:
-    get:
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.GitLabWebhookStatusResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: live webhook status for a GitLab topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/messages:
-    delete:
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: clear all messages from a topic'
-      tags:
-      - HelixOrg
-    get:
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: 1-based page number (default 1)
-        in: query
-        name: page[number]
-        type: integer
-      - description: page size (default 50, max 200)
-        in: query
-        name: page[size]
-        type: integer
-      produces:
-      - application/vnd.api+json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.MessagesDocument'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list a topic''s messages (JSON:API, paginated)'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/publish:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Message body+optional subject/to
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.PublishRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.PublishResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: publish a message to a topic'
-      tags:
-      - HelixOrg
   /api/v1/orgs/{org}/triggers:
     get:
       parameters:
@@ -22034,6 +21315,102 @@ paths:
           schema:
             $ref: '#/definitions/api.TriggerEventsResponse'
       summary: 'Helix-org: list trigger events'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/triggers/{id}/github/install-webhook:
+    post:
+      parameters:
+      - description: Trigger ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.InstallGitHubWebhookResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "412":
+          description: pre-conditions not met
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "502":
+          description: GitHub API call failed
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: auto-install the webhook for a github topic'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/triggers/{id}/github/webhook-status:
+    get:
+      parameters:
+      - description: Trigger ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitHubWebhookStatusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: live webhook status for a github topic'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/triggers/{id}/gitlab/install-webhook:
+    post:
+      parameters:
+      - description: Trigger ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.InstallGitLabWebhookResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: auto-install the webhook for a GitLab Trigger'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/triggers/{id}/gitlab/webhook-status:
+    get:
+      parameters:
+      - description: Trigger ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitLabWebhookStatusResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: live webhook status for a GitLab Trigger'
       tags:
       - HelixOrg
   /api/v1/projects:

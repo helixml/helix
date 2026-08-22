@@ -639,7 +639,7 @@ func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
 // shared transcript.Recorder so the helix spawner's call sites stay
 // terse. The owner-chat bridge records through the same recorder — both
 // paths produce identical event shapes on s-transcript-<workerID>.
-func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.NodeID, _ streaming.TopicID, body string) {
+func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.NodeID, _ streaming.StreamID, body string) {
 	_, _ = newTranscriptRecorder(cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger).Record(ctx, orgID, workerID, body)
 }
 

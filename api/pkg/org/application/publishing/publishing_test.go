@@ -3,14 +3,14 @@ package publishing
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
 
@@ -30,87 +30,67 @@ func (r *recEvents) Append(ctx context.Context, e streaming.Event) error {
 
 type recNotifier struct{ log *[]string }
 
-func (n *recNotifier) Notify(_ string, _ streaming.TopicID) { *n.log = append(*n.log, "notify") }
+func (n *recNotifier) Notify(_ string, _ streaming.StreamID) { *n.log = append(*n.log, "notify") }
 
-type recDispatcher struct{ log *[]string }
-
-func (d *recDispatcher) Dispatch(_ context.Context, _ streaming.Event) {
-	*d.log = append(*d.log, "dispatch")
+type recRouter struct {
+	log  *[]string
+	seen []eventsource.Event
+	err  error
 }
 
-type recDeliverer struct {
-	calls int
-	err   error
+func (d *recRouter) Route(_ context.Context, e eventsource.Event) error {
+	*d.log = append(*d.log, "route")
+	d.seen = append(d.seen, e)
+	return d.err
 }
 
-func (d *recDeliverer) Deliver(_ context.Context, _ streaming.Topic, _ streaming.Event, _ streaming.Message) (DeliveryReceipt, error) {
-	d.calls++
-	return DeliveryReceipt{Status: "delivered", Provider: "slack", Destination: "C1", MessageID: "1.2"}, d.err
-}
-
-func seedTopic(t *testing.T, st *store.Store, orgID string, tr transport.Transport) {
-	seedTopicID(t, st, orgID, "s-1", tr)
-}
-
-func seedTopicID(t *testing.T, st *store.Store, orgID string, id streaming.TopicID, tr transport.Transport) {
+func seedTrigger(t *testing.T, st *store.Store, orgID, id string, kind transport.Kind, config []byte) {
 	t.Helper()
-	s, err := streaming.NewTopic(id, string(id), "", "w-owner", fixedClock(), tr, orgID)
+	row, err := trigger.New(id, orgID, id, "", kind, config, "w-owner", fixedClock())
 	if err != nil {
-		t.Fatalf("new topic: %v", err)
+		t.Fatalf("new trigger: %v", err)
 	}
-	if err := st.Topics.Create(context.Background(), s); err != nil {
-		t.Fatalf("create topic: %v", err)
-	}
-}
-
-type nestedPublishDispatcher struct {
-	svc  *Publishing
-	next map[streaming.TopicID]streaming.TopicID
-	errs []error
-}
-
-func (d *nestedPublishDispatcher) Dispatch(ctx context.Context, event streaming.Event) {
-	next := d.next[event.TopicID]
-	if next == "" {
-		return
-	}
-	if _, err := d.svc.Publish(ctx, event.OrganizationID, next, "", streaming.Message{Body: "nested"}); err != nil {
-		d.errs = append(d.errs, err)
+	if err := st.Triggers.Create(context.Background(), row); err != nil {
+		t.Fatalf("create trigger: %v", err)
 	}
 }
 
-// TestPublish_AppendNotifyDispatchOrder pins the trio that must stay
-// atomic and ordered: the event is appended FIRST, then long-poll
-// observers are notified, then subscribed AI workers are dispatched.
-func TestPublish_AppendNotifyDispatchOrder(t *testing.T) {
+// TestPublish_AppendNotifyRouteOrder pins the trio that must stay atomic
+// and ordered: the event is appended FIRST, then long-poll observers are
+// notified, then attached AI Workers are routed to.
+func TestPublish_AppendNotifyRouteOrder(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
-	seedTopic(t, st, "org-test", transport.LocalTransport())
+	seedTrigger(t, st, "org-test", "s-1", transport.KindLocal, nil)
 
 	var log []string
+	router := &recRouter{log: &log}
 	svc := New(Deps{
-		Topics:     st.Topics,
-		Events:     &recEvents{Events: st.Events, log: &log},
-		Hub:        &recNotifier{log: &log},
-		Dispatcher: &recDispatcher{log: &log},
-		Now:        fixedClock,
-		NewID:      func() string { return "fixed" },
+		Triggers: st.Triggers,
+		Events:   &recEvents{Events: st.Events, log: &log},
+		Hub:      &recNotifier{log: &log},
+		Router:   router,
+		Now:      fixedClock,
+		NewID:    func() string { return "fixed" },
 	})
 
-	ev, err := svc.Publish(context.Background(), "org-test", "s-1", "w-owner", streaming.Message{Body: "hello"})
+	ev, err := svc.PublishToTrigger(context.Background(), "org-test", "s-1", "w-owner", streaming.Message{Body: "hello"})
 	if err != nil {
-		t.Fatalf("Publish: %v", err)
+		t.Fatalf("PublishToTrigger: %v", err)
 	}
 	if ev.ID != "e-fixed" {
 		t.Fatalf("event id = %q", ev.ID)
 	}
-	want := []string{"append", "notify", "dispatch"}
+	want := []string{"append", "notify", "route"}
 	if len(log) != 3 || log[0] != want[0] || log[1] != want[1] || log[2] != want[2] {
 		t.Fatalf("call order = %v, want %v", log, want)
 	}
+	if len(router.seen) != 1 || router.seen[0].Source != eventsource.Trigger("s-1") {
+		t.Fatalf("routed source = %+v", router.seen)
+	}
 
 	// Event persisted with the caller as source + From.
-	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-1", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-1", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -123,127 +103,36 @@ func TestPublish_AppendNotifyDispatchOrder(t *testing.T) {
 	}
 }
 
-// TestPublish_GitHubRejected: github transport topics are inbound-only;
-// publish returns ErrPublishToGitHub and appends nothing.
-func TestPublish_GitHubRejected(t *testing.T) {
+// TestSendToChannel_InboundTriggerRejected: a Worker cannot send back out
+// through an inbound transport. The rejection happens before any write.
+func TestSendToChannel_InboundTriggerRejected(t *testing.T) {
 	t.Parallel()
-	st := memory.New()
-	ghCfg := []byte(`{"repo":"helixml/helix","events":["issues"]}`)
-	seedTopic(t, st, "org-test", transport.Transport{Kind: transport.KindGitHub, Config: ghCfg})
-
-	var log []string
-	svc := New(Deps{
-		Topics:     st.Topics,
-		Events:     &recEvents{Events: st.Events, log: &log},
-		Hub:        &recNotifier{log: &log},
-		Dispatcher: &recDispatcher{log: &log},
-		Now:        fixedClock,
-		NewID:      func() string { return "fixed" },
-	})
-	_, err := svc.Publish(context.Background(), "org-test", "s-1", "w-owner", streaming.Message{Body: "x"})
-	if !errors.Is(err, ErrPublishToGitHub) {
-		t.Fatalf("err = %v, want ErrPublishToGitHub", err)
-	}
-	if len(log) != 0 {
-		t.Fatalf("nothing should fire on rejection, got %v", log)
-	}
-}
-
-func TestPublish_TopicNotFound(t *testing.T) {
-	t.Parallel()
-	st := memory.New()
-	svc := New(Deps{Topics: st.Topics, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" }})
-	_, err := svc.Publish(context.Background(), "org-test", "s-missing", "w-owner", streaming.Message{Body: "x"})
-	if !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("err = %v, want ErrNotFound", err)
-	}
-}
-
-// TestPublish_NoHubNoDispatcher: the trio degrades gracefully when Hub
-// and Dispatcher are unwired (tests / runtimes without them).
-func TestPublish_NoHubNoDispatcher(t *testing.T) {
-	t.Parallel()
-	st := memory.New()
-	seedTopic(t, st, "org-test", transport.LocalTransport())
-	svc := New(Deps{Topics: st.Topics, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" }})
-	if _, err := svc.Publish(context.Background(), "org-test", "s-1", "w-owner", streaming.Message{Body: "hi"}); err != nil {
-		t.Fatalf("Publish without hub/dispatcher: %v", err)
-	}
-}
-
-func TestPublish_SlackDeliversButInboundDoesNotEcho(t *testing.T) {
-	st := memory.New()
-	seedTopic(t, st, "org-test", transport.Transport{Kind: transport.KindSlack, Config: []byte(`{"service_connection_id":"sc-1","channel_id":"C1"}`)})
-	deliverer := &recDeliverer{}
-	id := 0
-	svc := New(Deps{
-		Topics: st.Topics, Events: st.Events, Now: fixedClock, NewID: func() string {
-			id++
-			return fmt.Sprint(id)
-		},
-		Deliverers: map[transport.Kind]LegacyDeliverer{transport.KindSlack: deliverer},
-	})
-
-	result, err := svc.PublishWithReceipt(context.Background(), "org-test", "s-1", "b-worker", streaming.Message{Body: "hello"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if deliverer.calls != 1 || result.Delivery == nil || result.Delivery.Status != "delivered" || result.Delivery.MessageID != "1.2" {
-		t.Fatalf("delivery = %#v, calls = %d", result.Delivery, deliverer.calls)
-	}
-	if _, err := svc.Publish(context.Background(), "org-test", "s-1", "", streaming.Message{Body: "automated"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.PublishInbound(context.Background(), "org-test", "s-1", "", streaming.Message{Body: "from Slack"}); err != nil {
-		t.Fatal(err)
-	}
-	if deliverer.calls != 1 {
-		t.Fatalf("inbound Slack event echoed outbound; calls = %d", deliverer.calls)
-	}
-}
-
-func TestPublish_SlackWithoutChannelRejectedBeforeSideEffects(t *testing.T) {
-	for _, useReceipt := range []bool{false, true} {
-		name := "Publish"
-		if useReceipt {
-			name = "PublishWithReceipt"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, kind := range []transport.Kind{transport.KindGitHub, transport.KindGitLab, transport.KindWebhook, transport.KindCron} {
+		t.Run(string(kind), func(t *testing.T) {
 			st := memory.New()
-			seedTopic(t, st, "org-test", transport.Transport{Kind: transport.KindSlack, Config: []byte(`{"service_connection_id":"sc-1"}`)})
+			seedTrigger(t, st, "org-test", "s-1", kind, configFor(kind))
+
 			var log []string
 			idCalls := 0
-			deliverer := &recDeliverer{}
 			svc := New(Deps{
-				Topics:     st.Topics,
-				Events:     &recEvents{Events: st.Events, log: &log},
-				Hub:        &recNotifier{log: &log},
-				Dispatcher: &recDispatcher{log: &log},
-				Now:        fixedClock,
+				Triggers: st.Triggers,
+				Events:   &recEvents{Events: st.Events, log: &log},
+				Hub:      &recNotifier{log: &log},
+				Router:   &recRouter{log: &log},
+				Now:      fixedClock,
 				NewID: func() string {
 					idCalls++
 					return "fixed"
 				},
-				Deliverers: map[transport.Kind]LegacyDeliverer{transport.KindSlack: deliverer},
 			})
-
-			var result Result
-			var err error
-			if useReceipt {
-				result, err = svc.PublishWithReceipt(context.Background(), "org-test", "s-1", "b-worker", streaming.Message{Body: "hello"})
-			} else {
-				result.Event, err = svc.Publish(context.Background(), "org-test", "s-1", "b-worker", streaming.Message{Body: "hello"})
+			_, err := svc.SendToChannel(context.Background(), "org-test", "s-1", "w-owner", streaming.Message{Body: "x"})
+			if !errors.Is(err, ErrNotAnInternalChannel) {
+				t.Fatalf("err = %v, want ErrNotAnInternalChannel", err)
 			}
-			if !errors.Is(err, ErrSlackChannelNotConfigured) {
-				t.Fatalf("err = %v, want ErrSlackChannelNotConfigured", err)
+			if idCalls != 0 || len(log) != 0 {
+				t.Fatalf("nothing should fire on rejection: id calls=%d log=%v", idCalls, log)
 			}
-			if result.Event.ID != "" || result.Delivery != nil {
-				t.Fatalf("result = %#v, want empty", result)
-			}
-			if idCalls != 0 || len(log) != 0 || deliverer.calls != 0 {
-				t.Fatalf("side effects: id calls=%d log=%v delivery calls=%d", idCalls, log, deliverer.calls)
-			}
-			events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-1", 10)
+			events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-1", 10)
 			if len(events) != 0 {
 				t.Fatalf("events = %d, want 0", len(events))
 			}
@@ -251,87 +140,121 @@ func TestPublish_SlackWithoutChannelRejectedBeforeSideEffects(t *testing.T) {
 	}
 }
 
-func TestPublishInbound_SlackWithoutChannelAllowed(t *testing.T) {
+// TestSendToChannel_LocalAllowed: an internal channel is exactly what a
+// Worker may send into.
+func TestSendToChannel_LocalAllowed(t *testing.T) {
+	t.Parallel()
 	st := memory.New()
-	seedTopic(t, st, "org-test", transport.Transport{Kind: transport.KindSlack, Config: []byte(`{"service_connection_id":"sc-1"}`)})
-	var log []string
-	deliverer := &recDeliverer{}
-	svc := New(Deps{
-		Topics:     st.Topics,
-		Events:     &recEvents{Events: st.Events, log: &log},
-		Dispatcher: &recDispatcher{log: &log},
-		Now:        fixedClock,
-		NewID:      func() string { return "fixed" },
-		Deliverers: map[transport.Kind]LegacyDeliverer{transport.KindSlack: deliverer},
-	})
-
-	event, err := svc.PublishInbound(context.Background(), "org-test", "s-1", "", streaming.Message{Body: "from Slack"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if event.ID == "" || len(log) != 2 || log[0] != "append" || log[1] != "dispatch" || deliverer.calls != 0 {
-		t.Fatalf("event=%#v log=%v delivery calls=%d", event, log, deliverer.calls)
+	seedTrigger(t, st, "org-test", "s-dm-a-b", transport.KindLocal, nil)
+	svc := New(Deps{Triggers: st.Triggers, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" }})
+	if _, err := svc.SendToChannel(context.Background(), "org-test", "s-dm-a-b", "w-a", streaming.Message{Body: "hi"}); err != nil {
+		t.Fatalf("SendToChannel: %v", err)
 	}
 }
 
-func TestPublish_InboundProvenanceSuppressesNestedDelivery(t *testing.T) {
+func TestPublish_TriggerNotFound(t *testing.T) {
+	t.Parallel()
 	st := memory.New()
-	tr := transport.Transport{Kind: transport.KindSlack, Config: []byte(`{"service_connection_id":"sc-1","channel_id":"C1"}`)}
-	for _, id := range []streaming.TopicID{"s-1", "s-2", "s-3"} {
-		seedTopicID(t, st, "org-test", id, tr)
-	}
-	deliverer := &recDeliverer{}
-	dispatcher := &nestedPublishDispatcher{next: map[streaming.TopicID]streaming.TopicID{"s-1": "s-2", "s-2": "s-3"}}
-	id := 0
-	svc := New(Deps{
-		Topics: st.Topics, Events: st.Events, Dispatcher: dispatcher, Now: fixedClock,
-		NewID: func() string {
-			id++
-			return fmt.Sprint(id)
-		},
-		Deliverers: map[transport.Kind]LegacyDeliverer{transport.KindSlack: deliverer},
-	})
-	dispatcher.svc = svc
-
-	if _, err := svc.PublishInbound(context.Background(), "org-test", "s-1", "", streaming.Message{Body: "inbound"}); err != nil {
-		t.Fatal(err)
-	}
-	if len(dispatcher.errs) != 0 || deliverer.calls != 0 {
-		t.Fatalf("inbound nested errors = %v, delivery calls = %d", dispatcher.errs, deliverer.calls)
-	}
-	for _, topicID := range []streaming.TopicID{"s-1", "s-2", "s-3"} {
-		events, _ := st.Events.ListForTopic(context.Background(), "org-test", topicID, 10)
-		if len(events) != 1 {
-			t.Fatalf("%s inbound events = %d, want 1", topicID, len(events))
-		}
-	}
-
-	if _, err := svc.Publish(context.Background(), "org-test", "s-1", "", streaming.Message{Body: "automated"}); err != nil {
-		t.Fatal(err)
-	}
-	if deliverer.calls != 0 {
-		t.Fatalf("ordinary empty-source publish delivery calls = %d, want 0", deliverer.calls)
+	svc := New(Deps{Triggers: st.Triggers, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" }})
+	_, err := svc.PublishToTrigger(context.Background(), "org-test", "s-missing", "w-owner", streaming.Message{Body: "x"})
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
 
-func TestPublish_SlackFailureIsExplicitAfterAuditAppend(t *testing.T) {
+// TestPublish_NoHubNoRouter: the trio degrades gracefully when Hub and
+// Router are unwired (tests / runtimes without them).
+func TestPublish_NoHubNoRouter(t *testing.T) {
+	t.Parallel()
 	st := memory.New()
-	seedTopic(t, st, "org-test", transport.Transport{Kind: transport.KindSlack, Config: []byte(`{"service_connection_id":"sc-1","channel_id":"C1"}`)})
-	deliverer := &recDeliverer{err: errors.New("not_in_channel")}
-	svc := New(Deps{
-		Topics: st.Topics, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" },
-		Deliverers: map[transport.Kind]LegacyDeliverer{transport.KindSlack: deliverer},
-	})
+	seedTrigger(t, st, "org-test", "s-1", transport.KindLocal, nil)
+	svc := New(Deps{Triggers: st.Triggers, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" }})
+	if _, err := svc.PublishToTrigger(context.Background(), "org-test", "s-1", "w-owner", streaming.Message{Body: "hi"}); err != nil {
+		t.Fatalf("Publish without hub/router: %v", err)
+	}
+}
 
-	result, err := svc.PublishWithReceipt(context.Background(), "org-test", "s-1", "b-worker", streaming.Message{Body: "hello"})
-	if err == nil || !strings.Contains(err.Error(), "not_in_channel") {
-		t.Fatalf("err = %v", err)
+// TestPublishDelivery_DuplicateRejected: a provider redelivery under the
+// same derived event id collides on the events key instead of being
+// appended twice, which is what makes ingress idempotent.
+func TestPublishDelivery_DuplicateRejected(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	seedTrigger(t, st, "org-test", "s-gh", transport.KindGitHub, []byte(`{"repo":"helixml/helix","events":["issues"]}`))
+	svc := New(Deps{Triggers: st.Triggers, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" }})
+
+	if _, err := svc.PublishDelivery(context.Background(), "org-test", "s-gh", "e-delivery-1", streaming.Message{Body: "first"}); err != nil {
+		t.Fatalf("first delivery: %v", err)
 	}
-	if result.Event.ID == "" || result.Delivery == nil || result.Delivery.Status != "failed" || result.Delivery.Provider != "slack" || !strings.Contains(result.Delivery.Error, "do not retry publish: not_in_channel") {
-		t.Fatalf("partial result = %#v", result)
+	_, err := svc.PublishDelivery(context.Background(), "org-test", "s-gh", "e-delivery-1", streaming.Message{Body: "retry"})
+	if !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("err = %v, want ErrConflict", err)
 	}
-	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-1", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-gh", 10)
 	if len(events) != 1 {
-		t.Fatalf("audit events = %d, want 1", len(events))
+		t.Fatalf("events = %d, want 1", len(events))
+	}
+}
+
+// TestPublish_ProcessorBranchUsesBranchStream: a branch event lands on
+// the stream recorded on the branch, and routes from the branch's source
+// — the pair that preserves a converted branch's history while routing
+// on its durable id.
+func TestPublish_ProcessorBranchUsesBranchStream(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	var log []string
+	router := &recRouter{log: &log}
+	svc := New(Deps{Triggers: st.Triggers, Events: st.Events, Router: router, Now: fixedClock, NewID: func() string { return "x" }})
+
+	src := eventsource.ProcessorOutput("p-1", "po-vip")
+	if _, err := svc.Publish(context.Background(), "org-test", src, "s-legacy-out", "", streaming.Message{Body: "routed"}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-legacy-out", 10)
+	if len(events) != 1 {
+		t.Fatalf("events on branch stream = %d, want 1", len(events))
+	}
+	if len(router.seen) != 1 || router.seen[0].Source != src {
+		t.Fatalf("routed source = %+v, want %s", router.seen, src.Key())
+	}
+}
+
+// TestPublish_RouteFailureSurfacesAfterAppend: the event is durable even
+// when routing fails, and the caller is told rather than silently losing
+// the fan-out.
+func TestPublish_RouteFailureSurfacesAfterAppend(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	seedTrigger(t, st, "org-test", "s-1", transport.KindLocal, nil)
+	var log []string
+	svc := New(Deps{
+		Triggers: st.Triggers, Events: st.Events,
+		Router: &recRouter{log: &log, err: errors.New("queue down")},
+		Now:    fixedClock, NewID: func() string { return "x" },
+	})
+	ev, err := svc.PublishToTrigger(context.Background(), "org-test", "s-1", "w-owner", streaming.Message{Body: "hi"})
+	if err == nil {
+		t.Fatal("want a routing error")
+	}
+	if ev.ID == "" {
+		t.Fatal("append should still have happened")
+	}
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-1", 10)
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want 1", len(events))
+	}
+}
+
+func configFor(kind transport.Kind) []byte {
+	switch kind {
+	case transport.KindGitHub:
+		return []byte(`{"repo":"helixml/helix","events":["issues"]}`)
+	case transport.KindGitLab:
+		return []byte(`{"repository_id":"1","repo":"helixml/helix","events":["Push Hook"]}`)
+	case transport.KindCron:
+		return []byte(`{"schedule":"0 9 * * *"}`)
+	default:
+		return nil
 	}
 }

@@ -19,7 +19,7 @@ func TestTranscriptIDIsDeterministicFromWorkerID(t *testing.T) {
 	cases := []struct {
 		name string
 		in   orgchart.NodeID
-		want streaming.TopicID
+		want streaming.StreamID
 	}{
 		{"owner", "w-owner", "s-transcript-w-owner"},
 		{"ai", "w-alice", "s-transcript-w-alice"},

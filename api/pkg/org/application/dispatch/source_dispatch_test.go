@@ -46,7 +46,7 @@ func addAttachment(t *testing.T, ctx context.Context, repo interface {
 	require.NoError(t, repo.Create(ctx, a))
 }
 
-func TestDispatchSourceExactFanoutOrderingAndSuppression(t *testing.T) {
+func TestRouteExactFanoutOrderingAndSuppression(t *testing.T) {
 	ctx := context.Background()
 	st := memory.New()
 	addNode(t, ctx, st.Nodes, "org-1", "w-a", false)
@@ -65,19 +65,19 @@ func TestDispatchSourceExactFanoutOrderingAndSuppression(t *testing.T) {
 	d.RegisterActivationQueue(q)
 	e, err := eventsource.NewEvent("e-1", "org-1", src, streaming.Message{Body: "one"}, "w-a", time.Now())
 	require.NoError(t, err)
-	require.NoError(t, d.DispatchSource(ctx, e))
+	require.NoError(t, d.Route(ctx, e))
 	require.Len(t, q.rows, 1)
 	require.Equal(t, orgchart.NodeID("w-b"), q.rows[0].worker)
 	require.Equal(t, src, q.rows[0].trigger.EventSource)
 	require.Equal(t, "one", q.rows[0].trigger.Message.Body)
 	e2, err := eventsource.NewEvent("e-2", "org-1", src, streaming.Message{Body: "two"}, "", time.Now())
 	require.NoError(t, err)
-	require.NoError(t, d.DispatchSource(ctx, e2))
+	require.NoError(t, d.Route(ctx, e2))
 	require.Equal(t, []orgchart.NodeID{"w-b", "w-a", "w-b"}, []orgchart.NodeID{q.rows[0].worker, q.rows[1].worker, q.rows[2].worker})
 	require.Equal(t, "two", q.rows[1].trigger.Message.Body)
 }
-func TestDispatchSourceMissingRepository(t *testing.T) {
+func TestRouteMissingRepository(t *testing.T) {
 	d := dispatch.New(&store.Store{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	err := d.DispatchSource(context.Background(), eventsource.Event{})
+	err := d.Route(context.Background(), eventsource.Event{})
 	require.ErrorContains(t, err, "not configured")
 }

@@ -10,6 +10,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
@@ -229,7 +230,7 @@ func TestHumanDeliverySlackRequiresReplyRouterBeforePosting(t *testing.T) {
 
 func TestValidateSlackReplyRouter(t *testing.T) {
 	router := processor.Processor{
-		ID: "p-slack-router-conn-1", InputTopicID: "s-slack-ws-conn-1", Kind: processor.KindFilter,
+		ID: "p-slack-router-conn-1", InputSource: eventsource.Trigger("s-slack-ws-conn-1"), Kind: processor.KindFilter,
 		CreatedBy: processor.SystemActor, Config: slackrouting.DefaultConfig(), Outputs: []processor.Output{{ManagedFor: "b-sender"}},
 	}
 	if err := validateSlackReplyRouter(router, "conn-1", "b-sender"); err != nil {

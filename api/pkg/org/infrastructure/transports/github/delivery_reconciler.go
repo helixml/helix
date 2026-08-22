@@ -66,18 +66,18 @@ func (r *DeliveryReconciler) Run(ctx context.Context) {
 }
 
 func (r *DeliveryReconciler) reconcile(ctx context.Context) {
-	topics, err := r.store.Topics.ListByTransportKind(ctx, transport.KindGitHub)
+	triggers, err := r.store.Triggers.Find(ctx, store.WithTransportKind(string(transport.KindGitHub)))
 	if err != nil {
-		r.logger.Error("github delivery recovery: list topics", "err", err)
+		r.logger.Error("github delivery recovery: list triggers", "err", err)
 		return
 	}
 	live := make(map[string]struct{})
 	seen := make(map[string]struct{})
-	for _, topic := range topics {
+	for _, trg := range triggers {
 		if ctx.Err() != nil {
 			return
 		}
-		cfg, err := topic.Transport.GitHubConfig()
+		cfg, err := trg.Transport().GitHubConfig()
 		if err != nil || cfg.WebhookID == 0 {
 			continue
 		}
@@ -87,14 +87,14 @@ func (r *DeliveryReconciler) reconcile(ctx context.Context) {
 		}
 		key := deliveryHookKey(owner, repo, cfg.WebhookID)
 		live[key] = struct{}{}
-		token, err := r.token(ctx, topic.OrganizationID)
+		token, err := r.token(ctx, trg.OrganizationID)
 		if err != nil || token == "" {
-			r.logger.Error("github delivery recovery: resolve credentials", "org", topic.OrganizationID, "topic", topic.ID, "err", err)
+			r.logger.Error("github delivery recovery: resolve credentials", "org", trg.OrganizationID, "trigger", trg.ID, "err", err)
 			continue
 		}
 		client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token, BaseURL: r.baseURL})
 		if err != nil {
-			r.logger.Error("github delivery recovery: create client", "org", topic.OrganizationID, "topic", topic.ID, "err", err)
+			r.logger.Error("github delivery recovery: create client", "org", trg.OrganizationID, "trigger", trg.ID, "err", err)
 			continue
 		}
 		if _, ok := seen[key]; ok {
@@ -102,7 +102,7 @@ func (r *DeliveryReconciler) reconcile(ctx context.Context) {
 		}
 		seen[key] = struct{}{}
 		if err := r.reconcileHook(ctx, client, owner, repo, cfg.WebhookID); err != nil {
-			r.logger.Error("github delivery recovery: reconcile hook", "org", topic.OrganizationID, "topic", topic.ID, "repo", cfg.Repo, "hook", cfg.WebhookID, "err", err)
+			r.logger.Error("github delivery recovery: reconcile hook", "org", trg.OrganizationID, "trigger", trg.ID, "repo", cfg.Repo, "hook", cfg.WebhookID, "err", err)
 		}
 	}
 	for key := range r.checkpointByHook {

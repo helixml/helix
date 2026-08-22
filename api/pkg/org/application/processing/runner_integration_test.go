@@ -12,24 +12,24 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/processing"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
-	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
+	"github.com/helixml/helix/api/pkg/org/internal/orgtest"
 )
 
 const org = "org-1"
 
-// rig wires the full publish→dispatch→process→publish backbone against
-// the in-memory store, with a spawner that records every activation.
+// rig wires the full publish→route→process→publish backbone against the
+// in-memory store, with a spawner that records every activation.
 type rig struct {
 	store   *store.Store
 	pub     *publishing.Publishing
 	procSvc *processors.Processors
-	topics  *topics.Topics
 
 	mu          sync.Mutex
 	activations []activation.Trigger
@@ -53,15 +53,15 @@ func newRig(t *testing.T) *rig {
 	logger := slog.New(slog.NewTextHandler(testWriter{t}, nil))
 	disp := dispatch.New(r.store, spawner, logger)
 	r.pub = publishing.New(publishing.Deps{
-		Topics: r.store.Topics, Events: r.store.Events, Dispatcher: disp,
+		Triggers: r.store.Triggers, Events: r.store.Events, Router: disp,
 		Now: time.Now, NewID: incID(),
 	})
 	runner := processing.New(r.store.Processors, r.pub, logger)
 	disp.RegisterProcessorRunner(runner)
 
-	r.topics = topics.New(topics.Deps{Topics: r.store.Topics, Now: time.Now, NewID: incID()})
 	r.procSvc = processors.New(processors.Deps{
-		Processors: r.store.Processors, Topics: r.topics, Attachments: r.store.WorkerAttachments, Now: time.Now, NewID: incID(),
+		Processors: r.store.Processors, Triggers: r.store.Triggers,
+		Attachments: r.store.WorkerAttachments, Now: time.Now, NewID: incID(),
 	})
 	return r
 }
@@ -85,31 +85,23 @@ func (r *rig) lastActivation(t *testing.T) activation.Trigger {
 	return r.activations[len(r.activations)-1]
 }
 
-func (r *rig) mkTopic(t *testing.T, id, name string) streaming.TopicID {
+func (r *rig) mkTrigger(t *testing.T, id string) string {
 	t.Helper()
-	top, err := r.topics.Create(context.Background(), org, topics.CreateParams{ID: id, Name: name})
-	if err != nil {
-		t.Fatalf("create topic %s: %v", id, err)
-	}
-	return top.ID
+	orgtest.Trigger(t, r.store, org, id)
+	return id
 }
 
-func (r *rig) mkAIWorker(t *testing.T, id, subTopic streaming.TopicID) {
+// mkAIWorker creates a Worker attached to one source.
+func (r *rig) mkAIWorker(t *testing.T, id string, src eventsource.SourceRef) {
 	t.Helper()
-	w, err := orgchart.NewNode(orgchart.NodeID(id), "# "+string(id), nil, time.Now().UTC(), org)
+	w, err := orgchart.NewNode(orgchart.NodeID(id), "# "+id, nil, time.Now().UTC(), org)
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}
 	if err := r.store.Nodes.Create(context.Background(), w); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
-	sub, err := streaming.NewSubscription(string(id), subTopic, time.Now().UTC(), org)
-	if err != nil {
-		t.Fatalf("new sub: %v", err)
-	}
-	if err := r.store.Subscriptions.Create(context.Background(), sub); err != nil {
-		t.Fatalf("create sub: %v", err)
-	}
+	orgtest.Attach(t, r.store, org, orgchart.NodeID(id), src)
 }
 
 func templateCfg(t *testing.T, tmpl string) json.RawMessage {
@@ -118,71 +110,70 @@ func templateCfg(t *testing.T, tmpl string) json.RawMessage {
 	return b
 }
 
-// TestTemplateProcessorEndToEnd is the Phase-2 red test: a template
-// processor between an input topic and a worker subscribed to the
-// output topic. Publishing to the input must (a) place a transformed
-// event on the output topic and (b) activate the worker with the
-// rendered body.
+// TestTemplateProcessorEndToEnd: a template processor between a Trigger
+// and a Worker attached to its output branch. Publishing to the Trigger
+// must (a) place a transformed event on the branch's stream and (b)
+// activate the Worker with the rendered body.
 func TestTemplateProcessorEndToEnd(t *testing.T) {
 	ctx := context.Background()
 	r := newRig(t)
-	in := r.mkTopic(t, "s-in", "Inbox")
+	in := r.mkTrigger(t, "s-in")
 
 	proc, err := r.procSvc.Create(ctx, org, processors.CreateParams{
-		ID: "p-fmt", Name: "Formatter", InputTopicID: in, Kind: processor.KindTemplate,
+		ID: "p-fmt", Name: "Formatter", InputSource: eventsource.Trigger(in), Kind: processor.KindTemplate,
 		Config: templateCfg(t, "From {{ .Message.from }}: {{ .Message.body }}"),
 	})
 	if err != nil {
 		t.Fatalf("create processor: %v", err)
 	}
-	outTopic := proc.Outputs[0].TopicID
-	if outTopic == "" {
-		t.Fatal("processor output topic was not auto-provisioned")
+	branch := proc.Outputs[0]
+	if branch.ID == "" || branch.StreamID == "" {
+		t.Fatal("processor branch has no durable identity or stream")
 	}
 
-	// Worker subscribes to the OUTPUT topic.
-	r.mkAIWorker(t, "w-triage", outTopic)
+	// Worker attaches to the OUTPUT branch.
+	r.mkAIWorker(t, "w-triage", proc.Source(branch))
 
-	// Publish to the INPUT topic.
-	if _, err := r.pub.Publish(ctx, org, in, "alice", streaming.Message{Body: "hello"}); err != nil {
+	// Publish to the input Trigger.
+	if _, err := r.pub.PublishToTrigger(ctx, org, in, "alice", streaming.Message{Body: "hello"}); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 
 	r.waitForActivation(t)
 
-	// (a) transformed event landed on the output topic.
-	evs, err := r.store.Events.ListForTopic(ctx, org, outTopic, 10)
+	// (a) transformed event landed on the branch's stream.
+	evs, err := r.store.Events.ListForStream(ctx, org, branch.StreamID, 10)
 	if err != nil {
-		t.Fatalf("list output events: %v", err)
+		t.Fatalf("list branch events: %v", err)
 	}
 	if len(evs) != 1 {
-		t.Fatalf("want 1 event on output topic, got %d", len(evs))
+		t.Fatalf("want 1 event on the branch stream, got %d", len(evs))
 	}
 	gotMsg, _ := evs[0].Message()
 	if gotMsg.Body != "From alice: hello" {
 		t.Errorf("output body = %q, want %q", gotMsg.Body, "From alice: hello")
 	}
 
-	// (b) worker activated with the rendered body.
+	// (b) worker activated with the rendered body, from the branch.
 	act := r.lastActivation(t)
 	if act.Message.Body != "From alice: hello" {
 		t.Errorf("activation body = %q, want %q", act.Message.Body, "From alice: hello")
 	}
-	if act.TopicID != outTopic {
-		t.Errorf("activation topic = %q, want output topic %q", act.TopicID, outTopic)
+	if act.EventSource != proc.Source(branch) {
+		t.Errorf("activation source = %v, want %s", act.EventSource, proc.Source(branch).Key())
 	}
 }
 
-// TestFilterProcessorRouting: a filter with two outputs (a VIP predicate
-// and an unconditional default) routes each message to exactly the
-// outputs whose predicate matches, and the right workers activate.
+// TestFilterProcessorRouting: a filter with two branches (a VIP
+// predicate and an unconditional default) routes each message to exactly
+// the branches whose predicate matches, and the right workers activate.
 func TestFilterProcessorRouting(t *testing.T) {
 	ctx := context.Background()
 	r := newRig(t)
-	in := r.mkTopic(t, "s-in", "Inbox")
+	in := r.mkTrigger(t, "s-in")
 
 	proc, err := r.procSvc.Create(ctx, org, processors.CreateParams{
-		ID: "p-route", Name: "Router", InputTopicID: in, Kind: processor.KindFilter,
+		ID: "p-route", Name: "Router", InputSource: eventsource.Trigger(in), Kind: processor.KindFilter,
 		Outputs: []processors.OutputSpec{
 			{Label: "vip", Match: `{{ if hasSuffix "@vip.com" .Message.from }}1{{ end }}`},
 			{Label: "default", Match: ``},
@@ -191,82 +182,90 @@ func TestFilterProcessorRouting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create filter: %v", err)
 	}
-	vipTopic := proc.Outputs[0].TopicID
-	genTopic := proc.Outputs[1].TopicID
-	r.mkAIWorker(t, "w-senior", vipTopic)
-	r.mkAIWorker(t, "w-triage", genTopic)
+	vip, general := proc.Outputs[0], proc.Outputs[1]
+	r.mkAIWorker(t, "w-senior", proc.Source(vip))
+	r.mkAIWorker(t, "w-triage", proc.Source(general))
 
 	// VIP message → both vip + default.
-	if _, err := r.pub.Publish(ctx, org, in, "boss@vip.com", streaming.Message{Body: "urgent"}); err != nil {
+	if _, err := r.pub.PublishToTrigger(ctx, org, in, "boss@vip.com", streaming.Message{Body: "urgent"}); err != nil {
 		t.Fatalf("publish vip: %v", err)
 	}
 	r.waitForActivation(t)
 	time.Sleep(150 * time.Millisecond)
 
-	vipCount, _ := r.store.Events.CountForTopic(ctx, org, vipTopic)
-	genCount, _ := r.store.Events.CountForTopic(ctx, org, genTopic)
+	vipCount, _ := r.store.Events.CountForStream(ctx, org, vip.StreamID)
+	genCount, _ := r.store.Events.CountForStream(ctx, org, general.StreamID)
 	if vipCount != 1 {
-		t.Errorf("vip topic events = %d, want 1", vipCount)
+		t.Errorf("vip branch events = %d, want 1", vipCount)
 	}
 	if genCount != 1 {
-		t.Errorf("default topic events = %d, want 1 (default catches all)", genCount)
+		t.Errorf("default branch events = %d, want 1 (default catches all)", genCount)
 	}
 
 	// Plain message → only the default.
-	if _, err := r.pub.Publish(ctx, org, in, "joe@example.com", streaming.Message{Body: "hi"}); err != nil {
+	if _, err := r.pub.PublishToTrigger(ctx, org, in, "joe@example.com", streaming.Message{Body: "hi"}); err != nil {
 		t.Fatalf("publish plain: %v", err)
 	}
 	r.waitForActivation(t)
 	time.Sleep(150 * time.Millisecond)
 
-	vipCount2, _ := r.store.Events.CountForTopic(ctx, org, vipTopic)
-	genCount2, _ := r.store.Events.CountForTopic(ctx, org, genTopic)
+	vipCount2, _ := r.store.Events.CountForStream(ctx, org, vip.StreamID)
+	genCount2, _ := r.store.Events.CountForStream(ctx, org, general.StreamID)
 	if vipCount2 != 1 {
-		t.Errorf("after plain publish vip topic = %d, want still 1 (no match)", vipCount2)
+		t.Errorf("after plain publish vip branch = %d, want still 1 (no match)", vipCount2)
 	}
 	if genCount2 != 2 {
-		t.Errorf("after plain publish default topic = %d, want 2", genCount2)
+		t.Errorf("after plain publish default branch = %d, want 2", genCount2)
 	}
 }
 
-// TestCreateRejectsSelfCycle: a processor whose explicit output topic is
-// also its input topic closes a one-hop cycle and must be rejected.
+// TestCreateRejectsSelfCycle: a processor whose input is one of its own
+// branches closes a one-hop cycle and must be rejected.
 func TestCreateRejectsSelfCycle(t *testing.T) {
 	ctx := context.Background()
 	r := newRig(t)
-	a := r.mkTopic(t, "s-a", "A")
 
 	_, err := r.procSvc.Create(ctx, org, processors.CreateParams{
-		ID: "p-self", Name: "Self", InputTopicID: a, Kind: processor.KindTemplate,
+		ID: "p-self", Name: "Self", InputSource: eventsource.ProcessorOutput("p-self", "po-own"), Kind: processor.KindTemplate,
 		Config:  templateCfg(t, "{{ .Message.body }}"),
-		Outputs: []processors.OutputSpec{{TopicID: a}}, // explicit: output == input
+		Outputs: []processors.OutputSpec{{ID: "po-own"}},
 	})
 	if err == nil {
-		t.Fatal("want cycle error for output==input, got nil")
+		t.Fatal("want an error for a processor reading its own branch, got nil")
 	}
 }
 
-// TestCreateRejectsMultiHopCycle: p1 a→b (explicit b), then a processor
-// reading b whose explicit output is a closes a two-hop cycle.
+// TestCreateRejectsMultiHopCycle: p1 reads a Trigger and writes branch B;
+// p2 reads branch B and would write back into p1's input, closing a
+// two-hop cycle.
 func TestCreateRejectsMultiHopCycle(t *testing.T) {
 	ctx := context.Background()
 	r := newRig(t)
-	a := r.mkTopic(t, "s-a", "A")
-	b := r.mkTopic(t, "s-b", "B")
+	a := r.mkTrigger(t, "s-a")
 
-	if _, err := r.procSvc.Create(ctx, org, processors.CreateParams{
-		ID: "p1", Name: "P1", InputTopicID: a, Kind: processor.KindTemplate,
-		Config: templateCfg(t, "{{ .Message.body }}"), Outputs: []processors.OutputSpec{{TopicID: b}},
-	}); err != nil {
-		t.Fatalf("create p1 (a->b): %v", err)
+	p1, err := r.procSvc.Create(ctx, org, processors.CreateParams{
+		ID: "p1", Name: "P1", InputSource: eventsource.Trigger(a), Kind: processor.KindTemplate,
+		Config: templateCfg(t, "{{ .Message.body }}"), Outputs: []processors.OutputSpec{{Label: "b"}},
+	})
+	if err != nil {
+		t.Fatalf("create p1: %v", err)
 	}
-	// p2 reads b, outputs a → a→b→a cycle.
-	_, err := r.procSvc.Create(ctx, org, processors.CreateParams{
-		ID: "p2", Name: "P2", InputTopicID: b, Kind: processor.KindTemplate,
-		Config: templateCfg(t, "{{ .Message.body }}"), Outputs: []processors.OutputSpec{{TopicID: a}},
+	// p2 reads p1's branch and writes a branch p1 reads — p1's input is a
+	// Trigger, so the cycle here is p2 → p1's own branch.
+	_, err = r.procSvc.Create(ctx, org, processors.CreateParams{
+		ID: "p2", Name: "P2", InputSource: p1.Source(p1.Outputs[0]), Kind: processor.KindTemplate,
+		Config: templateCfg(t, "{{ .Message.body }}"), Outputs: []processors.OutputSpec{{ID: p1.Outputs[0].ID}},
+	})
+	if err != nil {
+		t.Fatalf("create p2 (distinct branch ids, no cycle): %v", err)
+	}
+	// Now close the loop: p3 reads p2's branch and writes into p2's input.
+	_, err = r.procSvc.Create(ctx, org, processors.CreateParams{
+		ID: "p3", Name: "P3", InputSource: eventsource.ProcessorOutput("p3", "po-loop"), Kind: processor.KindTemplate,
+		Config: templateCfg(t, "{{ .Message.body }}"), Outputs: []processors.OutputSpec{{ID: "po-loop"}},
 	})
 	if err == nil {
-		t.Fatal("want cycle error for a->b->a, got nil")
+		t.Fatal("want a cycle error, got nil")
 	}
 }
 
@@ -277,26 +276,27 @@ func TestCreateRejectsMultiHopCycle(t *testing.T) {
 func TestRuntimeHopGuardStopsCycle(t *testing.T) {
 	ctx := context.Background()
 	r := newRig(t)
-	a := r.mkTopic(t, "s-a", "A")
 
 	// Seed a self-looping processor directly into the store (the service
 	// would reject this; we bypass it to exercise the runtime guard).
 	loop := processor.Processor{
-		ID: "p-loop", OrganizationID: org, Name: "Loop", InputTopicID: a,
-		Kind: processor.KindTemplate, Config: templateCfg(t, "{{ .Message.body }}"),
-		Outputs: []processor.Output{{TopicID: a, Owned: false}}, CreatedAt: time.Now(),
+		ID: "p-loop", OrganizationID: org, Name: "Loop",
+		InputSource: eventsource.ProcessorOutput("p-loop", "po-loop"),
+		Kind:        processor.KindTemplate, Config: templateCfg(t, "{{ .Message.body }}"),
+		Outputs:   []processor.Output{{ID: "po-loop", StreamID: "s-loop"}},
+		CreatedAt: time.Now(),
 	}
 	if err := r.store.Processors.Create(ctx, loop); err != nil {
 		t.Fatalf("seed loop: %v", err)
 	}
 
-	if _, err := r.pub.Publish(ctx, org, a, "alice", streaming.Message{Body: "x"}); err != nil {
+	if _, err := r.pub.Publish(ctx, org, loop.InputSource, "s-loop", "alice", streaming.Message{Body: "x"}); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	// Let the (bounded) recursion settle.
 	time.Sleep(500 * time.Millisecond)
 
-	count, err := r.store.Events.CountForTopic(ctx, org, a)
+	count, err := r.store.Events.CountForStream(ctx, org, "s-loop")
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}

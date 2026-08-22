@@ -87,12 +87,12 @@ Act now. No preamble.
 // "neat" is for humans tailing the prompt.
 func renderTrigger(t activation.Trigger) string {
 	var b strings.Builder
-	b.WriteString("A new event arrived on a Topic you subscribe to.\n\n")
-	fmt.Fprintf(&b, "  topic:      %s\n", t.TopicID)
+	b.WriteString("A new event arrived from a source you are attached to.\n\n")
+	fmt.Fprintf(&b, "  source:      %s\n", t.EventSource.Key())
 	fmt.Fprintf(&b, "  event:       %s\n", t.EventID)
 	fmt.Fprintf(&b, "  time:        %s\n", t.CreatedAt.Format(time.RFC3339))
 	if t.Source != "" {
-		fmt.Fprintf(&b, "  source:      %s\n", t.Source)
+		fmt.Fprintf(&b, "  originator:  %s\n", t.Source)
 	}
 	m := t.Message
 	if m.From != "" {
@@ -155,7 +155,7 @@ func DescribeTrigger(t activation.Trigger) string {
 	case activation.TriggerHire:
 		return "hire"
 	case activation.TriggerEvent:
-		return fmt.Sprintf("event %s on %s from %s", t.EventID, t.TopicID, t.Source)
+		return fmt.Sprintf("event %s from %s originated by %s", t.EventID, t.EventSource.Key(), t.Source)
 	case activation.TriggerManual:
 		return "manual"
 	default:

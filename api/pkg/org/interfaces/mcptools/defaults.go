@@ -8,8 +8,8 @@ import (
 // BaseReadTools is the set of MCP tools that every Bot must expose. The
 // principle: a tool belongs here only if exposing it to every Bot is
 // safe (it cannot mutate the org graph) and useful (the Bot needs it to
-// introspect its reporting line, look up peers, or read topics it has
-// been subscribed to).
+// introspect its reporting line, look up peers, or read the sources it
+// has been attached to).
 //
 // `create_bot` unions this list into the caller-supplied tools so that
 // new Nodes can never miss the baseline. The bots Reconcile backfill
@@ -31,9 +31,9 @@ var BaseReadTools = []tool.Name{
 	ReportsName,
 	ListBotsName,
 	GetBotName,
-	ListTopicsName,
-	GetTopicName,
-	ListTopicEventsName,
+	ListTriggersName,
+	GetTriggerName,
+	ListTriggerEventsName,
 	ReadEventsName,
 	BotLogName,
 	GetSecretName,
@@ -42,7 +42,7 @@ var BaseReadTools = []tool.Name{
 	// Values remain behind the separately audited get_secret call.
 	ListSecretsName,
 	// Processor introspection — safe reads so any bot can discover the
-	// transform/filter/js nodes feeding topics it may subscribe to.
+	// transform/filter/js nodes feeding sources it may attach to.
 	ListProcessorsName,
 	GetProcessorName,
 }
@@ -79,14 +79,14 @@ func OwnerBotTools() []tool.Name {
 		AttachToolName,
 		DetachToolName,
 		DeleteBotName,
-		CreateTopicName,
-		TopicMembersName,
-		SubscribeName,
-		UnsubscribeName,
-		PublishName,
+		CreateTriggerName,
+		TriggerMembersName,
+		AttachWorkerName,
+		DetachWorkerName,
+		ChatName,
 		DMName,
 		SetHumanContactName,
-		// Processors: define topic transforms/filters/js and rewire them.
+		// Processors: define transforms/filters/js and rewire them.
 		CreateProcessorName,
 		UpdateProcessorName,
 		DeleteProcessorName,

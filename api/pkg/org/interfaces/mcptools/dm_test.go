@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
@@ -54,25 +55,27 @@ func TestDM_DeliversOverExistingChannel(t *testing.T) {
 		t.Fatalf("dm over existing channel: %v", err)
 	}
 	var out struct {
-		TopicID string `json:"topicId"`
-		To      string `json:"to"`
+		TriggerID string `json:"triggerId"`
+		To        string `json:"to"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	want := string(channels.DMTopicID(rep, mgr))
-	if out.TopicID != want {
-		t.Fatalf("topicId = %q, want %q", out.TopicID, want)
+	want := channels.DMTriggerID(rep, mgr)
+	if out.TriggerID != want {
+		t.Fatalf("triggerId = %q, want %q", out.TriggerID, want)
 	}
 	// The event landed on the channel.
-	events, _ := deps.Store.Events.ListForTopic(ctx, "org-test", channels.DMTopicID(rep, mgr), 10)
+	events, _ := deps.Store.Events.ListForStream(ctx, "org-test", channels.DMTriggerID(rep, mgr), 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
-	// Both parties are subscribers (provisioned by topology, not by dm).
+	// Both parties are attached (provisioned by topology, not by dm).
 	for _, id := range []orgchart.NodeID{mgr, rep} {
-		if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", id, channels.DMTopicID(rep, mgr)); err != nil {
-			t.Fatalf("%s not subscribed to DM channel: %v", id, err)
+		rows, err := deps.Store.WorkerAttachments.Find(ctx, store.WithOrg("org-test"),
+			store.WithWorkerID(id), store.WithTriggerID(channels.DMTriggerID(rep, mgr)), store.WithLimit(1))
+		if err != nil || len(rows) == 0 {
+			t.Fatalf("%s not attached to DM channel: %v", id, err)
 		}
 	}
 }
@@ -95,10 +98,11 @@ func TestDM_RefusesWithoutReportingLine(t *testing.T) {
 		t.Fatalf("err = %v, want it to mention `managers` and `reports`", err)
 	}
 	// No channel was created and no event written.
-	if _, gerr := deps.Store.Topics.Get(ctx, "org-test", channels.DMTopicID(rep, mgr)); gerr == nil {
+	rows, gerr := deps.Store.Triggers.Find(ctx, store.WithOrg("org-test"), store.WithID(channels.DMTriggerID(rep, mgr)), store.WithLimit(1))
+	if gerr == nil && len(rows) > 0 {
 		t.Fatal("dm must NOT create the channel on the refusal path")
 	}
-	events, _ := deps.Store.Events.ListForTopic(ctx, "org-test", channels.DMTopicID(rep, mgr), 10)
+	events, _ := deps.Store.Events.ListForStream(ctx, "org-test", channels.DMTriggerID(rep, mgr), 10)
 	if len(events) != 0 {
 		t.Fatalf("events = %d, want 0 (nothing written on refusal)", len(events))
 	}

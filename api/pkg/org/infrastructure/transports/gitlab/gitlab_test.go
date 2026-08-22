@@ -16,10 +16,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	gitlabtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/gitlab"
 )
@@ -29,18 +33,26 @@ var signingToken = "whsec_" + base64.StdEncoding.EncodeToString(signingKey)
 
 const secretToken = "legacy-secret"
 
-type dispatcher struct {
+// recordingPublisher is the real publish use case wired to the same
+// store, wrapped so tests can count what a delivery produced.
+type recordingPublisher struct {
+	inner *publishing.Publishing
 	sync.Mutex
 	events []streaming.Event
 }
 
-func (d *dispatcher) Dispatch(_ context.Context, event streaming.Event) {
-	d.Lock()
-	defer d.Unlock()
-	d.events = append(d.events, event)
+func (p *recordingPublisher) PublishDelivery(ctx context.Context, orgID, triggerID string, eventID streaming.EventID, msg streaming.Message) (streaming.Event, error) {
+	ev, err := p.inner.PublishDelivery(ctx, orgID, triggerID, eventID, msg)
+	if err != nil {
+		return ev, err
+	}
+	p.Lock()
+	defer p.Unlock()
+	p.events = append(p.events, ev)
+	return ev, nil
 }
 
-func testTransport(t *testing.T) (*gitlabtransport.Transport, *store.Store, *dispatcher) {
+func testTransport(t *testing.T) (*gitlabtransport.Transport, *store.Store, *recordingPublisher) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	registry := configregistry.New(st.Configs)
@@ -49,18 +61,21 @@ func testTransport(t *testing.T) (*gitlabtransport.Transport, *store.Store, *dis
 	if err := registry.Set(context.Background(), "org-test", "transport.gitlab", string(raw)); err != nil {
 		t.Fatal(err)
 	}
-	d := &dispatcher{}
-	return gitlabtransport.New("org-test", registry, st, nil, d, slog.New(slog.NewTextHandler(io.Discard, nil))), st, d
+	d := &recordingPublisher{inner: publishing.New(publishing.Deps{
+		Triggers: st.Triggers, Events: st.Events,
+		Now: func() time.Time { return time.Now().UTC() }, NewID: uuid.NewString,
+	})}
+	return gitlabtransport.New("org-test", registry, st, d, slog.New(slog.NewTextHandler(io.Discard, nil))), st, d
 }
 
-func seedTopic(t *testing.T, st *store.Store, id, repo string, events []string, kind transport.Kind) {
+func seedTrigger(t *testing.T, st *store.Store, id, repo string, events []string, kind transport.Kind) {
 	t.Helper()
 	config, _ := json.Marshal(map[string]any{"repo": repo, "repository_id": "repo-1", "events": events})
-	topic, err := streaming.NewTopic(streaming.TopicID(id), id, "", "b-owner", time.Now(), transport.Transport{Kind: kind, Config: config}, "org-test")
+	row, err := trigger.New(id, "org-test", id, "", kind, config, "b-owner", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Topics.Create(context.Background(), topic); err != nil {
+	if err := st.Triggers.Create(context.Background(), row); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -111,13 +126,13 @@ func legacyRequest(handler http.Handler, body []byte, token, id string) *httptes
 
 func TestInboundForTopicPublishesAndDispatchesRawMergeRequest(t *testing.T) {
 	tp, st, d := testTransport(t)
-	seedTopic(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
+	seedTrigger(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
 	body := payload("helixml/helix")
-	rec := request(tp.HandleInboundForTopic("s-mr"), body, "Merge Request Hook", "")
+	rec := request(tp.HandleInboundForTrigger("s-mr"), body, "Merge Request Hook", "")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
-	events, err := st.Events.ListForTopic(context.Background(), "org-test", "s-mr", 10)
+	events, err := st.Events.ListForStream(context.Background(), "org-test", "s-mr", 10)
 	if err != nil || len(events) != 1 {
 		t.Fatalf("events=%d err=%v", len(events), err)
 	}
@@ -132,8 +147,8 @@ func TestInboundForTopicPublishesAndDispatchesRawMergeRequest(t *testing.T) {
 
 func TestInboundForTopicRejectsBadSignature(t *testing.T) {
 	tp, st, _ := testTransport(t)
-	seedTopic(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
-	if rec := request(tp.HandleInboundForTopic("s-mr"), payload("helixml/helix"), "Merge Request Hook", "v1,bad"); rec.Code != http.StatusUnauthorized {
+	seedTrigger(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
+	if rec := request(tp.HandleInboundForTrigger("s-mr"), payload("helixml/helix"), "Merge Request Hook", "v1,bad"); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d", rec.Code)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(payload("helixml/helix")))
@@ -142,7 +157,7 @@ func TestInboundForTopicRejectsBadSignature(t *testing.T) {
 	req.Header.Set("webhook-timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 	req.Header.Set("X-Gitlab-Token", secretToken)
 	rec := httptest.NewRecorder()
-	tp.HandleInboundForTopic("s-mr").ServeHTTP(rec, req)
+	tp.HandleInboundForTrigger("s-mr").ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("signature fell back to legacy: status=%d", rec.Code)
 	}
@@ -150,8 +165,8 @@ func TestInboundForTopicRejectsBadSignature(t *testing.T) {
 
 func TestInboundForTopicSignatureValidation(t *testing.T) {
 	tp, st, _ := testTransport(t)
-	seedTopic(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
-	handler := tp.HandleInboundForTopic("s-mr")
+	seedTrigger(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
+	handler := tp.HandleInboundForTrigger("s-mr")
 	body := payload("helixml/helix")
 	for _, test := range []struct {
 		name      string
@@ -175,14 +190,14 @@ func TestInboundForTopicSignatureValidation(t *testing.T) {
 
 func TestInboundForTopicDeduplicatesLegacyEventUUID(t *testing.T) {
 	tp, st, d := testTransport(t)
-	seedTopic(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
-	handler := tp.HandleInboundForTopic("s-mr")
+	seedTrigger(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
+	handler := tp.HandleInboundForTrigger("s-mr")
 	for _, id := range []string{"legacy-1", "legacy-2", "legacy-1"} {
 		if rec := legacyRequest(handler, payload("helixml/helix"), secretToken, id); rec.Code != http.StatusNoContent {
 			t.Fatalf("id=%q status=%d", id, rec.Code)
 		}
 	}
-	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-mr", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-mr", 10)
 	if len(events) != 2 || len(d.events) != 2 {
 		t.Fatalf("events=%d dispatches=%d", len(events), len(d.events))
 	}
@@ -190,14 +205,14 @@ func TestInboundForTopicDeduplicatesLegacyEventUUID(t *testing.T) {
 
 func TestInboundForTopicDeduplicatesDelivery(t *testing.T) {
 	tp, st, d := testTransport(t)
-	seedTopic(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
-	handler := tp.HandleInboundForTopic("s-mr")
+	seedTrigger(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
+	handler := tp.HandleInboundForTrigger("s-mr")
 	for range 2 {
 		if rec := request(handler, payload("helixml/helix"), "Merge Request Hook", ""); rec.Code != http.StatusNoContent {
 			t.Fatalf("status=%d", rec.Code)
 		}
 	}
-	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-mr", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-mr", 10)
 	if len(events) != 1 || len(d.events) != 1 {
 		t.Fatalf("events=%d dispatches=%d", len(events), len(d.events))
 	}
@@ -205,8 +220,8 @@ func TestInboundForTopicDeduplicatesDelivery(t *testing.T) {
 
 func TestInboundForTopicMapsNotes(t *testing.T) {
 	tp, st, _ := testTransport(t)
-	seedTopic(t, st, "s-notes", "helixml/helix", []string{"Note Hook"}, transport.KindGitLab)
-	handler := tp.HandleInboundForTopic("s-notes")
+	seedTrigger(t, st, "s-notes", "helixml/helix", []string{"Note Hook"}, transport.KindGitLab)
+	handler := tp.HandleInboundForTrigger("s-notes")
 	makeNote := func(id string, mr bool) []byte {
 		value := map[string]any{"project": map[string]any{"path_with_namespace": "helixml/helix"}, "user": map[string]any{"username": "reviewer"}, "object_attributes": map[string]any{"note": "review note"}}
 		if mr {
@@ -225,7 +240,7 @@ func TestInboundForTopicMapsNotes(t *testing.T) {
 			t.Fatalf("status=%d", rec.Code)
 		}
 	}
-	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-notes", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-notes", 10)
 	if len(events) != 2 {
 		t.Fatalf("events=%d", len(events))
 	}
@@ -244,8 +259,8 @@ func TestInboundForTopicMapsNotes(t *testing.T) {
 
 func TestInboundForTopicRejectsMethodAndMalformedBody(t *testing.T) {
 	tp, st, _ := testTransport(t)
-	seedTopic(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
-	handler := tp.HandleInboundForTopic("s-mr")
+	seedTrigger(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
+	handler := tp.HandleInboundForTrigger("s-mr")
 	if rec := requestAt(handler, http.MethodGet, payload("helixml/helix"), "Merge Request Hook", "get", time.Now(), ""); rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("method=%d", rec.Code)
 	}
@@ -256,13 +271,13 @@ func TestInboundForTopicRejectsMethodAndMalformedBody(t *testing.T) {
 
 func TestInboundForTopicDropsWrongRepoAndEvent(t *testing.T) {
 	tp, st, _ := testTransport(t)
-	seedTopic(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
+	seedTrigger(t, st, "s-mr", "helixml/helix", []string{"Merge Request Hook"}, transport.KindGitLab)
 	for _, test := range []struct{ repo, event string }{{"other/repo", "Merge Request Hook"}, {"helixml/helix", "Push Hook"}} {
-		if rec := request(tp.HandleInboundForTopic("s-mr"), payload(test.repo), test.event, ""); rec.Code != http.StatusNoContent {
+		if rec := request(tp.HandleInboundForTrigger("s-mr"), payload(test.repo), test.event, ""); rec.Code != http.StatusNoContent {
 			t.Fatalf("status=%d", rec.Code)
 		}
 	}
-	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-mr", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-mr", 10)
 	if len(events) != 0 {
 		t.Fatalf("events=%d", len(events))
 	}
@@ -270,11 +285,11 @@ func TestInboundForTopicDropsWrongRepoAndEvent(t *testing.T) {
 
 func TestInboundForTopicRejectsMissingOrWrongKindTopic(t *testing.T) {
 	tp, st, _ := testTransport(t)
-	seedTopic(t, st, "s-local", "helixml/helix", []string{"Merge Request Hook"}, transport.KindWebhook)
-	if rec := request(tp.HandleInboundForTopic("s-missing"), payload("helixml/helix"), "Merge Request Hook", ""); rec.Code != http.StatusNotFound {
+	seedTrigger(t, st, "s-local", "helixml/helix", []string{"Merge Request Hook"}, transport.KindWebhook)
+	if rec := request(tp.HandleInboundForTrigger("s-missing"), payload("helixml/helix"), "Merge Request Hook", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing status=%d", rec.Code)
 	}
-	if rec := request(tp.HandleInboundForTopic("s-local"), payload("helixml/helix"), "Merge Request Hook", ""); rec.Code != http.StatusBadRequest {
+	if rec := request(tp.HandleInboundForTrigger("s-local"), payload("helixml/helix"), "Merge Request Hook", ""); rec.Code != http.StatusBadRequest {
 		t.Fatalf("wrong kind status=%d", rec.Code)
 	}
 }

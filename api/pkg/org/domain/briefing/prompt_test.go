@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
@@ -16,11 +17,11 @@ func TestRenderTriggerGitHub(t *testing.T) {
 
 	extra := []byte(`{"action":"opened","event":"issues","issue":{"id":12345,"number":42,"title":"x","body":"y"},"sender":{"login":"philwinder"},"repository":{"full_name":"helixml/helix-org"}}`)
 	tr := activation.Trigger{
-		Kind:      activation.TriggerEvent,
-		EventID:   "e-abc",
-		TopicID:   "s-github",
-		Source:    "",
-		CreatedAt: time.Date(2026, 4, 28, 12, 27, 23, 0, time.UTC),
+		Kind:        activation.TriggerEvent,
+		EventID:     "e-abc",
+		EventSource: eventsource.Trigger("s-github"),
+		Source:      "",
+		CreatedAt:   time.Date(2026, 4, 28, 12, 27, 23, 0, time.UTC),
 		Message: streaming.Message{
 			From:      "philwinder",
 			Subject:   "README setup steps mention an env var that no longer exists",
@@ -34,7 +35,7 @@ func TestRenderTriggerGitHub(t *testing.T) {
 	got := renderTrigger(tr)
 
 	wants := []string{
-		"topic:      s-github",
+		"source:      trigger:s-github",
 		"event:       e-abc",
 		"time:        2026-04-28T12:27:23Z",
 		"from:        philwinder",
@@ -53,7 +54,7 @@ func TestRenderTriggerGitHub(t *testing.T) {
 		}
 	}
 
-	for _, omit := range []string{"to:", "in_reply_to:", "source:"} {
+	for _, omit := range []string{"to:", "in_reply_to:", "originator:"} {
 		if strings.Contains(got, omit) {
 			t.Errorf("renderTrigger output should omit empty %q\n--- output ---\n%s", omit, got)
 		}
@@ -64,11 +65,11 @@ func TestRenderTriggerEmail(t *testing.T) {
 	t.Parallel()
 
 	tr := activation.Trigger{
-		Kind:      activation.TriggerEvent,
-		EventID:   "e-1",
-		TopicID:   "s-support",
-		Source:    "",
-		CreatedAt: time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC),
+		Kind:        activation.TriggerEvent,
+		EventID:     "e-1",
+		EventSource: eventsource.Trigger("s-support"),
+		Source:      "",
+		CreatedAt:   time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC),
 		Message: streaming.Message{
 			From:      "alice@example.com",
 			To:        []string{"abc123+sam@inbound.postmarkapp.com"},
@@ -102,11 +103,11 @@ func TestRenderTriggerWorkerPublished(t *testing.T) {
 	t.Parallel()
 
 	tr := activation.Trigger{
-		Kind:      activation.TriggerEvent,
-		EventID:   "e-1",
-		TopicID:   "s-general",
-		Source:    "w-alice",
-		CreatedAt: time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC),
+		Kind:        activation.TriggerEvent,
+		EventID:     "e-1",
+		EventSource: eventsource.Trigger("s-general"),
+		Source:      "w-alice",
+		CreatedAt:   time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC),
 		Message: streaming.Message{
 			From: "w-alice",
 			Body: "hello",
@@ -114,7 +115,7 @@ func TestRenderTriggerWorkerPublished(t *testing.T) {
 	}
 	got := renderTrigger(tr)
 
-	for _, w := range []string{"source:      w-alice", "from:        w-alice", "hello"} {
+	for _, w := range []string{"originator:  w-alice", "from:        w-alice", "hello"} {
 		if !strings.Contains(got, w) {
 			t.Errorf("renderTrigger output missing %q\n--- output ---\n%s", w, got)
 		}
@@ -133,10 +134,10 @@ func TestBuildPromptIncludesEnvelope(t *testing.T) {
 	t.Parallel()
 
 	tr := activation.Trigger{
-		Kind:      activation.TriggerEvent,
-		EventID:   "e-abc",
-		TopicID:   "s-github",
-		CreatedAt: time.Date(2026, 4, 28, 12, 27, 23, 0, time.UTC),
+		Kind:        activation.TriggerEvent,
+		EventID:     "e-abc",
+		EventSource: eventsource.Trigger("s-github"),
+		CreatedAt:   time.Date(2026, 4, 28, 12, 27, 23, 0, time.UTC),
 		Message: streaming.Message{
 			From:    "philwinder",
 			Subject: "Confusing example in the docs",

@@ -1,4 +1,4 @@
-package streaming
+package trigger
 
 import (
 	"context"
@@ -6,23 +6,27 @@ import (
 	"errors"
 )
 
-// Inbound is the domain port for a Topic's inbound transport: registering
-// and inspecting the provider-side hook that delivers events INTO the
-// Topic (a GitHub repo webhook, an inbound email address, …). One
+// Inbound is the domain port for a Trigger's transport: registering and
+// inspecting the provider-side hook that delivers events INTO the Trigger
+// (a GitHub repo webhook, an inbound email address, …). One
 // implementation per transport Kind lives in that transport's
-// infrastructure package; the application layer dispatches on the Topic's
-// Kind. Outbound is the send-side mirror.
+// infrastructure package; the application layer dispatches on the
+// Trigger's Kind.
+//
+// There is no send-side mirror: a Trigger is inbound-only. A Worker that
+// needs to act on a provider fetches its own credential with get_secret
+// and calls that provider's native API.
 type Inbound interface {
 	// Install registers (or adopts) the inbound hook and returns its
-	// coordinates plus the transport-config JSON to persist on the Topic
-	// (provider hook id/url merged in). A nil Config means "nothing to
-	// persist". Failures should be a *Failure so the adapter can map the
-	// HTTP status.
-	Install(ctx context.Context, orgID string, topic Topic) (InstallResult, error)
+	// coordinates plus the transport-config JSON to persist on the
+	// Trigger (provider hook id/url merged in). A nil Config means
+	// "nothing to persist". Failures should be a *Failure so the adapter
+	// can map the HTTP status.
+	Install(ctx context.Context, orgID string, t Trigger) (InstallResult, error)
 	// Status reports the live hook state. Read-only; "can't tell"
 	// conditions degrade to InboundState{State:"unknown"} rather than an
 	// error.
-	Status(ctx context.Context, orgID string, topic Topic) (InboundState, error)
+	Status(ctx context.Context, orgID string, t Trigger) (InboundState, error)
 }
 
 // InstallResult is the result of a successful Inbound.Install.
@@ -30,7 +34,7 @@ type InstallResult struct {
 	WebhookID      int64
 	WebhookHTMLURL string
 	PayloadURL     string
-	// Config is the transport config to persist on the Topic, with the
+	// Config is the transport config to persist on the Trigger, with the
 	// hook coordinates merged in. nil = nothing to persist.
 	Config json.RawMessage
 }
@@ -61,7 +65,7 @@ const (
 	FailUpstream
 	// FailInternal — our side failed (secret persist, marshal) (500).
 	FailInternal
-	// FailNotFound — the topic doesn't exist (404).
+	// FailNotFound — the trigger doesn't exist (404).
 	FailNotFound
 )
 
@@ -77,5 +81,5 @@ func (f *Failure) Error() string { return f.Err.Error() }
 func (f *Failure) Unwrap() error { return f.Err }
 
 // ErrInboundUnsupported is returned (wrapped in a FailBadRequest Failure)
-// when the Topic's transport Kind has no registered Inbound provisioner.
+// when the Trigger's Kind has no registered Inbound provisioner.
 var ErrInboundUnsupported = errors.New("transport does not support inbound webhook provisioning")

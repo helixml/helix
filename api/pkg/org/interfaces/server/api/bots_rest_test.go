@@ -183,11 +183,13 @@ func TestRESTAgentListReportsOperationalAgentReadFailure(t *testing.T) {
 
 func injectMCPPublishing(cfg *mcptools.Config) {
 	deps := publishing.Deps{
-		Topics:     cfg.Store.Topics,
-		Events:     cfg.Store.Events,
-		Dispatcher: cfg.Dispatcher,
-		Now:        cfg.Now,
-		NewID:      cfg.NewID,
+		Triggers: cfg.Store.Triggers,
+		Events:   cfg.Store.Events,
+		Now:      cfg.Now,
+		NewID:    cfg.NewID,
+	}
+	if cfg.Dispatcher != nil {
+		deps.Router = cfg.Dispatcher
 	}
 	if cfg.Hub != nil {
 		deps.Hub = cfg.Hub
@@ -403,7 +405,7 @@ func TestRESTCreateBot_UnionWithCallerTools(t *testing.T) {
 	rec := do(t, h, "POST", "/bots", orgapi.CreateBotRequest{
 		ID:      "b-mixed",
 		Content: "# Mixed",
-		Tools:   []string{"publish", "managers", "subscribe"},
+		Tools:   []string{"chat", "managers", "attach_worker"},
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status: got %d, want 201; body=%s", rec.Code, rec.Body)
@@ -425,7 +427,7 @@ func TestRESTCreateBot_UnionWithCallerTools(t *testing.T) {
 	if managersCount != 1 {
 		t.Errorf("managers should appear exactly once after dedup; got %d in %v", managersCount, bot.Tools)
 	}
-	for _, name := range []tool.Name{"publish", "subscribe"} {
+	for _, name := range []tool.Name{"chat", "attach_worker"} {
 		if !got[name] {
 			t.Errorf("caller tool %q missing; got: %v", name, bot.Tools)
 		}
@@ -449,7 +451,7 @@ func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 	rec := do(t, h, "POST", "/bots", orgapi.CreateBotRequest{
 		ID:      "b-qa",
 		Content: "# QA",
-		Tools:   []string{"publish", "subscribe"},
+		Tools:   []string{"chat", "attach_worker"},
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("REST create bot: %d body=%s", rec.Code, rec.Body)
@@ -459,10 +461,10 @@ func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 	reg := mcpRegistry(t, mcpStore, clock, newID)
 	createBot, _ := reg.Get(mcptools.CreateBotName)
 	args, _ := json.Marshal(map[string]any{
-		"id":      "b-qa",
-		"content": "# QA",
-		"tools":   []string{"publish", "subscribe"},
-		"topics":  []string{},
+		"id":       "b-qa",
+		"content":  "# QA",
+		"tools":    []string{"chat", "attach_worker"},
+		"triggers": []string{},
 	})
 	if _, err := createBot.Invoke(context.Background(), tool.Invocation{Caller: ownerCaller(t), Args: args}); err != nil {
 		t.Fatalf("MCP create_bot: %v", err)

@@ -15,7 +15,7 @@ func TestNewEvent(t *testing.T) {
 	cases := []struct {
 		name    string
 		id      streaming.EventID
-		topic   streaming.TopicID
+		topic   streaming.StreamID
 		source  orgchart.NodeID
 		body    string
 		ts      time.Time

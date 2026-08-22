@@ -1,7 +1,7 @@
 // Package server exposes the HTTP surface: the per-Bot MCP endpoint
 // (/orgs/{org}/workers/{id}/mcp — every Bot is its own MCP server,
 // scoped to the tools in its Bot.Tools) and the inbound webhook
-// endpoint (/webhooks/{org}/{topicID}). The URL still uses the
+// endpoint (/webhooks/{org}/{triggerID}). The URL still uses the
 // `/workers/` path segment for backward compatibility with the helix
 // MCP backend; the {id} is a Bot ID. Neither handler touches a store
 // repository: caller resolution and topic reads go through the queries
@@ -51,30 +51,31 @@ func New(q *queries.Queries, pub *publishing.Publishing, registry *mcptools.Regi
 
 // NewFromStore is the composition-time convenience constructor: it
 // builds the read facade and the publishing service from a store (+
-// broadcaster + dispatcher) and returns a Server over them. The Server
+// broadcaster + router) and returns a Server over them. The Server
 // itself never holds the store — this just keeps the wiring (and tests)
-// terse. broadcaster/dispatcher may be nil (the publish trio then skips
+// terse. broadcaster/router may be nil (the publish trio then skips
 // the corresponding step).
-func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *wakebus.Bus, dispatcher publishing.Dispatcher, logger *slog.Logger) *Server {
+func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *wakebus.Bus, router publishing.Router, logger *slog.Logger) *Server {
 	q := queries.New(queries.Deps{
 		Nodes:          s.Nodes,
 		ReportingLines: s.ReportingLines,
-		Topics:         s.Topics,
-		Subscriptions:  s.Subscriptions,
+		Triggers:       s.Triggers,
+		Attachments:    s.WorkerAttachments,
+		Processors:     s.Processors,
 		Events:         s.Events,
 		Activations:    s.Activations,
 	})
 	pd := publishing.Deps{
-		Topics: s.Topics,
-		Events: s.Events,
-		Now:    func() time.Time { return time.Now().UTC() },
-		NewID:  uuid.NewString,
+		Triggers: s.Triggers,
+		Events:   s.Events,
+		Now:      func() time.Time { return time.Now().UTC() },
+		NewID:    uuid.NewString,
 	}
 	if broadcaster != nil {
 		pd.Hub = broadcaster
 	}
-	if dispatcher != nil {
-		pd.Dispatcher = dispatcher
+	if router != nil {
+		pd.Router = router
 	}
 	server := New(q, publishing.New(pd), registry, logger)
 	server.assets = s.Assets
@@ -106,7 +107,7 @@ type Route struct {
 }
 
 // Handler returns an http.Handler with all built-in routes registered
-// (MCP per-bot, /webhooks/{topicID}) plus any extras passed in by
+// (MCP per-bot, /webhooks/{triggerID}) plus any extras passed in by
 // the wiring layer. The request-logging middleware wraps the lot.
 func (s *Server) Handler(extras ...Route) http.Handler {
 	mux := http.NewServeMux()
@@ -117,7 +118,7 @@ func (s *Server) Handler(extras ...Route) http.Handler {
 	// request context. The path keeps the `/workers/` segment for
 	// compatibility with the helix MCP backend rewrite; {id} is a Bot ID.
 	mux.Handle("/orgs/{org}/workers/{id}/mcp", withMCPOrgScope(s.mcpHandler()))
-	mux.Handle("POST /webhooks/{org}/{topicID}", s.webhookHandler())
+	mux.Handle("POST /webhooks/{org}/{triggerID}", s.webhookHandler())
 	for _, r := range extras {
 		mux.Handle(r.Pattern, r.Handler)
 	}

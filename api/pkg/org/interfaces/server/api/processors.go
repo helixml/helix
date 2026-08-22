@@ -5,21 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/org/application/processors"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/interfaces/jsonapi"
 )
 
-// ProcessorOutputDTO is one output branch on the wire.
+// ProcessorOutputDTO is one output branch on the wire. Source is the
+// terminal handle a Worker attachment or a downstream Processor input
+// addresses this branch by.
 type ProcessorOutputDTO struct {
-	ID      string `json:"id"`
-	TopicID string `json:"topic_id"`
-	Match   string `json:"match,omitempty"`
-	Label   string `json:"label,omitempty"`
-	Owned   bool   `json:"owned"`
+	ID     string `json:"id"`
+	Source string `json:"source,omitempty"`
+	Match  string `json:"match,omitempty"`
+	Label  string `json:"label,omitempty"`
 	// ManagedFor is set when this route is auto-managed by a reconciler for
 	// the named Worker (the Slack auto-router). Empty for human-authored
 	// routes. Read-only — the UI surfaces it; reconcilers own these routes.
@@ -29,13 +31,16 @@ type ProcessorOutputDTO struct {
 // ProcessorAttributes is the JSON:API attributes object for a
 // `processors` resource (response).
 type ProcessorAttributes struct {
-	Name         string               `json:"name"`
-	InputTopicID string               `json:"input_topic_id"`
-	Kind         string               `json:"kind"`
-	Config       json.RawMessage      `json:"config,omitempty"`
-	Outputs      []ProcessorOutputDTO `json:"outputs"`
-	CreatedBy    string               `json:"created_by,omitempty"`
-	CreatedAt    string               `json:"created_at,omitempty"`
+	Name string `json:"name"`
+	// InputSource is the terminal source this Processor reads, as
+	// "trigger:<id>" or "processor_output:<processorId>:<outputId>".
+	// Empty means unwired.
+	InputSource string               `json:"input_source"`
+	Kind        string               `json:"kind"`
+	Config      json.RawMessage      `json:"config,omitempty"`
+	Outputs     []ProcessorOutputDTO `json:"outputs"`
+	CreatedBy   string               `json:"created_by,omitempty"`
+	CreatedAt   string               `json:"created_at,omitempty"`
 	// Automated marks an automation-created processor (the Slack auto-router)
 	// rather than a human-created one. Read-only provenance flag.
 	Automated bool `json:"automated"`
@@ -53,12 +58,12 @@ type ProcessorWriteRequest struct {
 	Data struct {
 		Type       string `json:"type"`
 		Attributes struct {
-			Name         string                 `json:"name"`
-			InputTopicID string                 `json:"input_topic_id"`
-			Kind         string                 `json:"kind"`
-			Config       map[string]interface{} `json:"config,omitempty"`
-			CreatedBy    string                 `json:"created_by,omitempty"`
-			Outputs      []ProcessorOutputDTO   `json:"outputs,omitempty"`
+			Name        string                 `json:"name"`
+			InputSource string                 `json:"input_source"`
+			Kind        string                 `json:"kind"`
+			Config      map[string]interface{} `json:"config,omitempty"`
+			CreatedBy   string                 `json:"created_by,omitempty"`
+			Outputs     []ProcessorOutputDTO   `json:"outputs,omitempty"`
 		} `json:"attributes"`
 	} `json:"data"`
 }
@@ -68,14 +73,14 @@ type processorWriteAttributes struct {
 	Name string `json:"name"`
 	// Pointer so update can tell "omitted" (nil, leave unchanged) from
 	// "" (disconnect the input). On create, nil/empty both mean no input.
-	InputTopicID *string         `json:"input_topic_id"`
-	Kind         string          `json:"kind"`
-	Config       json.RawMessage `json:"config"`
-	CreatedBy    string          `json:"created_by"`
-	Outputs      []struct {
-		TopicID string `json:"topic_id"`
-		Match   string `json:"match"`
-		Label   string `json:"label"`
+	InputSource *string         `json:"input_source"`
+	Kind        string          `json:"kind"`
+	Config      json.RawMessage `json:"config"`
+	CreatedBy   string          `json:"created_by"`
+	Outputs     []struct {
+		ID    string `json:"id,omitempty"`
+		Match string `json:"match"`
+		Label string `json:"label"`
 	} `json:"outputs"`
 }
 
@@ -83,21 +88,21 @@ func processorResource(p processor.Processor) jsonapi.Resource {
 	outs := make([]ProcessorOutputDTO, 0, len(p.Outputs))
 	for _, o := range p.Outputs {
 		outs = append(outs, ProcessorOutputDTO{
-			ID: o.ID, TopicID: string(o.TopicID), Match: o.Match, Label: o.Label, Owned: o.Owned, ManagedFor: o.ManagedFor,
+			ID: o.ID, Source: p.Source(o).Key(), Match: o.Match, Label: o.Label, ManagedFor: o.ManagedFor,
 		})
 	}
 	return jsonapi.Resource{
 		Type: "processors",
 		ID:   string(p.ID),
 		Attributes: ProcessorAttributes{
-			Name:         p.Name,
-			InputTopicID: string(p.InputTopicID),
-			Kind:         string(p.Kind),
-			Config:       p.Config,
-			Outputs:      outs,
-			CreatedBy:    p.CreatedBy,
-			CreatedAt:    p.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			Automated:    p.Automated(),
+			Name:        p.Name,
+			InputSource: inputSourceString(p),
+			Kind:        string(p.Kind),
+			Config:      p.Config,
+			Outputs:     outs,
+			CreatedBy:   p.CreatedBy,
+			CreatedAt:   p.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			Automated:   p.Automated(),
 		},
 	}
 }
@@ -177,17 +182,18 @@ func (a *apiHandler) createProcessor(w http.ResponseWriter, r *http.Request) {
 		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
-	input := ""
-	if attrs.InputTopicID != nil {
-		input = *attrs.InputTopicID
+	input, err := parseInputSource(attrs.InputSource)
+	if err != nil {
+		jsonapi.WriteError(w, http.StatusBadRequest, err)
+		return
 	}
 	p, err := a.deps.Processors.Create(r.Context(), orgID, processors.CreateParams{
-		Name:         attrs.Name,
-		InputTopicID: streaming.TopicID(input),
-		Kind:         processor.Kind(attrs.Kind),
-		Config:       attrs.Config,
-		CreatedBy:    attrs.CreatedBy,
-		Outputs:      toOutputSpecs(attrs),
+		Name:        attrs.Name,
+		InputSource: input,
+		Kind:        processor.Kind(attrs.Kind),
+		Config:      attrs.Config,
+		CreatedBy:   attrs.CreatedBy,
+		Outputs:     toOutputSpecs(attrs),
 	})
 	if err != nil {
 		jsonapi.WriteError(w, procErrStatus(err), fmt.Errorf("create processor: %w", err))
@@ -257,16 +263,20 @@ func (a *apiHandler) updateProcessor(w http.ResponseWriter, r *http.Request) {
 		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
-	var inputPtr *streaming.TopicID
-	if attrs.InputTopicID != nil {
-		tid := streaming.TopicID(*attrs.InputTopicID)
-		inputPtr = &tid
+	var inputPtr *eventsource.SourceRef
+	if attrs.InputSource != nil {
+		src, err := parseInputSource(attrs.InputSource)
+		if err != nil {
+			jsonapi.WriteError(w, http.StatusBadRequest, err)
+			return
+		}
+		inputPtr = &src
 	}
 	p, err := a.deps.Processors.Update(r.Context(), orgID, id, processors.UpdateParams{
-		Name:         attrs.Name,
-		Kind:         processor.Kind(attrs.Kind),
-		Config:       attrs.Config,
-		InputTopicID: inputPtr,
+		Name:        attrs.Name,
+		Kind:        processor.Kind(attrs.Kind),
+		Config:      attrs.Config,
+		InputSource: inputPtr,
 	})
 	if err != nil {
 		jsonapi.WriteError(w, procErrStatus(err), fmt.Errorf("update processor %s: %w", id, err))
@@ -275,8 +285,8 @@ func (a *apiHandler) updateProcessor(w http.ResponseWriter, r *http.Request) {
 	jsonapi.Write(w, http.StatusOK, jsonapi.NewDocument(processorResource(p)))
 }
 
-// deleteProcessor deletes a processor and its auto-provisioned output
-// topics.
+// deleteProcessor deletes a processor and every attachment to its output
+// branches.
 //
 // @Summary Helix-org: delete a processor
 // @Tags HelixOrg
@@ -311,7 +321,45 @@ func toOutputSpecs(attrs processorWriteAttributes) []processors.OutputSpec {
 	}
 	out := make([]processors.OutputSpec, 0, len(attrs.Outputs))
 	for _, o := range attrs.Outputs {
-		out = append(out, processors.OutputSpec{TopicID: streaming.TopicID(o.TopicID), Match: o.Match, Label: o.Label})
+		out = append(out, processors.OutputSpec{ID: o.ID, Match: o.Match, Label: o.Label})
 	}
 	return out
+}
+
+// inputSourceString renders a Processor's input as the
+// "trigger:<id>" / "processor_output:<pid>:<oid>" handle the API and UI
+// address sources by. An unwired Processor renders as empty.
+func inputSourceString(p processor.Processor) string {
+	if p.InputSource.Zero() {
+		return ""
+	}
+	return p.InputSource.Key()
+}
+
+// parseInputSource turns that same handle back into a terminal
+// reference. nil or "" means unwired.
+func parseInputSource(raw *string) (eventsource.SourceRef, error) {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return eventsource.SourceRef{}, nil
+	}
+	value := strings.TrimSpace(*raw)
+	kind, rest, ok := strings.Cut(value, ":")
+	if !ok {
+		return eventsource.SourceRef{}, fmt.Errorf("input_source %q must be \"trigger:<id>\" or \"processor_output:<processorId>:<outputId>\"", value)
+	}
+	switch eventsource.Kind(kind) {
+	case eventsource.KindTrigger:
+		if rest == "" {
+			return eventsource.SourceRef{}, fmt.Errorf("input_source %q has no trigger id", value)
+		}
+		return eventsource.Trigger(rest), nil
+	case eventsource.KindProcessorOutput:
+		processorID, outputID, ok := strings.Cut(rest, ":")
+		if !ok || processorID == "" || outputID == "" {
+			return eventsource.SourceRef{}, fmt.Errorf("input_source %q must be \"processor_output:<processorId>:<outputId>\"", value)
+		}
+		return eventsource.ProcessorOutput(processorID, outputID), nil
+	default:
+		return eventsource.SourceRef{}, fmt.Errorf("input_source %q has unknown kind %q", value, kind)
+	}
 }

@@ -10,10 +10,10 @@
 //	  "from":    "you@gmail.com"
 //	}
 //
-// Topics declare just an alias (`{"alias":"sam"}`); the transport
-// joins server-level config with topic-level alias at runtime.
+// Triggers declare just an alias (`{"alias":"sam"}`); the transport
+// joins server-level config with the Trigger's alias at runtime.
 // Inbound mail addressed to `<hash>+<alias>@inbound.postmarkapp.com`
-// routes to the topic with that alias.
+// routes to the Trigger with that alias.
 package postmark
 
 import (
@@ -25,7 +25,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -33,7 +32,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
-	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 )
 
 // Config is the parsed shape of the operational-config row
@@ -83,37 +82,33 @@ func (c Config) AliasAddress(alias string) string {
 	return c.Inbound[:at] + "+" + alias + c.Inbound[at:]
 }
 
-// Dispatcher is the subset of the dispatcher this transport needs:
+// Publisher is the subset of the publish use case this transport needs:
 // fan an Event out to subscribed AI Workers after appending it.
 // Defining the interface here keeps the import edge one-directional.
-type Dispatcher interface {
-	Dispatch(ctx context.Context, event streaming.Event)
+type Publisher interface {
+	PublishDelivery(ctx context.Context, orgID, triggerID string, eventID streaming.EventID, msg streaming.Message) (streaming.Event, error)
 }
 
 // Transport is the long-lived email transport. One instance per
 // running helix-org server.
 type Transport struct {
-	orgID       string
-	registry    *configregistry.Registry
-	store       *store.Store
-	broadcaster *wakebus.Bus
-	dispatcher  Dispatcher
-	logger      *slog.Logger
+	orgID     string
+	registry  *configregistry.Registry
+	store     *store.Store
+	publisher Publisher
+	logger    *slog.Logger
 }
 
-// New returns a Transport bound to the given config registry, store,
-// broadcaster (for waking long-poll observers on inbound) and
-// dispatcher (for activating subscribed Workers on inbound).
-// dispatcher and broadcaster may be nil for tests that don't exercise
-// those paths.
-func New(orgID string, reg *configregistry.Registry, st *store.Store, bc *wakebus.Bus, d Dispatcher, logger *slog.Logger) *Transport {
+// New returns a Transport bound to the given config registry, store and
+// publisher (which appends each delivery to its Trigger and activates
+// the Workers attached to it).
+func New(orgID string, reg *configregistry.Registry, st *store.Store, publisher Publisher, logger *slog.Logger) *Transport {
 	return &Transport{
-		orgID:       orgID,
-		registry:    reg,
-		store:       st,
-		broadcaster: bc,
-		dispatcher:  d,
-		logger:      logger,
+		orgID:     orgID,
+		registry:  reg,
+		store:     st,
+		publisher: publisher,
+		logger:    logger,
 	}
 }
 
@@ -128,26 +123,23 @@ func (t *Transport) config(ctx context.Context) (Config, error) {
 	return c, nil
 }
 
-// findTopicByAlias scans email-transport topics for one whose alias
-// matches. With small N this linear scan is fine; if installations
-// ever grow many email topics a denormalised alias column on the
-// topics table is the obvious follow-on.
-func (t *Transport) findTopicByAlias(ctx context.Context, alias string) (streaming.Topic, error) {
-	topics, err := t.store.Topics.List(ctx, t.orgID)
+// findTriggerByAlias scans email-transport Triggers for one whose alias
+// matches. With small N this linear scan is fine; if installations ever
+// grow many email Triggers a denormalised alias column is the obvious
+// follow-on.
+func (t *Transport) findTriggerByAlias(ctx context.Context, alias string) (trigger.Trigger, error) {
+	rows, err := t.store.Triggers.Find(ctx, store.WithOrg(t.orgID), store.WithTransportKind(string(transport.KindEmail)))
 	if err != nil {
-		return streaming.Topic{}, fmt.Errorf("list topics: %w", err)
+		return trigger.Trigger{}, fmt.Errorf("list email triggers: %w", err)
 	}
-	for _, s := range topics {
-		if s.Transport.Kind != transport.KindEmail {
-			continue
-		}
-		cfg, err := s.Transport.EmailConfig()
+	for _, s := range rows {
+		cfg, err := s.Transport().EmailConfig()
 		if err != nil || cfg.Alias != alias {
 			continue
 		}
 		return s, nil
 	}
-	return streaming.Topic{}, fmt.Errorf("no email topic with alias %q", alias)
+	return trigger.Trigger{}, fmt.Errorf("no email trigger with alias %q", alias)
 }
 
 // parseAlias extracts the "+alias" suffix from a recipient local-part.
@@ -214,7 +206,7 @@ func (p inboundPayload) header(name string) string {
 
 // HandleInbound is the http.Handler Postmark POSTs parsed inbound
 // mail to. It extracts the alias from the recipient address, looks
-// up the matching Topic, builds a Message envelope, and appends it.
+// up the matching Trigger, builds a Message envelope, and appends it.
 // Returns 204 on success (Postmark needs a 2xx to mark the inbound
 // delivered) and 4xx/5xx on errors.
 func (t *Transport) HandleInbound() http.Handler {
@@ -243,9 +235,9 @@ func (t *Transport) HandleInbound() http.Handler {
 			http.Error(w, "no alias on recipient", http.StatusBadRequest)
 			return
 		}
-		topic, err := t.findTopicByAlias(r.Context(), alias)
+		trg, err := t.findTriggerByAlias(r.Context(), alias)
 		if err != nil {
-			t.logger.Warn("postmark.inbound: topic lookup", "alias", alias, "err", err)
+			t.logger.Warn("postmark.inbound: trigger lookup", "alias", alias, "err", err)
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
@@ -271,30 +263,23 @@ func (t *Transport) HandleInbound() http.Handler {
 			})
 		}
 
-		event, err := streaming.NewMessageEvent(
-			streaming.EventID("e-"+uuid.NewString()),
-			topic.ID,
-			"", // system-emitted: external sender, no helix Worker source
-			msg,
-			time.Now().UTC(),
-			t.orgID,
-		)
-		if err != nil {
-			http.Error(w, "build event: "+err.Error(), http.StatusBadRequest)
+		// Postmark's MessageID is unique per delivery, so deriving the
+		// event id from it makes a Postmark retry collide on the events
+		// primary key instead of appending the mail twice.
+		eventID := streaming.EventID("e-" + uuid.NewString())
+		if p.MessageID != "" {
+			eventID = streaming.EventID("e-" + uuid.NewSHA1(uuid.NameSpaceOID, []byte(trg.ID+"\x00"+p.MessageID)).String())
+		}
+		if _, err := t.publisher.PublishDelivery(r.Context(), t.orgID, trg.ID, eventID, msg); err != nil {
+			if errors.Is(err, store.ErrConflict) {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			t.logger.Error("postmark.inbound: publish", "trigger", trg.ID, "err", err)
+			http.Error(w, "publish delivery", http.StatusInternalServerError)
 			return
 		}
-		if err := t.store.Events.Append(r.Context(), event); err != nil {
-			t.logger.Error("postmark.inbound: append", "topic", topic.ID, "err", err)
-			http.Error(w, "append event", http.StatusInternalServerError)
-			return
-		}
-		if t.broadcaster != nil {
-			t.broadcaster.Notify(t.orgID, topic.ID)
-		}
-		if t.dispatcher != nil {
-			t.dispatcher.Dispatch(r.Context(), event)
-		}
-		t.logger.Info("postmark.inbound", "topic", topic.ID, "alias", alias, "from", p.From, "subject", p.Subject)
+		t.logger.Info("postmark.inbound", "trigger", trg.ID, "alias", alias, "from", p.From, "subject", p.Subject)
 
 		w.WriteHeader(http.StatusNoContent)
 	})

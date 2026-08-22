@@ -2,7 +2,6 @@ package dispatch_test
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"sort"
@@ -12,12 +11,13 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	"github.com/helixml/helix/api/pkg/org/internal/orgtest"
 )
 
 // newDispatcher returns a Dispatcher with a no-op spawner and a
@@ -86,31 +86,37 @@ func seedBot(t *testing.T, s *store.Store, botID orgchart.NodeID) {
 	}
 }
 
-// seedSubscription persists a Bot→Topic subscription.
-func seedSubscription(t *testing.T, s *store.Store, botID orgchart.NodeID, topicID streaming.TopicID) {
+// seedAttachment attaches a Worker to a Trigger.
+func seedAttachment(t *testing.T, s *store.Store, botID orgchart.NodeID, triggerID string) {
 	t.Helper()
 	if _, err := s.Nodes.Get(context.Background(), "org-test", botID); err != nil {
-		t.Fatalf("get bot %q for subscription: %v", botID, err)
+		t.Fatalf("get bot %q for attachment: %v", botID, err)
 	}
-	sub, err := streaming.NewSubscription(string(botID), topicID, time.Now().UTC(), "org-test")
-	if err != nil {
-		t.Fatalf("new subscription: %v", err)
-	}
-	if err := s.Subscriptions.Create(context.Background(), sub); err != nil {
-		t.Fatalf("create subscription: %v", err)
-	}
+	orgtest.AttachTrigger(t, s, "org-test", botID, triggerID)
 }
 
-// seedWebhookTopic creates a Topic of the given Transport and returns
-// its ID.
-func seedWebhookTopic(t *testing.T, s *store.Store, id streaming.TopicID, transport transport.Transport) {
+// seedTrigger creates a local Trigger with the given id.
+func seedTrigger(t *testing.T, s *store.Store, id string) {
 	t.Helper()
-	topic, err := streaming.NewTopic(id, string(id), "", "w-owner", time.Now().UTC(), transport, "org-test")
+	orgtest.Trigger(t, s, "org-test", id)
+}
+
+// routeEvent builds the routed envelope for an appended event and hands
+// it to the dispatcher, mirroring what publishing does in production.
+func routeEvent(t *testing.T, d *dispatch.Dispatcher, triggerID string, e streaming.Event) {
+	t.Helper()
+	msg, err := e.Message()
 	if err != nil {
-		t.Fatalf("new topic: %v", err)
+		// The bad-body test deliberately routes a non-Message event; it
+		// asserts on the fan-out, so pass an empty message through.
+		msg = streaming.Message{}
 	}
-	if err := s.Topics.Create(context.Background(), topic); err != nil {
-		t.Fatalf("create topic: %v", err)
+	routed, err := eventsource.NewEvent(e.ID, e.OrganizationID, eventsource.Trigger(triggerID), msg, e.Source, e.CreatedAt)
+	if err != nil {
+		t.Fatalf("build routed event: %v", err)
+	}
+	if err := d.Route(context.Background(), routed); err != nil {
+		t.Fatalf("route: %v", err)
 	}
 }
 
@@ -118,20 +124,6 @@ func seedWebhookTopic(t *testing.T, s *store.Store, id streaming.TopicID, transp
 // independent of the body. Bodies in some tests contain control bytes
 // or non-ASCII that would otherwise leak into the X-Helix-Event header.
 var eventCounter atomic.Uint64
-
-// makeEvent builds a simple Event for dispatching with a stable
-// header-safe ID. Source is set to a non-empty sentinel so emit
-// runs (events with empty Source are treated as inbound and skipped
-// by the dispatcher to avoid echo loops).
-func makeEvent(t *testing.T, topicID streaming.TopicID, body string) streaming.Event {
-	t.Helper()
-	id := streaming.EventID(fmt.Sprintf("e-%s-%d", topicID, eventCounter.Add(1)))
-	e, err := streaming.NewEvent(id, topicID, "w-test", body, time.Now().UTC(), "org-test")
-	if err != nil {
-		t.Fatalf("new event: %v", err)
-	}
-	return e
-}
 
 // TestDispatchSkipsPublisher pins the rule that an AI Worker which
 // publishes to a Topic they themselves are subscribed to is NOT
@@ -142,11 +134,11 @@ func makeEvent(t *testing.T, topicID streaming.TopicID, body string) streaming.E
 func TestDispatchSkipsPublisher(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
-	seedWebhookTopic(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
+	seedTrigger(t, s, "s-team")
 	seedBot(t, s, "w-publisher")
 	seedBot(t, s, "w-other")
-	seedSubscription(t, s, "w-publisher", "s-team")
-	seedSubscription(t, s, "w-other", "s-team")
+	seedAttachment(t, s, "w-publisher", "s-team")
+	seedAttachment(t, s, "w-other", "s-team")
 
 	e, err := streaming.NewMessageEvent(
 		"e-1", "s-team", "w-publisher",
@@ -160,7 +152,7 @@ func TestDispatchSkipsPublisher(t *testing.T) {
 	if err := s.Events.Append(context.Background(), e); err != nil {
 		t.Fatalf("append event: %v", err)
 	}
-	d.Dispatch(context.Background(), e)
+	routeEvent(t, d, "s-team", e)
 
 	got := drainActivations(t, rec, 0)
 	if len(got) != 1 {
@@ -210,9 +202,9 @@ func TestDispatchDeliversEventsOneAtATime(t *testing.T) {
 	})
 	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	seedWebhookTopic(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
+	seedTrigger(t, s, "s-team")
 	seedBot(t, s, "w-eng")
-	seedSubscription(t, s, "w-eng", "s-team")
+	seedAttachment(t, s, "w-eng", "s-team")
 
 	publish := func(id, body string) {
 		ev, err := streaming.NewMessageEvent(
@@ -227,7 +219,7 @@ func TestDispatchDeliversEventsOneAtATime(t *testing.T) {
 		if err := s.Events.Append(context.Background(), ev); err != nil {
 			t.Fatalf("append event: %v", err)
 		}
-		d.Dispatch(context.Background(), ev)
+		routeEvent(t, d, "s-team", ev)
 	}
 
 	// First event kicks off activation #1; the spawner blocks inside it.
@@ -297,37 +289,46 @@ func eventIDs(ts []activation.Trigger) []streaming.EventID {
 	return out
 }
 
-// TestDispatchSkipsFanOutOnBadMessageBody pins B6.2: an Event whose
-// Body isn't canonical Message JSON is a programming bug — every
-// production write goes through Message.Encode. The dispatcher used
-// to silently fall back to {Body: raw}; B6.2 makes that path strict
-// (no fan-out) so a bad event is visible rather than emitting a
-// half-rendered activation prompt.
-//
-// Outbound emission is unaffected — it runs before the parse and
-// posts the raw e.Body to webhook receivers regardless.
-func TestDispatchSkipsFanOutOnBadMessageBody(t *testing.T) {
+// TestRouteRejectsUnroutableEvent pins where the "don't fan out a
+// half-formed event" guard lives after the cutover. It moved off the
+// dispatcher: publishing decodes the canonical Message and builds the
+// routed envelope, and eventsource.NewEvent refuses an empty one — so a
+// malformed body can never reach Route at all. What Route still owns is
+// refusing an event whose source names nothing routable.
+func TestRouteRejectsUnroutableEvent(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
-	seedWebhookTopic(t, s, "s-bad", transport.Transport{Kind: transport.KindLocal})
+	seedTrigger(t, s, "s-bad")
 	seedBot(t, s, "w-listener")
-	seedSubscription(t, s, "w-listener", "s-bad")
+	seedAttachment(t, s, "w-listener", "s-bad")
 
-	// Hand-craft an event with non-JSON body — bypasses NewMessageEvent
-	// on purpose to simulate the only path that produces this state
-	// (hand-poked DB or a regression in a future write path).
-	e, err := streaming.NewEvent("e-bad", "s-bad", "w-author", "not-json-payload", time.Now().UTC(), "org-test")
+	err := d.Route(context.Background(), eventsource.Event{
+		ID:             "e-bad",
+		OrganizationID: "org-test",
+		Message:        streaming.Message{Body: "hello"},
+		CreatedAt:      time.Now().UTC(),
+	})
+	if err == nil {
+		t.Fatal("Route with no source kind must fail")
+	}
+	if got := drainActivations(t, rec, 100*time.Millisecond); len(got) != 0 {
+		t.Fatalf("activations = %d, want 0; got %+v", len(got), got)
+	}
+}
+
+// TestEventsourceRejectsNonMessageBody pins the guard that replaced the
+// dispatcher's strict-parse: an event whose body is not canonical
+// Message JSON produces an empty Message, and building the routed
+// envelope from it fails rather than fanning out a half-rendered
+// activation prompt.
+func TestEventsourceRejectsNonMessageBody(t *testing.T) {
+	t.Parallel()
+	raw, err := streaming.NewEvent("e-bad", "s-bad", "w-author", "not-json-payload", time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new event: %v", err)
 	}
-
-	d.Dispatch(context.Background(), e)
-
-	// Listener must NOT be activated. With the old fallback the
-	// dispatcher would activate with {Body: "not-json-payload"};
-	// strict-parse skips fan-out entirely.
-	got := drainActivations(t, rec, 100*time.Millisecond)
-	if len(got) != 0 {
-		t.Fatalf("activations = %d, want 0 (bad body must not fan out); got %+v", len(got), got)
+	msg, _ := raw.Message()
+	if _, err := eventsource.NewEvent(raw.ID, raw.OrganizationID, eventsource.Trigger("s-bad"), msg, raw.Source, raw.CreatedAt); err == nil {
+		t.Fatal("a non-Message body must not produce a routable event")
 	}
 }

@@ -12,29 +12,40 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/transports/postmark"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
-// recordingDispatcher captures Dispatch calls for assertion.
-type recordingDispatcher struct {
+// recordingPublisher wraps the real publish use case so tests can
+// assert what a delivery produced.
+type recordingPublisher struct {
+	inner  *publishing.Publishing
 	mu     sync.Mutex
 	events []streaming.Event
 }
 
-func (d *recordingDispatcher) Dispatch(_ context.Context, e streaming.Event) {
+func (d *recordingPublisher) PublishDelivery(ctx context.Context, orgID, triggerID string, eventID streaming.EventID, msg streaming.Message) (streaming.Event, error) {
+	e, err := d.inner.PublishDelivery(ctx, orgID, triggerID, eventID, msg)
+	if err != nil {
+		return e, err
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.events = append(d.events, e)
+	return e, nil
 }
 
-func (d *recordingDispatcher) snapshot() []streaming.Event {
+func (d *recordingPublisher) snapshot() []streaming.Event {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	out := make([]streaming.Event, len(d.events))
@@ -42,7 +53,7 @@ func (d *recordingDispatcher) snapshot() []streaming.Event {
 	return out
 }
 
-func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordingDispatcher, *wakebus.Bus, *configregistry.Registry) {
+func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordingPublisher, *wakebus.Bus, *configregistry.Registry) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ps, err := pubsub.NewInMemoryNats()
@@ -50,14 +61,14 @@ func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordi
 		t.Fatalf("NewInMemoryNats: %v", err)
 	}
 	bc := wakebus.New(ps)
-	rd := &recordingDispatcher{}
+	rd := &recordingPublisher{inner: publishing.New(publishing.Deps{Triggers: st.Triggers, Events: st.Events, Hub: bc, Now: func() time.Time { return time.Now().UTC() }, NewID: uuid.NewString})}
 	reg := configregistry.New(st.Configs)
 	reg.Register(configregistry.Spec{
 		Key:     "transport.postmark",
 		Type:    configregistry.TypeObject,
 		Secrets: []string{"token"},
 	})
-	tp := postmark.New("org-test", reg, st, bc, rd, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tp := postmark.New("org-test", reg, st, rd, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return tp, st, rd, bc, reg
 }
 
@@ -69,28 +80,27 @@ func setPostmarkConfig(t *testing.T, reg *configregistry.Registry, token, inboun
 	}
 }
 
-func seedEmailTopic(t *testing.T, st *store.Store, id streaming.TopicID, alias string) streaming.Topic {
+func seedEmailTrigger(t *testing.T, st *store.Store, id, alias string) trigger.Trigger {
 	t.Helper()
 	cfg, _ := json.Marshal(transport.EmailConfig{Alias: alias})
-	topic, err := streaming.NewTopic(id, string(id), "", "w-owner", time.Now().UTC(),
-		transport.Transport{Kind: transport.KindEmail, Config: cfg}, "org-test")
+	row, err := trigger.New(id, "org-test", id, "", transport.KindEmail, cfg, "w-owner", time.Now().UTC())
 	if err != nil {
-		t.Fatalf("new topic: %v", err)
+		t.Fatalf("new trigger: %v", err)
 	}
-	if err := st.Topics.Create(context.Background(), topic); err != nil {
-		t.Fatalf("create topic: %v", err)
+	if err := st.Triggers.Create(context.Background(), row); err != nil {
+		t.Fatalf("create trigger: %v", err)
 	}
-	return topic
+	return row
 }
 
 // TestInboundHappyPath: a Postmark inbound POST with `+sam` alias
-// lands as an Event on the s-support topic, with all envelope
-// fields populated and the dispatcher fired.
+// lands as an event on the s-support Trigger, with all envelope
+// fields populated and the publish path exercised.
 func TestInboundHappyPath(t *testing.T) {
 	t.Parallel()
 	tp, st, rd, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	seedEmailTopic(t, st, "s-support", "sam")
+	seedEmailTrigger(t, st, "s-support", "sam")
 
 	srv := httptest.NewServer(tp.HandleInbound())
 	t.Cleanup(srv.Close)
@@ -117,7 +127,7 @@ func TestInboundHappyPath(t *testing.T) {
 		t.Fatalf("status = %d, body = %q", resp.StatusCode, got)
 	}
 
-	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-support", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-support", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -149,7 +159,7 @@ func TestInboundNoAliasReturns400(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	seedEmailTopic(t, st, "s-support", "sam")
+	seedEmailTrigger(t, st, "s-support", "sam")
 	srv := httptest.NewServer(tp.HandleInbound())
 	t.Cleanup(srv.Close)
 
@@ -170,7 +180,7 @@ func TestInboundUnknownAliasReturns404(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	seedEmailTopic(t, st, "s-support", "sam") // alias=sam exists
+	seedEmailTrigger(t, st, "s-support", "sam") // alias=sam exists
 	srv := httptest.NewServer(tp.HandleInbound())
 	t.Cleanup(srv.Close)
 
@@ -204,7 +214,7 @@ func TestInboundReplyPopulatesInReplyTo(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	seedEmailTopic(t, st, "s-support", "sam")
+	seedEmailTrigger(t, st, "s-support", "sam")
 	srv := httptest.NewServer(tp.HandleInbound())
 	t.Cleanup(srv.Close)
 
@@ -225,7 +235,7 @@ func TestInboundReplyPopulatesInReplyTo(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-support", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-support", 10)
 	msg, _ := events[0].Message()
 	if msg.InReplyTo != "<original@example.com>" {
 		t.Fatalf("InReplyTo = %q", msg.InReplyTo)

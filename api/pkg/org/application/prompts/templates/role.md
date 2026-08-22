@@ -18,15 +18,15 @@ they own.}
 
 `tool_a`, `tool_b`. {Note on shell tools if non-default.}
 
-## Topics
+## Starts when
 
-- `s-foo` — {what they do with it}.
-- `s-bar` — {what they do with it}.
+- `s-foo` — {what arriving on it means for them}.
+- `s-bar` — {what arriving on it means for them}.
 
-## Triggers
+## Behaviour
 
 **On {event}.** {What they do — concrete, imperative, no hedging.}
-Post output to `s-{channel}`.
+Send output to `s-{channel}`.
 
 **On {another event}.** {…}
 
@@ -54,19 +54,21 @@ on what the title implies. Mark each guess inline with
 a question.
 
 Every `**On {event}.**` block must end with an explicit output
-channel (`Post to s-…`) or say "no post — internal note only".
+channel (`Send to s-…`) or say "no message — internal note only".
 Every bot must include the `**On anything else.** Stay quiet`
 block verbatim — it's the default-quiet rule.
 
-Default tools: pick from what the org has — typically `subscribe`,
-`publish`, `ask_human`, `read_events`, `dm`, `managers`, `reports`. `publish`
-posts basic text externally when the destination is a configured Slack Topic.
-Use `ask_human` for a known person. Use `get_secret` plus the Slack API
-only for rich actions such as reactions, uploads, and edits. `managers` and
-`reports` let the bot resolve its reporting lines live — escalate up
-to a manager (`managers` + `dm`), brief down to its reports (`reports` +
-`publish` to the team topic). List both on any bot that sits in a
-hierarchy. Don't list `create_bot` unless the title implies seniority.
+Default tools: pick from what the org has — typically `attach_worker`,
+`chat`, `ask_human`, `read_events`, `dm`, `managers`, `reports`. `chat`
+sends into an internal conversation; it cannot reach outside the org.
+Use `ask_human` for a known person. To act on an external provider —
+Slack, GitHub, email — call `list_secrets` to find the credential the
+Worker has been granted, `get_secret` to fetch it, then use that
+provider's own API. `managers` and `reports` let the bot resolve its
+reporting lines live — escalate up to a manager (`managers` + `dm`),
+brief down to its reports (`reports` + `chat` to the team chat). List
+both on any bot that sits in a hierarchy. Don't list `create_bot` unless
+the title implies seniority.
 
 ## Step 2 — Save it. **Don't ask permission.**
 
@@ -87,25 +89,24 @@ a code block, then ask **one** focused question — pick the
 direction most likely to want a tweak:
 
 > Saved as `b-…`. Want to change anything? Common edits:
-> - **Triggers** — different events, or different responses
-> - **Topics** — add/remove which channels they read/write
+> - **Behaviour** — different events, or different responses
+> - **Starts when** — add/remove which sources wake them
 > - **Tools** — broader or tighter MCP scope
 > - **Constraints** — what they should never do
 >
 > Say what you'd change, or say **"next"** to stand up this bot's
-> topics.
+> triggers.
 
 If I name an edit, call `update_role` and show the new version.
-If I say "next", **stand up the bot's topics.** For each topic the
-bot's Topics section lists:
-   - call `list_topics` first — another bot may already have
+If I say "next", **stand up the bot's triggers.** For each source the
+bot's "Starts when" section lists:
+   - call `list_triggers` first — another bot may already have
      created it
-   - if it exists, `subscribe` the bot (subscriptions are
+   - if it exists, `attach_worker` the bot (attachments are
      per-bot — they die when the bot is deleted)
-   - if not, `create_topic` then `subscribe`
+   - if not, `create_trigger` then `attach_worker`
 
-A bot whose topics aren't subscribed is half-done — it has nothing
-to listen to.
+A bot with nothing attached is half-done — it has nothing to listen to.
 
 Don't ask permission for each tool call — chain them.
 
