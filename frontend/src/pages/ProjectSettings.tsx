@@ -47,7 +47,9 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import MoveUpIcon from "@mui/icons-material/MoveUp";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import HubIcon from "@mui/icons-material/Hub";
-import SettingsIcon from "@mui/icons-material/Settings";
+import { Settings, Wrench } from "lucide-react";
+
+import AgentToolsPicker from "../components/tools/AgentToolsPicker";
 
 import Skills from "../components/app/Skills";
 import {
@@ -59,11 +61,11 @@ import {
   TypesZFSTreeNode,
 } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
+import SettingRow from "../components/widgets/SettingRow";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
 import WebServiceTab from "../components/project/WebServiceTab";
 import { AppsContext } from "../contexts/apps";
 import { IApp, IAppFlatState, AGENT_TYPE_ZED_EXTERNAL } from "../types";
-import { selectCodingAgents } from "../utils/apps";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
 import AttachProjectRepositoryDialog from "../components/project/AttachProjectRepositoryDialog";
 import ProjectTaskDefaults from "../components/project/ProjectTaskDefaults";
@@ -117,6 +119,16 @@ const secretScopeLabel = (scope?: TypesSecretScope): string => {
     default:
       return "Dev";
   }
+};
+
+// Standard toolbar geometry (18px glyph in a 30x30 button) for the per-agent
+// settings shortcut.
+const agentSettingsButtonSx = {
+  width: 30,
+  height: 30,
+  flexShrink: 0,
+  color: "text.secondary",
+  "&:hover": { color: "text.primary" },
 };
 
 const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' }) => {
@@ -384,6 +396,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   // Project skills
   const [projectSkills, setProjectSkills] = useState<TypesAssistantSkills | undefined>(undefined);
+  const [projectAgentTools, setProjectAgentTools] = useState<string[]>([]);
 
   // Project secrets query
   const { data: projectSecrets = [], refetch: refetchSecrets } = useQuery({
@@ -568,11 +581,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     selectedPullRequestReviewerAgentId,
     setSelectedPullRequestReviewerAgentId,
   ] = useState<string>("");
-  const sortedApps = useMemo(() => {
-    if (!apps) return [];
-    return selectCodingAgents(apps);
-  }, [apps]);
-
   const primaryRepoIsExternal = useMemo(() => {
     if (!project?.default_repo_id || repositories.length === 0) return false;
     const primaryRepo = repositories.find(
@@ -617,6 +625,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       }
 
       setProjectSkills(project.skills);
+      setProjectAgentTools(project.agent_tools ?? []);
     }
   }, [project?.id, project?.updated_at]);
 
@@ -757,6 +766,12 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     default_agent_type: AGENT_TYPE_ZED_EXTERNAL,
   }), [projectSkills]);
 
+  const handleAgentToolsUpdate = async (tools: string[]) => {
+    setProjectAgentTools(tools);
+    await updateProjectMutation.mutateAsync({ agent_tools: tools });
+    snackbar.success("Agent tools updated");
+  };
+
   const handleSkillsUpdate = async (updates: IAppFlatState) => {
     const newSkills: TypesAssistantSkills = {
       apis: updates.apiTools,
@@ -828,43 +843,59 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         </Typography>
         <Divider sx={{ mb: 3 }} />
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <TextField
-            label="Project Name"
-            fullWidth
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={handleFieldBlur}
+          <SettingRow
+            title="Project Name"
+            description="Shown wherever this project is listed."
             required
-          />
-          <TextField
-            label="Description"
-            fullWidth
-            multiline
-            rows={3}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onBlur={handleFieldBlur}
-          />
+          >
+            <TextField
+              fullWidth
+              size="small"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={handleFieldBlur}
+              required
+              inputProps={{ "aria-label": "Project name" }}
+            />
+          </SettingRow>
+          <SettingRow
+            title="Description"
+            description="Optional summary of what this project is for."
+            align="start"
+          >
+            <TextField
+              fullWidth
+              size="small"
+              multiline
+              minRows={2}
+              maxRows={5}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onBlur={handleFieldBlur}
+              inputProps={{ "aria-label": "Project description" }}
+            />
+          </SettingRow>
+          <SettingRow
+            title="Agent"
+            description="Harness and model new tasks start on, including tasks filed by an agent. Which harnesses are available is set for the whole organization under Providers."
+          >
+            <ProjectCodeAgentDefaults
+              project={project}
+              disabled={updateProjectMutation.isPending}
+              onUpdate={updateProjectMutation.mutateAsync}
+            />
+          </SettingRow>
+          <SettingRow
+            title="Compute"
+            description="Sandbox size and desktop environment allocated to each new task."
+          >
+            <ProjectTaskDefaults
+              project={project}
+              disabled={updateProjectMutation.isPending}
+              onUpdate={updateProjectMutation.mutateAsync}
+            />
+          </SettingRow>
         </Box>
-      </Box>
-
-      {/* Coding Agent */}
-      <Box>
-        <Typography variant="h6" gutterBottom>
-          Coding Agent
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          The harness and model new tasks in this project start on, including
-          tasks filed by an agent. Each task can still be changed before it
-          starts. Which harnesses are available is configured for the whole
-          organization under Providers; sandbox size lives on the Sandbox tab.
-        </Typography>
-        <Divider sx={{ mb: 3 }} />
-        <ProjectCodeAgentDefaults
-          project={project}
-          disabled={updateProjectMutation.isPending}
-          onUpdate={updateProjectMutation.mutateAsync}
-        />
       </Box>
 
       {/* Project Guidelines */}
@@ -900,6 +931,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           implementation, and exploratory sessions.
         </Typography>
         <Divider sx={{ mb: 3 }} />
+        {/* Prose, not a value — there is no label column to align it against,
+            so this one keeps the full width. */}
         <TextField
           fullWidth
           multiline
@@ -998,23 +1031,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const renderSandboxTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      <Box>
-        <Typography variant="h6" gutterBottom>
-          Task Defaults
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Configure the compute allocated to new tasks in this project. These
-          values can still be changed before a task starts. Which coding agents
-          are available is configured for the whole organization under Providers.
-        </Typography>
-        <Divider sx={{ mb: 3 }} />
-        <ProjectTaskDefaults
-          project={project}
-          disabled={updateProjectMutation.isPending}
-          onUpdate={updateProjectMutation.mutateAsync}
-        />
-      </Box>
-
+      {/* Compute defaults live on the General tab next to the agent defaults —
+          they are two halves of "what a new task starts on". */}
       {/* Startup Script */}
       <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
         <Box sx={{ flex: showTestSession ? undefined : 1, width: showTestSession ? 600 : undefined, flexShrink: 0 }}>
@@ -1416,84 +1434,80 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           Agent Configuration
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Configure optional Helix agents for project management and pull
-          request review. Spec tasks use their own code-agent configuration.
+          Optional agents that act on this project. Spec tasks use their own
+          code-agent configuration.
         </Typography>
         <Divider sx={{ mb: 3 }} />
 
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
-            <Box sx={{ flex: 1 }}>
-              <AgentDropdown
-                value={selectedProjectManagerAgentId}
-                onChange={(newAgentId) => {
-                  setSelectedProjectManagerAgentId(newAgentId);
-                  updateProjectMutation.mutate({
-                    project_manager_helix_app_id: newAgentId || undefined,
-                  });
-                }}
-                agents={sortedApps}
-                label="Project Manager Agent"
-              />
-            </Box>
+          <SettingRow
+            title="Project Manager Agent"
+            description="Plans, refines and triages tasks on this project's board."
+          >
+            <AgentDropdown
+              value={selectedProjectManagerAgentId}
+              onChange={(newAgentId) => {
+                setSelectedProjectManagerAgentId(newAgentId);
+                updateProjectMutation.mutate({
+                  project_manager_helix_app_id: newAgentId || undefined,
+                });
+              }}
+              agents={apps || []}
+              kind="helix"
+            />
             <Tooltip title="Open agent settings">
               <span>
                 <IconButton
-                  size="small"
                   disabled={!selectedProjectManagerAgentId}
                   onClick={() =>
                     selectedProjectManagerAgentId &&
                     handleOpenAgentSettings(selectedProjectManagerAgentId)
                   }
-                  sx={{ mt: 0.5 }}
+                  sx={agentSettingsButtonSx}
                   aria-label="Open project manager agent settings"
                 >
-                  <SettingsIcon fontSize="small" />
+                  <Settings size={18} />
                 </IconButton>
               </span>
             </Tooltip>
-          </Box>
+          </SettingRow>
 
-          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
-            <Box sx={{ flex: 1 }}>
-              <AgentDropdown
-                value={selectedPullRequestReviewerAgentId}
-                onChange={(newAgentId) => {
-                  setSelectedPullRequestReviewerAgentId(newAgentId);
-                  updateProjectMutation.mutate({
-                    pull_request_reviewer_helix_app_id:
-                      newAgentId || undefined,
-                  });
-                }}
-                agents={sortedApps}
-                label="Pull Request Reviewer Agent"
-                disabled={!primaryRepoIsExternal}
-                helperText={
-                  !primaryRepoIsExternal
-                    ? "Requires an external repository (GitHub, GitLab, etc.) as the primary repository"
-                    : undefined
-                }
-              />
-            </Box>
+          <SettingRow
+            title="Pull Request Reviewer Agent"
+            description={
+              primaryRepoIsExternal
+                ? "Reviews pull requests opened against this project's repository."
+                : "Requires an external repository (GitHub, GitLab, etc.) as the primary repository."
+            }
+          >
+            <AgentDropdown
+              value={selectedPullRequestReviewerAgentId}
+              onChange={(newAgentId) => {
+                setSelectedPullRequestReviewerAgentId(newAgentId);
+                updateProjectMutation.mutate({
+                  pull_request_reviewer_helix_app_id: newAgentId || undefined,
+                });
+              }}
+              agents={apps || []}
+              kind="helix"
+              disabled={!primaryRepoIsExternal}
+            />
             <Tooltip title="Open agent settings">
               <span>
                 <IconButton
-                  size="small"
                   disabled={!selectedPullRequestReviewerAgentId}
                   onClick={() =>
                     selectedPullRequestReviewerAgentId &&
-                    handleOpenAgentSettings(
-                      selectedPullRequestReviewerAgentId,
-                    )
+                    handleOpenAgentSettings(selectedPullRequestReviewerAgentId)
                   }
-                  sx={{ mt: 0.5 }}
+                  sx={agentSettingsButtonSx}
                   aria-label="Open pull request reviewer agent settings"
                 >
-                  <SettingsIcon fontSize="small" />
+                  <Settings size={18} />
                 </IconButton>
               </span>
             </Tooltip>
-          </Box>
+          </SettingRow>
         </Box>
       </Box>
     </Box>
@@ -1767,6 +1781,23 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const renderSkillsTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <Box>
+        <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+          <Wrench size={20} style={{ marginRight: 8, color: "#10B981" }} />
+          <Typography variant="h6">Agent tools</Typography>
+        </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Helix capabilities every spec task in this project can call — including
+          creating and steering other spec tasks as sub-agents. Individual tasks
+          can add more on top.
+        </Typography>
+        <Divider sx={{ mb: 2 }} />
+        <AgentToolsPicker
+          selectedTools={projectAgentTools}
+          onChange={handleAgentToolsUpdate}
+          helperText="Applied to every spec task in this project."
+        />
+      </Box>
       <Box>
         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
           <HubIcon sx={{ mr: 1, color: "#10B981" }} />

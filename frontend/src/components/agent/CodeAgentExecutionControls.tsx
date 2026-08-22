@@ -25,12 +25,13 @@ import { useModelReasoningEfforts } from '../../hooks/useModelReasoningEfforts'
 import { getCodeAgentEffortOptions } from './CodeAgentEffortSelect'
 import { useHasEnabledCodeAgentHarnesses } from '../../services/codeAgentHarnessesService'
 import CodeAgentConfigPicker from './CodeAgentConfigPicker'
+import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
 
 type MaybePromise = void | Promise<unknown>
 
 export interface CodeAgentExecutionControlsProps {
   value?: TypesCodeAgentExecutionConfig
-  onChange: (value: TypesCodeAgentExecutionConfig) => MaybePromise
+  onChange: (value: TypesCodeAgentExecutionConfig, source: CodeAgentConfigChangeSource) => MaybePromise
   sandboxResourceOverrides?: TypesSandboxResourceOverrides
   sandboxRuntime?: TypesSandboxRuntime
   onSandboxResourceOverridesChange?: (value: TypesSandboxResourceOverrides) => MaybePromise
@@ -108,10 +109,13 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   const sandboxRuntimeLocked = showSandboxRuntime && !onSandboxRuntimeChange
   const controlsDisabled = disabled || isSaving
 
-  const save = async (next: TypesCodeAgentExecutionConfig) => {
+  const save = async (
+    next: TypesCodeAgentExecutionConfig,
+    source: CodeAgentConfigChangeSource,
+  ) => {
     setIsSaving(true)
     try {
-      await onChange(next)
+      await onChange(next, source)
     } catch (error) {
       snackbar.error(error instanceof Error ? error.message : 'Failed to update coding configuration')
     } finally {
@@ -130,7 +134,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
       value={value}
       disabled={controlsDisabled}
       autoSelectDefault={autoSelectDefault}
-      onChange={(next) => void save(next)}
+      onChange={(next, source) => void save(next, source)}
     />
   )
   // Reasoning depth is a setting *of* a harness, so it has nothing to configure
@@ -248,7 +252,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
               void save({
                 ...value,
                 reasoning_effort: option.value === 'default' ? undefined : option.value,
-              })
+              }, 'user')
             }}
           >
             <Typography variant="body2">{option.label}</Typography>
@@ -266,7 +270,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
               selected={value?.service_tier === option.value}
               onClick={() => {
                 setSettingsAnchor(null)
-                if (value) void save({ ...value, service_tier: option.value })
+                if (value) void save({ ...value, service_tier: option.value }, 'user')
               }}
             >
               <Typography variant="body2">{option.label}</Typography>

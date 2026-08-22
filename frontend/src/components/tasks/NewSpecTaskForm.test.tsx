@@ -6,6 +6,7 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: () => ({
     data: ["main", "feature/alpha", "feature/beta"],
   }),
+  useMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }));
 vi.mock("react-dropzone", () => ({

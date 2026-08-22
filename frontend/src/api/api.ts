@@ -2419,6 +2419,11 @@ export interface TypesAgentHelixConfig {
   triggers?: TypesTrigger[];
 }
 
+export interface TypesAgentToolInfo {
+  description?: string;
+  name?: string;
+}
+
 export enum TypesAgentType {
   AgentTypeHelixBasic = "helix_basic",
   AgentTypeHelixAgent = "helix_agent",
@@ -5205,6 +5210,11 @@ export interface TypesProfileModel {
 }
 
 export interface TypesProject {
+  /**
+   * AgentTools is the Helix MCP tool allowlist every spec task in this
+   * project inherits. Empty means no Helix MCP surface at all.
+   */
+  agent_tools?: string[];
   /** Automation settings */
   auto_start_backlog_tasks?: boolean;
   /** CodeAgentConfig is the project default copied into each new SpecTask. */
@@ -5457,6 +5467,8 @@ export interface TypesProjectTaskSpec {
 }
 
 export interface TypesProjectUpdateRequest {
+  /** Helix MCP tools granted to every spec task */
+  agent_tools?: string[];
   auto_start_backlog_tasks?: boolean;
   code_agent_config?: TypesCodeAgentExecutionConfig;
   default_branch?: string;
@@ -6914,6 +6926,11 @@ export interface TypesSpecApprovalResponse {
 }
 
 export interface TypesSpecTask {
+  /**
+   * AgentTools are Helix MCP tools granted to this task on top of the
+   * project's list. The effective surface is the union of the two.
+   */
+  agent_tools?: string[];
   /** Current agent work state (idle/working/done) from activity tracking */
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
@@ -7279,6 +7296,8 @@ export enum TypesSpecTaskStatus {
 }
 
 export interface TypesSpecTaskUpdateRequest {
+  /** Extra Helix MCP tools for this task, on top of the project's */
+  agent_tools?: string[];
   /** Pointer to allow clearing (set to empty string to unassign) */
   assignee_id?: string;
   /** IDs of tasks this task depends on */
@@ -7298,6 +7317,11 @@ export interface TypesSpecTaskUpdateRequest {
 }
 
 export interface TypesSpecTaskWithProject {
+  /**
+   * AgentTools are Helix MCP tools granted to this task on top of the
+   * project's list. The effective surface is the union of the two.
+   */
+  agent_tools?: string[];
   /** Current agent work state (idle/working/done) from activity tracking */
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
@@ -9257,6 +9281,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the catalogue backing the project and task tool pickers. The set is static per deployment; a project grants a subset to all its tasks and a task may add more on top.
+     *
+     * @tags spec-driven-tasks
+     * @name V1AgentToolsList
+     * @summary List the Helix MCP tools that can be granted to spec tasks
+     * @request GET:/api/v1/agent-tools
+     * @secure
+     */
+    v1AgentToolsList: (params: RequestParams = {}) =>
+      this.request<TypesAgentToolInfo[], any>({
+        path: `/api/v1/agent-tools`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),

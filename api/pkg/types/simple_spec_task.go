@@ -243,6 +243,10 @@ type SpecTask struct {
 	// migration window.
 	HelixAppID string `json:"helix_app_id,omitempty" gorm:"size:255;index"`
 
+	// AgentTools are Helix MCP tools granted to this task on top of the
+	// project's list. The effective surface is the union of the two.
+	AgentTools []string `json:"agent_tools,omitempty" gorm:"type:jsonb;serializer:json"`
+
 	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty" gorm:"type:jsonb;serializer:json"`
 	// Legacy migration source; cleared together with HelixAppID on task start.
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
@@ -498,6 +502,7 @@ type SpecTaskUpdateRequest struct {
 	KeepAlive        *bool            `json:"keep_alive,omitempty"`                        // Pointer to allow explicit false — prevent auto-idle-shutdown
 	DependsOn        []string         `json:"depends_on"`                                  // IDs of tasks this task depends on
 	AssigneeID       *string          `json:"assignee_id,omitempty"`                       // Pointer to allow clearing (set to empty string to unassign)
+	AgentTools       *[]string        `json:"agent_tools,omitempty"`                       // Extra Helix MCP tools for this task, on top of the project's
 }
 
 // SpecTaskExecutionConfigUpdateRequest replaces either the task's complete

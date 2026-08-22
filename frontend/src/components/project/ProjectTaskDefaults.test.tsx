@@ -81,9 +81,11 @@ describe("ProjectTaskDefaults", () => {
       "provider-1",
     );
     expect(controls.props.value.model).toBe("model-1");
-    expect(controls.props.grouped).toBe(true);
+    // Ungrouped: the SettingRow around this supplies the "Compute" label, so
+    // the control's own inline one would print it twice.
+    expect(controls.props.grouped).toBeFalsy();
     // Which coding agent a project may use is an org decision now (Providers
-    // page), so this tab must render compute only — otherwise a project could
+    // page), so this must render compute only — otherwise a project could
     // pick a harness the organization has not enabled.
     expect(controls.props.computeOnly).toBe(true);
 

@@ -1152,6 +1152,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/agent-tools": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the catalogue backing the project and task tool pickers. The set is static per deployment; a project grants a subset to all its tasks and a task may add more on top.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "List the Helix MCP tools that can be granted to spec tasks",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AgentToolInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/agents": {
             "get": {
                 "security": [
@@ -28827,6 +28855,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AgentToolInfo": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "types.AgentType": {
             "type": "string",
             "enum": [
@@ -34944,6 +34983,13 @@ const docTemplate = `{
         "types.Project": {
             "type": "object",
             "properties": {
+                "agent_tools": {
+                    "description": "AgentTools is the Helix MCP tool allowlist every spec task in this\nproject inherits. Empty means no Helix MCP surface at all.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "auto_start_backlog_tasks": {
                     "description": "Automation settings",
                     "type": "boolean"
@@ -35511,6 +35557,13 @@ const docTemplate = `{
         "types.ProjectUpdateRequest": {
             "type": "object",
             "properties": {
+                "agent_tools": {
+                    "description": "Helix MCP tools granted to every spec task",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "auto_start_backlog_tasks": {
                     "type": "boolean"
                 },
@@ -38381,6 +38434,13 @@ const docTemplate = `{
         "types.SpecTask": {
             "type": "object",
             "properties": {
+                "agent_tools": {
+                    "description": "AgentTools are Helix MCP tools granted to this task on top of the\nproject's list. The effective surface is the union of the two.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "agent_work_state": {
                     "description": "Current agent work state (idle/working/done) from activity tracking",
                     "allOf": [
@@ -39181,6 +39241,13 @@ const docTemplate = `{
         "types.SpecTaskUpdateRequest": {
             "type": "object",
             "properties": {
+                "agent_tools": {
+                    "description": "Extra Helix MCP tools for this task, on top of the project's",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "assignee_id": {
                     "description": "Pointer to allow clearing (set to empty string to unassign)",
                     "type": "string"
@@ -39225,6 +39292,13 @@ const docTemplate = `{
         "types.SpecTaskWithProject": {
             "type": "object",
             "properties": {
+                "agent_tools": {
+                    "description": "AgentTools are Helix MCP tools granted to this task on top of the\nproject's list. The effective surface is the union of the two.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "agent_work_state": {
                     "description": "Current agent work state (idle/working/done) from activity tracking",
                     "allOf": [
