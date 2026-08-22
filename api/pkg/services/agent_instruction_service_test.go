@@ -21,6 +21,7 @@ func TestBuildApprovalInstructionPromptRecoversSharedSpecsPush(t *testing.T) {
 		"app",
 		"",
 		"",
+		"",
 		nil,
 		"",
 	)

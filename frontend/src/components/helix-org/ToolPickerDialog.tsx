@@ -159,6 +159,14 @@ interface ToolPickerDialogProps {
   selectedTools: string[]
   onClose: () => void
   onApply: (tools: string[]) => void
+  /**
+   * Tools granted by an enclosing scope (a spec task inherits its project's
+   * list). Shown enabled but read-only: they are always in effect and are
+   * never part of what onApply returns.
+   */
+  lockedTools?: string[]
+  lockedLabel?: string
+  helperText?: string
 }
 
 const normalizedSelection = (names: string[]) => Array.from(new Set(names)).sort()
@@ -169,6 +177,9 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
   selectedTools,
   onClose,
   onApply,
+  lockedTools,
+  lockedLabel = 'From project',
+  helperText = 'Applying a selection updates this form; use Save agent to persist the configuration.',
 }) => {
   const [draftTools, setDraftTools] = useState<string[]>([])
   const [search, setSearch] = useState('')
@@ -180,7 +191,14 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
   }, [open, selectedTools])
 
   const groupedTools = useMemo(() => groupToolCatalogue(tools), [tools])
-  const selected = useMemo(() => new Set(draftTools), [draftTools])
+  const locked = useMemo(() => new Set(lockedTools ?? []), [lockedTools])
+  // A locked tool is in effect regardless of the draft, so it reads as enabled
+  // everywhere — counts, group checkboxes, the footer — but can never be
+  // toggled off from here.
+  const selected = useMemo(
+    () => new Set([...draftTools, ...locked]),
+    [draftTools, locked],
+  )
   const searchValue = search.trim().toLowerCase()
   const visibleGroups = useMemo(() => {
     if (!searchValue) return groupedTools
@@ -195,6 +213,7 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
   }, [groupedTools, searchValue])
 
   const toggleTool = (name: string) => {
+    if (locked.has(name)) return
     setDraftTools((current) => {
       const next = new Set(current)
       if (next.has(name)) next.delete(name)
@@ -204,7 +223,8 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
   }
 
   const toggleGroup = (group: GroupedToolCatalogueEntry) => {
-    const names = group.tools.map((tool) => tool.name ?? '').filter(Boolean)
+    const names = group.tools.map((tool) => tool.name ?? '').filter(Boolean).filter((name) => !locked.has(name))
+    if (names.length === 0) return
     const allEnabled = names.every((name) => selected.has(name))
     setDraftTools((current) => {
       const next = new Set(current)
@@ -241,7 +261,7 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
           Choose the MCP capabilities this agent can call. Section checkboxes enable or disable an entire capability area.
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          Applying a selection updates this form; use Save agent to persist the configuration.
+          {helperText}
         </Typography>
       </DialogTitle>
       <DialogContent
@@ -282,7 +302,7 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
               }}
             />
             <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
-              <Button size="small" onClick={() => setDraftTools(normalizedSelection(tools.map((tool) => tool.name ?? '').filter(Boolean)))}>
+              <Button size="small" onClick={() => setDraftTools(normalizedSelection(tools.map((tool) => tool.name ?? '').filter(Boolean).filter((name) => !locked.has(name))))}>
                 Enable all
               </Button>
               <Button size="small" onClick={() => setDraftTools([])} disabled={draftTools.length === 0}>
@@ -306,6 +326,7 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
               const enabledCount = groupNames.filter((name) => selected.has(name)).length
               const allEnabled = enabledCount === groupNames.length
               const someEnabled = enabledCount > 0 && !allEnabled
+              const groupFullyLocked = groupNames.length > 0 && groupNames.every((name) => locked.has(name))
               return (
                 <Accordion
                   key={visibleGroup.key}
@@ -322,6 +343,7 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
                   <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 1.5 }}>
                     <Checkbox
                       checked={allEnabled}
+                      disabled={groupFullyLocked}
                       indeterminate={someEnabled}
                       onClick={(event) => event.stopPropagation()}
                       onFocus={(event) => event.stopPropagation()}
@@ -352,6 +374,7 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
                       {visibleGroup.tools.map((tool) => {
                         const name = tool.name ?? ''
                         const enabled = selected.has(name)
+                        const isLocked = locked.has(name)
                         return (
                           <Box
                             component="label"
@@ -365,17 +388,22 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
                               borderBottom: '1px solid',
                               borderColor: 'divider',
                               bgcolor: 'transparent',
-                              cursor: 'pointer',
+                              cursor: isLocked ? 'default' : 'pointer',
                               '&:last-child': { borderBottom: 0 },
                             }}
                           >
                             <Box sx={{ minWidth: 0, flex: 1 }}>
-                              <Typography
-                                variant="body2"
-                                sx={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 600, wordBreak: 'break-word' }}
-                              >
-                                {name}
-                              </Typography>
+                              <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+                                <Typography
+                                  variant="body2"
+                                  sx={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 600, wordBreak: 'break-word' }}
+                                >
+                                  {name}
+                                </Typography>
+                                {isLocked && (
+                                  <Chip label={lockedLabel} size="small" sx={{ height: 18, fontSize: '0.6rem' }} />
+                                )}
+                              </Stack>
                               <Typography
                                 variant="caption"
                                 color="text.secondary"
@@ -395,6 +423,7 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
                             </Box>
                             <Checkbox
                               checked={enabled}
+                              disabled={isLocked}
                               onChange={() => toggleTool(name)}
                               inputProps={{ 'aria-label': `Enable ${name}` }}
                               size="small"
@@ -413,7 +442,7 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
       </DialogContent>
       <DialogActions sx={{ px: 2, py: 1.5, flexShrink: 0 }}>
         <Typography variant="body2" color="text.secondary" sx={{ mr: 'auto' }}>
-          {draftTools.length} of {tools.length} enabled
+          {selected.size} of {tools.length} enabled
         </Typography>
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="contained" color="secondary" onClick={handleApply}>

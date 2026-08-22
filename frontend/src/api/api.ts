@@ -2419,6 +2419,11 @@ export interface TypesAgentHelixConfig {
   triggers?: TypesTrigger[];
 }
 
+export interface TypesAgentToolInfo {
+  description?: string;
+  name?: string;
+}
+
 export enum TypesAgentType {
   AgentTypeHelixBasic = "helix_basic",
   AgentTypeHelixAgent = "helix_agent",
@@ -4863,6 +4868,12 @@ export interface TypesOpenAIModel {
   enabled?: boolean;
   hide?: boolean;
   id?: string;
+  /**
+   * InputModalities is the model's accepted input types ("text", "image",
+   * "file", ...). Same provenance and same nil-means-unknown rule as
+   * SupportedParameters.
+   */
+  input_modalities?: string[];
   model_info?: TypesModelInfo;
   name?: string;
   object?: string;
@@ -4880,6 +4891,14 @@ export interface TypesOpenAIModel {
    */
   reasoning_efforts?: TypesReasoningEffortProfile;
   root?: string;
+  /**
+   * SupportedParameters is the set of request parameters the model accepts,
+   * as reported by aggregators that publish it (OpenRouter's /v1/models does;
+   * plain OpenAI-compatible servers don't). Used by the model picker to
+   * filter a several-hundred-model catalogue down to, for example, the models
+   * that can actually call tools. Nil means the provider didn't say.
+   */
+  supported_parameters?: string[];
   type?: string;
 }
 
@@ -5191,6 +5210,11 @@ export interface TypesProfileModel {
 }
 
 export interface TypesProject {
+  /**
+   * AgentTools is the Helix MCP tool allowlist every spec task in this
+   * project inherits. Empty means no Helix MCP surface at all.
+   */
+  agent_tools?: string[];
   /** Automation settings */
   auto_start_backlog_tasks?: boolean;
   /** CodeAgentConfig is the project default copied into each new SpecTask. */
@@ -5443,6 +5467,8 @@ export interface TypesProjectTaskSpec {
 }
 
 export interface TypesProjectUpdateRequest {
+  /** Helix MCP tools granted to every spec task */
+  agent_tools?: string[];
   auto_start_backlog_tasks?: boolean;
   code_agent_config?: TypesCodeAgentExecutionConfig;
   default_branch?: string;
@@ -5628,6 +5654,16 @@ export interface TypesProviderEndpoint {
   /** Google Vertex AI fields — when VertexProjectID is set, this endpoint routes through Vertex */
   vertex_project_id?: string;
   vertex_region?: string;
+}
+
+export interface TypesProviderEndpointModels {
+  /**
+   * EnabledModels is the operator's whitelist. Empty means every model in
+   * Models is available — the default for a newly added provider.
+   */
+  enabled_models?: string[];
+  /** Models is the provider's full upstream catalogue, unfiltered. */
+  models?: TypesOpenAIModel[];
 }
 
 export enum TypesProviderEndpointStatus {
@@ -6890,6 +6926,11 @@ export interface TypesSpecApprovalResponse {
 }
 
 export interface TypesSpecTask {
+  /**
+   * AgentTools are Helix MCP tools granted to this task on top of the
+   * project's list. The effective surface is the union of the two.
+   */
+  agent_tools?: string[];
   /** Current agent work state (idle/working/done) from activity tracking */
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
@@ -7255,6 +7296,8 @@ export enum TypesSpecTaskStatus {
 }
 
 export interface TypesSpecTaskUpdateRequest {
+  /** Extra Helix MCP tools for this task, on top of the project's */
+  agent_tools?: string[];
   /** Pointer to allow clearing (set to empty string to unassign) */
   assignee_id?: string;
   /** IDs of tasks this task depends on */
@@ -7274,6 +7317,11 @@ export interface TypesSpecTaskUpdateRequest {
 }
 
 export interface TypesSpecTaskWithProject {
+  /**
+   * AgentTools are Helix MCP tools granted to this task on top of the
+   * project's list. The effective surface is the union of the two.
+   */
+  agent_tools?: string[];
   /** Current agent work state (idle/working/done) from activity tracking */
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
@@ -8009,6 +8057,10 @@ export interface TypesUpdateProviderEndpoint {
   /** Google Vertex AI fields */
   vertex_project_id?: string;
   vertex_region?: string;
+}
+
+export interface TypesUpdateProviderEndpointModels {
+  models?: string[];
 }
 
 export interface TypesUpdateSandboxRequest {
@@ -9229,6 +9281,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the catalogue backing the project and task tool pickers. The set is static per deployment; a project grants a subset to all its tasks and a task may add more on top.
+     *
+     * @tags spec-driven-tasks
+     * @name V1AgentToolsList
+     * @summary List the Helix MCP tools that can be granted to spec tasks
+     * @request GET:/api/v1/agent-tools
+     * @secure
+     */
+    v1AgentToolsList: (params: RequestParams = {}) =>
+      this.request<TypesAgentToolInfo[], any>({
+        path: `/api/v1/agent-tools`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -16097,6 +16167,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns every model the upstream provider advertises, plus the subset currently enabled on the endpoint. Aggregators such as OpenRouter list hundreds of models, so this is deliberately separate from the endpoint's effective (enabled-only) model list.
+     *
+     * @tags providers
+     * @name V1ProviderEndpointsAvailableModelsDetail
+     * @summary List a provider endpoint's full model catalogue
+     * @request GET:/api/v1/provider-endpoints/{id}/available-models
+     * @secure
+     */
+    v1ProviderEndpointsAvailableModelsDetail: (
+      id: string,
+      query?: {
+        /** Bypass the cached catalogue and refetch from upstream */
+        refresh?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesProviderEndpointModels, SystemHTTPError>({
+        path: `/api/v1/provider-endpoints/${id}/available-models`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get provider daily usage
      *
      * @tags providers
@@ -16119,6 +16215,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/provider-endpoints/${id}/daily-usage`,
         method: "GET",
         query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Replaces the endpoint's enabled-models whitelist. An empty list enables the provider's whole catalogue.
+     *
+     * @tags providers
+     * @name V1ProviderEndpointsModelsUpdate
+     * @summary Set the models enabled on a provider endpoint
+     * @request PUT:/api/v1/provider-endpoints/{id}/models
+     * @secure
+     */
+    v1ProviderEndpointsModelsUpdate: (
+      id: string,
+      request: TypesUpdateProviderEndpointModels,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesProviderEndpoint, SystemHTTPError>({
+        path: `/api/v1/provider-endpoints/${id}/models`,
+        method: "PUT",
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",

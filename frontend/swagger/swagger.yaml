@@ -3765,6 +3765,13 @@ definitions:
           $ref: '#/definitions/types.Trigger'
         type: array
     type: object
+  types.AgentToolInfo:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    type: object
   types.AgentType:
     enum:
     - helix_basic
@@ -7654,6 +7661,14 @@ definitions:
         type: boolean
       id:
         type: string
+      input_modalities:
+        description: |-
+          InputModalities is the model's accepted input types ("text", "image",
+          "file", ...). Same provenance and same nil-means-unknown rule as
+          SupportedParameters.
+        items:
+          type: string
+        type: array
       model_info:
         $ref: '#/definitions/types.ModelInfo'
       name:
@@ -7681,6 +7696,16 @@ definitions:
           because sending a value the provider rejects aborts the whole turn.
       root:
         type: string
+      supported_parameters:
+        description: |-
+          SupportedParameters is the set of request parameters the model accepts,
+          as reported by aggregators that publish it (OpenRouter's /v1/models does;
+          plain OpenAI-compatible servers don't). Used by the model picker to
+          filter a several-hundred-model catalogue down to, for example, the models
+          that can actually call tools. Nil means the provider didn't say.
+        items:
+          type: string
+        type: array
       type:
         type: string
     type: object
@@ -8253,6 +8278,13 @@ definitions:
     type: object
   types.Project:
     properties:
+      agent_tools:
+        description: |-
+          AgentTools is the Helix MCP tool allowlist every spec task in this
+          project inherits. Empty means no Helix MCP surface at all.
+        items:
+          type: string
+        type: array
       auto_start_backlog_tasks:
         description: Automation settings
         type: boolean
@@ -8645,6 +8677,11 @@ definitions:
     type: object
   types.ProjectUpdateRequest:
     properties:
+      agent_tools:
+        description: Helix MCP tools granted to every spec task
+        items:
+          type: string
+        type: array
       auto_start_backlog_tasks:
         type: boolean
       code_agent_config:
@@ -8937,6 +8974,21 @@ definitions:
         type: string
       vertex_region:
         type: string
+    type: object
+  types.ProviderEndpointModels:
+    properties:
+      enabled_models:
+        description: |-
+          EnabledModels is the operator's whitelist. Empty means every model in
+          Models is available — the default for a newly added provider.
+        items:
+          type: string
+        type: array
+      models:
+        description: Models is the provider's full upstream catalogue, unfiltered.
+        items:
+          $ref: '#/definitions/types.OpenAIModel'
+        type: array
     type: object
   types.ProviderEndpointStatus:
     enum:
@@ -10858,6 +10910,13 @@ definitions:
     type: object
   types.SpecTask:
     properties:
+      agent_tools:
+        description: |-
+          AgentTools are Helix MCP tools granted to this task on top of the
+          project's list. The effective surface is the union of the two.
+        items:
+          type: string
+        type: array
       agent_work_state:
         allOf:
         - $ref: '#/definitions/types.AgentWorkState'
@@ -11479,6 +11538,11 @@ definitions:
     - TaskStatusImplementationFailed
   types.SpecTaskUpdateRequest:
     properties:
+      agent_tools:
+        description: Extra Helix MCP tools for this task, on top of the project's
+        items:
+          type: string
+        type: array
       assignee_id:
         description: Pointer to allow clearing (set to empty string to unassign)
         type: string
@@ -11511,6 +11575,13 @@ definitions:
     type: object
   types.SpecTaskWithProject:
     properties:
+      agent_tools:
+        description: |-
+          AgentTools are Helix MCP tools granted to this task on top of the
+          project's list. The effective surface is the union of the two.
+        items:
+          type: string
+        type: array
       agent_work_state:
         allOf:
         - $ref: '#/definitions/types.AgentWorkState'
@@ -12712,6 +12783,13 @@ definitions:
         type: string
       vertex_region:
         type: string
+    type: object
+  types.UpdateProviderEndpointModels:
+    properties:
+      models:
+        items:
+          type: string
+        type: array
     type: object
   types.UpdateSandboxRequest:
     properties:
@@ -14400,6 +14478,25 @@ paths:
       summary: Activate a trial for a user (Admin, cloud only)
       tags:
       - users
+  /api/v1/agent-tools:
+    get:
+      description: Returns the catalogue backing the project and task tool pickers.
+        The set is static per deployment; a project grants a subset to all its tasks
+        and a task may add more on top.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AgentToolInfo'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List the Helix MCP tools that can be granted to spec tasks
+      tags:
+      - spec-driven-tasks
   /api/v1/agents:
     get:
       description: List agents for the user. Agents are pre-configured to spawn sessions
@@ -23678,6 +23775,46 @@ paths:
             $ref: '#/definitions/types.UpdateProviderEndpoint'
       security:
       - BearerAuth: []
+  /api/v1/provider-endpoints/{id}/available-models:
+    get:
+      description: Returns every model the upstream provider advertises, plus the
+        subset currently enabled on the endpoint. Aggregators such as OpenRouter list
+        hundreds of models, so this is deliberately separate from the endpoint's effective
+        (enabled-only) model list.
+      parameters:
+      - description: Provider endpoint ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Bypass the cached catalogue and refetch from upstream
+        in: query
+        name: refresh
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProviderEndpointModels'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List a provider endpoint's full model catalogue
+      tags:
+      - providers
   /api/v1/provider-endpoints/{id}/daily-usage:
     get:
       consumes:
@@ -23721,6 +23858,48 @@ paths:
       security:
       - BearerAuth: []
       summary: Get provider daily usage
+      tags:
+      - providers
+  /api/v1/provider-endpoints/{id}/models:
+    put:
+      consumes:
+      - application/json
+      description: Replaces the endpoint's enabled-models whitelist. An empty list
+        enables the provider's whole catalogue.
+      parameters:
+      - description: Provider endpoint ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Enabled models
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateProviderEndpointModels'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProviderEndpoint'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Set the models enabled on a provider endpoint
       tags:
       - providers
   /api/v1/provider-endpoints/{id}/throughput-usage:

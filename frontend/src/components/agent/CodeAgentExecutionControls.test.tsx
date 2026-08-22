@@ -21,8 +21,8 @@ vi.mock('../../services/codeAgentHarnessesService', async (importOriginal) => ({
 // The picker has its own suite; here it only needs to render something
 // identifiable so these assertions are about the surrounding controls.
 vi.mock('./CodeAgentConfigPicker', () => ({
-  default: ({ onChange }: { onChange: (value: unknown) => void }) => (
-    <button type="button" onClick={() => onChange(PICKED)}>agent-picker</button>
+  default: ({ onChange }: { onChange: (value: unknown, source: string) => void }) => (
+    <button type="button" onClick={() => onChange(PICKED, 'user')}>agent-picker</button>
   ),
 }))
 const PICKED = vi.hoisted(() => ({
@@ -55,7 +55,7 @@ describe('CodeAgentExecutionControls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'agent-picker' }))
 
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith(PICKED))
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(PICKED, 'user'))
   })
 
   it('reports a rejected task-level choice without retrying it', async () => {

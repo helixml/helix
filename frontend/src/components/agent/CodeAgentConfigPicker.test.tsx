@@ -10,6 +10,7 @@ import {
   TypesProviderEndpointStatus,
 } from '../../api/api'
 import CodeAgentConfigPicker from './CodeAgentConfigPicker'
+import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
 
 const harnessState = vi.hoisted(() => ({ harnesses: [] as any[] }))
 const providerState = vi.hoisted(() => ({ providers: [] as any[] }))
@@ -48,7 +49,7 @@ function AutoSelectingPicker({
   onChange,
   initial,
 }: {
-  onChange?: (value: TypesCodeAgentExecutionConfig) => void
+  onChange?: (value: TypesCodeAgentExecutionConfig, source: CodeAgentConfigChangeSource) => void
   initial?: TypesCodeAgentExecutionConfig
 }) {
   const [value, setValue] = useState<TypesCodeAgentExecutionConfig | undefined>(initial)
@@ -56,8 +57,8 @@ function AutoSelectingPicker({
     <CodeAgentConfigPicker
       value={value}
       autoSelectDefault
-      onChange={(next) => {
-        onChange?.(next)
+      onChange={(next, source) => {
+        onChange?.(next, source)
         setValue(next)
       }}
     />
@@ -197,7 +198,7 @@ describe('CodeAgentConfigPicker', () => {
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
       provider_ref: undefined,
       model: 'claude-opus-5',
-    }))
+    }), 'user')
   })
 
   it('defaults a new task to Claude Opus when Claude subscription is available', async () => {
@@ -208,7 +209,7 @@ describe('CodeAgentConfigPicker', () => {
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
       model: 'claude-opus-5',
-    }))
+    }, 'auto'))
     expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('Claude Opus 5')
   })
 
@@ -225,7 +226,7 @@ describe('CodeAgentConfigPicker', () => {
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
       model: 'gpt-5.6-sol',
-    }))
+    }, 'auto'))
   })
 
   it('defaults a new task to Claude Opus from a connected Anthropic provider', async () => {
@@ -242,7 +243,7 @@ describe('CodeAgentConfigPicker', () => {
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
       provider_ref: 'provider-2',
       model: 'claude-opus-5',
-    }))
+    }, 'auto'))
     expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('claude-opus-5')
   })
 
@@ -299,7 +300,7 @@ describe('CodeAgentConfigPicker', () => {
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
       provider_ref: 'provider-1',
       model: 'gpt-5.6-sol',
-    }))
+    }, 'auto'))
   })
 
   it('writes the provider and model selected in chat into the task config', () => {
@@ -317,7 +318,7 @@ describe('CodeAgentConfigPicker', () => {
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
       provider_ref: 'provider-2',
       model: 'claude-fable-5',
-    }))
+    }), 'user')
   })
 
   it('keeps older native models in a collapsed legacy section', () => {
@@ -407,7 +408,7 @@ describe('CodeAgentConfigPicker', () => {
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
       model: 'claude-opus-5',
-    }))
+    }, 'auto'))
   })
 
   it('defaults to Codex Sol when OpenAI is the only connected native provider', async () => {
@@ -428,7 +429,7 @@ describe('CodeAgentConfigPicker', () => {
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
       provider_ref: 'provider-1',
       model: 'gpt-5.6-sol',
-    }))
+    }, 'auto'))
     expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('gpt-5.6-sol')
   })
 })

@@ -106,6 +106,7 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 | DRM manager (`api/pkg/drm/`, `api/cmd/helix-drm-manager/`) | `./stack build-drm-manager` | Systemd service on VM guest |
 | Zed config (`zed_config.go`) | No rebuild | API-side, Air hot reloads. Start NEW session |
 | Settings-sync-daemon | `./stack build-ubuntu` | Start NEW session after |
+| Agent skills (`SKILLS_COMMIT` in `sandbox-versions.txt`) | `./stack build-ubuntu` | Start NEW session after |
 
 Full rebuild order: `build-zed` → `build-ubuntu` → `build-sandbox` (if needed) → start new session.
 
@@ -478,6 +479,7 @@ Helix stack runs **inside the UTM VM** (SSH: `ssh -p 2222 luke@127.0.0.1`). Only
 ```bash
 /tmp/helix spectask list|list-agents|start|resume|stop|screenshot|stream|benchmark|send|mcp|live
 /tmp/helix org bots list|get|start|stop|restart|chat   # helix-org — see skills/helix-org-cli/SKILL.md
+/tmp/helix artifact create|update|list|get|delete  # publish static pages/SPAs/PDFs — see the helix-artifacts skill
 /tmp/helix api GET /orgs/<org>/bots                    # gh-api style escape hatch
 ```
 
@@ -659,6 +661,24 @@ helix org processors list
 helix api GET /orgs/unmanned-org/bots          # gh-api-style escape hatch
 helix api -X POST /orgs/unmanned-org/bots/chief-of-staff/activate
 ```
+
+### Agent skills
+
+Skills that teach a coding agent to drive Helix live in
+[helixml/skills](https://github.com/helixml/skills), pinned by `SKILLS_COMMIT` in
+`sandbox-versions.txt`. The desktop images install the selected ones (`HELIX_SKILLS` in
+`Dockerfile.ubuntu-helix`) to `/opt/helix/skills`, and `helix-workspace-setup.sh` links them
+into `~/.claude/skills`, `~/.agents/skills`, and `~/.qwen/skills` on every container start —
+the three directories Claude Code, opencode, goose, and qwen actually scan. Bumping a skill is
+a `SKILLS_COMMIT` edit plus `./stack build-ubuntu`; a new session picks it up.
+
+Currently installed: **helix-artifacts** — publish and manage project artifacts
+(`helix artifact …`). Control-plane skills (`helix-board`, `helix-deploy`, `helix-e2e`, …) are
+deliberately *not* installed: an agent in a task sandbox should work on the task's repo, not
+reconfigure the Helix running it.
+
+`skills/helix-org-cli/SKILL.md` above is a different thing — a skill checked into this repo,
+visible only to an agent working on this repo.
 
 ## Sandboxes API
 

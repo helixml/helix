@@ -1152,6 +1152,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/agent-tools": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the catalogue backing the project and task tool pickers. The set is static per deployment; a project grants a subset to all its tasks and a task may add more on top.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "List the Helix MCP tools that can be granted to spec tasks",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AgentToolInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/agents": {
             "get": {
                 "security": [
@@ -15633,6 +15661,64 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/provider-endpoints/{id}/available-models": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every model the upstream provider advertises, plus the subset currently enabled on the endpoint. Aggregators such as OpenRouter list hundreds of models, so this is deliberately separate from the endpoint's effective (enabled-only) model list.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "providers"
+                ],
+                "summary": "List a provider endpoint's full model catalogue",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Provider endpoint ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Bypass the cached catalogue and refetch from upstream",
+                        "name": "refresh",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProviderEndpointModels"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/provider-endpoints/{id}/daily-usage": {
             "get": {
                 "security": [
@@ -15696,6 +15782,70 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/provider-endpoints/{id}/models": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces the endpoint's enabled-models whitelist. An empty list enables the provider's whole catalogue.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "providers"
+                ],
+                "summary": "Set the models enabled on a provider endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Provider endpoint ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Enabled models",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateProviderEndpointModels"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProviderEndpoint"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -28705,6 +28855,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AgentToolInfo": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "types.AgentType": {
             "type": "string",
             "enum": [
@@ -33948,6 +34109,13 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "input_modalities": {
+                    "description": "InputModalities is the model's accepted input types (\"text\", \"image\",\n\"file\", ...). Same provenance and same nil-means-unknown rule as\nSupportedParameters.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "model_info": {
                     "$ref": "#/definitions/types.ModelInfo"
                 },
@@ -33979,6 +34147,13 @@ const docTemplate = `{
                 },
                 "root": {
                     "type": "string"
+                },
+                "supported_parameters": {
+                    "description": "SupportedParameters is the set of request parameters the model accepts,\nas reported by aggregators that publish it (OpenRouter's /v1/models does;\nplain OpenAI-compatible servers don't). Used by the model picker to\nfilter a several-hundred-model catalogue down to, for example, the models\nthat can actually call tools. Nil means the provider didn't say.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "type": {
                     "type": "string"
@@ -34808,6 +34983,13 @@ const docTemplate = `{
         "types.Project": {
             "type": "object",
             "properties": {
+                "agent_tools": {
+                    "description": "AgentTools is the Helix MCP tool allowlist every spec task in this\nproject inherits. Empty means no Helix MCP surface at all.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "auto_start_backlog_tasks": {
                     "description": "Automation settings",
                     "type": "boolean"
@@ -35375,6 +35557,13 @@ const docTemplate = `{
         "types.ProjectUpdateRequest": {
             "type": "object",
             "properties": {
+                "agent_tools": {
+                    "description": "Helix MCP tools granted to every spec task",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "auto_start_backlog_tasks": {
                     "type": "boolean"
                 },
@@ -35772,6 +35961,25 @@ const docTemplate = `{
                 },
                 "vertex_region": {
                     "type": "string"
+                }
+            }
+        },
+        "types.ProviderEndpointModels": {
+            "type": "object",
+            "properties": {
+                "enabled_models": {
+                    "description": "EnabledModels is the operator's whitelist. Empty means every model in\nModels is available — the default for a newly added provider.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "models": {
+                    "description": "Models is the provider's full upstream catalogue, unfiltered.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.OpenAIModel"
+                    }
                 }
             }
         },
@@ -38226,6 +38434,13 @@ const docTemplate = `{
         "types.SpecTask": {
             "type": "object",
             "properties": {
+                "agent_tools": {
+                    "description": "AgentTools are Helix MCP tools granted to this task on top of the\nproject's list. The effective surface is the union of the two.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "agent_work_state": {
                     "description": "Current agent work state (idle/working/done) from activity tracking",
                     "allOf": [
@@ -39026,6 +39241,13 @@ const docTemplate = `{
         "types.SpecTaskUpdateRequest": {
             "type": "object",
             "properties": {
+                "agent_tools": {
+                    "description": "Extra Helix MCP tools for this task, on top of the project's",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "assignee_id": {
                     "description": "Pointer to allow clearing (set to empty string to unassign)",
                     "type": "string"
@@ -39070,6 +39292,13 @@ const docTemplate = `{
         "types.SpecTaskWithProject": {
             "type": "object",
             "properties": {
+                "agent_tools": {
+                    "description": "AgentTools are Helix MCP tools granted to this task on top of the\nproject's list. The effective surface is the union of the two.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "agent_work_state": {
                     "description": "Current agent work state (idle/working/done) from activity tracking",
                     "allOf": [
@@ -40721,6 +40950,17 @@ const docTemplate = `{
                 },
                 "vertex_region": {
                     "type": "string"
+                }
+            }
+        },
+        "types.UpdateProviderEndpointModels": {
+            "type": "object",
+            "properties": {
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

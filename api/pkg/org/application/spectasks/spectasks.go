@@ -59,6 +59,12 @@ func (s *Service) callerIdentity(ctx context.Context, caller tool.Caller) (strin
 	if workerID == "" {
 		return "", "", errors.New("caller has no worker id")
 	}
+	// A project principal (a spec task's own agent) is not a Bot, so there is
+	// no membership row to verify — the MCP mount authenticated it against the
+	// project instead. Its project comes from the context, not worker state.
+	if _, ok := runtime.ProjectPrincipalFromContext(ctx); ok {
+		return orgID, orgchart.NodeID(workerID), nil
+	}
 	if s.members != nil {
 		if _, err := s.members.GetBot(ctx, orgID, orgchart.NodeID(workerID)); err != nil {
 			return "", "", fmt.Errorf("caller bot %s is not a member of org %s: %w", workerID, orgID, err)
