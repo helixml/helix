@@ -400,7 +400,12 @@ func TestInProcClient_UpdateAgentRestoresAppAfterPostSaveFailure(t *testing.T) {
 			}},
 		}},
 	}
-	st.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil).Times(2)
+	handlerExisting := *existing
+	handlerExisting.Config.Helix.Assistants = append([]types.AssistantConfig(nil), existing.Config.Helix.Assistants...)
+	gomock.InOrder(
+		st.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil),
+		st.EXPECT().GetApp(gomock.Any(), existing.ID).Return(&handlerExisting, nil),
+	)
 	var savedPrompt, restoredPrompt string
 	st.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, app *types.App) (*types.App, error) {

@@ -8,7 +8,6 @@ import (
 
 	"github.com/dgraph-io/ristretto/v2"
 	"github.com/helixml/helix/api/pkg/config"
-	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -19,7 +18,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestGetProviderSnapshotMissingHarnessPolicyPreservesVisibleProviders(t *testing.T) {
+func TestGetProviderSnapshotMissingHarnessPolicyHidesVisibleProviders(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	providerManager := manager.NewMockProviderManager(ctrl)
@@ -44,7 +43,7 @@ func TestGetProviderSnapshotMissingHarnessPolicyPreservesVisibleProviders(t *tes
 	snapshot, err := server.getProviderSnapshot(context.Background(), "user_1", app)
 
 	require.NoError(t, err)
-	require.Equal(t, []external_agent.ProviderRef{{ID: "pe_anthropic", Name: "anthropic"}}, snapshot)
+	require.Empty(t, snapshot)
 }
 
 func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
