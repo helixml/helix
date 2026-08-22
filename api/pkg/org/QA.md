@@ -755,11 +755,18 @@ real: it is the same id-collision class as #2570, one layer down in the
 git-repo service, which #2570 did not cover. Either scope the repo id by
 org or make it collision-proof (ULID, not second-granularity).
 
-> **Terminology note (Stream → Topic rename).** The wire is a
-> **Topic** everywhere: table `org_topics` (was `org_streams`), REST
-> `/topics…`, MCP `create_topic`/`list_topics`/`get_topic`, frontend
-> `TopicNode`. The `s-` id prefix is unchanged. Any older artefacts that
-> still say "stream"/`org_streams` should be read as "topic"/`org_topics`.
+> **Terminology note (Stream → Topic → Trigger).** This document is
+> written in the middle name of that chain. The inbound edge is now a
+> **Trigger**: table `org_triggers` (was `org_topics`, was
+> `org_streams`), REST `/triggers…`, MCP
+> `create_trigger`/`list_triggers`/`get_trigger`, and attachments
+> (`attach_worker`) in place of subscriptions. The `s-` id prefix is
+> unchanged, and a Topic kept its id when it was converted, so ids and
+> event history carry across all three names. Read "stream" and "topic"
+> below as "Trigger". What did change in substance, not just naming: a
+> Processor's output branch is no longer a Topic row of its own — it is
+> addressed as `processor_output:<processorId>:<outputId>`, and a Worker
+> attaches to that handle directly.
 
 ## §17. Processors (transform / filter / router)
 

@@ -53,7 +53,7 @@ func BuildPrompt(triggers []activation.Trigger) string {
 		}
 		switch t.Kind {
 		case activation.TriggerHire:
-			ctx.WriteString("You have just been hired. This is your first activation. Complete any one-time setup your role describes, then exit. The runtime will re-activate you when an event arrives on a Topic you subscribe to.\n")
+			ctx.WriteString("You have just been hired. This is your first activation. Complete any one-time setup your role describes, then exit. The runtime will re-activate you when an event arrives from a Trigger you are attached to.\n")
 		case activation.TriggerEvent:
 			ctx.WriteString(renderTrigger(t))
 		case activation.TriggerManual:
