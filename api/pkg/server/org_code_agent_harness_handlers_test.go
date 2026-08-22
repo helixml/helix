@@ -31,7 +31,7 @@ func TestValidateOrgCodeAgentHarness(t *testing.T) {
 		providerRef    string
 		wantErr        string
 	}{
-		{name: "enabled", row: &types.OrgCodeAgentHarness{Enabled: true}, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1"},
+		{name: "legacy nil denies provider", row: &types.OrgCodeAgentHarness{Enabled: true}, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "is not enabled"},
 		{name: "provider allowed", row: &types.OrgCodeAgentHarness{Enabled: true, ProviderRefs: []string{"provider-1"}}, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1"},
 		{name: "provider denied", row: &types.OrgCodeAgentHarness{Enabled: true, ProviderRefs: []string{"provider-2"}}, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "is not enabled"},
 		{name: "provider denied in subscription mode", row: &types.OrgCodeAgentHarness{Enabled: true, SubscriptionEnabled: boolPointer(true), ProviderRefs: []string{"provider-1"}}, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "is not enabled"},
@@ -39,7 +39,7 @@ func TestValidateOrgCodeAgentHarness(t *testing.T) {
 		{name: "subscription denied by legacy nil", row: &types.OrgCodeAgentHarness{Enabled: true}, credentialType: types.CodeAgentCredentialTypeSubscription, wantErr: "subscription credentials are not enabled"},
 		{name: "subscription explicitly disabled", row: &types.OrgCodeAgentHarness{Enabled: true, SubscriptionEnabled: boolPointer(false)}, credentialType: types.CodeAgentCredentialTypeSubscription, wantErr: "subscription credentials are not enabled"},
 		{name: "disabled", row: &types.OrgCodeAgentHarness{Enabled: false}, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "not enabled"},
-		{name: "missing preserves legacy API access", storeErr: store.ErrNotFound, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1"},
+		{name: "missing denies API access", storeErr: store.ErrNotFound, credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "is not enabled"},
 		{name: "store failure", storeErr: fmt.Errorf("database unavailable"), credentialType: types.CodeAgentCredentialTypeAPIKey, providerRef: "provider-1", wantErr: "failed to load"},
 	}
 
@@ -212,7 +212,8 @@ func TestBuildOrgCodeAgentHarnessStatuses(t *testing.T) {
 	assert.Equal(t, []string{"provider-1"}, byRuntime[types.CodeAgentRuntimeClaudeCode].ProviderRefs)
 	assert.True(t, byRuntime[types.CodeAgentRuntimeClaudeCode].ViewerHasSubscription)
 	assert.True(t, byRuntime[types.CodeAgentRuntimeCodexCLI].Enabled)
-	assert.Nil(t, byRuntime[types.CodeAgentRuntimeCodexCLI].ProviderRefs)
+	require.NotNil(t, byRuntime[types.CodeAgentRuntimeCodexCLI].ProviderRefs)
+	assert.Empty(t, byRuntime[types.CodeAgentRuntimeCodexCLI].ProviderRefs)
 	assert.Nil(t, byRuntime[types.CodeAgentRuntimeCodexCLI].SubscriptionEnabled)
 	assert.False(t, byRuntime[types.CodeAgentRuntimeCodexCLI].ViewerHasSubscription)
 }

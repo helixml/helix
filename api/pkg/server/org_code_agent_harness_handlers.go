@@ -119,12 +119,15 @@ func (apiServer *HelixAPIServer) buildOrgCodeAgentHarnessStatuses(ctx context.Co
 		status := &types.OrgCodeAgentHarnessStatus{
 			Runtime:              runtime,
 			Enabled:              true,
+			ProviderRefs:         []string{},
 			SupportsSubscription: runtime.SupportsSubscriptionCredentials(),
 		}
 		if policy != nil {
 			status.Enabled = policy.Enabled
 			status.SubscriptionEnabled = policy.SubscriptionEnabled
-			status.ProviderRefs = policy.ProviderRefs
+			if policy.ProviderRefs != nil {
+				status.ProviderRefs = policy.ProviderRefs
+			}
 		}
 		switch runtime {
 		case types.CodeAgentRuntimeClaudeCode:
@@ -264,6 +267,7 @@ func (apiServer *HelixAPIServer) loadOrgCodeAgentHarnessPolicy(
 			OrganizationID: orgID,
 			Runtime:        runtime,
 			Enabled:        true,
+			ProviderRefs:   []string{},
 		}, nil
 	}
 	if err != nil {
@@ -271,6 +275,9 @@ func (apiServer *HelixAPIServer) loadOrgCodeAgentHarnessPolicy(
 	}
 	if harness == nil {
 		return nil, fmt.Errorf("failed to load coding-agent harness policy: store returned no policy")
+	}
+	if harness.ProviderRefs == nil {
+		harness.ProviderRefs = []string{}
 	}
 	return harness, nil
 }

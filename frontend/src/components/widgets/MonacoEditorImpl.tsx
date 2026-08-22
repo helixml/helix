@@ -3,6 +3,7 @@ import * as monaco from 'monaco-editor';
 import { Box, BoxProps } from '@mui/material';
 import useThemeConfig from '../../hooks/useThemeConfig';
 import useLightTheme from '../../hooks/useLightTheme';
+import { getMonacoClipboardOverrideServices } from '../../utils/clipboard';
 
 interface MonacoEditorProps extends Omit<BoxProps, 'onChange'> {
   value: string;
@@ -336,16 +337,13 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   useEffect(() => {
     if (!editorRef.current) return;
 
-    const helixDarkTheme = createHelixTheme(themeConfig);
-    monaco.editor.defineTheme('helix-dark', helixDarkTheme);
-    const helixLightTheme = createHelixLightTheme(themeConfig);
-    monaco.editor.defineTheme('helix-light', helixLightTheme);
-
-    // Create editor instance
+    // Monaco only accepts service overrides during its first initialization.
+    // Create the editor before calling any other Monaco API so Safari on HTTP
+    // does not install Monaco's navigator.clipboard click handler.
     const editor = monaco.editor.create(editorRef.current, {
       value,
       language,
-      theme: effectiveTheme,
+      theme: lightTheme.isLight ? 'vs-light' : 'vs-dark',
       readOnly,
       automaticLayout: true,
       scrollBeyondLastLine: false,
@@ -356,7 +354,13 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
       wordWrap: 'on',
       wrappingIndent: 'indent',
       ...options,
-    });
+    }, getMonacoClipboardOverrideServices());
+
+    const helixDarkTheme = createHelixTheme(themeConfig);
+    monaco.editor.defineTheme('helix-dark', helixDarkTheme);
+    const helixLightTheme = createHelixLightTheme(themeConfig);
+    monaco.editor.defineTheme('helix-light', helixLightTheme);
+    monaco.editor.setTheme(effectiveTheme);
 
     editorInstanceRef.current = editor;
     setIsEditorReady(true);

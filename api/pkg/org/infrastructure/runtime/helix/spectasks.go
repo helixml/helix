@@ -96,6 +96,23 @@ func (s *SpecTasks) OwnProjectID(ctx context.Context, orgID string, workerID org
 // always the Worker's hiring user, so cross-project mutations are still
 // attributed to a real Helix user.
 func (s *SpecTasks) resolveProject(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID string) (projectID, hiringUserID string, err error) {
+	// A project principal (a spec task's own coding agent) has no Worker
+	// runtime state — it carries its project and acting user directly. It is
+	// pinned to that one project: naming any other is refused rather than
+	// silently redirected, so a task can never reach a sibling project.
+	if principal, ok := runtime.ProjectPrincipalFromContext(ctx); ok {
+		if requestedProjectID != "" && requestedProjectID != principal.ProjectID {
+			return "", "", fmt.Errorf("caller is scoped to project %s and cannot act on project %s", principal.ProjectID, requestedProjectID)
+		}
+		project, projErr := s.tasks.GetProject(ctx, principal.ProjectID)
+		if projErr != nil {
+			return "", "", fmt.Errorf("get project: %w", projErr)
+		}
+		if project.OrganizationID != orgID {
+			return "", "", fmt.Errorf("project %s does not belong to this caller's organization", principal.ProjectID)
+		}
+		return principal.ProjectID, principal.ActingUserID, nil
+	}
 	state, err := LoadState(ctx, s.orgStore, orgID, workerID)
 	if err != nil {
 		return "", "", fmt.Errorf("load worker state: %w", err)

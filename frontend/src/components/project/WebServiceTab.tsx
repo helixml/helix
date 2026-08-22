@@ -522,9 +522,10 @@ const DomainList: FC<{
                   <Tooltip title="Open">
                     <IconButton
                       size="small"
-                      href={`https://${d.hostname}/`}
+                      href={d.url}
                       target="_blank"
                       rel="noopener noreferrer"
+                      disabled={!d.url}
                     >
                       <LaunchIcon fontSize="small" />
                     </IconButton>
@@ -533,7 +534,8 @@ const DomainList: FC<{
                 <Tooltip title="Copy URL">
                   <IconButton
                     size="small"
-                    onClick={() => onCopy(`https://${d.hostname}/`, 'URL')}
+                    onClick={() => d.url && onCopy(d.url, 'URL')}
+                    disabled={!d.url}
                   >
                     <ContentCopyIcon fontSize="small" />
                   </IconButton>

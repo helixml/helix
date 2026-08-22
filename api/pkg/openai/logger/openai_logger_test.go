@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/toolcall"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -586,4 +587,70 @@ func Test_logLLMCall_WithBillingLogger_Org(t *testing.T) {
 
 	// Wait for the goroutine to complete
 	mw.wg.Wait()
+}
+
+func TestValidateToolCalls(t *testing.T) {
+	req := &openai.ChatCompletionRequest{
+		Tools: []openai.Tool{{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name: "get_weather",
+				Parameters: map[string]any{
+					"type":                 "object",
+					"properties":           map[string]any{"city": map[string]any{"type": "string"}},
+					"required":             []string{"city"},
+					"additionalProperties": false,
+				},
+			},
+		}},
+	}
+
+	respWith := func(calls ...openai.ToolCall) *openai.ChatCompletionResponse {
+		return &openai.ChatCompletionResponse{
+			Choices: []openai.ChatCompletionChoice{{
+				Message:      openai.ChatCompletionMessage{ToolCalls: calls},
+				FinishReason: openai.FinishReasonToolCalls,
+			}},
+		}
+	}
+	call := func(name, args string) openai.ToolCall {
+		return openai.ToolCall{Function: openai.FunctionCall{Name: name, Arguments: args}}
+	}
+
+	t.Run("valid call", func(t *testing.T) {
+		result := validateToolCalls(req, respWith(call("get_weather", `{"city":"Vilnius"}`)))
+		assert.Equal(t, 1, result.ToolsOffered)
+		assert.Equal(t, 1, result.Calls)
+		assert.Equal(t, 0, result.Errors)
+	})
+
+	t.Run("arguments miss the schema", func(t *testing.T) {
+		result := validateToolCalls(req, respWith(call("get_weather", `{"town":"Vilnius"}`)))
+		assert.Equal(t, 1, result.Errors)
+		assert.Equal(t, toolcall.KindSchemaMismatch, result.KindsString())
+	})
+
+	t.Run("tool was never offered", func(t *testing.T) {
+		result := validateToolCalls(req, respWith(call("get_forecast", `{"city":"Vilnius"}`)))
+		assert.Equal(t, 1, result.Errors)
+		assert.Equal(t, toolcall.KindUnknownName, result.KindsString())
+	})
+
+	t.Run("a turn without tool calls is not counted", func(t *testing.T) {
+		result := validateToolCalls(req, respWith())
+		assert.Equal(t, 0, result.Calls)
+		assert.False(t, result.Errored())
+	})
+
+	t.Run("a failed request has nothing to validate", func(t *testing.T) {
+		assert.False(t, validateToolCalls(req, nil).Errored())
+	})
+}
+
+func TestFinishReason(t *testing.T) {
+	assert.Equal(t, "", finishReason(nil))
+	assert.Equal(t, "", finishReason(&openai.ChatCompletionResponse{}))
+	assert.Equal(t, "tool_calls", finishReason(&openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{{FinishReason: openai.FinishReasonToolCalls}},
+	}))
 }

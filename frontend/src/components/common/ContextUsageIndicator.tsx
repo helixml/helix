@@ -110,8 +110,11 @@ export const ContextUsageIndicator: FC<ContextUsageIndicatorProps> = ({
         aria-valuemax={usageAvailable ? 100 : undefined}
         aria-valuenow={usageAvailable ? Math.round(percentage) : undefined}
         sx={{
-          width: 30,
-          height: 30,
+          // Matches the composer's icon buttons it sits beside — it was a 30px
+          // box around a 20px glyph next to 28px boxes around 17px ones, which
+          // read as one control being bigger than the rest.
+          width: 28,
+          height: 28,
           flexShrink: 0,
           display: 'flex',
           alignItems: 'center',
@@ -128,7 +131,7 @@ export const ContextUsageIndicator: FC<ContextUsageIndicatorProps> = ({
           component="svg"
           viewBox="0 0 20 20"
           aria-hidden="true"
-          sx={{ width: 20, height: 20, transform: 'rotate(-90deg)' }}
+          sx={{ width: 17, height: 17, transform: 'rotate(-90deg)' }}
         >
           <circle
             className="context-usage-track"

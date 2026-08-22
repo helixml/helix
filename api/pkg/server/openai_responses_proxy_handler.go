@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/toolcall"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -358,6 +359,8 @@ func (s *HelixAPIServer) recordOpenAIResponsesCall(
 	if providerID == "" {
 		providerID = endpoint.Name
 	}
+	tools := validateResponsesToolCalls(requestBody, result.Response)
+
 	call := &types.LLMCall{
 		ID:                 system.GenerateLLMCallID(),
 		Created:            started,
@@ -387,6 +390,11 @@ func (s *HelixAPIServer) recordOpenAIResponsesCall(
 		UserID:             user.ID,
 		Stream:             stream,
 		Error:              result.Error,
+		FinishReason:       tools.FinishReason,
+		ToolsOffered:       tools.Result.ToolsOffered,
+		ToolCallsReturned:  tools.Result.Calls,
+		ToolCallErrors:     tools.Result.Errors,
+		ToolCallErrorKinds: tools.Result.KindsString(),
 	}
 	logCtx, cancel := context.WithTimeout(ctx, openAIResponsesLogTimeout)
 	defer cancel()
@@ -417,4 +425,81 @@ func removeHopByHopHeaders(header http.Header) {
 
 func joinProxyPath(basePath, requestPath string) string {
 	return strings.TrimRight(basePath, "/") + "/" + strings.TrimLeft(requestPath, "/")
+}
+
+// responsesToolCallVerdict pairs the tool call validation with the finish
+// reason it implies. The Responses API has no finish_reason field — it reports
+// a status — so a turn that emitted function calls is recorded as "tool_calls"
+// to match what the Chat Completions and Anthropic proxies write.
+type responsesToolCallVerdict struct {
+	Result       toolcall.Result
+	FinishReason string
+}
+
+// validateResponsesToolCalls checks the function calls in a Responses API
+// result against the schemas the request offered. The response is either a
+// full envelope (non-streaming) or the terminal response.completed event
+// (streaming), so the output items are read from either shape. Built-in tools
+// (web_search, file_search) carry no name or parameters and do not surface as
+// function_call items, so they are left out of both sides.
+func validateResponsesToolCalls(requestBody, response []byte) responsesToolCallVerdict {
+	if len(requestBody) == 0 || len(response) == 0 {
+		return responsesToolCallVerdict{}
+	}
+
+	var request struct {
+		Tools []struct {
+			Type       string          `json:"type"`
+			Name       string          `json:"name"`
+			Parameters json.RawMessage `json:"parameters"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(requestBody, &request); err != nil {
+		log.Debug().Err(err).Msg("failed to parse Responses request for tool schemas")
+		return responsesToolCallVerdict{}
+	}
+
+	type outputItem struct {
+		Type      string `json:"type"`
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	}
+	var envelope struct {
+		Status   string       `json:"status"`
+		Output   []outputItem `json:"output"`
+		Response *struct {
+			Status string       `json:"status"`
+			Output []outputItem `json:"output"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(response, &envelope); err != nil {
+		log.Debug().Err(err).Msg("failed to parse Responses response for tool calls")
+		return responsesToolCallVerdict{}
+	}
+	output, status := envelope.Output, envelope.Status
+	if envelope.Response != nil {
+		output, status = envelope.Response.Output, envelope.Response.Status
+	}
+
+	tools := make([]toolcall.Tool, 0, len(request.Tools))
+	for _, tool := range request.Tools {
+		if tool.Name == "" {
+			continue
+		}
+		tools = append(tools, toolcall.Tool{Name: tool.Name, Schema: tool.Parameters})
+	}
+
+	var calls []toolcall.Call
+	for _, item := range output {
+		if item.Type != "function_call" {
+			continue
+		}
+		calls = append(calls, toolcall.Call{Name: item.Name, Arguments: item.Arguments})
+	}
+
+	verdict := responsesToolCallVerdict{Result: toolcall.Validate(tools, calls), FinishReason: status}
+	if len(calls) > 0 {
+		verdict.FinishReason = "tool_calls"
+	}
+	return verdict
 }

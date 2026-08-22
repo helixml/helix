@@ -15,9 +15,12 @@ interface ProjectTaskDefaultsProps {
  * Compute defaults for new tasks in this project.
  *
  * Which coding agent and model a task may use is an organization decision now,
- * configured on the Providers page, so this tab no longer offers a harness or
- * model. Leaving a project-level provider choice here would let a project pick
- * an agent the org has not enabled.
+ * configured on the Providers page, so this control offers no harness or model.
+ * Leaving a project-level provider choice here would let a project pick an
+ * agent the org has not enabled.
+ *
+ * Renders ungrouped: the caller's SettingRow supplies the "Compute" label, so
+ * the control's own inline label would print it twice.
  */
 const ProjectTaskDefaults: FC<ProjectTaskDefaultsProps> = ({
   project,
@@ -40,7 +43,6 @@ const ProjectTaskDefaults: FC<ProjectTaskDefaultsProps> = ({
         onUpdate({ default_sandbox_runtime: runtime })
       }
       disabled={disabled}
-      grouped
     />
   );
 };

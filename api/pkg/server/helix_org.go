@@ -72,7 +72,11 @@ import (
 // mounted under /api/v1/orgs/{org}/. The React UI at
 // /orgs/:org_id/helix-org/* consumes those endpoints.
 type helixOrgHandlers struct {
-	api       http.Handler
+	api http.Handler
+	// mcpServer is the org MCP server behind `api`. Held directly so the
+	// spec-task MCP backend can serve a project-scoped caller through the
+	// same registry and audit path (ServeMCPForCaller).
+	mcpServer *helixorgserver.Server
 	scope     *helixOrgScope
 	store     *helixorgstore.Store
 	lifecycle *lifecycle.Service
@@ -420,6 +424,8 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 	// the api_key via authRouter; the per-org backend layer resolves orgID
 	// from the request before dispatching to the handler.
 	s.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(s, orgHandlers))
+	// Spec tasks get their own project-scoped slice of the same tool registry.
+	s.mcpGateway.RegisterBackend("helix-tasks", NewSpecTaskMCPBackend(s, orgHandlers))
 	return nil
 }
 
@@ -1321,6 +1327,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 
 	return &helixOrgHandlers{
 		api:                          orgServer.Handler(extras...),
+		mcpServer:                    orgServer,
 		scope:                        scope,
 		store:                        st,
 		lifecycle:                    lifecycleSvc,

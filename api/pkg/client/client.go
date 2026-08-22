@@ -93,6 +93,13 @@ type Client interface {
 	// Projects
 	ApplyProject(ctx context.Context, req *types.ProjectApplyRequest) (*types.ProjectApplyResponse, error)
 
+	// Project artifacts
+	ListArtifacts(ctx context.Context, projectID string) ([]*types.Artifact, error)
+	GetArtifact(ctx context.Context, artifactID string) (*types.Artifact, error)
+	CreateArtifact(ctx context.Context, projectID string, input *ArtifactUploadRequest) (*types.Artifact, error)
+	UpdateArtifact(ctx context.Context, artifactID string, input *ArtifactUploadRequest) (*types.Artifact, error)
+	DeleteArtifact(ctx context.Context, artifactID string) error
+
 	// System Settings
 	GetSystemSettings(ctx context.Context) (*types.SystemSettingsResponse, error)
 	UpdateSystemSettings(ctx context.Context, settings *types.SystemSettingsRequest) (*types.SystemSettingsResponse, error)

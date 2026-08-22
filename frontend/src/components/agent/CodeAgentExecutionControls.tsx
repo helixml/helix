@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   Divider,
+  IconButton,
   ListSubheader,
   Menu,
   MenuItem,
@@ -19,16 +20,18 @@ import {
   TypesSandboxRuntime,
 } from '../../api/api'
 import useSnackbar from '../../hooks/useSnackbar'
+import useIsPhone from '../../hooks/useIsPhone'
 import { useModelReasoningEfforts } from '../../hooks/useModelReasoningEfforts'
 import { getCodeAgentEffortOptions } from './CodeAgentEffortSelect'
 import { useHasEnabledCodeAgentHarnesses } from '../../services/codeAgentHarnessesService'
 import CodeAgentConfigPicker from './CodeAgentConfigPicker'
+import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
 
 type MaybePromise = void | Promise<unknown>
 
 export interface CodeAgentExecutionControlsProps {
   value?: TypesCodeAgentExecutionConfig
-  onChange: (value: TypesCodeAgentExecutionConfig) => MaybePromise
+  onChange: (value: TypesCodeAgentExecutionConfig, source: CodeAgentConfigChangeSource) => MaybePromise
   sandboxResourceOverrides?: TypesSandboxResourceOverrides
   sandboxRuntime?: TypesSandboxRuntime
   onSandboxResourceOverridesChange?: (value: TypesSandboxResourceOverrides) => MaybePromise
@@ -83,6 +86,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   computeOnly = false,
   autoSelectDefault = false,
 }) => {
+  const isPhone = useIsPhone()
   const snackbar = useSnackbar()
   const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(null)
   const [cpuAnchor, setCpuAnchor] = useState<HTMLElement | null>(null)
@@ -105,10 +109,13 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   const sandboxRuntimeLocked = showSandboxRuntime && !onSandboxRuntimeChange
   const controlsDisabled = disabled || isSaving
 
-  const save = async (next: TypesCodeAgentExecutionConfig) => {
+  const save = async (
+    next: TypesCodeAgentExecutionConfig,
+    source: CodeAgentConfigChangeSource,
+  ) => {
     setIsSaving(true)
     try {
-      await onChange(next)
+      await onChange(next, source)
     } catch (error) {
       snackbar.error(error instanceof Error ? error.message : 'Failed to update coding configuration')
     } finally {
@@ -127,7 +134,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
       value={value}
       disabled={controlsDisabled}
       autoSelectDefault={autoSelectDefault}
-      onChange={(next) => void save(next)}
+      onChange={(next, source) => void save(next, source)}
     />
   )
   // Reasoning depth is a setting *of* a harness, so it has nothing to configure
@@ -148,7 +155,24 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
       </Box>
     </Tooltip>
   ) : null
-  const computeControl = !onSandboxResourceOverridesChange ? null : (
+  // A phone's composer row has no width to spare, and the vCPU count is a
+  // setting you check rarely and change rarer. The chip alone still says which
+  // control this is, and the popover still says what it is set to.
+  const computeControl = !onSandboxResourceOverridesChange ? null : isPhone ? (
+    <Tooltip title={`Change sandbox size (${resources.vcpus} vCPU)`}>
+      <Box component="span" sx={{ display: 'inline-flex' }}>
+        <IconButton
+          size="small"
+          disabled={controlsDisabled}
+          aria-label={`Change sandbox size, currently ${resources.vcpus} vCPU`}
+          onClick={(event) => setCpuAnchor(event.currentTarget)}
+          sx={{ width: 28, height: 28, color: 'text.secondary', flexShrink: 0 }}
+        >
+          <Cpu size={17} />
+        </IconButton>
+      </Box>
+    </Tooltip>
+  ) : (
     <Tooltip title={`Change sandbox size (${resources.vcpus} vCPU)`}>
       <Box component="span" sx={{ display: 'inline-flex' }}>
         <Button
@@ -228,7 +252,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
               void save({
                 ...value,
                 reasoning_effort: option.value === 'default' ? undefined : option.value,
-              })
+              }, 'user')
             }}
           >
             <Typography variant="body2">{option.label}</Typography>
@@ -246,7 +270,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
               selected={value?.service_tier === option.value}
               onClick={() => {
                 setSettingsAnchor(null)
-                if (value) void save({ ...value, service_tier: option.value })
+                if (value) void save({ ...value, service_tier: option.value }, 'user')
               }}
             >
               <Typography variant="body2">{option.label}</Typography>

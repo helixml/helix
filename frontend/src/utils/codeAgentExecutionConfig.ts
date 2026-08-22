@@ -66,3 +66,30 @@ export function findCodeAgentAppForConfig(
       && JSON.stringify(candidate.goose_recipes || []) === JSON.stringify(config.goose_recipes || [])
   })
 }
+
+/**
+ * Where a coding-config change came from. `auto` is the picker filling in a
+ * recommended harness for a surface that had none; `user` is an explicit pick.
+ * Only a `user` change is worth remembering as a project default.
+ */
+export type CodeAgentConfigChangeSource = 'user' | 'auto'
+
+/**
+ * Whether an explicit pick should be written back as the project default.
+ *
+ * A project with no config at all has nothing to lose, so the first manual pick
+ * seeds it. A project that already records a model has a deliberate default and
+ * is left alone — per-task picks stay per-task. The middle case is the
+ * runtime-only "deferred native harness" config the API stores for claude_code
+ * and codex_cli projects: the harness is chosen but the model is not, so the
+ * model is filled in only when the pick stays on that same harness.
+ */
+export function shouldSeedProjectCodeAgentConfig(
+  existing: TypesCodeAgentExecutionConfig | undefined,
+  next: TypesCodeAgentExecutionConfig | undefined,
+): boolean {
+  if (!next?.runtime || !next?.model) return false
+  if (!existing?.runtime) return true
+  if (existing.model) return false
+  return existing.runtime === next.runtime
+}

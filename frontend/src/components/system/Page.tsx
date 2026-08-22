@@ -53,6 +53,8 @@ const Page: React.FC<{
   globalSearchResourceTypes?: TypesResource[],
   // notifications — the bell is part of the standard topbar; opt out per page
   notifications?: boolean,
+  // theme toggle — immersive viewers can opt out of global appearance controls
+  themeToggle?: boolean,
   children?: ReactNode,
 }> = ({
   topbarContent = null,
@@ -73,6 +75,7 @@ const Page: React.FC<{
   globalSearch = false,
   globalSearchResourceTypes,
   notifications = true,
+  themeToggle = true,
   children,
 }) => {
   const router = useRouter()
@@ -383,11 +386,13 @@ const Page: React.FC<{
                 }}
               >
                 { topbarContent }
-                <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
-                  <IconButton onClick={toggleMode} size="small" sx={{ color: lightTheme.textColorFaded }}>
-                    {mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
-                  </IconButton>
-                </Tooltip>
+                {themeToggle && (
+                  <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+                    <IconButton onClick={toggleMode} size="small" sx={{ color: lightTheme.textColorFaded }}>
+                      {mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                )}
                 {notifications && <GlobalNotifications organizationId={organizationId} />}
               </Box>
             </AppBar>
@@ -412,8 +417,13 @@ const Page: React.FC<{
           flexDirection: 'column',
           overflowY: disableContentScroll ? 'hidden' : 'auto',
           overflowX: 'hidden',
+          // The app shell is a fixed pane; a rubber-band at the end of this
+          // scroller must not chain out and drag it.
+          overscrollBehavior: 'contain',
           width: '100%',
-          maxWidth: '100vw',
+          // 100% of the shell, not 100vw: vw is the layout viewport, which is
+          // not the width on screen once the visual viewport is offset or scaled.
+          maxWidth: '100%',
           minHeight: 0,
         }}
       >

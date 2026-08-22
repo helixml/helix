@@ -83,6 +83,22 @@ type ProviderEndpoint struct {
 	Error           string                 `json:"error" gorm:"-"`
 }
 
+// ProviderEndpointModels is the model picker payload for one provider endpoint:
+// everything the upstream offers, plus the subset the operator has enabled.
+type ProviderEndpointModels struct {
+	// Models is the provider's full upstream catalogue, unfiltered.
+	Models []OpenAIModel `json:"models"`
+	// EnabledModels is the operator's whitelist. Empty means every model in
+	// Models is available — the default for a newly added provider.
+	EnabledModels []string `json:"enabled_models"`
+}
+
+// UpdateProviderEndpointModels sets the enabled-models whitelist for an
+// endpoint. An empty list re-enables the provider's whole catalogue.
+type UpdateProviderEndpointModels struct {
+	Models []string `json:"models"`
+}
+
 // ModelsList is a list of models, including those that belong to the user or organization.
 type OpenAIModelsList struct {
 	Models []OpenAIModel `json:"data"`
@@ -128,6 +144,17 @@ type OpenAIModel struct {
 	// Nil means Helix does not know; a UI must not offer a guessed effort list,
 	// because sending a value the provider rejects aborts the whole turn.
 	ReasoningEfforts *ReasoningEffortProfile `json:"reasoning_efforts,omitempty"`
+
+	// SupportedParameters is the set of request parameters the model accepts,
+	// as reported by aggregators that publish it (OpenRouter's /v1/models does;
+	// plain OpenAI-compatible servers don't). Used by the model picker to
+	// filter a several-hundred-model catalogue down to, for example, the models
+	// that can actually call tools. Nil means the provider didn't say.
+	SupportedParameters []string `json:"supported_parameters,omitempty"`
+	// InputModalities is the model's accepted input types ("text", "image",
+	// "file", ...). Same provenance and same nil-means-unknown rule as
+	// SupportedParameters.
+	InputModalities []string `json:"input_modalities,omitempty"`
 }
 
 // UnmarshalJSON accepts the context-window fields commonly returned by
@@ -151,7 +178,20 @@ func (m *OpenAIModel) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	// OpenRouter nests the modality list under architecture. Decoded
+	// best-effort and separately: a provider that uses that key for some other
+	// shape must not fail the whole model list.
+	var nested struct {
+		Architecture struct {
+			InputModalities []string `json:"input_modalities"`
+		} `json:"architecture"`
+	}
+	_ = json.Unmarshal(data, &nested)
+
 	*m = OpenAIModel(decoded)
+	if len(m.InputModalities) == 0 {
+		m.InputModalities = nested.Architecture.InputModalities
+	}
 	if m.ContextLength > 0 {
 		return nil
 	}

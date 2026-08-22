@@ -62,6 +62,7 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Building Go binaries..." && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix . && \
     CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /docker-wrapper ./cmd/docker-wrapper
@@ -926,6 +927,47 @@ COPY qwen-code-build/ ./
 RUN chmod +x dist/cli.js && \
     ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
 
+# Helix agent skills (github.com/helixml/skills).
+#
+# Baked in rather than fetched at session start so an offline or air-gapped
+# deployment gets the same agent capabilities. The canonical copy is root-owned
+# under /opt/helix/skills; helix-workspace-setup.sh symlinks it into each
+# harness's discovery directory on every container start (it cannot be done
+# here — that script replaces ~/.claude with a symlink to persistent workspace
+# storage, which would drop anything this stage wrote there).
+#
+# HELIX_SKILLS selects what to install. The repo carries skills for driving a
+# Helix control plane (helix-board, helix-deploy, helix-e2e, …); those are
+# deliberately left out, since an agent in a task sandbox should work on the
+# task's repo, not reconfigure the Helix running it.
+#
+# Keep SKILLS_COMMIT in sync with sandbox-versions.txt.
+ARG SKILLS_COMMIT=657b1314886e8b969d5f54f06cbff47cc9c59bd0
+ARG HELIX_SKILLS="helix-artifacts"
+RUN <<_INSTALL_SKILLS
+set -eu
+echo "=== Installing Helix agent skills (${HELIX_SKILLS}) @ ${SKILLS_COMMIT} ==="
+git init -q /tmp/helix-skills
+git -C /tmp/helix-skills fetch -q --depth 1 https://github.com/helixml/skills.git "${SKILLS_COMMIT}"
+git -C /tmp/helix-skills checkout -q FETCH_HEAD
+mkdir -p /opt/helix/skills
+for skill in ${HELIX_SKILLS}; do
+  # Fail the build rather than ship a silently-missing skill: a renamed or
+  # dropped upstream directory must surface here, not as an agent that
+  # quietly has no idea the feature exists.
+  if [ ! -f "/tmp/helix-skills/skills/${skill}/SKILL.md" ]; then
+    echo "ERROR: skills/${skill}/SKILL.md not found at ${SKILLS_COMMIT}" >&2
+    exit 1
+  fi
+  cp -a "/tmp/helix-skills/skills/${skill}" /opt/helix/skills/
+done
+rm -rf /tmp/helix-skills
+echo "${SKILLS_COMMIT}" > /opt/helix/skills.version
+chown -R root:root /opt/helix/skills
+chmod -R a+rX,go-w /opt/helix/skills
+ls /opt/helix/skills
+_INSTALL_SKILLS
+
 # Sway configuration (GOW pattern)
 ADD desktop/sway-config/config /cfg/sway/config
 ADD desktop/sway-config/SWAY-USER-GUIDE.md /cfg/sway/SWAY-USER-GUIDE.md
@@ -975,5 +1017,6 @@ RUN chmod +x /usr/local/bin/start-zed-helix.sh \
 
 # Helix Go binaries - at the very end since they're the lightest to rebuild
 COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
+COPY --from=go-build-env /helix /usr/local/bin/helix
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /docker-wrapper /opt/helix/docker-wrapper

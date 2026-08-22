@@ -2,10 +2,13 @@ package external_agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/store"
@@ -108,6 +111,7 @@ func GenerateZedMCPConfig(
 	oauthTokenGetter OAuthTokenGetter,
 	providerSnapshot []ProviderRef,
 	orgWorkerID string,
+	specTaskTools []string,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -357,6 +361,19 @@ func GenerateZedMCPConfig(
 	if orgWorkerID != "" {
 		config.ContextServers["helix"] = ContextServerConfig{
 			URL: strings.TrimRight(helixAPIURL, "/") + "/api/v1/mcp/helix-org",
+			Headers: map[string]string{
+				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+			},
+		}
+	}
+
+	// Spec tasks get the project-scoped slice of the same tool registry, so a
+	// task can create and steer other tasks as sub-agents. The rev is what
+	// makes an edit land mid-session: Zed caches tools/list from initialize,
+	// so the URL has to change for it to restart the context server.
+	if len(specTaskTools) > 0 {
+		config.ContextServers["helix-tasks"] = ContextServerConfig{
+			URL: strings.TrimRight(helixAPIURL, "/") + "/api/v1/mcp/helix-tasks?rev=" + AgentToolsRev(specTaskTools),
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 			},
@@ -907,7 +924,7 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	// Runner-side path has no provider-manager handle, so we skip provider
 	// validation here. The handler-side callers (getZedConfig,
 	// getMergedZedSettings) do pass the live provider list.
-	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, nil, session.Metadata.OrgWorkerID)
+	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, nil, session.Metadata.OrgWorkerID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Zed config: %w", err)
 	}
@@ -981,4 +998,14 @@ func GetUserZedOverrides(ctx context.Context, s store.Store, sessionID string) (
 	}
 
 	return overrides, nil
+}
+
+// AgentToolsRev is a short, stable fingerprint of an effective tool list. It
+// rides the spec-task MCP URL so a tool edit changes settings.json, which is
+// what makes Zed restart that context server and pick up the new tools.
+func AgentToolsRev(tools []string) string {
+	sorted := append([]string(nil), tools...)
+	sort.Strings(sorted)
+	sum := sha256.Sum256([]byte(strings.Join(sorted, ",")))
+	return hex.EncodeToString(sum[:4])
 }

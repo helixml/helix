@@ -1,7 +1,19 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import GlobalNotifications from './GlobalNotifications'
+
+// The panel now carries the Claude sign-in expiry banner, which reads a query,
+// so rendering it needs the same provider the app supplies.
+function renderNotifications() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <GlobalNotifications />
+    </QueryClientProvider>,
+  )
+}
 
 const mocks = vi.hoisted(() => ({
   acknowledge: vi.fn(),
@@ -78,7 +90,7 @@ describe('org message notifications', () => {
   })
 
   it('links to the agent chat and acknowledges before navigating', () => {
-    render(<GlobalNotifications />)
+    renderNotifications()
     fireEvent.click(screen.getAllByRole('button')[0])
 
     expect(screen.queryByText('Respond')).not.toBeInTheDocument()
@@ -95,7 +107,7 @@ describe('org message notifications', () => {
 
   it('hides the bell badge for read notifications while retaining the panel total', () => {
     event.acknowledged_at = new Date().toISOString()
-    render(<GlobalNotifications />)
+    renderNotifications()
 
     const bellButton = screen.getAllByRole('button')[0]
     expect(within(bellButton).queryByText('1')).not.toBeInTheDocument()
@@ -106,7 +118,7 @@ describe('org message notifications', () => {
 
   it('opens the same agent chat from a browser notification', async () => {
     mocks.browserNotificationsEnabled = true
-    render(<GlobalNotifications />)
+    renderNotifications()
 
     await waitFor(() => expect(mocks.fireNotification).toHaveBeenCalledOnce())
     mocks.fireNotification.mock.calls[0][3]()
