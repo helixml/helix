@@ -926,7 +926,13 @@ function build-desktop() {
     exit 1
   fi
 
-  docker buildx build --provenance=false -f "$DOCKERFILE" \
+  # --load: with a docker-container buildx driver (any project-local builder
+  # left selected in `docker buildx use`) an unqualified build writes only to
+  # the build cache. The image hash read back below would then be the previous
+  # build's, which reports "Image unchanged (layers cached)" and skips the
+  # sandbox transfer — a green build that shipped nothing. Harmless no-op on
+  # the default docker driver.
+  docker buildx build --provenance=false --load -f "$DOCKERFILE" \
     --build-arg "GO_VERSION=${GO_VERSION}" \
     -t "${IMAGE_NAME}:latest" \
     .
