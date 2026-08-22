@@ -4,9 +4,11 @@ import { getMonacoClipboardOverrideServices } from '../../utils/clipboard'
 describe('MonacoEditor clipboard integration', () => {
   const originalSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
   const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  const originalUserAgent = Object.getOwnPropertyDescriptor(navigator, 'userAgent')
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     if (originalSecureContext) {
       Object.defineProperty(window, 'isSecureContext', originalSecureContext)
     } else {
@@ -16,6 +18,9 @@ describe('MonacoEditor clipboard integration', () => {
       Object.defineProperty(navigator, 'clipboard', originalClipboard)
     } else {
       Reflect.deleteProperty(navigator, 'clipboard')
+    }
+    if (originalUserAgent) {
+      Object.defineProperty(navigator, 'userAgent', originalUserAgent)
     }
     document.body.innerHTML = ''
   })
@@ -31,6 +36,10 @@ describe('MonacoEditor clipboard integration', () => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       get: clipboardGetter,
+    })
+    Object.defineProperty(navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 (iPad; CPU OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Version/18.6 Mobile/15E148 Safari/604.1',
     })
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
