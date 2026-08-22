@@ -642,6 +642,32 @@ fi
 echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
 echo "  Claude: ~/.claude.json -> $CLAUDE_STATE_DIR/.claude.json"
 
+# Helix agent skills: link the image-baked skills (/opt/helix/skills, installed
+# by Dockerfile.ubuntu-helix) into each harness's discovery directory. This has
+# to run after the ~/.claude symlink above, which replaces whatever was there.
+#   ~/.claude/skills  Claude Code, and opencode's Claude-compatible scan
+#   ~/.agents/skills  goose, and opencode's vendor-neutral scan
+#   ~/.qwen/skills    qwen
+# Linked per skill rather than linking the directory, so skills a user or
+# project installs into those directories are left alone. opencode scans both
+# ~/.claude and ~/.agents, so it logs one "duplicate skill name" warning per
+# skill and keeps the first — harmless, and the price of one copy serving
+# every harness.
+if [ -d /opt/helix/skills ]; then
+    for skills_dir in ~/.claude/skills ~/.agents/skills ~/.qwen/skills; do
+        mkdir -p "$skills_dir"
+        # ~/.claude lives on the persistent workspace mount, so links written by
+        # an older image outlive it. Drop the ones whose target is gone before
+        # relinking, or a skill dropped from HELIX_SKILLS dangles forever.
+        find "$skills_dir" -maxdepth 1 -type l ! -exec test -e {} \; -delete 2>/dev/null || true
+        for skill in /opt/helix/skills/*/; do
+            [ -f "$skill/SKILL.md" ] || continue
+            ln -sfn "${skill%/}" "$skills_dir/$(basename "$skill")"
+        done
+    done
+    echo "  Skills: $(ls /opt/helix/skills | tr '\n' ' ')-> ~/.claude/skills, ~/.agents/skills, ~/.qwen/skills"
+fi
+
 # Browser profile (Chrome / Chromium): symlink ~/.config/google-chrome and
 # ~/.config/chromium to persistent storage so tabs, history, bookmarks and
 # extensions survive container restarts. Same pattern as ~/.claude above.

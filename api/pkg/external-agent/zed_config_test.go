@@ -21,6 +21,7 @@ func TestGenerateZedMCPConfigAllowsUnsandboxedCommands(t *testing.T) {
 		nil,
 		nil,
 		"",
+		nil,
 	)
 	assert.NoError(t, err)
 	if assert.NotNil(t, config.Agent) {
@@ -222,6 +223,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				nil,
 				tc.snapshot,
 				"",
+				nil,
 			)
 			assert.NoError(t, err)
 			if !assert.NotNil(t, cfg) || !assert.NotNil(t, cfg.Agent) {
@@ -264,6 +266,7 @@ func TestGenerateZedMCPConfigAddsDirectHelixOrgMCP(t *testing.T) {
 		nil,
 		nil,
 		"b-worker",
+		nil,
 	)
 	assert.NoError(t, err)
 	assert.Equal(t, ContextServerConfig{
@@ -681,4 +684,52 @@ func TestValidateAssistantModelConfig_ProviderAvailability(t *testing.T) {
 		"requires the openai provider")
 	assert.Empty(t,
 		ValidateAssistantModelConfig(codexAPIKeyApp, []ProviderRef{{ID: "pe_provider", Name: "openai"}}))
+}
+
+func TestGenerateZedMCPConfigAddsSpecTaskMCP(t *testing.T) {
+	tools := []string{"create_spectask", "list_spectasks"}
+	config, err := GenerateZedMCPConfig(
+		context.Background(),
+		&types.App{ID: "test-app"},
+		"user-1",
+		"session-1",
+		"http://sandbox-api:8080/",
+		"session-token",
+		false,
+		nil,
+		nil,
+		nil,
+		"",
+		tools,
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, ContextServerConfig{
+		URL:     "http://sandbox-api:8080/api/v1/mcp/helix-tasks?rev=" + AgentToolsRev(tools),
+		Headers: map[string]string{"Authorization": "Bearer session-token"},
+	}, config.ContextServers["helix-tasks"])
+}
+
+func TestGenerateZedMCPConfigOmitsSpecTaskMCPWithoutTools(t *testing.T) {
+	config, err := GenerateZedMCPConfig(
+		context.Background(),
+		&types.App{ID: "test-app"},
+		"user-1",
+		"session-1",
+		"http://sandbox-api:8080/",
+		"session-token",
+		false,
+		nil,
+		nil,
+		nil,
+		"",
+		nil,
+	)
+	assert.NoError(t, err)
+	_, present := config.ContextServers["helix-tasks"]
+	assert.False(t, present)
+}
+
+func TestAgentToolsRevIsOrderIndependentAndSensitive(t *testing.T) {
+	assert.Equal(t, AgentToolsRev([]string{"a", "b"}), AgentToolsRev([]string{"b", "a"}))
+	assert.NotEqual(t, AgentToolsRev([]string{"a", "b"}), AgentToolsRev([]string{"a", "b", "c"}))
 }

@@ -403,7 +403,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	if attachErr != nil {
 		log.Warn().Err(attachErr).Str("task_id", task.ID).Msg("Failed to stage attachments — continuing without them")
 	}
-	planningPrompt := BuildPlanningPrompt(task, guidelines, koditDoc, repoSection, attachmentsSection)
+	agentToolsSection := BuildAgentToolsSection(project.AgentTools, task.AgentTools)
+	planningPrompt := BuildPlanningPrompt(task, guidelines, koditDoc, repoSection, attachmentsSection, agentToolsSection)
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
 	codeAgentRuntime := codeAgentRuntimeForSpecTask(task)

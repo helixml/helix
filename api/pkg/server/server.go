@@ -782,6 +782,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Reap expired sandboxes (Sandboxes API).
 	go apiServer.sandboxController.StartReaper(ctx, time.Minute)
 
+	// Claude OAuth access tokens last ~8h and their refresh tokens ~9 days.
+	// Without this, a subscription only survived while sessions were running.
+	go apiServer.StartClaudeSubscriptionRefresher(ctx, claudeRefreshInterval)
+
 	// Probe live web services and auto-recover any that stop responding
 	// (crashed/hung stack heals without a human).
 	go webservice.NewHealthMonitor(apiServer.Store, apiServer.webServiceController).Start(ctx)
@@ -1054,6 +1058,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/provider-endpoints", apiServer.createProviderEndpoint).Methods(http.MethodPost)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.updateProviderEndpoint).Methods(http.MethodPut)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.deleteProviderEndpoint).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/provider-endpoints/{id}/available-models", apiServer.listProviderEndpointModels).Methods(http.MethodGet)
+	authRouter.HandleFunc("/provider-endpoints/{id}/models", apiServer.updateProviderEndpointModels).Methods(http.MethodPut)
 	authRouter.HandleFunc("/provider-endpoints/{id}/local-models", apiServer.listLocalModels).Methods(http.MethodGet)
 	authRouter.HandleFunc("/provider-endpoints/{id}/local-models/load", apiServer.loadLocalModel).Methods(http.MethodPost)
 	authRouter.HandleFunc("/provider-endpoints/{id}/local-models/unload", apiServer.unloadLocalModel).Methods(http.MethodPost)
@@ -1131,8 +1137,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/claude-subscriptions/{id}", system.Wrapper(apiServer.getClaudeSubscription)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/claude-subscriptions/{id}", system.Wrapper(apiServer.deleteClaudeSubscription)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/claude-subscriptions/{id}/delegation", system.Wrapper(apiServer.updateClaudeSubscriptionDelegation)).Methods(http.MethodPut)
-	authRouter.HandleFunc("/claude-subscriptions/start-login", system.Wrapper(apiServer.startClaudeLogin)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/claude-subscriptions/poll-login/{sessionId}", system.Wrapper(apiServer.pollClaudeLogin)).Methods(http.MethodGet)
+	// Browser-side PKCE: no sandbox, no CLI. Distinct from the desktop-session
+	// login above, which drives the real Claude Code CLI inside a container.
+	authRouter.HandleFunc("/claude-subscriptions/oauth/start", system.Wrapper(apiServer.startClaudeOAuthLogin)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/claude-subscriptions/oauth/complete", system.Wrapper(apiServer.completeClaudeOAuthLogin)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.getSessionClaudeCredentials)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.updateSessionClaudeCredentials)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/codex-subscriptions", system.Wrapper(apiServer.createCodexSubscription)).Methods(http.MethodPost)
@@ -1515,6 +1523,17 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// IMPORTANT: Must be before registerDefaultHandler to avoid being proxied to frontend
 	apiServer.gitHTTPServer.RegisterRoutes(router)
 
+	// /artifacts/{id} is a frontend viewer. Its iframe enters the isolated
+	// artifact origin through these narrowly scoped embed routes.
+	artifactEmbedHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.serveArtifactEmbed))
+	router.Handle("/artifacts/{artifact_id}/embed", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
+	router.Handle("/artifacts/{artifact_id}/embed/", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
+	router.Handle("/artifacts/{artifact_id}/embed/{artifact_path:.*}", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
+	artifactDocumentHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.serveArtifactDocument))
+	router.Handle("/artifacts/{artifact_id}/document", artifactDocumentHandler).Methods(http.MethodGet, http.MethodHead)
+	artifactViewerHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.getArtifactViewer))
+	insecureRouter.Handle("/public/artifacts/{artifact_id}", artifactViewerHandler).Methods(http.MethodGet)
+
 	// Set a custom NotFoundHandler for /api/v1/ routes to log unknown paths
 	subRouter.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Error().
@@ -1540,6 +1559,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/projects", system.Wrapper(apiServer.createProject)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/apply", system.Wrapper(apiServer.applyProject)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.getProject)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/artifacts", apiServer.listProjectArtifacts).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/artifacts", apiServer.createProjectArtifact).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/spec-task-agents", system.Wrapper(apiServer.listProjectSpecTaskAgents)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.updateProject)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.deleteProject)).Methods(http.MethodDelete)
@@ -1587,6 +1608,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// Project audit log routes
 	authRouter.HandleFunc("/projects/{id}/audit-logs", system.Wrapper(apiServer.listProjectAuditLogs)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.getArtifact).Methods(http.MethodGet)
+	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.updateArtifact).Methods(http.MethodPut)
+	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.deleteArtifact).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/artifacts/{artifact_id}/versions", apiServer.listArtifactVersions).Methods(http.MethodGet)
 
 	// Sample project routes (simple in-memory)
 	authRouter.HandleFunc("/sample-projects/simple", system.Wrapper(apiServer.listSimpleSampleProjects)).Methods(http.MethodGet)
@@ -1604,6 +1629,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/spec-tasks", apiServer.listTasks).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.getTask).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.updateSpecTask).Methods(http.MethodPut)
+	authRouter.HandleFunc("/agent-tools", apiServer.listAgentToolCatalogue).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/execution-config", apiServer.getSpecTaskExecutionConfig).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/execution-config", apiServer.updateSpecTaskExecutionConfig).Methods(http.MethodPatch)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.deleteSpecTask).Methods(http.MethodDelete)

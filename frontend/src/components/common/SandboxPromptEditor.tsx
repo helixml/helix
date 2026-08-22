@@ -215,7 +215,9 @@ const SandboxPromptEditor = forwardRef<HTMLDivElement, SandboxPromptEditorProps>
         bgcolor: 'transparent',
         color: (currentTheme) => getChatColors(currentTheme).foreground,
         fontFamily: 'inherit',
-        fontSize: { xs: '0.9375rem', sm: '0.875rem' },
+        // 1rem on a phone, not 0.9375: under 16px iOS zooms the page in when
+        // this takes focus — contenteditable is not exempt.
+        fontSize: { xs: '1rem', sm: '0.875rem' },
         fontWeight: 450,
         lineHeight: 1.55,
         letterSpacing: '-0.005em',

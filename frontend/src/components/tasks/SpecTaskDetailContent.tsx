@@ -40,9 +40,7 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import StopIcon from "@mui/icons-material/Stop";
 import LaunchIcon from "@mui/icons-material/Launch";
 import LinkIcon from "@mui/icons-material/Link";
-import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
-import UndoIcon from "@mui/icons-material/Undo";
 import {
   TypesCodeAgentOverrides,
   TypesSandboxResourceOverrides,
@@ -106,6 +104,7 @@ import AgentChat from "../session/AgentChat";
 import { getChatColors } from "../session/chatStyles";
 import type { WorkspaceReviewComment } from "../workspace-inspector/workspaceReviewComments";
 import CodeAgentExecutionControls from "../agent/CodeAgentExecutionControls";
+import AgentToolsPicker from "../tools/AgentToolsPicker";
 import SandboxStatusIndicator, {
   type SandboxIndicatorState,
 } from "./SandboxStatusIndicator";
@@ -122,10 +121,8 @@ import {
 } from "react-resizable-panels";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import useIsBigScreen from "../../hooks/useIsBigScreen";
+import useIsPhone from "../../hooks/useIsPhone";
 import useLightTheme from "../../hooks/useLightTheme";
-import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
-import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
-import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
 import {
   FileText,
   ChartNoAxesCombined,
@@ -133,8 +130,14 @@ import {
   PanelRight,
   Wand2,
   Share,
+  Trash2,
+  Undo2,
 } from "lucide-react";
 import { buildTaskUsageQuery } from "../../utils/usageDateRange";
+import {
+  ACTION_BUTTON_SX,
+  NEUTRAL_ACTION_BUTTON_SX,
+} from "../../styles/actionButtons";
 import SpecTaskViewToolbar, {
   TaskView,
   ToolbarDensity,
@@ -143,7 +146,11 @@ import SpecTaskViewToolbar, {
 import { getAutoOpenedSpecTasks, addAutoOpenedSpecTask } from "../../lib/specTaskAutoOpen";
 import { loadPanelLayout, savePanelLayout } from "../../lib/panelLayoutStorage";
 import SpecTaskTerminalDrawer from "./SpecTaskTerminalDrawer";
-import { resolveSpecTaskChatDefaultLayout } from "./specTaskPanelLayout";
+import {
+  loadSpecTaskContentPanelOpen,
+  resolveSpecTaskChatDefaultLayout,
+  saveSpecTaskContentPanelOpen,
+} from "./specTaskPanelLayout";
 import {
   isSpecTaskTerminalToggleShortcut,
   loadSpecTaskTerminalDrawerState,
@@ -180,11 +187,6 @@ const taskDetailsSectionSx = {
   borderRadius: 2,
   backgroundColor: "background.paper",
   p: 2,
-} as const;
-
-const taskActionButtonSx = {
-  fontSize: "0.75rem",
-  textTransform: "none",
 } as const;
 
 const taskDetailsTextSx = {
@@ -242,6 +244,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const streaming = useStreaming();
   const updateSpecTask = useUpdateSpecTask();
   const updateExecutionConfig = useUpdateSpecTaskExecutionConfig(taskId);
+
+  // Task-scoped tool grant. The project's list is the floor (shown locked in
+  // the picker), so this only ever persists the extras.
+  const handleAgentToolsChange = async (tools: string[]) => {
+    try {
+      await updateSpecTask.mutateAsync({ taskId, updates: { agent_tools: tools } });
+      snackbar.success("Agent tools updated");
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : "Failed to update agent tools");
+    }
+  };
   const autoSaveSpecTask = useUpdateSpecTask();
   const moveToBacklogMutation = useMoveToBacklog(taskId);
   const queryClient = useQueryClient();
@@ -253,6 +266,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Use md breakpoint (900px) to enable split view on tablets
   const isBigScreen = useIsBigScreen({ breakpoint: "md" });
+  const isPhone = useIsPhone();
   const lightTheme = useLightTheme();
   const savedSpecTaskChatLayout = loadPanelLayout(
     SPEC_TASK_CHAT_LAYOUT_KEY,
@@ -359,29 +373,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [contentCollapsed, setContentCollapsed] = useState(false);
   const contentPanelRef = useRef<PanelImperativeHandle>(null);
   const collapseContentAfterSplitRef = useRef(false);
-  const headlessInitialCollapseTaskRef = useRef<string | null>(null);
-
-  const collapseContentPanel = useCallback(() => {
-    if (chatCollapsed) {
-      collapseContentAfterSplitRef.current = true;
-      setContentCollapsed(true);
-      setChatCollapsed(false);
-      return;
-    }
-    const currentSize = contentPanelRef.current?.getSize().asPercentage;
-    if (currentSize && currentSize > 0) {
-      lastExpandedContentSizeRef.current = currentSize;
-    }
-    contentPanelRef.current?.collapse();
-  }, [chatCollapsed]);
-
-  const showContentPanel = useCallback(() => {
-    const panel = contentPanelRef.current;
-    if (!panel) return;
-    const restoredSize = lastExpandedContentSizeRef.current || 50;
-    panel.expand();
-    panel.resize(`${restoredSize}%`);
-  }, []);
+  const [contentPanelPreference, setContentPanelPreference] = useState(() => ({
+    taskId,
+    open: loadSpecTaskContentPanelOpen(taskId),
+  }));
+  const headlessContentPanelOpen = contentPanelPreference.taskId === taskId
+    ? contentPanelPreference.open
+    : loadSpecTaskContentPanelOpen(taskId);
 
   const [terminalDrawerState, setTerminalDrawerState] = useState(() =>
     loadSpecTaskTerminalDrawerState(taskId),
@@ -431,18 +429,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const displaySettings = useMemo(() => deriveDisplaySettings(undefined), []);
 
   // Check the task-owned execution config for Claude subscription credentials.
-  const { data: claudeSubscriptions } = useClaudeSubscriptions();
-  const claudeTokenExpiry = useMemo(() => {
-    if (
-      task?.code_agent_config?.runtime !== "claude_code" ||
-      task.code_agent_config.credential_type !== "subscription"
-    )
-      return null;
-    const sub = claudeSubscriptions?.[0];
-    if (!sub) return null;
-    if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
-    return getTokenExpiryStatus(sub.access_token_expires_at);
-  }, [task?.code_agent_config?.runtime, task?.code_agent_config?.credential_type, claudeSubscriptions]);
 
   // On mobile, 'chat' is a separate tab; on desktop, chat is always visible
   // Initialize from URL query param 'view' if present (only when syncing with URL)
@@ -503,6 +489,41 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     },
     [currentView, router, syncViewWithUrl],
   );
+
+  const rememberHeadlessContentPanelOpen = (open: boolean) => {
+    if (!isHeadless || !allowContentCollapse) return;
+    setContentPanelPreference((current) => (
+      current.taskId === taskId && current.open === open
+        ? current
+        : { taskId, open }
+    ));
+    saveSpecTaskContentPanelOpen(taskId, open);
+  };
+
+  const collapseContentPanel = () => {
+    rememberHeadlessContentPanelOpen(false);
+    if (chatCollapsed) {
+      collapseContentAfterSplitRef.current = true;
+      setContentCollapsed(true);
+      setChatCollapsed(false);
+      return;
+    }
+    const currentSize = contentPanelRef.current?.getSize().asPercentage;
+    if (currentSize && currentSize > 0) {
+      lastExpandedContentSizeRef.current = currentSize;
+    }
+    contentPanelRef.current?.collapse();
+  };
+
+  const showContentPanel = () => {
+    const panel = contentPanelRef.current;
+    if (!panel) return;
+    rememberHeadlessContentPanelOpen(true);
+    if (isHeadless) handleViewChange("changes");
+    const restoredSize = lastExpandedContentSizeRef.current || 50;
+    panel.expand();
+    panel.resize(`${restoredSize}%`);
+  };
 
 
   // Design review state
@@ -729,26 +750,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       }
     }
   }, [activeSessionId, isBigScreen, isHeadless]);
-
-  useEffect(() => {
-    if (
-      !isHeadless
-      || !allowContentCollapse
-      || !isBigScreen
-      || !activeSessionId
-      || launchPhase
-      || chatCollapsed
-    ) return;
-    headlessInitialCollapseTaskRef.current = taskId;
-  }, [
-    activeSessionId,
-    allowContentCollapse,
-    chatCollapsed,
-    isBigScreen,
-    isHeadless,
-    launchPhase,
-    taskId,
-  ]);
 
   // Fetch session data
   const { data: sessionResponse } = useGetSession(activeSessionId || "", {
@@ -1890,6 +1891,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         />
       </Box>
 
+      {/* Helix tools this task's agent can call */}
+      <Box sx={{ mb: 2 }}>
+        <AgentToolsPicker
+          label="Agent tools"
+          selectedTools={task?.agent_tools ?? []}
+          lockedTools={project?.agent_tools ?? []}
+          onChange={handleAgentToolsChange}
+          disabled={updateSpecTask.isPending || !!task?.archived}
+          helperText="Extra tools for this task only. Project tools are always on and cannot be removed here."
+        />
+      </Box>
+
       <Box
         sx={{
           display: "flex",
@@ -1903,13 +1916,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           Usage
         </Typography>
         <Button
-          variant="outlined"
+          variant="text"
           size="small"
           startIcon={<ChartNoAxesCombined size={16} />}
           onClick={() =>
             account.orgNavigate("usage", {}, buildTaskUsageQuery(taskId))
           }
-          sx={{ flexShrink: 0, textTransform: "none" }}
+          sx={{ ...NEUTRAL_ACTION_BUTTON_SX, flexShrink: 0 }}
         >
           View task usage
         </Button>
@@ -2185,57 +2198,64 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Box>
           <Button
             size="small"
-            variant="outlined"
-            startIcon={<Share size={14} />}
+            variant="text"
+            startIcon={<Share size={16} />}
             onClick={() => setShareDialogOpen(true)}
-            sx={{ ...taskActionButtonSx, ml: "auto" }}
+            sx={{ ...NEUTRAL_ACTION_BUTTON_SX, ml: "auto" }}
           >
             Share
           </Button>
         </Box>
 
-        {/* Move to Backlog button */}
-        {canMoveToBacklog && (
-          <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end" }}>
+        {/* Lifecycle actions share one right-aligned row so they read as a
+            group rather than as unrelated stacked blocks. */}
+        <Box
+          sx={{
+            mt: 2,
+            display: "flex",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            gap: 0.75,
+            flexWrap: "wrap",
+          }}
+        >
+          {canMoveToBacklog && (
             <Button
               size="small"
-              variant="outlined"
+              variant="text"
               color="warning"
               startIcon={
                 moveToBacklogMutation.isPending ? (
-                  <CircularProgress size={14} color="inherit" />
+                  <CircularProgress size={16} color="inherit" />
                 ) : (
-                  <UndoIcon />
+                  <Undo2 size={16} />
                 )
               }
               onClick={() => moveToBacklogMutation.mutate()}
               disabled={moveToBacklogMutation.isPending}
-              sx={taskActionButtonSx}
+              sx={ACTION_BUTTON_SX}
             >
               {moveToBacklogMutation.isPending
                 ? "Moving..."
                 : "Move to Backlog"}
             </Button>
-          </Box>
-        )}
+          )}
 
-        {/* Archive button */}
-        <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end" }}>
           <Tooltip title="Hold Shift to skip confirmation">
             <Button
               size="small"
-              variant="outlined"
+              variant="text"
               color="error"
               startIcon={
                 isArchiving ? (
-                  <CircularProgress size={14} color="inherit" />
+                  <CircularProgress size={16} color="inherit" />
                 ) : (
-                  <ArchiveIcon />
+                  <Trash2 size={16} />
                 )
               }
               onClick={handleArchiveClick}
               disabled={isArchiving || task?.archived}
-              sx={taskActionButtonSx}
+              sx={ACTION_BUTTON_SX}
             >
               {isArchiving ? "Archiving..." : "Archive Task"}
             </Button>
@@ -2247,7 +2267,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     </Box>
   );
 
-  const taskChatMetadata = task?.project_id ? (
+  // Project, repo and branch are reference, not controls, and on a phone they
+  // cost a whole row directly under the composer — where the space is worth
+  // more to the message being written. They stay one tap away in Details.
+  const taskChatMetadata = task?.project_id && !isPhone ? (
     <TaskChatMetadata
       projectName={project?.name}
       onOpenProject={() => account.orgNavigate("project-specs", { id: task.project_id })}
@@ -2342,23 +2365,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       />
 
       {/* Claude subscription token expiry warning */}
-      {claudeTokenExpiry &&
-        (claudeTokenExpiry.isExpired || claudeTokenExpiry.isExpiringSoon) && (
-          <Alert
-            severity="warning"
-            sx={{ mx: 1, mt: 1, flexShrink: 0 }}
-            action={
-              <ClaudeSubscriptionConnect
-                variant="button"
-                orgId={project?.organization_id}
-              />
-            }
-          >
-            {claudeTokenExpiry.isExpired
-              ? `Claude token expired (${claudeTokenExpiry.label}). It will auto-refresh next time a session uses Claude Code, or re-authenticate now.`
-              : `Claude token expiring soon (${claudeTokenExpiry.label}). It will auto-refresh next time a session uses Claude Code, or re-authenticate now.`}
-          </Alert>
-        )}
 
       {/* Tab Content */}
       <Box
@@ -2393,18 +2399,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               savedSpecTaskChatLayout,
               allowContentCollapse && (
                 collapseContentAfterSplitRef.current
-                || (isHeadless && headlessInitialCollapseTaskRef.current !== taskId)
+                || (isHeadless && !headlessContentPanelOpen)
               ),
             )}
             onLayoutChange={(layout) => {
               if (layout["spec-task-content"] === 0) {
                 collapseContentAfterSplitRef.current = false;
-                if (isHeadless) headlessInitialCollapseTaskRef.current = taskId;
+                rememberHeadlessContentPanelOpen(false);
               }
-              // A collapsed panel is transient UI state; retain the last useful
-              // split so restoring or reloading does not produce a zero-width pane.
+              // Keep the last useful split separate from the headless panel's
+              // task-specific visibility preference.
               if (layout["spec-task-chat"] > 0 && layout["spec-task-content"] > 0) {
                 lastExpandedContentSizeRef.current = layout["spec-task-content"];
+                rememberHeadlessContentPanelOpen(true);
                 savePanelLayout(SPEC_TASK_CHAT_LAYOUT_KEY, layout, SPEC_TASK_CHAT_PANEL_IDS);
               }
             }}

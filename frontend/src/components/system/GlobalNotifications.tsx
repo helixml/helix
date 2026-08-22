@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import Box from '@mui/material/Box'
+import Slide from '@mui/material/Slide'
 import IconButton from '@mui/material/IconButton'
 import Badge from '@mui/material/Badge'
 
@@ -17,6 +18,8 @@ import useLightTheme from '../../hooks/useLightTheme'
 import { useAttentionEvents, AttentionEvent, AttentionEventType } from '../../hooks/useAttentionEvents'
 import { useBrowserNotifications } from '../../hooks/useBrowserNotifications'
 import { useNavigationHistory, NavHistoryEntry } from '../../hooks/useNavigationHistory'
+import { useSettingsDialog } from '../../contexts/settingsDialog'
+import ClaudeExpiryBanner from '../account/ClaudeExpiryBanner'
 
 interface GlobalNotificationsProps {
   organizationId?: string
@@ -454,6 +457,7 @@ const PANEL_WIDTH = 360
 const FILTER_STORAGE_KEY = 'attention-filter-mode'
 
 const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange }) => {
+  const { openDialog } = useSettingsDialog()
   const router = useRouter5()
   const account = useAccount()
   const api = useApi()
@@ -708,7 +712,14 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         </Badge>
       </IconButton>
 
-      {/* Attention Queue — fixed panel, doesn't block page interaction */}
+      {/* Attention Queue — fixed panel, doesn't block page interaction.
+          Unmounted when closed rather than parked off-screen: a transformed
+          element still contributes scrollable overflow, so a panel sitting one
+          viewport-width to the right made the whole app horizontally
+          scrollable. On a phone that is a real gesture — you could drag the UI
+          sideways and push the toolbar off the screen — because iOS pans an
+          `overflow: hidden` box even though it clips it visually. */}
+      <Slide direction="left" in={drawerOpen} mountOnEnter unmountOnExit>
       <Box
         sx={{
           position: 'fixed',
@@ -716,7 +727,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           right: 0,
           bottom: 0,
           width: { xs: '100%', sm: PANEL_WIDTH },
-          maxWidth: '100vw',
+          maxWidth: '100%',
           textAlign: 'left',
           backgroundColor: lightTheme.panelColor,
           borderLeft: lightTheme.border,
@@ -725,9 +736,6 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           zIndex: 1200,
           display: 'flex',
           flexDirection: 'column',
-          transform: drawerOpen ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 0.25s ease-in-out',
-          pointerEvents: drawerOpen ? 'auto' : 'none',
         }}
       >
         {/* Header */}
@@ -853,6 +861,16 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           </Box>
         </Box>
 
+        {/* A Claude sign-in about to lapse needs acting on before it breaks an
+            agent turn, so it sits above the event list and opens the dialog
+            that fixes it. */}
+        <ClaudeExpiryBanner
+          onReconnect={() => {
+            handleDrawerClose()
+            openDialog('account')
+          }}
+        />
+
         {/* Browser notification prompt */}
         {shouldPrompt && (
           <BrowserNotificationBanner
@@ -935,6 +953,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           )}
         </Box>
       </Box>
+      </Slide>
     </>
   )
 }

@@ -96,6 +96,15 @@ interface RobustPromptInputProps {
   placeholder?: string
   disabled?: boolean
   maxHeight?: number
+  /**
+   * Fill the height available instead of hugging the text.
+   *
+   * A phone composing a new task has a whole screen and a keyboard; a card
+   * floating in the middle of it wastes both. In fill mode the shell drops its
+   * card chrome, the text starts at the top, and the actions dock at the
+   * bottom — the shape every mobile compose screen has.
+   */
+  fill?: boolean
   sendMode?: 'queued' | 'direct'
   inlineImageAttachments?: boolean
   deferredFileAttachments?: boolean
@@ -521,6 +530,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   placeholder = 'Send message to agent...',
   disabled = false,
   maxHeight = 200,
+  fill = false,
   specTaskId,
   projectId,
   apiClient,
@@ -830,6 +840,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const adjustHeight = useCallback(() => {
     const editor = enableSandboxCompletions ? sandboxEditorRef.current : textareaRef.current
     if (!editor) return
+    // In fill mode the height comes from the flex layout, and writing an inline
+    // height here would collapse it back to the content on every keystroke.
+    if (fill) return
 
     const oldHeight = editor.offsetHeight
     editor.style.height = 'auto'
@@ -840,7 +853,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     if (oldHeight !== newHeight && onHeightChange) {
       onHeightChange()
     }
-  }, [enableSandboxCompletions, maxHeight, onHeightChange])
+  }, [enableSandboxCompletions, fill, maxHeight, onHeightChange])
 
   useEffect(() => {
     adjustHeight()
@@ -1328,6 +1341,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         position: 'relative',
         width: '100%',
         minWidth: 0,
+        ...(fill && { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }),
       }}
     >
       {composerTrigger && (
@@ -1442,16 +1456,19 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         sx={{
           display: 'flex',
           flexDirection: 'column',
-          bgcolor: (theme) => getChatColors(theme).composerSurface,
-          borderRadius: hasVisibleQueue ? '0 0 22px 22px' : '22px',
-          border: '1px solid',
+          ...(fill && { flex: 1, minHeight: 0 }),
+          bgcolor: (theme) => fill ? 'transparent' : getChatColors(theme).composerSurface,
+          borderRadius: fill ? 0 : hasVisibleQueue ? '0 0 22px 22px' : '22px',
+          border: fill ? 'none' : '1px solid',
           borderColor: isDraggingOver
             ? 'primary.main'
             : !isOnline
             ? 'warning.main'
             : (theme) => getChatColors(theme).borderStrong,
           transition: 'border-color 0.15s, box-shadow 0.15s, background-color 0.15s',
-          boxShadow: isDraggingOver
+          boxShadow: fill
+            ? 'none'
+            : isDraggingOver
             ? (theme) => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.22)}`
             : !isOnline
             ? (theme) => `0 0 0 2px ${alpha(theme.palette.warning.main, 0.2)}`
@@ -1558,13 +1575,21 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               bgcolor: 'transparent',
               color: (theme) => getChatColors(theme).foreground,
               fontFamily: 'inherit',
-              fontSize: { xs: '0.9375rem', sm: '0.875rem' },
+              // 1rem on a phone, not 0.9375: under 16px iOS zooms in on focus.
+              fontSize: { xs: '1rem', sm: '0.875rem' },
               fontWeight: 450,
               lineHeight: 1.55,
               letterSpacing: '-0.005em',
               p: 0,
-              minHeight: 70,
-              maxHeight: maxHeight,
+              ...(fill
+                ? {
+                    flex: 1,
+                    minHeight: 0,
+                    maxHeight: 'none',
+                    fontSize: '1.0625rem',
+                    overscrollBehavior: 'contain',
+                  }
+                : { minHeight: 70, maxHeight }),
               overflowY: 'auto',
               '&::placeholder': {
                 color: isDraggingOver
@@ -1591,9 +1616,28 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             mt: 1.25,
             minWidth: 0,
             flexWrap: 'nowrap',
+            ...(fill && { flexShrink: 0 }),
           }}
         >
-          {leadingActions}
+          {/* On a phone the model/sandbox controls are wider than the screen.
+              Only they scroll — attach and send stay pinned, because a send
+              button you have to scroll to find is worse than a cramped one. */}
+          {fill ? (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.5,
+                minWidth: 0,
+                overflowX: 'auto',
+                scrollbarWidth: 'none',
+                '&::-webkit-scrollbar': { display: 'none' },
+                '& > *': { flexShrink: 0 },
+              }}
+            >
+              {leadingActions}
+            </Box>
+          ) : leadingActions}
 
           {leadingActions && (
             <Box

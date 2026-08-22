@@ -53,20 +53,19 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 
 	// Security: Only allow specific commands for safety
 	allowedCommands := map[string]bool{
-		"vkcube":                    true,
-		"glxgears":                  true,
-		"pkill":                     true,
-		"killall":                   true,
-		"ls":                        true,
-		"echo":                      true,
-		"weston-simple-egl":         true,
-		"claude":                    true,
-		"cat":                       true,
-		"test":                      true,
-		"npm":                       true, // needed to upgrade claude CLI at login time
-		"helix-claude-auth-wrapper": true, // runs claude auth login with stdout capture
-		"helix-codex-auth-wrapper":  true, // runs Codex device authentication with stdout capture
-		"git":                       true, // scoped further below: only identity writes via gitInvocationAllowed
+		"vkcube":                   true,
+		"glxgears":                 true,
+		"pkill":                    true,
+		"killall":                  true,
+		"ls":                       true,
+		"echo":                     true,
+		"weston-simple-egl":        true,
+		"claude":                   true,
+		"cat":                      true,
+		"test":                     true,
+		"npm":                      true, // Codex login wrapper installs the Codex CLI
+		"helix-codex-auth-wrapper": true, // runs Codex device authentication with stdout capture
+		"git":                      true, // scoped further below: only identity writes via gitInvocationAllowed
 	}
 
 	cmdName := req.Command[0]

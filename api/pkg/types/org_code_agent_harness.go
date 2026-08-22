@@ -8,9 +8,8 @@ import (
 // OrgCodeAgentHarness records whether an organization permits one coding
 // harness and which provider endpoints that harness may use. Models
 // deliberately do not live here: a task selects a model from the allowed
-// providers' current model lists when it starts. An absent row retains the
-// pre-policy behaviour: the harness and all visible API providers are enabled,
-// while subscription credentials remain opt-in.
+// providers' current model lists when it starts. API providers and subscription
+// credentials are both opt-in.
 type OrgCodeAgentHarness struct {
 	ID        string    `json:"id" gorm:"primaryKey"`
 	Created   time.Time `json:"created"`
@@ -25,10 +24,8 @@ type OrgCodeAgentHarness struct {
 	// remain in API-provider mode until an owner explicitly connects or selects
 	// a subscription.
 	SubscriptionEnabled *bool `json:"subscription_enabled"`
-	// Nil preserves the pre-allow-list behaviour where every provider visible
-	// to the organization is allowed. A non-nil empty list allows none. Once an
-	// owner changes a provider switch, the UI writes an explicit full list so
-	// newly connected providers do not become exposed automatically.
+	// Nil and an empty list allow no providers. Providers must be explicitly
+	// enabled for each harness.
 	ProviderRefs []string `json:"provider_refs" gorm:"type:jsonb;serializer:json"`
 }
 
@@ -63,7 +60,7 @@ type OrgCodeAgentHarnessStatus struct {
 }
 
 func (h *OrgCodeAgentHarness) AllowsProvider(providerRef string) bool {
-	return !h.AllowsSubscription() && (h.ProviderRefs == nil || slices.Contains(h.ProviderRefs, providerRef))
+	return !h.AllowsSubscription() && slices.Contains(h.ProviderRefs, providerRef)
 }
 
 func (h *OrgCodeAgentHarness) AllowsSubscription() bool {
