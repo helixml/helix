@@ -455,12 +455,11 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         },
         MuiDrawer: {
           styleOverrides: {
-            // Same reasoning as MuiDialog root below: portalled out of the
-            // shell, so it has to follow the visual viewport itself. Applied to
-            // the modal root rather than the paper, because the paper's
-            // transform belongs to the slide transition.
             root: {
-              transform: 'translateY(var(--app-offset-y, 0px))',
+              // Applied only on iPhone via the variable. `none` matters on
+              // iPad: a translated full-screen portal contributes scrollable
+              // overflow even when the page clips it.
+              transform: 'var(--app-viewport-transform, none)',
             },
             // Scoped to the left-anchored nav drawer: a bottom sheet wants a
             // bottom inset, not a top one, and sets its own.
@@ -504,11 +503,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             root: {
               zIndex: 100002, // Above floating windows (z-index 9999); tooltips (100004) render above
               transition: 'all 0.2s ease-in-out',
-              // Portalled outside #root, so the shell's anchoring does not
-              // reach it. `position: fixed` resolves against the layout
-              // viewport, which iOS Safari pans the visual viewport inside —
-              // this follows that pan so a sheet cannot drift off screen.
-              transform: 'translateY(var(--app-offset-y, 0px))',
+              transform: 'var(--app-viewport-transform, none)',
               '& .MuiBackdrop-root': {
                 backgroundColor: dialogStyles.backdropFallback,
                 background: dialogStyles.backdrop,
