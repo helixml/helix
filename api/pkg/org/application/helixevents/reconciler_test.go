@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/helixevents"
+	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
@@ -17,40 +18,40 @@ func fixedNow() func() time.Time {
 	return func() time.Time { return t }
 }
 
-// TestReconcile_CreatesSingleTopic pins that a first Reconcile creates
-// exactly one helix_events topic with the deterministic id.
-func TestReconcile_CreatesSingleTopic(t *testing.T) {
+// TestReconcile_CreatesSingleTrigger pins that a first Reconcile creates
+// exactly one helix_events Trigger with the deterministic id.
+func TestReconcile_CreatesSingleTrigger(t *testing.T) {
 	t.Parallel()
 	s := memory.New()
-	rec := helixevents.New(helixevents.Deps{Topics: s.Topics, Now: fixedNow()})
+	rec := helixevents.New(helixevents.Deps{Triggers: s.Triggers, Now: fixedNow()})
 	ctx := context.Background()
 
 	if err := rec.Reconcile(ctx, org); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
-	list, err := s.Topics.List(ctx, org)
+	list, err := s.Triggers.Find(ctx, store.WithOrg(org))
 	if err != nil {
-		t.Fatalf("List: %v", err)
+		t.Fatalf("Find: %v", err)
 	}
 	if len(list) != 1 {
-		t.Fatalf("topic count = %d, want 1 (%v)", len(list), list)
+		t.Fatalf("trigger count = %d, want 1 (%v)", len(list), list)
 	}
 	got := list[0]
-	if got.ID != helixevents.TopicID {
-		t.Fatalf("topic id = %q, want %q", got.ID, helixevents.TopicID)
+	if got.ID != helixevents.TriggerID {
+		t.Fatalf("trigger id = %q, want %q", got.ID, helixevents.TriggerID)
 	}
-	if got.Transport.Kind != transport.KindHelixEvents {
-		t.Fatalf("transport kind = %q, want %q", got.Transport.Kind, transport.KindHelixEvents)
+	if got.Kind != transport.KindHelixEvents {
+		t.Fatalf("transport kind = %q, want %q", got.Kind, transport.KindHelixEvents)
 	}
 }
 
 // TestReconcile_Idempotent pins that repeated Reconcile never creates a
-// second topic.
+// second Trigger.
 func TestReconcile_Idempotent(t *testing.T) {
 	t.Parallel()
 	s := memory.New()
-	rec := helixevents.New(helixevents.Deps{Topics: s.Topics, Now: fixedNow()})
+	rec := helixevents.New(helixevents.Deps{Triggers: s.Triggers, Now: fixedNow()})
 	ctx := context.Background()
 
 	for i := 0; i < 3; i++ {
@@ -58,12 +59,12 @@ func TestReconcile_Idempotent(t *testing.T) {
 			t.Fatalf("Reconcile #%d: %v", i, err)
 		}
 	}
-	list, err := s.Topics.List(ctx, org)
+	list, err := s.Triggers.Find(ctx, store.WithOrg(org))
 	if err != nil {
-		t.Fatalf("List: %v", err)
+		t.Fatalf("Find: %v", err)
 	}
 	if len(list) != 1 {
-		t.Fatalf("topic count = %d, want 1 after repeated reconcile", len(list))
+		t.Fatalf("trigger count = %d, want 1 after repeated reconcile", len(list))
 	}
 }
 

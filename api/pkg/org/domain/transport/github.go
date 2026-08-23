@@ -81,7 +81,7 @@ func (g GitHubConfig) Validate() error {
 	}
 	// Repo must be exactly "owner/name" — one slash, both halves
 	// non-empty. Anything else is a typo we'd rather catch at
-	// create_topic time than have webhook deliveries silently miss
+	// create_trigger time than have webhook deliveries silently miss
 	// the topic.
 	parts := strings.Split(g.Repo, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
@@ -147,7 +147,7 @@ func parseGitHubConfig(raw json.RawMessage) (GitHubConfig, error) {
 // deployment, registry_package, …) and operators can opt in to any of
 // them without us shipping a code change. The format check still
 // catches the typo case (uppercase, dashes, leading digits) at
-// create_topic time. The frontend mirrors this pattern as
+// create_trigger time. The frontend mirrors this pattern as
 // GITHUB_EVENT_PATTERN.
 var githubEventNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,63}$`)
 

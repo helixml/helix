@@ -11,7 +11,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
@@ -31,21 +30,21 @@ var reportsSchema = mustSchema[reportsArgs]()
 type reportsArgs struct{}
 
 type reportView struct {
-	ID        orgchart.NodeID   `json:"id"`
-	DMTopicID streaming.TopicID `json:"dmTopicId"`
+	ID          orgchart.NodeID `json:"id"`
+	DMChannelID string          `json:"dmChannelId"`
 	// Manages is true when this report leads their own sub-team. When
-	// true, TeamTopicID is shown for context — but you delegate the
+	// true, TeamChatID is shown for context — but you delegate the
 	// workstream to the report and let them cascade rather than posting
 	// into their sub-team yourself (one-hop rule).
-	Manages     bool               `json:"manages"`
-	TeamTopicID *streaming.TopicID `json:"teamTopicId,omitempty"`
+	Manages    bool    `json:"manages"`
+	TeamChatID *string `json:"teamChatId,omitempty"`
 }
 
 type reportsResult struct {
-	// TeamTopicID is the broadcast channel for all your direct reports;
+	// TeamChatID is the broadcast channel for all your direct reports;
 	// null until you have at least one report.
-	TeamTopicID *streaming.TopicID `json:"teamTopicId"`
-	Reports     []reportView       `json:"reports"`
+	TeamChatID *string      `json:"teamChatId"`
+	Reports    []reportView `json:"reports"`
 }
 
 func (t *Reports) Name() tool.Name                 { return ReportsName }
@@ -53,10 +52,10 @@ func (t *Reports) InputSchema() *jsonschema.Schema { return reportsSchema }
 func (t *Reports) Description() string {
 	return "List who reports to you and how to reach them — your delegation surface. " +
 		"Takes no arguments; resolves your own reporting lines live. Returns " +
-		"`teamTopicId` (publish there once to brief ALL your reports — one post, " +
+		"`teamChatId` (call `chat` there once to brief ALL your reports — one message, " +
 		"not N DMs; null until you have reports) and a `reports` array, each with the " +
-		"DM topic for a 1:1. A report flagged `manages: true` leads their own " +
-		"sub-team: delegate the workstream to them and let them cascade — don't post " +
+		"DM channel for a 1:1. A report flagged `manages: true` leads their own " +
+		"sub-team: delegate the workstream to them and let them cascade — don't send " +
 		"into their sub-team yourself."
 }
 
@@ -87,20 +86,20 @@ func (t *Reports) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 			return nil, fmt.Errorf("list sub-reports of %q: %w", r, err)
 		}
 		view := reportView{
-			ID:        b.ID,
-			DMTopicID: channels.DMTopicID(caller, r),
-			Manages:   len(subReports) > 0,
+			ID:          b.ID,
+			DMChannelID: channels.DMTriggerID(caller, r),
+			Manages:     len(subReports) > 0,
 		}
 		if view.Manages {
-			ts := channels.TeamTopicID(r)
-			view.TeamTopicID = &ts
+			ts := channels.TeamTriggerID(r)
+			view.TeamChatID = &ts
 		}
 		result.Reports = append(result.Reports, view)
 	}
 	// Only advertise a team topic once there is someone to brief.
 	if len(result.Reports) > 0 {
-		ts := channels.TeamTopicID(caller)
-		result.TeamTopicID = &ts
+		ts := channels.TeamTriggerID(caller)
+		result.TeamChatID = &ts
 	}
 	return json.Marshal(result)
 }

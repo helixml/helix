@@ -33,9 +33,9 @@ type KoditMCPBackend struct {
 }
 
 type sessionHandler struct {
-	handler   http.Handler
-	lastUsed  time.Time
-	mu        sync.Mutex
+	handler  http.Handler
+	lastUsed time.Time
+	mu       sync.Mutex
 }
 
 func (h *sessionHandler) touch() {

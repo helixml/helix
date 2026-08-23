@@ -20,6 +20,8 @@ import {
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import RobustPromptInput from '../components/common/RobustPromptInput'
 import CodeAgentExecutionControls from '../components/agent/CodeAgentExecutionControls'
+import { useSeedProjectCodeAgentConfig } from '../hooks/useSeedProjectCodeAgentConfig'
+import { CodeAgentConfigChangeSource } from '../utils/codeAgentExecutionConfig'
 import ManagedCreateProjectDialog from '../components/project/ManagedCreateProjectDialog'
 import Page from '../components/system/Page'
 import { useAccount } from '../contexts/account'
@@ -163,16 +165,32 @@ const Home: FC = () => {
 
   useEffect(() => {
     setTaskCodeAgentConfig(selectedProject?.code_agent_config)
+  }, [selectedProjectId, projectCodeAgentConfigKey])
+
+  // Compute follows the project, not its coding default. Keeping it in the
+  // effect above would reset a chosen sandbox size the moment picking a harness
+  // seeded the project default and refreshed the project.
+  useEffect(() => {
     setTaskSandboxResources({ vcpus: 4, memory_mb: 8192 })
     setTaskSandboxRuntime(preferredSpecTaskSandboxRuntime(
       selectedProjectId,
       selectedProject?.default_sandbox_runtime,
     ))
-  }, [selectedProjectId, projectCodeAgentConfigKey, selectedProject?.default_sandbox_runtime])
+  }, [selectedProjectId, selectedProject?.default_sandbox_runtime])
 
   const handleTaskSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
     setTaskSandboxRuntime(runtime)
     saveSpecTaskSandboxRuntimePreference(selectedProjectId, runtime)
+  }
+
+  const seedProjectCodeAgentConfig = useSeedProjectCodeAgentConfig(selectedProject)
+
+  const handleTaskCodeAgentConfigChange = (
+    next: TypesCodeAgentExecutionConfig,
+    source: CodeAgentConfigChangeSource,
+  ) => {
+    setTaskCodeAgentConfig(next)
+    seedProjectCodeAgentConfig(next, source)
   }
 
   const isProjectContext = !!selectedProjectId
@@ -321,7 +339,7 @@ const Home: FC = () => {
         value={taskCodeAgentConfig}
         sandboxResourceOverrides={taskSandboxResources}
         sandboxRuntime={taskSandboxRuntime}
-        onChange={setTaskCodeAgentConfig}
+        onChange={handleTaskCodeAgentConfigChange}
         onSandboxResourceOverridesChange={setTaskSandboxResources}
         onSandboxRuntimeChange={handleTaskSandboxRuntimeChange}
         disabled={submitting}

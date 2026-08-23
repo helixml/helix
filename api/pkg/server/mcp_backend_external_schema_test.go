@@ -54,7 +54,7 @@ func servedParamType(t *testing.T, tool mcp.Tool, param string) string {
 	var parsed struct {
 		InputSchema struct {
 			Properties map[string]struct {
-				Type json.RawMessage `json:"type"`
+				Type  json.RawMessage `json:"type"`
 				Items *struct {
 					Type string `json:"type"`
 				} `json:"items"`

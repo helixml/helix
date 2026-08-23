@@ -37,20 +37,24 @@
             rel="stylesheet"
             href="https://fonts.googleapis.com/icon?family=Material+Icons"
         />
+        <script type="text/javascript">
+            // iOS Safari's visual-viewport translation is only needed on a
+            // phone. Applying it to iPad makes the translated, full-height app
+            // shell extend the document's scrollable overflow.
+            (function () {
+                var ua = navigator.userAgent || '';
+                var appleTouch = /iPhone|iPod/i.test(ua) ||
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                var phoneSized = Math.min(window.screen.width, window.screen.height) <= 500;
+                if (appleTouch && phoneSized) {
+                    document.documentElement.classList.add('helix-ios-phone');
+                }
+            })();
+        </script>
         <style>
             html,
             body {
-                /* Sized to the visible window, not to `100%`.
-                   `100%` resolves against the initial containing block, which
-                   real Mobile Safari reports as 714px while window.innerHeight
-                   is 712 — and those 2px are pannable. 2px is all Safari needs
-                   to treat the page as scrollable and start collapsing its
-                   chrome, which is what kept dragging the top bar out of view.
-                   Same clamp as the shell: follow the visual viewport, never
-                   exceed the small viewport. */
                 height: 100%;
-                height: 100svh;
-                height: min(var(--app-height, 100svh), 100svh);
                 width: 100%;
                 margin: 0;
                 padding: 0;
@@ -63,30 +67,19 @@
                 overscroll-behavior: none;
             }
 
-            /* The app shell is a fixed pane, not a tall page.
-               `overflow: hidden` on html/body is not a lock on iOS Safari — it
-               still pans the document, which is what slid the top bar up under
-               the status bar. A fixed root has nothing to scroll.
-               The height is `svh` (the small viewport: the height with the
-               browser chrome showing) rather than 100%, because iOS resolves
-               both `100%` and fixed positioning against the LARGE viewport —
-               the height you get with that chrome hidden — so a bottom-docked
-               toolbar would sit underneath the floating URL bar. `100%` stays
-               above as the fallback for engines without `svh`. */
             #root {
+                /* iPad Safari can pan the layout viewport even when the
+                   document has no scroll range. Keep the app shell out of that
+                   document flow; its own panes provide the intended scrolling. */
                 position: fixed;
                 top: 0;
                 left: 0;
                 right: 0;
-                width: auto;
-                max-width: 100%;
                 height: 100%;
                 height: 100svh;
-                /* Never taller than the small viewport, so collapsing browser
-                   chrome cannot grow the shell into the space that chrome is
-                   about to reclaim; never taller than the visual viewport, so
-                   the on-screen keyboard shrinks it. */
                 height: min(var(--app-height, 100svh), 100svh);
+                width: auto;
+                max-width: 100%;
                 /* `viewport-fit=cover` paints edge to edge, and svh includes
                    the safe areas — without this the top bar sits under the
                    status bar and the notch, and in landscape the edges of the
@@ -95,15 +88,22 @@
                 box-sizing: border-box;
                 padding: env(safe-area-inset-top) env(safe-area-inset-right)
                          env(safe-area-inset-bottom) env(safe-area-inset-left);
-                /* Anchored to the visual viewport, not the layout viewport.
-                   `position: fixed` resolves against the layout viewport, and
-                   iOS Safari pans the visual viewport inside it as its chrome
-                   collapses — which slides a "fixed" shell out of view even
-                   though nothing is scrollable. --app-offset-* follows that
-                   pan; see the script below. */
-                transform: translateY(var(--app-offset-y, 0px));
+                /* Only iPhone installs this variable. iPad remains fixed but
+                   untransformed, avoiding transform-generated overflow. */
+                transform: var(--app-viewport-transform, none);
                 overflow: hidden;
                 overscroll-behavior: none;
+            }
+
+            /* On iPhone, `overflow: hidden` does not prevent Safari from
+               panning the visual viewport when its chrome or keyboard moves.
+               It needs the additional offset compensation below. iPad must
+               not use that compensation: translating a full-height element
+               extends scrollable overflow and creates an offset feedback loop. */
+            html.helix-ios-phone,
+            html.helix-ios-phone body {
+                height: 100svh;
+                height: min(var(--app-height, 100svh), 100svh);
             }
         </style>
         <script type="text/javascript">
@@ -118,21 +118,22 @@
                 var vv = window.visualViewport;
                 if (!vv) return;
                 var root = document.documentElement;
+                var iosPhone = root.classList.contains('helix-ios-phone');
                 function sync() {
                     // Pinch-zoom shrinks and offsets the visual viewport too.
                     // Resizing or moving the app for a zoom would be wrong, and
                     // jarring — leave the page alone and let the user pan it.
                     if (vv.scale > 1.01) {
-                        root.style.setProperty('--app-offset-y', '0px');
+                        root.style.removeProperty('--app-viewport-transform');
                         return;
                     }
                     root.style.setProperty('--app-height', vv.height + 'px');
-                    // Vertical only. Translating horizontally as well pushed the
-                    // shell sideways inside a viewport that was already
-                    // accounting for the offset — costing pixels off one edge
-                    // and cutting the other. iOS only offsets horizontally
-                    // under a zoom, which is excluded above anyway.
-                    root.style.setProperty('--app-offset-y', vv.offsetTop + 'px');
+                    if (iosPhone) {
+                        root.style.setProperty(
+                            '--app-viewport-transform',
+                            'translateY(' + vv.offsetTop + 'px)'
+                        );
+                    }
                 }
                 vv.addEventListener('resize', function () {
                     sync();
@@ -140,7 +141,9 @@
                     // field. The shell is fixed, so that only slides it out of
                     // alignment — which is what pushed the top bar under the
                     // status bar. Put it back.
-                    if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+                    if (iosPhone && (window.scrollY !== 0 || window.scrollX !== 0)) {
+                        window.scrollTo(0, 0);
+                    }
                 });
                 vv.addEventListener('scroll', sync);
                 window.addEventListener('orientationchange', sync);
@@ -204,6 +207,7 @@
                     var vv = window.visualViewport;
                     var de = document.documentElement;
                     var root = document.getElementById('root');
+                    var rootStyle = root ? getComputedStyle(root) : null;
                     var i = insets();
                     el.textContent = [
                         'win  ' + window.innerWidth + 'x' + window.innerHeight +
@@ -217,6 +221,9 @@
                         'root ' + (root ? Math.round(root.getBoundingClientRect().width) + 'x' +
                             Math.round(root.getBoundingClientRect().height) +
                             ' @' + Math.round(root.getBoundingClientRect().top) : 'n/a'),
+                        'mode ' + (de.classList.contains('helix-ios-phone') ? 'ios-phone' : 'standard') +
+                            '  pos ' + (rootStyle ? rootStyle.position : 'n/a') +
+                            '  tf ' + (rootStyle ? rootStyle.transform : 'n/a'),
                         'safe t' + i[0] + ' r' + i[1] + ' b' + i[2] + ' l' + i[3],
                         'html ' + getComputedStyle(de).height +
                             '  body ' + getComputedStyle(document.body).height +

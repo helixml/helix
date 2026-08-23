@@ -80,3 +80,49 @@ describe('ToolPickerDialog', () => {
     expect(onApply).toHaveBeenCalledWith(['create_sandbox', 'list_sandboxes'])
   })
 })
+
+describe('ToolPickerDialog locked tools', () => {
+  const specTaskCatalogue = [
+    { name: 'create_spectask', description: 'Create a spec task.' },
+    { name: 'list_spectasks', description: 'List spec tasks.' },
+    { name: 'get_spectask', description: 'Get a spec task.' },
+  ]
+
+  const renderLocked = (onApply = vi.fn()) => {
+    render(
+      <ToolPickerDialog
+        open
+        tools={specTaskCatalogue}
+        selectedTools={['get_spectask']}
+        lockedTools={['create_spectask']}
+        onApply={onApply}
+        onClose={vi.fn()}
+      />,
+    )
+    openSection('Projects & delivery')
+    return onApply
+  }
+
+  it('shows an inherited tool as enabled but read-only', () => {
+    renderLocked()
+    const locked = screen.getByLabelText('Enable create_spectask') as HTMLInputElement
+    expect(locked.checked).toBe(true)
+    expect(locked.disabled).toBe(true)
+    expect(screen.getByText('From project')).toBeTruthy()
+  })
+
+  it('never returns an inherited tool from onApply, even via Enable all', () => {
+    const onApply = renderLocked()
+    fireEvent.click(screen.getByText('Enable all'))
+    fireEvent.click(screen.getByText('Apply selection'))
+    expect(onApply).toHaveBeenCalledWith(['get_spectask', 'list_spectasks'])
+  })
+
+  it('keeps an inherited tool enabled after Clear all', () => {
+    const onApply = renderLocked()
+    fireEvent.click(screen.getByText('Clear all'))
+    expect((screen.getByLabelText('Enable create_spectask') as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(screen.getByText('Apply selection'))
+    expect(onApply).toHaveBeenCalledWith([])
+  })
+})

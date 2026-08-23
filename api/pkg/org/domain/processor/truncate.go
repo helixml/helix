@@ -40,7 +40,7 @@ func (c truncateConfig) Validate(out []Output) error {
 func (c truncateConfig) Process(_ context.Context, in streaming.Message, out []Output) ([]Result, error) {
 	m := in
 	m.Body = runeSafeTruncate(in.Body, c.MaxBytes)
-	return []Result{{TopicID: out[0].TopicID, Message: m}}, nil
+	return []Result{{Output: out[0], Message: m}}, nil
 }
 
 // truncate is the Strategy for KindTruncate.

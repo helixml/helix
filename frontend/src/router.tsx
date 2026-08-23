@@ -49,9 +49,10 @@ import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import HelixOrgChart from './pages/HelixOrgChart'
 import HelixOrgHumanDetail from './pages/HelixOrgHumanDetail'
-import HelixOrgTopics from './pages/HelixOrgTopics'
+import HelixOrgTriggers from './pages/HelixOrgTriggers'
 import HelixOrgAssets from './pages/HelixOrgAssets'
-import HelixOrgTopicDetail from './pages/HelixOrgTopicDetail'
+import HelixOrgTriggerDetail from './pages/HelixOrgTriggerDetail'
+import HelixOrgTopicsRetired from './pages/HelixOrgTopicsRetired'
 import HelixOrgProcessorDetail from './pages/HelixOrgProcessorDetail'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
@@ -88,13 +89,18 @@ const HelixOrgAgentRedirect = () => {
   return null
 }
 
-const RouteRedirect = ({ route }: { route: string }) => {
+const RouteRedirect = ({ route, mapParams }: { route: string; mapParams?: (params: Record<string, any>) => Record<string, any> }) => {
   const { navigateReplace, params } = useRouter()
   React.useEffect(() => {
-    navigateReplace(route, params)
+    navigateReplace(route, mapParams ? mapParams(params) : params)
   }, [])
   return null
 }
+
+// A Topic kept its id when it became a Trigger, so an old per-topic link
+// resolves to exactly the same thing under the new URL — send the user
+// straight there instead of to a generic "Topics are now Triggers" page.
+const topicIDToTriggerID = ({ topic_id, ...rest }: Record<string, any>) => ({ ...rest, trigger_id: topic_id })
 
 
 const routes: IApplicationRoute[] = [
@@ -183,7 +189,8 @@ const routes: IApplicationRoute[] = [
   name: 'org_sandboxes',
   path: '/orgs/:org_id/sandboxes',
   meta: {
-    drawer: false,
+    drawer: true,
+    menu: 'orgs',
     title: 'Sandboxes',
   },
   render: () => (
@@ -193,7 +200,8 @@ const routes: IApplicationRoute[] = [
   name: 'org_sandbox_detail',
   path: '/orgs/:org_id/sandboxes/:sandbox_id',
   meta: {
-    drawer: false,
+    drawer: true,
+    menu: 'orgs',
     title: 'Sandbox',
   },
   render: () => (
@@ -620,7 +628,9 @@ const routes: IApplicationRoute[] = [
 }, {
   name: 'helix_org_chart',
   path: '/orgs/:org_id/chart',
-  meta: { drawer: false, title: 'Org Chart' },
+  // Reached from the org settings sidebar ("Org Chart"), so it keeps that
+  // sidebar rather than standing alone like the other helix-org pages.
+  meta: { drawer: true, menu: 'orgs', title: 'Org Chart' },
   render: () => <HelixOrgChart />,
 }, {
   name: 'helix_org_chart_legacy',
@@ -663,15 +673,20 @@ const routes: IApplicationRoute[] = [
   meta: { drawer: false },
   render: () => <RouteRedirect route="org_general" />,
 }, {
+  name: 'helix_org_triggers',
+  path: '/orgs/:org_id/triggers',
+  meta: { drawer: false, title: 'Triggers' },
+  render: () => <HelixOrgTriggers />,
+}, {
   name: 'helix_org_topics',
   path: '/orgs/:org_id/topics',
-  meta: { drawer: false, title: 'Topics' },
-  render: () => <HelixOrgTopics />,
+  meta: { drawer: false, title: 'Topics retired' },
+  render: () => <HelixOrgTopicsRetired />,
 }, {
   name: 'helix_org_topics_legacy',
   path: '/orgs/:org_id/helix-org/topics',
   meta: { drawer: false },
-  render: () => <RouteRedirect route="helix_org_topics" />,
+  render: () => <HelixOrgTopicsRetired />,
 }, {
   name: 'helix_org_assets',
   path: '/orgs/:org_id/assets',
@@ -693,15 +708,20 @@ const routes: IApplicationRoute[] = [
   meta: { drawer: false },
   render: () => <RouteRedirect route="helix_org_processor_detail" />,
 }, {
+  name: 'helix_org_trigger_detail',
+  path: '/orgs/:org_id/triggers/:trigger_id',
+  meta: { drawer: false, title: 'Trigger' },
+  render: () => <HelixOrgTriggerDetail />,
+}, {
   name: 'helix_org_topic_detail',
   path: '/orgs/:org_id/topics/:topic_id',
-  meta: { drawer: false, title: 'Topic' },
-  render: () => <HelixOrgTopicDetail />,
+  meta: { drawer: false, title: 'Trigger' },
+  render: () => <RouteRedirect route="helix_org_trigger_detail" mapParams={topicIDToTriggerID} />,
 }, {
   name: 'helix_org_topic_detail_legacy',
   path: '/orgs/:org_id/helix-org/topics/:topic_id',
   meta: { drawer: false },
-  render: () => <RouteRedirect route="helix_org_topic_detail" />,
+  render: () => <RouteRedirect route="helix_org_trigger_detail" mapParams={topicIDToTriggerID} />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

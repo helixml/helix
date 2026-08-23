@@ -95,35 +95,57 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 		return nil
 	}
 
+	return s.assembleMCPServer(string(botID), botCaller{id: string(bot.ID), orgID: bot.OrganizationID}, bot.Tools)
+}
+
+// assembleMCPServer builds the MCP server exposing exactly `tools` to
+// `caller`. Split out of buildMCPServer so an embedding host can serve the
+// same surface for a caller that is not a Bot (see ServeMCPForCaller) without
+// a second copy of the registration, audit, and prompt-gating logic.
+func (s *Server) assembleMCPServer(label string, caller tool.Caller, tools []tool.Name) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    "helix-org",
 		Version: "0.1.0",
 	}, nil)
 
-	caller := botCaller{id: string(bot.ID), orgID: bot.OrganizationID}
-	botTools := make(map[tool.Name]bool, len(bot.Tools))
-	for _, toolName := range bot.Tools {
-		botTools[toolName] = true
+	granted := make(map[tool.Name]bool, len(tools))
+	for _, toolName := range tools {
+		granted[toolName] = true
 		t, err := s.registry.Get(toolName)
 		if err != nil {
-			// Bot lists a tool the server doesn't know about. Skip
+			// Caller lists a tool the server doesn't know about. Skip
 			// silently; removing it is the owner's job (PATCH /bots/{id}).
-			s.logger.Info("mcp.unknown_tool_on_bot", "bot", botID, "tool", toolName)
+			s.logger.Info("mcp.unknown_tool_on_bot", "bot", label, "tool", toolName)
 			continue
 		}
-		s.registerToolForBot(srv, t, caller, s.logger.With("bot", botID, "tool", toolName))
+		s.registerToolForBot(srv, t, caller, s.logger.With("bot", label, "tool", toolName))
 	}
 
 	if s.prompts != nil {
 		for _, p := range s.prompts.All() {
-			if req := p.RequiresTool(); req != "" && !botTools[req] {
+			if req := p.RequiresTool(); req != "" && !granted[req] {
 				continue
 			}
-			registerPromptForBot(srv, p, s.logger.With("bot", botID, "prompt", p.Name()))
+			registerPromptForBot(srv, p, s.logger.With("bot", label, "prompt", p.Name()))
 		}
 	}
 
 	return srv
+}
+
+// ServeMCPForCaller serves one MCP request for a caller the org graph knows
+// nothing about — today, a spec task's coding agent authenticated by its
+// session-scoped api key. The embedding host has already authenticated the
+// request and resolved the tool list; this is the same transport, registry,
+// and audit path Bots use, only with the identity supplied instead of loaded.
+func (s *Server) ServeMCPForCaller(w http.ResponseWriter, r *http.Request, caller tool.Caller, tools []tool.Name) {
+	mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return s.assembleMCPServer(caller.ID(), caller, tools)
+	}, &mcp.StreamableHTTPOptions{
+		Stateless:                  true,
+		Logger:                     s.logger,
+		DisableLocalhostProtection: true,
+	}).ServeHTTP(w, r)
 }
 
 // registerToolForBot binds a single tool onto the per-Bot MCP server.
@@ -168,6 +190,16 @@ func (s *Server) registerToolForBot(srv *mcp.Server, t tool.Tool, caller tool.Ca
 	})
 }
 
+// actorTypeFor labels an audit entry by the kind of caller. Anything that does
+// not declare itself is a Bot — recording a spec task as one would make the org
+// audit log lie about who acted.
+func actorTypeFor(caller tool.Caller) orgaudit.ActorType {
+	if self, ok := caller.(orgaudit.SelfDescribingActor); ok {
+		return self.AuditActorType()
+	}
+	return orgaudit.ActorBot
+}
+
 type mcpAuditArgs struct {
 	ProjectID string `json:"project_id"`
 	Asset     string `json:"asset"`
@@ -179,7 +211,7 @@ func (s *Server) newMCPAuditEntry(ctx context.Context, caller tool.Caller, actio
 		OrganizationID: caller.OrganizationID(),
 		UserID:         runtimehelix.UserIDFromContext(ctx),
 		ActorID:        caller.ID(),
-		ActorType:      orgaudit.ActorBot,
+		ActorType:      actorTypeFor(caller),
 		EventType:      orgaudit.EventMCPCall,
 		Action:         action,
 		Status:         orgaudit.StatusAttempted,
@@ -227,7 +259,7 @@ func (s *Server) recordAudit(ctx context.Context, entry orgaudit.Entry) {
 // registerPromptForBot binds a single prompt onto the per-bot MCP
 // server. The handler renders the prompt's template into seed messages;
 // the LLM consumes those and drives the conversation, usually ending in
-// a tool call (create_bot, create_topic, …).
+// a tool call (create_bot, create_trigger, …).
 //
 // Visibility is decided in buildMCPServer; by the time we get here the
 // prompt is already in the bot's allowed set.
@@ -267,4 +299,25 @@ func registerPromptForBot(srv *mcp.Server, p prompts.Prompt, logger interface {
 			Messages:    out,
 		}, nil
 	})
+}
+
+// ToolInfo is the name + description pair the tool-picker UI renders.
+type ToolInfo struct {
+	Name        string
+	Description string
+}
+
+// ToolCatalogue returns the registered tools matching names, in the order
+// given. Unknown names are skipped so a catalogue constant can name a tool a
+// given deployment did not register.
+func (s *Server) ToolCatalogue(names []tool.Name) []ToolInfo {
+	out := make([]ToolInfo, 0, len(names))
+	for _, name := range names {
+		t, err := s.registry.Get(name)
+		if err != nil {
+			continue
+		}
+		out = append(out, ToolInfo{Name: string(t.Name()), Description: t.Description()})
+	}
+	return out
 }

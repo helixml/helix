@@ -15,8 +15,10 @@ describe('chartTopicVisibility', () => {
     window.localStorage.clear()
   })
 
-  it('hides all topics by default', () => {
-    expect(DEFAULT_CHART_TOPIC_FILTERS).toEqual([])
+  it('shows all triggers by default', () => {
+    expect(DEFAULT_CHART_TOPIC_FILTERS).toEqual([
+      'direct_messages', 'local', 'webhook', 'github', 'gitlab', 'postmark', 'cron', 'other',
+    ])
   })
 
   it('separates direct messages from other local topics', () => {
@@ -43,6 +45,18 @@ describe('chartTopicVisibility', () => {
     expect(loadChartTopicVisibility(userId, orgId)).toEqual(['direct_messages', 'cron'])
     expect(loadChartTopicVisibility('other_user', orgId)).toBeNull()
     expect(loadChartTopicVisibility(userId, 'other_org')).toBeNull()
+  })
+
+  // The Topic → Trigger rename must not reset anyone's saved chart.
+  // Preferences written before the rename live under this exact key and
+  // hold the same filter ids, so they must still load.
+  it('reads preferences saved under the pre-rename storage key', () => {
+    window.localStorage.setItem(
+      `helix.orgChart.topicVisibility.${userId}.${orgId}`,
+      JSON.stringify(['github', 'cron']),
+    )
+
+    expect(loadChartTopicVisibility(userId, orgId)).toEqual(['github', 'cron'])
   })
 
   it('returns null for missing or invalid settings', () => {

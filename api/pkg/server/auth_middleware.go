@@ -81,7 +81,6 @@ func newAuthMiddleware(
 	}
 }
 
-
 // looksLikeHelixJWT checks if a token appears to be a Helix-issued JWT
 // by parsing the token without verification and checking the issuer claim.
 // This is used to detect stale Helix JWTs when OIDC authentication is configured,

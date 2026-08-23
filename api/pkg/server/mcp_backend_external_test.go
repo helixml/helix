@@ -228,7 +228,6 @@ func TestExternalMCPBackendCleanupPreservesReplacement(t *testing.T) {
 	}
 }
 
-
 // The external proxy is the only path Zed's tool calls take, so the acting
 // session must travel with them. Without it an external MCP server cannot tell
 // which user a call is for except by trusting a model-supplied argument — Find

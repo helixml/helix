@@ -18,14 +18,12 @@ import { useListProjects } from '../../services/projectService'
 import {
   ToolDTO,
   BotDetailDTO,
-  useListBotSubscriptions,
-  useListHelixOrgTopics,
+  useListHelixOrgProcessors,
   useListHelixOrgTools,
-  useSubscribeBot,
-  useUnsubscribeBot,
   useUpdateBot,
   UpdateBotRequest,
 } from '../../services/helixOrgService'
+import { useAgentAttachments, useCreateAgentAttachment, useDeleteAgentAttachment, useTriggers } from '../../services/triggerService'
 
 const OrgAgentSettings: FC<{
   agentID: string
@@ -40,10 +38,11 @@ const OrgAgentSettings: FC<{
   const agent = detail?.bot
   const { data: projects = [] } = useListProjects(agent?.organization_id, { enabled: section === 'access' && !!agent?.organization_id })
   const { data: catalogue = [] } = useListHelixOrgTools({ enabled: section === 'tools' && !!agent })
-  const { data: topicsData, isLoading: topicsLoading } = useListHelixOrgTopics({ enabled: section === 'subscriptions' && !!agent })
-  const { data: subscriptionsData, isLoading: subscriptionsLoading } = useListBotSubscriptions(agent?.id, { enabled: section === 'subscriptions' && !!agent })
-  const subscribe = useSubscribeBot(agent?.id)
-  const unsubscribe = useUnsubscribeBot(agent?.id)
+  const { data: triggers = [], isLoading: triggersLoading } = useTriggers()
+  const { data: processors = [], isLoading: processorsLoading } = useListHelixOrgProcessors({ enabled: section === 'subscriptions' && !!agent })
+  const { data: attachments = [], isLoading: attachmentsLoading } = useAgentAttachments(agent?.id)
+  const attach = useCreateAgentAttachment(agent?.id)
+  const detach = useDeleteAgentAttachment(agent?.id)
   const [editingTools, setEditingTools] = useState(false)
 
   const projectID = detail?.project_id
@@ -256,44 +255,49 @@ const OrgAgentSettings: FC<{
   }
 
   if (section === 'subscriptions') {
-    const topics = topicsData?.topics ?? []
-    const subscribedIDs = new Set((subscriptionsData?.subscriptions ?? []).map((subscription) => subscription.topic_id))
-    const subscribedTopics = topics.filter((topic) => subscribedIDs.has(topic.id))
-    const updating = subscribe.isPending || unsubscribe.isPending
+    type SourceOption = { key: string; label: string; description: string; source: { kind: string; trigger_id?: string; processor_id?: string; output_id?: string } }
+    const options: SourceOption[] = [
+      ...triggers.map((trigger) => ({ key: `trigger:${trigger.id}`, label: trigger.name || trigger.id!, description: `Trigger · ${trigger.kind}`, source: { kind: 'trigger', trigger_id: trigger.id } })),
+      ...processors.flatMap((processor) => processor.outputs.map((output) => ({ key: `processor_output:${processor.id}:${output.id}`, label: `${processor.name} · ${output.label || output.id}`, description: `Processed event · ${output.id}`, source: { kind: 'processor_output', processor_id: processor.id, output_id: output.id } }))),
+    ]
+    const sourceKey = (source: { kind?: string; trigger_id?: string; processor_id?: string; output_id?: string }) => source.kind === 'trigger' ? `trigger:${source.trigger_id}` : `processor_output:${source.processor_id}:${source.output_id}`
+    const attachedKeys = new Set(attachments.map((item) => sourceKey(item.source ?? {})))
+    const selected = options.filter((option) => attachedKeys.has(option.key))
+    const updating = attach.isPending || detach.isPending
 
     return (
       <Box sx={{ mb: embedded ? 0 : 3 }}>
         {!embedded && (<>
-        <Typography variant="h6" sx={{ mb: 0.5 }}>Topic subscriptions</Typography>
+        <Typography variant="h6" sx={{ mb: 0.5 }}>Triggers</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Topics that trigger this org agent.
+          Choose what starts this agent. You can use a Trigger directly or the result of a Processor.
         </Typography>
         </>)}
         <Autocomplete
           multiple
           disableCloseOnSelect
           disabled={readOnly || updating}
-          loading={topicsLoading || subscriptionsLoading}
-          options={topics}
-          value={subscribedTopics}
+          loading={triggersLoading || processorsLoading || attachmentsLoading}
+          options={options}
+          value={selected}
           onChange={async (_event, value) => {
-            const nextIDs = new Set(value.map((topic) => topic.id))
-            const toAdd = value.filter((topic) => !subscribedIDs.has(topic.id))
-            const toRemove = (subscriptionsData?.subscriptions ?? []).filter((subscription) => !nextIDs.has(subscription.topic_id))
+            const nextKeys = new Set(value.map((source) => source.key))
+            const toAdd = value.filter((source) => !attachedKeys.has(source.key))
+            const toRemove = attachments.filter((item) => !nextKeys.has(sourceKey(item.source ?? {})))
             try {
-              for (const topic of toAdd) await subscribe.mutateAsync(topic.id)
-              for (const subscription of toRemove) await unsubscribe.mutateAsync(subscription.topic_id)
-              if (toAdd.length || toRemove.length) snackbar.success('Topic subscriptions updated')
+              for (const source of toAdd) await attach.mutateAsync({ source: source.source })
+              for (const item of toRemove) await detach.mutateAsync(item.id!)
+              if (toAdd.length || toRemove.length) snackbar.success('Triggers updated')
             } catch (error: any) {
-              snackbar.error(error?.response?.data?.error ?? error?.message ?? 'subscription update failed')
+              snackbar.error(error?.response?.data?.summary ?? error?.message ?? 'Could not update triggers')
             }
           }}
-          getOptionLabel={(topic) => topic.id}
-          isOptionEqualToValue={(a, b) => a.id === b.id}
+          getOptionLabel={(source) => source.label}
+          isOptionEqualToValue={(a, b) => a.key === b.key}
           renderOption={(props, option, { selected }) => {
             const { key, ...liProps } = props as typeof props & { key?: Key }
             return (
-              <li key={key ?? option.id} {...liProps}>
+              <li key={key ?? option.key} {...liProps}>
                 <Checkbox
                   icon={<Square size={18} />}
                   checkedIcon={<SquareCheck size={18} />}
@@ -301,10 +305,8 @@ const OrgAgentSettings: FC<{
                   checked={selected}
                 />
                 <Box>
-                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{option.id}</Typography>
-                  {option.description && (
-                    <Typography variant="caption" color="text.secondary">{option.description}</Typography>
-                  )}
+                  <Typography variant="body2">{option.label}</Typography>
+                  <Typography variant="caption" color="text.secondary">{option.description}</Typography>
                 </Box>
               </li>
             )
@@ -313,15 +315,14 @@ const OrgAgentSettings: FC<{
             const { key, ...tagProps } = getTagProps({ index })
             return (
               <Chip
-                key={key ?? option.id}
+                key={key ?? option.key}
                 {...tagProps}
-                label={option.id}
+                label={option.label}
                 size="small"
-                sx={{ fontFamily: 'monospace' }}
               />
             )
           })}
-          renderInput={(params) => <TextField {...params} label="Topics" placeholder="Select topics" />}
+          renderInput={(params) => <TextField {...params} label="Starts when" placeholder="Choose triggers or processed events" />}
         />
       </Box>
     )

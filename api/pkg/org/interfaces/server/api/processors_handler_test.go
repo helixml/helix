@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 )
 
@@ -19,27 +19,27 @@ func jsonapiDoc(typ string, attrs map[string]any) map[string]any {
 	return map[string]any{"data": map[string]any{"type": typ, "attributes": attrs}}
 }
 
-func seedTopic(t *testing.T, st *store.Store, id, name string) {
+func seedTrigger(t *testing.T, st *store.Store, id, name string) {
 	t.Helper()
-	top, err := streaming.NewTopic(streaming.TopicID(id), name, "", "", time.Now().UTC(), transport.LocalTransport(), "org-test")
+	row, err := trigger.New(id, "org-test", name, "", transport.KindLocal, nil, "", time.Now().UTC())
 	if err != nil {
-		t.Fatalf("new topic: %v", err)
+		t.Fatalf("new trigger: %v", err)
 	}
-	if err := st.Topics.Create(context.Background(), top); err != nil {
-		t.Fatalf("create topic %s: %v", id, err)
+	if err := st.Triggers.Create(context.Background(), row); err != nil {
+		t.Fatalf("create trigger %s: %v", id, err)
 	}
 }
 
-func TestCreateProcessorReturnsResourceAndOutputTopic(t *testing.T) {
+func TestCreateProcessorReturnsResourceAndBranch(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
-	seedTopic(t, st, "s-in", "Inbox")
+	seedTrigger(t, st, "s-in", "Inbox")
 
 	rec := do(t, h, "POST", "/processors", jsonapiDoc("processors", map[string]any{
-		"name":           "Formatter",
-		"input_topic_id": "s-in",
-		"kind":           "template",
-		"config":         map[string]string{"template": "From {{ .Message.from }}: {{ .Message.body }}"},
+		"name":         "Formatter",
+		"input_source": "trigger:s-in",
+		"kind":         "template",
+		"config":       map[string]string{"template": "From {{ .Message.from }}: {{ .Message.body }}"},
 	}))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status = %d, body=%s", rec.Code, rec.Body.String())
@@ -49,11 +49,11 @@ func TestCreateProcessorReturnsResourceAndOutputTopic(t *testing.T) {
 			Type       string `json:"type"`
 			ID         string `json:"id"`
 			Attributes struct {
-				InputTopicID string `json:"input_topic_id"`
-				Kind         string `json:"kind"`
-				Outputs      []struct {
-					TopicID string `json:"topic_id"`
-					Owned   bool   `json:"owned"`
+				InputSource string `json:"input_source"`
+				Kind        string `json:"kind"`
+				Outputs     []struct {
+					ID     string `json:"id"`
+					Source string `json:"source"`
 				} `json:"outputs"`
 			} `json:"attributes"`
 		} `json:"data"`
@@ -62,23 +62,26 @@ func TestCreateProcessorReturnsResourceAndOutputTopic(t *testing.T) {
 	if doc.Data.Type != "processors" || doc.Data.ID == "" {
 		t.Fatalf("bad resource: %+v", doc.Data)
 	}
-	if len(doc.Data.Attributes.Outputs) != 1 || doc.Data.Attributes.Outputs[0].TopicID == "" || !doc.Data.Attributes.Outputs[0].Owned {
-		t.Fatalf("expected one owned auto-provisioned output, got %+v", doc.Data.Attributes.Outputs)
+	if len(doc.Data.Attributes.Outputs) != 1 || doc.Data.Attributes.Outputs[0].ID == "" {
+		t.Fatalf("expected one branch with a durable id, got %+v", doc.Data.Attributes.Outputs)
 	}
-	// The auto-created output topic exists.
-	if _, err := st.Topics.Get(context.Background(), "org-test", streaming.TopicID(doc.Data.Attributes.Outputs[0].TopicID)); err != nil {
-		t.Errorf("output topic not created: %v", err)
+	// The branch advertises the handle an attachment addresses it by.
+	if want := "processor_output:" + doc.Data.ID + ":" + doc.Data.Attributes.Outputs[0].ID; doc.Data.Attributes.Outputs[0].Source != want {
+		t.Errorf("branch source = %q, want %q", doc.Data.Attributes.Outputs[0].Source, want)
+	}
+	if doc.Data.Attributes.InputSource != "trigger:s-in" {
+		t.Errorf("input_source = %q, want trigger:s-in", doc.Data.Attributes.InputSource)
 	}
 }
 
 func TestProcessorCRUDLifecycle(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
-	seedTopic(t, st, "s-in", "Inbox")
+	seedTrigger(t, st, "s-in", "Inbox")
 
 	// Create (server mints the id; capture it).
 	rec := do(t, h, "POST", "/processors", jsonapiDoc("processors", map[string]any{
-		"name": "Life", "input_topic_id": "s-in", "kind": "template",
+		"name": "Life", "input_source": "trigger:s-in", "kind": "template",
 		"config": map[string]string{"template": "{{ .Message.body }}"},
 	}))
 	if rec.Code != http.StatusCreated {
@@ -137,11 +140,11 @@ func TestProcessorCRUDLifecycle(t *testing.T) {
 func TestCreateProcessorBadInput(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
-	seedTopic(t, st, "s-in", "Inbox")
+	seedTrigger(t, st, "s-in", "Inbox")
 
 	// Malformed template → 400.
 	rec := do(t, h, "POST", "/processors", jsonapiDoc("processors", map[string]any{
-		"name": "Bad", "input_topic_id": "s-in", "kind": "template",
+		"name": "Bad", "input_source": "trigger:s-in", "kind": "template",
 		"config": map[string]string{"template": "{{ .Message.body "},
 	}))
 	if rec.Code != http.StatusBadRequest {
@@ -150,26 +153,65 @@ func TestCreateProcessorBadInput(t *testing.T) {
 
 	// Unknown kind → 400.
 	rec = do(t, h, "POST", "/processors", jsonapiDoc("processors", map[string]any{
-		"name": "Bad2", "input_topic_id": "s-in", "kind": "nope",
+		"name": "Bad2", "input_source": "trigger:s-in", "kind": "nope",
 	}))
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown kind status = %d, want 400", rec.Code)
 	}
 }
 
-func TestCreateProcessorCycleConflict(t *testing.T) {
-	deps, st, _ := newDeps(t)
+// TestUpdateProcessorCycleConflict pins the cycle guard on the path the
+// chart actually drives: p1 reads a Trigger, p2 reads p1's branch, then
+// re-pointing p1 at p2's branch would close the loop — 409, not a
+// silently-accepted graph that would spin at runtime.
+func TestUpdateProcessorCycleConflict(t *testing.T) {
+	var n int
+	deps, st, _ := newDepsClock(t,
+		func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		func() string { n++; return "id-" + string(rune('a'+n)) },
+	)
 	h := orgapi.Handler(deps)
-	seedTopic(t, st, "s-a", "A")
+	seedTrigger(t, st, "s-a", "A")
 
-	// Explicit output == input → cycle → 409.
-	rec := do(t, h, "POST", "/processors", jsonapiDoc("processors", map[string]any{
-		"name": "Self", "input_topic_id": "s-a", "kind": "template",
-		"config":  map[string]string{"template": "{{ .Message.body }}"},
-		"outputs": []map[string]any{{"topic_id": "s-a"}},
+	type resource struct {
+		Data struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Outputs []struct {
+					Source string `json:"source"`
+				} `json:"outputs"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+	create := func(name, input string) resource {
+		t.Helper()
+		attrs := map[string]any{
+			"name": name, "kind": "template",
+			"config": map[string]string{"template": "{{ .Message.body }}"},
+		}
+		if input != "" {
+			attrs["input_source"] = input
+		}
+		rec := do(t, h, "POST", "/processors", jsonapiDoc("processors", attrs))
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create %s = %d: %s", name, rec.Code, rec.Body.String())
+		}
+		var got resource
+		decode(t, rec, &got)
+		return got
+	}
+
+	p1 := create("P1", "trigger:s-a")
+	p2 := create("P2", p1.Data.Attributes.Outputs[0].Source)
+
+	// Re-point p1 at p2's branch: s-a → p1 → p2 → p1 is a cycle.
+	rec := do(t, h, "PUT", "/processors/"+p1.Data.ID, jsonapiDoc("processors", map[string]any{
+		"name": "P1", "kind": "template",
+		"input_source": p2.Data.Attributes.Outputs[0].Source,
+		"config":       map[string]string{"template": "{{ .Message.body }}"},
 	}))
 	if rec.Code != http.StatusConflict {
-		t.Errorf("self-cycle status = %d, want 409 (body=%s)", rec.Code, rec.Body.String())
+		t.Errorf("cycle status = %d, want 409 (body=%s)", rec.Code, rec.Body.String())
 	}
 	// Error body is a JSON:API error document: {"errors":[{status,detail}]}.
 	var errDoc struct {
@@ -191,9 +233,9 @@ func TestCreateProcessorDuplicateNameConflict(t *testing.T) {
 		func() string { n++; return "id-" + string(rune('a'+n)) }, // unique per call
 	)
 	h := orgapi.Handler(deps)
-	seedTopic(t, st, "s-in", "Inbox")
+	seedTrigger(t, st, "s-in", "Inbox")
 	body := jsonapiDoc("processors", map[string]any{
-		"name": "Dup", "input_topic_id": "s-in", "kind": "template",
+		"name": "Dup", "input_source": "trigger:s-in", "kind": "template",
 		"config": map[string]string{"template": "{{ .Message.body }}"},
 	})
 	if rec := do(t, h, "POST", "/processors", body); rec.Code != http.StatusCreated {
@@ -210,57 +252,18 @@ func TestCreateProcessorDuplicateNameConflict(t *testing.T) {
 	}
 }
 
-func TestDeleteProcessorOutputTopicBlocked(t *testing.T) {
+func TestUpdateProcessorRewiresInputSource(t *testing.T) {
 	var n int
 	deps, st, _ := newDepsClock(t,
 		func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
 		func() string { n++; return "id-" + string(rune('a'+n)) },
 	)
 	h := orgapi.Handler(deps)
-	seedTopic(t, st, "s-in", "Inbox")
+	seedTrigger(t, st, "s-in", "Inbox")
+	seedTrigger(t, st, "s-in2", "Inbox 2")
 
 	rec := do(t, h, "POST", "/processors", jsonapiDoc("processors", map[string]any{
-		"name": "Fmt", "input_topic_id": "s-in", "kind": "template",
-		"config": map[string]string{"template": "{{ .Message.body }}"},
-	}))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("create = %d: %s", rec.Code, rec.Body.String())
-	}
-	var doc struct {
-		Data struct {
-			Attributes struct {
-				Outputs []struct {
-					TopicID string `json:"topic_id"`
-				} `json:"outputs"`
-			} `json:"attributes"`
-		} `json:"data"`
-	}
-	decode(t, rec, &doc)
-	outID := doc.Data.Attributes.Outputs[0].TopicID
-
-	// Deleting the processor-owned output topic directly must be blocked.
-	del := do(t, h, "DELETE", "/topics/"+outID, nil)
-	if del.Code != http.StatusConflict {
-		t.Errorf("delete owned output topic = %d, want 409 (body=%s)", del.Code, del.Body.String())
-	}
-	// The topic must still exist.
-	if _, err := st.Topics.Get(context.Background(), "org-test", streaming.TopicID(outID)); err != nil {
-		t.Errorf("owned output topic was deleted despite the guard: %v", err)
-	}
-}
-
-func TestUpdateProcessorRewiresInputTopic(t *testing.T) {
-	var n int
-	deps, st, _ := newDepsClock(t,
-		func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
-		func() string { n++; return "id-" + string(rune('a'+n)) },
-	)
-	h := orgapi.Handler(deps)
-	seedTopic(t, st, "s-in", "Inbox")
-	seedTopic(t, st, "s-in2", "Inbox 2")
-
-	rec := do(t, h, "POST", "/processors", jsonapiDoc("processors", map[string]any{
-		"name": "P", "input_topic_id": "s-in", "kind": "template",
+		"name": "P", "input_source": "trigger:s-in", "kind": "template",
 		"config": map[string]string{"template": "{{ .Message.body }}"},
 	}))
 	if rec.Code != http.StatusCreated {
@@ -274,9 +277,9 @@ func TestUpdateProcessorRewiresInputTopic(t *testing.T) {
 	decode(t, rec, &created)
 	id := created.Data.ID
 
-	// Re-point the input topic (what the chart's drag-to-wire does).
+	// Re-point the input source (what the chart's drag-to-wire does).
 	rec = do(t, h, "PUT", "/processors/"+id, jsonapiDoc("processors", map[string]any{
-		"name": "P", "kind": "template", "input_topic_id": "s-in2",
+		"name": "P", "kind": "template", "input_source": "trigger:s-in2",
 		"config": map[string]string{"template": "{{ .Message.body }}"},
 	}))
 	if rec.Code != http.StatusOK {
@@ -285,16 +288,16 @@ func TestUpdateProcessorRewiresInputTopic(t *testing.T) {
 	var doc struct {
 		Data struct {
 			Attributes struct {
-				InputTopicID string `json:"input_topic_id"`
+				InputSource string `json:"input_source"`
 			} `json:"attributes"`
 		} `json:"data"`
 	}
 	decode(t, rec, &doc)
-	if doc.Data.Attributes.InputTopicID != "s-in2" {
-		t.Errorf("input after rewire = %q, want s-in2", doc.Data.Attributes.InputTopicID)
+	if doc.Data.Attributes.InputSource != "trigger:s-in2" {
+		t.Errorf("input after rewire = %q, want trigger:s-in2", doc.Data.Attributes.InputSource)
 	}
 
-	// Omitting input_topic_id on update leaves it unchanged.
+	// Omitting input_source on update leaves it unchanged.
 	rec = do(t, h, "PUT", "/processors/"+id, jsonapiDoc("processors", map[string]any{
 		"name": "P2", "kind": "template",
 		"config": map[string]string{"template": "{{ .Message.body }}"},
@@ -303,8 +306,8 @@ func TestUpdateProcessorRewiresInputTopic(t *testing.T) {
 		t.Fatalf("update2 = %d: %s", rec.Code, rec.Body.String())
 	}
 	decode(t, rec, &doc)
-	if doc.Data.Attributes.InputTopicID != "s-in2" {
-		t.Errorf("input after name-only update = %q, want s-in2 (unchanged)", doc.Data.Attributes.InputTopicID)
+	if doc.Data.Attributes.InputSource != "trigger:s-in2" {
+		t.Errorf("input after name-only update = %q, want trigger:s-in2 (unchanged)", doc.Data.Attributes.InputSource)
 	}
 }
 

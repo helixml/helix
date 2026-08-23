@@ -95,10 +95,11 @@ import {
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
-import NewTopicDrawer from '../components/helix-org/NewTopicDrawer'
 import AssetConfigDrawer from '../components/helix-org/AssetConfigDrawer'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
-import TopicDetailDrawer from '../components/helix-org/TopicDetailDrawer'
+import { chartNodeIDForSource, sourceForChartNodeID } from '../components/helix-org/sourceOptions'
+import TriggerDetailDrawer from '../components/helix-org/TriggerDetailDrawer'
+import TriggerFormDialog from '../components/helix-org/TriggerFormDialog'
 import ProcessorNode, { ProcessorNodeData } from '../components/helix-org/ProcessorNode'
 import {
   ASSET_H,
@@ -113,7 +114,6 @@ import {
   STREAM_W,
 } from '../components/helix-org/chartNodeGeometry'
 import AgentHarness from '../components/agent/AgentHarness'
-import { isTranscriptTopic } from '../components/helix-org/helixOrgTopics'
 import { BotTaskStats, summarizeBotTasks } from '../components/helix-org/botTaskStats'
 import useAccount from '../hooks/useAccount'
 import useLightTheme from '../hooks/useLightTheme'
@@ -132,14 +132,11 @@ import {
   useClearChartPositions,
   useDeleteBot,
   useDeleteAsset,
-  useDeleteHelixOrgTopic,
   useListChartPositions,
   useListAssets,
   useLinkAsset,
   useListHelixOrgBots,
   useListHelixOrgBotDetails,
-  useListHelixOrgTopics,
-  useTopicMessageCounts,
   useListHelixOrgProcessors,
   useDeleteHelixOrgProcessor,
   useUpdateHelixOrgProcessor,
@@ -148,10 +145,17 @@ import {
   useUnlinkAsset,
   useRestartBotAgent,
   useStopBotAgent,
-  useSubscribeBotAtChart,
-  useUnsubscribeBotAtChart,
   useUpsertChartPositions,
 } from '../services/helixOrgService'
+import {
+  useAgentAttachmentsForWorkers,
+  useCreateAgentAttachmentForChart,
+  useCreateTrigger,
+  useDeleteAgentAttachmentForChart,
+  useDeleteTrigger,
+  useTriggerEventCounts,
+  useTriggers,
+} from '../services/triggerService'
 import { useSpecTasksForProjects } from '../services/specTaskService'
 import type { SpecTask } from '../services/specTaskService'
 import { useListProjects } from '../services/projectService'
@@ -903,7 +907,7 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
         }}
       />
       {data.ownedByProcessor ? (
-        <Tooltip title={`Output of processor ${data.ownedByProcessor} — delete the processor to remove this topic`}>
+        <Tooltip title={`Result of Processor ${data.ownedByProcessor} — delete the Processor to remove it`}>
           <Box sx={{ position: 'absolute', top: 2, right: 4, fontSize: '0.6rem', color: muted, fontFamily: 'monospace' }}>
             ⟜ {data.ownedByProcessor}
           </Box>
@@ -917,7 +921,7 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
           <IconButton
             className={NO_DRAG_NO_PAN}
             size="small"
-            aria-label="Topic actions"
+            aria-label="Trigger actions"
             onClick={(e) => {
               e.stopPropagation()
               setMenuEl(e.currentTarget)
@@ -942,7 +946,7 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
               }}
             >
               <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
-              Delete topic
+              Delete Trigger
             </MenuItem>
           </Menu>
         </Box>
@@ -1000,17 +1004,17 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
       )}
       <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.5} sx={{ mt: 0.25 }}>
         <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted, minWidth: 0 }}>
-          {data.kind} · {data.subscriberCount} sub{data.subscriberCount === 1 ? '' : 's'}
+          {data.kind} · {data.subscriberCount} agent{data.subscriberCount === 1 ? '' : 's'}
         </Typography>
         {/* Retained-message count. Kept deliberately tiny — the card is
             already dense — and tinted with the topic accent so it reads as
             a topic stat rather than chrome. */}
-        <Tooltip title={`${data.messageCount} retained message${data.messageCount === 1 ? '' : 's'}`}>
+        <Tooltip title={`${data.messageCount} saved event${data.messageCount === 1 ? '' : 's'}`}>
           <Typography
             variant="caption"
             sx={{ fontSize: '0.65rem', fontFamily: 'monospace', fontWeight: 700, color: accent, lineHeight: 1, flexShrink: 0 }}
           >
-            {data.messageCount} msg
+            {data.messageCount} event{data.messageCount === 1 ? '' : 's'}
           </Typography>
         </Tooltip>
       </Stack>
@@ -1040,8 +1044,10 @@ type ProcessorSummary = {
   id: string
   name: string
   kind: string
-  inputTopicId: string
-  outputs: { topicId: string; label: string; match: string; owned: boolean }[]
+  // inputNodeId is the chart node this Processor reads: a bare Trigger
+  // id, or a `processor_output:<p>:<o>` branch handle.
+  inputNodeId: string
+  outputs: { topicId: string; label: string; match: string }[]
 }
 
 // layoutTopicColumns positions bot-anchored topic nodes to the right of
@@ -1240,14 +1246,17 @@ export const buildGraph = (
   //    their own Topic boxes. We still need their subscriber lists below
   //    to draw the branch → Bot edges, so they stay in `topics` (just not
   //    rendered).
+  // Every branch belongs to the Processor that declares it, so every
+  // branch node is collapsed into that Processor's card.
   const ownedOutputTopicIds = new Set<string>()
-  // branchOwner maps a (collapsed) output-topic id → the processor that
-  // produces it, so a downstream processor reading that topic can be wired
-  // straight from the upstream branch port (chaining).
+  // branchOwner maps a (collapsed) branch id → the processor that
+  // produces it, so a downstream processor reading that branch can be
+  // wired straight from the upstream branch port (chaining).
   const branchOwner = new Map<string, string>()
   for (const p of processors) for (const o of p.outputs) {
-    if (o.owned && o.topicId) ownedOutputTopicIds.add(o.topicId)
-    if (o.topicId) branchOwner.set(o.topicId, p.id)
+    if (!o.topicId) continue
+    ownedOutputTopicIds.add(o.topicId)
+    branchOwner.set(o.topicId, p.id)
   }
 
   // Bounds for the topic-column auto-layout use *dagre* bot positions,
@@ -1438,7 +1447,7 @@ export const buildGraph = (
     }
 
     for (const p of processors) {
-      const inPos = p.inputTopicId ? topicPosById.get(p.inputTopicId) : undefined
+      const inPos = p.inputNodeId ? topicPosById.get(p.inputNodeId) : undefined
       const h = procNodeHeight(p.outputs.length)
       const saved = savedPositions[chartPositionKey('processor', p.id)]
       let pos: { x: number; y: number }
@@ -1471,24 +1480,24 @@ export const buildGraph = (
         selectable: true,
       })
 
-      if (p.inputTopicId && topicNodeIds.has(p.inputTopicId)) {
+      if (p.inputNodeId && topicNodeIds.has(p.inputNodeId)) {
         edges.push({
-          id: `procin:${p.inputTopicId}->${p.id}`,
-          source: `topic:${p.inputTopicId}`,
+          id: `procin:${p.inputNodeId}->${p.id}`,
+          source: `topic:${p.inputNodeId}`,
           sourceHandle: 'src',
           target: `processor:${p.id}`,
           type: 'closest',
           data: { kind: 'proc_in', processorId: p.id },
           style: { stroke: procStroke, strokeWidth: 1.5 },
         })
-      } else if (p.inputTopicId && branchOwner.has(p.inputTopicId) && branchOwner.get(p.inputTopicId) !== p.id) {
+      } else if (p.inputNodeId && branchOwner.has(p.inputNodeId) && branchOwner.get(p.inputNodeId) !== p.id) {
         // Chained: this processor reads an upstream processor's output
         // branch — draw the edge from that branch port to this IN port.
-        const upstream = branchOwner.get(p.inputTopicId)!
+        const upstream = branchOwner.get(p.inputNodeId)!
         edges.push({
-          id: `procchain:${upstream}:${p.inputTopicId}->${p.id}`,
+          id: `procchain:${upstream}:${p.inputNodeId}->${p.id}`,
           source: `processor:${upstream}`,
-          sourceHandle: p.inputTopicId,
+          sourceHandle: p.inputNodeId,
           target: `processor:${p.id}`,
           type: 'closest',
           data: { kind: 'proc_in', processorId: p.id },
@@ -2336,7 +2345,7 @@ const HelixOrgChart: FC = () => {
   const { data: assetsData = [], isLoading: assetsLoading } = useListAssets()
   const assetIDs = useMemo(() => assetsData.map((asset) => asset.id ?? '').filter(Boolean), [assetsData])
   const assetHealth = useAssetHealth(assetIDs, { refetchInterval: 15000 })
-  const { data: streamsData } = useListHelixOrgTopics()
+  const { data: triggers = [], isLoading: triggersLoading } = useTriggers()
   const { data: processorsData, isLoading: processorsLoading } = useListHelixOrgProcessors()
   const { data: savedPositions = {} } = useListChartPositions()
   const { data: projects = [] } = useListProjects(orgID, { enabled: !!orgID })
@@ -2344,13 +2353,14 @@ const HelixOrgChart: FC = () => {
   const clearPositions = useClearChartPositions()
   const deleteBot = useDeleteBot()
   const deleteAsset = useDeleteAsset()
-  const deleteTopic = useDeleteHelixOrgTopic()
+  const deleteTopic = useDeleteTrigger()
+  const createTrigger = useCreateTrigger()
   const deleteProcessor = useDeleteHelixOrgProcessor()
   const updateProcessor = useUpdateHelixOrgProcessor()
   const addParent = useAddBotParent()
   const removeParent = useRemoveBotParent()
-  const subscribe = useSubscribeBotAtChart()
-  const unsubscribe = useUnsubscribeBotAtChart()
+  const attachTrigger = useCreateAgentAttachmentForChart()
+  const detachTrigger = useDeleteAgentAttachmentForChart()
   const linkAsset = useLinkAsset()
   const unlinkAsset = useUnlinkAsset()
   const activateBot = useActivateBot()
@@ -2364,6 +2374,7 @@ const HelixOrgChart: FC = () => {
       .filter(Boolean),
     [botsData],
   )
+  const { attachments, isLoading: attachmentsLoading } = useAgentAttachmentsForWorkers(botIds)
   const botDetails = useListHelixOrgBotDetails(botIds, { refetchInterval: 5000 })
   const projectIds = useMemo(
     () => projects.map((project) => project.id ?? '').filter(Boolean),
@@ -2441,42 +2452,49 @@ const HelixOrgChart: FC = () => {
     [botsData],
   )
 
-  // Map each processor-owned output topic id → owning processor id, so
-  // those topics render as managed (no independent delete).
-  const ownedOutputTopics = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const p of processorsData ?? []) {
-      for (const o of p.outputs ?? []) {
-        if (o.owned && o.topic_id) m.set(o.topic_id, p.id)
-      }
+  const attachedAgentsBySource = useMemo(() => {
+    const agents = new Map<string, string[]>()
+    for (const attachment of attachments) {
+      const source = attachment.source
+      const key = source?.kind === 'trigger'
+        ? `trigger:${source.trigger_id}`
+        : `processor_output:${source?.processor_id}:${source?.output_id}`
+      if (!attachment.worker_id || key.includes('undefined')) continue
+      agents.set(key, [...(agents.get(key) ?? []), attachment.worker_id])
     }
-    return m
-  }, [processorsData])
+    return agents
+  }, [attachments])
 
   const topics = useMemo<TopicSummary[]>(
-    () => (streamsData?.topics ?? [])
-      .filter((topic) => !isTranscriptTopic(topic.id))
-      .map((s) => {
-        const cfg = (s.config ?? {}) as Record<string, unknown>
+    () => [
+      ...triggers.map((trigger) => {
+        const cfg = (trigger.config ?? {}) as Record<string, unknown>
         const schedule = typeof cfg.schedule === 'string' ? cfg.schedule : undefined
         return {
-          id: s.id ?? '',
-          name: s.name ?? '',
-          kind: s.kind ?? '',
-          created_by: s.created_by,
-          subscribers: s.subscribers,
+          id: trigger.id ?? '',
+          name: trigger.name ?? '',
+          kind: trigger.kind ?? '',
+          subscribers: attachedAgentsBySource.get(`trigger:${trigger.id}`) ?? [],
           schedule,
-          ownedByProcessor: ownedOutputTopics.get(s.id ?? ''),
         }
       }),
-    [streamsData, ownedOutputTopics],
+      ...(processorsData ?? []).flatMap((processor) => (processor.outputs ?? []).flatMap((output) => output.id ? [{
+        id: `processor_output:${processor.id}:${output.id}`,
+        name: output.label || output.id,
+        kind: 'processor_output',
+        subscribers: attachedAgentsBySource.get(`processor_output:${processor.id}:${output.id}`) ?? [],
+        ownedByProcessor: processor.id,
+      }] : [])),
+    ],
+    [attachedAgentsBySource, processorsData, triggers],
   )
 
   const processorConsumerCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const processor of processorsData ?? []) {
-      if (!processor.input_topic_id) continue
-      counts.set(processor.input_topic_id, (counts.get(processor.input_topic_id) ?? 0) + 1)
+      const inputNodeID = chartNodeIDForSource(processor.input_source ?? '')
+      if (!inputNodeID) continue
+      counts.set(inputNodeID, (counts.get(inputNodeID) ?? 0) + 1)
     }
     return counts
   }, [processorsData])
@@ -2581,6 +2599,18 @@ const HelixOrgChart: FC = () => {
     && entityVisibilityScopeRef.current === visibilityScope
     && topicVisibilityScopeRef.current === visibilityScope
 
+  // The Triggers menu filters by category, but its badge counts the
+  // Triggers actually on the chart — the thing the operator is looking
+  // for — not how many category checkboxes are ticked.
+  const triggerVisibilityCounts = useMemo(() => {
+    const selected = new Set(visibleTopicFilters)
+    const shown = triggers.filter((trigger) => selected.has(chartTopicFilterFor({
+      name: trigger.name ?? '',
+      kind: trigger.kind ?? '',
+    }))).length
+    return { shown, total: triggers.length }
+  }, [triggers, visibleTopicFilters])
+
   const onTopicFiltersChange = useCallback((filters: ChartTopicFilter[]) => {
     setVisibleTopicFilters(filters)
     saveChartTopicVisibility(userID, orgID, filters)
@@ -2595,22 +2625,23 @@ const HelixOrgChart: FC = () => {
       .map((topic) => topic.id))
   }, [topics, visibleTopicFilters, selectedProcessorIDs])
 
-  // Retained-message counts only run for cards currently shown on the chart.
-  const visibleTopicIdList = useMemo(() => Array.from(visibleTopicIds), [visibleTopicIds])
   const [fitViewRequest, setFitViewRequest] = useState(0)
-  const messageCounts = useTopicMessageCounts(visibleTopicIdList, { enabled: visibleTopicIdList.length > 0 })
+  const visibleTriggerIDs = useMemo(
+    () => triggers.map((trigger) => trigger.id ?? '').filter((id) => visibleTopicIds.has(id)),
+    [triggers, visibleTopicIds],
+  )
+  const messageCounts = useTriggerEventCounts(visibleTriggerIDs)
 
   const processorSummaries = useMemo<ProcessorSummary[]>(
     () => (processorsData ?? []).map((p: ProcessorDTO) => ({
       id: p.id,
       name: p.name ?? p.id,
       kind: p.kind ?? '',
-      inputTopicId: p.input_topic_id ?? '',
+      inputNodeId: chartNodeIDForSource(p.input_source ?? ''),
       outputs: (p.outputs ?? []).map((o) => ({
-        topicId: o.topic_id ?? '',
+        topicId: o.id ? `processor_output:${p.id}:${o.id}` : '',
         label: o.label ?? '',
         match: o.match ?? '',
-        owned: !!o.owned,
       })),
     })),
     [processorsData],
@@ -2634,10 +2665,11 @@ const HelixOrgChart: FC = () => {
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [botDialogOpen, setBotDialogOpen] = useState(false)
+  const [triggerCreateOpen, setTriggerCreateOpen] = useState(false)
+  const [selectedTriggerID, setSelectedTriggerID] = useState<string>()
+  const [triggerFormError, setTriggerFormError] = useState('')
   const [newMenuEl, setNewMenuEl] = useState<null | HTMLElement>(null)
   const [assetDrawer, setAssetDrawer] = useState<{ open: boolean; assetID?: string }>({ open: false })
-  const [topicDrawerOpen, setTopicDrawerOpen] = useState(false)
-  const [selectedTopicId, setSelectedTopicId] = useState<string>()
   // Processor drawer: { open, processor } — processor null = create mode.
   const [processorDrawer, setProcessorDrawer] = useState<{ open: boolean; processor: ProcessorDTO | null }>({ open: false, processor: null })
   const [confirmDelete, setConfirmDelete] = useState<
@@ -2765,10 +2797,16 @@ const HelixOrgChart: FC = () => {
     }
   }, [restartBot, snackbar])
   const onSelectTopic = useCallback(
-    (topicId: string) => {
-      setSelectedTopicId(topicId)
+    (sourceID: string) => {
+      if (sourceID.startsWith('processor_output:')) {
+        const processorID = sourceID.split(':')[1]
+        const processor = (processorsData ?? []).find((candidate) => candidate.id === processorID) ?? null
+        setProcessorDrawer({ open: true, processor })
+        return
+      }
+      setSelectedTriggerID(sourceID)
     },
-    [],
+    [processorsData],
   )
   const onDeleteTopic = useCallback((topicId: string) => setConfirmDelete({ kind: 'topic', id: topicId }), [])
   const onSelectProcessor = useCallback(
@@ -2814,27 +2852,39 @@ const HelixOrgChart: FC = () => {
   )
 
   const onSubscribeBot = useCallback(
-    async (botId: string, topicId: string) => {
+    async (botId: string, sourceID: string) => {
       try {
-        await subscribe.mutateAsync({ botID: botId, topicID: topicId })
-        snackbar.success(`${botId} now consumes ${topicId}`)
+        const parts = sourceID.split(':')
+        const source = parts[0] === 'processor_output'
+          ? { kind: 'processor_output', processor_id: parts[1], output_id: parts[2] }
+          : { kind: 'trigger', trigger_id: sourceID }
+        await attachTrigger.mutateAsync({ workerID: botId, source })
+        snackbar.success(`Trigger connected to ${botId}`)
       } catch (err: any) {
-        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'subscribe failed')
+        snackbar.error(err?.response?.data?.summary ?? err?.message ?? 'Could not connect Trigger')
       }
     },
-    [subscribe, snackbar],
+    [attachTrigger, snackbar],
   )
 
   const onUnsubscribeBot = useCallback(
-    async (botId: string, topicId: string) => {
+    async (botId: string, sourceID: string) => {
       try {
-        await unsubscribe.mutateAsync({ botID: botId, topicID: topicId })
-        snackbar.success(`${botId} no longer consumes ${topicId}`)
+        const attachment = attachments.find((candidate) => {
+          if (candidate.worker_id !== botId) return false
+          const source = candidate.source
+          return sourceID.startsWith('processor_output:')
+            ? source?.kind === 'processor_output' && sourceID === `processor_output:${source.processor_id}:${source.output_id}`
+            : source?.kind === 'trigger' && source.trigger_id === sourceID
+        })
+        if (!attachment?.id) throw new Error('Trigger connection no longer exists')
+        await detachTrigger.mutateAsync({ workerID: botId, attachmentID: attachment.id })
+        snackbar.success(`Trigger disconnected from ${botId}`)
       } catch (err: any) {
-        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'unsubscribe failed')
+        snackbar.error(err?.response?.data?.summary ?? err?.message ?? 'Could not disconnect Trigger')
       }
     },
-    [unsubscribe, snackbar],
+    [attachments, detachTrigger, snackbar],
   )
 
   const onUnlinkAsset = useCallback(
@@ -2872,7 +2922,7 @@ const HelixOrgChart: FC = () => {
       try {
         await updateProcessor.mutateAsync({
           id: processorId,
-          attrs: { name: p.name ?? processorId, kind: p.kind ?? 'template', config: p.config, input_topic_id: topicId },
+          attrs: { name: p.name ?? processorId, kind: p.kind ?? 'template', config: p.config, input_source: sourceForChartNodeID(topicId) },
         })
         snackbar.success(topicId ? `${processorId} now reads ${topicId}` : `${processorId} disconnected from its input`)
       } catch (err: any) {
@@ -2916,7 +2966,7 @@ const HelixOrgChart: FC = () => {
         snackbar.success(`deleted agent ${confirmDelete.id}`)
       } else if (confirmDelete.kind === 'topic') {
         await deleteTopic.mutateAsync(confirmDelete.id)
-        snackbar.success(`deleted topic ${confirmDelete.id}`)
+        snackbar.success(`Deleted Trigger ${confirmDelete.id}`)
       } else if (confirmDelete.kind === 'asset') {
         await deleteAsset.mutateAsync(confirmDelete.id)
         setAssetDrawer({ open: false })
@@ -2942,24 +2992,24 @@ const HelixOrgChart: FC = () => {
   const confirmBody = useMemo(() => {
     if (!confirmDelete) return ''
     if (confirmDelete.kind === 'topic') {
-      const s = (streamsData?.topics ?? []).find((x) => x.id === confirmDelete.id)
-      const subs = s?.subscribers ?? []
+      const trigger = triggers.find((candidate) => candidate.id === confirmDelete.id)
+      const connectedAgents = attachedAgentsBySource.get(`trigger:${confirmDelete.id}`) ?? []
       return [
-        `Deleting topic ${confirmDelete.id}:`,
-        `  • removes the Topic row`,
-        `  • drops ${subs.length} subscription${subs.length === 1 ? '' : 's'}${subs.length > 0 ? ' (' + subs.join(', ') + ')' : ''}`,
-        `  • events on this topic survive as an audit trail`,
+        `Delete Trigger ${trigger?.name || confirmDelete.id}?`,
+        connectedAgents.length > 0
+          ? `It still starts ${connectedAgents.length} agent${connectedAgents.length === 1 ? '' : 's'} (${connectedAgents.join(', ')}). Remove those connections first.`
+          : 'Its saved event history will remain available for auditing.',
         '',
         'This is irreversible.',
       ].join('\n')
     }
     if (confirmDelete.kind === 'processor') {
       const p = (processorsData ?? []).find((x) => x.id === confirmDelete.id)
-      const owned = (p?.outputs ?? []).filter((o) => o.owned).map((o) => o.topic_id)
+      const owned = (p?.outputs ?? []).map((o) => o.id)
       return [
         `Deleting processor ${confirmDelete.id}:`,
         `  • removes the Processor`,
-        `  • deletes ${owned.length} auto-created output topic${owned.length === 1 ? '' : 's'}${owned.length > 0 ? ' (' + owned.join(', ') + ')' : ''} and their subscriptions`,
+        `  • deletes ${owned.length} processed output${owned.length === 1 ? '' : 's'}${owned.length > 0 ? ' (' + owned.join(', ') + ')' : ''} and their agent connections`,
         '',
         'This is irreversible.',
       ].join('\n')
@@ -2977,14 +3027,14 @@ const HelixOrgChart: FC = () => {
     const reports = flat.filter((b) => b.parentIds.includes(confirmDelete.id)).map((b) => b.id)
     return [
       `Deleting agent ${confirmDelete.id} will cascade:`,
-      `  • stops sessions, deletes its project, canonical Agent configuration, knowledge sources, and subscriptions`,
+      `  • stops sessions and deletes its project, configuration, knowledge sources, and Trigger connections`,
       reports.length > 0
         ? `  • ${reports.length} direct report${reports.length === 1 ? '' : 's'} (${reports.join(', ')}) lose their manager`
         : `  • no direct reports`,
       '',
       'This is irreversible.',
     ].join('\n')
-  }, [confirmDelete, flat, streamsData, processorsData, assetsData])
+  }, [assetsData, attachedAgentsBySource, confirmDelete, flat, processorsData, triggers])
 
   return (
     <HelixOrgShell showChat breadcrumbs={breadcrumbs}>
@@ -3001,8 +3051,8 @@ const HelixOrgChart: FC = () => {
             overflow: 'hidden',
           }}
         >
-          {visibilityReady && !isLoading && !assetsLoading && !processorsLoading && <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
-            <ChartTopicVisibilityMenu selected={visibleTopicFilters} onChange={onTopicFiltersChange} />
+          {visibilityReady && !isLoading && !assetsLoading && !processorsLoading && !triggersLoading && !attachmentsLoading && <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
+            <ChartTopicVisibilityMenu selected={visibleTopicFilters} onChange={onTopicFiltersChange} counts={triggerVisibilityCounts} />
             <ChartVisibilityMenu
               label="Agents"
               icon={<SmartToyOutlinedIcon />}
@@ -3043,9 +3093,9 @@ const HelixOrgChart: FC = () => {
                 <ListItemIcon><SmartToyOutlinedIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Agent</ListItemText>
               </MenuItem>
-              <MenuItem onClick={() => { setNewMenuEl(null); setPendingCreatePosition(undefined); setTopicDrawerOpen(true) }}>
+              <MenuItem onClick={() => { setNewMenuEl(null); setPendingCreatePosition(undefined); setTriggerFormError(''); setTriggerCreateOpen(true) }}>
                 <ListItemIcon><HubOutlinedIcon fontSize="small" /></ListItemIcon>
-                <ListItemText>Topic</ListItemText>
+                <ListItemText>Trigger</ListItemText>
               </MenuItem>
               <MenuItem onClick={() => { setNewMenuEl(null); setPendingCreatePosition(undefined); setProcessorDrawer({ open: true, processor: null }) }}>
                 <ListItemIcon><TransformIcon fontSize="small" /></ListItemIcon>
@@ -3058,7 +3108,7 @@ const HelixOrgChart: FC = () => {
             </Menu>
           </Stack>}
 
-          {!visibilityReady || isLoading || assetsLoading ? (
+          {!visibilityReady || isLoading || assetsLoading || triggersLoading || attachmentsLoading ? (
             <Box sx={{ p: 4 }}><LoadingSpinner /></Box>
           ) : flat.length === 0 && assetsData.length === 0 ? (
             <Box
@@ -3130,11 +3180,11 @@ const HelixOrgChart: FC = () => {
         </MenuItem>
         <MenuItem
           onClick={() => {
-            openCreateFromContext(() => setTopicDrawerOpen(true))
+            openCreateFromContext(() => { setTriggerFormError(''); setTriggerCreateOpen(true) })
           }}
         >
           <ListItemIcon><HubOutlinedIcon fontSize="small" /></ListItemIcon>
-          <ListItemText>New topic</ListItemText>
+          <ListItemText>New Trigger</ListItemText>
         </MenuItem>
         <MenuItem
           onClick={() => {
@@ -3169,23 +3219,30 @@ const HelixOrgChart: FC = () => {
         onCreated={(id) => saveCreatedPosition('asset', id)}
         onDelete={onDeleteAsset}
       />
-      <NewTopicDrawer
-        open={topicDrawerOpen}
-        onClose={() => { setTopicDrawerOpen(false); setPendingCreatePosition(undefined) }}
-        onCreated={(id) => saveCreatedPosition('topic', id)}
+      <TriggerFormDialog
+        open={triggerCreateOpen}
+        saving={createTrigger.isPending}
+        error={triggerFormError}
+        onClose={() => { setTriggerCreateOpen(false); setPendingCreatePosition(undefined) }}
+        onSubmit={async (payload) => {
+          try {
+            const trigger = await createTrigger.mutateAsync(payload)
+            setTriggerCreateOpen(false)
+            if (trigger.id) saveCreatedPosition('topic', trigger.id)
+          } catch (error: any) {
+            setTriggerFormError(error?.response?.data?.summary ?? error?.message ?? 'Could not create Trigger')
+          }
+        }}
       />
-      <TopicDetailDrawer
-        topicId={selectedTopicId}
-        consumerCount={selectedTopicId
-          ? (topics.find((topic) => topic.id === selectedTopicId)?.subscribers?.length ?? 0)
-            + (processorConsumerCounts.get(selectedTopicId) ?? 0)
-          : undefined}
-        onClose={() => setSelectedTopicId(undefined)}
+      <TriggerDetailDrawer
+        triggerID={selectedTriggerID}
+        agentCount={selectedTriggerID ? attachedAgentsBySource.get(`trigger:${selectedTriggerID}`)?.length ?? 0 : 0}
+        onClose={() => setSelectedTriggerID(undefined)}
       />
       <ConfirmDeleteDialog
         open={confirmDelete !== null}
         title={
-          confirmDelete?.kind === 'topic' ? 'Delete topic?' :
+          confirmDelete?.kind === 'topic' ? 'Delete Trigger?' :
           confirmDelete?.kind === 'processor' ? 'Delete processor?' :
           confirmDelete?.kind === 'asset' ? 'Delete asset?' :
           'Delete agent?'

@@ -40,9 +40,7 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import StopIcon from "@mui/icons-material/Stop";
 import LaunchIcon from "@mui/icons-material/Launch";
 import LinkIcon from "@mui/icons-material/Link";
-import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
-import UndoIcon from "@mui/icons-material/Undo";
 import {
   TypesCodeAgentOverrides,
   TypesSandboxResourceOverrides,
@@ -106,6 +104,7 @@ import AgentChat from "../session/AgentChat";
 import { getChatColors } from "../session/chatStyles";
 import type { WorkspaceReviewComment } from "../workspace-inspector/workspaceReviewComments";
 import CodeAgentExecutionControls from "../agent/CodeAgentExecutionControls";
+import AgentToolsPicker from "../tools/AgentToolsPicker";
 import SandboxStatusIndicator, {
   type SandboxIndicatorState,
 } from "./SandboxStatusIndicator";
@@ -131,8 +130,14 @@ import {
   PanelRight,
   Wand2,
   Share,
+  Trash2,
+  Undo2,
 } from "lucide-react";
 import { buildTaskUsageQuery } from "../../utils/usageDateRange";
+import {
+  ACTION_BUTTON_SX,
+  NEUTRAL_ACTION_BUTTON_SX,
+} from "../../styles/actionButtons";
 import SpecTaskViewToolbar, {
   TaskView,
   ToolbarDensity,
@@ -182,11 +187,6 @@ const taskDetailsSectionSx = {
   borderRadius: 2,
   backgroundColor: "background.paper",
   p: 2,
-} as const;
-
-const taskActionButtonSx = {
-  fontSize: "0.75rem",
-  textTransform: "none",
 } as const;
 
 const taskDetailsTextSx = {
@@ -244,6 +244,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const streaming = useStreaming();
   const updateSpecTask = useUpdateSpecTask();
   const updateExecutionConfig = useUpdateSpecTaskExecutionConfig(taskId);
+
+  // Task-scoped tool grant. The project's list is the floor (shown locked in
+  // the picker), so this only ever persists the extras.
+  const handleAgentToolsChange = async (tools: string[]) => {
+    try {
+      await updateSpecTask.mutateAsync({ taskId, updates: { agent_tools: tools } });
+      snackbar.success("Agent tools updated");
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : "Failed to update agent tools");
+    }
+  };
   const autoSaveSpecTask = useUpdateSpecTask();
   const moveToBacklogMutation = useMoveToBacklog(taskId);
   const queryClient = useQueryClient();
@@ -373,9 +384,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [terminalDrawerState, setTerminalDrawerState] = useState(() =>
     loadSpecTaskTerminalDrawerState(taskId),
   );
+  const terminalChatAppendSequence = useRef(0);
+  const [terminalChatAppend, setTerminalChatAppend] = useState<{
+    text: string;
+    sequence: number;
+  } | null>(null);
 
   useEffect(() => {
     setTerminalDrawerState(loadSpecTaskTerminalDrawerState(taskId));
+    terminalChatAppendSequence.current = 0;
+    setTerminalChatAppend(null);
   }, [taskId]);
 
   const toggleTerminalDrawer = useCallback(() => {
@@ -401,6 +419,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       return next;
     });
   }, [taskId]);
+
+  const copyTerminalSelectionToChat = useCallback((text: string) => {
+    terminalChatAppendSequence.current += 1;
+    setTerminalChatAppend({
+      text,
+      sequence: terminalChatAppendSequence.current,
+    });
+  }, []);
+
+  const terminalChatAppendText = terminalChatAppend
+    ? terminalChatAppend.text + "#" + terminalChatAppend.sequence
+    : undefined;
 
   const handleAgentModelChange = useCodeAgentConfigChange(updateExecutionConfig.mutateAsync);
 
@@ -1880,6 +1910,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         />
       </Box>
 
+      {/* Helix tools this task's agent can call */}
+      <Box sx={{ mb: 2 }}>
+        <AgentToolsPicker
+          label="Agent tools"
+          selectedTools={task?.agent_tools ?? []}
+          lockedTools={project?.agent_tools ?? []}
+          onChange={handleAgentToolsChange}
+          disabled={updateSpecTask.isPending || !!task?.archived}
+          helperText="Extra tools for this task only. Project tools are always on and cannot be removed here."
+        />
+      </Box>
+
       <Box
         sx={{
           display: "flex",
@@ -1893,13 +1935,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           Usage
         </Typography>
         <Button
-          variant="outlined"
+          variant="text"
           size="small"
           startIcon={<ChartNoAxesCombined size={16} />}
           onClick={() =>
             account.orgNavigate("usage", {}, buildTaskUsageQuery(taskId))
           }
-          sx={{ flexShrink: 0, textTransform: "none" }}
+          sx={{ ...NEUTRAL_ACTION_BUTTON_SX, flexShrink: 0 }}
         >
           View task usage
         </Button>
@@ -2175,57 +2217,64 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Box>
           <Button
             size="small"
-            variant="outlined"
-            startIcon={<Share size={14} />}
+            variant="text"
+            startIcon={<Share size={16} />}
             onClick={() => setShareDialogOpen(true)}
-            sx={{ ...taskActionButtonSx, ml: "auto" }}
+            sx={{ ...NEUTRAL_ACTION_BUTTON_SX, ml: "auto" }}
           >
             Share
           </Button>
         </Box>
 
-        {/* Move to Backlog button */}
-        {canMoveToBacklog && (
-          <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end" }}>
+        {/* Lifecycle actions share one right-aligned row so they read as a
+            group rather than as unrelated stacked blocks. */}
+        <Box
+          sx={{
+            mt: 2,
+            display: "flex",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            gap: 0.75,
+            flexWrap: "wrap",
+          }}
+        >
+          {canMoveToBacklog && (
             <Button
               size="small"
-              variant="outlined"
+              variant="text"
               color="warning"
               startIcon={
                 moveToBacklogMutation.isPending ? (
-                  <CircularProgress size={14} color="inherit" />
+                  <CircularProgress size={16} color="inherit" />
                 ) : (
-                  <UndoIcon />
+                  <Undo2 size={16} />
                 )
               }
               onClick={() => moveToBacklogMutation.mutate()}
               disabled={moveToBacklogMutation.isPending}
-              sx={taskActionButtonSx}
+              sx={ACTION_BUTTON_SX}
             >
               {moveToBacklogMutation.isPending
                 ? "Moving..."
                 : "Move to Backlog"}
             </Button>
-          </Box>
-        )}
+          )}
 
-        {/* Archive button */}
-        <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end" }}>
           <Tooltip title="Hold Shift to skip confirmation">
             <Button
               size="small"
-              variant="outlined"
+              variant="text"
               color="error"
               startIcon={
                 isArchiving ? (
-                  <CircularProgress size={14} color="inherit" />
+                  <CircularProgress size={16} color="inherit" />
                 ) : (
-                  <ArchiveIcon />
+                  <Trash2 size={16} />
                 )
               }
               onClick={handleArchiveClick}
               disabled={isArchiving || task?.archived}
-              sx={taskActionButtonSx}
+              sx={ACTION_BUTTON_SX}
             >
               {isArchiving ? "Archiving..." : "Archive Task"}
             </Button>
@@ -2528,6 +2577,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   sessionId={activeSessionId}
                   specTaskId={task.id}
                   projectId={task.project_id}
+                  appendText={terminalChatAppendText}
                   enableInteractionDebugCopy
                   onWillSend={handleWillSend}
                   leadingActions={(
@@ -2840,6 +2890,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   sessionId={activeSessionId}
                   specTaskId={task.id}
                   projectId={task.project_id}
+                  appendText={terminalChatAppendText}
                   enableInteractionDebugCopy
                   onWillSend={handleWillSend}
                   leadingActions={(
@@ -2996,6 +3047,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           height={terminalDrawerState.height}
           onHeightChange={setTerminalDrawerHeight}
           onClose={closeTerminalDrawer}
+          onCopyToChat={copyTerminalSelectionToChat}
         />
       )}
 

@@ -106,6 +106,7 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 | DRM manager (`api/pkg/drm/`, `api/cmd/helix-drm-manager/`) | `./stack build-drm-manager` | Systemd service on VM guest |
 | Zed config (`zed_config.go`) | No rebuild | API-side, Air hot reloads. Start NEW session |
 | Settings-sync-daemon | `./stack build-ubuntu` | Start NEW session after |
+| Agent skills (`SKILLS_COMMIT` in `sandbox-versions.txt`) | `./stack build-ubuntu` | Start NEW session after |
 
 Full rebuild order: `build-zed` → `build-ubuntu` → `build-sandbox` (if needed) → start new session.
 
@@ -320,7 +321,7 @@ These rules keep our list pages visually consistent. When in doubt, mirror `Sand
 Anything under `api/pkg/org/` is the org-graph runtime (Workers, Positions, Roles, Streams). Behaviour lives in the prompt/profile, not in Go code. The code is scaffolding.
 
 - **Prefer data and text over code.** If a feature can be expressed as a Role/Position prompt edit, a scope value, or a tool description, do that before adding Go logic.
-- **Keep the MCP surface small.** MCP tools are reserved for org-graph primitives (reads + mutations of Workers, Positions, Roles, Streams). Anything else a Worker needs goes through shell tools provisioned in their environment (`bash`, `curl`, `git`, `gh`, `python`). Don't add MCP wrappers like `publish_to_blog` or `fetch_url` — describe the shell usage in the Role text instead. **One recorded exception:** `mint_credential` is a generic credential-minting *primitive* (it is what makes the shell tools usable on long-running sessions whose boot-time tokens have expired). A *primitive* is different from a per-action wrapper; the per-action ban stands. See `design/tasks/002092_helix-org-mintcredential/design.md` §2 for the full rationale.
+- **Keep the MCP surface small.** MCP tools are reserved for org-graph primitives (reads + mutations of Workers, Positions, Roles, Streams). Anything else a Worker needs goes through shell tools provisioned in their environment (`bash`, `curl`, `git`, `gh`, `python`). Don't add MCP wrappers like `publish_to_blog` or `fetch_url` — describe the shell usage in the Role text instead. `get_secret` is the generic credential-retrieval primitive that makes those shell tools usable for long-running Sessions without adding provider-action wrappers.
 - **Complete a user action in as few steps as possible.** A tool should do the whole of what the user means by one action, not force a chain of follow-up calls. `create_bot`, for example, grants the new Bot its initial tools AND subscribes it to the topics named at creation — in one call — because a manager creating a Bot almost always wants it tooled-up and listening immediately. Prefer bulk arguments (arrays) over one-at-a-time calls for the same reason. This supersedes the older "no workflow in code / `Role.Streams` stays prompt-driven" rule: creation-time subscription is a supported convenience, not forbidden orchestration. Keep the *implementation* DRY — `create_bot` reuses the same `subscriptions.Subscribe` use case the standalone `subscribe` tool calls; it does not reimplement it. Structural derivation still holds: `Bot.Tools` is the live MCP surface, and editing it changes the Bot's capability. When reviewing a tool, ask: "does this complete the user's intent, reusing existing use cases, without hiding a decision the agent should make?"
 - **Social enforcement first.** A Worker reads scope from its prompt and complies. Reach for hard enforcement only when the cost of a violation is high.
 - **Keep the core generic.** Tool definitions and scope shapes live with the tool, not in the registry, server, or domain layer. New tools must be addable without editing the core.
@@ -478,6 +479,7 @@ Helix stack runs **inside the UTM VM** (SSH: `ssh -p 2222 luke@127.0.0.1`). Only
 ```bash
 /tmp/helix spectask list|list-agents|start|resume|stop|screenshot|stream|benchmark|send|mcp|live
 /tmp/helix org bots list|get|start|stop|restart|chat   # helix-org — see skills/helix-org-cli/SKILL.md
+/tmp/helix artifact create|update|list|get|delete  # publish static pages/SPAs/PDFs — see the helix-artifacts skill
 /tmp/helix api GET /orgs/<org>/bots                    # gh-api style escape hatch
 ```
 
@@ -659,6 +661,24 @@ helix org processors list
 helix api GET /orgs/unmanned-org/bots          # gh-api-style escape hatch
 helix api -X POST /orgs/unmanned-org/bots/chief-of-staff/activate
 ```
+
+### Agent skills
+
+Skills that teach a coding agent to drive Helix live in
+[helixml/skills](https://github.com/helixml/skills), pinned by `SKILLS_COMMIT` in
+`sandbox-versions.txt`. The desktop images install the selected ones (`HELIX_SKILLS` in
+`Dockerfile.ubuntu-helix`) to `/opt/helix/skills`, and `helix-workspace-setup.sh` links them
+into `~/.claude/skills`, `~/.agents/skills`, and `~/.qwen/skills` on every container start —
+the three directories Claude Code, opencode, goose, and qwen actually scan. Bumping a skill is
+a `SKILLS_COMMIT` edit plus `./stack build-ubuntu`; a new session picks it up.
+
+Currently installed: **helix-artifacts** — publish and manage project artifacts
+(`helix artifact …`). Control-plane skills (`helix-board`, `helix-deploy`, `helix-e2e`, …) are
+deliberately *not* installed: an agent in a task sandbox should work on the task's repo, not
+reconfigure the Helix running it.
+
+`skills/helix-org-cli/SKILL.md` above is a different thing — a skill checked into this repo,
+visible only to an agent working on this repo.
 
 ## Sandboxes API
 

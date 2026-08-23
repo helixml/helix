@@ -10,9 +10,9 @@ import (
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
 
-type fakeNotifier struct{ calls []streaming.TopicID }
+type fakeNotifier struct{ calls []streaming.StreamID }
 
-func (f *fakeNotifier) Notify(_ string, sid streaming.TopicID) { f.calls = append(f.calls, sid) }
+func (f *fakeNotifier) Notify(_ string, sid streaming.StreamID) { f.calls = append(f.calls, sid) }
 
 func fixedNow() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 
@@ -32,7 +32,7 @@ func TestRecord_AppendsToTranscriptAndNotifies(t *testing.T) {
 		t.Fatal("expected a non-empty event id")
 	}
 	topicID := activation.TranscriptID("w-bob")
-	evs, err := st.Events.ListForTopic(context.Background(), "org-test", topicID, 10)
+	evs, err := st.Events.ListForStream(context.Background(), "org-test", topicID, 10)
 	if err != nil {
 		t.Fatalf("ListForTopic: %v", err)
 	}

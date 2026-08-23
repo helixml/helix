@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
@@ -19,8 +20,13 @@ func newJSProc(t *testing.T, code string, outputs []processor.Output) processor.
 	if outputs == nil {
 		outputs = out("s-out")
 	}
+	for i := range outputs {
+		if outputs[i].ID == "" {
+			outputs[i].ID = "po-" + string(outputs[i].StreamID)
+		}
+	}
 	p, err := processor.NewProcessor(
-		"p-js", "JS", "s-in", processor.KindJS,
+		"p-js", "JS", eventsource.Trigger("s-in"), processor.KindJS,
 		cfg(t, map[string]string{"code": code}), outputs,
 		"w-owner", time.Now(), "org-1",
 	)
@@ -49,8 +55,8 @@ func TestJSTransformBody(t *testing.T) {
 	if res[0].Message.From != "a@b.com" {
 		t.Errorf("from should be preserved, got %q", res[0].Message.From)
 	}
-	if res[0].TopicID != "s-out" {
-		t.Errorf("topic = %q", res[0].TopicID)
+	if res[0].Output.StreamID != "s-out" {
+		t.Errorf("topic = %q", res[0].Output.StreamID)
 	}
 }
 
@@ -72,8 +78,8 @@ func TestJSRouteByLabel(t *testing.T) {
   return { out: "default", event: event };
 }`
 	outs := []processor.Output{
-		{TopicID: "s-vip", Label: "vip"},
-		{TopicID: "s-def", Label: "default"},
+		{ID: "po-vip", StreamID: "s-vip", Label: "vip"},
+		{ID: "po-def", StreamID: "s-def", Label: "default"},
 	}
 	p := newJSProc(t, code, outs)
 
@@ -81,7 +87,7 @@ func TestJSRouteByLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
-	if len(res) != 1 || res[0].TopicID != "s-vip" {
+	if len(res) != 1 || res[0].Output.StreamID != "s-vip" {
 		t.Fatalf("vip route: %+v", res)
 	}
 
@@ -89,7 +95,7 @@ func TestJSRouteByLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
-	if len(res) != 1 || res[0].TopicID != "s-def" {
+	if len(res) != 1 || res[0].Output.StreamID != "s-def" {
 		t.Fatalf("default route: %+v", res)
 	}
 }
@@ -102,8 +108,8 @@ func TestJSFanOut(t *testing.T) {
   ];
 }`
 	outs := []processor.Output{
-		{TopicID: "s-a", Label: "a"},
-		{TopicID: "s-b", Label: "b"},
+		{ID: "po-a", StreamID: "s-a", Label: "a"},
+		{ID: "po-b", StreamID: "s-b", Label: "b"},
 	}
 	p := newJSProc(t, code, outs)
 	res, err := p.Process(context.Background(), streaming.Message{Body: "z"})
@@ -113,10 +119,10 @@ func TestJSFanOut(t *testing.T) {
 	if len(res) != 2 {
 		t.Fatalf("want 2 results, got %d", len(res))
 	}
-	if res[0].TopicID != "s-a" || res[0].Message.Body != "A:z" {
+	if res[0].Output.StreamID != "s-a" || res[0].Message.Body != "A:z" {
 		t.Errorf("first = %+v", res[0])
 	}
-	if res[1].TopicID != "s-b" || res[1].Message.Body != "B:z" {
+	if res[1].Output.StreamID != "s-b" || res[1].Message.Body != "B:z" {
 		t.Errorf("second = %+v", res[1])
 	}
 }
@@ -228,7 +234,7 @@ func TestJSHTTPDelete(t *testing.T) {
 
 func TestJSRejectsEmptyCode(t *testing.T) {
 	_, err := processor.NewProcessor(
-		"p-js", "JS", "s-in", processor.KindJS,
+		"p-js", "JS", eventsource.Trigger("s-in"), processor.KindJS,
 		cfg(t, map[string]string{"code": "   "}), out("s-out"),
 		"", time.Now(), "org-1",
 	)
@@ -239,7 +245,7 @@ func TestJSRejectsEmptyCode(t *testing.T) {
 
 func TestJSRejectsMissingProcess(t *testing.T) {
 	_, err := processor.NewProcessor(
-		"p-js", "JS", "s-in", processor.KindJS,
+		"p-js", "JS", eventsource.Trigger("s-in"), processor.KindJS,
 		cfg(t, map[string]string{"code": "var x = 1;"}), out("s-out"),
 		"", time.Now(), "org-1",
 	)
@@ -250,7 +256,7 @@ func TestJSRejectsMissingProcess(t *testing.T) {
 
 func TestJSRejectsSyntaxError(t *testing.T) {
 	_, err := processor.NewProcessor(
-		"p-js", "JS", "s-in", processor.KindJS,
+		"p-js", "JS", eventsource.Trigger("s-in"), processor.KindJS,
 		cfg(t, map[string]string{"code": "function process( {"}), out("s-out"),
 		"", time.Now(), "org-1",
 	)

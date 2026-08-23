@@ -10,24 +10,25 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 )
 
 // Publisher is the publish use case the ingest depends on — the
-// application Publishing service satisfies it. Publishing an inbound
-// event with from="" attributes it to the external sender (no Helix
-// Worker source), and the dispatcher's outbound emitter skips
-// system-emitted (source="") events, so inbound messages never loop
-// straight back out to Slack.
+// application Publishing service satisfies it. Publishing with from=""
+// attributes the event to the external sender (no Helix Worker source).
+// A Trigger is inbound-only, so there is no path by which an ingested
+// message can loop straight back out to Slack: a Worker replying does
+// so with its own credential through Slack's API.
 type Publisher interface {
-	PublishInbound(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error)
+	PublishToTrigger(ctx context.Context, orgID, triggerID, from string, msg streaming.Message) (streaming.Event, error)
 }
 
 // Ingest is the one shared inbound path. A single instance serves every
 // org and both ingress sources (REST Events API, Socket Mode); OnEvent
 // resolves the owning org from the delivery's team id on each call.
 // Routing to a specific Worker is NOT done here — OnEvent publishes onto
-// the matching Topic and the existing dispatcher + processor/filter
+// the matching Trigger and the existing attachment + processor/filter
 // layer decides which Workers activate.
 type Ingest struct {
 	workspaces Workspaces
@@ -56,12 +57,12 @@ type slackExtra struct {
 //
 //  1. drops bot-authored events (self-echo guard),
 //  2. resolves the owning org from teamID (the workspace install),
-//  3. finds exact channel-bound Topics, falling back to workspace-wide
-//     Topics only when no exact Topic exists,
+//  3. finds exact channel-bound Triggers, falling back to workspace-wide
+//     Triggers only when no exact Trigger exists,
 //  4. publishes a canonical Message onto each (append → notify →
-//     dispatch → processors → Workers).
+//     route → processors → Workers).
 //
-// An unknown team or a channel with no bound Topic is a no-op (nil
+// An unknown team or a channel with no bound Trigger is a no-op (nil
 // error) — there's nothing to deliver to, and the caller should answer
 // Slack 2xx so it stops retrying.
 func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event) error {
@@ -82,12 +83,12 @@ func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event)
 		return fmt.Errorf("slack ingest: resolve workspace: %w", err)
 	}
 
-	topics, err := i.matchingTopics(ctx, ws, ev.Channel)
+	triggers, err := i.matchingTriggers(ctx, ws, ev.Channel)
 	if err != nil {
 		return err
 	}
-	if len(topics) == 0 {
-		i.logger.Info("slack.ingest: no topic for workspace", "org", ws.OrgID, "workspace", ws.ID)
+	if len(triggers) == 0 {
+		i.logger.Info("slack.ingest: no trigger for workspace", "org", ws.OrgID, "workspace", ws.ID)
 		return nil
 	}
 
@@ -100,35 +101,33 @@ func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event)
 		Extra:     extra,
 	}
 
-	for _, t := range topics {
-		cfg, _ := t.Transport.SlackConfig()
-		topicMsg := msg
-		topicMsg.ReplyHint = replyHint(string(t.ID), cfg.ChannelID != "", teamID, ev.Channel, ev.ChannelType, ev.TS, ev.ThreadTS)
-		if _, err := i.publisher.PublishInbound(ctx, ws.OrgID, t.ID, "", topicMsg); err != nil {
-			i.logger.Error("slack.ingest: publish", "org", ws.OrgID, "topic", t.ID, "err", err)
+	for _, t := range triggers {
+		cfg, _ := t.Transport().SlackConfig()
+		triggerMsg := msg
+		triggerMsg.ReplyHint = replyHint(t.ID, cfg.ChannelID != "", teamID, ev.Channel, ev.ChannelType, ev.TS, ev.ThreadTS)
+		if _, err := i.publisher.PublishToTrigger(ctx, ws.OrgID, t.ID, "", triggerMsg); err != nil {
+			i.logger.Error("slack.ingest: publish", "org", ws.OrgID, "trigger", t.ID, "err", err)
 			continue
 		}
-		i.logger.Info("slack.ingest", "org", ws.OrgID, "topic", t.ID, "channel", ev.Channel, "from", ev.User)
+		i.logger.Info("slack.ingest", "org", ws.OrgID, "trigger", t.ID, "channel", ev.Channel, "from", ev.User)
 	}
 	return nil
 }
 
-// matchingTopics returns every exact channel match when one exists, otherwise
-// every workspace-wide fallback. The org-scoped list enforces tenant isolation.
-func (i *Ingest) matchingTopics(ctx context.Context, ws Workspace, channel string) ([]streaming.Topic, error) {
-	all, err := i.store.Topics.List(ctx, ws.OrgID)
+// matchingTriggers returns every exact channel match when one exists,
+// otherwise every workspace-wide fallback. The org-scoped list enforces
+// tenant isolation.
+func (i *Ingest) matchingTriggers(ctx context.Context, ws Workspace, channel string) ([]trigger.Trigger, error) {
+	all, err := i.store.Triggers.Find(ctx, store.WithOrg(ws.OrgID), store.WithTransportKind(string(transport.KindSlack)))
 	if err != nil {
-		return nil, fmt.Errorf("slack ingest: list topics: %w", err)
+		return nil, fmt.Errorf("slack ingest: list slack triggers: %w", err)
 	}
-	var exact []streaming.Topic
-	var fallback []streaming.Topic
+	var exact []trigger.Trigger
+	var fallback []trigger.Trigger
 	for _, t := range all {
-		if t.Transport.Kind != transport.KindSlack {
-			continue
-		}
-		cfg, err := t.Transport.SlackConfig()
+		cfg, err := t.Transport().SlackConfig()
 		if err != nil {
-			i.logger.Warn("slack.ingest: topic config parse", "topic", t.ID, "err", err)
+			i.logger.Warn("slack.ingest: trigger config parse", "trigger", t.ID, "err", err)
 			continue
 		}
 		if cfg.ServiceConnectionID != ws.ID {

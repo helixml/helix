@@ -218,7 +218,12 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		return resp, nil
 	}
 
-	// Inject project secrets onto agent.Env so every fresh container picks up
+	// Org-worker identity is session state, not project state. Load it before
+	// project secrets so the system identity wins duplicate-key resolution.
+	if err := h.attachSessionBootstrap(ctx, agent); err != nil {
+		return nil, err
+	}
+	// Inject project secrets onto agent environments so every fresh container picks up
 	// the project's secrets without each call site (spec task launch, exploratory
 	// session, resume, etc.) having to remember to load them.
 	//
@@ -237,14 +242,6 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			injected := len(agent.Env) - before
 			log.Info().Int("secret_count", injected).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
 		}
-	}
-
-	// Org-worker identity is session state, not project state: SpecTask and
-	// human exploratory sessions can share the same project and must not inherit
-	// it. Materialize both agent-native instruction files before the container
-	// starts; the workspace bind mount persists them across desktop restarts.
-	if err := h.attachSessionBootstrap(ctx, agent); err != nil {
-		return nil, err
 	}
 
 	// Call OnBeforeCreate hook inside the lock to refresh API keys.

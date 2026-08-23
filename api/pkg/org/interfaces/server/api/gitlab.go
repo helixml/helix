@@ -17,24 +17,24 @@ type GitLabWebhookStatusResponse struct {
 	Detail         string `json:"detail,omitempty"`
 }
 
-// @Summary Helix-org: auto-install the webhook for a GitLab topic
+// @Summary Helix-org: auto-install the webhook for a GitLab Trigger
 // @Tags HelixOrg
-// @Param id path string true "Topic ID"
+// @Param id path string true "Trigger ID"
 // @Produce json
 // @Success 200 {object} api.InstallGitLabWebhookResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook [post]
+// @Router /api/v1/orgs/{org}/triggers/{id}/gitlab/install-webhook [post]
 func (a *apiHandler) installGitLabWebhook(w http.ResponseWriter, r *http.Request) {
 	a.installGitHubWebhook(w, r)
 }
 
-// @Summary Helix-org: live webhook status for a GitLab topic
+// @Summary Helix-org: live webhook status for a GitLab Trigger
 // @Tags HelixOrg
-// @Param id path string true "Topic ID"
+// @Param id path string true "Trigger ID"
 // @Produce json
 // @Success 200 {object} api.GitLabWebhookStatusResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status [get]
+// @Router /api/v1/orgs/{org}/triggers/{id}/gitlab/webhook-status [get]
 func (a *apiHandler) getGitLabWebhookStatus(w http.ResponseWriter, r *http.Request) {
 	a.getGitHubWebhookStatus(w, r)
 }

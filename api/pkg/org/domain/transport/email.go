@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// KindEmail is a bidirectional email transport. Provider credentials
+// KindEmail is an inbound email transport. Provider credentials
 // live at server level (see config.transport.postmark); per-topic
 // config carries only the routing identity (`alias`).
 //
@@ -16,12 +16,6 @@ import (
 // body becomes a Message envelope on that Topic — From=sender,
 // To=[recipient], Subject, Body, MessageID, InReplyTo, ThreadID
 // populated from the email's headers.
-//
-// Outbound: every Event appended to an email Topic is rendered to a
-// provider API call (Postmark /email today). The Message envelope's
-// From/To/Subject/InReplyTo/ThreadID drive the outbound headers; the
-// global `from` from server config is the envelope sender unless the
-// Topic's Message specifies otherwise.
 const KindEmail Kind = "email"
 
 // EmailConfig is the parsed shape of Transport.Config when

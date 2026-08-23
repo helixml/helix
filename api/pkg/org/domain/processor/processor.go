@@ -33,6 +33,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
@@ -41,29 +42,39 @@ import (
 // a distinct named type (see orgchart/ids.go for the rationale).
 type ProcessorID = string
 
+// LegacyOutputID deterministically identifies a pre-ID branch by the
+// immutable event stream it writes to. It is used only by the upgrade
+// migration that gave existing branches durable identities.
+func LegacyOutputID(streamID streaming.StreamID) string { return "po-topic-" + string(streamID) }
+
 // Kind names the implementation that owns a Processor's behaviour.
 // Constants are defined alongside their Config in each Kind's own file
 // (KindTemplate in template.go, KindTruncate in truncate.go, …).
 type Kind string
 
-// Output is one destination of a Processor: an auto-provisioned local
-// Topic plus, for the filter Kind, the predicate that selects it.
+// Output is one durable branch of a Processor: a stable identity Workers
+// attach to, plus — for the filter Kind — the predicate that selects it.
 //
-//   - TopicID is the output Topic the Result is published to.
+//   - ID is the branch's durable identity. It is what a Worker attachment
+//     and a downstream Processor input name, and it never changes once
+//     allocated.
+//   - StreamID is the append-only event stream this branch writes its
+//     Results to. It is a persistence key only: it is what makes the
+//     branch's history survive the Topic cutover, since a converted branch
+//     keeps the stream its old output Topic used. Never routed on.
 //   - Match is the routing predicate. Empty means unconditional — a
 //     transform always passes; a filter Output with an empty Match is
 //     a default/else branch. Non-empty Match is only meaningful to the
 //     filter Kind (see filter.go); transform Kinds require it empty.
 //   - Label is a human-facing name for the branch, shown on the chart.
+//
+// StreamID keeps the `TopicID` JSON key so the outputs blob persisted
+// before the cutover still decodes.
 type Output struct {
-	TopicID streaming.TopicID
-	Match   string
-	Label   string
-	// Owned is true when this Processor auto-provisioned the output
-	// Topic (the default) and is therefore responsible for tearing it
-	// down on delete. False when the branch points at a pre-existing,
-	// shared Topic (explicit output) that outlives the Processor.
-	Owned bool
+	ID       string             `json:"id,omitempty"`
+	StreamID streaming.StreamID `json:"TopicID"`
+	Match    string
+	Label    string
 	// ManagedFor names the orgchart.NodeID this route was
 	// auto-generated for by a reconciler (e.g. the Slack auto-router).
 	// Empty means a human-authored ("manual") route: reconcilers must
@@ -74,11 +85,28 @@ type Output struct {
 	ManagedFor string `json:",omitempty"`
 }
 
-// Result is one (output Topic, Message) pair produced by Process. A
-// transform returns exactly one; a filter returns one per Output whose
-// predicate matched (zero = a drop, N = a content-based router).
+// Source returns the terminal reference that names this branch.
+func (p Processor) Source(o Output) eventsource.SourceRef {
+	return eventsource.ProcessorOutput(p.ID, o.ID)
+}
+
+// Output returns the branch with the given durable id.
+func (p Processor) Output(id string) (Output, bool) {
+	for _, o := range p.Outputs {
+		if o.ID == id {
+			return o, true
+		}
+	}
+	return Output{}, false
+}
+
+// Result is one (branch, Message) pair produced by Process. A transform
+// returns exactly one; a filter returns one per Output whose predicate
+// matched (zero = a drop, N = a content-based router). Output carries the
+// branch's durable id and stream, so the runner can both route and persist
+// without a second lookup.
 type Result struct {
-	TopicID streaming.TopicID
+	Output  Output
 	Message streaming.Message
 }
 
@@ -125,8 +153,12 @@ func KindValues() []Kind {
 	return out
 }
 
-// Processor is a node that reads its InputTopicID and writes its
+// Processor is a node that reads its InputSource and writes its
 // Outputs, applying its Kind's logic to each Message in between.
+//
+// InputSource is a terminal reference: exactly one Trigger, or exactly one
+// durable output branch of another Processor. A zero InputSource means the
+// Processor is unwired — valid but inert.
 //
 // CreatedBy is an orgchart.NodeID stored as a plain string — a
 // cosmetic anchor for the chart, exactly like Topic.CreatedBy; the
@@ -135,7 +167,7 @@ type Processor struct {
 	ID             ProcessorID
 	OrganizationID string
 	Name           string
-	InputTopicID   streaming.TopicID
+	InputSource    eventsource.SourceRef
 	Outputs        []Output
 	Kind           Kind
 	Config         json.RawMessage
@@ -144,12 +176,9 @@ type Processor struct {
 }
 
 // SystemActor is the CreatedBy value automation stamps on the records it
-// owns (the Slack auto-router and its output Topics) in place of a human
-// Worker id. It is a sentinel orgchart.NodeID — not a real Worker — so the
-// chart leaves it unanchored. Reusing CreatedBy (rather than a separate
-// boolean column) means a provisioned output Topic inherits the marker for
-// free, since the processors service already copies the processor's
-// CreatedBy onto the Topics it owns.
+// owns (the Slack auto-router) in place of a human Worker id. It is a
+// sentinel orgchart.NodeID — not a real Worker — so the chart leaves it
+// unanchored.
 const SystemActor = "helix"
 
 // Automated reports whether this Processor was created by Helix automation
@@ -158,16 +187,16 @@ const SystemActor = "helix"
 // on it; the API surfaces it so the UI can show the thread-follow toggle.
 func (p Processor) Automated() bool { return p.CreatedBy == SystemActor }
 
-// NewProcessor validates and constructs a Processor. orgID, id, name,
-// inputTopicID and at least one Output are required; the Config is
-// validated against the Kind's rules. createdBy is optional (cosmetic
-// anchor, like NewTopic).
-func NewProcessor(id ProcessorID, name string, inputTopicID streaming.TopicID, kind Kind, config json.RawMessage, outputs []Output, createdBy string, createdAt time.Time, orgID string) (Processor, error) {
+// NewProcessor validates and constructs a Processor. orgID, id, name and
+// at least one Output are required; the Config is validated against the
+// Kind's rules. input may be zero (unwired). createdBy is optional — a
+// cosmetic chart anchor.
+func NewProcessor(id ProcessorID, name string, input eventsource.SourceRef, kind Kind, config json.RawMessage, outputs []Output, createdBy string, createdAt time.Time, orgID string) (Processor, error) {
 	p := Processor{
 		ID:             id,
 		OrganizationID: orgID,
 		Name:           name,
-		InputTopicID:   inputTopicID,
+		InputSource:    input,
 		Outputs:        outputs,
 		Kind:           kind,
 		Config:         config,
@@ -199,17 +228,33 @@ func (p Processor) Validate() error {
 		return errors.New("processor name is empty")
 	}
 
-	// InputTopicID may be empty: a processor with no input is valid but
-	// inert — it sits on the chart unwired until a Topic (or another
+	// A zero InputSource is allowed: a processor with no input is valid
+	// but inert — it sits on the chart unwired until a Trigger (or another
 	// processor's output branch) is connected to its IN port. Deleting
 	// the input edge clears it back to this state.
+	if !p.InputSource.Zero() {
+		if err := p.InputSource.Validate(); err != nil {
+			return fmt.Errorf("processor input: %w", err)
+		}
+		if p.InputSource.Kind == eventsource.KindProcessorOutput && p.InputSource.ProcessorID == p.ID {
+			return errors.New("processor input is its own output")
+		}
+	}
 	if len(p.Outputs) == 0 {
 		return errors.New("processor has no outputs")
 	}
+	seenOutputIDs := make(map[string]struct{}, len(p.Outputs))
 	for i, o := range p.Outputs {
-		if o.TopicID == "" {
-			return fmt.Errorf("processor output %d has empty topic id", i)
+		if o.ID == "" {
+			return fmt.Errorf("processor output %d has empty id", i)
 		}
+		if o.StreamID == "" {
+			return fmt.Errorf("processor output %d has empty stream id", i)
+		}
+		if _, exists := seenOutputIDs[o.ID]; exists {
+			return fmt.Errorf("processor output id %q is duplicated", o.ID)
+		}
+		seenOutputIDs[o.ID] = struct{}{}
 	}
 	if p.Kind == "" {
 		return errors.New("processor kind is empty")

@@ -47,6 +47,7 @@ import {
   providerSupportsCodeAgentRuntime,
   providersForCodeAgentRuntime,
 } from '../../utils/codeAgentProviders'
+import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
 import {
   currentNativeModels,
   isLegacyNativeModel,
@@ -59,7 +60,7 @@ interface CodeAgentConfigPickerProps {
   value?: TypesCodeAgentExecutionConfig
   disabled?: boolean
   autoSelectDefault?: boolean
-  onChange: (value: TypesCodeAgentExecutionConfig) => void
+  onChange: (value: TypesCodeAgentExecutionConfig, source: CodeAgentConfigChangeSource) => void
 }
 
 interface ModelOption {
@@ -310,7 +311,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   useEffect(() => {
     if (!autoSelectDefault || !policySettled) return
     if (value?.model && selectedConfigurationAllowed) return
-    if (automaticDefault) onChangeRef.current(automaticDefault)
+    if (automaticDefault) onChangeRef.current(automaticDefault, 'auto')
   }, [
     autoSelectDefault,
     value?.runtime,
@@ -400,7 +401,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
       goose_recipes: runtime === TypesCodeAgentRuntime.CodeAgentRuntimeGooseCode
         ? value?.goose_recipes
         : undefined,
-    })
+    }, 'user')
     setAnchor(null)
   }
 
