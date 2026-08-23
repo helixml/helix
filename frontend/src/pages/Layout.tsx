@@ -512,8 +512,12 @@ const Layout: FC<{
 
   // Hide secondary context sidebar on helix-org routes (nav is in the top
   // AppBar; chat is an in-page left rail). Still show the 64px org rail.
+  // helix_org_chart is the exception: it is a leaf of the org settings nav
+  // ("Org Chart"), so it keeps OrgSidebar.
   const isHelixOrgRoute =
-    typeof router.name === "string" && router.name.startsWith("helix_org_");
+    typeof router.name === "string" &&
+    router.name.startsWith("helix_org_") &&
+    router.name !== "helix_org_chart";
   const isProjectsIndex =
     router.name === "org_projects" &&
     (!router.params.tab || router.params.tab === "projects");
@@ -577,7 +581,6 @@ const Layout: FC<{
         return <OrgSidebar />;
 
       case "helix_org_root":
-      case "helix_org_chart":
       case "helix_org_bots":
       case "helix_org_bot_detail":
       case "helix_org_human_detail":
@@ -603,6 +606,9 @@ const Layout: FC<{
       case "org_api_keys":
       case "org_providers":
       case "org_provider_detail":
+      case "org_sandboxes":
+      case "org_sandbox_detail":
+      case "helix_org_chart":
       case "team_people":
         // Organization management pages use the org context sidebar
         return <OrgSidebar />;
