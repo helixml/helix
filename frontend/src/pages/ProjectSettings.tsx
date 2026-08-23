@@ -47,7 +47,7 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import MoveUpIcon from "@mui/icons-material/MoveUp";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import HubIcon from "@mui/icons-material/Hub";
-import { Settings, Wrench } from "lucide-react";
+import { Settings, Trash2, Wrench } from "lucide-react";
 
 import AgentToolsPicker from "../components/tools/AgentToolsPicker";
 
@@ -1892,14 +1892,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const renderDangerTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      <Box
-        sx={{
-          border: "2px solid",
-          borderColor: "error.main",
-          borderRadius: 1,
-          p: 2,
-        }}
-      >
+      <Box>
         <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
           <WarningIcon sx={{ mr: 1, color: "error.main" }} />
           <Typography variant="h6" color="error">
@@ -1957,27 +1950,30 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
             borderRadius: 1,
             border: "1px solid",
             borderColor: "error.light",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 2,
           }}
         >
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-            Delete Project
-          </Typography>
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ mb: 2 }}
-          >
-            Once you delete a project, there is no going back. This will
-            permanently delete the project, all its tasks, and associated
-            data.
-          </Typography>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+              Delete Project
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Once you delete a project, there is no going back. This will
+              permanently delete the project, all its tasks, and associated
+              data.
+            </Typography>
+          </Box>
           <Button
             variant="outlined"
             color="error"
-            startIcon={<DeleteForeverIcon />}
+            startIcon={<Trash2 size={18} />}
             onClick={() => setDeleteDialogOpen(true)}
+            sx={{ flexShrink: 0 }}
           >
-            Delete This Project
+            Delete project
           </Button>
         </Box>
       </Box>

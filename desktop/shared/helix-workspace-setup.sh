@@ -655,7 +655,13 @@ echo "  Claude: ~/.claude.json -> $CLAUDE_STATE_DIR/.claude.json"
 # every harness.
 if [ -d /opt/helix/skills ]; then
     for skills_dir in ~/.claude/skills ~/.agents/skills ~/.qwen/skills; do
-        mkdir -p "$skills_dir"
+        # Report rather than swallow: a root-owned parent (as ~/.qwen was
+        # before the image chowned it) makes this fail, and a silently
+        # unlinked harness looks identical to one that has no skills.
+        if ! mkdir -p "$skills_dir" 2>/dev/null; then
+            echo "  Skills: cannot create $skills_dir (check ownership) — skipped"
+            continue
+        fi
         # ~/.claude lives on the persistent workspace mount, so links written by
         # an older image outlive it. Drop the ones whose target is gone before
         # relinking, or a skill dropped from HELIX_SKILLS dangles forever.
