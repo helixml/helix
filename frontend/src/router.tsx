@@ -183,7 +183,8 @@ const routes: IApplicationRoute[] = [
   name: 'org_sandboxes',
   path: '/orgs/:org_id/sandboxes',
   meta: {
-    drawer: false,
+    drawer: true,
+    menu: 'orgs',
     title: 'Sandboxes',
   },
   render: () => (
@@ -193,7 +194,8 @@ const routes: IApplicationRoute[] = [
   name: 'org_sandbox_detail',
   path: '/orgs/:org_id/sandboxes/:sandbox_id',
   meta: {
-    drawer: false,
+    drawer: true,
+    menu: 'orgs',
     title: 'Sandbox',
   },
   render: () => (
@@ -620,7 +622,9 @@ const routes: IApplicationRoute[] = [
 }, {
   name: 'helix_org_chart',
   path: '/orgs/:org_id/chart',
-  meta: { drawer: false, title: 'Org Chart' },
+  // Reached from the org settings sidebar ("Org Chart"), so it keeps that
+  // sidebar rather than standing alone like the other helix-org pages.
+  meta: { drawer: true, menu: 'orgs', title: 'Org Chart' },
   render: () => <HelixOrgChart />,
 }, {
   name: 'helix_org_chart_legacy',

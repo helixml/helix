@@ -11,7 +11,6 @@ import Button from '@mui/material/Button'
 import {
   Bot,
   Clock,
-  Container,
   Settings,
   ChevronsUp,
   ChevronsDown,
@@ -24,7 +23,6 @@ import {
   HelpCircle,
   MessageCircle,
   Kanban,
-  Network,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
 
@@ -333,12 +331,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
   }
 
-  const handleHelixOrgClick = () => {
-    if (currentOrgSlug) {
-      router.navigate('helix_org_chart', { org_id: currentOrgSlug })
-    }
-  }
-
   const postNavigateTo = () => {
     account.setMobileMenuOpen(false)
   }
@@ -416,13 +408,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         label: "Projects",
       },
       {
-        icon: <Network size={NAV_BUTTON_SIZE} />,
-        tooltip: "View org chart",
-        isActive: router.name.startsWith('helix_org'),
-        onClick: handleHelixOrgClick,
-        label: "Chart",
-      },
-      {
         icon: <Bot size={NAV_BUTTON_SIZE} />,
         tooltip: "View agents",
         isActive: isActive(['agents', 'agent']),
@@ -438,15 +423,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         onClick: () => orgNavigateTo('tasks'),
         label: "Tasks",
       },
-      // Sandboxes are a desktop workflow — a terminal, a file tree and an exec
-      // log are not usable on a phone, so the rail does not offer the trip.
-      ...(isPhone ? [] : [{
-        icon: <Container size={NAV_BUTTON_SIZE} />,
-        tooltip: "View sandboxes",
-        isActive: isActive(['sandboxes', 'sandbox_detail']),
-        onClick: () => orgNavigateTo('sandboxes'),
-        label: "Sandbox",
-      }]),
       // TODO: re-enable once we have the files editor working
       // {
       //   icon: <FileText size={NAV_BUTTON_SIZE} />,
@@ -457,8 +433,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       // },
     ]
 
-    // Providers is intentionally omitted from the rail: the same page is
-    // reachable from Settings (OrgSidebar -> org_providers).
+    // Providers, Org Chart and Sandboxes are intentionally omitted from the
+    // rail: they are reachable from Settings (OrgSidebar -> org_providers,
+    // helix_org_chart, org_sandboxes).
 
     // Add org settings button when we have an org context.
     // Highlights for any of the grouped admin pages (general, members,
@@ -479,6 +456,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             'org_api_keys',
             'org_providers',
             'org_provider_detail',
+            'org_sandboxes',
+            'org_sandbox_detail',
+            'helix_org_chart',
           ]),
           onClick: () => orgNavigateTo('org_general', { org_id: currentOrgSlug }),
           label: "Settings",
