@@ -1131,12 +1131,18 @@ fi
 rm -f /tmp/zerocopy.so /tmp/vsockenc.so /tmp/libnvrtc*.so*
 _INSTALL_PLUGINS
 
-# AI agent privacy configs
+# AI agent privacy configs.
+# chown: these run after the `chown -R retro:retro /home/retro` above, so
+# without it the agent user owns its home but not these two directories, and
+# anything writing into them at runtime (skill links, agent state) fails with
+# EACCES. Dockerfile.sway-helix already chowns .qwen for the same reason.
 RUN mkdir -p /home/retro/.qwen && \
-    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.qwen/settings.json
+    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.qwen/settings.json && \
+    chown -R retro:retro /home/retro/.qwen
 
 RUN mkdir -p /home/retro/.gemini && \
-    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
+    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json && \
+    chown -R retro:retro /home/retro/.gemini
 
 
 

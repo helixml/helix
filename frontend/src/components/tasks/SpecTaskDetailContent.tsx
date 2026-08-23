@@ -384,9 +384,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [terminalDrawerState, setTerminalDrawerState] = useState(() =>
     loadSpecTaskTerminalDrawerState(taskId),
   );
+  const terminalChatAppendSequence = useRef(0);
+  const [terminalChatAppend, setTerminalChatAppend] = useState<{
+    text: string;
+    sequence: number;
+  } | null>(null);
 
   useEffect(() => {
     setTerminalDrawerState(loadSpecTaskTerminalDrawerState(taskId));
+    terminalChatAppendSequence.current = 0;
+    setTerminalChatAppend(null);
   }, [taskId]);
 
   const toggleTerminalDrawer = useCallback(() => {
@@ -412,6 +419,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       return next;
     });
   }, [taskId]);
+
+  const copyTerminalSelectionToChat = useCallback((text: string) => {
+    terminalChatAppendSequence.current += 1;
+    setTerminalChatAppend({
+      text,
+      sequence: terminalChatAppendSequence.current,
+    });
+  }, []);
+
+  const terminalChatAppendText = terminalChatAppend
+    ? terminalChatAppend.text + "#" + terminalChatAppend.sequence
+    : undefined;
 
   const handleAgentModelChange = useCodeAgentConfigChange(updateExecutionConfig.mutateAsync);
 
@@ -2558,6 +2577,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   sessionId={activeSessionId}
                   specTaskId={task.id}
                   projectId={task.project_id}
+                  appendText={terminalChatAppendText}
                   enableInteractionDebugCopy
                   onWillSend={handleWillSend}
                   leadingActions={(
@@ -2870,6 +2890,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   sessionId={activeSessionId}
                   specTaskId={task.id}
                   projectId={task.project_id}
+                  appendText={terminalChatAppendText}
                   enableInteractionDebugCopy
                   onWillSend={handleWillSend}
                   leadingActions={(
@@ -3026,6 +3047,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           height={terminalDrawerState.height}
           onHeightChange={setTerminalDrawerHeight}
           onClose={closeTerminalDrawer}
+          onCopyToChat={copyTerminalSelectionToChat}
         />
       )}
 

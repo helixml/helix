@@ -25,6 +25,9 @@ describe('MonacoEditor clipboard integration', () => {
     document.body.innerHTML = ''
   })
 
+  // Importing monaco-editor is what this test measures, so its transform and
+  // module evaluation are charged to the test's own budget. That is ~2s on a warm
+  // dev machine and well past the 5s default on a loaded CI worker.
   it('does not access navigator.clipboard after Monaco initializes on HTTP', async () => {
     const clipboardGetter = vi.fn(() => {
       throw new TypeError('navigator.clipboard is unavailable')
@@ -78,5 +81,5 @@ describe('MonacoEditor clipboard integration', () => {
     expect(clipboardGetter).not.toHaveBeenCalled()
 
     editor.dispose()
-  })
+  }, 30000)
 })
