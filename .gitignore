@@ -156,3 +156,4 @@ design/**/*.sql
 
 # Local dev-stack state snapshots (scripts/backup-dev-state.sh) — contain .env secrets
 dev-state-backups/
+.env.pre-restore.*
