@@ -248,6 +248,12 @@ steps:
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
       ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
       START_HELIX_TEST_SERVER: "true"
+      # Artifact creation is gated on subdomain hosting being configured:
+      # artifact_handlers.go checks vhostBaseDomain before accepting an upload,
+      # whatever the artifact's visibility. Without this the artifact endpoints
+      # 400 and no test touching them can run. SERVER_URL supplies the rest of
+      # the base domain and is set by startAPIServer in integration_test.go.
+      DEV_SUBDOMAIN: "dev"
       # Agent configuration
       REASONING_MODEL_PROVIDER: openai
       REASONING_MODEL: gpt-5.6-luna

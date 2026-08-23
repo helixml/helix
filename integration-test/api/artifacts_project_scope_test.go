@@ -185,6 +185,20 @@ func (suite *ArtifactsProjectScopeTestSuite) createArtifact(apiClient *client.He
 	})
 }
 
+// requireProjectScopeRefusal asserts the request was refused by the project
+// scope check specifically. Asserting only "an error occurred" lets these tests
+// pass for unrelated reasons: on an instance without subdomain hosting the
+// artifact endpoints return 400 for every upload, which is indistinguishable
+// from enforcement working if the assertion only checks that err != nil.
+func (suite *ArtifactsProjectScopeTestSuite) requireProjectScopeRefusal(err error, msg string) {
+	suite.T().Helper()
+
+	suite.Require().Error(err, msg)
+	suite.Require().Contains(err.Error(), "403", "%s: expected a 403, got %v", msg, err)
+	suite.Require().Contains(err.Error(), "scoped to another project",
+		"%s: expected the project scope refusal, got %v", msg, err)
+}
+
 // The agent must keep full use of the project it was dispatched to.
 func (suite *ArtifactsProjectScopeTestSuite) TestScopedKeyRetainsOwnProject() {
 	scopedClient, err := getAPIClient(suite.scopedKey)
@@ -208,10 +222,10 @@ func (suite *ArtifactsProjectScopeTestSuite) TestScopedKeyCannotReachAnotherProj
 	suite.Require().NoError(err)
 
 	_, err = scopedClient.ListArtifacts(suite.ctx, suite.projectB.ID)
-	suite.Require().Error(err, "scoped key must not list another project's artifacts")
+	suite.requireProjectScopeRefusal(err, "scoped key must not list another project's artifacts")
 
 	_, err = suite.createArtifact(scopedClient, suite.projectB.ID, "cross-project artifact")
-	suite.Require().Error(err, "scoped key must not create artifacts in another project")
+	suite.requireProjectScopeRefusal(err, "scoped key must not create artifacts in another project")
 }
 
 // Deleting is the destructive case: an artifact the agent never created, in a
@@ -229,7 +243,7 @@ func (suite *ArtifactsProjectScopeTestSuite) TestScopedKeyCannotDeleteAnotherPro
 	scopedClient, err := getAPIClient(suite.scopedKey)
 	suite.Require().NoError(err)
 
-	suite.Require().Error(scopedClient.DeleteArtifact(suite.ctx, victim.ID),
+	suite.requireProjectScopeRefusal(scopedClient.DeleteArtifact(suite.ctx, victim.ID),
 		"scoped key must not delete an artifact in another project")
 
 	// Still there, via a credential that is allowed to see it.
