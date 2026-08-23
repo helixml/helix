@@ -1,10 +1,7 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react'
+import React, { FC, useCallback, useEffect, useState } from 'react'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
-import Tab from '@mui/material/Tab'
-import Tabs from '@mui/material/Tabs'
-import Typography from '@mui/material/Typography'
 import { Plus } from 'lucide-react'
 
 import Page from '../components/system/Page'
@@ -22,30 +19,12 @@ import Paywall from '../components/subscription/Paywall'
 import HelixOrgTopNav from '../components/helix-org/HelixOrgTopNav'
 
 import {
-  AGENT_KIND_CODING,
   AGENT_KIND_HELIX,
-  AGENT_KIND_ORG,
   IApp,
 } from '../types'
 
-export const agentTabs = [
-  {
-    value: AGENT_KIND_HELIX,
-    label: 'Helix Agents',
-    description: 'Native Helix agents for chat, tools, and automations',
-  },
-  {
-    value: AGENT_KIND_ORG,
-    label: 'Helix Org Agents',
-    description: 'Workers managed through the Helix organization chart',
-  },
-  {
-    value: AGENT_KIND_CODING,
-    label: 'Coding Agents (legacy)',
-    description: 'Legacy app-based coding agents retained for removal',
-  },
-]
-
+// The kind a "New Agent" starts on. Agents are no longer split into per-kind
+// tabs — the harness column tells them apart — so this is only a dialog seed.
 export const DEFAULT_AGENT_KIND = AGENT_KIND_HELIX
 
 const Apps: FC = () => {
@@ -56,16 +35,8 @@ const Apps: FC = () => {
 
   const {
     params,
-    mergeParams,
   } = useRouter()
 
-  const selectedKind = agentTabs.some((tab) => tab.value === params.kind)
-    ? params.kind
-    : DEFAULT_AGENT_KIND
-  const visibleApps = useMemo(
-    () => apps.apps.filter((app) => app.agent_kind === selectedKind),
-    [apps.apps, selectedKind],
-  )
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
   const [newAgentOpen, setNewAgentOpen] = useState(false)
 
@@ -95,7 +66,7 @@ const Apps: FC = () => {
       account.orgNavigate('agent', { app_id: id })
       return
     }
-    mergeParams({ kind })
+    apps.loadApps()
   }
 
   const onDeleteApp = useCallback(async () => {
@@ -161,64 +132,13 @@ const Apps: FC = () => {
             </Button>
           }
         />
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-          <Tabs
-            value={selectedKind}
-            onChange={(_, value: string) => mergeParams({ kind: value })}
-            aria-label="Agent kinds"
-            variant="fullWidth"
-            sx={{
-              minHeight: 64,
-              '& .MuiTabs-indicator': {
-                height: 2,
-                borderRadius: '2px 2px 0 0',
-              },
-            }}
-          >
-            {agentTabs.map((tab) => (
-              <Tab
-                key={tab.value}
-                value={tab.value}
-                disableRipple
-                label={(
-                  <Box sx={{ textAlign: 'left', width: '100%' }}>
-                    <Typography
-                      component="span"
-                      variant="body2"
-                      color="text.primary"
-                      sx={{ display: 'block', fontWeight: 600, lineHeight: 1.3 }}
-                    >
-                      {tab.label}
-                    </Typography>
-                    <Typography
-                      component="span"
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ display: 'block', mt: 0.25, lineHeight: 1.3, textTransform: 'none' }}
-                    >
-                      {tab.description}
-                    </Typography>
-                  </Box>
-                )}
-                sx={{
-                  minHeight: 64,
-                  alignItems: 'flex-start',
-                  px: 2,
-                  py: 1.25,
-                  textTransform: 'none',
-                }}
-              />
-            ))}
-          </Tabs>
-        </Box>
         <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
           <AppsTable
             authenticated={ !!account.user }
-            data={ visibleApps }
+            data={ apps.apps }
             onEdit={ onEditApp }
             onDelete={ setDeletingApp }
             orgId={ account.organizationTools.organization?.id || '' }
-            agentKind={selectedKind}
           />
         </Paywall>
       </Container>
@@ -233,7 +153,7 @@ const Apps: FC = () => {
       }
       <NewAgentDialog
         open={newAgentOpen}
-        initialKind={selectedKind}
+        initialKind={DEFAULT_AGENT_KIND}
         onClose={() => setNewAgentOpen(false)}
         onCreated={onAgentCreated}
       />

@@ -16,9 +16,6 @@ import useApi from '../../hooks/useApi'
 import useAccount from '../../hooks/useAccount'
 
 import {
-  AGENT_KIND_CODING,
-  AGENT_KIND_HELIX,
-  AGENT_KIND_ORG,
   IApp,
 } from '../../types'
 
@@ -40,14 +37,12 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   onEdit: (app: IApp) => void,
   onDelete: (app: IApp) => void,
   orgId: string,
-  agentKind: string,
 }>> = ({
   authenticated,
   data,
   onEdit,
   onDelete,
   orgId,
-  agentKind,
 }) => {
 
   const api = useApi()
@@ -287,9 +282,12 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             ))}
           </Box>
         ),
-        harness: (
+        // Only agents that actually run a harness get one here — a native chat
+        // agent has no code_agent_runtime, and getAgentHarnessRuntime's
+        // zed_agent fallback would otherwise label it as one.
+        harness: assistant?.code_agent_runtime ? (
           <AgentHarness runtime={getAgentHarnessRuntime(app)} variant="long" size={16} />
-        ),
+        ) : null,
         model: (
           <Typography variant="body2" color="text.secondary">
             {model}
@@ -385,38 +383,36 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
     )
   }, [])
 
+  // One list for every agent, so the columns are the union: a chat agent has no
+  // harness and a coding agent has no triggers, and each renders empty.
   const tableFields = useMemo(() => {
     return [
       {
         name: 'name',
         title: 'Name',
       },
-      ...([AGENT_KIND_CODING, AGENT_KIND_ORG].includes(agentKind) ? [
-        {
-          name: 'harness',
-          title: 'Harness',
-        },
-        {
-          name: 'model',
-          title: 'Model',
-        },
-      ] : []),
-      ...(agentKind === AGENT_KIND_HELIX ? [
-        {
-          name: 'skills',
-          title: 'Tools',
-        },
-        {
-          name: 'triggers',
-          title: 'Triggers',
-        },
-      ] : []),
+      {
+        name: 'harness',
+        title: 'Harness',
+      },
+      {
+        name: 'model',
+        title: 'Model',
+      },
+      {
+        name: 'skills',
+        title: 'Tools',
+      },
+      {
+        name: 'triggers',
+        title: 'Triggers',
+      },
       {
         name: 'usage',
         title: 'Token Usage',
       },
     ]
-  }, [agentKind])
+  }, [])
 
   return (
     <>
