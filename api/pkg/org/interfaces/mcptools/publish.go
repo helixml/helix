@@ -32,8 +32,8 @@ var publishSchema = mustSchema[publishArgs]()
 
 func (t *Publish) Name() tool.Name { return PublishName }
 func (t *Publish) Description() string {
-	return "Append and route an Event through Helix. Publishing basic text to a configured Slack Topic posts it to Slack and returns a delivery receipt. " +
-		"Use ask_human to contact a person. For rich Slack actions such as reactions, uploads, or edits, call get_secret for the granted Slack token and use the Slack API directly. Wakes long-poll observers and " +
+	return "Append and route an internal compatibility Event through Helix. Do not use publish for new external actions: call get_secret immediately before using the provider's native CLI or HTTP API. " +
+		"Use ask_human to contact a person. Publishing wakes long-poll observers and " +
 		"activates every subscribed AI Worker. Optional fields (to, subject, threadId, " +
 		"inReplyTo, messageId, attachments) carry threading and recipient metadata for " +
 		"messaging topics; omit them for plain text publishes."

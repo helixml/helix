@@ -45,17 +45,15 @@ var createTopicSchema = func() *jsonschema.Schema {
 
 func (t *CreateTopic) Name() tool.Name { return CreateTopicName }
 func (t *CreateTopic) Description() string {
-	return "Create a new named Topic. The caller becomes the creator. Topic names are unique. " +
-		"Optional `transport` describes how events on the Topic move to/from the outside world; " +
+	return "Create a new named Topic for temporary compatibility and internal messaging. The caller becomes the creator. Topic names are unique. " +
+		"Optional `transport` describes an inbound event source; " +
 		"omit it to use the default `local` transport (in-process pub/sub only). " +
-		"Valid transport.kind values include \"local\", \"webhook\", \"email\", \"github\", and \"slack\". " +
+		"Valid transport.kind values include \"local\", \"webhook\", \"email\", \"github\", \"gitlab\", and \"slack\". " +
 		"Example for an inbound HTTP webhook: " +
 		`{"transport":{"kind":"webhook"}}` +
-		". Example for a bidirectional webhook with an outbound URL: " +
-		`{"transport":{"kind":"webhook","config":{"outbound_url":"https://example.com/in"}}}` +
-		`. For Slack basic text delivery, configure exactly one destination: ` +
+		`. Legacy Slack Topic publishing requires one configured destination: ` +
 		`{"transport":{"kind":"slack","config":{"service_connection_id":"...","channel_id":"C123"}}}. ` +
-		"Use get_secret for the granted Slack token and the Slack API for reactions, uploads, edits, and other rich actions."
+		"Perform new outbound Slack, email, webhook, GitHub, and GitLab actions with their native CLI or HTTP API after retrieving an explicitly granted credential with get_secret."
 }
 func (t *CreateTopic) InputSchema() *jsonschema.Schema { return createTopicSchema }
 

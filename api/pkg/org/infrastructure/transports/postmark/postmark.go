@@ -1,7 +1,5 @@
-// Package postmark implements helix-org's email transport using
-// Postmark (postmarkapp.com) as the provider. It handles inbound
-// webhooks (Postmark POSTing parsed mail to us) and outbound emits
-// (we POST to Postmark's /email API to send mail).
+// Package postmark implements helix-org's inbound email transport using
+// Postmark (postmarkapp.com) as the provider.
 //
 // Server-level configuration lives in the operational config
 // registry under `transport.postmark`:
@@ -15,13 +13,10 @@
 // Topics declare just an alias (`{"alias":"sam"}`); the transport
 // joins server-level config with topic-level alias at runtime.
 // Inbound mail addressed to `<hash>+<alias>@inbound.postmarkapp.com`
-// routes to the topic with that alias. Outbound mail is sent
-// `From: <config.from>` with `Reply-To: <hash>+<alias>@…` so
-// customers' replies land back on the right topic.
+// routes to the topic with that alias.
 package postmark
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -96,8 +91,7 @@ type Dispatcher interface {
 }
 
 // Transport is the long-lived email transport. One instance per
-// running helix-org server. Both the inbound HTTP handler and the
-// outbound emitter are methods on it.
+// running helix-org server.
 type Transport struct {
 	orgID       string
 	registry    *configregistry.Registry
@@ -105,13 +99,7 @@ type Transport struct {
 	broadcaster *wakebus.Bus
 	dispatcher  Dispatcher
 	logger      *slog.Logger
-	client      *http.Client
-	sendURL     string
 }
-
-// DefaultSendURL is Postmark's transactional /email endpoint. New
-// constructs Transports with this; tests use SetSendURL to redirect.
-const DefaultSendURL = "https://api.postmarkapp.com/email"
 
 // New returns a Transport bound to the given config registry, store,
 // broadcaster (for waking long-poll observers on inbound) and
@@ -126,18 +114,8 @@ func New(orgID string, reg *configregistry.Registry, st *store.Store, bc *wakebu
 		broadcaster: bc,
 		dispatcher:  d,
 		logger:      logger,
-		client:      &http.Client{Timeout: 10 * time.Second},
-		sendURL:     DefaultSendURL,
 	}
 }
-
-// SetHTTPClient replaces the HTTP client used to call Postmark's API.
-// Tests use this to substitute an httptest.Server.
-func (t *Transport) SetHTTPClient(c *http.Client) { t.client = c }
-
-// SetSendURL replaces the Postmark /email endpoint this Transport
-// posts to. Intended for tests that point at a fake httptest.Server.
-func (t *Transport) SetSendURL(u string) { t.sendURL = u }
 
 func (t *Transport) config(ctx context.Context) (Config, error) {
 	var c Config
@@ -340,107 +318,4 @@ func threadIDFromHeaders(p inboundPayload, fallback string) string {
 		return refs
 	}
 	return fallback
-}
-
-// ---------- Outbound ----------
-
-type sendPayload struct {
-	From      string         `json:"From"`
-	To        string         `json:"To"`
-	ReplyTo   string         `json:"ReplyTo,omitempty"`
-	Subject   string         `json:"Subject"`
-	TextBody  string         `json:"TextBody,omitempty"`
-	HtmlBody  string         `json:"HtmlBody,omitempty"` //nolint:stylecheck // Postmark API uses this casing
-	Headers   []sendHeader   `json:"Headers,omitempty"`
-	MessageID string         `json:"MessageID,omitempty"`
-	Metadata  map[string]any `json:"Metadata,omitempty"`
-}
-
-type sendHeader struct {
-	Name  string `json:"Name"`
-	Value string `json:"Value"`
-}
-
-// Emit renders an Event's Message envelope to a Postmark /email API
-// call. Idempotent failures (network, 5xx) are returned to the caller
-// (the dispatcher's emit hook) which logs and drops; the underlying
-// append has already succeeded so the system stays consistent.
-//
-// Returns nil on 2xx, an error otherwise.
-func (t *Transport) Emit(ctx context.Context, e streaming.Event) error {
-	msg, err := e.Message()
-	if err != nil {
-		return fmt.Errorf("parse event message: %w", err)
-	}
-	if len(msg.To) == 0 {
-		return errors.New("no recipient (Message.To is empty)")
-	}
-	cfg, err := t.config(ctx)
-	if err != nil {
-		return err
-	}
-	topic, err := t.store.Topics.Get(ctx, e.OrganizationID, e.TopicID)
-	if err != nil {
-		return fmt.Errorf("get topic: %w", err)
-	}
-	topicCfg, err := topic.Transport.EmailConfig()
-	if err != nil {
-		return fmt.Errorf("topic email config: %w", err)
-	}
-
-	from := cfg.From
-	if msg.From != "" && strings.Contains(msg.From, "@") && !strings.HasPrefix(msg.From, "w-") {
-		// Allow per-message From override only if it looks like a real
-		// address (not a WorkerID like "w-sam"). Sender Signatures must
-		// be verified; this trusts the role to send valid addresses.
-		from = msg.From
-	}
-	payload := sendPayload{
-		From:     from,
-		To:       strings.Join(msg.To, ", "),
-		Subject:  msg.Subject,
-		TextBody: msg.Body,
-	}
-	if !cfg.DisableReplyTo {
-		payload.ReplyTo = cfg.AliasAddress(topicCfg.Alias)
-	}
-	if msg.BodyContentType == "text/html" {
-		payload.TextBody = ""
-		payload.HtmlBody = msg.Body
-	}
-	if msg.InReplyTo != "" {
-		references := msg.ThreadID
-		if references == "" {
-			references = msg.InReplyTo
-		}
-		payload.Headers = []sendHeader{
-			{Name: "In-Reply-To", Value: msg.InReplyTo},
-			{Name: "References", Value: references},
-		}
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal send payload: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.sendURL, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build send request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Postmark-Server-Token", cfg.Token)
-
-	resp, err := t.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("postmark send: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	respBody, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("postmark %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
-	}
-	t.logger.Info("postmark.emit", "topic", e.TopicID, "to", payload.To, "subject", payload.Subject, "status", resp.StatusCode)
-	return nil
 }

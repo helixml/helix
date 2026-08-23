@@ -145,13 +145,13 @@ func TestPublishLocalTopicStillWorks(t *testing.T) {
 
 type fakePublishDeliverer struct{ err error }
 
-func (d fakePublishDeliverer) Deliver(context.Context, streaming.Topic, streaming.Message) (publishing.DeliveryReceipt, error) {
+func (d fakePublishDeliverer) Deliver(context.Context, streaming.Topic, streaming.Event, streaming.Message) (publishing.DeliveryReceipt, error) {
 	return publishing.DeliveryReceipt{Status: "delivered", Provider: "slack", Destination: "C123", MessageID: "1.2"}, d.err
 }
 
 type countingPublishDeliverer struct{ calls int }
 
-func (d *countingPublishDeliverer) Deliver(context.Context, streaming.Topic, streaming.Message) (publishing.DeliveryReceipt, error) {
+func (d *countingPublishDeliverer) Deliver(context.Context, streaming.Topic, streaming.Event, streaming.Message) (publishing.DeliveryReceipt, error) {
 	d.calls++
 	return publishing.DeliveryReceipt{}, nil
 }
@@ -258,9 +258,9 @@ func TestPublishSlackDeliveryFailureReturnsPartialSuccess(t *testing.T) {
 	}
 }
 
-func TestPublishDescriptionExplainsSlackDeliveryBoundary(t *testing.T) {
+func TestPublishDescriptionExplainsNativeActionBoundary(t *testing.T) {
 	description := (&Publish{}).Description()
-	for _, want := range []string{"through Helix", "configured Slack Topic", "delivery receipt", "ask_human", "get_secret", "reactions", "uploads", "edits"} {
+	for _, want := range []string{"internal compatibility", "ask_human", "get_secret", "native CLI", "HTTP API"} {
 		if !strings.Contains(description, want) {
 			t.Fatalf("description %q missing %q", description, want)
 		}

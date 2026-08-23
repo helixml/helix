@@ -1,7 +1,6 @@
 // Package webhook is the infrastructure side of the webhook transport:
-// the outbound emitter that POSTs an appended Event to a Topic's
-// configured OutboundURL. The dispatcher (application) dispatches to it
-// via the streaming.Outbound port — it owns the HTTP mechanics
+// the legacy Topic adapter that POSTs an appended Event to a Topic's
+// configured OutboundURL. It owns the HTTP mechanics
 // (client, timeout, headers, status handling) so that delivery detail
 // stays out of the core dispatcher.
 package webhook
@@ -13,7 +12,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
 // outboundTimeout caps how long an outbound webhook POST may take. A
@@ -22,8 +23,8 @@ import (
 // speak HTTP back fail fast.
 const outboundTimeout = 5 * time.Second
 
-// OutboundEmitter POSTs Events to a webhook Topic's OutboundURL. It
-// satisfies streaming.Outbound.
+// OutboundEmitter POSTs Events to a webhook Topic's OutboundURL for the
+// temporary Topic compatibility adapter.
 type OutboundEmitter struct {
 	client *http.Client
 	logger *slog.Logger
@@ -40,6 +41,21 @@ func NewOutboundEmitter(logger *slog.Logger) *OutboundEmitter {
 // SetHTTPClient replaces the HTTP client. Intended for tests.
 func (e *OutboundEmitter) SetHTTPClient(c *http.Client) { e.client = c }
 
+func (e *OutboundEmitter) Deliver(_ context.Context, topic streaming.Topic, event streaming.Event, _ streaming.Message) (publishing.DeliveryReceipt, error) {
+	cfg, err := topic.Transport.WebhookConfig()
+	if err != nil {
+		e.logger.Warn("webhook.emit.config", "topic", event.TopicID, "err", err)
+		return publishing.DeliveryReceipt{}, publishing.ErrLegacyDeliveryNotApplicable
+	}
+	if cfg.OutboundURL == "" {
+		return publishing.DeliveryReceipt{}, publishing.ErrLegacyDeliveryNotApplicable
+	}
+	go func() { //nolint:gosec // legacy delivery intentionally outlives the publish request
+		e.emit(topic, event, cfg)
+	}()
+	return publishing.DeliveryReceipt{}, publishing.ErrLegacyDeliveryWithoutReceipt
+}
+
 // Emit POSTs the Event body to the Topic's configured OutboundURL. A
 // topic with no OutboundURL (or unparseable config) is a no-op. Uses a
 // fresh background context bounded by the client timeout — the
@@ -47,19 +63,23 @@ func (e *OutboundEmitter) SetHTTPClient(c *http.Client) { e.client = c }
 // POST must outlive that request. Non-2xx responses and transport
 // errors are logged and swallowed: the Event append already succeeded,
 // so a failed outbound delivery must not surface as a publish error.
-func (e *OutboundEmitter) Emit(_ context.Context, topic streaming.Topic, event streaming.Event) error {
+func (e *OutboundEmitter) Emit(_ context.Context, topic streaming.Topic, event streaming.Event) {
 	cfg, err := topic.Transport.WebhookConfig()
 	if err != nil {
 		e.logger.Warn("webhook.emit.config", "topic", event.TopicID, "err", err)
-		return nil
+		return
 	}
 	if cfg.OutboundURL == "" {
-		return nil
+		return
 	}
+	e.emit(topic, event, cfg)
+}
+
+func (e *OutboundEmitter) emit(topic streaming.Topic, event streaming.Event, cfg transport.WebhookConfig) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, cfg.OutboundURL, bytes.NewBufferString(event.Body))
 	if err != nil {
 		e.logger.Warn("webhook.emit.build", "topic", event.TopicID, "url", cfg.OutboundURL, "err", err)
-		return nil
+		return
 	}
 	req.Header.Set("Content-Type", "application/octet-topic")
 	req.Header.Set("X-Helix-Topic", string(event.TopicID))
@@ -67,16 +87,14 @@ func (e *OutboundEmitter) Emit(_ context.Context, topic streaming.Topic, event s
 	resp, err := e.client.Do(req)
 	if err != nil {
 		e.logger.Warn("webhook.emit.do", "topic", event.TopicID, "url", cfg.OutboundURL, "err", err)
-		return nil
+		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		e.logger.Warn("webhook.emit.status", "topic", event.TopicID, "url", cfg.OutboundURL, "status", resp.StatusCode)
-		return nil
+		return
 	}
 	e.logger.Info("webhook.emit.ok", "topic", event.TopicID, "url", cfg.OutboundURL, "status", resp.StatusCode)
-	return nil
 }
 
-// compile-time assertion that the emitter satisfies the port.
-var _ streaming.Outbound = (*OutboundEmitter)(nil)
+var _ publishing.LegacyDeliverer = (*OutboundEmitter)(nil)

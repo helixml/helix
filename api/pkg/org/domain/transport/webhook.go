@@ -8,7 +8,7 @@ import (
 
 // KindWebhook is an OUTBOUND HTTP transport.
 //
-// Outbound: when Config sets `outbound_url`, every Event appended to
+// Legacy Topic compatibility only: when Config sets `outbound_url`, every Event appended to
 // the Topic (regardless of who appended it — the publish endpoint,
 // publish tool, dm tool, a processor result) is POSTed to that URL with
 // the event body as the request body. Failures are logged and dropped;
