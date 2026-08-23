@@ -1173,7 +1173,7 @@ function transfer-desktop-to-sandbox() {
     for old_tag in $(curl -s "http://localhost:5000/v2/${IMAGE_NAME}/tags/list" 2>/dev/null | jq -r '.tags[]?' 2>/dev/null | grep -v "^${IMAGE_TAG}$" || true); do
       digest=$(curl -s -I -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
         "http://localhost:5000/v2/${IMAGE_NAME}/manifests/${old_tag}" 2>/dev/null | \
-        grep -i docker-content-digest | awk '{print $2}' | tr -d '\r')
+        grep -i docker-content-digest | awk '{print $2}' | tr -d '\r' || true)
       if [ -n "$digest" ]; then
         curl -s -X DELETE "http://localhost:5000/v2/${IMAGE_NAME}/manifests/${digest}" 2>/dev/null || true
       fi
