@@ -102,7 +102,7 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 | Desktop image / desktop-bridge / zerocopy | `./stack build-ubuntu` | Pushes to local registry |
 | Sandbox scripts | `./stack build-sandbox` | Dockerfile.sandbox |
 | Zed IDE | `./stack build-zed release` | Binary → desktop image. **Must use `release` on ARM** (`gemm-f16` fullfp16 asm fails in debug) |
-| Qwen Code | `cd ../qwen-code && git commit -am "msg" && cd ../helix && ./stack build-ubuntu` | |
+| Qwen Code | Bump `QWEN_VERSION` in `sandbox-versions.txt`, then `./stack build-ubuntu` | Published npm release; verify a live ACP turn |
 | DRM manager (`api/pkg/drm/`, `api/cmd/helix-drm-manager/`) | `./stack build-drm-manager` | Systemd service on VM guest |
 | Zed config (`zed_config.go`) | No rebuild | API-side, Air hot reloads. Start NEW session |
 | Settings-sync-daemon | `./stack build-ubuntu` | Start NEW session after |
@@ -119,25 +119,28 @@ empty). Set e.g. `HELIX_EXPERIMENTAL_DESKTOPS="sway"` in your environment
 to pre-pull sway at sandbox startup; otherwise it's pulled lazily by
 Docker the first time someone launches a sway desktop session.
 
-### **CRITICAL: Bumping sandbox-versions.txt after Zed or Qwen changes**
+### **CRITICAL: Bumping sandbox-versions.txt after Zed changes**
 
-`sandbox-versions.txt` pins the exact commits CI uses to build the sandbox:
+`sandbox-versions.txt` pins the exact Zed commit and Qwen Code release CI uses:
 ```
 ZED_COMMIT=<full git sha>
-QWEN_COMMIT=<full git sha>
+QWEN_VERSION=<semver>
 ```
 
-**If you modify Zed or Qwen, you MUST follow this order:**
+**If you modify Zed, you MUST follow this order:**
 
-1. Commit your changes in the Zed/Qwen repo (do NOT push yet).
+1. Commit your changes in the Zed repo (do NOT push yet).
 2. Copy the local commit hash: `git rev-parse HEAD`
 3. Update `sandbox-versions.txt` in this repo with that hash.
-4. **Open the Helix PR** (with the bumped hash) *before* pushing the Zed/Qwen branch.
-5. Push the Zed/Qwen branch and open that PR.
-6. Merge the Zed/Qwen PR.
+4. **Open the Helix PR** (with the bumped hash) *before* pushing the Zed branch.
+5. Push the Zed branch and open that PR.
+6. Merge the Zed PR.
 7. Merge the Helix PR.
 
 **Why this order matters:** The spec task system marks a task done when all its PRs are merged. If the Zed PR is merged first, the system may close the task before `sandbox-versions.txt` is updated — leaving CI pointing at the wrong commit indefinitely. Getting the commit hash from a local commit (before pushing) solves the chicken-and-egg problem.
+
+Qwen Code is installed from the exact published `@qwen-code/qwen-code`
+version in `QWEN_VERSION`; it has no separate Helix source-repo workflow.
 
 ### Verify Build
 ```bash

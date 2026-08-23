@@ -746,103 +746,70 @@ function get_image_tags() {
 }
 
 function build-qwen-code() {
-  # ====================================================================
-  # Build Qwen Code with Docker BuildKit layer caching
-  # ====================================================================
-  # Uses `docker build` with --mount=type=cache for persistent caching of
-  # npm download cache. Package manifests are copied first so npm ci is
-  # a cached layer when only source files change.
-  #
-  # The build artifacts are extracted via --output without keeping a large image.
-  # ====================================================================
-  echo "📦 Building Qwen Code (Docker build with BuildKit cache)..."
-
-  local QWEN_SOURCE_DIR="$PROJECTS_ROOT/qwen-code"
+  # QWEN_VERSION is the sole pin. The published package is already bundled,
+  # so upgrades do not require an adjacent qwen-code source checkout.
   local QWEN_OUTPUT_DIR="./qwen-code-build"
+  local QWEN_VERSION
+  QWEN_VERSION=$(awk -F= '$1 == "QWEN_VERSION" { print $2 }' sandbox-versions.txt)
 
-  # Check if qwen-code source directory exists
-  if [ ! -d "$QWEN_SOURCE_DIR" ]; then
-    echo "❌ qwen-code source directory not found at: $QWEN_SOURCE_DIR"
-    echo "Clone it next to helix with: cd $PROJECTS_ROOT && git clone git@github.com:helixml/qwen-code.git"
+  if [ -z "$QWEN_VERSION" ]; then
+    echo "❌ QWEN_VERSION is not set in sandbox-versions.txt"
     return 1
   fi
 
-  # Get current qwen-code git commit hash
-  local QWEN_CODE_HASH=$(cd "$QWEN_SOURCE_DIR" && git rev-parse HEAD)
-  local SAVED_HASH=""
-  if [ -f "$QWEN_OUTPUT_DIR/.git-commit-hash" ]; then
-    SAVED_HASH=$(cat "$QWEN_OUTPUT_DIR/.git-commit-hash")
+  local SAVED_VERSION=""
+  if [ -f "$QWEN_OUTPUT_DIR/version" ]; then
+    SAVED_VERSION=$(cat "$QWEN_OUTPUT_DIR/version")
   fi
 
-  # Check if we need to rebuild
   local NEEDS_REBUILD=false
-  if [ ! -d "$QWEN_OUTPUT_DIR" ] || [ ! -f "$QWEN_OUTPUT_DIR/package.json" ]; then
+  if [ ! -d "$QWEN_OUTPUT_DIR" ] || [ ! -x "$QWEN_OUTPUT_DIR/bin/qwen" ]; then
     NEEDS_REBUILD=true
     echo "📦 qwen-code-build directory missing or incomplete"
-  elif [ ! -d "$QWEN_OUTPUT_DIR/dist" ]; then
+  elif [ "$QWEN_VERSION" != "$SAVED_VERSION" ]; then
     NEEDS_REBUILD=true
-    echo "📦 qwen-code dist directory missing (bundle not built)"
-  elif [ "$QWEN_CODE_HASH" != "$SAVED_HASH" ]; then
-    NEEDS_REBUILD=true
-    echo "📦 qwen-code changed: ${SAVED_HASH:0:8} -> ${QWEN_CODE_HASH:0:8}"
+    echo "📦 Qwen Code changed: ${SAVED_VERSION:-none} -> ${QWEN_VERSION}"
   fi
 
   if [ "$NEEDS_REBUILD" != "true" ]; then
-    echo "✅ Using existing qwen-code build at $QWEN_OUTPUT_DIR (${SAVED_HASH:0:8})"
+    echo "✅ Using existing Qwen Code ${SAVED_VERSION} at $QWEN_OUTPUT_DIR"
     return 0
   fi
 
-  echo "🐳 Building qwen-code via docker build with BuildKit cache..."
-  echo "   Source: $QWEN_SOURCE_DIR"
+  echo "🐳 Installing Qwen Code ${QWEN_VERSION} via Docker..."
   echo "   Output: $QWEN_OUTPUT_DIR"
 
-  # Create temporary .dockerignore to exclude large dirs from build context
-  local DOCKERIGNORE="$QWEN_SOURCE_DIR/.dockerignore"
-  local DOCKERIGNORE_EXISTED=false
-  if [ -f "$DOCKERIGNORE" ]; then
-    DOCKERIGNORE_EXISTED=true
+  local QWEN_BACKUP_DIR=""
+  if [ -e "$QWEN_OUTPUT_DIR" ]; then
+    QWEN_BACKUP_DIR=$(mktemp -d /tmp/helix-qwen-code-build.XXXXXX)
+    mv "$QWEN_OUTPUT_DIR" "$QWEN_BACKUP_DIR/qwen-code-build"
   fi
-  cat > "$DOCKERIGNORE" << 'EIGNORE'
-node_modules/
-.git/
-dist/
-EIGNORE
-
-  # Clean output dir before extraction (old builds may have root-owned files)
-  rm -rf "$QWEN_OUTPUT_DIR" 2>/dev/null || sudo rm -rf "$QWEN_OUTPUT_DIR"
   mkdir -p "$QWEN_OUTPUT_DIR"
 
-  echo "🚀 Starting Docker build..."
-
-  # Build using Dockerfile.qwen-code-build with qwen-code source as context.
-  # --output extracts just the build artifacts from the scratch final stage.
-  # BuildKit cache mounts in the Dockerfile handle npm download caching.
-  # Use type=tar piped through tar to avoid lchown permission errors
-  # (BuildKit tries to preserve root ownership from container).
-  # Temporarily disable errexit so .dockerignore cleanup runs on failure.
   set +e
   docker buildx build \
     --provenance=false \
+    --build-arg "QWEN_VERSION=$QWEN_VERSION" \
     -f "$DIR/Dockerfile.qwen-code-build" \
     --output "type=tar,dest=-" \
-    "$QWEN_SOURCE_DIR" | tar xf - -C "$QWEN_OUTPUT_DIR"
+    "$DIR" | tar xf - -C "$QWEN_OUTPUT_DIR"
   local BUILD_EXIT=${PIPESTATUS[0]}
   set -e
 
-  # Clean up temporary .dockerignore (unless it existed before)
-  if [ "$DOCKERIGNORE_EXISTED" = "false" ]; then
-    rm -f "$DOCKERIGNORE"
-  fi
-
   if [ $BUILD_EXIT -ne 0 ]; then
     echo "❌ Docker build failed"
+    if [ -n "$QWEN_BACKUP_DIR" ]; then
+      mv "$QWEN_OUTPUT_DIR" "$QWEN_BACKUP_DIR/failed-build"
+      mv "$QWEN_BACKUP_DIR/qwen-code-build" "$QWEN_OUTPUT_DIR"
+      rm -r -- "$QWEN_BACKUP_DIR"
+    fi
     return 1
   fi
 
-  # Save the git commit hash for future change detection
-  echo "$QWEN_CODE_HASH" > "$QWEN_OUTPUT_DIR/.git-commit-hash"
-
-  echo "✅ qwen-code built successfully (${QWEN_CODE_HASH:0:8})"
+  if [ -n "$QWEN_BACKUP_DIR" ]; then
+    rm -r -- "$QWEN_BACKUP_DIR"
+  fi
+  echo "✅ Qwen Code ${QWEN_VERSION} installed successfully"
   echo "📦 Output: $QWEN_OUTPUT_DIR"
 }
 
@@ -899,9 +866,8 @@ function build-desktop() {
     echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
   fi
 
-  # Build qwen-code using containerized build (avoids husky/prepare script issues)
-  # This is used by ALL desktop images (sway, zorin, ubuntu, xfce)
-  _dt_elapsed "Building qwen-code..."
+  # Install the pinned bundled Qwen package used by every desktop image.
+  _dt_elapsed "Installing Qwen Code..."
   if ! build-qwen-code; then
     echo "❌ Failed to build qwen-code"
     exit 1

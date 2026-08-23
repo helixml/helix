@@ -82,6 +82,7 @@ var SelectableCodeAgentRuntimes = []CodeAgentRuntime{
 	CodeAgentRuntimeClaudeCode,
 	CodeAgentRuntimeCodexCLI,
 	CodeAgentRuntimeGooseCode,
+	CodeAgentRuntimeQwenCode,
 	CodeAgentRuntimeZedAgent,
 	CodeAgentRuntimeOpenCode,
 	CodeAgentRuntimeDeepSeekHarness,
