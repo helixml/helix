@@ -18,13 +18,13 @@ func RestoreAccumulator(content string, lastMessageID string, offset int, respon
 		var entries []ResponseEntry
 		if err := json.Unmarshal(responseEntries, &entries); err == nil && len(entries) > 0 {
 			acc := &MessageAccumulator{
-				Content:        content,
-				LastMessageID:  lastMessageID,
-				Offset:         offset,
-				contentDirty:   false,
-				messageOrder:   make([]string, 0, len(entries)),
-				messageContent: make(map[string]string, len(entries)),
-				messageType:    make(map[string]string, len(entries)),
+				Content:           content,
+				LastMessageID:     lastMessageID,
+				Offset:            offset,
+				contentDirty:      false,
+				messageOrder:      make([]string, 0, len(entries)),
+				messageContent:    make(map[string]string, len(entries)),
+				messageType:       make(map[string]string, len(entries)),
 				messageToolName:   make(map[string]string),
 				messageToolStatus: make(map[string]string),
 			}

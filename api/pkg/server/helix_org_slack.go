@@ -18,68 +18,65 @@ import (
 
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
-	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
+	"github.com/helixml/helix/api/pkg/org/application/triggers"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
-	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
 	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// slackWorkspaceTopics keeps a workspace-scoped Slack Topic in sync with
-// the slack_workspace ServiceConnection lifecycle: one Topic per connected
-// workspace, created on connect and removed on disconnect. The Topic id is
-// deterministic (s-slack-ws-<connID>) so this never touches user-created
-// topics — same ownership-by-convention the team-topic reconciler uses.
+// slackWorkspaceTopics keeps a workspace-scoped Slack Trigger in sync
+// with the slack_workspace ServiceConnection lifecycle: one Trigger per
+// connected workspace, created on connect and removed on disconnect. Its
+// id is deterministic (s-slack-ws-<connID>) so this never touches
+// user-created Triggers — the same ownership-by-convention the topology
+// reconciler uses.
 type slackWorkspaceTopics struct {
-	topics helixorgstore.Topics
-	logger *slog.Logger
+	triggers *triggers.Service
+	logger   *slog.Logger
 }
 
-func slackWorkspaceTopicID(connID string) streaming.TopicID {
-	return streaming.TopicID("s-slack-ws-" + connID)
+func slackWorkspaceTriggerID(connID string) string {
+	return "s-slack-ws-" + connID
 }
 
 func (r *slackWorkspaceTopics) ensure(ctx context.Context, orgID, connID, workspaceName, appName string) {
-	if r == nil {
+	if r == nil || r.triggers == nil {
 		return
 	}
-	id := slackWorkspaceTopicID(connID)
-	if _, err := r.topics.Get(ctx, orgID, id); err == nil {
-		return // already exists
-	}
+	id := slackWorkspaceTriggerID(connID)
 	name := slacktransport.TopicName(appName, workspaceName)
 	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: connID})
-	// CreatedBy = SystemActor marks this as an automation-created stream
+	// CreatedBy = SystemActor marks this as an automation-created Trigger
 	// (auto-connect, not a hand-made one) — the same marker the auto-router
 	// carries.
-	topic, err := streaming.NewTopic(id, name, "Messages from the connected Slack workspace.", processor.SystemActor, time.Now().UTC(),
-		transport.Transport{Kind: transport.KindSlack, Config: cfg}, orgID)
+	t, err := trigger.New(id, orgID, name, "Messages from the connected Slack workspace.", transport.KindSlack, cfg, processor.SystemActor, time.Now().UTC())
 	if err != nil {
-		r.logger.Error("slack.reconcile: build topic", "org", orgID, "conn", connID, "err", err)
+		r.logger.Error("slack.reconcile: build trigger", "org", orgID, "conn", connID, "err", err)
 		return
 	}
-	if err := r.topics.Create(ctx, topic); err != nil {
-		r.logger.Error("slack.reconcile: create topic", "org", orgID, "conn", connID, "err", err)
+	if _, err := r.triggers.Ensure(ctx, orgID, t); err != nil {
+		r.logger.Error("slack.reconcile: create trigger", "org", orgID, "conn", connID, "err", err)
 	}
 }
 
 func (r *slackWorkspaceTopics) remove(ctx context.Context, orgID, connID string) {
-	if r == nil {
+	if r == nil || r.triggers == nil {
 		return
 	}
-	if err := r.topics.Delete(ctx, orgID, slackWorkspaceTopicID(connID)); err != nil {
-		r.logger.Warn("slack.reconcile: delete topic", "org", orgID, "conn", connID, "err", err)
+	if err := r.triggers.Delete(ctx, orgID, slackWorkspaceTriggerID(connID)); err != nil {
+		r.logger.Warn("slack.reconcile: delete trigger", "org", orgID, "conn", connID, "err", err)
 	}
 }
 
 // slackAutoRouter creates the per-workspace auto-router Processor on connect
 // and keeps its per-Worker routes in sync. The router is a filter Processor
-// (Automated=true) on the workspace Topic: it routes Slack messages naming a
+// (Automated=true) on the workspace Trigger: it routes Slack messages naming a
 // Worker to that Worker, with thread-follow as an opt-in. Creation is bound
 // to the workspace-connect event so a user-deleted router stays deleted —
 // the reconciler only ever maintains routes inside an existing router.
@@ -103,17 +100,16 @@ func (r *slackAutoRouter) createOnConnect(ctx context.Context, orgID, connID, to
 		return
 	}
 	_, err := r.procs.Create(ctx, orgID, processors.CreateParams{
-		ID:           string(slackAutoRouterID(connID)),
-		Name:         "Auto-router · " + topicName,
-		InputTopicID: slackWorkspaceTopicID(connID),
-		Kind:         processor.KindFilter,
-		Config:       slackrouting.DefaultConfig(),
+		ID:          string(slackAutoRouterID(connID)),
+		Name:        "Auto-router · " + topicName,
+		InputSource: eventsource.Trigger(slackWorkspaceTriggerID(connID)),
+		Kind:        processor.KindFilter,
+		Config:      slackrouting.DefaultConfig(),
 		// A single unconditional "unmatched" branch: it exists so a user can
-		// wire a catch-all (e.g. subscribe a human), but it has no subscriber
-		// by default, so nothing triggers on un-named messages.
+		// wire a catch-all, but it has no attachment by default, so nothing
+		// starts on un-named messages.
 		Outputs: []processors.OutputSpec{{Label: "unmatched"}},
-		// SystemActor CreatedBy IS the "automated" marker (processor.Automated)
-		// and propagates to the output Topics this router owns.
+		// SystemActor CreatedBy IS the "automated" marker (processor.Automated).
 		CreatedBy: processor.SystemActor,
 	})
 	if err != nil {
@@ -123,15 +119,15 @@ func (r *slackAutoRouter) createOnConnect(ctx context.Context, orgID, connID, to
 	r.reconcile(ctx, orgID)
 }
 
-// removeForWorkspace tears down the workspace's auto-router (and its owned
-// output Topics) when the Slack integration/workspace is disconnected.
-// Keyed by the workspace Topic the router reads, so it also catches a
-// re-created router. Idempotent: no router → no-op.
+// removeForWorkspace tears down the workspace's auto-router when the Slack
+// integration/workspace is disconnected. Keyed by the workspace Trigger the
+// router reads, so it also catches a re-created router. Idempotent: no
+// router → no-op.
 func (r *slackAutoRouter) removeForWorkspace(ctx context.Context, orgID, connID string) {
 	if r == nil || r.procs == nil {
 		return
 	}
-	if err := r.procs.DeleteAutomatedByInput(ctx, orgID, slackWorkspaceTopicID(connID)); err != nil {
+	if err := r.procs.DeleteAutomatedByInput(ctx, orgID, eventsource.Trigger(slackWorkspaceTriggerID(connID))); err != nil {
 		r.logger.Warn("slack.autorouter: remove on disconnect", "org", orgID, "conn", connID, "err", err)
 	}
 }
@@ -188,36 +184,6 @@ func (w *slackWorkspaces) byConnectionID(ctx context.Context, orgID, connectionI
 		return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
 	}
 	return w.toWorkspace(conn)
-}
-
-type slackTopicDeliverer struct {
-	workspaces *slackWorkspaces
-	client     func(string) slacktransport.MessageAPI
-}
-
-func (d slackTopicDeliverer) Deliver(ctx context.Context, topic streaming.Topic, _ streaming.Event, msg streaming.Message) (publishing.DeliveryReceipt, error) {
-	cfg, err := topic.Transport.SlackConfig()
-	if err != nil {
-		return publishing.DeliveryReceipt{}, err
-	}
-	workspace, err := d.workspaces.byConnectionID(ctx, topic.OrganizationID, cfg.ServiceConnectionID)
-	if err != nil {
-		return publishing.DeliveryReceipt{}, fmt.Errorf("resolve Slack workspace: %w", err)
-	}
-	client := d.client
-	if client == nil {
-		client = func(token string) slacktransport.MessageAPI { return slackcore.New(token, "") }
-	}
-	receipt, err := slacktransport.DeliverText(ctx, client(workspace.BotToken), cfg.ChannelID, msg.Body, msg.ThreadID)
-	if err != nil {
-		return publishing.DeliveryReceipt{}, err
-	}
-	return publishing.DeliveryReceipt{
-		Status:      "delivered",
-		Provider:    "slack",
-		Destination: receipt.Destination,
-		MessageID:   receipt.MessageID,
-	}, nil
 }
 
 func newSlackWorkspaces(store helixstore.Store, encKey func() ([]byte, error)) *slackWorkspaces {

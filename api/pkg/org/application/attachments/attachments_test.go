@@ -26,7 +26,7 @@ func setup(t *testing.T) (context.Context, *store.Store, *attachments.Service) {
 	node, err := orgchart.NewNode("w-one", "work", nil, time.Now(), "org-1")
 	require.NoError(t, err)
 	require.NoError(t, st.Nodes.Create(ctx, node))
-	tr, err := trigger.New("tr-1", "org-1", "incoming", transport.KindLocal, nil, "", time.Now())
+	tr, err := trigger.New("tr-1", "org-1", "incoming", "", transport.KindLocal, nil, "", time.Now())
 	require.NoError(t, err)
 	require.NoError(t, st.Triggers.Create(ctx, tr))
 	n := 0
@@ -37,7 +37,7 @@ func TestCreateTriggerAndProcessorOutput(t *testing.T) {
 	a, err := svc.Create(ctx, "org-1", "w-one", eventsource.Trigger("tr-1"), "")
 	require.NoError(t, err)
 	require.Equal(t, "wa-1", a.ID)
-	p, err := processor.NewProcessor("p-1", "route", "", processor.KindTemplate, json.RawMessage(`{"template":"{{ .Message.body }}"}`), []processor.Output{{ID: "po-a", TopicID: "s-a"}}, "", time.Now(), "org-1")
+	p, err := processor.NewProcessor("p-1", "route", eventsource.SourceRef{}, processor.KindTemplate, json.RawMessage(`{"template":"{{ .Message.body }}"}`), []processor.Output{{ID: "po-a", StreamID: "s-a"}}, "", time.Now(), "org-1")
 	require.NoError(t, err)
 	require.NoError(t, st.Processors.Create(ctx, p))
 	_, err = svc.Create(ctx, "org-1", "w-one", eventsource.ProcessorOutput("p-1", "po-a"), "")
@@ -48,7 +48,7 @@ func TestCreateFailuresHaveContext(t *testing.T) {
 	human, err := orgchart.NewNode("w-human", "person", nil, time.Now(), "org-1")
 	require.NoError(t, err)
 	require.NoError(t, st.Nodes.Create(ctx, human.WithKind(orgchart.NodeKindHuman)))
-	p, err := processor.NewProcessor("p-1", "route", "", processor.KindTemplate, json.RawMessage(`{"template":"{{ .Message.body }}"}`), []processor.Output{{ID: "po-a", TopicID: "s-a"}}, "", time.Now(), "org-1")
+	p, err := processor.NewProcessor("p-1", "route", eventsource.SourceRef{}, processor.KindTemplate, json.RawMessage(`{"template":"{{ .Message.body }}"}`), []processor.Output{{ID: "po-a", StreamID: "s-a"}}, "", time.Now(), "org-1")
 	require.NoError(t, err)
 	require.NoError(t, st.Processors.Create(ctx, p))
 	cases := []struct {

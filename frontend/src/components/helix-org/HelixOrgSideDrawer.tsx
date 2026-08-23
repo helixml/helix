@@ -87,7 +87,7 @@ const HelixOrgSideDrawer: FC<HelixOrgSideDrawerProps> = ({
             </IconButton>
           </Stack>
         </Stack>
-        <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>{children}</Box>
+        <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0, pt: 1.5 }}>{children}</Box>
       </Box>
     </Drawer>
   )

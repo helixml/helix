@@ -17,7 +17,7 @@ import (
 
 // httpClient is a thin authenticated HTTP helper for helix-org REST paths
 // that are not (yet) on the typed Go client. Prefer NewClientFromEnv for
-// org resolution; use this for /orgs/{org}/bots|topics|processors|….
+// org resolution; use this for /orgs/{org}/bots|triggers|processors|….
 type httpClient struct {
 	base   string // e.g. http://localhost:8080/api/v1
 	apiKey string

@@ -23,13 +23,12 @@ const (
 
 // eventView is the on-the-wire shape returned by read_events /
 // worker_log. Body is the visible text — for messaging events, the
-// parsed Message.Body; for legacy events that fail to parse, the raw
-// stored Body. Message carries the full canonical envelope when it
-// parses cleanly, letting Roles inspect From/To/threading without
-// re-parsing.
+// parsed Message.Body; for events that fail to parse, the raw stored
+// Body. Message carries the full canonical envelope when it parses
+// cleanly, letting Roles inspect From/To/threading without re-parsing.
 type eventView struct {
 	ID        streaming.EventID  `json:"id"`
-	TopicID   streaming.TopicID  `json:"topicId"`
+	StreamID  streaming.StreamID `json:"streamId"`
 	Source    orgchart.NodeID    `json:"source"`
 	Body      string             `json:"body"`
 	Message   *streaming.Message `json:"message,omitempty"`
@@ -39,7 +38,7 @@ type eventView struct {
 func eventViewOf(e streaming.Event) eventView {
 	view := eventView{
 		ID:        e.ID,
-		TopicID:   e.TopicID,
+		StreamID:  e.StreamID,
 		Source:    e.Source,
 		Body:      e.Body,
 		CreatedAt: e.CreatedAt,
@@ -51,9 +50,9 @@ func eventViewOf(e streaming.Event) eventView {
 	return view
 }
 
-// ReadEvents returns the events on the Topics the calling Worker
-// subscribes to, newest-first. With wait>0, blocks up to that many
-// seconds for new events on any subscribed Topic.
+// ReadEvents returns the events from every source the calling Worker is
+// attached to, newest-first. With wait>0, blocks up to that many seconds
+// for a new event on any of them.
 type ReadEvents struct {
 	deps Deps
 }
@@ -121,7 +120,7 @@ func decodeFlexInt(raw json.RawMessage) (int, error) {
 func (t *ReadEvents) Name() tool.Name                 { return ReadEventsName }
 func (t *ReadEvents) InputSchema() *jsonschema.Schema { return readEventsSchema }
 func (t *ReadEvents) Description() string {
-	return "Read events on the Topics you subscribe to, newest first. Pass since=<eventId> " +
+	return "Read events from the sources you are attached to, newest first. Pass since=<eventId> " +
 		"to skip everything up to and including a previously-seen event. Pass wait=<seconds> " +
 		"(0..60) to block for new events when nothing is currently waiting after applying " +
 		"`since`. limit defaults to 50, capped at 200."
@@ -161,20 +160,16 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 		return marshalEvents(fresh), nil
 	}
 
-	// Resolve bot → subscribed topics.
+	// Resolve bot → the streams behind its attachments.
 	if _, err := t.deps.Queries.GetBot(ctx, orgID, botID); err != nil {
 		return nil, fmt.Errorf("get bot %q: %w", botID, err)
 	}
-	subs, err := t.deps.Queries.BotSubscriptions(ctx, orgID, botID)
+	streamIDs, err := t.deps.Queries.WorkerStreams(ctx, orgID, botID)
 	if err != nil {
-		return nil, fmt.Errorf("list subscriptions for bot %q: %w", botID, err)
+		return nil, err
 	}
-	topicIDs := make([]streaming.TopicID, 0, len(subs))
-	for _, sub := range subs {
-		topicIDs = append(topicIDs, sub.TopicID)
-	}
-	wake := t.deps.Hub.Subscribe(orgID, topicIDs)
-	defer t.deps.Hub.Unsubscribe(topicIDs, wake)
+	wake := t.deps.Hub.Subscribe(orgID, streamIDs)
+	defer t.deps.Hub.Unsubscribe(streamIDs, wake)
 
 	timer := time.NewTimer(time.Duration(wait) * time.Second)
 	defer timer.Stop()

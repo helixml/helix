@@ -15,7 +15,6 @@ package memory
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -30,7 +29,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	"github.com/helixml/helix/api/pkg/org/domain/workersecret"
 )
@@ -38,22 +36,19 @@ import (
 // New returns a fresh *store.Store backed by in-memory repos. Use
 // for tests and dev paths that don't need Postgres.
 func New() *store.Store {
-	subs := &subscriptionsRepo{rows: map[subKey]streaming.Subscription{}}
 	lines := &reportingLinesRepo{rows: map[lineKey]struct{}{}}
 	assetLinks := &assetLinksRepo{rows: map[assetLinkKey]asset.Link{}}
-	bots := &nodesRepo{rows: map[orgKey]orgchart.Node{}, subs: subs, lines: lines}
+	bots := &nodesRepo{rows: map[orgKey]orgchart.Node{}, lines: lines}
 	attachments := &attachmentsRepo{rows: map[orgKey]attachment.Attachment{}}
 	bots.attachments = attachments
 	processors := &processorsRepo{rows: map[orgKey]processor.Processor{}, attachments: attachments}
 	triggers := &triggersRepo{rows: map[orgKey]trigger.Trigger{}, attachments: attachments}
-	topics := &topicsRepo{rows: map[orgKey]streaming.Topic{}, subs: subs}
+	retired := &retiredRepo{processorInput: map[store.OrgScopedID]streaming.StreamID{}}
 	return &store.Store{
 		Nodes:                bots,
 		ReportingLines:       lines,
 		NodeRuntimeState:     &runtimeStateRepo{rows: map[runtimeKey]string{}},
-		Topics:               topics,
-		Subscriptions:        subs,
-		Events:               &eventsRepo{rows: []streaming.Event{}, subs: subs, bots: bots},
+		Events:               &eventsRepo{rows: []streaming.Event{}},
 		Configs:              &configsRepo{rows: map[orgKey]config.Config{}},
 		Activations:          &activationsRepo{rows: map[orgKey]*activation.Activation{}},
 		Processors:           processors,
@@ -64,6 +59,10 @@ func New() *store.Store {
 		AssetLinks:           assetLinks,
 		ChartPositions:       &chartPositionsRepo{rows: map[chartPosKey]orgchart.ChartPosition{}},
 		DomainEvents:         &domainEventsRepo{},
+
+		RetiredTopics:          retired,
+		RetiredSubscriptions:   &retiredSubsRepo{inner: retired},
+		RetiredProcessorInputs: &retiredInputsRepo{inner: retired},
 	}
 }
 
@@ -251,11 +250,10 @@ type orgKey struct {
 type nodesRepo struct {
 	mu   sync.RWMutex
 	rows map[orgKey]orgchart.Node
-	// subs and lines are held by reference so Delete can cascade: a
-	// deleted bot's own subscriptions and every reporting line that
+	// lines and attachments are held by reference so Delete can cascade:
+	// a deleted bot's own attachments and every reporting line that
 	// references it (as manager or report) are dropped, mirroring the
 	// gorm store's ON DELETE CASCADE foreign keys.
-	subs        *subscriptionsRepo
 	lines       *reportingLinesRepo
 	attachments *attachmentsRepo
 }
@@ -333,9 +331,6 @@ func (r *nodesRepo) Delete(_ context.Context, orgID string, id orgchart.NodeID) 
 	r.mu.Unlock()
 	// Cascade under the dependent repos' own mutexes — release ours
 	// first to avoid lock-ordering hazards.
-	if r.subs != nil {
-		r.subs.deleteAllForBot(orgID, id)
-	}
 	if r.lines != nil {
 		r.lines.deleteAllForBot(orgID, id)
 	}
@@ -489,228 +484,11 @@ func (r *runtimeStateRepo) Clear(_ context.Context, orgID string, botID orgchart
 	return nil
 }
 
-// ---- Topics ------------------------------------------------------------
-
-type topicsRepo struct {
-	mu   sync.RWMutex
-	rows map[orgKey]streaming.Topic
-	// subs is held by reference so Delete can cascade: every
-	// subscription to a deleted topic is dropped, mirroring the gorm
-	// store.
-	subs *subscriptionsRepo
-}
-
-func (s *topicsRepo) Create(_ context.Context, st streaming.Topic) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	k := orgKey{OrgID: st.OrganizationID, ID: string(st.ID)}
-	if _, ok := s.rows[k]; ok {
-		return fmt.Errorf("topic %q in org %q: already exists", st.ID, st.OrganizationID)
-	}
-	// Enforce composite (org_id, name) uniqueness to mirror the gorm
-	// idx_topic_org_name constraint. Wrap store.ErrConflict so adapters map
-	// it to 409 (and the topics service's pre-check reads it).
-	for k2, ex := range s.rows {
-		if k2.OrgID == st.OrganizationID && ex.Name == st.Name {
-			return fmt.Errorf("a topic named %q in this org %w", st.Name, store.ErrConflict)
-		}
-	}
-	s.rows[k] = st
-	return nil
-}
-
-func (s *topicsRepo) Get(_ context.Context, orgID string, id streaming.TopicID) (streaming.Topic, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if st, ok := s.rows[orgKey{OrgID: orgID, ID: string(id)}]; ok {
-		return st, nil
-	}
-	return streaming.Topic{}, fmt.Errorf("topic %q in org %q: %w", id, orgID, store.ErrNotFound)
-}
-
-func (s *topicsRepo) List(_ context.Context, orgID string) ([]streaming.Topic, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]streaming.Topic, 0)
-	for k, st := range s.rows {
-		if k.OrgID == orgID {
-			out = append(out, st)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, nil
-}
-
-func (s *topicsRepo) ListByTransportKind(_ context.Context, kind transport.Kind) ([]streaming.Topic, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]streaming.Topic, 0)
-	for _, st := range s.rows {
-		if st.Transport.Kind == kind {
-			out = append(out, st)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].OrganizationID != out[j].OrganizationID {
-			return out[i].OrganizationID < out[j].OrganizationID
-		}
-		return out[i].ID < out[j].ID
-	})
-	return out, nil
-}
-
-func (s *topicsRepo) Update(_ context.Context, st streaming.Topic) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	k := orgKey{OrgID: st.OrganizationID, ID: string(st.ID)}
-	existing, ok := s.rows[k]
-	if !ok {
-		return fmt.Errorf("topic %q in org %q: %w", st.ID, st.OrganizationID, store.ErrNotFound)
-	}
-	// Re-check the composite (org_id, name) uniqueness when name
-	// changes — mirror the gorm idx_topic_org_name constraint.
-	if st.Name != existing.Name {
-		for k2, ex := range s.rows {
-			if k2 == k {
-				continue
-			}
-			if k2.OrgID == st.OrganizationID && ex.Name == st.Name {
-				return fmt.Errorf("topic name %q already in use in org %q", st.Name, st.OrganizationID)
-			}
-		}
-	}
-	// Mutable fields only — keep CreatedBy / CreatedAt / ID / OrgID.
-	existing.Name = st.Name
-	existing.Description = st.Description
-	existing.Transport = st.Transport
-	s.rows[k] = existing
-	return nil
-}
-
-// Delete removes the topic and cascades its subscriptions, matching
-// the gorm store: every bot-anchored row for this topic is dropped
-// so none dangle past the topic row.
-func (s *topicsRepo) Delete(_ context.Context, orgID string, id streaming.TopicID) error {
-	s.mu.Lock()
-	key := orgKey{OrgID: orgID, ID: string(id)}
-	if _, ok := s.rows[key]; !ok {
-		s.mu.Unlock()
-		return fmt.Errorf("topic %q in org %q: %w", id, orgID, store.ErrNotFound)
-	}
-	delete(s.rows, key)
-	s.mu.Unlock()
-	if s.subs != nil {
-		s.subs.deleteAllForTopic(orgID, id)
-	}
-	return nil
-}
-
-// ---- Subscriptions ------------------------------------------------------
-
-type subKey struct {
-	OrgID   string
-	NodeID  string
-	TopicID string
-}
-
-type subscriptionsRepo struct {
-	mu   sync.RWMutex
-	rows map[subKey]streaming.Subscription
-}
-
-func (s *subscriptionsRepo) Create(_ context.Context, sub streaming.Subscription) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	k := subKey{OrgID: sub.OrganizationID, NodeID: string(sub.NodeID), TopicID: string(sub.TopicID)}
-	if _, ok := s.rows[k]; ok {
-		return fmt.Errorf("subscription %q→%q in org %q: already exists", sub.NodeID, sub.TopicID, sub.OrganizationID)
-	}
-	s.rows[k] = sub
-	return nil
-}
-
-func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	k := subKey{OrgID: orgID, NodeID: string(botID), TopicID: string(topicID)}
-	if _, ok := s.rows[k]; !ok {
-		return fmt.Errorf("subscription %q→%q in org %q: %w", botID, topicID, orgID, store.ErrNotFound)
-	}
-	delete(s.rows, k)
-	return nil
-}
-
-// deleteAllForBot drops every subscription held by the given bot.
-// Used by  nodesRepo.Delete to cascade — idempotent, no error when the
-// bot has none.
-func (s *subscriptionsRepo) deleteAllForBot(orgID string, botID orgchart.NodeID) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for k := range s.rows {
-		if k.OrgID == orgID && k.NodeID == string(botID) {
-			delete(s.rows, k)
-		}
-	}
-}
-
-// deleteAllForTopic drops every subscription to the given topic.
-// Used by topicsRepo.Delete to cascade — idempotent, no error when
-// the topic has no subscribers.
-func (s *subscriptionsRepo) deleteAllForTopic(orgID string, topicID streaming.TopicID) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for k := range s.rows {
-		if k.OrgID == orgID && k.TopicID == string(topicID) {
-			delete(s.rows, k)
-		}
-	}
-}
-
-func (s *subscriptionsRepo) Find(_ context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) (streaming.Subscription, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	k := subKey{OrgID: orgID, NodeID: string(botID), TopicID: string(topicID)}
-	if sub, ok := s.rows[k]; ok {
-		return sub, nil
-	}
-	return streaming.Subscription{}, fmt.Errorf("subscription %q→%q in org %q: %w", botID, topicID, orgID, store.ErrNotFound)
-}
-
-func (s *subscriptionsRepo) ListForBot(_ context.Context, orgID string, botID orgchart.NodeID) ([]streaming.Subscription, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]streaming.Subscription, 0)
-	for k, sub := range s.rows {
-		if k.OrgID == orgID && k.NodeID == string(botID) {
-			out = append(out, sub)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].TopicID < out[j].TopicID })
-	return out, nil
-}
-
-func (s *subscriptionsRepo) ListForTopic(_ context.Context, orgID string, topicID streaming.TopicID) ([]streaming.Subscription, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]streaming.Subscription, 0)
-	for k, sub := range s.rows {
-		if k.OrgID == orgID && k.TopicID == string(topicID) {
-			out = append(out, sub)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].NodeID < out[j].NodeID })
-	return out, nil
-}
-
-// ---- Events -------------------------------------------------------------
+// ---- Events ------------------------------------------------------------
 
 type eventsRepo struct {
 	mu   sync.RWMutex
 	rows []streaming.Event // append-only, newest at end
-	// subs + bots are held by reference so ListForBot can join against
-	// subscriptions for the bot the same way the gorm impl does.
-	subs *subscriptionsRepo
-	bots *nodesRepo
 }
 
 func (e *eventsRepo) Append(_ context.Context, ev streaming.Event) error {
@@ -725,12 +503,12 @@ func (e *eventsRepo) Append(_ context.Context, ev streaming.Event) error {
 	return nil
 }
 
-func (e *eventsRepo) DeleteForTopic(_ context.Context, orgID string, topicID streaming.TopicID) error {
+func (e *eventsRepo) DeleteForStream(_ context.Context, orgID string, streamID streaming.StreamID) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	kept := e.rows[:0]
 	for _, ev := range e.rows {
-		if ev.OrganizationID != orgID || ev.TopicID != topicID {
+		if ev.OrganizationID != orgID || ev.StreamID != streamID {
 			kept = append(kept, ev)
 		}
 	}
@@ -738,14 +516,14 @@ func (e *eventsRepo) DeleteForTopic(_ context.Context, orgID string, topicID str
 	return nil
 }
 
-func (e *eventsRepo) ListForTopic(_ context.Context, orgID string, topicID streaming.TopicID, limit int) ([]streaming.Event, error) {
+func (e *eventsRepo) ListForStream(_ context.Context, orgID string, streamID streaming.StreamID, limit int) ([]streaming.Event, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	out := make([]streaming.Event, 0)
 	// Newest first.
 	for i := len(e.rows) - 1; i >= 0; i-- {
 		ev := e.rows[i]
-		if ev.OrganizationID != orgID || ev.TopicID != topicID {
+		if ev.OrganizationID != orgID || ev.StreamID != streamID {
 			continue
 		}
 		out = append(out, ev)
@@ -756,15 +534,15 @@ func (e *eventsRepo) ListForTopic(_ context.Context, orgID string, topicID strea
 	return out, nil
 }
 
-func (e *eventsRepo) PageForTopic(_ context.Context, orgID string, topicID streaming.TopicID, limit, offset int) ([]streaming.Event, error) {
+func (e *eventsRepo) PageForStream(_ context.Context, orgID string, streamID streaming.StreamID, limit, offset int) ([]streaming.Event, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	out := make([]streaming.Event, 0)
 	skipped := 0
-	// Newest first, same ordering as ListForTopic.
+	// Newest first, same ordering as ListForStream.
 	for i := len(e.rows) - 1; i >= 0; i-- {
 		ev := e.rows[i]
-		if ev.OrganizationID != orgID || ev.TopicID != topicID {
+		if ev.OrganizationID != orgID || ev.StreamID != streamID {
 			continue
 		}
 		if offset > 0 && skipped < offset {
@@ -779,44 +557,32 @@ func (e *eventsRepo) PageForTopic(_ context.Context, orgID string, topicID strea
 	return out, nil
 }
 
-func (e *eventsRepo) CountForTopic(_ context.Context, orgID string, topicID streaming.TopicID) (int, error) {
+func (e *eventsRepo) CountForStream(_ context.Context, orgID string, streamID streaming.StreamID) (int, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	count := 0
 	for _, ev := range e.rows {
-		if ev.OrganizationID == orgID && ev.TopicID == topicID {
+		if ev.OrganizationID == orgID && ev.StreamID == streamID {
 			count++
 		}
 	}
 	return count, nil
 }
 
-func (e *eventsRepo) ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID, limit int) ([]streaming.Event, error) {
-	// Match gorm's join semantics: events on topics the bot is
-	// subscribed to. Subscriptions are bot-anchored.
-	if e.bots == nil {
-		return nil, errors.New("eventsRepo: bots repo not wired")
+func (e *eventsRepo) ListForStreams(_ context.Context, orgID string, streamIDs []streaming.StreamID, limit int) ([]streaming.Event, error) {
+	if len(streamIDs) == 0 {
+		return nil, nil
 	}
-	if _, err := e.bots.Get(ctx, orgID, botID); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("resolve bot for event listing: %w", err)
-	}
-	subs, err := e.subs.ListForBot(ctx, orgID, botID)
-	if err != nil {
-		return nil, err
-	}
-	subscribed := map[streaming.TopicID]bool{}
-	for _, sub := range subs {
-		subscribed[sub.TopicID] = true
+	wanted := make(map[streaming.StreamID]bool, len(streamIDs))
+	for _, id := range streamIDs {
+		wanted[id] = true
 	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	out := make([]streaming.Event, 0)
 	for i := len(e.rows) - 1; i >= 0; i-- {
 		ev := e.rows[i]
-		if ev.OrganizationID != orgID || !subscribed[ev.TopicID] {
+		if ev.OrganizationID != orgID || !wanted[ev.StreamID] {
 			continue
 		}
 		out = append(out, ev)
@@ -827,7 +593,7 @@ func (e *eventsRepo) ListForBot(ctx context.Context, orgID string, botID orgchar
 	return out, nil
 }
 
-func (e *eventsRepo) ListSince(_ context.Context, orgID string, topicIDs []streaming.TopicID, since streaming.EventID, limit int) ([]streaming.Event, error) {
+func (e *eventsRepo) ListSince(_ context.Context, orgID string, topicIDs []streaming.StreamID, since streaming.EventID, limit int) ([]streaming.Event, error) {
 	// Empty topic set returns nothing — the caller passed no topics
 	// to listen on, so there's nothing to return. Matches gorm's
 	// IN ()-on-empty behaviour.
@@ -836,7 +602,7 @@ func (e *eventsRepo) ListSince(_ context.Context, orgID string, topicIDs []strea
 	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	wanted := map[streaming.TopicID]bool{}
+	wanted := map[streaming.StreamID]bool{}
 	for _, s := range topicIDs {
 		wanted[s] = true
 	}
@@ -858,7 +624,7 @@ func (e *eventsRepo) ListSince(_ context.Context, orgID string, topicIDs []strea
 		if ev.OrganizationID != orgID {
 			continue
 		}
-		if !wanted[ev.TopicID] {
+		if !wanted[ev.StreamID] {
 			continue
 		}
 		out = append(out, ev)
@@ -1018,4 +784,67 @@ func startsWith(s, prefix string) bool {
 		return false
 	}
 	return s[:len(prefix)] == prefix
+}
+
+// ---- Retired pre-cutover model -----------------------------------------
+//
+// The Topic model is gone from the runtime, but application/cutover still
+// reads it to convert deployed data. The memory store keeps a seedable
+// stand-in so that conversion can be tested without Postgres: SeedRetired
+// writes what the last pre-cutover release would have left behind.
+
+type retiredRepo struct {
+	mu             sync.RWMutex
+	topics         []streaming.Topic
+	subscriptions  []streaming.Subscription
+	processorInput map[store.OrgScopedID]streaming.StreamID
+}
+
+// SeedRetired writes pre-cutover rows into the store's retired read
+// model. Call it before cutover.Convert to exercise an upgrade.
+func SeedRetired(s *store.Store, topics []streaming.Topic, subs []streaming.Subscription, processorInputs map[store.OrgScopedID]streaming.StreamID) {
+	r, ok := s.RetiredTopics.(*retiredRepo)
+	if !ok {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.topics = append(r.topics, topics...)
+	r.subscriptions = append(r.subscriptions, subs...)
+	for k, v := range processorInputs {
+		r.processorInput[k] = v
+	}
+}
+
+func (r *retiredRepo) ListAll(_ context.Context) ([]streaming.Topic, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]streaming.Topic(nil), r.topics...), nil
+}
+
+type retiredSubsRepo struct{ inner *retiredRepo }
+
+func (r *retiredSubsRepo) ListAll(_ context.Context) ([]streaming.Subscription, error) {
+	r.inner.mu.RLock()
+	defer r.inner.mu.RUnlock()
+	return append([]streaming.Subscription(nil), r.inner.subscriptions...), nil
+}
+
+type retiredInputsRepo struct{ inner *retiredRepo }
+
+func (r *retiredInputsRepo) ListAll(_ context.Context) (map[store.OrgScopedID]streaming.StreamID, error) {
+	r.inner.mu.RLock()
+	defer r.inner.mu.RUnlock()
+	out := make(map[store.OrgScopedID]streaming.StreamID, len(r.inner.processorInput))
+	for k, v := range r.inner.processorInput {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (r *retiredInputsRepo) Clear(_ context.Context, orgID, processorID string) error {
+	r.inner.mu.Lock()
+	defer r.inner.mu.Unlock()
+	delete(r.inner.processorInput, store.OrgScopedID{OrgID: orgID, ID: processorID})
+	return nil
 }

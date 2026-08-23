@@ -508,9 +508,9 @@ func outputsToJS(vm *goja.Runtime, out []Output) goja.Value {
 	arr := make([]any, len(out))
 	for i, o := range out {
 		arr[i] = map[string]any{
-			"index":    i,
-			"label":    o.Label,
-			"topic_id": string(o.TopicID),
+			"index": i,
+			"label": o.Label,
+			"id":    o.ID,
 		}
 	}
 	return vm.ToValue(arr)
@@ -643,7 +643,7 @@ func mapOneReturn(v any, base streaming.Message, out []Output) ([]Result, error)
 
 	// Route form: { out: label|index, event?: … }
 	if routeKey, hasOut := m["out"]; hasOut {
-		topic, err := resolveOutput(routeKey, out)
+		branch, err := resolveOutput(routeKey, out)
 		if err != nil {
 			return nil, err
 		}
@@ -681,7 +681,7 @@ func mapOneReturn(v any, base streaming.Message, out []Output) ([]Result, error)
 				}
 			}
 		}
-		return []Result{{TopicID: topic, Message: msg}}, nil
+		return []Result{{Output: branch, Message: msg}}, nil
 	}
 
 	// Plain event → first output (transform default).
@@ -692,56 +692,48 @@ func mapOneReturn(v any, base streaming.Message, out []Output) ([]Result, error)
 	if err != nil {
 		return nil, err
 	}
-	return []Result{{TopicID: out[0].TopicID, Message: msg}}, nil
+	return []Result{{Output: out[0], Message: msg}}, nil
 }
 
-// resolveOutput picks an Output by label (string) or index (number).
-func resolveOutput(key any, out []Output) (streaming.TopicID, error) {
+// resolveOutput picks an Output by label, durable id (string), or index
+// (number). Scripts see the same three handles in the `outputs` array.
+func resolveOutput(key any, out []Output) (Output, error) {
+	byIndex := func(i int) (Output, error) {
+		if i < 0 || i >= len(out) {
+			return Output{}, fmt.Errorf("output index %d out of range [0,%d)", i, len(out))
+		}
+		return out[i], nil
+	}
 	switch k := key.(type) {
 	case string:
 		if k == "" {
-			if len(out) == 0 {
-				return "", errors.New("no outputs")
-			}
-			return out[0].TopicID, nil
+			return byIndex(0)
 		}
 		for _, o := range out {
 			if o.Label == k {
-				return o.TopicID, nil
+				return o, nil
 			}
 		}
-		// Also accept topic_id directly for convenience.
 		for _, o := range out {
-			if string(o.TopicID) == k {
-				return o.TopicID, nil
+			if o.ID == k {
+				return o, nil
 			}
 		}
-		return "", fmt.Errorf("unknown output %q (labels: %s)", k, outputLabels(out))
+		return Output{}, fmt.Errorf("unknown output %q (labels: %s)", k, outputLabels(out))
 	case int64:
-		i := int(k)
-		if i < 0 || i >= len(out) {
-			return "", fmt.Errorf("output index %d out of range [0,%d)", i, len(out))
-		}
-		return out[i].TopicID, nil
+		return byIndex(int(k))
 	case float64:
 		i := int(k)
 		if float64(i) != k {
-			return "", fmt.Errorf("output index must be an integer, got %v", k)
+			return Output{}, fmt.Errorf("output index must be an integer, got %v", k)
 		}
-		if i < 0 || i >= len(out) {
-			return "", fmt.Errorf("output index %d out of range [0,%d)", i, len(out))
-		}
-		return out[i].TopicID, nil
+		return byIndex(i)
 	default:
 		// goja may export numbers as int/int32 depending on value.
 		if n, err := asInt64(key); err == nil {
-			i := int(n)
-			if i < 0 || i >= len(out) {
-				return "", fmt.Errorf("output index %d out of range [0,%d)", i, len(out))
-			}
-			return out[i].TopicID, nil
+			return byIndex(int(n))
 		}
-		return "", fmt.Errorf("out must be a label string or numeric index, got %T", key)
+		return Output{}, fmt.Errorf("out must be a label string, output id, or numeric index, got %T", key)
 	}
 }
 

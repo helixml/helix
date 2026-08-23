@@ -5,9 +5,8 @@ import { FC } from 'react'
 import Box from '@mui/material/Box'
 import ButtonBase from '@mui/material/ButtonBase'
 import Tooltip from '@mui/material/Tooltip'
-import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
 import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
-import { Bot, Network } from 'lucide-react'
+import { Bot, Network, RadioTower } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -37,12 +36,11 @@ const ITEMS: NavItem[] = [
     isActive: (n) => n === 'org_agents' || n === 'org_agent',
   },
   {
-    id: 'topics',
-    label: 'Topics',
-    route: 'helix_org_topics',
-    // Same hub glyph as topic cards on the org chart.
-    icon: <HubOutlinedIcon sx={{ fontSize: 16 }} />,
-    isActive: (n) => n === 'helix_org_topics' || n === 'helix_org_topic_detail',
+    id: 'triggers',
+    label: 'Triggers',
+    route: 'helix_org_triggers',
+    icon: <RadioTower size={16} />,
+    isActive: (n) => n === 'helix_org_triggers' || n === 'helix_org_trigger_detail',
   },
   {
     id: 'assets',

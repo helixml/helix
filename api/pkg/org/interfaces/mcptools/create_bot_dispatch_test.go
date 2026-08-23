@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
-// fakeDispatcher records DispatchHire / Dispatch calls so the test can
+// fakeDispatcher records DispatchHire / Route calls so the test can
 // assert create_bot drives the lifecycle create-dispatch exactly once.
 // It satisfies the MCP EventDispatcher (and therefore
 // lifecycle.CreateDispatcher via DispatchHire).
@@ -31,10 +31,11 @@ type dispatchHireCall struct {
 	activationID activation.ID
 }
 
-func (f *fakeDispatcher) Dispatch(_ context.Context, _ streaming.Event) {
+func (f *fakeDispatcher) Route(_ context.Context, _ eventsource.Event) error {
 	f.mu.Lock()
 	f.dispatchN++
 	f.mu.Unlock()
+	return nil
 }
 
 func (f *fakeDispatcher) DispatchHire(_ context.Context, orgID string, botID orgchart.NodeID, activationID activation.ID) {

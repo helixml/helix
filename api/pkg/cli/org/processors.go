@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/org/interfaces/jsonapi"
+	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/spf13/cobra"
 )
 

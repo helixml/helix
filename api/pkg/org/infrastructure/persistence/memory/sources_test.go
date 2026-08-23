@@ -16,9 +16,9 @@ import (
 func TestTriggersCRUDQueriesAndTenantIsolation(t *testing.T) {
 	ctx := context.Background()
 	st := memory.New()
-	a, err := trigger.New("tr-same", "org-a", "A", transport.KindLocal, nil, "", time.Now())
+	a, err := trigger.New("tr-same", "org-a", "A", "Original description", transport.KindLocal, nil, "", time.Now())
 	require.NoError(t, err)
-	b, err := trigger.New("tr-same", "org-b", "B", transport.KindLocal, nil, "", time.Now())
+	b, err := trigger.New("tr-same", "org-b", "B", "", transport.KindLocal, nil, "", time.Now())
 	require.NoError(t, err)
 	require.NoError(t, st.Triggers.Create(ctx, a))
 	require.NoError(t, st.Triggers.Create(ctx, b))
@@ -26,11 +26,13 @@ func TestTriggersCRUDQueriesAndTenantIsolation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []trigger.Trigger{a}, rows)
 	a.Name = "Updated"
+	a.Description = "Updated description"
 	require.NoError(t, st.Triggers.Update(ctx, a))
 	rows, err = st.Triggers.Find(ctx, store.WithOrg("org-a"), store.WithTransportKind(transport.KindLocal), store.WithLimit(1))
 	require.NoError(t, err)
 	require.Equal(t, "Updated", rows[0].Name)
-	duplicate, err := trigger.New("tr-other", "org-a", "Updated", transport.KindLocal, nil, "", time.Now())
+	require.Equal(t, "Updated description", rows[0].Description)
+	duplicate, err := trigger.New("tr-other", "org-a", "Updated", "", transport.KindLocal, nil, "", time.Now())
 	require.NoError(t, err)
 	require.ErrorIs(t, st.Triggers.Create(ctx, duplicate), store.ErrConflict)
 	require.NoError(t, st.Triggers.Delete(ctx, "org-a", "tr-same"))

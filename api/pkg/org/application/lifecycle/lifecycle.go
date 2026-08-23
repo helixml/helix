@@ -23,10 +23,10 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
@@ -40,13 +40,13 @@ type CreateDispatcher interface {
 	DispatchHire(ctx context.Context, orgID string, botID orgchart.NodeID, activationID activation.ID)
 }
 
-// TopicSubscriber subscribes a Node to Topics. Create uses it to subscribe
-// a new Node to the topics named at creation, reusing the same subscription
+// SourceAttacher attaches a Node to sources. Create uses it to attach
+// a new Node to the sources named at creation, reusing the same attachment
 // use case the standalone subscribe tool drives (DRY). A narrow interface
 // so lifecycle doesn't import the subscriptions package;
-// *subscriptions.Subscriptions satisfies it.
-type TopicSubscriber interface {
-	SubscribeTopics(ctx context.Context, orgID string, botID orgchart.NodeID, topicIDs []streaming.TopicID) error
+// *attachments.Service satisfies it.
+type SourceAttacher interface {
+	AttachAll(ctx context.Context, orgID string, workerID orgchart.NodeID, sources []eventsource.SourceRef, createdBy string) error
 }
 
 // HelixRuntime is the slice of runtime/helix.ProjectService that the
@@ -86,7 +86,7 @@ func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // affected ids and it converges only their neighbourhood (cheap, and it
 // no-ops on an empty set). It is structural — Create treats a failure as
 // FATAL (the new Node's channels weren't set up), Delete as best-effort.
-// *reconcile.Reconciler (activation/team/DM Topics) is the implementer.
+// *reconcile.Reconciler (transcript/team/DM channels) is the implementer.
 type NodeReconciler interface {
 	Reconcile(ctx context.Context, orgID string, affected ...orgchart.NodeID) error
 }
@@ -123,10 +123,10 @@ type Service struct {
 	// REST/MCP update path. Required for Create.
 	Nodes *nodes.Nodes
 
-	// Subscriber subscribes a new Node to the topics named at creation
-	// (CreateParams.Topics), reusing the shared subscription use case. nil
+	// Attacher attaches a new Node to the sources named at creation
+	// (CreateParams.Sources), reusing the shared attachment use case. nil
 	// → no creation-time subscription (create still succeeds).
-	Subscriber TopicSubscriber
+	Attacher SourceAttacher
 
 	// NodeReconcilers are the Node-scoped reconcilers (see the contract on
 	// NodeReconciler) run on create (FATAL) and delete (best-effort) with
@@ -163,13 +163,16 @@ type Service struct {
 // nodes service mints a fresh `b-<id>` (discouraged; callers should pass
 // a readable handle). ParentID is the manager this node reports to
 // (empty only for the org root). Content is the node's prompt; Tools and
-// Topics are its capability/manifest.
+// Sources are what will start it.
 type CreateParams struct {
-	ID              string
-	Name            string
-	Content         string
+	ID      string
+	Name    string
+	Content string
+	// CreatedBy is the Worker (or operator) the create is attributed to.
+	// It is stamped onto the attachments made at creation.
+	CreatedBy       string
 	Tools           []tool.Name
-	Topics          []streaming.TopicID
+	Sources         []eventsource.SourceRef
 	ParentID        orgchart.NodeID
 	PreserveContext bool
 	AgentConfig     AgentConfig
@@ -214,15 +217,13 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		parent = &p.ParentID
 	}
 
-	// Validate every requested topic exists BEFORE writing the node row, so
-	// a bad topic id fails the create with no partially-created Node. The
-	// actual subscription rows are created below, after the node exists.
-	for _, tid := range p.Topics {
-		if tid == "" {
-			return CreateResult{}, fmt.Errorf("topic id is empty")
-		}
-		if _, err := s.Store.Topics.Get(ctx, orgID, tid); err != nil {
-			return CreateResult{}, fmt.Errorf("topic %q: %w", tid, err)
+	// Validate every requested source is well-formed BEFORE writing the
+	// node row, so a malformed reference fails the create with no
+	// partially-created Node. Existence is checked by the attachment
+	// service below, after the node exists.
+	for _, src := range p.Sources {
+		if err := src.Validate(); err != nil {
+			return CreateResult{}, fmt.Errorf("source: %w", err)
 		}
 	}
 
@@ -289,7 +290,7 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		}
 	}
 
-	// Reconcile the activation/team Topics implied by the new Node and its
+	// Reconcile the transcript/team channels implied by the new Node and its
 	// reporting line (mints the node's transcript + the manager's team Topic
 	// from one declarative pass). FATAL: a Node without its channels is a
 	// broken create. Node-scoped to the new id.
@@ -302,14 +303,14 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		}
 	}
 
-	// Subscribe the new Node to the topics named at creation, reusing the
+	// Attach the new Node to the sources named at creation, reusing the
 	// shared subscription use case (the same one the subscribe tool drives).
-	// Topics were validated above, so this only fails on an infrastructure
+	// Sources were validated above, so this only fails on an infrastructure
 	// error - treat it as FATAL like the topology reconcile, since a Node
 	// that silently isn't listening is a broken create.
-	if s.Subscriber != nil && len(p.Topics) > 0 {
-		if err := s.Subscriber.SubscribeTopics(ctx, orgID, id, p.Topics); err != nil {
-			return rollback(fmt.Errorf("subscribe new node %q to topics: %w", id, err))
+	if s.Attacher != nil && len(p.Sources) > 0 {
+		if err := s.Attacher.AttachAll(ctx, orgID, id, p.Sources, p.CreatedBy); err != nil {
+			return rollback(fmt.Errorf("attach new node %q to sources: %w", id, err))
 		}
 	}
 
@@ -414,10 +415,10 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 //     subscriptions, and node row. The org_reporting_lines foreign keys
 //     drop its lines.
 //  3. Reconcile topology: tear down the deleted Node's own activation +
-//     team Topics and collapse any ex-manager's team Topic that just
+//     team channels and collapse any ex-manager's team chat that just
 //     lost its last report.
 //
-// Subscriptions are node-anchored, so they die with the node. Activation
+// Attachments are node-anchored, so they die with the node. Transcript
 // events themselves are intentionally left behind as an audit trail; only
 // the Topic row is dropped. The runtime-owned Helix project is archived;
 // repositories and explicitly allowed other projects survive deletion.
@@ -519,7 +520,7 @@ func (s *Service) delete(ctx context.Context, orgID string, id orgchart.NodeID, 
 		s.Mirror.Stop(orgID, id)
 	}
 
-	// Settle the activation/team Topics now that the row (and its reporting
+	// Settle the transcript/team channels now that the row (and its reporting
 	// lines) are gone. Best-effort: a failure leaves a dangling Topic row,
 	// not a half-deleted node, so we log and continue.
 	affected := append([]orgchart.NodeID{id}, exManagers...)

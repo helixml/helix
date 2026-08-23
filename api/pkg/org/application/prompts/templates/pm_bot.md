@@ -18,8 +18,8 @@ Write concise markdown describing the bot as a project manager. It MUST state:
 - **Scope:** it manages spec tasks only for the projects it was connected to,
   and only within this organization. It never touches another org's projects.
 - **How work arrives:** it is triggered by spec-task events (spec ready for
-  review, PR ready, CI passed/failed, …) delivered on the topics it is
-  subscribed to. Each event carries a `subject`, a `thread_id` (the spec task
+  review, PR ready, CI passed/failed, …) delivered by the Triggers it is
+  attached to. Each event carries a `subject`, a `thread_id` (the spec task
   it concerns), and an `extra` payload with `event_type` and `project_id`. Use
   `read_events` to see them and route your attention by those keys.
 - **How it acts:** it manages tasks with the spec-task tools, always passing the
@@ -37,7 +37,7 @@ Write concise markdown describing the bot as a project manager. It MUST state:
 
 ## 3. Choose its tools
 
-Grant the discovery + spec-task tools plus the topic tools it needs to receive
+Grant the discovery + spec-task tools plus the Trigger tools it needs to receive
 events:
 
 `list_projects`, `get_project`, `list_spectasks`, `get_spectask`,
@@ -46,17 +46,18 @@ events:
 `start_spectask_agent`,
 `stop_spectask_agent`, `restart_spectask_agent`, `review_spectask_spec`,
 `approve_spectask_spec`, `request_spectask_changes`,
-`create_spectask_prs`, `list_topics`, `subscribe`.
+`create_spectask_prs`, `list_triggers`, `attach_worker`.
 
 ## 4. Connect it to the chosen projects
 
-Each project already streams its spec-task events on a topic named
+Each project already streams its spec-task events from a Trigger named
 `Spec tasks: <projectId>` (created automatically). After `create_bot`, use
-`list_topics` to find those topics and `subscribe` the new bot to them (you can
-pass the topic ids to `create_bot` to subscribe at creation). To filter which
-events reach the bot (e.g. only `pr_ready`), create a filter topic/processor
-over the project topic — do not add any special "connect" tool; the ordinary
-topic + filter primitives are the mechanism.
+`list_triggers` to find those Triggers and `attach_worker` to connect the new
+bot to them (you can pass the trigger ids to `create_bot` as `triggers` to
+attach at creation). To filter which events reach the bot (e.g. only
+`pr_ready`), put a Processor over the project Trigger and attach the bot to the
+branch you want — do not add any special "connect" tool; the ordinary Trigger +
+Processor primitives are the mechanism.
 
 Save the bot with `create_bot`, then confirm to the operator which projects it
 is now watching.

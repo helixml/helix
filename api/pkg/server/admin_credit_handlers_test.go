@@ -46,7 +46,7 @@ func TestAdminGrantCredits_Gates(t *testing.T) {
 			expectedError:  "only admins",
 		},
 		{
-			name: "non-cloud edition is rejected",
+			name:      "non-cloud edition is rejected",
 			adminUser: &types.User{ID: "admin-1", Admin: true},
 			cfg: func() *config.ServerConfig {
 				c := cloudBillingCfg()
@@ -58,7 +58,7 @@ func TestAdminGrantCredits_Gates(t *testing.T) {
 			expectedError:  "cloud edition",
 		},
 		{
-			name: "billing disabled is rejected",
+			name:      "billing disabled is rejected",
 			adminUser: &types.User{ID: "admin-1", Admin: true},
 			cfg: func() *config.ServerConfig {
 				c := cloudBillingCfg()

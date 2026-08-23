@@ -9,6 +9,14 @@
  * ---------------------------------------------------------------
  */
 
+export interface ApiAPIError {
+  code?: string;
+  correlation_id?: string;
+  field?: string;
+  resource?: Record<string, any>;
+  summary?: string;
+}
+
 export interface ApiAddBotParentRequest {
   parent_id?: string;
 }
@@ -103,6 +111,21 @@ export interface ApiAssetsResponse {
   assets?: ApiAssetDTO[];
 }
 
+export interface ApiAttachmentDTO {
+  created_at?: string;
+  id?: string;
+  source?: ApiSourceRefDTO;
+  worker_id?: string;
+}
+
+export interface ApiAttachmentListResponse {
+  attachments?: ApiAttachmentDTO[];
+}
+
+export interface ApiAttachmentWriteRequest {
+  source?: ApiSourceRefDTO;
+}
+
 export interface ApiBotActivateDTO {
   activation_id?: string;
   agent_app_id?: string;
@@ -184,16 +207,6 @@ export interface ApiBotDetailDTO {
   project_id?: string;
 }
 
-export interface ApiBotSubscriptionDTO {
-  created_at?: string;
-  topic_id?: string;
-}
-
-export interface ApiBotSubscriptionsResponse {
-  bot_id?: string;
-  subscriptions?: ApiBotSubscriptionDTO[];
-}
-
 export interface ApiChartPositionDTO {
   id?: string;
   /** Kind is bot | topic | processor | asset (matches the ReactFlow node id prefix). */
@@ -238,7 +251,7 @@ export interface ApiCreateBotRequest {
   provider?: string;
   reasoning_effort?: string;
   tools?: string[];
-  topics?: string[];
+  triggers?: string[];
 }
 
 export interface ApiCreateBotResponse {
@@ -246,34 +259,8 @@ export interface ApiCreateBotResponse {
   id?: string;
 }
 
-export interface ApiCreateTopicRequest {
-  /**
-   * As is the Bot that creates the topic — the bot whose chat
-   * the human is in. Empty leaves the topic unattributed (CreatedBy is
-   * cosmetic: it only anchors the node on the chart).
-   */
-  as?: string;
-  description?: string;
-  id?: string;
-  name?: string;
-  transport?: ApiTransportRequestField;
-}
-
 export interface ApiErrorResponse {
   error?: string;
-}
-
-export interface ApiEventCard {
-  body?: string;
-  created_at?: string;
-  from?: string;
-  has_message?: boolean;
-  id?: string;
-  message_body?: string;
-  source?: string;
-  subject?: string;
-  to?: string;
-  topic_id?: string;
 }
 
 export interface ApiGitHubInstallationStatus {
@@ -370,48 +357,12 @@ export interface ApiInstallGitLabWebhookResponse {
   webhook_id?: number;
 }
 
-export interface ApiMessageAttributes {
-  body?: string;
-  created_at?: string;
-  from?: string;
-  has_message?: boolean;
-  /**
-   * Raw is the canonical Message envelope JSON exactly as stored — the
-   * same shape a processor's `.Message` template/filter context sees
-   * ({"from":…,"subject":…,"body":…,"thread_id":…,…}). Lets the UI show
-   * operators which fields are available.
-   */
-  raw?: string;
-  source?: string;
-  subject?: string;
-  to?: string[];
-  topic_id?: string;
-}
-
-export interface ApiMessageResource {
-  attributes?: ApiMessageAttributes;
-  id?: string;
-  type?: string;
-}
-
-export interface ApiMessagesDocument {
-  data?: ApiMessageResource[];
-  links?: Record<string, string>;
-  meta?: ApiMessagesMeta;
-}
-
-export interface ApiMessagesMeta {
-  page?: number;
-  size?: number;
-  total?: number;
-  total_pages?: number;
-}
-
 export interface ApiOrgOverview {
   bots?: ApiBotBadge[];
 }
 
 export interface ApiProcessorOutputDTO {
+  id?: string;
   label?: string;
   /**
    * ManagedFor is set when this route is auto-managed by a reconciler for
@@ -420,8 +371,7 @@ export interface ApiProcessorOutputDTO {
    */
   managed_for?: string;
   match?: string;
-  owned?: boolean;
-  topic_id?: string;
+  source?: string;
 }
 
 export interface ApiProcessorWriteRequest {
@@ -429,31 +379,13 @@ export interface ApiProcessorWriteRequest {
     attributes?: {
       config?: Record<string, any>;
       created_by?: string;
-      input_topic_id?: string;
+      input_source?: string;
       kind?: string;
       name?: string;
       outputs?: ApiProcessorOutputDTO[];
     };
     type?: string;
   };
-}
-
-export interface ApiPublishRequest {
-  /**
-   * As is the Bot the message is sent as — the bot whose chat the
-   * human is in. Empty means human/system-origin (the dispatcher treats
-   * it as such). There is no global "owner" sender any more.
-   */
-  as?: string;
-  body?: string;
-  subject?: string;
-  threadId?: string;
-  to?: string[];
-}
-
-export interface ApiPublishResponse {
-  delivery?: PublishingDeliveryReceipt;
-  event_id?: string;
 }
 
 export interface ApiPutWorkerSecretRequest {
@@ -505,8 +437,11 @@ export interface ApiSettingsSpecDTO {
   value?: string;
 }
 
-export interface ApiSubscribeBotRequest {
-  topic_id?: string;
+export interface ApiSourceRefDTO {
+  kind?: string;
+  output_id?: string;
+  processor_id?: string;
+  trigger_id?: string;
 }
 
 export interface ApiToolDTO {
@@ -514,29 +449,51 @@ export interface ApiToolDTO {
   name?: string;
 }
 
-export interface ApiTopicDTO {
-  can_publish?: boolean;
+export interface ApiTriggerDTO {
+  /**
+   * AttachedWorkers are the Workers this Trigger activates — the
+   * attachment-model successor of the Topics page's subscriber list.
+   */
+  attached_workers?: string[];
   config?: Record<string, any>;
   created_at?: string;
-  created_by?: string;
   description?: string;
-  disable_reason?: string;
+  /**
+   * EffectivePublicURL is helix's public base URL (SERVER_URL), set
+   * only for provider Triggers whose webhook payload URL must be
+   * reachable from the internet, so the UI can warn on loopback.
+   */
   effective_public_url?: string;
   id?: string;
   kind?: string;
   name?: string;
-  recent_events?: ApiEventCard[];
-  subscribers?: string[];
+  revision?: string;
 }
 
-export interface ApiTopicsResponse {
-  recent?: ApiEventCard[];
-  topics?: ApiTopicDTO[];
+export interface ApiTriggerEventDTO {
+  body?: string;
+  created_at?: string;
+  id?: string;
+  source?: string;
 }
 
-export interface ApiTransportRequestField {
+export interface ApiTriggerEventsResponse {
+  events?: ApiTriggerEventDTO[];
+  limit?: number;
+  offset?: number;
+  total?: number;
+}
+
+export interface ApiTriggerListResponse {
+  triggers?: ApiTriggerDTO[];
+}
+
+export interface ApiTriggerWriteRequest {
   config?: Record<string, any>;
+  description?: string;
   kind?: string;
+  name?: string;
+  revision?: string;
 }
 
 export interface ApiUpdateAssetRequest {
@@ -573,12 +530,6 @@ export interface ApiUpdateServerAssetRequest {
   password?: string;
   port?: number;
   user?: string;
-}
-
-export interface ApiUpdateTopicRequest {
-  description?: string;
-  name?: string;
-  transport?: ApiTransportRequestField;
 }
 
 export interface ApiUpsertChartPositionsRequest {
@@ -1177,14 +1128,6 @@ export interface OpenaiUsage {
 export interface OpenaiViolence {
   filtered?: boolean;
   severity?: string;
-}
-
-export interface PublishingDeliveryReceipt {
-  destination?: string;
-  error?: string;
-  messageId?: string;
-  provider?: string;
-  status?: string;
 }
 
 export interface ServerActivateTrialRequest {
@@ -13835,7 +13778,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a canonical Agent with its org-chart position, communication topics, tools, and Agent App configuration.
+     * @description Create a canonical Agent with its org-chart position, trigger attachments, tools, and Agent App configuration.
      *
      * @tags HelixOrg
      * @name V1OrgsAgentsCreate
@@ -13855,7 +13798,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete an Agent after archiving its runtime-owned project and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. Repositories are preserved.
+     * @description Delete an Agent after archiving its runtime-owned project and deleting its Agent App, knowledge, runtime state, attachments, reporting lines, and org-chart row. Repositories are preserved.
      *
      * @tags HelixOrg
      * @name V1OrgsAgentsDelete
@@ -13924,6 +13867,60 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/orgs/${org}/agents/${id}/activate`,
         method: "POST",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsAttachmentsDetail
+     * @summary Helix-org: list agent attachments
+     * @request GET:/api/v1/orgs/{org}/agents/{id}/attachments
+     */
+    v1OrgsAgentsAttachmentsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiAttachmentListResponse, any>({
+        path: `/api/v1/orgs/${org}/agents/${id}/attachments`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsAttachmentsCreate
+     * @summary Helix-org: attach an agent to a source
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/attachments
+     */
+    v1OrgsAgentsAttachmentsCreate: (
+      org: string,
+      id: string,
+      payload: ApiAttachmentWriteRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiAttachmentDTO, any>({
+        path: `/api/v1/orgs/${org}/agents/${id}/attachments`,
+        method: "POST",
+        body: payload,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsAttachmentsDelete
+     * @summary Helix-org: delete an agent attachment
+     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/attachments/{attachment_id}
+     */
+    v1OrgsAgentsAttachmentsDelete: (org: string, id: string, attachmentId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/agents/${id}/attachments/${attachmentId}`,
+        method: "DELETE",
         ...params,
       }),
 
@@ -14086,64 +14083,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<void, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/agents/${id}/stop-agent`,
         method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsSubscriptionsDetail
-     * @summary Helix-org: list an agent's subscriptions
-     * @request GET:/api/v1/orgs/{org}/agents/{id}/subscriptions
-     * @secure
-     */
-    v1OrgsAgentsSubscriptionsDetail: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiBotSubscriptionsResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/subscriptions`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsSubscriptionsCreate
-     * @summary Helix-org: subscribe an agent to a topic
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/subscriptions
-     * @secure
-     */
-    v1OrgsAgentsSubscriptionsCreate: (
-      org: string,
-      id: string,
-      payload: ApiSubscribeBotRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<ApiBotSubscriptionDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/subscriptions`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsSubscriptionsDelete
-     * @summary Helix-org: unsubscribe an agent from a topic
-     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/subscriptions/{topic_id}
-     * @secure
-     */
-    v1OrgsAgentsSubscriptionsDelete: (org: string, id: string, topicId: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/subscriptions/${topicId}`,
-        method: "DELETE",
         secure: true,
         ...params,
       }),
@@ -14335,7 +14274,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a Bot. Wraps the lifecycle Create so REST + chat creates share semantics (base-tool union, reporting line, transcript topics, create dispatch).
+     * @description Create a Bot. Wraps the lifecycle Create so REST + chat creates share semantics (base-tool union, reporting line, transcript channel, create dispatch).
      *
      * @tags HelixOrg
      * @name V1OrgsBotsCreate
@@ -14355,7 +14294,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a Bot. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Repositories and activations are preserved.
+     * @description Delete a Bot. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops attachments + reporting lines, then the bot row. Repositories and activations are preserved.
      *
      * @tags HelixOrg
      * @name V1OrgsBotsDelete
@@ -14510,64 +14449,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<void, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/bots/${id}/stop-agent`,
         method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsBotsSubscriptionsDetail
-     * @summary Helix-org: list a bot's subscriptions
-     * @request GET:/api/v1/orgs/{org}/bots/{id}/subscriptions
-     * @secure
-     */
-    v1OrgsBotsSubscriptionsDetail: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiBotSubscriptionsResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/bots/${id}/subscriptions`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsBotsSubscriptionsCreate
-     * @summary Helix-org: subscribe a bot to a topic
-     * @request POST:/api/v1/orgs/{org}/bots/{id}/subscriptions
-     * @secure
-     */
-    v1OrgsBotsSubscriptionsCreate: (
-      id: string,
-      org: string,
-      payload: ApiSubscribeBotRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<ApiBotSubscriptionDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/bots/${id}/subscriptions`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsBotsSubscriptionsDelete
-     * @summary Helix-org: unsubscribe a bot from a topic
-     * @request DELETE:/api/v1/orgs/{org}/bots/{id}/subscriptions/{topic_id}
-     * @secure
-     */
-    v1OrgsBotsSubscriptionsDelete: (id: string, topicId: string, org: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/bots/${id}/subscriptions/${topicId}`,
-        method: "DELETE",
         secure: true,
         ...params,
       }),
@@ -14981,16 +14862,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsDetail
-     * @summary Helix-org: list topics
-     * @request GET:/api/v1/orgs/{org}/topics
-     * @secure
+     * @name V1OrgsTriggersDetail
+     * @summary Helix-org: list triggers
+     * @request GET:/api/v1/orgs/{org}/triggers
      */
-    v1OrgsTopicsDetail: (org: string, params: RequestParams = {}) =>
-      this.request<ApiTopicsResponse, any>({
-        path: `/api/v1/orgs/${org}/topics`,
+    v1OrgsTriggersDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiTriggerListResponse, any>({
+        path: `/api/v1/orgs/${org}/triggers`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -14999,17 +14878,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsCreate
-     * @summary Helix-org: create a topic
-     * @request POST:/api/v1/orgs/{org}/topics
-     * @secure
+     * @name V1OrgsTriggersCreate
+     * @summary Helix-org: create a trigger
+     * @request POST:/api/v1/orgs/{org}/triggers
      */
-    v1OrgsTopicsCreate: (org: string, payload: ApiCreateTopicRequest, params: RequestParams = {}) =>
-      this.request<ApiTopicDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics`,
+    v1OrgsTriggersCreate: (org: string, payload: ApiTriggerWriteRequest, params: RequestParams = {}) =>
+      this.request<ApiTriggerDTO, ApiAPIError>({
+        path: `/api/v1/orgs/${org}/triggers`,
         method: "POST",
         body: payload,
-        secure: true,
         type: ContentType.Json,
         format: "json",
         ...params,
@@ -15019,16 +14896,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsDelete
-     * @summary Helix-org: delete a topic
-     * @request DELETE:/api/v1/orgs/{org}/topics/{id}
-     * @secure
+     * @name V1OrgsTriggersDelete
+     * @summary Helix-org: delete a trigger
+     * @request DELETE:/api/v1/orgs/{org}/triggers/{id}
      */
-    v1OrgsTopicsDelete: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}`,
+    v1OrgsTriggersDelete: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}`,
         method: "DELETE",
-        secure: true,
         ...params,
       }),
 
@@ -15036,18 +14911,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsDetail2
-     * @summary Helix-org: get a topic
-     * @request GET:/api/v1/orgs/{org}/topics/{id}
-     * @originalName v1OrgsTopicsDetail
+     * @name V1OrgsTriggersDetail2
+     * @summary Helix-org: get a trigger
+     * @request GET:/api/v1/orgs/{org}/triggers/{id}
+     * @originalName v1OrgsTriggersDetail
      * @duplicate
-     * @secure
      */
-    v1OrgsTopicsDetail2: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiTopicDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}`,
+    v1OrgsTriggersDetail2: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiTriggerDTO, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -15056,17 +14929,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsUpdate
-     * @summary Helix-org: update a topic
-     * @request PUT:/api/v1/orgs/{org}/topics/{id}
-     * @secure
+     * @name V1OrgsTriggersUpdate
+     * @summary Helix-org: update a trigger
+     * @request PUT:/api/v1/orgs/{org}/triggers/{id}
      */
-    v1OrgsTopicsUpdate: (id: string, org: string, payload: ApiUpdateTopicRequest, params: RequestParams = {}) =>
-      this.request<ApiTopicDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}`,
+    v1OrgsTriggersUpdate: (org: string, id: string, payload: ApiTriggerWriteRequest, params: RequestParams = {}) =>
+      this.request<ApiTriggerDTO, ApiAPIError>({
+        path: `/api/v1/orgs/${org}/triggers/${id}`,
         method: "PUT",
         body: payload,
-        secure: true,
         type: ContentType.Json,
         format: "json",
         ...params,
@@ -15076,132 +14947,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsEventsDetail
-     * @summary Helix-org: SSE topic of events for one topic
-     * @request GET:/api/v1/orgs/{org}/topics/{id}/events
-     * @secure
+     * @name V1OrgsTriggersEventsDetail
+     * @summary Helix-org: list trigger events
+     * @request GET:/api/v1/orgs/{org}/triggers/{id}/events
      */
-    v1OrgsTopicsEventsDetail: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<string, any>({
-        path: `/api/v1/orgs/${org}/topics/${id}/events`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsTopicsGithubInstallWebhookCreate
-     * @summary Helix-org: auto-install the webhook for a github topic
-     * @request POST:/api/v1/orgs/{org}/topics/{id}/github/install-webhook
-     * @secure
-     */
-    v1OrgsTopicsGithubInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiInstallGitHubWebhookResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}/github/install-webhook`,
-        method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsTopicsGithubWebhookStatusDetail
-     * @summary Helix-org: live webhook status for a github topic
-     * @request GET:/api/v1/orgs/{org}/topics/{id}/github/webhook-status
-     * @secure
-     */
-    v1OrgsTopicsGithubWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiGitHubWebhookStatusResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}/github/webhook-status`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsTopicsGitlabInstallWebhookCreate
-     * @summary Helix-org: auto-install the webhook for a GitLab topic
-     * @request POST:/api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook
-     * @secure
-     */
-    v1OrgsTopicsGitlabInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiInstallGitLabWebhookResponse, any>({
-        path: `/api/v1/orgs/${org}/topics/${id}/gitlab/install-webhook`,
-        method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsTopicsGitlabWebhookStatusDetail
-     * @summary Helix-org: live webhook status for a GitLab topic
-     * @request GET:/api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status
-     * @secure
-     */
-    v1OrgsTopicsGitlabWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiGitLabWebhookStatusResponse, any>({
-        path: `/api/v1/orgs/${org}/topics/${id}/gitlab/webhook-status`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsTopicsMessagesDelete
-     * @summary Helix-org: clear all messages from a topic
-     * @request DELETE:/api/v1/orgs/{org}/topics/{id}/messages
-     * @secure
-     */
-    v1OrgsTopicsMessagesDelete: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}/messages`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsTopicsMessagesDetail
-     * @summary Helix-org: list a topic's messages (JSON:API, paginated)
-     * @request GET:/api/v1/orgs/{org}/topics/{id}/messages
-     * @secure
-     */
-    v1OrgsTopicsMessagesDetail: (
-      id: string,
+    v1OrgsTriggersEventsDetail: (
       org: string,
+      id: string,
       query?: {
-        /** 1-based page number (default 1) */
-        "page[number]"?: number;
-        /** page size (default 50, max 200) */
-        "page[size]"?: number;
+        /** Page size (1-100) */
+        limit?: number;
+        /** Offset */
+        offset?: number;
       },
       params: RequestParams = {},
     ) =>
-      this.request<ApiMessagesDocument, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}/messages`,
+      this.request<ApiTriggerEventsResponse, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}/events`,
         method: "GET",
         query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersGithubInstallWebhookCreate
+     * @summary Helix-org: auto-install the webhook for a github topic
+     * @request POST:/api/v1/orgs/{org}/triggers/{id}/github/install-webhook
+     * @secure
+     */
+    v1OrgsTriggersGithubInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiInstallGitHubWebhookResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/triggers/${id}/github/install-webhook`,
+        method: "POST",
         secure: true,
         format: "json",
         ...params,
@@ -15211,18 +14992,52 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsTopicsPublishCreate
-     * @summary Helix-org: publish a message to a topic
-     * @request POST:/api/v1/orgs/{org}/topics/{id}/publish
+     * @name V1OrgsTriggersGithubWebhookStatusDetail
+     * @summary Helix-org: live webhook status for a github topic
+     * @request GET:/api/v1/orgs/{org}/triggers/{id}/github/webhook-status
      * @secure
      */
-    v1OrgsTopicsPublishCreate: (id: string, org: string, payload: ApiPublishRequest, params: RequestParams = {}) =>
-      this.request<ApiPublishResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/topics/${id}/publish`,
-        method: "POST",
-        body: payload,
+    v1OrgsTriggersGithubWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiGitHubWebhookStatusResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/triggers/${id}/github/webhook-status`,
+        method: "GET",
         secure: true,
-        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersGitlabInstallWebhookCreate
+     * @summary Helix-org: auto-install the webhook for a GitLab Trigger
+     * @request POST:/api/v1/orgs/{org}/triggers/{id}/gitlab/install-webhook
+     * @secure
+     */
+    v1OrgsTriggersGitlabInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiInstallGitLabWebhookResponse, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}/gitlab/install-webhook`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggersGitlabWebhookStatusDetail
+     * @summary Helix-org: live webhook status for a GitLab Trigger
+     * @request GET:/api/v1/orgs/{org}/triggers/{id}/gitlab/webhook-status
+     * @secure
+     */
+    v1OrgsTriggersGitlabWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiGitLabWebhookStatusResponse, any>({
+        path: `/api/v1/orgs/${org}/triggers/${id}/gitlab/webhook-status`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),

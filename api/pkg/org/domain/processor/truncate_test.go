@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
@@ -13,7 +14,7 @@ import (
 func newTruncateProc(t *testing.T, maxBytes int) processor.Processor {
 	t.Helper()
 	p, err := processor.NewProcessor(
-		"p-cap", "Capper", "s-in", processor.KindTruncate,
+		"p-cap", "Capper", eventsource.Trigger("s-in"), processor.KindTruncate,
 		cfg(t, map[string]int{"max_bytes": maxBytes}), out("s-out"),
 		"", time.Now(), "org-1",
 	)
@@ -63,7 +64,7 @@ func utf8ValidWhole(s string) bool {
 
 func TestTruncateRejectsNonPositiveMax(t *testing.T) {
 	_, err := processor.NewProcessor(
-		"p-zero", "Zero", "s-in", processor.KindTruncate,
+		"p-zero", "Zero", eventsource.Trigger("s-in"), processor.KindTruncate,
 		cfg(t, map[string]int{"max_bytes": 0}), out("s-out"),
 		"", time.Now(), "org-1",
 	)

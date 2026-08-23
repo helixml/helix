@@ -15,7 +15,7 @@ func TestNewSubscription(t *testing.T) {
 	cases := []struct {
 		name    string
 		worker  orgchart.NodeID
-		topic   streaming.TopicID
+		topic   streaming.StreamID
 		ts      time.Time
 		wantErr bool
 	}{

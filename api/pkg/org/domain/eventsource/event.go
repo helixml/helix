@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
@@ -16,15 +15,37 @@ const (
 	KindProcessorOutput Kind = "processor_output"
 )
 
+// SourceRef names exactly one thing an event can come from: a Trigger
+// (an inbound transport) or one durable output branch of a Processor.
+// It is the terminal address Worker attachments and Processor inputs are
+// expressed in — there is no Topic in between.
+//
+// ProcessorID is a plain string rather than processor.ProcessorID so this
+// package stays a leaf: domain/processor depends on eventsource for its
+// input, not the other way round.
 type SourceRef struct {
 	Kind        Kind
 	TriggerID   string
-	ProcessorID processor.ProcessorID
+	ProcessorID string
 	OutputID    string
 }
 
+// Zero reports whether the reference names nothing. A Processor with a
+// zero input is valid but inert — it sits unwired until a source is
+// connected.
+func (s SourceRef) Zero() bool { return s == SourceRef{} }
+
+// Key is the stable comparable form of a SourceRef, used wherever a
+// source has to index a map or a set.
+func (s SourceRef) Key() string {
+	if s.Kind == KindTrigger {
+		return "trigger:" + s.TriggerID
+	}
+	return "processor_output:" + s.ProcessorID + ":" + s.OutputID
+}
+
 func Trigger(id string) SourceRef { return SourceRef{Kind: KindTrigger, TriggerID: id} }
-func ProcessorOutput(processorID processor.ProcessorID, outputID string) SourceRef {
+func ProcessorOutput(processorID, outputID string) SourceRef {
 	return SourceRef{Kind: KindProcessorOutput, ProcessorID: processorID, OutputID: outputID}
 }
 

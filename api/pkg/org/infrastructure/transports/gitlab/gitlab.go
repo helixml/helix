@@ -20,25 +20,26 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
-	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 )
 
-type Dispatcher interface {
-	Dispatch(context.Context, streaming.Event)
+// Publisher appends one inbound delivery to its Trigger and routes it.
+// *publishing.Publishing satisfies it; declared here so the transport
+// does not import the application package.
+type Publisher interface {
+	PublishDelivery(ctx context.Context, orgID, triggerID string, eventID streaming.EventID, msg streaming.Message) (streaming.Event, error)
 }
 
 type Transport struct {
-	orgID       string
-	registry    *configregistry.Registry
-	store       *store.Store
-	broadcaster *wakebus.Bus
-	dispatcher  Dispatcher
-	logger      *slog.Logger
-	now         func() time.Time
+	orgID     string
+	registry  *configregistry.Registry
+	store     *store.Store
+	publisher Publisher
+	logger    *slog.Logger
+	now       func() time.Time
 }
 
-func New(orgID string, registry *configregistry.Registry, st *store.Store, broadcaster *wakebus.Bus, dispatcher Dispatcher, logger *slog.Logger) *Transport {
-	return &Transport{orgID: orgID, registry: registry, store: st, broadcaster: broadcaster, dispatcher: dispatcher, logger: logger, now: time.Now}
+func New(orgID string, registry *configregistry.Registry, st *store.Store, publisher Publisher, logger *slog.Logger) *Transport {
+	return &Transport{orgID: orgID, registry: registry, store: st, publisher: publisher, logger: logger, now: time.Now}
 }
 
 type Config struct {
@@ -59,7 +60,7 @@ func (t *Transport) config(ctx context.Context) (Config, error) {
 
 const maxBody = 25 << 20
 
-func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handler {
+func (t *Transport) HandleInboundForTrigger(triggerID string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -70,18 +71,19 @@ func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handle
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		topic, err := t.store.Topics.Get(r.Context(), t.orgID, topicID)
-		if err != nil {
-			http.Error(w, "topic not found", http.StatusNotFound)
+		rows, err := t.store.Triggers.Find(r.Context(), store.WithOrg(t.orgID), store.WithID(triggerID), store.WithLimit(1))
+		if err != nil || len(rows) == 0 {
+			http.Error(w, "trigger not found", http.StatusNotFound)
 			return
 		}
-		if topic.Transport.Kind != transport.KindGitLab {
-			http.Error(w, "topic is not a gitlab transport", http.StatusBadRequest)
+		trg := rows[0]
+		if trg.Kind != transport.KindGitLab {
+			http.Error(w, "trigger is not a gitlab transport", http.StatusBadRequest)
 			return
 		}
-		config, err := topic.Transport.GitLabConfig()
+		config, err := trg.Transport().GitLabConfig()
 		if err != nil {
-			http.Error(w, "topic config invalid", http.StatusInternalServerError)
+			http.Error(w, "trigger config invalid", http.StatusInternalServerError)
 			return
 		}
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
@@ -116,26 +118,15 @@ func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handle
 		message := messageFor(eventType, payload)
 		message.MessageID = deliveryID
 		message.Extra = json.RawMessage(body)
-		event, err := streaming.NewMessageEvent(eventID(t.orgID, topic.ID, deliveryID), topic.ID, "", message, t.now().UTC(), t.orgID)
-		if err != nil {
-			http.Error(w, "build event", http.StatusInternalServerError)
-			return
-		}
-		if err := t.store.Events.Append(r.Context(), event); err != nil {
+		if _, err := t.publisher.PublishDelivery(r.Context(), t.orgID, trg.ID, eventID(t.orgID, trg.ID, deliveryID), message); err != nil {
 			if errors.Is(err, store.ErrConflict) {
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
-			http.Error(w, "append event", http.StatusInternalServerError)
+			http.Error(w, "publish delivery", http.StatusInternalServerError)
 			return
 		}
-		if t.broadcaster != nil {
-			t.broadcaster.Notify(t.orgID, topic.ID)
-		}
-		if t.dispatcher != nil {
-			t.dispatcher.Dispatch(r.Context(), event)
-		}
-		t.logger.Info("gitlab.inbound", "topic", topic.ID, "repo", config.Repo, "delivery", message.MessageID)
+		t.logger.Info("gitlab.inbound", "trigger", trg.ID, "repo", config.Repo, "delivery", message.MessageID)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
@@ -213,7 +204,7 @@ func nestedIID(payload map[string]any, object string) string {
 	return ""
 }
 
-func eventID(orgID string, topicID streaming.TopicID, deliveryID string) streaming.EventID {
+func eventID(orgID string, topicID streaming.StreamID, deliveryID string) streaming.EventID {
 	digest := sha256.Sum256([]byte(orgID + "\x00" + string(topicID) + "\x00gitlab\x00" + deliveryID))
 	return streaming.EventID("e-gitlab-" + hex.EncodeToString(digest[:]))
 }

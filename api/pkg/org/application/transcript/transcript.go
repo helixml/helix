@@ -30,7 +30,7 @@ import (
 // satisfies it. Mirror of publishing.Notifier — kept behind a narrow
 // interface so this package doesn't depend on the concrete bus.
 type Notifier interface {
-	Notify(orgID string, topicID streaming.TopicID)
+	Notify(orgID string, topicID streaming.StreamID)
 }
 
 // Recorder appends turns to Workers' transcripts. It owns only the narrow

@@ -15,7 +15,7 @@ func TestNewTopic(t *testing.T) {
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
 		name      string
-		id        streaming.TopicID
+		id        streaming.StreamID
 		stName    string
 		createdBy orgchart.NodeID
 		createdAt time.Time

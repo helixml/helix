@@ -259,7 +259,7 @@ func (s *Server) recordAudit(ctx context.Context, entry orgaudit.Entry) {
 // registerPromptForBot binds a single prompt onto the per-bot MCP
 // server. The handler renders the prompt's template into seed messages;
 // the LLM consumes those and drives the conversation, usually ending in
-// a tool call (create_bot, create_topic, …).
+// a tool call (create_bot, create_trigger, …).
 //
 // Visibility is decided in buildMCPServer; by the time we get here the
 // prompt is already in the bot's allowed set.

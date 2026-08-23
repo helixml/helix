@@ -47,6 +47,7 @@ type Nodes struct {
 	now            func() time.Time
 	newID          func() string
 	baseTools      []tool.Name
+	knownTools     func() map[tool.Name]bool
 	onToolsChanged func(context.Context, string)
 }
 
@@ -65,7 +66,13 @@ type Deps struct {
 	// created Node so no Node can miss the read primitives every Node
 	// needs. Injected by the wiring (tools.BaseReadTools) to avoid an
 	// import cycle.
-	BaseTools      []tool.Name
+	BaseTools []tool.Name
+	// KnownTools reports the live registry's catalogue, so Reconcile can
+	// prune a persisted name the registry no longer knows. Injected (not
+	// imported) for the same reason as BaseTools. nil disables pruning —
+	// a runtime without a registry must not guess a Bot's capability
+	// away.
+	KnownTools     func() map[tool.Name]bool
 	OnToolsChanged func(context.Context, string)
 }
 
@@ -82,6 +89,7 @@ func New(deps Deps) *Nodes {
 		now:            now,
 		newID:          deps.NewID,
 		baseTools:      deps.BaseTools,
+		knownTools:     deps.KnownTools,
 		onToolsChanged: deps.OnToolsChanged,
 	}
 }
@@ -374,11 +382,19 @@ func (s *Nodes) RemoveParent(ctx context.Context, orgID string, reportID, manage
 	return nil
 }
 
-// Reconcile backfills the universal read baseline (the injected
-// BaseTools) onto every Node in the org. Idempotent: a Node already at the
-// baseline is left untouched (no write, no UpdatedAt bump). Order is
+// Reconcile converges every Node's persisted tool list against the live
+// registry: retired names are rewritten to their replacements, names the
+// registry no longer knows are pruned, and the universal read baseline
+// (the injected BaseTools) is backfilled. Idempotent: a Node already
+// converged is left untouched (no write, no UpdatedAt bump). Order is
 // stable — caller tools first, baseline appended in BaseTools order —
 // because it reuses the same MergeTools the create path does.
+//
+// Renaming rather than dropping matters: a Bot that could do something
+// before a tool was renamed must still be able to do it afterwards.
+// Pruning matters too — a persisted name the registry doesn't know is
+// silently ignored at invoke time, so leaving it makes the Bot's
+// advertised capability a lie.
 func (s *Nodes) Reconcile(ctx context.Context, orgID string) error {
 	if s == nil {
 		return nil
@@ -389,7 +405,7 @@ func (s *Nodes) Reconcile(ctx context.Context, orgID string) error {
 	}
 	now := s.now()
 	for _, node := range all {
-		merged := MergeTools(node.Tools, s.baseTools)
+		merged := MergeTools(s.convergeToolNames(node.Tools), s.baseTools)
 		if sameToolList(node.Tools, merged) {
 			continue
 		}
@@ -416,6 +432,54 @@ func sameToolList(a, b []tool.Name) bool {
 		}
 	}
 	return true
+}
+
+// convergeToolNames applies RenamedTools to a persisted list and drops
+// any name the registry no longer knows. An unavailable or empty
+// catalogue leaves unknown names alone — a runtime that hasn't wired the
+// registry must not prune a Bot's capability on a guess. Renames still
+// apply in that case: those are a fixed mapping, not a guess.
+func (s *Nodes) convergeToolNames(existing []tool.Name) []tool.Name {
+	var known map[tool.Name]bool
+	if s.knownTools != nil {
+		known = s.knownTools()
+	}
+	out := make([]tool.Name, 0, len(existing))
+	for _, name := range existing {
+		replacements, renamed := RenamedTools[name]
+		if renamed {
+			out = append(out, replacements...)
+			continue
+		}
+		if len(known) > 0 && !known[name] {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+// RenamedTools maps a retired tool name to the name (or names) that
+// replace it. One retired name may map to several: `mint_credential`
+// became the pair `list_secrets` + `get_secret` — discover, then
+// retrieve — so a Bot that could mint a credential keeps an equivalent
+// capability rather than silently losing it.
+//
+// Entries stay here permanently: the map is what an org upgraded from
+// any older release converges through, and removing an entry would strand
+// whatever data still carries the old name.
+var RenamedTools = map[tool.Name][]tool.Name{
+	// PR 2 replaced the credential-minting tool with the read pair.
+	"mint_credential": {"list_secrets", "get_secret"},
+	// PR 4's Topic→Trigger cutover renamed the org-graph primitives.
+	"create_topic":      {"create_trigger"},
+	"list_topics":       {"list_triggers"},
+	"get_topic":         {"get_trigger"},
+	"list_topic_events": {"list_trigger_events"},
+	"topic_members":     {"trigger_members"},
+	"subscribe":         {"attach_worker"},
+	"unsubscribe":       {"detach_worker"},
+	"publish":           {"chat"},
 }
 
 // MergeTools returns the union of `existing` and `base`: the order of

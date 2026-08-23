@@ -61,7 +61,7 @@ type Config interface {
 // (it's the default), then the others in the order they were added to
 // the system. The order is part of the public surface — it shows up
 // in JSON Schema enum lists, in "(valid: …)" error messages, and in
-// the MCP create_topic tool description. Tests pin it explicitly.
+// the MCP create_trigger tool description. Tests pin it explicitly.
 var kindOrder = []Kind{KindLocal, KindWebhook, KindEmail, KindGitHub, KindGitLab, KindCron, KindSlack, KindHelixEvents}
 
 // strategies registers every known Kind's Strategy. Adding a new Kind

@@ -8,14 +8,13 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/processors"
-	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/domain/attachment"
 	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
+	"github.com/helixml/helix/api/pkg/org/internal/orgtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,35 +25,35 @@ func tmplCfg(tmpl string) json.RawMessage {
 	return b
 }
 
-func setup(t *testing.T) (*store.Store, *processors.Processors, *topics.Topics) {
+func setup(t *testing.T) (*store.Store, *processors.Processors) {
 	t.Helper()
 	var n int
 	id := func() string { n++; return time.Now().Format("150405.000") + "-" + string(rune('a'+n%26)) }
 	s := memory.New()
-	top := topics.New(topics.Deps{Topics: s.Topics, NewID: id})
-	svc := processors.New(processors.Deps{Processors: s.Processors, Topics: top, Attachments: s.WorkerAttachments, NewID: id})
-	return s, svc, top
+	svc := processors.New(processors.Deps{Processors: s.Processors, Triggers: s.Triggers, Attachments: s.WorkerAttachments, NewID: id})
+	return s, svc
 }
 
-func TestCreateAutoProvisionsOutputTopic(t *testing.T) {
+// TestCreateAllocatesBranchIdentityAndStream: every branch gets a
+// durable id (what attachments address) and its own event stream (what
+// carries its history). Neither is caller-supplied by default.
+func TestCreateAllocatesBranchIdentityAndStream(t *testing.T) {
 	ctx := context.Background()
-	s, svc, top := setup(t)
-	if _, err := top.Create(ctx, org, topics.CreateParams{ID: "s-in", Name: "In"}); err != nil {
-		t.Fatal(err)
-	}
+	s, svc := setup(t)
+	orgtest.Trigger(t, s, org, "s-in")
+
 	p, err := svc.Create(ctx, org, processors.CreateParams{
-		Name: "Fmt", InputTopicID: "s-in", Kind: processor.KindTemplate,
+		Name: "Fmt", InputSource: eventsource.Trigger("s-in"), Kind: processor.KindTemplate,
 		Config: tmplCfg("{{ .Message.body }}"),
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if len(p.Outputs) != 1 || p.Outputs[0].TopicID == "" || !p.Outputs[0].Owned {
-		t.Fatalf("expected one owned auto-provisioned output, got %+v", p.Outputs)
+	if len(p.Outputs) != 1 || p.Outputs[0].ID == "" || p.Outputs[0].StreamID == "" {
+		t.Fatalf("expected one branch with an id and a stream, got %+v", p.Outputs)
 	}
-	// The output topic exists in the store.
-	if _, err := s.Topics.Get(ctx, org, p.Outputs[0].TopicID); err != nil {
-		t.Errorf("output topic not created: %v", err)
+	if p.Source(p.Outputs[0]).Key() != "processor_output:"+p.ID+":"+p.Outputs[0].ID {
+		t.Errorf("branch source = %q", p.Source(p.Outputs[0]).Key())
 	}
 	// Processor id minted with p- prefix.
 	if len(p.ID) < 2 || p.ID[:2] != "p-" {
@@ -62,100 +61,102 @@ func TestCreateAutoProvisionsOutputTopic(t *testing.T) {
 	}
 }
 
-func TestDeleteCascadesOwnedButKeepsExplicit(t *testing.T) {
+// TestCreateAcceptsProcessorOutputInput: a Processor may read another
+// Processor's exact branch, which is what makes a chain expressible.
+func TestCreateAcceptsProcessorOutputInput(t *testing.T) {
 	ctx := context.Background()
-	s, svc, top := setup(t)
-	_, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-in", Name: "In"})
-	shared, _ := top.Create(ctx, org, topics.CreateParams{ID: "s-shared", Name: "Shared"})
+	s, svc := setup(t)
+	orgtest.Trigger(t, s, org, "s-in")
 
-	// Two outputs: one auto-provisioned (owned), one explicit (shared).
-	p, err := svc.Create(ctx, org, processors.CreateParams{
-		Name: "Router", InputTopicID: "s-in", Kind: processor.KindTemplate,
-		Config:  tmplCfg("{{ .Message.body }}"),
-		Outputs: []processors.OutputSpec{{TopicID: shared.ID}},
-	})
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	if p.Outputs[0].Owned {
-		t.Fatal("explicit output should not be owned")
-	}
-
-	if err := svc.Delete(ctx, org, p.ID); err != nil {
-		t.Fatalf("delete: %v", err)
-	}
-	// Processor gone.
-	if _, err := svc.Get(ctx, org, p.ID); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("processor still present: %v", err)
-	}
-	// Shared topic survived (not owned).
-	if _, err := s.Topics.Get(ctx, org, shared.ID); err != nil {
-		t.Errorf("shared explicit topic was wrongly deleted: %v", err)
-	}
-}
-
-func TestDeleteRemovesAutoProvisionedTopic(t *testing.T) {
-	ctx := context.Background()
-	s, svc, top := setup(t)
-	_, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-in", Name: "In"})
-	p, err := svc.Create(ctx, org, processors.CreateParams{
-		Name: "Fmt", InputTopicID: "s-in", Kind: processor.KindTemplate,
+	first, err := svc.Create(ctx, org, processors.CreateParams{
+		Name: "First", InputSource: eventsource.Trigger("s-in"), Kind: processor.KindTemplate,
 		Config: tmplCfg("{{ .Message.body }}"),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	outID := p.Outputs[0].TopicID
-	if err := svc.Delete(ctx, org, p.ID); err != nil {
-		t.Fatalf("delete: %v", err)
-	}
-	if _, err := s.Topics.Get(ctx, org, outID); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("owned output topic %q should be deleted, err=%v", outID, err)
-	}
+	require.NoError(t, err)
+
+	second, err := svc.Create(ctx, org, processors.CreateParams{
+		Name: "Second", InputSource: first.Source(first.Outputs[0]), Kind: processor.KindTemplate,
+		Config: tmplCfg("{{ .Message.body }}"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, first.Source(first.Outputs[0]), second.InputSource)
 }
 
-func TestAttachedOutputCannotBeRemovedAndProcessorDeleteCleansAttachment(t *testing.T) {
+// TestCreateRejectsUnknownInput: an input naming a source that does not
+// exist fails the create rather than producing an inert Processor the
+// operator thinks is wired.
+func TestCreateRejectsUnknownInput(t *testing.T) {
 	ctx := context.Background()
-	s, svc, top := setup(t)
-	_, err := top.Create(ctx, org, topics.CreateParams{ID: "s-in-attached", Name: "In attached"})
-	require.NoError(t, err)
-	p, err := svc.Create(ctx, org, processors.CreateParams{Name: "Attached", InputTopicID: "s-in-attached", Kind: processor.KindTemplate, Config: tmplCfg("x")})
+	_, svc := setup(t)
+
+	_, err := svc.Create(ctx, org, processors.CreateParams{
+		Name: "Bad trigger", InputSource: eventsource.Trigger("s-missing"), Kind: processor.KindTemplate, Config: tmplCfg("x"),
+	})
+	require.ErrorIs(t, err, store.ErrNotFound)
+	require.ErrorContains(t, err, "validate processor input trigger")
+
+	_, err = svc.Create(ctx, org, processors.CreateParams{
+		Name: "Bad branch", InputSource: eventsource.ProcessorOutput("p-missing", "po-x"), Kind: processor.KindTemplate, Config: tmplCfg("x"),
+	})
+	require.ErrorIs(t, err, store.ErrNotFound)
+}
+
+// TestCreateRejectsCrossTenantInput: a Trigger in another org is not a
+// valid input, even though its id exists somewhere.
+func TestCreateRejectsCrossTenantInput(t *testing.T) {
+	ctx := context.Background()
+	s, svc := setup(t)
+	orgtest.Trigger(t, s, "org-2", "s-foreign")
+
+	_, err := svc.Create(ctx, org, processors.CreateParams{
+		Name: "Bad input", InputSource: eventsource.Trigger("s-foreign"), Kind: processor.KindTemplate, Config: tmplCfg("x"),
+	})
+	require.ErrorIs(t, err, store.ErrNotFound)
+	require.ErrorContains(t, err, "validate processor input trigger")
+}
+
+// TestDeleteCleansAttachmentsButKeepsHistory: deleting a Processor drops
+// every attachment to its branches; the branch streams' events stay.
+func TestDeleteCleansAttachments(t *testing.T) {
+	ctx := context.Background()
+	s, svc := setup(t)
+	orgtest.Trigger(t, s, org, "s-in-attached")
+
+	p, err := svc.Create(ctx, org, processors.CreateParams{
+		Name: "Attached", InputSource: eventsource.Trigger("s-in-attached"), Kind: processor.KindTemplate, Config: tmplCfg("x"),
+	})
 	require.NoError(t, err)
 	node, err := orgchart.NewNode("w-attached", "work", nil, time.Now(), org)
 	require.NoError(t, err)
 	require.NoError(t, s.Nodes.Create(ctx, node))
-	a, err := attachment.New("wa-attached", org, node.ID, eventsource.ProcessorOutput(p.ID, p.Outputs[0].ID), "", time.Now())
+	a, err := attachment.New("wa-attached", org, node.ID, p.Source(p.Outputs[0]), "", time.Now())
 	require.NoError(t, err)
 	require.NoError(t, s.WorkerAttachments.Create(ctx, a))
-	err = svc.RemoveOutput(ctx, org, p.ID, p.Outputs[0].TopicID)
+
+	// An attached branch cannot be removed on its own.
+	err = svc.RemoveOutput(ctx, org, p.ID, p.Outputs[0].ID)
 	require.ErrorIs(t, err, store.ErrConflict)
 	require.ErrorContains(t, err, "has worker attachments")
+
 	require.NoError(t, svc.Delete(ctx, org, p.ID))
 	rows, err := s.WorkerAttachments.Find(ctx, store.WithOrg(org), store.WithProcessorID(p.ID))
 	require.NoError(t, err)
 	require.Empty(t, rows)
-}
-
-func TestCreateRejectsCrossTenantTopics(t *testing.T) {
-	ctx := context.Background()
-	_, svc, top := setup(t)
-	_, err := top.Create(ctx, "org-2", topics.CreateParams{ID: "s-foreign", Name: "Foreign"})
-	require.NoError(t, err)
-	_, err = svc.Create(ctx, org, processors.CreateParams{Name: "Bad input", InputTopicID: "s-foreign", Kind: processor.KindTemplate, Config: tmplCfg("x")})
+	_, err = svc.Get(ctx, org, p.ID)
 	require.ErrorIs(t, err, store.ErrNotFound)
-	require.ErrorContains(t, err, "validate processor input topic")
 }
 
 func TestLifecycleMutationsRequireAttachmentRepository(t *testing.T) {
 	ctx := context.Background()
 	st := memory.New()
-	top := topics.New(topics.Deps{Topics: st.Topics, NewID: func() string { return "fixed" }})
-	svc := processors.New(processors.Deps{Processors: st.Processors, Topics: top, NewID: func() string { return "fixed" }})
-	_, err := top.Create(ctx, org, topics.CreateParams{ID: "s-deps-input", Name: "Deps input"})
+	svc := processors.New(processors.Deps{Processors: st.Processors, Triggers: st.Triggers, NewID: func() string { return "fixed" }})
+	orgtest.Trigger(t, st, org, "s-deps-input")
+
+	p, err := svc.Create(ctx, org, processors.CreateParams{
+		Name: "Deps", InputSource: eventsource.Trigger("s-deps-input"), Kind: processor.KindTemplate, Config: tmplCfg("x"),
+	})
 	require.NoError(t, err)
-	p, err := svc.Create(ctx, org, processors.CreateParams{Name: "Deps", InputTopicID: "s-deps-input", Kind: processor.KindTemplate, Config: tmplCfg("x")})
-	require.NoError(t, err)
-	err = svc.RemoveOutput(ctx, org, p.ID, p.Outputs[0].TopicID)
+	err = svc.RemoveOutput(ctx, org, p.ID, p.Outputs[0].ID)
 	require.ErrorContains(t, err, "attachment repository is not configured")
 	err = svc.Delete(ctx, org, p.ID)
 	require.ErrorContains(t, err, "attachment repository is not configured")
@@ -165,14 +166,15 @@ func TestLifecycleMutationsRequireAttachmentRepository(t *testing.T) {
 
 func TestUpdateRevalidatesConfig(t *testing.T) {
 	ctx := context.Background()
-	_, svc, top := setup(t)
-	_, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-in", Name: "In"})
-	p, _ := svc.Create(ctx, org, processors.CreateParams{
-		Name: "Fmt", InputTopicID: "s-in", Kind: processor.KindTemplate,
+	s, svc := setup(t)
+	orgtest.Trigger(t, s, org, "s-in")
+	p, err := svc.Create(ctx, org, processors.CreateParams{
+		Name: "Fmt", InputSource: eventsource.Trigger("s-in"), Kind: processor.KindTemplate,
 		Config: tmplCfg("{{ .Message.body }}"),
 	})
+	require.NoError(t, err)
 	// Malformed template rejected at update.
-	_, err := svc.Update(ctx, org, p.ID, processors.UpdateParams{
+	_, err = svc.Update(ctx, org, p.ID, processors.UpdateParams{
 		Name: "Fmt", Kind: processor.KindTemplate, Config: tmplCfg("{{ .Message.body "),
 	})
 	if err == nil {
@@ -180,12 +182,33 @@ func TestUpdateRevalidatesConfig(t *testing.T) {
 	}
 }
 
-// filterCfg builds an empty filter config blob.
-func filterRouter(t *testing.T, ctx context.Context, svc *processors.Processors, top *topics.Topics) processor.Processor {
-	t.Helper()
-	_, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-slack", Name: "Slack"})
+// TestUpdateDisconnectsInput: a zero input source leaves the Processor
+// inert rather than rejecting the update — that is how the chart's
+// "delete the input edge" gesture is expressed.
+func TestUpdateDisconnectsInput(t *testing.T) {
+	ctx := context.Background()
+	s, svc := setup(t)
+	orgtest.Trigger(t, s, org, "s-in")
 	p, err := svc.Create(ctx, org, processors.CreateParams{
-		Name: "Router", InputTopicID: "s-slack", Kind: processor.KindFilter,
+		Name: "Fmt", InputSource: eventsource.Trigger("s-in"), Kind: processor.KindTemplate,
+		Config: tmplCfg("{{ .Message.body }}"),
+	})
+	require.NoError(t, err)
+
+	disconnected := eventsource.SourceRef{}
+	got, err := svc.Update(ctx, org, p.ID, processors.UpdateParams{
+		Name: "Fmt", Kind: processor.KindTemplate, Config: tmplCfg("{{ .Message.body }}"),
+		InputSource: &disconnected,
+	})
+	require.NoError(t, err)
+	require.True(t, got.InputSource.Zero())
+}
+
+func filterRouter(t *testing.T, ctx context.Context, s *store.Store, svc *processors.Processors) processor.Processor {
+	t.Helper()
+	orgtest.Trigger(t, s, org, "s-slack")
+	p, err := svc.Create(ctx, org, processors.CreateParams{
+		Name: "Router", InputSource: eventsource.Trigger("s-slack"), Kind: processor.KindFilter,
 		Outputs: []processors.OutputSpec{{Label: "default"}}, // unconditional default
 	})
 	if err != nil {
@@ -194,10 +217,10 @@ func filterRouter(t *testing.T, ctx context.Context, svc *processors.Processors,
 	return p
 }
 
-func TestAddOutputProvisionsOwnedTopicAndPersists(t *testing.T) {
+func TestAddOutputAllocatesBranchAndPersists(t *testing.T) {
 	ctx := context.Background()
-	s, svc, top := setup(t)
-	p := filterRouter(t, ctx, svc, top)
+	s, svc := setup(t)
+	p := filterRouter(t, ctx, s, svc)
 
 	out, err := svc.AddOutput(ctx, org, p.ID, processors.OutputSpec{
 		Label: "alice", Match: `{{ mentions "alice" .Message.body }}`, ManagedFor: "w-alice",
@@ -205,90 +228,83 @@ func TestAddOutputProvisionsOwnedTopicAndPersists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add output: %v", err)
 	}
-	if out.TopicID == "" || !out.Owned || out.ManagedFor != "w-alice" {
+	if out.ID == "" || out.StreamID == "" || out.ManagedFor != "w-alice" {
 		t.Fatalf("unexpected output: %+v", out)
 	}
-	// The owned topic exists.
-	if _, err := s.Topics.Get(ctx, org, out.TopicID); err != nil {
-		t.Errorf("owned output topic not created: %v", err)
-	}
-	// Persisted: the processor now has 2 outputs.
+	// Persisted: the processor now has 2 branches.
 	got, _ := svc.Get(ctx, org, p.ID)
 	if len(got.Outputs) != 2 {
 		t.Fatalf("want 2 outputs after add, got %d", len(got.Outputs))
 	}
 }
 
-func TestRemoveOutputDropsRouteAndOwnedTopic(t *testing.T) {
+func TestRemoveOutputDropsBranch(t *testing.T) {
 	ctx := context.Background()
-	s, svc, top := setup(t)
-	p := filterRouter(t, ctx, svc, top)
-	out, _ := svc.AddOutput(ctx, org, p.ID, processors.OutputSpec{Label: "alice", Match: "x", ManagedFor: "w-alice"})
+	s, svc := setup(t)
+	p := filterRouter(t, ctx, s, svc)
+	out, err := svc.AddOutput(ctx, org, p.ID, processors.OutputSpec{Label: "alice", Match: "x", ManagedFor: "w-alice"})
+	require.NoError(t, err)
 
-	if err := svc.RemoveOutput(ctx, org, p.ID, out.TopicID); err != nil {
+	if err := svc.RemoveOutput(ctx, org, p.ID, out.ID); err != nil {
 		t.Fatalf("remove output: %v", err)
 	}
 	got, _ := svc.Get(ctx, org, p.ID)
 	if len(got.Outputs) != 1 {
 		t.Fatalf("want 1 output after remove, got %d", len(got.Outputs))
 	}
-	if _, err := s.Topics.Get(ctx, org, out.TopicID); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("owned output topic %q should be deleted, err=%v", out.TopicID, err)
+	if _, ok := got.Output(out.ID); ok {
+		t.Fatalf("branch %q should be gone", out.ID)
 	}
+	// Idempotent: removing it again is a no-op.
+	require.NoError(t, svc.RemoveOutput(ctx, org, p.ID, out.ID))
 }
 
 func TestRemoveLastOutputRejected(t *testing.T) {
 	ctx := context.Background()
-	_, svc, top := setup(t)
-	p := filterRouter(t, ctx, svc, top)
-	// The router starts with exactly one (default) output; removing it would
-	// leave the processor with zero outputs, which Validate forbids.
-	if err := svc.RemoveOutput(ctx, org, p.ID, p.Outputs[0].TopicID); err == nil {
+	s, svc := setup(t)
+	p := filterRouter(t, ctx, s, svc)
+	// The router starts with exactly one (default) branch; removing it
+	// would leave the processor with zero outputs, which Validate forbids.
+	if err := svc.RemoveOutput(ctx, org, p.ID, p.Outputs[0].ID); err == nil {
 		t.Error("want error removing the last output, got nil")
 	}
 }
 
 func TestDeleteAutomatedByInputRemovesRouterButNotManual(t *testing.T) {
 	ctx := context.Background()
-	s, svc, top := setup(t)
-	_, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-ws", Name: "Workspace"})
+	s, svc := setup(t)
+	orgtest.Trigger(t, s, org, "s-ws")
+	ws := eventsource.Trigger("s-ws")
 
-	// Automated router on s-ws (CreatedBy = SystemActor) with an owned output.
+	// Automated router on s-ws (CreatedBy = SystemActor).
 	auto, err := svc.Create(ctx, org, processors.CreateParams{
-		Name: "Auto", InputTopicID: "s-ws", Kind: processor.KindFilter,
+		Name: "Auto", InputSource: ws, Kind: processor.KindFilter,
 		Outputs: []processors.OutputSpec{{Label: "default"}}, CreatedBy: processor.SystemActor,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	autoOut := auto.Outputs[0].TopicID
-	// A human-authored filter on the SAME input topic — must be left alone.
+	// A human-authored filter on the SAME input — must be left alone.
 	manual, err := svc.Create(ctx, org, processors.CreateParams{
-		Name: "Manual", InputTopicID: "s-ws", Kind: processor.KindFilter,
+		Name: "Manual", InputSource: ws, Kind: processor.KindFilter,
 		Outputs: []processors.OutputSpec{{Label: "default"}}, CreatedBy: "w-alice",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := svc.DeleteAutomatedByInput(ctx, org, "s-ws"); err != nil {
+	if err := svc.DeleteAutomatedByInput(ctx, org, ws); err != nil {
 		t.Fatalf("DeleteAutomatedByInput: %v", err)
 	}
-	// Automated router gone + its owned output topic cascaded.
 	if _, err := svc.Get(ctx, org, auto.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("automated router should be deleted, err=%v", err)
-	}
-	if _, err := s.Topics.Get(ctx, org, autoOut); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("automated router's owned output topic should be cascaded, err=%v", err)
 	}
 	// Manual processor untouched.
 	if _, err := svc.Get(ctx, org, manual.ID); err != nil {
 		t.Errorf("manual processor should survive, err=%v", err)
 	}
 	// Idempotent: a second call is a no-op.
-	if err := svc.DeleteAutomatedByInput(ctx, org, "s-ws"); err != nil {
+	if err := svc.DeleteAutomatedByInput(ctx, org, ws); err != nil {
 		t.Errorf("second DeleteAutomatedByInput should be no-op, got %v", err)
 	}
 }
-
-var _ = streaming.TopicID("")

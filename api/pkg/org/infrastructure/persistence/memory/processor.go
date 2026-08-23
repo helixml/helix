@@ -6,9 +6,9 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
 // processorsRepo is the in-memory implementation of store.Processors.
@@ -58,12 +58,15 @@ func (s *processorsRepo) List(_ context.Context, orgID string) ([]processor.Proc
 	return out, nil
 }
 
-func (s *processorsRepo) ListByInputTopic(_ context.Context, orgID string, in streaming.TopicID) ([]processor.Processor, error) {
+func (s *processorsRepo) ListByInputSource(_ context.Context, orgID string, in eventsource.SourceRef) ([]processor.Processor, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]processor.Processor, 0)
+	if in.Zero() {
+		return out, nil
+	}
 	for k, p := range s.rows {
-		if k.OrgID == orgID && p.InputTopicID == in {
+		if k.OrgID == orgID && p.InputSource == in {
 			out = append(out, p)
 		}
 	}
@@ -91,7 +94,7 @@ func (s *processorsRepo) Update(_ context.Context, p processor.Processor) error 
 	}
 	// Mutable fields only — keep ID / OrgID / CreatedBy / CreatedAt.
 	existing.Name = p.Name
-	existing.InputTopicID = p.InputTopicID
+	existing.InputSource = p.InputSource
 	existing.Kind = p.Kind
 	existing.Config = p.Config
 	existing.Outputs = p.Outputs
