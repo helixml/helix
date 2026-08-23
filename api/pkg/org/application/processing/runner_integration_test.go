@@ -61,7 +61,7 @@ func newRig(t *testing.T) *rig {
 
 	r.topics = topics.New(topics.Deps{Topics: r.store.Topics, Now: time.Now, NewID: incID()})
 	r.procSvc = processors.New(processors.Deps{
-		Processors: r.store.Processors, Topics: r.topics, Now: time.Now, NewID: incID(),
+		Processors: r.store.Processors, Topics: r.topics, Attachments: r.store.WorkerAttachments, Now: time.Now, NewID: incID(),
 	})
 	return r
 }

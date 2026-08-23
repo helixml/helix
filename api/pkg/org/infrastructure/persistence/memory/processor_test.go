@@ -17,7 +17,7 @@ func mkProc(t *testing.T, id, name, input, tmpl, out, org string) processor.Proc
 	cfg, _ := json.Marshal(map[string]string{"template": tmpl})
 	p, err := processor.NewProcessor(
 		id, name, input, processor.KindTemplate, cfg,
-		[]processor.Output{{TopicID: out}}, "w-owner", time.Now(), org,
+		[]processor.Output{{ID: "po-" + out, TopicID: out}}, "w-owner", time.Now(), org,
 	)
 	if err != nil {
 		t.Fatalf("NewProcessor: %v", err)

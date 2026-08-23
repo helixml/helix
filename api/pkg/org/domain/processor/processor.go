@@ -41,6 +41,10 @@ import (
 // a distinct named type (see orgchart/ids.go for the rationale).
 type ProcessorID = string
 
+// LegacyOutputID deterministically identifies a pre-ID branch by its immutable
+// compatibility Topic. It is used only by the eager upgrade migration.
+func LegacyOutputID(topicID streaming.TopicID) string { return "po-topic-" + string(topicID) }
+
 // Kind names the implementation that owns a Processor's behaviour.
 // Constants are defined alongside their Config in each Kind's own file
 // (KindTemplate in template.go, KindTruncate in truncate.go, …).
@@ -56,6 +60,7 @@ type Kind string
 //     filter Kind (see filter.go); transform Kinds require it empty.
 //   - Label is a human-facing name for the branch, shown on the chart.
 type Output struct {
+	ID      string `json:"id,omitempty"`
 	TopicID streaming.TopicID
 	Match   string
 	Label   string
@@ -206,10 +211,18 @@ func (p Processor) Validate() error {
 	if len(p.Outputs) == 0 {
 		return errors.New("processor has no outputs")
 	}
+	seenOutputIDs := make(map[string]struct{}, len(p.Outputs))
 	for i, o := range p.Outputs {
+		if o.ID == "" {
+			return fmt.Errorf("processor output %d has empty id", i)
+		}
 		if o.TopicID == "" {
 			return fmt.Errorf("processor output %d has empty topic id", i)
 		}
+		if _, exists := seenOutputIDs[o.ID]; exists {
+			return fmt.Errorf("processor output id %q is duplicated", o.ID)
+		}
+		seenOutputIDs[o.ID] = struct{}{}
 	}
 	if p.Kind == "" {
 		return errors.New("processor kind is empty")

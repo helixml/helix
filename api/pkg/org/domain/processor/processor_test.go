@@ -20,7 +20,7 @@ func cfg(t *testing.T, v any) json.RawMessage {
 }
 
 func out(topic string) []processor.Output {
-	return []processor.Output{{TopicID: streaming.TopicID(topic)}}
+	return []processor.Output{{ID: "po-" + topic, TopicID: streaming.TopicID(topic)}}
 }
 
 func newTemplateProc(t *testing.T, tmpl string) processor.Processor {
@@ -178,10 +178,12 @@ func TestValidateRequiredFields(t *testing.T) {
 
 func TestEmptyInputIsValid(t *testing.T) {
 	// A processor with no input topic is valid but inert (unwired).
+	outputs := out("s-out")
+	outputs[0].ID = "po-out"
 	p := processor.Processor{
 		ID: "p-1", OrganizationID: "org-1", Name: "n", InputTopicID: "",
 		Kind: processor.KindTemplate, Config: cfg(t, map[string]string{"template": "x"}),
-		Outputs: out("s-out"), CreatedAt: time.Now(),
+		Outputs: outputs, CreatedAt: time.Now(),
 	}
 	if err := p.Validate(); err != nil {
 		t.Errorf("empty input should be valid (inert), got %v", err)

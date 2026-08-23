@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -32,6 +33,8 @@ var orgRowTypes = []any{
 	&configRow{},
 	&activationRow{},
 	&processorRow{},
+	&triggerRow{},
+	&attachmentRow{},
 	&asset.Asset{},
 	&asset.Link{},
 	&chartPositionRow{},
@@ -55,6 +58,8 @@ var orgTableNames = []string{
 	"org_configs",
 	"org_activations",
 	"org_processors",
+	"org_triggers",
+	"org_worker_attachments",
 	"org_assets",
 	"org_asset_links",
 	"org_chart_positions",
@@ -97,6 +102,9 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if err := db.AutoMigrate(orgRowTypes...); err != nil {
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
+	if err := migrateProcessorOutputIDs(db); err != nil {
+		return nil, fmt.Errorf("migrate processor output ids: %w", err)
+	}
 
 	// Drop tables for aggregates removed from the model. AutoMigrate never
 	// drops, so a DB migrated before an aggregate was deleted keeps the
@@ -125,26 +133,100 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if err := installAssetLinkFKs(db); err != nil {
 		return nil, fmt.Errorf("install asset-link FKs: %w", err)
 	}
+	if err := installAttachmentConstraints(db); err != nil {
+		return nil, fmt.Errorf("install attachment constraints: %w", err)
+	}
 	if err := installAgentAppLinks(db); err != nil {
 		return nil, fmt.Errorf("install agent app links: %w", err)
 	}
 
 	bots := newNodesRepo(db)
 	return &store.Store{
-		Nodes:            bots,
-		ReportingLines:   newReportingLinesRepo(db),
-		NodeRuntimeState: newNodeRuntimeStateRepo(db),
-		Topics:           newTopicsRepo(db),
-		Subscriptions:    newSubscriptionsRepo(db),
-		Events:           newEventsRepo(db, bots),
-		Configs:          newConfigsRepo(db),
-		Activations:      newActivationsRepo(db),
-		Processors:       newProcessorsRepo(db),
-		Assets:           newAssetsRepo(db),
-		AssetLinks:       newAssetLinksRepo(db),
-		ChartPositions:   newChartPositionsRepo(db),
-		DomainEvents:     newDomainEventsRepo(db),
+		Nodes:             bots,
+		ReportingLines:    newReportingLinesRepo(db),
+		NodeRuntimeState:  newNodeRuntimeStateRepo(db),
+		Topics:            newTopicsRepo(db),
+		Subscriptions:     newSubscriptionsRepo(db),
+		Events:            newEventsRepo(db, bots),
+		Configs:           newConfigsRepo(db),
+		Activations:       newActivationsRepo(db),
+		Processors:        newProcessorsRepo(db),
+		Triggers:          newTriggersRepo(db),
+		WorkerAttachments: newAttachmentsRepo(db),
+		Assets:            newAssetsRepo(db),
+		AssetLinks:        newAssetLinksRepo(db),
+		ChartPositions:    newChartPositionsRepo(db),
+		DomainEvents:      newDomainEventsRepo(db),
 	}, nil
+}
+
+func installAttachmentConstraints(db *gorm.DB) error {
+	if !db.Migrator().HasTable("org_worker_attachments") {
+		return nil
+	}
+	statements := []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_attachment_trigger ON org_worker_attachments (org_id, worker_id, trigger_id) WHERE trigger_id IS NOT NULL`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_attachment_processor_output ON org_worker_attachments (org_id, worker_id, processor_id, output_id) WHERE processor_id IS NOT NULL`,
+	}
+	if db.Dialector.Name() != "postgres" {
+		for _, stmt := range statements {
+			if err := db.Exec(stmt).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	statements = append(statements, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_attachment_source') THEN ALTER TABLE org_worker_attachments ADD CONSTRAINT chk_attachment_source CHECK ((trigger_id IS NOT NULL AND processor_id IS NULL AND output_id IS NULL) OR (trigger_id IS NULL AND processor_id IS NOT NULL AND output_id IS NOT NULL)); END IF; END $$;`)
+	if db.Migrator().HasTable("org_bots") {
+		statements = append(statements, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_attachment_worker') THEN ALTER TABLE org_worker_attachments ADD CONSTRAINT fk_attachment_worker FOREIGN KEY (org_id, worker_id) REFERENCES org_bots(org_id, id) ON DELETE CASCADE; END IF; END $$;`)
+	}
+	if db.Migrator().HasTable("org_triggers") {
+		statements = append(statements, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_attachment_trigger') THEN ALTER TABLE org_worker_attachments ADD CONSTRAINT fk_attachment_trigger FOREIGN KEY (org_id, trigger_id) REFERENCES org_triggers(org_id, id) ON DELETE CASCADE; END IF; END $$;`)
+	}
+	for _, stmt := range statements {
+		if err := db.Exec(stmt).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateProcessorOutputIDs(db *gorm.DB) error {
+	var rows []processorRow
+	if err := db.Where(`outputs NOT LIKE ?`, `%"id":%`).Find(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		var outputs []processor.Output
+		if err := json.Unmarshal([]byte(row.Outputs), &outputs); err != nil {
+			return fmt.Errorf("processor %q outputs: %w", row.ID, err)
+		}
+		changed := false
+		seen := map[string]struct{}{}
+		for i := range outputs {
+			if outputs[i].ID == "" {
+				if outputs[i].TopicID == "" {
+					return fmt.Errorf("processor %q output %d has no topic id", row.ID, i)
+				}
+				outputs[i].ID = processor.LegacyOutputID(outputs[i].TopicID)
+				changed = true
+			}
+			if _, ok := seen[outputs[i].ID]; ok {
+				return fmt.Errorf("processor %q has duplicate output id %q", row.ID, outputs[i].ID)
+			}
+			seen[outputs[i].ID] = struct{}{}
+		}
+		if changed {
+			encoded, err := json.Marshal(outputs)
+			if err != nil {
+				return err
+			}
+			if err := db.Model(&processorRow{}).Where("org_id = ? AND id = ?", row.OrgID, row.ID).Update("outputs", string(encoded)).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func renameLegacyAssetLinkAgentColumn(db *gorm.DB) error {

@@ -15,8 +15,9 @@ import (
 // Mirrors topicsRepo: composite (orgID, id) key, (orgID, name)
 // uniqueness, ErrNotFound on cross-tenant lookups.
 type processorsRepo struct {
-	mu   sync.RWMutex
-	rows map[orgKey]processor.Processor
+	mu          sync.RWMutex
+	rows        map[orgKey]processor.Processor
+	attachments *attachmentsRepo
 }
 
 func (s *processorsRepo) Create(_ context.Context, p processor.Processor) error {
@@ -106,5 +107,6 @@ func (s *processorsRepo) Delete(_ context.Context, orgID string, id processor.Pr
 		return fmt.Errorf("processor %q in org %q: %w", id, orgID, store.ErrNotFound)
 	}
 	delete(s.rows, k)
+	s.attachments.deleteForProcessor(orgID, string(id))
 	return nil
 }

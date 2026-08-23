@@ -98,9 +98,10 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: clock, NewID: newID}),
 		Assets:        assetsSvc,
 		Processors: processors.New(processors.Deps{
-			Processors: st.Processors,
-			Topics:     topics.New(topics.Deps{Topics: st.Topics, Now: clock, NewID: newID}),
-			Now:        clock, NewID: newID,
+			Processors:  st.Processors,
+			Topics:      topics.New(topics.Deps{Topics: st.Topics, Now: clock, NewID: newID}),
+			Attachments: st.WorkerAttachments,
+			Now:         clock, NewID: newID,
 		}),
 		ChartLayout: chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: clock}),
 		Configs:     reg,

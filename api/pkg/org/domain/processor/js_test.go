@@ -19,6 +19,11 @@ func newJSProc(t *testing.T, code string, outputs []processor.Output) processor.
 	if outputs == nil {
 		outputs = out("s-out")
 	}
+	for i := range outputs {
+		if outputs[i].ID == "" {
+			outputs[i].ID = "po-" + string(outputs[i].TopicID)
+		}
+	}
 	p, err := processor.NewProcessor(
 		"p-js", "JS", "s-in", processor.KindJS,
 		cfg(t, map[string]string{"code": code}), outputs,

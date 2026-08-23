@@ -23,6 +23,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	"github.com/helixml/helix/api/pkg/org/domain/attachment"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
 	"github.com/helixml/helix/api/pkg/org/domain/domainevent"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -30,6 +31,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 )
 
 // New returns a fresh *store.Store backed by in-memory repos. Use
@@ -39,21 +41,27 @@ func New() *store.Store {
 	lines := &reportingLinesRepo{rows: map[lineKey]struct{}{}}
 	assetLinks := &assetLinksRepo{rows: map[assetLinkKey]asset.Link{}}
 	bots := &nodesRepo{rows: map[orgKey]orgchart.Node{}, subs: subs, lines: lines}
+	attachments := &attachmentsRepo{rows: map[orgKey]attachment.Attachment{}}
+	bots.attachments = attachments
+	processors := &processorsRepo{rows: map[orgKey]processor.Processor{}, attachments: attachments}
+	triggers := &triggersRepo{rows: map[orgKey]trigger.Trigger{}, attachments: attachments}
 	topics := &topicsRepo{rows: map[orgKey]streaming.Topic{}, subs: subs}
 	return &store.Store{
-		Nodes:            bots,
-		ReportingLines:   lines,
-		NodeRuntimeState: &runtimeStateRepo{rows: map[runtimeKey]string{}},
-		Topics:           topics,
-		Subscriptions:    subs,
-		Events:           &eventsRepo{rows: []streaming.Event{}, subs: subs, bots: bots},
-		Configs:          &configsRepo{rows: map[orgKey]config.Config{}},
-		Activations:      &activationsRepo{rows: map[orgKey]*activation.Activation{}},
-		Processors:       &processorsRepo{rows: map[orgKey]processor.Processor{}},
-		Assets:           &assetsRepo{rows: map[orgKey]asset.Asset{}, links: assetLinks},
-		AssetLinks:       assetLinks,
-		ChartPositions:   &chartPositionsRepo{rows: map[chartPosKey]orgchart.ChartPosition{}},
-		DomainEvents:     &domainEventsRepo{},
+		Nodes:             bots,
+		ReportingLines:    lines,
+		NodeRuntimeState:  &runtimeStateRepo{rows: map[runtimeKey]string{}},
+		Topics:            topics,
+		Subscriptions:     subs,
+		Events:            &eventsRepo{rows: []streaming.Event{}, subs: subs, bots: bots},
+		Configs:           &configsRepo{rows: map[orgKey]config.Config{}},
+		Activations:       &activationsRepo{rows: map[orgKey]*activation.Activation{}},
+		Processors:        processors,
+		Triggers:          triggers,
+		WorkerAttachments: attachments,
+		Assets:            &assetsRepo{rows: map[orgKey]asset.Asset{}, links: assetLinks},
+		AssetLinks:        assetLinks,
+		ChartPositions:    &chartPositionsRepo{rows: map[chartPosKey]orgchart.ChartPosition{}},
+		DomainEvents:      &domainEventsRepo{},
 	}
 }
 
@@ -177,8 +185,9 @@ type nodesRepo struct {
 	// deleted bot's own subscriptions and every reporting line that
 	// references it (as manager or report) are dropped, mirroring the
 	// gorm store's ON DELETE CASCADE foreign keys.
-	subs  *subscriptionsRepo
-	lines *reportingLinesRepo
+	subs        *subscriptionsRepo
+	lines       *reportingLinesRepo
+	attachments *attachmentsRepo
 }
 
 func (r *nodesRepo) Create(_ context.Context, b orgchart.Node) error {
@@ -259,6 +268,9 @@ func (r *nodesRepo) Delete(_ context.Context, orgID string, id orgchart.NodeID) 
 	}
 	if r.lines != nil {
 		r.lines.deleteAllForBot(orgID, id)
+	}
+	if r.attachments != nil {
+		r.attachments.deleteForWorker(orgID, string(id))
 	}
 	return nil
 }
