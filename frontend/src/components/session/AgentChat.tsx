@@ -25,6 +25,7 @@ interface AgentChatProps {
   showSessionPromptQueue?: boolean
   enableInteractionDebugCopy?: boolean
   onWillSend?: () => void
+  appendText?: string
   leadingActions?: ReactNode
   footerContent?: ReactNode
   reviewComments?: readonly WorkspaceReviewComment[]
@@ -42,6 +43,7 @@ const AgentChat: FC<AgentChatProps> = ({
   showSessionPromptQueue = false,
   enableInteractionDebugCopy,
   onWillSend,
+  appendText,
   leadingActions,
   footerContent,
   reviewComments,
@@ -164,6 +166,7 @@ const AgentChat: FC<AgentChatProps> = ({
               apiClient={apiClient}
               onSend={handleSend}
               onWillSend={onWillSend}
+              appendText={appendText}
               onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
               onFileUpload={handleFileUpload}
               onCancel={handleCancel}

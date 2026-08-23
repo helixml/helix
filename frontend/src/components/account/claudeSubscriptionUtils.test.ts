@@ -113,6 +113,13 @@ describe('getClaudeLoginExpiry', () => {
     expect(getClaudeLoginExpiry('not-a-date')).toBeNull()
   })
 
+  it('treats Go\'s zero time as no deadline, not a deadline in year 1', () => {
+    // Verbatim from GET /api/v1/claude-subscriptions for a setup token: an
+    // unset time.Time serialises as a real, parseable date. Reading it as a
+    // deadline told a user with a working login "Expired 739850d ago".
+    expect(getClaudeLoginExpiry('0001-01-01T00:00:00Z')).toBeNull()
+  })
+
   it('warns once the login dies within a day', () => {
     // Not a whole number of hours: inHours(5) lands microseconds under 5h and
     // floors to 4, which made this assertion flake under load.
