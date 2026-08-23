@@ -1,8 +1,6 @@
 import React, { FC, useMemo, useCallback, useState, useEffect } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
-import Tooltip from '@mui/material/Tooltip'
-import Chip from '@mui/material/Chip'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import IconButton from '@mui/material/IconButton'
@@ -92,11 +90,6 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
     setDuplicatingApp(null);
   };
 
-  // Handle navigation to app details with skills tab
-  const handleSkillClick = (app: IApp) => {
-    account.orgNavigate('agent', { app_id: app.id }, { tab: 'skills' });
-  };
-
   // Handle usage click
   const handleUsageClick = (app: IApp) => {
     account.orgNavigate('agent', { app_id: app.id }, { tab: 'usage' });
@@ -129,85 +122,6 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         const date = new Date(day.date || '')
         return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }) // e.g., "Mon 3"
       })      
-
-      // Determine which triggers are enabled
-      const triggers = app.config.helix?.triggers || []
-      const enabledTriggers: string[] = []
-      for (const trigger of triggers) {
-        if (trigger.slack) enabledTriggers.push('Slack')
-        if (trigger.teams) enabledTriggers.push('Teams')
-        if (trigger.crisp) enabledTriggers.push('Crisp')
-        if (trigger.cron) enabledTriggers.push('Cron')
-        if (trigger.discord) enabledTriggers.push('Discord')
-        if (trigger.azure_devops) enabledTriggers.push('Azure DevOps')
-      }
-      // Deduplicate
-      const uniqueTriggers = [...new Set(enabledTriggers)]
-
-      const skills = assistant?.tools && assistant.tools.length > 0 ? (
-        <>
-          {
-            // TODO: support more than 1 assistant
-            assistant.tools.map((apiTool, index) => {
-              return (
-                <Tooltip
-                  key={index}
-                  title={`${apiTool.description || 'No description available'} - Click to view skills`}
-                  placement="top"
-                  arrow
-                  slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
-                >
-                  <Chip
-                    label={apiTool.name || 'Unknown Tool'}
-                    size="small"
-                    variant="outlined"
-                    onClick={() => handleSkillClick(app)}
-                    sx={{
-                      mr: 0.5,
-                      mb: 0.5,
-                      color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-                      backgroundColor: 'transparent',
-                      border: `1px solid ${theme.palette.mode === 'dark' ? '#555' : '#ccc'}`,
-                      position: 'relative',
-                      transition: 'all 0.2s ease-in-out',
-                      cursor: 'pointer',
-                      '&:hover': {
-                        border: '1px solid transparent',
-                        '&::before': {
-                          content: '""',
-                          position: 'absolute',
-                          top: '-1px',
-                          left: '-1px',
-                          right: '-1px',
-                          bottom: '-1px',
-                          borderRadius: 'inherit',
-                          background: `linear-gradient(135deg, ${theme.chartGradientStart} 0%, ${theme.chartGradientEnd} 100%)`,
-                          zIndex: -1,
-                          pointerEvents: 'none',
-                        },
-                        '&::after': {
-                          content: '""',
-                          position: 'absolute',
-                          top: '1px',
-                          left: '1px',
-                          right: '1px',
-                          bottom: '1px',
-                          borderRadius: 'inherit',
-                          backgroundColor: theme.palette.mode === 'dark' ? theme.palette.background.paper : theme.palette.background.default,
-                          zIndex: -1,
-                          pointerEvents: 'none',
-                        },
-                        background: `linear-gradient(135deg, ${theme.chartGradientEnd} 0%, ${theme.chartGradientStart} 100%)`,
-                        transform: 'translateY(-1px)',
-                      },
-                    }}
-                  />
-                </Tooltip>
-              )
-            })
-          }
-        </>
-      ) : null
 
       const description = app.config.helix?.description || ''
       const model = assistant?.code_agent_runtime === 'claude_code'
@@ -249,37 +163,6 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
                 {description}
               </Typography>
             )}
-          </Box>
-        ),
-        skills: (
-          <Box sx={{ 
-            maxWidth: 300, 
-            display: 'flex', 
-            flexWrap: 'wrap', 
-            gap: 0.5,
-            alignItems: 'flex-start'
-          }}>
-            {skills}
-          </Box>
-        ),
-        triggers: (
-          <Box sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 0.5,
-          }}>
-            {uniqueTriggers.map((trigger) => (
-              <Chip
-                key={trigger}
-                label={trigger}
-                size="small"
-                variant="outlined"
-                sx={{
-                  color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-                  border: `1px solid ${theme.palette.mode === 'dark' ? '#555' : '#ccc'}`,
-                }}
-              />
-            ))}
           </Box>
         ),
         // Only agents that actually run a harness get one here — a native chat
@@ -383,8 +266,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
     )
   }, [])
 
-  // One list for every agent, so the columns are the union: a chat agent has no
-  // harness and a coding agent has no triggers, and each renders empty.
+  // One list for every agent. A chat agent has no harness, so that cell just
+  // renders empty rather than earning the list a second column set.
   const tableFields = useMemo(() => {
     return [
       {
@@ -398,14 +281,6 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       {
         name: 'model',
         title: 'Model',
-      },
-      {
-        name: 'skills',
-        title: 'Tools',
-      },
-      {
-        name: 'triggers',
-        title: 'Triggers',
       },
       {
         name: 'usage',
