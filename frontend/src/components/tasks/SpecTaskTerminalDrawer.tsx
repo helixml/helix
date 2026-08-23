@@ -13,6 +13,7 @@ interface Props {
   height: number
   onHeightChange: (height: number) => void
   onClose: () => void
+  onCopyToChat: (text: string) => void
 }
 
 const SpecTaskTerminalDrawer: FC<Props> = ({
@@ -21,6 +22,7 @@ const SpecTaskTerminalDrawer: FC<Props> = ({
   height,
   onHeightChange,
   onClose,
+  onCopyToChat,
 }) => {
   const [renderedHeight, setRenderedHeight] = useState(() =>
     clampSpecTaskTerminalHeight(height),
@@ -138,6 +140,7 @@ const SpecTaskTerminalDrawer: FC<Props> = ({
         running={running}
         fillContainer
         onRequestClose={onClose}
+        onCopyToChat={onCopyToChat}
       />
     </Box>
   )

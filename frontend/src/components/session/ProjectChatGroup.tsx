@@ -443,12 +443,13 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             const subLine = details
               ? [
                   details.branch && { key: 'branch', icon: <GitBranch size={11} />, value: details.branch },
+                  // Icon only — the mark identifies the harness, the name just
+                  // ate horizontal space on a phone.
                   details.harness && {
                     key: 'harness',
-                    icon: <AgentHarness runtime={details.runtime || ''} variant="short" size={11} showTooltip={false} />,
-                    value: details.harness,
+                    icon: <AgentHarness runtime={details.runtime || ''} variant="short" size={11} />,
                   },
-                ].filter(Boolean) as Array<{ key: string; icon: ReactElement; value: string }>
+                ].filter(Boolean) as Array<{ key: string; icon: ReactElement; value?: string }>
               : []
             return (
               <ProjectChatItemTooltip
@@ -702,25 +703,27 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                           alignItems: 'center',
                           gap: 0.5,
                           minWidth: 0,
-                          // The branch takes the slack; the harness name is
-                          // short and should stay whole.
+                          // The branch takes the slack; the other entries are
+                          // icon-sized and should stay whole.
                           flexShrink: entry.key === 'branch' ? 1 : 0,
                         }}
                       >
                         <Box sx={{ display: 'inline-flex', flexShrink: 0 }}>{entry.icon}</Box>
-                        <Typography
-                          component="span"
-                          sx={{
-                            minWidth: 0,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            fontSize: '11px',
-                            lineHeight: '15px',
-                          }}
-                        >
-                          {entry.value}
-                        </Typography>
+                        {entry.value && (
+                          <Typography
+                            component="span"
+                            sx={{
+                              minWidth: 0,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontSize: '11px',
+                              lineHeight: '15px',
+                            }}
+                          >
+                            {entry.value}
+                          </Typography>
+                        )}
                       </Box>
                     ))}
                   </Box>
