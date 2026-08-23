@@ -21,12 +21,14 @@ type ClaudeSubscription struct {
 	SubscriptionType     string         `json:"subscription_type"`                      // "max", "pro"
 	RateLimitTier        string         `json:"rate_limit_tier"`
 	Scopes               pq.StringArray `json:"scopes" gorm:"type:text[]"`
-	AccessTokenExpiresAt time.Time      `json:"access_token_expires_at"`
+	AccessTokenExpiresAt time.Time      `json:"access_token_expires_at,omitzero"`
 	// RefreshTokenExpiresAt is when the login itself dies and the user must
 	// re-authenticate. Refreshing keeps the 8h access token alive but does not
 	// move this, so it is the only honest basis for an expiry warning. Zero for
-	// setup tokens, which carry no refresh token.
-	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at"`
+	// setup tokens, which carry no refresh token — omitzero so an absent
+	// deadline reaches the client as absent, not as "0001-01-01T00:00:00Z",
+	// which reads as a date 739850 days in the past.
+	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at,omitzero"`
 	Status                string    `json:"status"` // "active", "expired", "error"
 
 	// DelegatedOrgIDs lists the organizations whose agent sessions may

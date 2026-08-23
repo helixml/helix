@@ -1036,7 +1036,11 @@ func (apiServer *HelixAPIServer) completeClaudeOAuthLogin(_ http.ResponseWriter,
 		AccessToken:  tokens.AccessToken,
 		RefreshToken: tokens.RefreshToken,
 		ExpiresAt:    tokens.ExpiresAt,
-		Scopes:       tokens.Scopes,
+		// Carry the login deadline through. Dropping it left every
+		// browser-connected subscription with no recorded expiry until a
+		// background refresh happened to supply one.
+		RefreshTokenExpiresAt: tokens.RefreshExpiresAt,
+		Scopes:                tokens.Scopes,
 	}
 	return apiServer.createClaudeSubscriptionFrom(req.Context(), user, createReq)
 }
