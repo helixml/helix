@@ -10,7 +10,6 @@ import SendIcon from '@mui/icons-material/Send'
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import { isSandboxOffline } from '../components/external-agent/sandboxState'
-import Disclaimer from '../components/widgets/Disclaimer'
 import SessionToolbar from '../components/session/SessionToolbar'
 
 import Window from '../components/widgets/Window'
@@ -1472,12 +1471,6 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
                     ) : undefined}
                   />
                 </Box>
-                {/* Only show disclaimer if not in preview mode */}
-                {!previewMode && (
-                  <Box sx={{ mt: 2 }}>
-                    <Disclaimer />
-                  </Box>
-                )}
               </Box>
             </Container>
           </Box>
