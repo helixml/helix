@@ -34,6 +34,9 @@ import {
   ApiUpdateBotRequest,
   ApiUpdateAssetRequest,
   ApiUpdateTopicRequest,
+  ApiWorkerSecretBindingDTO,
+  WorkersecretAvailableSource,
+  ApiPutWorkerSecretRequest,
 } from '../api/api'
 
 // Re-exported aliases. Generated Api* types mark every field
@@ -72,6 +75,8 @@ export type CreateBotResponse = ApiCreateBotResponse
 export type UpdateBotRequest = ApiUpdateBotRequest
 export type CreateTopicRequest = ApiCreateTopicRequest & { name: string }
 export type UpdateTopicRequest = ApiUpdateTopicRequest
+export type WorkerSecretBinding = ApiWorkerSecretBindingDTO
+export type AvailableWorkerSecret = WorkersecretAvailableSource
 
 export interface HelixModelInfo {
   id: string
@@ -99,6 +104,53 @@ export const QUERY_KEYS = {
   assets: (orgID: string) => ['helix-org', orgID, 'assets'] as const,
   asset: (orgID: string, id: string) => ['helix-org', orgID, 'assets', id] as const,
   assetHealth: (orgID: string, id: string) => ['helix-org', orgID, 'assets', id, 'health'] as const,
+  workerSecrets: (orgID: string, id: string) => ['helix-org', orgID, 'agents', id, 'secrets'] as const,
+  availableWorkerSecrets: (orgID: string, id: string) => ['helix-org', orgID, 'agents', id, 'available-secrets'] as const,
+}
+
+export function useWorkerSecrets(agentID?: string) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.workerSecrets(orgID, agentID ?? ''),
+    queryFn: async () => (await api.getApiClient().v1OrgsAgentsSecretsDetail(orgID, agentID!)).data,
+    enabled: !!orgID && !!agentID,
+  })
+}
+export function useAvailableWorkerSecrets(agentID?: string) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.availableWorkerSecrets(orgID, agentID ?? ''),
+    queryFn: async () => (await api.getApiClient().v1OrgsAgentsAvailableSecretsDetail(orgID, agentID!)).data,
+    enabled: !!orgID && !!agentID,
+  })
+}
+export function usePutWorkerSecret(agentID?: string) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (input: { name: string; payload: ApiPutWorkerSecretRequest }) => (
+      await api.getApiClient().v1OrgsAgentsSecretsUpdate(orgID, agentID!, input.name, input.payload)
+    ).data,
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSecrets(orgID, agentID ?? '') })
+      await qc.invalidateQueries({ queryKey: QUERY_KEYS.availableWorkerSecrets(orgID, agentID ?? '') })
+    },
+  })
+}
+export function useDeleteWorkerSecret(agentID?: string) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (name: string) => api.getApiClient().v1OrgsAgentsSecretsDelete(orgID, agentID!, name),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSecrets(orgID, agentID ?? '') })
+      await qc.invalidateQueries({ queryKey: QUERY_KEYS.availableWorkerSecrets(orgID, agentID ?? '') })
+    },
+  })
 }
 
 export function useListAssets(options?: { enabled?: boolean }) {

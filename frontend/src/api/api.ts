@@ -456,6 +456,17 @@ export interface ApiPublishResponse {
   event_id?: string;
 }
 
+export interface ApiPutWorkerSecretRequest {
+  account_id?: string;
+  content_type?: string;
+  description?: string;
+  export_key?: string;
+  secret_id?: string;
+  source_kind?: WorkersecretSourceKind;
+  suggested_filename?: string;
+  usage?: string;
+}
+
 export interface ApiServerAssetDTO {
   address?: string;
   auth_type?: AssetAuthType;
@@ -572,6 +583,20 @@ export interface ApiUpdateTopicRequest {
 
 export interface ApiUpsertChartPositionsRequest {
   positions?: ApiChartPositionDTO[];
+}
+
+export interface ApiWorkerSecretBindingDTO {
+  account_id?: string;
+  content_type?: string;
+  created_at?: string;
+  description?: string;
+  export_key?: string;
+  name?: string;
+  secret_id?: string;
+  source_kind?: WorkersecretSourceKind;
+  suggested_filename?: string;
+  updated_at?: string;
+  usage?: string;
 }
 
 export enum AssetAuthType {
@@ -8643,6 +8668,24 @@ export interface TypesZedInstanceStatus {
   zed_instance_id?: string;
 }
 
+export interface WorkersecretAvailableSource {
+  account_id?: string;
+  already_bound?: boolean;
+  export_key?: string;
+  group?: string;
+  label?: string;
+  proposed_name?: string;
+  resource_id?: string;
+  secret_id?: string;
+  source_kind?: WorkersecretSourceKind;
+  usage?: string;
+}
+
+export enum WorkersecretSourceKind {
+  SourceHelixSecret = "helix_secret",
+  SourceConnectedAccount = "connected_account",
+}
+
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, HeadersDefaults, ResponseType } from "axios";
 import axios from "axios";
 
@@ -13888,6 +13931,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsAgentsAvailableSecretsDetail
+     * @summary List sources that may be granted to an Agent
+     * @request GET:/api/v1/orgs/{org}/agents/{id}/available-secrets
+     * @secure
+     */
+    v1OrgsAgentsAvailableSecretsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<WorkersecretAvailableSource[], any>({
+        path: `/api/v1/orgs/${org}/agents/${id}/available-secrets`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsAgentsChatCreate
      * @summary Helix-org: provision an agent chat
      * @request POST:/api/v1/orgs/{org}/agents/{id}/chat
@@ -13951,6 +14011,65 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/orgs/${org}/agents/${id}/restart-agent`,
         method: "POST",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsSecretsDetail
+     * @summary List an Agent's secret bindings
+     * @request GET:/api/v1/orgs/{org}/agents/{id}/secrets
+     * @secure
+     */
+    v1OrgsAgentsSecretsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerSecretBindingDTO[], any>({
+        path: `/api/v1/orgs/${org}/agents/${id}/secrets`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsSecretsDelete
+     * @summary Delete an Agent secret binding
+     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/secrets/{name}
+     * @secure
+     */
+    v1OrgsAgentsSecretsDelete: (org: string, id: string, name: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/agents/${id}/secrets/${name}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsSecretsUpdate
+     * @summary Create or replace an Agent secret binding
+     * @request PUT:/api/v1/orgs/{org}/agents/{id}/secrets/{name}
+     * @secure
+     */
+    v1OrgsAgentsSecretsUpdate: (
+      org: string,
+      id: string,
+      name: string,
+      payload: ApiPutWorkerSecretRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiWorkerSecretBindingDTO, any>({
+        path: `/api/v1/orgs/${org}/agents/${id}/secrets/${name}`,
+        method: "PUT",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 

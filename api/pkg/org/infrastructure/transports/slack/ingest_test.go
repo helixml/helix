@@ -128,7 +128,7 @@ func TestIngest_AnyChannel_Published(t *testing.T) {
 	}
 	// The transport stamps a ReplyHint carrying the concrete coordinates
 	// the agent needs to reply through publish or use the Slack API for rich actions.
-	for _, want := range []string{"workspace-wide ingress Topic tp1 is inbound-only", "list_topics, find this ingress Topic by ID", "identify its service_connection_id", "If publish is available", "service_connection_id matches that ingress Topic", "channel_id is C-random", "If publish is unavailable or no matching Topic exists", "mint_credential", "chat.postMessage", "reactions.add", "files.upload", "conversations.replies", "conversations.history"} {
+	for _, want := range []string{"workspace-wide ingress Topic tp1 is inbound-only", "list_topics, find this ingress Topic by ID", "identify its service_connection_id", "If publish is available", "service_connection_id matches that ingress Topic", "channel_id is C-random", "If publish is unavailable or no matching Topic exists", "get_secret", "chat.postMessage", "reactions.add", "files.upload", "conversations.replies", "conversations.history"} {
 		if !strings.Contains(c.msg.ReplyHint, want) {
 			t.Fatalf("ReplyHint %q missing %q", c.msg.ReplyHint, want)
 		}
@@ -163,7 +163,7 @@ func TestIngest_ExactChannelOverridesWorkspaceFallback(t *testing.T) {
 	if len(pub.calls) != 1 || pub.calls[0].topicID != "tp1" {
 		t.Fatalf("matching channel publishes = %+v", pub.calls)
 	}
-	for _, want := range []string{"if publish is available", "call publish on Topic tp1", "Otherwise call mint_credential"} {
+	for _, want := range []string{"if publish is available", "call publish on Topic tp1", "Otherwise call get_secret"} {
 		if !strings.Contains(pub.calls[0].msg.ReplyHint, want) {
 			t.Fatalf("exact topic reply hint %q missing %q", pub.calls[0].msg.ReplyHint, want)
 		}

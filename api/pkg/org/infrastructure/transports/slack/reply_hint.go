@@ -31,12 +31,12 @@ func replyHint(topicID string, exact bool, teamID, channel, channelType, ts, thr
 		threadContext = ""
 	}
 	basicReply := fmt.Sprintf(
-		"- Basic text reply: this workspace-wide ingress Topic %s is inbound-only. Call list_topics, find this ingress Topic by ID, and identify its service_connection_id. If publish is available, publish to a configured Slack Topic whose service_connection_id matches that ingress Topic and whose channel_id is %s with %s. If publish is unavailable or no matching Topic exists, call mint_credential and use chat.postMessage.",
+		"- Basic text reply: this workspace-wide ingress Topic %s is inbound-only. Call list_topics, find this ingress Topic by ID, and identify its service_connection_id. If publish is available, publish to a configured Slack Topic whose service_connection_id matches that ingress Topic and whose channel_id is %s with %s. If publish is unavailable or no matching Topic exists, call get_secret for the granted Slack token and use chat.postMessage.",
 		topicID, channel, replyTarget,
 	)
 	if exact {
 		basicReply = fmt.Sprintf(
-			"- Basic text reply: if publish is available, call publish on Topic %s with %s. A delivered receipt confirms Slack accepted it. Otherwise call mint_credential and use chat.postMessage.",
+			"- Basic text reply: if publish is available, call publish on Topic %s with %s. A delivered receipt confirms Slack accepted it. Otherwise call get_secret for the granted Slack token and use chat.postMessage.",
 			topicID, replyTarget,
 		)
 	}
@@ -46,7 +46,7 @@ func replyHint(topicID string, exact bool, teamID, channel, channelType, ts, thr
 			"- Context: use the triggering message and routing details already in this prompt, plus any "+
 			"context in your existing conversation. Do not fetch Slack history by default. %[4]sOnly "+
 			"when channel-root context is genuinely necessary, call conversations.history with channel=%[2]s.\n"+
-			"- Rich actions or a different/unconfigured channel: call mint_credential with provider=\"slack\" and resource=\"%[1]s\", then use the Slack API directly for chat.postMessage, reactions.add, files.upload, edits, or lookups.",
+			"- Rich actions or a different/unconfigured channel: call get_secret for the granted Slack token, then use the Slack API directly for chat.postMessage, reactions.add, files.upload, edits, or lookups. Match the binding's non-secret workspace metadata to team_id %[1]s.",
 		teamID, channel, basicReply, threadContext,
 	)
 }

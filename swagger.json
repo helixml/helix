@@ -10484,6 +10484,30 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/agents/{id}/available-secrets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "List sources that may be granted to an Agent",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/workersecret.AvailableSource"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/agents/{id}/chat": {
             "post": {
                 "security": [
@@ -10701,6 +10725,78 @@
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/secrets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "List an Agent's secret bindings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.WorkerSecretBindingDTO"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/secrets/{name}": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Create or replace an Agent secret binding",
+                "parameters": [
+                    {
+                        "description": "Binding metadata",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.PutWorkerSecretRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerSecretBindingDTO"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Delete an Agent secret binding",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
                     }
                 }
             }
@@ -24463,6 +24559,35 @@
                 }
             }
         },
+        "api.PutWorkerSecretRequest": {
+            "type": "object",
+            "properties": {
+                "account_id": {
+                    "type": "string"
+                },
+                "content_type": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "export_key": {
+                    "type": "string"
+                },
+                "secret_id": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "$ref": "#/definitions/workersecret.SourceKind"
+                },
+                "suggested_filename": {
+                    "type": "string"
+                },
+                "usage": {
+                    "type": "string"
+                }
+            }
+        },
         "api.ServerAssetDTO": {
             "type": "object",
             "properties": {
@@ -24769,6 +24894,44 @@
                     "items": {
                         "$ref": "#/definitions/api.ChartPositionDTO"
                     }
+                }
+            }
+        },
+        "api.WorkerSecretBindingDTO": {
+            "type": "object",
+            "properties": {
+                "account_id": {
+                    "type": "string"
+                },
+                "content_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "export_key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "secret_id": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "$ref": "#/definitions/workersecret.SourceKind"
+                },
+                "suggested_filename": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "usage": {
+                    "type": "string"
                 }
             }
         },
@@ -42288,6 +42451,52 @@
                     "type": "string"
                 }
             }
+        },
+        "workersecret.AvailableSource": {
+            "type": "object",
+            "properties": {
+                "account_id": {
+                    "type": "string"
+                },
+                "already_bound": {
+                    "type": "boolean"
+                },
+                "export_key": {
+                    "type": "string"
+                },
+                "group": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "proposed_name": {
+                    "type": "string"
+                },
+                "resource_id": {
+                    "type": "string"
+                },
+                "secret_id": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "$ref": "#/definitions/workersecret.SourceKind"
+                },
+                "usage": {
+                    "type": "string"
+                }
+            }
+        },
+        "workersecret.SourceKind": {
+            "type": "string",
+            "enum": [
+                "helix_secret",
+                "connected_account"
+            ],
+            "x-enum-varnames": [
+                "SourceHelixSecret",
+                "SourceConnectedAccount"
+            ]
         }
     },
     "securityDefinitions": {

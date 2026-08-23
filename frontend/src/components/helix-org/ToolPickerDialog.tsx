@@ -126,7 +126,7 @@ export const toolCapabilityGroupKey = (name: string): ToolCapabilityGroupKey => 
   if (AGENT_TOOLS.has(name)) return 'agents'
   if (TOPIC_TOOLS.has(name)) return 'topics'
   if (name.includes('spectask') || name.includes('project') || name.includes('repository')) return 'delivery'
-  if (name === 'mint_credential' || name === 'list_secrets') return 'credentials'
+  if (name === 'get_secret' || name === 'list_secrets') return 'credentials'
   return 'other'
 }
 

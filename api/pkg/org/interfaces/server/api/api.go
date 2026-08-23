@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
+	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -95,7 +96,8 @@ type Deps struct {
 	// Queries is the read facade for every projection the read handlers
 	// render. One service spanning several repos (reads carry no
 	// invariants to split on).
-	Queries *queries.Queries
+	Queries       *queries.Queries
+	WorkerSecrets *workersecrets.Service
 
 	Configs    *configregistry.Registry
 	Hub        *wakebus.Bus
@@ -351,6 +353,10 @@ func Routes(deps Deps) []Route {
 		{Pattern: "POST /agents/{id}/restart-agent", Handler: http.HandlerFunc(a.restartAgent)},
 		{Pattern: "POST /agents/{id}/parents", Handler: http.HandlerFunc(a.addAgentParent)},
 		{Pattern: "DELETE /agents/{id}/parents/{parent_id}", Handler: http.HandlerFunc(a.removeAgentParent)},
+		{Pattern: "GET /agents/{id}/secrets", Handler: http.HandlerFunc(a.listWorkerSecrets)},
+		{Pattern: "GET /agents/{id}/available-secrets", Handler: http.HandlerFunc(a.listAvailableWorkerSecrets)},
+		{Pattern: "PUT /agents/{id}/secrets/{name}", Handler: http.HandlerFunc(a.putWorkerSecret)},
+		{Pattern: "DELETE /agents/{id}/secrets/{name}", Handler: http.HandlerFunc(a.deleteWorkerSecret)},
 		{Pattern: "GET /tools", Handler: http.HandlerFunc(a.listTools)},
 		{Pattern: "GET /settings", Handler: http.HandlerFunc(a.listSettings)},
 		{Pattern: "PUT /settings/{key}", Handler: http.HandlerFunc(a.setSetting)},

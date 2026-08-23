@@ -69,24 +69,56 @@ func (c *ProjectConfig) GetWorkerProjectConfig(ctx context.Context, orgID string
 	}, nil
 }
 
-// ListWorkerProjectSecrets resolves the worker's project ID via the
-// helix runtime state, then returns the project's current secrets as a
-// name→value map. Read live on every call, so a secret added after the
-// worker's container booted is returned without a restart. Failure modes
-// match GetWorkerProjectConfig.
-func (c *ProjectConfig) ListWorkerProjectSecrets(ctx context.Context, orgID string, workerID orgchart.NodeID) (map[string]string, error) {
+func (c *ProjectConfig) ValidateWorkerProjectSecret(ctx context.Context, orgID string, workerID orgchart.NodeID, secretID string) error {
+	_, _, err := c.workerProjectSecret(ctx, orgID, workerID, secretID)
+	return err
+}
+
+func (c *ProjectConfig) ListWorkerProjectSecretRecords(ctx context.Context, orgID string, workerID orgchart.NodeID) ([]types.Secret, error) {
 	state, err := LoadState(ctx, c.store, orgID, workerID)
 	if err != nil {
 		return nil, fmt.Errorf("load worker state: %w", err)
 	}
 	if state.ProjectID == "" {
-		return nil, fmt.Errorf("worker %s: %w", workerID, runtime.ErrProjectConfigUnsupported)
+		return nil, runtime.ErrProjectConfigUnsupported
 	}
-	secrets, err := c.helix.ListProjectSecrets(ctx, state.ProjectID)
+	return c.helix.ListProjectSecretRecords(ctx, state.ProjectID)
+}
+
+func (c *ProjectConfig) ResolveWorkerProjectSecret(ctx context.Context, orgID string, workerID orgchart.NodeID, secretID string) (string, error) {
+	secret, projectID, err := c.workerProjectSecret(ctx, orgID, workerID, secretID)
 	if err != nil {
-		return nil, fmt.Errorf("list project secrets for %s: %w", state.ProjectID, err)
+		return "", err
 	}
-	return secrets, nil
+	values, err := c.helix.ListProjectSecrets(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	value, ok := values[secret.Name]
+	if !ok {
+		return "", fmt.Errorf("project secret %s is unavailable", secretID)
+	}
+	return value, nil
+}
+
+func (c *ProjectConfig) workerProjectSecret(ctx context.Context, orgID string, workerID orgchart.NodeID, secretID string) (types.Secret, string, error) {
+	state, err := LoadState(ctx, c.store, orgID, workerID)
+	if err != nil {
+		return types.Secret{}, "", fmt.Errorf("load worker state: %w", err)
+	}
+	if state.ProjectID == "" {
+		return types.Secret{}, "", runtime.ErrProjectConfigUnsupported
+	}
+	rows, err := c.helix.ListProjectSecretRecords(ctx, state.ProjectID)
+	if err != nil {
+		return types.Secret{}, "", err
+	}
+	for _, secret := range rows {
+		if secret.ID == secretID && secret.ProjectID == state.ProjectID {
+			return secret, state.ProjectID, nil
+		}
+	}
+	return types.Secret{}, "", fmt.Errorf("project secret is unavailable")
 }
 
 // UpdateWorkerProjectConfig applies a partial patch to the

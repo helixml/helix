@@ -115,7 +115,7 @@ func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL str
 
 // MintInstallationToken returns a raw GitHub App installation access token
 // string (valid ~1h) for an installation. Workers obtain it on demand via
-// the mint_credential MCP tool (which goes through MintInstallationCredential
+// the Worker secret resolver (which goes through MintInstallationCredential
 // to also surface ExpiresAt); other server-side call sites — repo
 // aggregation, webhook install — use this string-only form directly.
 //
@@ -136,7 +136,7 @@ func MintInstallationToken(ctx context.Context, appID, installationID int64, pri
 }
 
 // InstallationCredential is the installation-token result paired with
-// the GitHub-reported expiry. ExpiresAt is what the mint_credential MCP
+// the GitHub-reported expiry. ExpiresAt is what the Worker secret resolver
 // tool surfaces to the agent so it can plan when to refresh.
 type InstallationCredential struct {
 	Token     string

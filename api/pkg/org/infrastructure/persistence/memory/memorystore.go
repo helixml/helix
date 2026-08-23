@@ -32,6 +32,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	"github.com/helixml/helix/api/pkg/org/domain/trigger"
+	"github.com/helixml/helix/api/pkg/org/domain/workersecret"
 )
 
 // New returns a fresh *store.Store backed by in-memory repos. Use
@@ -47,22 +48,91 @@ func New() *store.Store {
 	triggers := &triggersRepo{rows: map[orgKey]trigger.Trigger{}, attachments: attachments}
 	topics := &topicsRepo{rows: map[orgKey]streaming.Topic{}, subs: subs}
 	return &store.Store{
-		Nodes:             bots,
-		ReportingLines:    lines,
-		NodeRuntimeState:  &runtimeStateRepo{rows: map[runtimeKey]string{}},
-		Topics:            topics,
-		Subscriptions:     subs,
-		Events:            &eventsRepo{rows: []streaming.Event{}, subs: subs, bots: bots},
-		Configs:           &configsRepo{rows: map[orgKey]config.Config{}},
-		Activations:       &activationsRepo{rows: map[orgKey]*activation.Activation{}},
-		Processors:        processors,
-		Triggers:          triggers,
-		WorkerAttachments: attachments,
-		Assets:            &assetsRepo{rows: map[orgKey]asset.Asset{}, links: assetLinks},
-		AssetLinks:        assetLinks,
-		ChartPositions:    &chartPositionsRepo{rows: map[chartPosKey]orgchart.ChartPosition{}},
-		DomainEvents:      &domainEventsRepo{},
+		Nodes:                bots,
+		ReportingLines:       lines,
+		NodeRuntimeState:     &runtimeStateRepo{rows: map[runtimeKey]string{}},
+		Topics:               topics,
+		Subscriptions:        subs,
+		Events:               &eventsRepo{rows: []streaming.Event{}, subs: subs, bots: bots},
+		Configs:              &configsRepo{rows: map[orgKey]config.Config{}},
+		Activations:          &activationsRepo{rows: map[orgKey]*activation.Activation{}},
+		Processors:           processors,
+		Triggers:             triggers,
+		WorkerAttachments:    attachments,
+		WorkerSecretBindings: &workerSecretBindingsRepo{rows: map[workerSecretKey]workersecret.Binding{}},
+		Assets:               &assetsRepo{rows: map[orgKey]asset.Asset{}, links: assetLinks},
+		AssetLinks:           assetLinks,
+		ChartPositions:       &chartPositionsRepo{rows: map[chartPosKey]orgchart.ChartPosition{}},
+		DomainEvents:         &domainEventsRepo{},
 	}
+}
+
+type workerSecretKey struct {
+	orgID    string
+	workerID orgchart.NodeID
+	name     string
+}
+type workerSecretBindingsRepo struct {
+	mu   sync.RWMutex
+	rows map[workerSecretKey]workersecret.Binding
+}
+
+func (r *workerSecretBindingsRepo) Create(_ context.Context, b workersecret.Binding) error {
+	if err := b.Validate(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := workerSecretKey{b.OrganizationID, b.WorkerID, b.Name}
+	if _, ok := r.rows[k]; ok {
+		return fmt.Errorf("worker secret binding: %w", store.ErrConflict)
+	}
+	r.rows[k] = b
+	return nil
+}
+func (r *workerSecretBindingsRepo) Update(_ context.Context, b workersecret.Binding) error {
+	if err := b.Validate(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := workerSecretKey{b.OrganizationID, b.WorkerID, b.Name}
+	if _, ok := r.rows[k]; !ok {
+		return fmt.Errorf("worker secret binding: %w", store.ErrNotFound)
+	}
+	r.rows[k] = b
+	return nil
+}
+func (r *workerSecretBindingsRepo) Get(_ context.Context, orgID string, workerID orgchart.NodeID, name string) (workersecret.Binding, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	b, ok := r.rows[workerSecretKey{orgID, workerID, name}]
+	if !ok {
+		return workersecret.Binding{}, fmt.Errorf("worker secret binding: %w", store.ErrNotFound)
+	}
+	return b, nil
+}
+func (r *workerSecretBindingsRepo) List(_ context.Context, orgID string, workerID orgchart.NodeID) ([]workersecret.Binding, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]workersecret.Binding, 0)
+	for k, b := range r.rows {
+		if k.orgID == orgID && k.workerID == workerID {
+			out = append(out, b)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+func (r *workerSecretBindingsRepo) Delete(_ context.Context, orgID string, workerID orgchart.NodeID, name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := workerSecretKey{orgID, workerID, name}
+	if _, ok := r.rows[k]; !ok {
+		return fmt.Errorf("worker secret binding: %w", store.ErrNotFound)
+	}
+	delete(r.rows, k)
+	return nil
 }
 
 // ---- ChartPositions -----------------------------------------------------

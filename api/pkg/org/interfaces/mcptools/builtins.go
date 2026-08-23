@@ -20,8 +20,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/spectasks"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
+	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
-	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -116,12 +116,8 @@ type Deps struct {
 	// Repositories backs list_repositories / list_bot_repositories /
 	// attach_repository / detach_repository — org git repos attached to
 	// Bot projects so sandboxes can clone the code.
-	Repositories runtime.Repositories
-	// CredentialProviders is the registry mint_credential dispatches on.
-	CredentialProviders map[string]credential.Provider
-	// RecordCredential lets the host redact a minted token if the agent
-	// later echoes it into user-visible output.
-	RecordCredential func(orgID, provider, token string)
+	Repositories  runtime.Repositories
+	WorkerSecrets *workersecrets.Service
 	// Hub lets the long-poll read tools (read_events, bot_log) block on
 	// new events. It is a broadcaster, not a store.
 	Hub *wakebus.Bus
@@ -155,6 +151,7 @@ type Config struct {
 	ToolChangeNotifier  func(context.Context, string)
 	HireHook            runtime.HireHook
 	ProjectConfig       runtime.ProjectConfig
+	WorkerSecrets       *workersecrets.Service
 	// SpecTasks is the runtime port the spec-task tools dispatch on. nil
 	// → Build defaults to runtime.NoopSpecTasks{} so the tools return a
 	// clear "not wired" error instead of nil-derefing.
@@ -171,10 +168,8 @@ type Config struct {
 	ProjectAccess projects.OwnProjectResolver
 	// Repositories is the runtime port for org git-repo list/attach/detach.
 	// nil → Build defaults to runtime.NoopRepositories{}.
-	Repositories        runtime.Repositories
-	Reconciler          *reconcile.Reconciler
-	CredentialProviders map[string]credential.Provider
-	RecordCredential    func(orgID, provider, token string)
+	Repositories runtime.Repositories
+	Reconciler   *reconcile.Reconciler
 	// Lifecycle, when set, is used verbatim instead of building a fresh one,
 	// so the MCP tools share the composition root's reconciler-complete
 	// service. nil → lifecycleService() builds a standalone service.
@@ -219,12 +214,11 @@ func (c Config) Build() Deps {
 		AgentContentUpdater:  c.AgentContentUpdater,
 		AgentProfileReader:   c.AgentProfileReader,
 		ProjectConfig:        c.ProjectConfig,
+		WorkerSecrets:        c.WorkerSecrets,
 		SpecTasks:            c.specTasksService(),
 		Projects:             c.projectsService(),
 		Sandboxes:            c.sandboxesService(),
 		Repositories:         c.repositoriesPort(),
-		CredentialProviders:  c.CredentialProviders,
-		RecordCredential:     c.RecordCredential,
 		Hub:                  c.Hub,
 		HumanDelivery:        c.HumanDelivery,
 	}
@@ -371,16 +365,15 @@ func (c Config) topicsService() *topics.Topics {
 // calling Build().
 func DefaultDeps(s *store.Store) Config {
 	c := Config{
-		Store:               s,
-		Now:                 func() time.Time { return time.Now().UTC() },
-		NewID:               uuid.NewString,
-		HireHook:            runtime.NoopHireHook{},
-		ProjectConfig:       runtime.NoopProjectConfig{},
-		SpecTasks:           runtime.NoopSpecTasks{},
-		Projects:            runtime.NoopProjects{},
-		Sandboxes:           runtime.NoopSandboxes{},
-		Repositories:        runtime.NoopRepositories{},
-		CredentialProviders: map[string]credential.Provider{},
+		Store:         s,
+		Now:           func() time.Time { return time.Now().UTC() },
+		NewID:         uuid.NewString,
+		HireHook:      runtime.NoopHireHook{},
+		ProjectConfig: runtime.NoopProjectConfig{},
+		SpecTasks:     runtime.NoopSpecTasks{},
+		Projects:      runtime.NoopProjects{},
+		Sandboxes:     runtime.NoopSandboxes{},
+		Repositories:  runtime.NoopRepositories{},
 	}
 	c.Reconciler = reconcile.New(reconcile.Deps{
 		Nodes:          s.Nodes,
@@ -426,7 +419,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&DetachTool{deps: deps},
 		&DeleteBot{deps: deps},
 		&CreateTopic{deps: deps},
-		&MintCredential{deps: deps, providers: deps.CredentialProviders},
+		&GetSecret{deps: deps},
 		&TopicMembers{deps: deps},
 		&Subscribe{deps: deps},
 		&Unsubscribe{deps: deps},

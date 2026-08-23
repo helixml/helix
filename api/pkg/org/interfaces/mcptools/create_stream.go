@@ -55,7 +55,7 @@ func (t *CreateTopic) Description() string {
 		`{"transport":{"kind":"webhook","config":{"outbound_url":"https://example.com/in"}}}` +
 		`. For Slack basic text delivery, configure exactly one destination: ` +
 		`{"transport":{"kind":"slack","config":{"service_connection_id":"...","channel_id":"C123"}}}. ` +
-		"Use mint_credential and the Slack API for reactions, uploads, edits, and other rich actions."
+		"Use get_secret for the granted Slack token and the Slack API for reactions, uploads, edits, and other rich actions."
 }
 func (t *CreateTopic) InputSchema() *jsonschema.Schema { return createTopicSchema }
 

@@ -893,7 +893,7 @@ an app is present: `SELECT count(*) FROM service_connections WHERE type =
   carries `slack_channel`/`slack_team_id`); the bot's own posts are
   dropped (no echo loop). A subscribed Bot (or a processor filter)
   activates; its prompt carries the `how_to_reply` hint. The Bot mints
-  a token (`mint_credential provider=slack resource=<team_id>`) and posts
+  the explicitly granted Slack token (`get_secret name=SLACK_BOT_TOKEN`) and posts
   back via `chat.postMessage` under its own name. Unknown team / no bound
   Topic → 200 + silently dropped.
 - **Isolation + cascade.** `GET /api/v1/orgs/<org>/slack/workspaces`

@@ -278,8 +278,8 @@ func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
-		if isHelixOrgAssetMutation(r) && !isAdmin(user) && membership.Role != types.OrganizationRoleOwner {
-			http.Error(w, "only organization owners and administrators can modify assets", http.StatusForbidden)
+		if isHelixOrgPrivilegedMutation(r) && !isAdmin(user) && membership.Role != types.OrganizationRoleOwner {
+			http.Error(w, "only organization owners and administrators can modify this resource", http.StatusForbidden)
 			return
 		}
 		ctx := helixorgserver.WithOrgID(r.Context(), org.ID)
@@ -299,7 +299,7 @@ func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 	})
 }
 
-func isHelixOrgAssetMutation(r *http.Request) bool {
+func isHelixOrgPrivilegedMutation(r *http.Request) bool {
 	switch r.Method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 	default:
@@ -307,7 +307,15 @@ func isHelixOrgAssetMutation(r *http.Request) bool {
 	}
 	orgSegment := mux.Vars(r)["org"]
 	assetsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/assets"
-	return r.URL.Path == assetsPath || strings.HasPrefix(r.URL.Path, assetsPath+"/")
+	if r.URL.Path == assetsPath || strings.HasPrefix(r.URL.Path, assetsPath+"/") {
+		return true
+	}
+	agentsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/agents/"
+	if !strings.HasPrefix(r.URL.Path, agentsPath) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, agentsPath), "/")
+	return len(parts) >= 3 && parts[0] != "" && parts[1] == "secrets" && parts[2] != ""
 }
 
 // stripOrgScopedPrefix strips "/api/v1/orgs/{org}" off the request

@@ -35,6 +35,7 @@ var orgRowTypes = []any{
 	&processorRow{},
 	&triggerRow{},
 	&attachmentRow{},
+	&workerSecretBindingRow{},
 	&asset.Asset{},
 	&asset.Link{},
 	&chartPositionRow{},
@@ -60,6 +61,7 @@ var orgTableNames = []string{
 	"org_processors",
 	"org_triggers",
 	"org_worker_attachments",
+	"org_worker_secret_bindings",
 	"org_assets",
 	"org_asset_links",
 	"org_chart_positions",
@@ -136,28 +138,48 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if err := installAttachmentConstraints(db); err != nil {
 		return nil, fmt.Errorf("install attachment constraints: %w", err)
 	}
+	if err := installWorkerSecretConstraints(db); err != nil {
+		return nil, fmt.Errorf("install worker secret constraints: %w", err)
+	}
 	if err := installAgentAppLinks(db); err != nil {
 		return nil, fmt.Errorf("install agent app links: %w", err)
 	}
 
 	bots := newNodesRepo(db)
 	return &store.Store{
-		Nodes:             bots,
-		ReportingLines:    newReportingLinesRepo(db),
-		NodeRuntimeState:  newNodeRuntimeStateRepo(db),
-		Topics:            newTopicsRepo(db),
-		Subscriptions:     newSubscriptionsRepo(db),
-		Events:            newEventsRepo(db, bots),
-		Configs:           newConfigsRepo(db),
-		Activations:       newActivationsRepo(db),
-		Processors:        newProcessorsRepo(db),
-		Triggers:          newTriggersRepo(db),
-		WorkerAttachments: newAttachmentsRepo(db),
-		Assets:            newAssetsRepo(db),
-		AssetLinks:        newAssetLinksRepo(db),
-		ChartPositions:    newChartPositionsRepo(db),
-		DomainEvents:      newDomainEventsRepo(db),
+		Nodes:                bots,
+		ReportingLines:       newReportingLinesRepo(db),
+		NodeRuntimeState:     newNodeRuntimeStateRepo(db),
+		Topics:               newTopicsRepo(db),
+		Subscriptions:        newSubscriptionsRepo(db),
+		Events:               newEventsRepo(db, bots),
+		Configs:              newConfigsRepo(db),
+		Activations:          newActivationsRepo(db),
+		Processors:           newProcessorsRepo(db),
+		Triggers:             newTriggersRepo(db),
+		WorkerAttachments:    newAttachmentsRepo(db),
+		WorkerSecretBindings: &workerSecretBindingsRepo{db: db},
+		Assets:               newAssetsRepo(db),
+		AssetLinks:           newAssetLinksRepo(db),
+		ChartPositions:       newChartPositionsRepo(db),
+		DomainEvents:         newDomainEventsRepo(db),
 	}, nil
+}
+
+func installWorkerSecretConstraints(db *gorm.DB) error {
+	if !db.Migrator().HasTable("org_worker_secret_bindings") || db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	statements := []string{`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='chk_worker_secret_source') THEN ALTER TABLE org_worker_secret_bindings ADD CONSTRAINT chk_worker_secret_source CHECK ((source_kind='helix_secret' AND secret_id<>'' AND account_id='' AND export_key='') OR (source_kind='connected_account' AND secret_id='' AND account_id<>'' AND export_key<>'')); END IF; END $$;`}
+	if db.Migrator().HasTable("org_bots") {
+		statements = append(statements, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_worker_secret_worker') THEN ALTER TABLE org_worker_secret_bindings ADD CONSTRAINT fk_worker_secret_worker FOREIGN KEY (org_id,worker_id) REFERENCES org_bots(org_id,id) ON DELETE CASCADE; END IF; END $$;`)
+	}
+	for _, stmt := range statements {
+		if err := db.Exec(stmt).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func installAttachmentConstraints(db *gorm.DB) error {
