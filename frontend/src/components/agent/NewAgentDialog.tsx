@@ -10,21 +10,16 @@ import DialogTitle from '@mui/material/DialogTitle'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import { Bot, Braces, Network } from 'lucide-react'
+import { Bot, Network } from 'lucide-react'
 
 import { ApiCreateBotRequest } from '../../api/api'
-import {
-  CodeAgentRuntime,
-  ICreateAgentParams,
-} from '../../contexts/apps'
+import { ICreateAgentParams } from '../../contexts/apps'
 import useApps from '../../hooks/useApps'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import { useCreateBot, useListHelixOrgBots } from '../../services/helixOrgService'
 import {
-  AGENT_KIND_CODING,
   AGENT_KIND_HELIX,
   AGENT_KIND_ORG,
-  AGENT_TYPE_ZED_EXTERNAL,
 } from '../../types'
 import AgentConfigForm, { AgentConfigValue } from '../helix-org/BotRuntimeForm'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
@@ -33,14 +28,10 @@ import {
   DEFAULT_CODEX_SUBSCRIPTION_MODEL,
 } from './CodingAgentForm'
 
+// No "Coding Agent" option: spec tasks carry their own coding-harness config, so
+// there is nothing left for a pre-created coding agent to do. AGENT_KIND_CODING
+// still exists on records the server classified before this.
 const kindOptions = [
-  {
-    value: AGENT_KIND_CODING,
-    label: 'Coding Agent',
-    description: 'External coding harness for projects and spec tasks',
-    icon: Braces,
-    color: '#38bdf8',
-  },
   {
     value: AGENT_KIND_HELIX,
     label: 'Helix Agent',
@@ -153,7 +144,7 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
   ])
 
   const trimmedName = name.trim()
-  const needsRuntime = kind === AGENT_KIND_CODING || kind === AGENT_KIND_ORG
+  const needsRuntime = kind === AGENT_KIND_ORG
   const runtimeComplete = runtimeConfig.credentials === 'subscription'
     ? !!runtimeConfig.model
     : !!runtimeConfig.provider && !!runtimeConfig.model
@@ -161,23 +152,8 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
 
   const appParams = (): ICreateAgentParams => ({
     name: trimmedName,
-    description: kind === AGENT_KIND_CODING ? 'Code development agent for projects and spec tasks' : '',
+    description: '',
     systemPrompt: '',
-    ...(kind === AGENT_KIND_CODING ? {
-      agentType: AGENT_TYPE_ZED_EXTERNAL,
-      codeAgentRuntime: runtimeConfig.runtime as CodeAgentRuntime,
-      codeAgentCredentialType: runtimeConfig.credentials as 'api_key' | 'subscription',
-      claudeSubscriptionModel: runtimeConfig.runtime === 'claude_code'
-        && runtimeConfig.credentials === 'subscription'
-        ? runtimeConfig.model
-        : undefined,
-      provider: runtimeConfig.provider,
-      model: runtimeConfig.runtime === 'claude_code'
-        && runtimeConfig.credentials === 'subscription'
-        ? ''
-        : runtimeConfig.model,
-      reasoningEffort: runtimeConfig.reasoning_effort,
-    } : {}),
     reasoningModelProvider: '',
     reasoningModel: '',
     reasoningModelEffort: 'none',
@@ -261,7 +237,7 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
             <Box
               sx={{
                 display: 'grid',
-                gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
                 gap: 1.25,
                 width: '100%',
               }}
