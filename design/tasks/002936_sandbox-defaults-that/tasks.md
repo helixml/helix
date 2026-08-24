@@ -26,16 +26,16 @@
 
 ## 2. Part A — stop materializing and backfill
 
-- [ ] Delete the `sandboxResources = types.DefaultSpecTaskSandboxResources()` fallback in `api/pkg/services/spec_driven_task_service.go:163` so an unspecified size stores `nil`
-- [ ] Delete the same fallback in `api/pkg/org/infrastructure/runtime/helix/spectasks.go:215`
-- [ ] Confirm `HydraExecutor.resolveSpecTaskLaunchConfig` (`api/pkg/external-agent/hydra_executor.go:697`) resolves `nil` to the live default at container-create for every start path, including forks and reconciler resumes
+- [x] Delete the `sandboxResources = types.DefaultSpecTaskSandboxResources()` fallback in `api/pkg/services/spec_driven_task_service.go:163` so an unspecified size stores `nil`
+- [x] Delete the same fallback in `api/pkg/org/infrastructure/runtime/helix/spectasks.go:215`
+- [x] Confirm `HydraExecutor.resolveSpecTaskLaunchConfig` (`api/pkg/external-agent/hydra_executor.go:697`) resolves `nil` to the live default at container-create for every start path, including forks and reconciler resumes
 - [ ] Check the API response / frontend render path for a now-nil `task.sandbox_resource_overrides` — it must fall back to the shared default, not render blank
-- [ ] Add migration `api/pkg/store/migrations/0009_unmaterialize_spec_task_sandbox_default.up.sql` NULLing `spec_tasks.sandbox_resource_overrides` where it equals exactly `{"vcpus": 4, "memory_mb": 8192}` — see Open Question 1 on `NULL` vs the explicit new pair
-- [ ] **Never match `{"vcpus": 8, "memory_mb": 16384}`** — 178 rows on meta hold that as a deliberate user choice. Do not generalise the predicate to "equals a default"
+- [x] Add migration `api/pkg/store/migrations/0009_unmaterialize_spec_task_sandbox_default.up.sql` NULLing `spec_tasks.sandbox_resource_overrides` where it equals exactly `{"vcpus": 4, "memory_mb": 8192}` — see Open Question 1 on `NULL` vs the explicit new pair
+- [x] **Never match `{"vcpus": 8, "memory_mb": 16384}`** — 178 rows on meta hold that as a deliberate user choice. Do not generalise the predicate to "equals a default"
 - [ ] Record the `SELECT sandbox_resource_overrides, count(*) FROM spec_tasks GROUP BY 1` counts before and after, and put both in the PR body — that diff is the safety story for this migration
 - [ ] Confirm the migration is a no-op on meta, whose 31 stale rows were hand-backfilled to `12/24576` on 2026-08-24
-- [ ] Add the `.down.sql` as a documented no-op (the reversal information does not exist, and re-materializing all NULLs would break the 4102 rows that never had a value)
-- [ ] Do **not** touch project rows — a project only stores an override when an admin explicitly set one
+- [x] Add the `.down.sql` as a documented no-op (the reversal information does not exist, and re-materializing all NULLs would break the 4102 rows that never had a value)
+- [x] Do **not** touch project rows — a project only stores an override when an admin explicitly set one
 
 ## 3. Part A — remaining Go call sites
 
