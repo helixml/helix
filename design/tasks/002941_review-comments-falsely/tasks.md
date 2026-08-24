@@ -11,7 +11,7 @@
 - [x] **Capture the pre-fix reproduction**: stamp at 16:32:38 (2 min), agent completed 16:34:21 with 6,791 chars, comment still 56 chars — `screenshots/01-before-false-stamp.png`
 - [x] **New finding**: the completion's `request_id` (`req_…`) is not the id the comment stores (`int_…`) — Zed rebinds it mid-turn. Recorded in design.md; Decision 3 amended.
 
-## 1. Defect 1 — timer must not count time while the agent is unreachable
+## 1. Defect 1 — timer must not count time while the agent is unreachable [~]
 
 - [ ] Rename `commentResponseTimeout` → `commentTimerInterval` (still 2m) and update its doc comment to say it is a poll interval, not a deadline
 - [ ] Add branch: **agent not reachable** (`externalAgentWSManager.getConnection(sessionID)` false, or `comment.InteractionID == ""`) → re-arm, log at INFO with a dedicated "sandbox starting / agent not connected" message, never stamp
