@@ -1347,7 +1347,7 @@ steps:
 # Builds the complete sandbox stack:
 #   1. Zed binary (Rust, from helixml/zed)
 #   2. Qwen Code (pinned official npm release)
-#   3. Desktop images (helix-sway, helix-ubuntu)
+#   3. Desktop image (helix-ubuntu)
 #   4. Sandbox image (embeds desktop tarballs)
 #
 # Versioning:
@@ -1728,19 +1728,6 @@ steps:
         fi
         echo "Building desktop images with version: $${VERSION}"
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      # Build and push helix-sway
-      - |
-        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
-        GO_VERSION=$$(awk '/^go [0-9]/ {print $$2; exit}' go.mod)
-        echo "Building helix-sway..."
-        docker build --pull --provenance=false \
-          -f Dockerfile.sway-helix \
-          --build-arg GO_VERSION=$${GO_VERSION} \
-          -t registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64 \
-          .
-        docker push registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64
-        echo "helix-sway:$${VERSION}-linux-amd64 pushed to registry"
       # Build and push helix-ubuntu
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
@@ -1759,9 +1746,7 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         mkdir -p sandbox-images
-        echo "ghcr.io/helixml/helix-sway:$${VERSION}-linux-amd64" > sandbox-images/helix-sway.ref
         echo "ghcr.io/helixml/helix-ubuntu:$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.ref
-        echo "$${VERSION}-linux-amd64" > sandbox-images/helix-sway.version
         echo "$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.version
     volumes:
       - name: dockersocket
@@ -2029,19 +2014,6 @@ steps:
         fi
         echo "Building ARM64 desktop images with version: $${VERSION}"
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      # Build and push helix-sway (arm64)
-      - |
-        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
-        GO_VERSION=$$(awk '/^go [0-9]/ {print $$2; exit}' go.mod)
-        echo "Building helix-sway (arm64)..."
-        docker build --pull --provenance=false \
-          -f Dockerfile.sway-helix \
-          --build-arg GO_VERSION=$${GO_VERSION} \
-          -t registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64 \
-          .
-        docker push registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64
-        echo "helix-sway:$${VERSION}-linux-arm64 pushed to registry"
       # Build and push helix-ubuntu (arm64, no CUDA)
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
@@ -2060,9 +2032,7 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         mkdir -p sandbox-images
-        echo "ghcr.io/helixml/helix-sway:$${VERSION}-linux-arm64" > sandbox-images/helix-sway.ref
         echo "ghcr.io/helixml/helix-ubuntu:$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.ref
-        echo "$${VERSION}-linux-arm64" > sandbox-images/helix-sway.version
         echo "$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.version
     volumes:
       - name: dockersocket
@@ -2174,33 +2144,6 @@ steps:
           VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
         REPO="registry.helixml.tech/helix/helix-sandbox"
-        echo "Creating multi-arch manifest for $${REPO}:$${VERSION}"
-        docker manifest create --amend $${REPO}:$${VERSION} \
-          $${REPO}:$${VERSION}-linux-amd64 \
-          $${REPO}:$${VERSION}-linux-arm64
-        docker manifest push $${REPO}:$${VERSION}
-        echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
-        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
-  - name: manifest-helix-sway
-    image: docker:cli
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        REPO="registry.helixml.tech/helix/helix-sway"
         echo "Creating multi-arch manifest for $${REPO}:$${VERSION}"
         docker manifest create --amend $${REPO}:$${VERSION} \
           $${REPO}:$${VERSION}-linux-amd64 \
