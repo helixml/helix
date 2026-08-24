@@ -209,7 +209,9 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 // @Description Delete a secret for the user.
 // @Tags    secrets
 // @Success 200 {object} types.Secret
+// @Failure 409 {object} system.HTTPError "Secret is granted to one or more Agents"
 // @Param id path string true "Secret ID"
+// @Param force query boolean false "Revoke Agent grants and delete anyway"
 // @Router /api/v1/secrets/{id} [delete]
 // @Security BearerAuth
 func (s *HelixAPIServer) deleteSecret(_ http.ResponseWriter, r *http.Request) (*types.Secret, *system.HTTPError) {
@@ -241,6 +243,31 @@ func (s *HelixAPIServer) deleteSecret(_ http.ResponseWriter, r *http.Request) (*
 	}
 	if !authorized {
 		return nil, system.NewHTTPError403("Access denied")
+	}
+
+	// Agents granted this secret hold a binding that points at its id.
+	// Deleting the secret without revoking them leaves the binding
+	// pointing at nothing and the failure only shows up inside the
+	// sandbox, so refuse until the caller confirms with force=true and
+	// then revoke the grants along with the secret.
+	if s.helixOrg != nil {
+		bound, err := s.helixOrg.store.WorkerSecretBindings.ListBySecretID(ctx, id)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		if len(bound) > 0 && r.URL.Query().Get("force") != "true" {
+			return nil, system.NewHTTPError409(fmt.Sprintf(
+				"%s is granted to %d agent(s); deleting it revokes their access", existing.Name, len(bound)))
+		}
+		// Revoked before the secret is gone: a grant removed from a
+		// secret that still exists can be re-granted from the Agent's
+		// secrets panel, while the reverse leaves the orphan this
+		// guard exists to prevent.
+		for _, b := range bound {
+			if err := s.helixOrg.store.WorkerSecretBindings.Delete(ctx, b.OrganizationID, b.WorkerID, b.Name); err != nil {
+				return nil, system.NewHTTPError500(err.Error())
+			}
+		}
 	}
 
 	err = s.Store.DeleteSecret(ctx, id)

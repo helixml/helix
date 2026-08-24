@@ -21,8 +21,12 @@ type WorkerSecretBindingDTO struct {
 	SecretID          string                  `json:"secret_id,omitempty"`
 	AccountID         string                  `json:"account_id,omitempty"`
 	ExportKey         string                  `json:"export_key,omitempty"`
-	CreatedAt         time.Time               `json:"created_at"`
-	UpdatedAt         time.Time               `json:"updated_at"`
+	// Available reports whether the bound source still exists. A
+	// deleted source leaves the binding in place pointing at nothing,
+	// and this is the only signal the operator gets.
+	Available bool      `json:"available"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type PutWorkerSecretRequest struct {
@@ -60,14 +64,28 @@ func (a *apiHandler) listWorkerSecrets(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, errWorkerSecretsUnavailable)
 		return
 	}
-	rows, err := a.deps.WorkerSecrets.List(r.Context(), orgID, orgchart.NodeID(r.PathValue("id")))
+	workerID := orgchart.NodeID(r.PathValue("id"))
+	rows, err := a.deps.WorkerSecrets.List(r.Context(), orgID, workerID)
 	if err != nil {
 		writeError(w, errStatus(err), err)
 		return
 	}
+	// Descriptors resolves each binding against the live source
+	// catalog. Without it a grant whose source was deleted is
+	// indistinguishable from a healthy one on this page.
+	descriptors, err := a.deps.WorkerSecrets.Descriptors(r.Context(), orgID, workerID)
+	if err != nil {
+		writeError(w, errStatus(err), err)
+		return
+	}
+	available := make(map[string]bool, len(descriptors))
+	for _, d := range descriptors {
+		available[d.Name] = d.Available
+	}
 	out := make([]WorkerSecretBindingDTO, len(rows))
 	for i := range rows {
 		out[i] = bindingDTO(rows[i])
+		out[i].Available = available[rows[i].Name]
 	}
 	writeJSON(w, 200, out)
 }

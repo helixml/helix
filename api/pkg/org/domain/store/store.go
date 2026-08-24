@@ -220,6 +220,10 @@ type WorkerSecretBindings interface {
 	Update(context.Context, workersecret.Binding) error
 	Get(context.Context, string, orgchart.NodeID, string) (workersecret.Binding, error)
 	List(context.Context, string, orgchart.NodeID) ([]workersecret.Binding, error)
+	// ListBySecretID finds every binding pointing at one Helix secret,
+	// across Workers and organizations, so deleting that secret can
+	// report and revoke its grants instead of orphaning them.
+	ListBySecretID(context.Context, string) ([]workersecret.Binding, error)
 	Delete(context.Context, string, orgchart.NodeID, string) error
 }
 
