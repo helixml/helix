@@ -140,6 +140,45 @@ describe('CodeAgentHarnessesSection', () => {
     expect(screen.getByRole('checkbox', { name: 'Enable Anthropic for Claude Code' })).not.toBeChecked()
   })
 
+  it('resolves a legacy vendor ref to one provider without enabling its global duplicate', () => {
+    const onChange = vi.fn()
+    render(
+      <CodeAgentHarnessesSection
+        harnesses={[{ ...harnesses[0], subscription_enabled: false, provider_refs: ['anthropic'] }]}
+        endpoints={[
+          {
+            id: 'pe_org_anthropic',
+            name: 'user/anthropic',
+            endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeOrg,
+            status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+            available_models: [{ id: 'org-model', enabled: true, type: 'chat' }],
+          },
+          {
+            id: 'global/anthropic',
+            name: 'anthropic',
+            endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+            status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+            available_models: [{ id: 'global-model', enabled: true, type: 'chat' }],
+          },
+        ]}
+        organizationName="Probably"
+        onChange={onChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
+    expect(screen.getByRole('checkbox', { name: 'Disable Probably / Anthropic for Claude Code' })).toBeChecked()
+    const globalProvider = screen.getByRole('checkbox', { name: 'Enable Global / Anthropic for Claude Code' })
+    expect(globalProvider).not.toBeChecked()
+    fireEvent.click(globalProvider)
+    expect(onChange).toHaveBeenCalledWith({
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+      enabled: true,
+      provider_refs: ['pe_org_anthropic', 'global/anthropic'],
+      subscription_enabled: false,
+    })
+  })
+
   it('disables a provider switch until its API connection is healthy', () => {
     render(
       <CodeAgentHarnessesSection

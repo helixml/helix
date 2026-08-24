@@ -42,7 +42,7 @@ import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 
 import { useGetOrgByName } from '../../services/orgService';
-import { providerEndpointMatchesRef } from '../../utils/codeAgentProviders';
+import { resolveProviderEndpointRef } from '../../utils/codeAgentProviders';
 
 import useRouter from '../../hooks/useRouter';
 import { isLegacyNativeModel, nativeProviderForEndpoint } from '../../utils/nativeModels';
@@ -141,8 +141,8 @@ export const providerRef = (provider: TypesProviderEndpoint | undefined): string
 // Matches a stored agent reference against a provider. Tries ID first
 // (current scheme) then falls back to a case-insensitive name match
 // (globals + legacy agents stored before the switch to ID-based references).
-export const matchesStoredRef = (provider: TypesProviderEndpoint | undefined, storedRef: string | undefined): boolean => {
-  return providerEndpointMatchesRef(provider, storedRef);
+export const matchesStoredRef = (provider: TypesProviderEndpoint | undefined, storedRef: string | undefined, providers: TypesProviderEndpoint[] = []): boolean => {
+  return !!provider && resolveProviderEndpointRef(providers.length ? providers : [provider], storedRef)?.id === provider.id;
 };
 
 function fuzzySearch(query: string, models: ModelWithProvider[], modelType: string) {
@@ -283,7 +283,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
           // Try to find a model of the right type from the same provider first
           let newModel = allModels.find(model =>
             model.type === effectiveType &&
-            matchesStoredRef(model.provider, selectedProvider)
+            matchesStoredRef(model.provider, selectedProvider, providers || [])
           );
 
           // If no model found from the same provider, fall back to any provider
@@ -317,7 +317,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     const selectedModel = allModels.find(model => model.id === selectedModelId);
     let providerName = selectedModel?.provider?.name;
     if (!providerName && selectedProvider) {
-      const matched = providers?.find((p: TypesProviderEndpoint) => matchesStoredRef(p, selectedProvider));
+      const matched = resolveProviderEndpointRef(providers || [], selectedProvider);
       providerName = matched?.name || selectedProvider;
     }
     if (providerName) {

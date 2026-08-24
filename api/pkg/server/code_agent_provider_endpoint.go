@@ -73,23 +73,21 @@ func (s *HelixAPIServer) resolveCodeAgentProviderEndpoint(
 		ownerID = user.OrganizationID
 		ownerType = types.OwnerTypeOrg
 	}
+	if types.IsGlobalProviderID(providerRef) {
+		endpoint, err := s.getBuiltInProviderEndpoint(ctx, types.CanonicalProviderName(providerRef))
+		if err != nil {
+			return nil, err
+		}
+		endpoint.ID = providerRef
+		return endpoint, nil
+	}
 	if s.providerManager != nil {
 		endpoints, err := s.providerManager.ListProviderEndpointsForOwner(ctx, ownerID, ownerType)
 		if err != nil {
 			return nil, fmt.Errorf("list providers: %w", err)
 		}
-		for _, endpoint := range endpoints {
-			if endpoint != nil && endpoint.ID != "" && endpoint.ID == providerRef {
-				return endpoint, nil
-			}
-		}
-		for _, endpoint := range resolveProviderEndpointPrecedence(endpoints) {
-			if providerEndpointMatchesRef(endpoint, providerRef) {
-				if endpoint.ID == "" {
-					return s.getBuiltInProviderEndpoint(ctx, types.CanonicalProviderName(endpoint.Name))
-				}
-				return endpoint, nil
-			}
+		if endpoint := resolveProviderEndpointRef(endpoints, providerRef); endpoint != nil {
+			return endpoint, nil
 		}
 	}
 

@@ -76,4 +76,34 @@ describe("buildPickerAgents", () => {
       "Probably",
     )[0].models[0].providerLabel).toBe("Probably / Anthropic");
   });
+
+  it("keeps duplicate vendor scopes distinct and resolves legacy refs once", () => {
+    const duplicateProviders = [
+      {
+        id: "global/anthropic",
+        name: "anthropic",
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+        status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+        available_models: [{ id: "global-model", enabled: true, type: "chat" }],
+      },
+      {
+        id: "pe_org_anthropic",
+        name: "user/anthropic",
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeOrg,
+        status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+        available_models: [{ id: "org-model", enabled: true, type: "chat" }],
+      },
+    ];
+    const build = (providerRefs?: string[]) => buildPickerAgents(
+      [agent(TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent)],
+      duplicateProviders,
+      [{ runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent, enabled: true, provider_refs: providerRefs }],
+      true,
+      "Probably",
+    )[0].models;
+
+    expect(build().map(({ provider }) => provider?.id)).toEqual(["global/anthropic", "pe_org_anthropic"]);
+    expect(build(["anthropic"]).map(({ provider }) => provider?.id)).toEqual(["pe_org_anthropic"]);
+    expect(build(["global/anthropic"]).map(({ provider }) => provider?.id)).toEqual(["global/anthropic"]);
+  });
 });

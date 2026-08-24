@@ -45,7 +45,7 @@ import AgentHarness, { getAgentHarnessLabel } from './AgentHarness'
 import { getProviderEndpointLabel } from '../providers/ProviderEndpointIcon'
 import {
   providerEndpointIsConnected,
-  providerEndpointMatchesRef,
+  resolveProviderEndpointRef,
   providersForCodeAgentHarness,
   providerSupportsCodeAgentRuntime,
   providersForCodeAgentRuntime,
@@ -257,8 +257,8 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   const selectedRuntimeEnabled = !orgName
     || !!findHarnessStatus(orgHarnesses, value?.runtime)?.enabled
   const configuredRuntimeStatus = findHarnessStatus(orgHarnesses, value?.runtime)
-  const selectedProvider = providersForCodeAgentRuntime(providers, value?.runtime).find((provider) =>
-    matchesStoredRef(provider, value?.provider_ref || ''))
+  const runtimeProviders = providersForCodeAgentRuntime(providers, value?.runtime)
+  const selectedProvider = resolveProviderEndpointRef(runtimeProviders, value?.provider_ref)
   const selectedProviderRuntimeCompatible = value?.credential_type
     === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
     || (!!selectedProvider
@@ -273,7 +273,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
         && configuredRuntimeStatus?.subscription_enabled !== true
         && (configuredRuntimeStatus?.provider_refs == null
         || configuredRuntimeStatus.provider_refs.some((ref) =>
-          providerEndpointMatchesRef(selectedProvider, ref)))))
+          resolveProviderEndpointRef(runtimeProviders, ref)?.id === selectedProvider.id))))
   const selectedConfigurationAllowed = selectedRuntimeEnabled && selectedSourceAllowed
   const unconfigured = !value?.runtime
     || !value?.model
@@ -377,7 +377,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     ? subscriptionModelOptions(value.runtime)
     : apiModelOptions(configuredProviders, organizationName)
   const modelLabel = configuredModels.find((model) => model.id === value?.model
-    && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '')))?.label
+    && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '', providers)))?.label
     || value?.model?.split('/').pop()
     || 'Select model'
 
@@ -385,7 +385,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     const sameRuntime = value?.runtime === runtime
       && value?.credential_type === model.credentialType
       && (model.provider
-        ? matchesStoredRef(model.provider, value?.provider_ref || '')
+        ? matchesStoredRef(model.provider, value?.provider_ref || '', providers)
         : !value?.provider_ref)
     onChange({
       runtime,
@@ -410,7 +410,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     const selected = value?.runtime === runtime
       && value?.credential_type === model.credentialType
       && value?.model === model.id
-      && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || ''))
+      && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '', providers))
     return (
       <Button
         key={model.key}

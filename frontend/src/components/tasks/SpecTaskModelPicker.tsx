@@ -32,7 +32,6 @@ import {
   CODEX_SUBSCRIPTION_MODELS,
 } from "../agent/CodingAgentForm";
 import {
-  matchesStoredRef,
   ProviderIcon,
   providerRef,
 } from "../create/AdvancedModelPicker";
@@ -40,6 +39,7 @@ import {
   providerEndpointIsConnected,
   providersForCodeAgentHarness,
   providersForCodeAgentRuntime,
+  resolveProviderEndpointRef,
 } from "../../utils/codeAgentProviders";
 
 export type TaskModelOption = { id: string; label: string };
@@ -100,6 +100,7 @@ const SpecTaskModelPickerView: FC<{
   const searchRef = useRef<HTMLInputElement>(null);
 
   const activeAgent = agents.find(({ agent }) => agent.id === selectedAgentId);
+  const providerEndpoints = agents.flatMap(({ models }) => models.flatMap(({ provider }) => provider ? [provider] : []));
   const browsedAgent = agents.find(({ agent }) => agent.id === browsedAgentId) || activeAgent || agents[0];
   const searching = query.trim().length > 0;
   const visibleModels = useMemo(() => {
@@ -132,7 +133,7 @@ const SpecTaskModelPickerView: FC<{
     || currentExecutionConfig?.runtime
     || "zed_agent";
   const activeModel = activeAgent?.models.find((option) => option.id === model
-    && (!option.provider || matchesStoredRef(option.provider, providerRefValue)))
+    && (!option.provider || resolveProviderEndpointRef(providerEndpoints, providerRefValue)?.id === option.provider.id))
     || activeAgent?.models.find((option) => option.id === model);
   const activeModelLabel = activeModel?.label.replace(/ \(.+\)$/, "")
     || model.split("/").pop()
@@ -266,7 +267,7 @@ const SpecTaskModelPickerView: FC<{
               {visibleModels.map(({ agent, option }) => {
                 const selected = agent.agent.id === activeAgent?.agent.id
                   && option.id === model
-                  && (!option.provider || matchesStoredRef(option.provider, providerRefValue));
+                  && (!option.provider || resolveProviderEndpointRef(providerEndpoints, providerRefValue)?.id === option.provider.id);
                 const agentName = agent.agent.config?.helix?.name || "Unnamed agent";
                 return (
                   <Button

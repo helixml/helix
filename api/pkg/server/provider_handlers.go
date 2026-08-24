@@ -160,18 +160,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Build a set of existing provider names to avoid duplicates
-	existingProviderNames := make(map[string]bool)
-	for _, ep := range providerEndpoints {
-		existingProviderNames[ep.Name] = true
-	}
-
 	for _, provider := range globalProviderEndpoints {
-		// Skip if this provider already exists in the database
-		if existingProviderNames[string(provider)] {
-			continue
-		}
-
 		// Sandbox-absorbs-runner equivalent of the old runnerController
 		// gate: skip the Helix provider when no sandbox is currently
 		// serving any model. Otherwise the picker offers an option that
@@ -185,7 +174,6 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 
 		providerEndpoints = append(providerEndpoints, s.globalProviderEndpoint(provider))
 	}
-	providerEndpoints = resolveProviderEndpointPrecedence(providerEndpoints)
 
 	// Set default
 	for idx := range providerEndpoints {
@@ -315,7 +303,7 @@ func (s *HelixAPIServer) globalProviderEndpoint(provider types.Provider) *types.
 	}
 
 	return &types.ProviderEndpoint{
-		ID:             "-",
+		ID:             types.GlobalProviderID(string(provider)),
 		Name:           string(provider),
 		Description:    "",
 		BaseURL:        baseURL,

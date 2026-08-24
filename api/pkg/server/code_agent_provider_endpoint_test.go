@@ -44,25 +44,21 @@ func TestCodeAgentProviderSelectionKeepsLegacyAppFallbackWithModelOverride(t *te
 func TestResolveCodeAgentProviderEndpointResolvesSyntheticGlobalOnce(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	providerManager := manager.NewMockProviderManager(ctrl)
-	synthetic := &types.ProviderEndpoint{
-		Name:         "togetherai",
-		EndpointType: types.ProviderEndpointTypeGlobal,
-	}
-	providerManager.EXPECT().
-		ListProviderEndpointsForOwner(gomock.Any(), "org_1", types.OwnerTypeOrg).
-		Return([]*types.ProviderEndpoint{synthetic}, nil)
+	synthetic := &types.ProviderEndpoint{ID: "global/togetherai", Name: "togetherai", EndpointType: types.ProviderEndpointTypeGlobal}
 	providerManager.EXPECT().
 		ListProviderEndpoints(gomock.Any(), "").
 		Return([]*types.ProviderEndpoint{synthetic}, nil)
 
 	server := &HelixAPIServer{
-		Cfg:             &config.ServerConfig{},
+		Cfg: &config.ServerConfig{Providers: config.Providers{TogetherAI: config.TogetherAI{
+			APIKey: "global-key",
+		}}},
 		providerManager: providerManager,
 	}
 	endpoint, err := server.resolveCodeAgentProviderEndpoint(context.Background(), &types.User{
 		ID:             "user_1",
 		OrganizationID: "org_1",
-	}, "togetherai")
+	}, "global/togetherai")
 
 	require.NoError(t, err)
 	require.Same(t, synthetic, endpoint)

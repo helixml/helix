@@ -171,7 +171,7 @@ func TestNormalizeHarnessCredentialSources(t *testing.T) {
 func TestFilterProviderEndpointsByRefs(t *testing.T) {
 	endpoints := []*types.ProviderEndpoint{
 		{ID: "provider-1", Name: "renamed"},
-		{ID: "", Name: "openai", EndpointType: types.ProviderEndpointTypeGlobal},
+		{ID: "global/openai", Name: "openai", EndpointType: types.ProviderEndpointTypeGlobal},
 		{ID: "provider-2", Name: "other"},
 	}
 	filtered := filterProviderEndpointsByRefs(endpoints, []string{"provider-1"})
@@ -181,19 +181,18 @@ func TestFilterProviderEndpointsByRefs(t *testing.T) {
 	filtered = filterProviderEndpointsByRefs(endpoints, []string{})
 	require.NotNil(t, filtered)
 	assert.Empty(t, filtered)
-}
 
-func TestResolveProviderEndpointPrecedence(t *testing.T) {
-	resolved := resolveProviderEndpointPrecedence([]*types.ProviderEndpoint{
-		{ID: "", Name: "openai", EndpointType: types.ProviderEndpointTypeGlobal},
+	endpoints = []*types.ProviderEndpoint{
+		{ID: "global/openai", Name: "openai", EndpointType: types.ProviderEndpointTypeGlobal},
 		{ID: "pe_global", Name: "openai", EndpointType: types.ProviderEndpointTypeGlobal},
 		{ID: "pe_org", Name: "user/openai", EndpointType: types.ProviderEndpointTypeOrg},
-		{ID: "pe_anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
-	})
-
-	require.Len(t, resolved, 2)
-	assert.Equal(t, "pe_org", resolved[0].ID)
-	assert.Equal(t, "pe_anthropic", resolved[1].ID)
+	}
+	filtered = filterProviderEndpointsByRefs(endpoints, []string{"openai"})
+	require.Len(t, filtered, 1)
+	assert.Equal(t, "pe_org", filtered[0].ID)
+	filtered = filterProviderEndpointsByRefs(endpoints, []string{"global/openai"})
+	require.Len(t, filtered, 1)
+	assert.Equal(t, "global/openai", filtered[0].ID)
 }
 
 func TestFilterProviderEndpointsForHarness(t *testing.T) {

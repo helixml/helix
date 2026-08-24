@@ -39,10 +39,20 @@ func IsGlobalProvider(provider string) bool {
 
 func CanonicalProviderName(provider string) string {
 	name := strings.ToLower(provider)
-	if strings.HasPrefix(name, "user/") && IsGlobalProvider(strings.TrimPrefix(name, "user/")) {
-		return strings.TrimPrefix(name, "user/")
+	for _, prefix := range []string{"user/", "global/"} {
+		if strings.HasPrefix(name, prefix) && IsGlobalProvider(strings.TrimPrefix(name, prefix)) {
+			return strings.TrimPrefix(name, prefix)
+		}
 	}
 	return name
+}
+
+func GlobalProviderID(provider string) string {
+	return "global/" + CanonicalProviderName(provider)
+}
+
+func IsGlobalProviderID(provider string) bool {
+	return strings.HasPrefix(strings.ToLower(provider), "global/") && IsGlobalProvider(CanonicalProviderName(provider))
 }
 
 type ProviderEndpointType string

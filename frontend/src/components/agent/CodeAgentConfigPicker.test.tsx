@@ -346,6 +346,38 @@ describe('CodeAgentConfigPicker', () => {
     }), 'user')
   })
 
+  it('shows duplicate vendor scopes and stores the selected endpoint ID', () => {
+    providerState.providers = [
+      {
+        id: 'pe_org_anthropic',
+        name: 'user/anthropic',
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeOrg,
+        status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+        available_models: [{ id: 'org-claude', enabled: true, type: 'chat' }],
+      },
+      {
+        id: 'global/anthropic',
+        name: 'anthropic',
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+        status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+        available_models: [{ id: 'global-claude', enabled: true, type: 'chat' }],
+      },
+    ]
+    const onChange = vi.fn()
+    renderPicker(<CodeAgentConfigPicker onChange={onChange} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Zed Agent' }))
+
+    expect(screen.getByText('Probably / Anthropic')).toBeInTheDocument()
+    expect(screen.getByText('Global / Anthropic')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Select global-claude from Global / Anthropic' }))
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      provider_ref: 'global/anthropic',
+      model: 'global-claude',
+    }), 'user')
+  })
+
   it('keeps older native models in a collapsed legacy section', () => {
     renderPicker(<CodeAgentConfigPicker onChange={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))

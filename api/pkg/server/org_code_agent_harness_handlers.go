@@ -254,10 +254,8 @@ func (apiServer *HelixAPIServer) validateOrgCodeAgentHarness(
 	if err != nil {
 		return fmt.Errorf("failed to list providers: %w", err)
 	}
-	for _, endpoint := range filterProviderEndpointsForHarness(endpoints, harness, runtime) {
-		if providerEndpointMatchesRef(endpoint, providerRef) {
-			return nil
-		}
+	if resolveProviderEndpointRef(filterProviderEndpointsForHarness(endpoints, harness, runtime), providerRef) != nil {
+		return nil
 	}
 	return fmt.Errorf("provider %q is not enabled for coding-agent harness %q in this organization", providerRef, runtime)
 }

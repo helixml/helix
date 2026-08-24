@@ -131,6 +131,26 @@ func (s *FindProviderWithModelSuite) TestGlobal_PrefixedIDMatchesViaResidue() {
 	s.Equal("gpt-4o", bare)
 }
 
+func (s *FindProviderWithModelSuite) TestExplicitEnvironmentGlobalRefRemainsScoped() {
+	s.manager.EXPECT().ListProviders(gomock.Any(), "").Return([]types.Provider{types.ProviderOpenAI}, nil)
+
+	provider, bare := s.server.findProviderWithModel(context.Background(), "global/openai/gpt-5.4", "user_x", "org_test")
+	s.Equal("global/openai", provider)
+	s.Equal("gpt-5.4", bare)
+}
+
+func (s *FindProviderWithModelSuite) TestExplicitOrganizationRefRemainsScopedWithSameVendorGlobal() {
+	s.manager.EXPECT().ListProviders(gomock.Any(), "").Return([]types.Provider{types.ProviderOpenAI}, nil)
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
+		{ID: "pe_global_openai", Name: "openai", EndpointType: types.ProviderEndpointTypeGlobal},
+		{ID: "pe_org_openai", Name: "user/openai", Owner: "org_test", EndpointType: types.ProviderEndpointTypeOrg},
+	}, nil).AnyTimes()
+
+	provider, bare := s.server.findProviderWithModel(context.Background(), "pe_org_openai/gpt-5.4", "user_x", "org_test")
+	s.Equal("pe_org_openai", provider)
+	s.Equal("gpt-5.4", bare)
+}
+
 // Unknown model — no cache hit anywhere — returns the empty pair so the
 // caller can fall through to ParseProviderFromModel and ultimately to
 // getClient's default-provider fence.

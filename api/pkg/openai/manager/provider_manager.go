@@ -41,7 +41,7 @@ type ProviderManager interface {
 	ListProviders(ctx context.Context, owner string) ([]types.Provider, error)
 	ListProvidersForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]types.Provider, error)
 	// ListProviderEndpoints returns the full provider records visible to the
-	// owner: synthetic entries for env-baked global providers (ID="",
+	// owner: synthetic entries for env-baked global providers (ID="global/<name>",
 	// Name=canonical) plus DB-backed user/org provider records. Used by
 	// agent-config code paths that need to resolve an agent's stored
 	// provider reference (an immutable ID for DB-backed, the canonical name
@@ -358,7 +358,7 @@ func (m *MultiClientManager) ListProvidersForOwner(ctx context.Context, owner st
 
 // ListProviderEndpoints returns full provider records visible to the owner.
 // Env-baked globals are returned as synthetic *ProviderEndpoint values with
-// ID="" and Name=canonical; DB-backed user/org providers are returned with
+// ID="global/<name>" and Name=canonical; DB-backed user/org providers are returned with
 // their real ID and current admin-set Name. Use this when callers need to
 // resolve an agent's stored provider reference to its current canonical name
 // — the agent record stores the immutable ID, settings.json carries the
@@ -376,6 +376,7 @@ func (m *MultiClientManager) ListProviderEndpointsForOwner(ctx context.Context, 
 	endpoints := make([]*types.ProviderEndpoint, 0, len(m.globalClients))
 	for provider := range m.globalClients {
 		endpoints = append(endpoints, &types.ProviderEndpoint{
+			ID:           types.GlobalProviderID(string(provider)),
 			Name:         string(provider),
 			EndpointType: types.ProviderEndpointTypeGlobal,
 		})
@@ -412,6 +413,15 @@ func (m *MultiClientManager) GetClient(ctx context.Context, req *GetClientReques
 			Str("provider", req.Provider).
 			Str("owner", req.Owner).
 			Msg("TRACE: Provider manager GetClient called with app ID")
+	}
+	if types.IsGlobalProviderID(req.Provider) {
+		m.globalClientsMu.RLock()
+		client, ok := m.globalClients[types.Provider(types.CanonicalProviderName(req.Provider))]
+		m.globalClientsMu.RUnlock()
+		if ok {
+			return client.client, nil
+		}
+		return nil, fmt.Errorf("no client found for provider: %s", req.Provider)
 	}
 
 	var userProviders []*types.ProviderEndpoint

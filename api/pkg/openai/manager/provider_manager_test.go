@@ -101,6 +101,21 @@ func (suite *MultiClientManagerTestSuite) Test_GetClientPrefersLegacyNamedOrgani
 	suite.Equal("org-key", loggingClient.APIKey())
 }
 
+func (suite *MultiClientManagerTestSuite) Test_GetClientExplicitGlobalBypassesOrganizationProvider() {
+	suite.cfg.Providers.Anthropic.APIKey = "env-key"
+	suite.cfg.Providers.Anthropic.APIKeyFromFile = ""
+
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
+	client, err := manager.GetClient(context.Background(), &GetClientRequest{
+		Provider: "global/anthropic", Owner: "org_1", OwnerType: types.OwnerTypeOrg,
+	})
+
+	suite.NoError(err)
+	loggingClient, ok := client.(*logger.LoggingMiddleware)
+	suite.Require().True(ok)
+	suite.Equal("env-key", loggingClient.APIKey())
+}
+
 func (suite *MultiClientManagerTestSuite) Test_GetClientResolvesDatabaseGlobalWithoutOwner() {
 	suite.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).
 		Return([]*types.ProviderEndpoint{{

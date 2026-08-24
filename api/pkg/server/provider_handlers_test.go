@@ -153,6 +153,22 @@ func (s *ProviderHandlersSuite) TestListProviders() {
 	s.Require().Equal("0.0008", resp[0].AvailableModels[1].ModelInfo.Pricing.Prompt)
 }
 
+func (s *ProviderHandlersSuite) TestListProvidersKeepsDatabaseAndEnvironmentGlobalDuplicates() {
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{{
+		ID: "pe_global_anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal,
+	}}, nil)
+	s.manager.EXPECT().ListProviders(gomock.Any(), "").Return([]types.Provider{types.ProviderAnthropic}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/provider-endpoints", nil).WithContext(s.authCtx)
+	rr := httptest.NewRecorder()
+	s.server.listProviderEndpoints(rr, req)
+
+	var endpoints []*types.ProviderEndpoint
+	s.Require().NoError(json.Unmarshal(rr.Body.Bytes(), &endpoints))
+	s.Require().Len(endpoints, 2)
+	s.ElementsMatch([]string{"pe_global_anthropic", "global/anthropic"}, []string{endpoints[0].ID, endpoints[1].ID})
+}
+
 func (s *ProviderHandlersSuite) TestListProviders_NoModelInfo() {
 	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
 		{

@@ -19,7 +19,7 @@ import { getAgentHarnessLabel } from '../agent/AgentHarness'
 import { getProviderEndpointLabel } from './ProviderEndpointIcon'
 import {
   providerEndpointIsConnected,
-  providerEndpointMatchesRef,
+  resolveProviderEndpointRef,
   providersForCodeAgentRuntime,
   requiredProviderNameForRuntime,
 } from '../../utils/codeAgentProviders'
@@ -69,7 +69,7 @@ const CodeAgentHarnessesSection: FC<{
           : allowedProviderRefs == null
             ? connectedEndpoints
             : connectedEndpoints.filter((endpoint) =>
-              allowedProviderRefs.some((ref) => providerEndpointMatchesRef(endpoint, ref)))
+              allowedProviderRefs.some((ref) => resolveProviderEndpointRef(connectedEndpoints, ref)?.id === endpoint.id))
         const viewerHasSubscription = !!harness.viewer_has_subscription
         const hasSubscription = harness.supports_subscription
           && subscriptionEnabled
@@ -199,7 +199,7 @@ const CodeAgentHarnessesSection: FC<{
                       const checked = !subscriptionEnabled
                         && connected
                         && (allowedProviderRefs == null
-                        || allowedProviderRefs.some((candidate) => providerEndpointMatchesRef(endpoint, candidate)))
+                        || allowedProviderRefs.some((candidate) => resolveProviderEndpointRef(compatibleEndpoints, candidate)?.id === endpoint.id))
                       return (
                         <Stack
                           key={ref}
@@ -232,11 +232,13 @@ const CodeAgentHarnessesSection: FC<{
                                 onChange={(_, enabled) => {
                                   const current = harness.provider_refs == null
                                     ? [...new Set(compatibleEndpoints.map(providerRef))]
-                                    : harness.provider_refs.filter((candidate) =>
-                                      compatibleEndpoints.some((endpoint) => providerEndpointMatchesRef(endpoint, candidate)))
+                                    : harness.provider_refs.map((candidate) =>
+                                      resolveProviderEndpointRef(compatibleEndpoints, candidate))
+                                      .filter((endpoint): endpoint is TypesProviderEndpoint => !!endpoint)
+                                      .map(providerRef)
                                   const next = enabled
                                     ? [...new Set([...current, ref])]
-                                    : current.filter((candidate) => !providerEndpointMatchesRef(endpoint, candidate))
+                                    : current.filter((candidate) => candidate !== ref)
                                   onChange({
                                     runtime: harness.runtime!,
                                     enabled: harness.enabled ?? false,

@@ -37,7 +37,7 @@ func TestGetProviderSnapshotMissingHarnessPolicyIncludesGlobalProviders(t *testi
 	providerManager.EXPECT().
 		ListProviderEndpointsForOwner(gomock.Any(), "org_1", types.OwnerTypeOrg).
 		Return([]*types.ProviderEndpoint{
-			{ID: "", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+			{ID: "global/anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
 			{ID: "pe_anthropic", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg},
 		}, nil)
 	mockStore.EXPECT().
@@ -47,7 +47,10 @@ func TestGetProviderSnapshotMissingHarnessPolicyIncludesGlobalProviders(t *testi
 	snapshot, err := server.getProviderSnapshot(context.Background(), "user_1", app)
 
 	require.NoError(t, err)
-	require.Equal(t, []external_agent.ProviderRef{{ID: "pe_anthropic", Name: "user/anthropic"}}, snapshot)
+	require.Equal(t, []external_agent.ProviderRef{
+		{ID: "global/anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+		{ID: "pe_anthropic", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg},
+	}, snapshot)
 }
 
 func TestGetProviderSnapshotSubscriptionExcludesGlobalProviders(t *testing.T) {
