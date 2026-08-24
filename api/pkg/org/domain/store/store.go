@@ -108,14 +108,22 @@ type NodeRuntimeState interface {
 //
 // ListAll deliberately crosses tenant boundaries: the conversion runs
 // once at boot for the whole deployment, before any org is scoped.
+//
+// Delete removes one converted row. The conversion consumes what it
+// reads: a retained row is a standing instruction to recreate the
+// Trigger, so it would undo the user's next delete on the next boot.
 type RetiredTopics interface {
 	ListAll(ctx context.Context) ([]streaming.Topic, error)
+	Delete(ctx context.Context, orgID, topicID string) error
 }
 
 // RetiredSubscriptions is the read side of the pre-cutover
 // (Worker, Topic) subscription table, read only by application/cutover.
+// Delete consumes one converted row, for the same reason as
+// RetiredTopics.Delete.
 type RetiredSubscriptions interface {
 	ListAll(ctx context.Context) ([]streaming.Subscription, error)
+	Delete(ctx context.Context, orgID, workerID, topicID string) error
 }
 
 // RetiredProcessorInputs reads the pre-cutover `input_topic_id` column

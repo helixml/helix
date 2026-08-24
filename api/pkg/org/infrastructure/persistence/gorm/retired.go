@@ -14,16 +14,18 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
-// This file is the read-only remnant of the pre-cutover Topic model.
-// Nothing at runtime writes these tables: their only reader is
+// This file is the remnant of the pre-cutover Topic model. Nothing at
+// runtime reads or writes these tables: their only user is
 // application/cutover, which converts each row into a Trigger, a
-// Processor input, or a Worker attachment exactly once. AutoMigrate no
-// longer manages the row types, so the tables are left exactly as the
-// last pre-cutover release wrote them, and they are dropped once
-// deployed data has converted.
+// Processor input, or a Worker attachment exactly once and then deletes
+// it. The delete is the point — a retained row would recreate its
+// Trigger on every subsequent boot, undoing whatever the user deleted
+// in between. AutoMigrate no longer manages the row types, so the
+// tables are otherwise left exactly as the last pre-cutover release
+// wrote them, and they are dropped once deployed data has converted.
 //
-// Every read here is deliberately cross-tenant: the conversion runs
-// once at boot for the whole deployment, before any org is scoped.
+// Every statement here is deliberately cross-tenant: the conversion
+// runs once at boot for the whole deployment, before any org is scoped.
 
 type retiredTopicRow struct {
 	ID              string
@@ -77,6 +79,21 @@ func (r *retiredReader) ListAll(ctx context.Context) ([]streaming.Topic, error) 
 	return out, nil
 }
 
+// Delete removes one converted Topic row. The conversion consumes every
+// row it reads, so a Trigger the user later deletes is not recreated by
+// the next boot.
+func (r *retiredReader) Delete(ctx context.Context, orgID, topicID string) error {
+	if !r.db.Migrator().HasTable("org_topics") {
+		return nil
+	}
+	if err := r.db.WithContext(ctx).
+		Where("org_id = ? AND id = ?", orgID, topicID).
+		Delete(&retiredTopicRow{}).Error; err != nil {
+		return fmt.Errorf("delete retired topic %q: %w", topicID, err)
+	}
+	return nil
+}
+
 type retiredSubscriptionReader struct{ db *gorm.DB }
 
 func newRetiredSubscriptionReader(db *gorm.DB) *retiredSubscriptionReader {
@@ -101,6 +118,20 @@ func (r *retiredSubscriptionReader) ListAll(ctx context.Context) ([]streaming.Su
 		out = append(out, sub)
 	}
 	return out, nil
+}
+
+// Delete removes one converted subscription row, so a Worker the user
+// later detaches is not re-attached by the next boot.
+func (r *retiredSubscriptionReader) Delete(ctx context.Context, orgID, workerID, topicID string) error {
+	if !r.db.Migrator().HasTable("org_subscriptions") {
+		return nil
+	}
+	if err := r.db.WithContext(ctx).
+		Where("org_id = ? AND bot_id = ? AND topic_id = ?", orgID, workerID, topicID).
+		Delete(&retiredSubscriptionRow{}).Error; err != nil {
+		return fmt.Errorf("delete retired subscription %q→%q: %w", workerID, topicID, err)
+	}
+	return nil
 }
 
 type retiredProcessorInputReader struct{ db *gorm.DB }

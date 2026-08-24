@@ -811,6 +811,13 @@ fallback to Topics.
      Trigger, Processor, subscription, and attachment repositories. Existing
      target rows with the expected values are success; conflicting target rows
      are errors. Add no migration-specific database schema or state machine.
+   - Consume each retired row once it has been handled: delete the Topic and
+     subscription rows, as the Processor input column is already cleared. The
+     source row is the tombstone. Without that, "does the target exist?" cannot
+     distinguish a not-yet-converted row from a converted-then-deleted one, and
+     every deploy resurrects Triggers and attachments the user deleted. Handled
+     includes the outcomes that create nothing — a Processor output Topic, a
+     dangling or human subscription, an already-converged target.
 
 2. **Make Triggers own inbound transports.**
 
@@ -880,9 +887,10 @@ fallback to Topics.
      dispatch, Processor output Topics, reconcilers that create Topics, and the
      PR 3 legacy-delivery adapter. Do not add a read/write Topic projection.
    - Old Topic persistence may remain temporarily only as the input read by the
-     repeat-safe conversion. No runtime service may create or update Topic or
-     subscription rows after the cutover. Physical table cleanup can follow
-     once deployed data has converted.
+     repeat-safe conversion, which deletes each row as it converts it. No
+     runtime service may create or update Topic or subscription rows after the
+     cutover. Physical table cleanup can follow once deployed data has
+     converted.
    - Remove or disable old Topic REST and MCP operations rather than translating
      them. PR 5 introduces the public Trigger and attachment surfaces used by
      the replacement frontend.
