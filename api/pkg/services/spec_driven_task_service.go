@@ -931,6 +931,14 @@ Follow these guidelines when making changes:
 	// Build repository section listing local + Kodit repos for the agent
 	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
 
+	// Just-Do-It skips the planning prompt, which normally tells the agent where
+	// task attachments were staged. Build the same attachment section here so an
+	// implementation-only task can actually inspect its uploaded files.
+	attachmentsSection, attachErr := s.stageAttachmentsAndBuildPromptSection(ctx, task, project)
+	if attachErr != nil {
+		log.Warn().Err(attachErr).Str("task_id", task.ID).Msg("Failed to stage attachments — continuing without them")
+	}
+
 	// qwen-code's Shell tool requires `is_background` on every call (see
 	// qwen-code/packages/core/src/tools/shell.test.ts). Other runtimes use a
 	// different parameter name (Claude Code: `run_in_background`, Codex: none),
@@ -942,18 +950,15 @@ Follow these guidelines when making changes:
 		shellCommandsGuidance = "**Shell commands:** Specify is_background (true or false) on all shell commands - it's required. Use true for long-running operations (builds, servers, installs).\n\n"
 	}
 
-	promptWithBranch := fmt.Sprintf(`%s
-%s
----
-
-**Working in /home/retro/work/:** All code repositories are in /home/retro/work/. That's where you make changes.
-
-**Primary Project Directory:** /home/retro/work/%s/
-%s
-%s%s
-
-**For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
-`, userPrompt, guidelinesSection, primaryRepoName, repoSection, shellCommandsGuidance, gitInstructions)
+	promptWithBranch := buildJustDoItPrompt(
+		userPrompt,
+		guidelinesSection,
+		primaryRepoName,
+		repoSection,
+		attachmentsSection,
+		shellCommandsGuidance,
+		gitInstructions,
+	)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),

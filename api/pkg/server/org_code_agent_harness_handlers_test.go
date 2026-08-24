@@ -17,9 +17,10 @@ func TestSelectableCodeAgentRuntimes(t *testing.T) {
 	for _, runtime := range types.SelectableCodeAgentRuntimes {
 		assert.True(t, types.IsSelectableCodeAgentRuntime(runtime))
 	}
-	for _, runtime := range []types.CodeAgentRuntime{"", "gemini_cli", "qwen_code", "unknown"} {
+	for _, runtime := range []types.CodeAgentRuntime{"", "gemini_cli", "unknown"} {
 		assert.False(t, types.IsSelectableCodeAgentRuntime(runtime))
 	}
+	assert.True(t, types.IsSelectableCodeAgentRuntime(types.CodeAgentRuntimeQwenCode))
 }
 
 func TestValidateOrgCodeAgentHarness(t *testing.T) {
@@ -216,4 +217,6 @@ func TestBuildOrgCodeAgentHarnessStatuses(t *testing.T) {
 	assert.Empty(t, byRuntime[types.CodeAgentRuntimeCodexCLI].ProviderRefs)
 	assert.Nil(t, byRuntime[types.CodeAgentRuntimeCodexCLI].SubscriptionEnabled)
 	assert.False(t, byRuntime[types.CodeAgentRuntimeCodexCLI].ViewerHasSubscription)
+	assert.True(t, byRuntime[types.CodeAgentRuntimeQwenCode].Enabled)
+	assert.Empty(t, byRuntime[types.CodeAgentRuntimeQwenCode].ProviderRefs)
 }

@@ -70,6 +70,48 @@ func TestLinkDerivesAndRevokesServerTools(t *testing.T) {
 	require.Equal(t, []string{"app-agent", "app-agent"}, notified)
 }
 
+func TestLinkFiresOnRestartRequiredWhenGrantingNewTools(t *testing.T) {
+	svc, _, orgID := newTestService(t)
+	var restarted []string
+	svc.onRestartRequired = func(_ context.Context, gotOrgID string, id orgchart.NodeID) {
+		require.Equal(t, orgID, gotOrgID)
+		restarted = append(restarted, string(id))
+	}
+	a, err := svc.CreateServer(context.Background(), orgID, CreateServerParams{
+		Name: "production", Address: "10.0.0.8", User: "ubuntu",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Link(context.Background(), orgID, a.ID, "b-agent")
+	require.NoError(t, err)
+	require.Equal(t, []string{"b-agent"}, restarted, "granting new server tools must fire OnRestartRequired")
+
+	require.NoError(t, svc.Unlink(context.Background(), orgID, a.ID, "b-agent"))
+	require.Equal(t, []string{"b-agent", "b-agent"}, restarted, "revoking the tools must also fire OnRestartRequired")
+}
+
+func TestLinkDoesNotFireOnRestartRequiredWhenToolsAlreadyGranted(t *testing.T) {
+	svc, now, orgID := newTestService(t)
+	// b-agent2 already carries every tool a server-kind asset would grant,
+	// so linking it to one more server asset changes nothing a running
+	// sandbox reads at startup.
+	preloaded, err := orgchart.NewNode("b-agent2", "agent2", ServerTools, *now, orgID)
+	require.NoError(t, err)
+	require.NoError(t, svc.nodes.Create(context.Background(), preloaded.WithAgentID("app-agent2")))
+
+	var restarted []string
+	svc.onRestartRequired = func(_ context.Context, _ string, id orgchart.NodeID) { restarted = append(restarted, string(id)) }
+
+	a, err := svc.CreateServer(context.Background(), orgID, CreateServerParams{
+		Name: "production", Address: "10.0.0.8", User: "ubuntu",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Link(context.Background(), orgID, a.ID, "b-agent2")
+	require.NoError(t, err)
+	require.Empty(t, restarted, "linking an asset that grants no new tools must not fire OnRestartRequired")
+}
+
 func TestAuthorizeRequiresLinkAndEnabledAsset(t *testing.T) {
 	svc, _, orgID := newTestService(t)
 	ctx := context.Background()

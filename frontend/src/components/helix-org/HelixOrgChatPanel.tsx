@@ -20,6 +20,7 @@ import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import StopIcon from '@mui/icons-material/Stop'
 
+import AgentRestartRequiredBanner from './AgentRestartRequiredBanner'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import AgentChat from '../session/AgentChat'
 import useApi from '../../hooks/useApi'
@@ -384,7 +385,10 @@ const HelixOrgChatPanel: FC = () => {
         ))}
       </Stack>
 
-      {/* Body — must flex-fill remaining height so EmbeddedSessionView scrolls inside. */}
+      {/* Body — must flex-fill remaining height so EmbeddedSessionView scrolls inside.
+          The restart banner is hoisted here (rather than nested in the view
+          ternary below) so it survives Chat/Desktop/Tasks navigation instead
+          of unmounting — and losing its dismissed state — every tab switch. */}
       <Box
         sx={{
           flex: 1,
@@ -394,6 +398,15 @@ const HelixOrgChatPanel: FC = () => {
           overflow: 'hidden',
         }}
       >
+        <Box sx={{ flexShrink: 0 }}>
+          <AgentRestartRequiredBanner
+            key={selectedBotId}
+            visible={!!selectedBot?.restart_required}
+            working={!!chatSessionId && streaming.currentResponses.has(chatSessionId)}
+            busy={busy}
+            onRestart={() => { void handleRestart() }}
+          />
+        </Box>
         {!selectedBotId ? (
           <Box sx={{ p: 3, textAlign: 'center' }}>
             <Typography variant="body2" color="text.secondary">

@@ -1103,6 +1103,15 @@ func (s *HelixAPIServer) getAgent(_ http.ResponseWriter, r *http.Request) (*type
 	return app, nil
 }
 
+// appSystemPrompt reads the first assistant's system prompt, guarding
+// against an empty Assistants slice on either side of a diff.
+func appSystemPrompt(app *types.App) string {
+	if app == nil || len(app.Config.Helix.Assistants) == 0 {
+		return ""
+	}
+	return app.Config.Helix.Assistants[0].SystemPrompt
+}
+
 // updateAgent godoc
 // @Summary Update an existing agent
 // @Description Update existing agent
@@ -1221,6 +1230,16 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	// A changed system prompt is restart-sensitive for any helix-org Bot
+	// backed by this App: the running sandbox's AGENTS.md/CLAUDE.md was
+	// materialized from the old prompt. s.orgAgentInstructionsChanged is
+	// nil when helix-org isn't mounted, and a no-op save (prompt
+	// unchanged) must not fire it.
+	if s.orgAgentInstructionsChanged != nil && appSystemPrompt(existing) != appSystemPrompt(updated) {
+		s.orgAgentInstructionsChanged(r.Context(), updated.ID)
+	}
+
 	restore := func(updateErr error) *system.HTTPError {
 		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
 		defer cancel()

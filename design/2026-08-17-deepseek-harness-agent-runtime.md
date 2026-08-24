@@ -11,7 +11,7 @@ with one significant difference described below.
 ## The one structural difference from every other harness
 
 Every other harness we ship exposes ACP as a subcommand of its product CLI:
-`claude-code-acp`, `codex acp`, `goose acp`, `opencode acp`, `qwen --experimental-acp`.
+`claude-code-acp`, `codex acp`, `goose acp`, `opencode acp`, `qwen --acp`.
 
 **`dsh` does not.** Its published CLI (`@deepseek-ai/dsh`) offers `dsh web`,
 `dsh --profile <name>`, `dsh --profile headless "job"`, and `dsh plugin` — and

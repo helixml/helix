@@ -256,6 +256,11 @@ type BotRuntimeInfo struct {
 	// desktop is online (external_agent_status == running), else
 	// "stopped". Empty when the status could not be resolved.
 	AgentStatus string
+	// RestartRequired is true when the bot's sandbox is running but is
+	// still serving config from before the operator's last save. Only
+	// tool and instruction changes raise it — everything else on the bot
+	// page already reaches a running sandbox without a restart.
+	RestartRequired bool
 }
 
 // BotRuntime resolves a Bot's runtime-state sidecar. Declared here

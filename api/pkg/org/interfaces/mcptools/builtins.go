@@ -143,15 +143,16 @@ type Deps struct {
 //
 // Hub/Dispatcher are optional (nil → publish skips notify/dispatch).
 type Config struct {
-	Store               *store.Store
-	Queries             *queries.Queries
-	Now                 Clock
-	NewID               IDGen
-	Hub                 *wakebus.Bus
-	Dispatcher          EventDispatcher
-	AgentContentUpdater AgentContentUpdater
-	AgentProfileReader  AgentProfileReader
-	ToolChangeNotifier  func(context.Context, string)
+	Store                   *store.Store
+	Queries                 *queries.Queries
+	Now                     Clock
+	NewID                   IDGen
+	Hub                     *wakebus.Bus
+	Dispatcher              EventDispatcher
+	AgentContentUpdater     AgentContentUpdater
+	AgentProfileReader      AgentProfileReader
+	ToolChangeNotifier      func(context.Context, string)
+	RestartRequiredNotifier func(context.Context, string, orgchart.NodeID)
 	// KnownTools reports the live tool catalogue so the bots service can
 	// prune persisted names the registry no longer knows. nil disables
 	// pruning.
@@ -354,14 +355,15 @@ func (c Config) lifecycleService() *lifecycle.Service {
 // the REST bot handlers union the same set.
 func (c Config) botsService() *nodes.Nodes {
 	return nodes.New(nodes.Deps{
-		Nodes:          c.Store.Nodes,
-		Lines:          c.Store.ReportingLines,
-		Reconciler:     c.Reconciler,
-		Now:            c.Now,
-		NewID:          c.NewID,
-		BaseTools:      BaseReadTools,
-		KnownTools:     c.KnownTools,
-		OnToolsChanged: c.ToolChangeNotifier,
+		Nodes:             c.Store.Nodes,
+		Lines:             c.Store.ReportingLines,
+		Reconciler:        c.Reconciler,
+		Now:               c.Now,
+		NewID:             c.NewID,
+		BaseTools:         BaseReadTools,
+		KnownTools:        c.KnownTools,
+		OnToolsChanged:    c.ToolChangeNotifier,
+		OnRestartRequired: c.RestartRequiredNotifier,
 	})
 }
 

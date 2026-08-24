@@ -692,11 +692,16 @@ func TestExtractUserOverrides_SkipsHelixOwnedContextServers(t *testing.T) {
 // default_mode: "bypassPermissions" entry; this test keeps the two in
 // step. If you remove the default_mode field, this test fails.
 func TestQwenCodeAgentServerHasYoloDefaultMode(t *testing.T) {
+	oldQwenSettingsPath := QwenSettingsPath
+	QwenSettingsPath = filepath.Join(t.TempDir(), "qwen", "settings.json")
+	t.Cleanup(func() { QwenSettingsPath = oldQwenSettingsPath })
+
 	d := &SettingsDaemon{
 		codeAgentConfig: &CodeAgentConfig{
-			Runtime: "qwen_code",
-			BaseURL: "http://outer-api:8080/v1",
-			Model:   "nebius/zai-org/GLM-5.1",
+			Runtime:         "qwen_code",
+			BaseURL:         "http://outer-api:8080/v1",
+			Model:           "node-6/qwen3.8-27b",
+			ReasoningEffort: "xhigh",
 		},
 		userAPIKey: "hl-test-key",
 	}
@@ -717,6 +722,61 @@ func TestQwenCodeAgentServerHasYoloDefaultMode(t *testing.T) {
 	assert.True(t, ok, "qwen entry must have args")
 	assert.Contains(t, args, "--yolo",
 		"qwen args must include --yolo so the ACP session starts in YOLO mode without depending on the IDE")
+	assert.Contains(t, args, "--acp")
+	assert.NotContains(t, args, "--experimental-acp")
+
+	env, ok := qwen["env"].(map[string]interface{})
+	assert.True(t, ok, "qwen entry must have env")
+	assert.Equal(t, "/home/retro/work/.qwen-state", env["QWEN_HOME"])
+	assert.Equal(t, "/home/retro/work/.qwen-state", env["QWEN_RUNTIME_DIR"])
+	assert.Equal(t, "false", env["QWEN_TELEMETRY_ENABLED"])
+	assert.Equal(t, "false", env["QWEN_USAGE_STATISTICS_ENABLED"])
+	assert.NotContains(t, env, "QWEN_DATA_DIR")
+
+	defaults, ok := qwen["default_config_options"].(map[string]string)
+	assert.True(t, ok, "qwen entry must have default ACP config options")
+	assert.Equal(t, "xhigh", defaults["reasoning_effort"])
+
+	data, err := os.ReadFile(QwenSettingsPath)
+	require.NoError(t, err)
+	var settings map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &settings))
+	model := settings["model"].(map[string]interface{})
+	generationConfig := model["generationConfig"].(map[string]interface{})
+	extraBody := generationConfig["extra_body"].(map[string]interface{})
+	assert.Equal(t, "xhigh", extraBody["reasoning_effort"])
+}
+
+func TestEnsureQwenSettingsPreservesUserConfigAndClearsEffort(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "qwen", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, os.WriteFile(path, []byte(`{
+  "general": {"vimMode": true},
+  "model": {"generationConfig": {"timeout": 60000, "extra_body": {"custom": true}}}
+}`), 0644))
+
+	require.NoError(t, ensureQwenSettings(path, "medium"))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var settings map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &settings))
+	assert.Equal(t, true, settings["general"].(map[string]interface{})["vimMode"])
+	model := settings["model"].(map[string]interface{})
+	generationConfig := model["generationConfig"].(map[string]interface{})
+	assert.Equal(t, float64(60000), generationConfig["timeout"])
+	extraBody := generationConfig["extra_body"].(map[string]interface{})
+	assert.Equal(t, true, extraBody["custom"])
+	assert.Equal(t, "medium", extraBody["reasoning_effort"])
+
+	require.NoError(t, ensureQwenSettings(path, ""))
+	data, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &settings))
+	model = settings["model"].(map[string]interface{})
+	generationConfig = model["generationConfig"].(map[string]interface{})
+	extraBody = generationConfig["extra_body"].(map[string]interface{})
+	assert.NotContains(t, extraBody, "reasoning_effort")
+	assert.Equal(t, true, extraBody["custom"])
 }
 
 func TestEnsureCodexConfig(t *testing.T) {

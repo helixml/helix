@@ -200,10 +200,96 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 		if sess, err := o.sessions.GetSession(ctx, s.SessionID); err == nil && sess != nil {
 			if sess.Metadata.ExternalAgentStatus == "running" {
 				info.AgentStatus = "running"
+				// RestartRequiredContainer is the container that was live
+				// when a restart-sensitive config change was saved. Docker
+				// never reuses an id, so a match means this very container
+				// is still up with the pre-edit config. Any recreate
+				// (stop/start, idle reap, crash reconcile, full restart)
+				// changes ContainerID and the flag self-clears — which is
+				// why nothing anywhere clears the stamp. An empty stamp
+				// means the sandbox was down at save time and must never
+				// match, including against an empty ContainerID.
+				info.RestartRequired = s.RestartRequiredContainer != "" &&
+					s.RestartRequiredContainer == sess.Metadata.ContainerID
 			}
 		}
 	}
 	return info, nil
+}
+
+// restartStampSessions is the narrow session read the restart-required
+// stamp needs.
+type restartStampSessions interface {
+	GetSession(ctx context.Context, id string) (*types.Session, error)
+}
+
+// stampRestartRequiredContainer records which sandbox container a
+// restart-sensitive config change made stale.
+//
+// A read error is NOT the same as "no sandbox". Overwriting the stamp with
+// "" on a transient failure would clear a banner that is legitimately
+// showing, so on error we log and leave the previous stamp alone. Genuine
+// absence — no session, or a stopped sandbox with no container — still
+// stamps "", which is the no-banner case and needs no is-it-running check.
+func stampRestartRequiredContainer(ctx context.Context, st *helixorgstore.Store, sessions restartStampSessions, orgID string, id orgchart.NodeID) {
+	ws, err := runtimehelix.LoadState(ctx, st, orgID, id)
+	if err != nil {
+		log.Warn().Err(err).Str("org_id", orgID).Str("bot", string(id)).
+			Msg("restart-required stamp: load worker state failed, leaving previous stamp")
+		return
+	}
+	containerID := ""
+	if ws.SessionID != "" {
+		sess, err := sessions.GetSession(ctx, ws.SessionID)
+		if err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Str("bot", string(id)).Str("session_id", ws.SessionID).
+				Msg("restart-required stamp: get session failed, leaving previous stamp")
+			return
+		}
+		if sess != nil {
+			containerID = sess.Metadata.ContainerID
+		}
+	}
+	if err := runtimehelix.SaveRestartRequiredContainer(ctx, st, orgID, id, containerID); err != nil {
+		log.Warn().Err(err).Str("org_id", orgID).Str("bot", string(id)).Msg("failed to stamp restart-required container")
+	}
+}
+
+// restartStampApps is the narrow App read the App→Node restart-required
+// resolution needs.
+type restartStampApps interface {
+	GetApp(ctx context.Context, id string) (*types.App, error)
+}
+
+// stampRestartRequiredForApp resolves the Bot (org Node) backed by the
+// given Helix App, if any, and stamps its restart-required container the
+// same way stampRestartRequiredContainer does for direct Node edits.
+//
+// A non-org App, or an org App that doesn't back any Bot, returns quietly
+// — most Apps are neither. A lookup failure is logged and swallowed
+// rather than propagated: this runs after the App save has already
+// committed, so there is nothing left to roll back.
+func stampRestartRequiredForApp(ctx context.Context, st *helixorgstore.Store, sessions restartStampSessions, apps restartStampApps, appID string) {
+	app, err := apps.GetApp(ctx, appID)
+	if err != nil {
+		log.Warn().Err(err).Str("app_id", appID).Msg("restart-required stamp: failed to load app")
+		return
+	}
+	if app == nil || app.OrganizationID == "" {
+		return
+	}
+	nodes, err := st.Nodes.List(ctx, app.OrganizationID)
+	if err != nil {
+		log.Warn().Err(err).Str("org_id", app.OrganizationID).Str("app_id", appID).
+			Msg("restart-required stamp: failed to list org nodes")
+		return
+	}
+	for _, node := range nodes {
+		if node.AgentID == appID {
+			stampRestartRequiredContainer(ctx, st, sessions, app.OrganizationID, node.ID)
+			return
+		}
+	}
 }
 
 // SessionID adapts orgWorkerRuntime to activations.SessionResolver so the
@@ -293,7 +379,8 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: deps.Reconciler,
 		Now: deps.Now, NewID: deps.NewID,
 		BaseTools: mcptools.BaseReadTools, KnownTools: knownTools,
-		OnToolsChanged: deps.ToolChangeNotifier,
+		OnToolsChanged:    deps.ToolChangeNotifier,
+		OnRestartRequired: deps.RestartRequiredNotifier,
 	})
 	svc := orgServices{
 		Nodes: botsSvc,
@@ -542,6 +629,24 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	deps.AgentContentUpdater = inProcClient
 	deps.AgentProfileReader = inProcClient
 	deps.ToolChangeNotifier = cfg.APIServer.publishAgentToolChange
+	// Stamp which sandbox container a restart-sensitive config change made
+	// stale. Thin wrapper: the real logic lives in
+	// stampRestartRequiredContainer so it's reachable from a unit test.
+	//
+	// context.WithoutCancel: Nodes.Update has already committed by the
+	// time this fires, so a client disconnect here must not abort the
+	// stamp — doing so would silently drop the new staleness (the banner
+	// never appears) rather than merely delay it.
+	deps.RestartRequiredNotifier = func(ctx context.Context, orgID string, id orgchart.NodeID) {
+		stampRestartRequiredContainer(context.WithoutCancel(ctx), st, cfg.APIServer.Store, orgID, id)
+	}
+	// Mirror the notifier above for the App-side instructions edit path
+	// (Agent settings page): a saved system-prompt change is just as
+	// restart-sensitive as a Node.Content edit, but it lands on the App
+	// row, not the Node, so it needs its own App→Node resolution step.
+	cfg.APIServer.orgAgentInstructionsChanged = func(ctx context.Context, appID string) {
+		stampRestartRequiredForApp(context.WithoutCancel(ctx), st, cfg.APIServer.Store, cfg.APIServer.Store, appID)
+	}
 
 	// Wire the helix-runtime HireHook so hire_worker persists the
 	// hiring user's identifier onto the new Worker's runtime state.
@@ -1080,9 +1185,10 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Encrypt: func(plaintext []byte) (string, error) {
 			return crypto.EncryptAES256GCM(plaintext, encryptionKey)
 		},
-		Now:            deps.Now,
-		NewID:          deps.NewID,
-		OnToolsChanged: deps.ToolChangeNotifier,
+		Now:               deps.Now,
+		NewID:             deps.NewID,
+		OnToolsChanged:    deps.ToolChangeNotifier,
+		OnRestartRequired: deps.RestartRequiredNotifier,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init assets service: %w", err)
