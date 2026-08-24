@@ -37,6 +37,11 @@ export GIT_MERGE_AUTOEDIT=no
 # bytes to both, so the user still sees live output in the ghostty window.
 SETUP_LOG="$HOME/.helix-setup.log"
 : > "$SETUP_LOG" || true
+# Keep the real terminal on fd 3/4. Everything below writes to a pipe instead of
+# the tty, and bash only treats itself as interactive when stdin AND stderr are
+# ttys — so the debug shell in cleanup_and_prompt must restore these first or it
+# starts non-interactive (no prompt, no readline, no job control).
+exec 3>&1 4>&2
 exec > >(tee -a "$SETUP_LOG") 2>&1
 
 # Trap any exit (success or failure) to show interactive menu
@@ -74,6 +79,11 @@ JSON
         fi
     fi
 
+    # Hand the terminal back before prompting: closing the pipe lets tee flush
+    # and exit, the menu stops being block-buffered, and the debug shell below
+    # gets tty stdout/stderr.
+    exec 1>&3 2>&4 3>&- 4>&-
+
     echo ""
     echo "What would you like to do?"
     echo "  1) Close this window"
@@ -99,7 +109,14 @@ JSON
             else
                 cd "$HOME/work"
             fi
-            exec bash
+            # No -i needed: with fds restored bash sees ttys on stdin+stderr and
+            # goes interactive on its own. Headless runs have no tty, so there is
+            # nobody to give a shell to.
+            if [ -t 0 ]; then
+                exec bash
+            fi
+            trap - EXIT
+            exit $exit_code
             ;;
     esac
 }
