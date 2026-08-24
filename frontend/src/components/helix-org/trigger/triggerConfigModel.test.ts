@@ -1,23 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import { draftToConfig, initialDraft, missingRequired } from './triggerConfigModel'
+import { TransportDirection, TransportFieldType, TransportKind } from '../../../api/api'
 import type { TriggerKindDescriptor } from '../../../services/triggerKindService'
 
 const emailDesc: TriggerKindDescriptor = {
-  kind: 'email',
+  kind: TransportKind.KindEmail,
   label: 'Incoming email',
   summary: 'Fires when mail arrives.',
-  fields: [{ name: 'alias', label: 'Inbox alias', type: 'string', required: true, direction: 'inbound' }],
+  fields: [{ name: 'alias', label: 'Inbox alias', type: TransportFieldType.FieldString, required: true, direction: TransportDirection.Inbound }],
   activation: { summary: 'Send mail.' },
 }
 
 const githubDesc: TriggerKindDescriptor = {
-  kind: 'github',
+  kind: TransportKind.KindGitHub,
   label: 'GitHub event',
   summary: 'Fires on repo events.',
   fields: [
-    { name: 'repo', label: 'Repository', type: 'github_repo', required: true, direction: 'inbound' },
-    { name: 'events', label: 'Events', type: 'github_events', required: true, direction: 'inbound' },
-    { name: 'webhook_id', label: 'Webhook id', type: 'string', read_only: true, direction: 'inbound' },
+    { name: 'repo', label: 'Repository', type: TransportFieldType.FieldGitHubRepo, required: true, direction: TransportDirection.Inbound },
+    { name: 'events', label: 'Events', type: TransportFieldType.FieldGitHubEvents, required: true, direction: TransportDirection.Inbound },
+    { name: 'webhook_id', label: 'Webhook id', type: TransportFieldType.FieldString, read_only: true, direction: TransportDirection.Inbound },
   ],
   activation: { summary: 'GitHub delivers events.' },
 }
@@ -56,7 +57,7 @@ describe('draftToConfig', () => {
       ...emailDesc,
       fields: [
         ...emailDesc.fields!,
-        { name: 'note', label: 'Note', type: 'string', direction: 'inbound' },
+        { name: 'note', label: 'Note', type: TransportFieldType.FieldString, direction: TransportDirection.Inbound },
       ],
     }
     expect(draftToConfig(desc, { alias: 'support', note: '' }, {})).toEqual({ alias: 'support' })
