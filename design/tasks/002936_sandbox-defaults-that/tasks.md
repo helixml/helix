@@ -100,11 +100,11 @@
 - [ ] `cd api && go build ./pkg/...` and `cd frontend && yarn build`
 - [x] In the inner Helix at `http://localhost:8080`: register `test@helix.ml` / `helixtest`, complete onboarding, create a spec task, open its detail page, confirm video actually plays in the browser
 - [x] Fresh task: `docker exec helix-sandbox-nvidia-1 docker inspect -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}' <container>` shows the new limits (`25769803776 12000000000`, or the clamped CPU value with its log line)
-- [ ] Pre-existing task row (non-meta deployment): confirm the migration NULLed it, that starting it produces the new limits, and that the `8/16384` row count is unchanged
+- [x] Pre-existing task row (non-meta deployment): confirm the migration NULLed it, that starting it produces the new limits, and that the `8/16384` row count is unchanged
 - [ ] On meta: open one of the 31 hand-backfilled tasks and confirm the selector shows "12 CPU / 24 GB RAM" selected rather than blank
 - [x] Config override: set `HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS=8` / `..._MEMORY_MB=16384`, restart, create a task, confirm the container follows; then set an invalid pair and confirm startup refuses
-- [ ] Real reconnect: with a browser watching a playing stream, restart `desktop-bridge` in the desktop container; confirm video resumes unattended, `reconnect_count` increments, and **no** `failed to read init message` appears in the desktop-bridge log
-- [ ] Read the desktop-bridge log for which `GetOrCreate` branch the replayed init took — existing source vs `Evicted dead source` (design B6 / Open Question 5)
+- [x] Real reconnect: with a browser watching a playing stream, restart `desktop-bridge` in the desktop container; confirm video resumes unattended, `reconnect_count` increments, and **no** `failed to read init message` appears in the desktop-bridge log
+- [x] Read the desktop-bridge log for which `GetOrCreate` branch the replayed init took — existing source vs `Evicted dead source` (design B6 / Open Question 5)
 - [ ] Test the next operation after the drop: click in the desktop and confirm input still works; confirm an embed-key read-only viewer still cannot input after a reconnect
 - [x] `helix spectask stream <session> --duration 30` returns ~1600 frames at 50–60 FPS at 1920x1080
 
@@ -119,6 +119,38 @@
 - [ ] Close `spt_01m0evm3dpanc1sfktywbxhes4` as superseded by this task
 
 ## Notes discovered during implementation
+
+### How to force a REAL proxy reconnect (this took two attempts)
+
+**Killing `desktop-bridge` does NOT exercise the replay path.** desktop-bridge
+hosts the RevDial client, so killing it takes RevDial down too: `dialFunc` fails
+all 3 attempts, the proxy gives up, and the *browser* opens a brand-new stream
+socket with its own fresh init. The give-away is `reconnect_count=0` in
+"Stream WebSocket connection closed" — no proxy-level reconnect happened, so any
+`stream init received` you see is the browser's, not a replay. Believing that
+first run would have been a false positive.
+
+**What works:** drop only the backend TCP socket, leaving RevDial up:
+```bash
+docker exec helix-sandbox-nvidia-1 docker exec <container> \
+  ss -K state established '( sport = :9876 )'
+```
+`ss -K` prints `RTNETLINK answers: Invalid argument` for a loopback socket but
+still kills it — ignore the message and check that the peer port changed.
+
+Confirmed chain (2026-08-24):
+- API: `Server connection error ... close 1006 (abnormal closure): unexpected EOF`
+- API: `Replayed session state to reconnected backend bytes=297`
+- API: `Reconnected successfully, resuming proxy reconnect_count=1`
+- bridge: `stream WebSocket connected` 11:44:24.975 → `stream init received …
+  user_retry=false` 11:44:24.**976** — 1 ms, not a 30 s timeout
+- bridge: `[SHARED_VIDEO] Client subscribed (grace period reconnection, starting
+  catchup)` — **subscribed to the existing source**, no
+  `Evicted dead source in GetOrCreate`
+- `failed to read init message` count across the entire bridge log: **0**
+
+That last point settles Open Question 5: a replayed init reuses the live shared
+pipeline rather than restarting it.
 
 ### Second gap found by end-to-end testing: the UI's "Default" marker lied
 
