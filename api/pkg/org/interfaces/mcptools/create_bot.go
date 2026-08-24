@@ -90,9 +90,6 @@ func (t *CreateBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if args.Content == "" {
 		return nil, fmt.Errorf("content is required")
 	}
-	if err := validateRegisteredTools(args.Tools, t.deps.ToolNames); err != nil {
-		return nil, err
-	}
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
 		return nil, fmt.Errorf("create_bot: caller has no OrgID")
