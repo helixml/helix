@@ -120,6 +120,35 @@
 
 ## Notes discovered during implementation
 
+### The migration system: how it actually applies (sanity-checked)
+
+Most schema work in this repo is GORM AutoMigrate; this is a **data** migration
+and goes through a different path. `PostgresStore.runMigrations()` calls
+`MigrateUp()` — `golang-migrate` over `//go:embed migrations/*.sql`, tracked in
+the `helix_migrations` table — and does so **before** `AutoMigrate`.
+
+Consequences:
+
+- A new `NNNN_name.up.sql` is discovered automatically; there is no registry.
+- **Tables do not exist yet on a fresh database**, hence the
+  `to_regclass('spec_tasks') IS NULL` guard (same pattern as 0006). Without it a
+  fresh install would abort at startup.
+- A failing migration aborts startup with `failed to run version migrations` —
+  loud, not silent.
+
+Verified through the **real runner**, not by piping SQL into `psql` (which is all
+the first pass did, and which proves nothing about discovery or ordering):
+
+```bash
+# seed a 4/8192 row and an 8/16384 control, then rewind the runner
+UPDATE helix_migrations SET version = 8, dirty = false;
+docker compose -f docker-compose.dev.yaml restart api
+```
+
+Result: `helix_migrations` back to `version 9, dirty=f`, the 4/8192 row NULLed,
+the 8/16384 control untouched. Running 0009 against a schema with no
+`spec_tasks` table exits 0, confirming the fresh-install guard.
+
 ### How to force a REAL proxy reconnect (this took two attempts)
 
 **Killing `desktop-bridge` does NOT exercise the replay path.** desktop-bridge
