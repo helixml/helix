@@ -37,24 +37,26 @@
 - [x] At `websocket_external_agent_sync.go:3435`: DEBUG only for the sentinel; **ERROR** for anything else, with `request_id`/`interaction_id`/`comment_id` and a message stating an agent answer would be lost
 - [x] Apply the same treatment to the session-based fallback branch below it
 
-## 4. Recover the 94 stranded answers [~]
+## 4. Recover the 94 stranded answers
 
-- [ ] Add `ListTimerStampedCommentsWithResponses(ctx, stamp, limit)` to the store using the brief's SQL (the `JOIN` excludes the 18 no-interaction rows)
-- [ ] Add `reconcileTimerStampedComments(ctx)` using `types.TextFromInteraction`; set `agent_response`, `agent_response_entries`, `agent_response_at = interactions.updated`
-- [ ] Call it as step 0 of `ResumeCommentQueueProcessing`, in a goroutine, batched (limit 1000) with per-batch and total repaired counts logged
-- [ ] Never touch `request_id` / `queued_at` in the repair path
-- [ ] Confirm idempotency: a second run repairs 0 rows
+- [x] Add `ListTimerStampedCommentsWithResponses(ctx, stamp, limit)` to the store using the brief's SQL (the `JOIN` excludes the 18 no-interaction rows)
+- [x] Add `reconcileTimerStampedComments(ctx)` using `types.TextFromInteraction`; set `agent_response`, `agent_response_entries`, `agent_response_at = interactions.updated`
+- [x] Call it as step 0 of `ResumeCommentQueueProcessing`, in a goroutine, batched (limit 1000) with per-batch and total repaired counts logged
+- [x] Never touch `request_id` / `queued_at` in the repair path
+- [x] Confirm idempotency: a second run repairs 0 rows
 
 ## 5. Unit tests
 
-- [ ] `TestHandleCommentTimeout_DoesNotStampWhenAgentUnreachable`
-- [ ] `TestHandleCommentTimeout_DoesNotStampWhenCommentNotYetDispatched`
-- [ ] `TestFinalizeCommentResponse_RepairsAfterTimerStampClearedRequestID`
-- [ ] `TestReconcileTimerStampedComments_RepairsMatchingRows` / `_SkipsRowsWithoutInteraction` / `_IsIdempotent`
-- [ ] Rewrite `TestHandleCommentTimeout_StampsErrorWhenInteractionEmpty` to assert a re-arm on the first tick, and retarget stamp coverage at the ceiling case
-- [ ] Run: `sudo apt-get install -y gcc libc6-dev && CGO_ENABLED=1 go test -run TestCommentTimerSuite ./pkg/server/ -count=1`
+- [x] `TestHandleCommentTimeout_DoesNotStampWhenAgentUnreachable`
+- [x] `TestHandleCommentTimeout_DoesNotStampWhenCommentNotYetDispatched`
+- [x] `TestFinalizeCommentResponse_RepairsAfterTimerStampClearedRequestID`
+- [x] `TestReconcileTimerStampedComments_RepairsMatchingRows` / `_NoopWhenNothingStranded` / `_LeavesStampWhenInteractionYieldsNoText`
+- [x] Replaced `TestHandleCommentTimeout_StampsErrorWhenInteractionEmpty` with `_DoesNotStampWhenAgentUnreachable`; stamp coverage retargeted at `_StampsSandboxFailureAfterCeiling` and `_StampsNoResponseAfterSilentCeiling`
+- [x] Added `TestFinalizeCommentResponse_ResolvesWhenAgentRebindsRequestID` and `_ReturnsSentinelWhenNoComment` for the repro findings
+- [x] **19/19 tests pass** (`CGO_ENABLED=1 go test -run TestCommentTimerSuite ./pkg/server/ -count=1`)
+- [x] Run: `sudo apt-get install -y gcc libc6-dev && CGO_ENABLED=1 go test -run TestCommentTimerSuite ./pkg/server/ -count=1`
 
-## 6. Verify live (mandatory)
+## 6. Verify live (mandatory) [~]
 
 - [ ] Re-run the §0 cold-start sequence **after** the fix: no false stamp, real answer lands on the comment
 - [ ] Post a **second** comment on the same review — confirm it is delivered and answered (queue not blocked)
