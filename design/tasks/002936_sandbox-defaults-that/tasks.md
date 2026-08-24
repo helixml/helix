@@ -9,9 +9,10 @@
 
 ## 0. Before starting
 
-- [ ] Read the prior-art spec at `helix-specs/design/tasks/002903_default-spec-task/` and lift its frontend de-duplication plan and OpenAPI fan-out warning
-- [ ] Re-run `grep -rn "8192\|16384\|DefaultSpecTaskSandbox\|ValidPreset" api frontend/src` and diff against the call-site table in `design.md` — a new caller may have landed
-- [ ] Confirm `spec_tasks.sandbox_resource_overrides` is genuinely `jsonb` (`\d+ spec_tasks`) before writing the migration comparison
+- [x] Read the prior-art spec at `helix-specs/design/tasks/002903_default-spec-task/` and lift its frontend de-duplication plan and OpenAPI fan-out warning
+- [x] Re-run `grep -rn "8192\|16384\|DefaultSpecTaskSandbox\|ValidPreset" api frontend/src` and diff against the call-site table in `design.md` — a new caller may have landed — **no new callers; table is accurate**
+- [x] Confirm `spec_tasks.sandbox_resource_overrides` is genuinely `jsonb` (`\d+ spec_tasks`) before writing the migration comparison — **confirmed `jsonb`**
+- [x] Baseline the local inner-Helix DB: `spec_tasks` is empty (0 rows), so the migration is exercised by seeding rows by hand during verification
 
 ## 1. Part A — types, ladder, config
 
