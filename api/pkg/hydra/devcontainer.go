@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -1101,8 +1102,23 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	return hostConfig, nil
 }
 
+// sandboxResourceLimits converts a preset into Docker's units.
+//
+// vCPUs are clamped to the host's CPU count because Docker REJECTS a NanoCPUs
+// above it outright ("Range of CPUs is from 0.01 to N.00, as there are only N
+// CPUs available") — an unclamped default larger than a small host would fail
+// container creation rather than degrade. Memory needs no such clamp: Docker
+// accepts a limit above host RAM, and an unreachable ceiling is strictly better
+// than one that OOM-kills the desktop.
 func sandboxResourceLimits(vcpus, memoryMB int) (nanoCPUs, memory, memorySwap int64) {
 	if vcpus > 0 {
+		if hostCPUs := runtime.NumCPU(); vcpus > hostCPUs {
+			log.Warn().
+				Int("requested_vcpus", vcpus).
+				Int("host_cpus", hostCPUs).
+				Msg("Clamping sandbox vCPUs to host CPU count; Docker rejects a larger limit")
+			vcpus = hostCPUs
+		}
 		nanoCPUs = int64(vcpus) * 1_000_000_000
 	}
 	if memoryMB > 0 {
