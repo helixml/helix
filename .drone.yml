@@ -35,8 +35,6 @@ steps:
     volumes:
       - name: yarn-cache
         path: /usr/local/share/.cache/yarn
-      - name: node-modules-cache
-        path: /go/src/github.com/helix-ml/helix/frontend/node_modules
     commands:
       - cd frontend
       - yarn install --frozen-lockfile --check-files
@@ -872,9 +870,6 @@ volumes:
   - name: yarn-cache
     host:
       path: /var/cache/drone/yarn
-  - name: node-modules-cache
-    host:
-      path: /var/cache/drone/node_modules
 ---
 kind: pipeline
 type: docker
