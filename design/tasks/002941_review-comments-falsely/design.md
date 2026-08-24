@@ -92,6 +92,62 @@ The honest case for a ceiling at all: without one, a permanently dead sandbox bl
 later comment on that review silently. A wrong-but-accurate message after an hour is strictly
 better than a silently dead queue.
 
+## Cold-start reproduction — result, and a defect the design missed
+
+Reproduced live in the inner Helix on 2026-08-24 (pre-fix, unmodified code).
+
+Setup: org `testorg`, project `testproj` (`prj_01m0t9b2wrfvqzp660w2k7tscv`), spec task
+`spt_01m0t9fw42eck2ycqvbhjxjk4c` driven to `spec_review`, review
+`e538f07a-41b6-4cf7-b8ad-69308d935f1e`, planning session `ses_01m0t9fw5611kr6gkd3c2ebsry`.
+Desktop stopped via the UI's **Stop desktop** button (container
+`ubuntu-external-01m0t9fw5611kr6gkd3c2ebsry` confirmed gone), then a review comment posted so
+the comment itself triggered the cold boot.
+
+```
+16:30:38  comment stdrc_07b981e5a688d788881ae216ab3b757a posted; queued
+16:31:05  request_id = int_01m0t9r4m3hj7whwf18c8v363n, interaction_id = same, agent_response = '' (0)
+16:32:38  timer fires → request_id BLANKED, agent_response = the 56-char stamp
+16:34:21  agent completes: interaction state=complete, response_message = 6,791 chars
+          DBG websocket_external_agent_sync.go:3435
+              "No comment found for request_id (this is normal for non-comment interactions)"
+              error="no comment found for request req_01m0t9fw599x9sgbhgc6x656pd: record not found"
+16:41:07  comment still 56 chars. The 6,791-char answer is discarded.
+```
+
+Screenshot: `screenshots/01-before-false-stamp.png` — the comment log shows *"[Agent did not
+respond - try sending your comment again] / Worked for 0s"* while acceptance criterion #5 in
+the same document has already been rewritten by the agent to say "guideline, not a hard cap",
+which is precisely what the comment asked for. The answer is visibly there; the user is told
+it isn't.
+
+### The missed defect: the completion's id is not the id the comment stores
+
+The design assumed `comment.RequestID == comment.InteractionID` and that the only reason the
+lookup failed was the timer blanking `RequestID`. The repro disproves the second half:
+
+| id | value |
+|---|---|
+| `comments.request_id` at dispatch | `int_01m0t9r4m3hj7whwf18c8v363n` (= the interaction id) |
+| `comments.interaction_id` | `int_01m0t9r4m3hj7whwf18c8v363n` |
+| `interactions.external_agent_request_id` at completion | **`req_01m0t9fw599x9sgbhgc6x656pd`** |
+| id carried on `message_completed` | **`req_01m0t9fw599x9sgbhgc6x656pd`** |
+
+`backfillCommentLinkageForPrompt` logged `request_id=int_01m0t9r4m3hj7whwf18c8v363n` at
+dispatch, but by completion the interaction's `ExternalAgentRequestID` had been **rebound** to
+Zed's own `req_…` id by `MarkInteractionExternalAgentDispatched`
+(`websocket_external_agent_sync.go:1995-2005`) when Zed streamed its first message with a
+request id of its own.
+
+So `GetCommentByRequestID(req_…)` **misses even when `request_id` is intact**. There are two
+independent breaks, not one:
+
+1. the timer blanks `request_id` (Defect 2 as briefed), and
+2. the id the completion arrives with is not the id the comment ever stored.
+
+Fix (2) alone would have left the bug alive on any turn where Zed rebinds the request id; fix
+(1) alone would have left it alive on this very reproduction. Decision 3 below is amended to
+cover both.
+
 ## Decision 3 — Exactly one lookup path for a late completion
 
 Two candidates were considered.
@@ -103,25 +159,30 @@ Fixing that means changing the in-flight predicate, and the obvious predicate
 mid-flight. The alternative — baking the literal stamp string into store SQL — puts a magic
 string in the persistence layer. Too much blast radius on the queue for the benefit.
 
-**(b) Make the resolver stable, keep queue semantics untouched.** Chosen.
+**(b) Make the resolver stable, keep queue semantics untouched.** Chosen, and amended after the
+reproduction to also normalise the incoming id.
 
-Add one store method and route **all** completion lookups through it:
+One resolver, `resolveCommentForAgentRequest(ctx, requestID)`, is the **only** way the
+completion path finds a comment. It does two things in a fixed order:
+
+1. **Normalise the id.** The id on `message_completed` is the interaction's *current*
+   `ExternalAgentRequestID`, which Zed rebinds mid-turn. `GetInteractionByExternalAgentRequestID`
+   (already on the store interface, `store.go:330`) maps it back to the interaction id — the one
+   durable key the comment stores and never loses.
+2. **One query over the durable keys.**
 
 ```go
-// GetCommentForAgentRequest resolves the design-review comment for a completed
-// agent turn. request_id and interaction_id are the same interaction id on the
-// queue path; request_id is cleared when a comment is finalized or timer-stamped,
-// so interaction_id is what keeps a late completion findable. One resolver, one
-// answer: interaction_id is unique per comment, so the OR cannot be ambiguous.
-func (s *PostgresStore) GetCommentForAgentRequest(ctx context.Context, id string) (*types.SpecTaskDesignReviewComment, error)
-// WHERE request_id = ? OR interaction_id = ?
+// GetCommentByAgentRequestIDs resolves the design-review comment for a completed
+// agent turn from the candidate ids the completion could be keyed by.
+// WHERE request_id IN (?) OR interaction_id IN (?)
+func (s *PostgresStore) GetCommentByAgentRequestIDs(ctx context.Context, ids []string) (*types.SpecTaskDesignReviewComment, error)
 ```
 
-`finalizeCommentResponse` calls **only** this — `GetCommentByRequestID` is no longer called
-from the completion path. This is one resolver, not a fallback chain: there is a single
-function, a single query, and a single result, and it cannot disagree with itself. The existing
-`needsPopulation` / `hadStaleTimerError` repair branch is now reachable exactly as its comment
-already claims.
+`finalizeCommentResponse` calls only the resolver; `GetCommentByRequestID` is no longer used on
+the completion path. This is one resolver, not a fallback chain: a single function, a single
+query, a single result — it cannot disagree with itself. `interaction_id` is unique per comment
+so the OR cannot be ambiguous. The existing `needsPopulation` / `hadStaleTimerError` repair
+branch becomes reachable exactly as its doc comment already claims.
 
 Guard against double-finalize: if the resolved comment already has a real `AgentResponse` and
 an empty `RequestID`, it was finalized already — log at DEBUG and return without re-triggering
@@ -243,6 +304,35 @@ appears at ~2 minutes; after the fix the real answer lands and no stamp appears.
 
 Local run needs CGo: `sudo apt-get install -y gcc libc6-dev` then
 `CGO_ENABLED=1 go test -run TestCommentTimerSuite ./pkg/server/ -count=1`.
+
+## Environment setup for the inner Helix (needed before any spec task can be created)
+
+A fresh inner Helix has no users and no configuration. In order, via the browser at
+`http://localhost:8080`:
+
+1. Register `test@helix.ml` / `helixtest` (first account is admin in dev), create org
+   `testorg`, choose "Continue with Helix credits", create project `testproj`.
+2. **System settings** — project creation fails with *"default new project agent provider and
+   model are not configured in Admin > System Settings"* until this is set. The route is
+   `PUT /api/v1/system/settings` (note: **not** `/api/v1/admin/system/settings` — `adminRouter`
+   is a `MatcherFunc` subrouter of `authRouter`, so it shares the same path prefix):
+   `{default_new_project_agent_provider:'openai', default_new_project_agent_model:'zai-org/GLM-5.2', default_new_project_agent_reasoning_effort:'none'}`.
+3. **Org harness allow-list** — next failure is *"provider \"openai\" is not enabled for
+   coding-agent harness \"zed_agent\" in this organization"*. `AllowsProvider` requires the
+   provider to be listed explicitly; an empty `provider_refs` allows nothing.
+   `PUT /api/v1/organizations/testorg/code-agent-harnesses` with
+   `{harnesses:[{runtime:'zed_agent', enabled:true, provider_refs:['openai']}]}` (the body is an
+   object with a `harnesses` key, not a bare array).
+4. In the composer, click the mode button (defaults to **Build** = straight to implementation)
+   and pick **Plan**, otherwise the task never enters `spec_review`.
+
+Model choice: both global providers proxy to the outer Helix. The `anthropic` one is unusable
+here (`/v1/messages` returns *"code-agent task has no API provider selected"*), so no Claude
+models are available. The `openai` one serves 394 models; `zai-org/GLM-5.2` was probed working
+and is fast enough to plan a small task in ~2 minutes.
+
+UI note: `fill` on the composer sets the DOM value but does not update React state, leaving
+**Send** disabled. Click the textbox and use `type_text` instead.
 
 ## Gotchas discovered
 

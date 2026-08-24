@@ -3,11 +3,13 @@
 ## 0. Reproduce first (do not skip)
 
 - [x] Bring up the inner Helix at `http://localhost:8080`; poll until `helix-api-1`, `helix-frontend-1`, `helix-postgres-1` are `Up` and `8080` returns 200 (allow 5–10 min)
-- [~] Register `test@helix.ml` / `helixtest`, complete onboarding (org → project)
-- [ ] Create a spec task and drive it to `spec_review` with a design review present
-- [ ] Confirm its desktop container is gone: `docker compose exec -T sandbox-nvidia docker ps | grep ubuntu-external-<sid>`; stop it if still running
-- [ ] Post a review comment so the comment itself triggers cold boot; watch `docker logs helix-api-1` and the comment row
-- [ ] **Capture the pre-fix reproduction**: stamp appears at ~2 min while the agent later completes with real text (screenshot to `screenshots/` + DB row)
+- [x] Register `test@helix.ml` / `helixtest`, complete onboarding (org → project)
+- [x] Configure prerequisites discovered during setup (see design.md "Environment setup"): system-settings default project agent, org harness provider allow-list
+- [x] Create a spec task and drive it to `spec_review` with a design review present
+- [x] Confirm its desktop container is gone (UI "Stop desktop"; container `ubuntu-external-<sid>` verified gone)
+- [x] Post a review comment so the comment itself triggers cold boot; watch `docker logs helix-api-1` and the comment row
+- [x] **Capture the pre-fix reproduction**: stamp at 16:32:38 (2 min), agent completed 16:34:21 with 6,791 chars, comment still 56 chars — `screenshots/01-before-false-stamp.png`
+- [x] **New finding**: the completion's `request_id` (`req_…`) is not the id the comment stores (`int_…`) — Zed rebinds it mid-turn. Recorded in design.md; Decision 3 amended.
 
 ## 1. Defect 1 — timer must not count time while the agent is unreachable
 
