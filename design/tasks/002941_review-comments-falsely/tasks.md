@@ -21,22 +21,23 @@
 - [x] Add `CommentSandboxNotStartedMessage` const with an accurate doc comment
 - [x] Verify the four existing branches (resolved / terminal / streaming / stalled) are unchanged
 
-## 2. Defect 2 — one stable lookup path for a late completion [~]
+## 2. Defect 2 — one stable lookup path for a late completion
 
-- [ ] Add `GetCommentForAgentRequest(ctx, id)` to the store (`WHERE request_id = ? OR interaction_id = ?`) + mockgen regeneration
-- [ ] Switch `finalizeCommentResponse` to use it as its only lookup; keep `RequestID` clearing on stamp so the queue still unblocks
-- [ ] Add the already-finalized guard (real `AgentResponse` + empty `RequestID` → DEBUG, return, do not re-trigger the queue)
-- [ ] Add a WARN when a comment resolves via `interaction_id` with `request_id` empty (canary that the primary path was broken)
-- [ ] **Rewrite the `CommentTimerNoResponseMessage` doc comment** to describe what the code actually does
-- [ ] Confirm the existing `needsPopulation` / `hadStaleTimerError` repair branch is now reachable via `message_completed`
+- [x] Add `GetCommentByAgentRequestIDs(ctx, ids)` to the store (`WHERE request_id IN ? OR interaction_id IN ?`) + mockgen regeneration
+- [x] Add `resolveCommentForAgentRequest` which normalises the completion id via `GetInteractionByExternalAgentRequestID` before querying (covers the request-id rebind found in the repro)
+- [x] Switch `finalizeCommentResponse` to use it as its only lookup; keep `RequestID` clearing on stamp so the queue still unblocks
+- [x] Add the already-finalized guard (real `AgentResponse` + empty `RequestID` → DEBUG, return, do not re-trigger the queue)
+- [x] Add a WARN when a comment resolves via `interaction_id` with `request_id` empty (canary that the primary path was broken)
+- [x] **Rewrite the `CommentTimerNoResponseMessage` doc comment** to describe what the code actually does
+- [x] Confirm the existing `needsPopulation` / `hadStaleTimerError` repair branch is now reachable via `message_completed`
 
 ## 3. Defect 3 — make a lost answer loud
 
-- [ ] Add `ErrNoCommentForAgentRequest` sentinel; return it from `finalizeCommentResponse` on a resolution miss
-- [ ] At `websocket_external_agent_sync.go:3435`: DEBUG only for the sentinel; **ERROR** for anything else, with `request_id`/`interaction_id`/`comment_id` and a message stating an agent answer would be lost
-- [ ] Apply the same treatment to the session-based fallback branch below it
+- [x] Add `ErrNoCommentForAgentRequest` sentinel; return it from `finalizeCommentResponse` on a resolution miss
+- [x] At `websocket_external_agent_sync.go:3435`: DEBUG only for the sentinel; **ERROR** for anything else, with `request_id`/`interaction_id`/`comment_id` and a message stating an agent answer would be lost
+- [x] Apply the same treatment to the session-based fallback branch below it
 
-## 4. Recover the 94 stranded answers
+## 4. Recover the 94 stranded answers [~]
 
 - [ ] Add `ListTimerStampedCommentsWithResponses(ctx, stamp, limit)` to the store using the brief's SQL (the `JOIN` excludes the 18 no-interaction rows)
 - [ ] Add `reconcileTimerStampedComments(ctx)` using `types.TextFromInteraction`; set `agent_response`, `agent_response_entries`, `agent_response_at = interactions.updated`
