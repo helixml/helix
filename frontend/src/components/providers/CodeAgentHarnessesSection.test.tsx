@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   TypesCodeAgentRuntime,
   TypesOrgCodeAgentHarnessStatus,
+  TypesProviderEndpointType,
   TypesProviderEndpointStatus,
 } from '../../api/api'
 import CodeAgentHarnessesSection from './CodeAgentHarnessesSection'
@@ -17,6 +18,32 @@ const harnesses: TypesOrgCodeAgentHarnessStatus[] = [{
 }]
 
 describe('CodeAgentHarnessesSection', () => {
+  it('shows inherited providers as enabled controls', () => {
+    const onChange = vi.fn()
+    render(
+      <CodeAgentHarnessesSection
+        harnesses={[{ ...harnesses[0], subscription_enabled: false }]}
+        endpoints={[{
+          id: 'provider-1',
+          name: 'anthropic',
+          endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+          status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+          available_models: [{ id: 'model-1', enabled: true, type: 'chat' }],
+        }]}
+        onChange={onChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
+    expect(screen.getByText('Inheriting all compatible providers')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Disable anthropic for Claude Code' }))
+    expect(onChange).toHaveBeenCalledWith({
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+      enabled: true,
+      provider_refs: [],
+    })
+  })
+
   it('expands a harness to show provider controls without exposing model policy', () => {
     render(
       <CodeAgentHarnessesSection
@@ -52,7 +79,11 @@ describe('CodeAgentHarnessesSection', () => {
     const onChange = vi.fn()
     render(
       <CodeAgentHarnessesSection
-        harnesses={[{ ...harnesses[0], subscription_enabled: false }]}
+        harnesses={[{
+          ...harnesses[0],
+          subscription_enabled: false,
+          provider_refs: ['provider-2', 'provider-temporarily-unavailable'],
+        }]}
         endpoints={[
           {
             id: 'provider-1',
@@ -103,6 +134,7 @@ describe('CodeAgentHarnessesSection', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
+    expect(screen.getByText('No API providers enabled')).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Enable anthropic for Claude Code' })).not.toBeChecked()
   })
 
@@ -228,6 +260,7 @@ describe('CodeAgentHarnessesSection', () => {
           enabled: true,
           supports_subscription: true,
           viewer_has_subscription: false,
+          provider_refs: ['provider-1'],
         }]}
         endpoints={[{
           id: 'provider-1',

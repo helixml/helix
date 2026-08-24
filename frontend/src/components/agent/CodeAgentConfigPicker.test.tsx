@@ -7,6 +7,7 @@ import {
   TypesCodeAgentCredentialType,
   TypesCodeAgentExecutionConfig,
   TypesCodeAgentRuntime,
+  TypesProviderEndpointType,
   TypesProviderEndpointStatus,
 } from '../../api/api'
 import CodeAgentConfigPicker from './CodeAgentConfigPicker'
@@ -72,6 +73,7 @@ describe('CodeAgentConfigPicker', () => {
       {
         id: 'provider-1',
         name: 'OpenAI',
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
         status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
         available_models: [
           { id: 'api-model', enabled: true, type: 'text' },
@@ -82,6 +84,7 @@ describe('CodeAgentConfigPicker', () => {
       {
         id: 'provider-2',
         name: 'Anthropic',
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
         status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
         available_models: [
           { id: 'claude-api-model', enabled: true, type: 'chat' },
@@ -129,6 +132,10 @@ describe('CodeAgentConfigPicker', () => {
   })
 
   it('hides models from providers disabled for the selected harness', () => {
+    providerState.providers = providerState.providers.map((provider) => ({
+      ...provider,
+      endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeOrg,
+    }))
     harnessState.harnesses = harnessState.harnesses.map((harness) =>
       harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent
         ? { ...harness, provider_refs: ['provider-2'] }
@@ -140,6 +147,18 @@ describe('CodeAgentConfigPicker', () => {
     expect(screen.queryByText('OpenAI')).not.toBeInTheDocument()
     expect(screen.getByText('claude-api-model')).toBeInTheDocument()
     expect(screen.getAllByText('Anthropic').length).toBeGreaterThan(0)
+  })
+
+  it('treats an explicit empty provider list as API providers disabled', () => {
+    harnessState.harnesses = harnessState.harnesses.map((harness) =>
+      harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent
+        ? { ...harness, provider_refs: [] }
+        : harness)
+    renderPicker(<CodeAgentConfigPicker onChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
+
+    expect(screen.queryByText('api-model')).not.toBeInTheDocument()
+    expect(screen.queryByText('claude-api-model')).not.toBeInTheDocument()
   })
 
   it('does not expose cached models from a disconnected provider', () => {
@@ -365,6 +384,10 @@ describe('CodeAgentConfigPicker', () => {
   })
 
   it('does not mutate an existing task whose provider is no longer allowed', async () => {
+    providerState.providers = providerState.providers.map((provider) => ({
+      ...provider,
+      endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeOrg,
+    }))
     harnessState.harnesses = harnessState.harnesses.map((harness) =>
       harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
         ? { ...harness, subscription_enabled: false, provider_refs: ['provider-2'] }

@@ -44,6 +44,8 @@ import NoCodeAgentsDialog from './NoCodeAgentsDialog'
 import AgentHarness, { getAgentHarnessLabel } from './AgentHarness'
 import {
   providerEndpointIsConnected,
+  providerEndpointMatchesRef,
+  providersForCodeAgentHarness,
   providerSupportsCodeAgentRuntime,
   providersForCodeAgentRuntime,
 } from '../../utils/codeAgentProviders'
@@ -123,12 +125,8 @@ function providersAllowedForHarness(
   enforceOrgPolicy: boolean,
   runtime: Runtime,
 ): TypesProviderEndpoint[] {
-  const compatible = providersForCodeAgentRuntime(providers, runtime)
-    .filter(providerEndpointIsConnected)
-  if (enforceOrgPolicy && harness?.subscription_enabled === true) return []
-  if (!enforceOrgPolicy || harness?.provider_refs == null) return compatible
-  const allowed = new Set(harness.provider_refs)
-  return compatible.filter((provider) => allowed.has(providerRef(provider)))
+  if (enforceOrgPolicy) return providersForCodeAgentHarness(providers, harness, runtime)
+  return providersForCodeAgentRuntime(providers, runtime).filter(providerEndpointIsConnected)
 }
 
 function subscriptionModelOptions(runtime: Runtime): ModelOption[] {
@@ -258,7 +256,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   const selectedRuntimeEnabled = !orgName
     || !!findHarnessStatus(orgHarnesses, value?.runtime)?.enabled
   const configuredRuntimeStatus = findHarnessStatus(orgHarnesses, value?.runtime)
-  const selectedProvider = providers.find((provider) =>
+  const selectedProvider = providersForCodeAgentRuntime(providers, value?.runtime).find((provider) =>
     matchesStoredRef(provider, value?.provider_ref || ''))
   const selectedProviderRuntimeCompatible = value?.credential_type
     === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
@@ -273,7 +271,8 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
       : !!value?.provider_ref && selectedProviderRuntimeCompatible
         && configuredRuntimeStatus?.subscription_enabled !== true
         && (configuredRuntimeStatus?.provider_refs == null
-        || configuredRuntimeStatus.provider_refs.includes(value.provider_ref))))
+        || configuredRuntimeStatus.provider_refs.some((ref) =>
+          providerEndpointMatchesRef(selectedProvider, ref)))))
   const selectedConfigurationAllowed = selectedRuntimeEnabled && selectedSourceAllowed
   const unconfigured = !value?.runtime
     || !value?.model

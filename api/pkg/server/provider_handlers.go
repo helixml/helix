@@ -185,6 +185,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 
 		providerEndpoints = append(providerEndpoints, s.globalProviderEndpoint(provider))
 	}
+	providerEndpoints = resolveProviderEndpointPrecedence(providerEndpoints)
 
 	// Set default
 	for idx := range providerEndpoints {

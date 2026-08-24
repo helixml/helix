@@ -1132,14 +1132,10 @@ func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, actorI
 				runtime = types.CodeAgentRuntimeZedAgent
 			}
 			harness, err := apiServer.loadOrgCodeAgentHarnessPolicy(ctx, app.OrganizationID, runtime)
-			switch {
-			case err != nil:
+			if err != nil {
 				return nil, err
-			case !harness.Enabled:
-				endpoints = []*types.ProviderEndpoint{}
-			case harness.ProviderRefs != nil:
-				endpoints = filterProviderEndpointsByRefs(endpoints, harness.ProviderRefs)
 			}
+			endpoints = filterProviderEndpointsForHarness(endpoints, harness, runtime)
 		}
 	}
 	return providerSnapshotFromEndpoints(endpoints), nil
@@ -1155,15 +1151,74 @@ func filterProviderEndpointsByRefs(endpoints []*types.ProviderEndpoint, refs []s
 		if endpoint == nil {
 			continue
 		}
-		ref := endpoint.ID
-		if ref == "" {
-			ref = endpoint.Name
-		}
-		if _, ok := allowed[ref]; ok {
+		if _, ok := allowed[endpoint.ID]; ok {
 			filtered = append(filtered, endpoint)
+			continue
+		}
+		for ref := range allowed {
+			if strings.EqualFold(endpoint.Name, ref) {
+				filtered = append(filtered, endpoint)
+				break
+			}
 		}
 	}
 	return filtered
+}
+
+func filterProviderEndpointsForHarness(
+	endpoints []*types.ProviderEndpoint,
+	harness *types.OrgCodeAgentHarness,
+	runtime types.CodeAgentRuntime,
+) []*types.ProviderEndpoint {
+	if !harness.Enabled || harness.AllowsSubscription() {
+		return []*types.ProviderEndpoint{}
+	}
+	compatible := make([]*types.ProviderEndpoint, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint != nil && external_agent.CodeAgentRuntimeAllowsProvider(runtime, endpoint.Name) {
+			compatible = append(compatible, endpoint)
+		}
+	}
+	if harness.ProviderRefs == nil {
+		return compatible
+	}
+	return filterProviderEndpointsByRefs(compatible, harness.ProviderRefs)
+}
+
+func providerEndpointMatchesRef(endpoint *types.ProviderEndpoint, ref string) bool {
+	return endpoint != nil && (endpoint.ID == ref || strings.EqualFold(endpoint.Name, ref))
+}
+
+func resolveProviderEndpointPrecedence(endpoints []*types.ProviderEndpoint) []*types.ProviderEndpoint {
+	resolved := make([]*types.ProviderEndpoint, 0, len(endpoints))
+	byName := make(map[string]int, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint == nil {
+			continue
+		}
+		name := strings.ToLower(endpoint.Name)
+		idx, exists := byName[name]
+		if !exists {
+			byName[name] = len(resolved)
+			resolved = append(resolved, endpoint)
+			continue
+		}
+		if providerEndpointPrecedence(endpoint) > providerEndpointPrecedence(resolved[idx]) {
+			resolved[idx] = endpoint
+		}
+	}
+	return resolved
+}
+
+func providerEndpointPrecedence(endpoint *types.ProviderEndpoint) int {
+	switch {
+	case endpoint.EndpointType == types.ProviderEndpointTypeOrg:
+		return 3
+	case endpoint.EndpointType == types.ProviderEndpointTypeGlobal && endpoint.ID != "" && endpoint.ID != "-":
+		return 2
+	default:
+		return 1
+	}
 }
 
 func providerSnapshotFromEndpoints(endpoints []*types.ProviderEndpoint) []external_agent.ProviderRef {
@@ -1185,7 +1240,11 @@ func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorI
 		return nil, nil
 	}
 	if app != nil && app.OrganizationID != "" {
-		return apiServer.providerManager.ListProviderEndpointsForOwner(ctx, app.OrganizationID, types.OwnerTypeOrg)
+		endpoints, err := apiServer.providerManager.ListProviderEndpointsForOwner(ctx, app.OrganizationID, types.OwnerTypeOrg)
+		if err != nil {
+			return nil, err
+		}
+		return resolveProviderEndpointPrecedence(endpoints), nil
 	}
 	return apiServer.providerManager.ListProviderEndpoints(ctx, actorID)
 }

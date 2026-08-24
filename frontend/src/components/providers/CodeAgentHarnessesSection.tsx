@@ -18,6 +18,7 @@ import { providerRef } from '../create/AdvancedModelPicker'
 import { getAgentHarnessLabel } from '../agent/AgentHarness'
 import {
   providerEndpointIsConnected,
+  providerEndpointMatchesRef,
   providersForCodeAgentRuntime,
   requiredProviderNameForRuntime,
 } from '../../utils/codeAgentProviders'
@@ -58,15 +59,14 @@ const CodeAgentHarnessesSection: FC<{
       {harnesses.map((harness) => {
         const compatibleEndpoints = providersForCodeAgentRuntime(endpoints, harness.runtime)
         const connectedEndpoints = compatibleEndpoints.filter(providerEndpointIsConnected)
-        const allowedProviderRefs = harness.provider_refs == null
-          ? null
-          : new Set(harness.provider_refs)
+        const allowedProviderRefs = harness.provider_refs
         const subscriptionEnabled = harness.subscription_enabled === true
         const allowedEndpoints = subscriptionEnabled
           ? []
           : allowedProviderRefs == null
             ? connectedEndpoints
-            : connectedEndpoints.filter((endpoint) => allowedProviderRefs.has(providerRef(endpoint)))
+            : connectedEndpoints.filter((endpoint) =>
+              allowedProviderRefs.some((ref) => providerEndpointMatchesRef(endpoint, ref)))
         const viewerHasSubscription = !!harness.viewer_has_subscription
         const hasSubscription = harness.supports_subscription
           && subscriptionEnabled
@@ -170,6 +170,13 @@ const CodeAgentHarnessesSection: FC<{
                     </IconButton>
                   </Tooltip>
                 </Stack>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                  {harness.provider_refs == null
+                    ? 'Inheriting all compatible providers'
+                    : harness.provider_refs.length === 0
+                      ? 'No API providers enabled'
+                      : 'Using a custom provider selection'}
+                </Typography>
                 {compatibleEndpoints.length > 0 ? (
                   <Stack
                     sx={{
@@ -187,7 +194,8 @@ const CodeAgentHarnessesSection: FC<{
                       const connected = providerEndpointIsConnected(endpoint)
                       const checked = !subscriptionEnabled
                         && connected
-                        && (allowedProviderRefs == null || allowedProviderRefs.has(ref))
+                        && (allowedProviderRefs == null
+                        || allowedProviderRefs.some((candidate) => providerEndpointMatchesRef(endpoint, candidate)))
                       return (
                         <Stack
                           key={ref}
@@ -219,14 +227,12 @@ const CodeAgentHarnessesSection: FC<{
                                 }}
                                 onChange={(_, enabled) => {
                                   const current = harness.provider_refs == null
-                                    // Preserve temporarily unavailable endpoints
-                                    // when materializing the legacy all-providers policy.
                                     ? [...new Set(compatibleEndpoints.map(providerRef))]
                                     : harness.provider_refs.filter((candidate) =>
-                                      compatibleEndpoints.some((endpoint) => providerRef(endpoint) === candidate))
+                                      compatibleEndpoints.some((endpoint) => providerEndpointMatchesRef(endpoint, candidate)))
                                   const next = enabled
                                     ? [...new Set([...current, ref])]
-                                    : current.filter((candidate) => candidate !== ref)
+                                    : current.filter((candidate) => !providerEndpointMatchesRef(endpoint, candidate))
                                   onChange({
                                     runtime: harness.runtime!,
                                     enabled: harness.enabled ?? false,

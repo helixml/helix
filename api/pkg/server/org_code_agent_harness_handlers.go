@@ -119,15 +119,12 @@ func (apiServer *HelixAPIServer) buildOrgCodeAgentHarnessStatuses(ctx context.Co
 		status := &types.OrgCodeAgentHarnessStatus{
 			Runtime:              runtime,
 			Enabled:              true,
-			ProviderRefs:         []string{},
 			SupportsSubscription: runtime.SupportsSubscriptionCredentials(),
 		}
 		if policy != nil {
 			status.Enabled = policy.Enabled
 			status.SubscriptionEnabled = policy.SubscriptionEnabled
-			if policy.ProviderRefs != nil {
-				status.ProviderRefs = policy.ProviderRefs
-			}
+			status.ProviderRefs = policy.ProviderRefs
 		}
 		switch runtime {
 		case types.CodeAgentRuntimeClaudeCode:
@@ -250,10 +247,19 @@ func (apiServer *HelixAPIServer) validateOrgCodeAgentHarness(
 		}
 		return nil
 	}
-	if providerRef != "" && !harness.AllowsProvider(providerRef) {
-		return fmt.Errorf("provider %q is not enabled for coding-agent harness %q in this organization", providerRef, runtime)
+	if providerRef == "" {
+		return nil
 	}
-	return nil
+	endpoints, err := apiServer.listEndpointsForApp(ctx, "", &types.App{OrganizationID: orgID})
+	if err != nil {
+		return fmt.Errorf("failed to list providers: %w", err)
+	}
+	for _, endpoint := range filterProviderEndpointsForHarness(endpoints, harness, runtime) {
+		if providerEndpointMatchesRef(endpoint, providerRef) {
+			return nil
+		}
+	}
+	return fmt.Errorf("provider %q is not enabled for coding-agent harness %q in this organization", providerRef, runtime)
 }
 
 func (apiServer *HelixAPIServer) loadOrgCodeAgentHarnessPolicy(
@@ -267,7 +273,6 @@ func (apiServer *HelixAPIServer) loadOrgCodeAgentHarnessPolicy(
 			OrganizationID: orgID,
 			Runtime:        runtime,
 			Enabled:        true,
-			ProviderRefs:   []string{},
 		}, nil
 	}
 	if err != nil {
@@ -275,9 +280,6 @@ func (apiServer *HelixAPIServer) loadOrgCodeAgentHarnessPolicy(
 	}
 	if harness == nil {
 		return nil, fmt.Errorf("failed to load coding-agent harness policy: store returned no policy")
-	}
-	if harness.ProviderRefs == nil {
-		harness.ProviderRefs = []string{}
 	}
 	return harness, nil
 }

@@ -398,7 +398,7 @@ func (m *MultiClientManager) ListProviderEndpointsForOwner(ctx context.Context, 
 	return endpoints, nil
 }
 
-func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest) (openai.Client, error) {
+func (m *MultiClientManager) GetClient(ctx context.Context, req *GetClientRequest) (openai.Client, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -414,26 +414,39 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 			Msg("TRACE: Provider manager GetClient called with app ID")
 	}
 
-	m.globalClientsMu.RLock()
-	defer m.globalClientsMu.RUnlock()
+	var userProviders []*types.ProviderEndpoint
+	loadStoredClient := func() (openai.Client, bool, error) {
+		var err error
+		userProviders, err = m.store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+			Owner:      req.Owner,
+			OwnerType:  req.OwnerType,
+			WithGlobal: true,
+		})
+		if err != nil {
+			return nil, false, err
+		}
+		provider := selectProviderEndpoint(userProviders, req.Provider, req.OwnerType)
+		if provider == nil {
+			return nil, false, nil
+		}
+		client, err := m.initializeClient(provider)
+		return client, true, err
+	}
+	if req.Owner != "" {
+		if client, found, err := loadStoredClient(); err != nil || found {
+			return client, err
+		}
+	}
 
+	m.globalClientsMu.RLock()
 	client, ok := m.globalClients[types.Provider(req.Provider)]
+	m.globalClientsMu.RUnlock()
 	if ok {
 		return client.client, nil
 	}
-
-	userProviders, err := m.store.ListProviderEndpoints(context.Background(), &store.ListProviderEndpointsQuery{
-		Owner:      req.Owner,
-		OwnerType:  req.OwnerType,
-		WithGlobal: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	for _, provider := range userProviders {
-		if provider.Name == req.Provider || provider.ID == req.Provider {
-			return m.initializeClient(provider)
+	if req.Owner == "" {
+		if client, found, err := loadStoredClient(); err != nil || found {
+			return client, err
 		}
 	}
 
@@ -446,6 +459,28 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 		availableProviders = append(availableProviders, provider.Name)
 	}
 	return nil, fmt.Errorf("no client found for provider: %s, available providers: [%s]", req.Provider, strings.Join(availableProviders, ", "))
+}
+
+func selectProviderEndpoint(endpoints []*types.ProviderEndpoint, providerRef string, ownerType types.OwnerType) *types.ProviderEndpoint {
+	for _, endpoint := range endpoints {
+		if endpoint.ID == providerRef {
+			return endpoint
+		}
+	}
+	var selected *types.ProviderEndpoint
+	for _, endpoint := range endpoints {
+		if !strings.EqualFold(endpoint.Name, providerRef) {
+			continue
+		}
+		ownerEndpointType := types.ProviderEndpointTypeUser
+		if ownerType == types.OwnerTypeOrg {
+			ownerEndpointType = types.ProviderEndpointTypeOrg
+		}
+		if selected == nil || endpoint.EndpointType == ownerEndpointType {
+			selected = endpoint
+		}
+	}
+	return selected
 }
 
 // isAnthropicAPIEndpoint reports whether a DB/UI-configured provider endpoint
