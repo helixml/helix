@@ -64,11 +64,11 @@ func LoadState(ctx context.Context, st *store.Store, orgID string, workerID orgc
 		return WorkerState{}, fmt.Errorf("helix state: get %s/%s: %w", orgID, workerID, err)
 	}
 	return WorkerState{
-		ProjectID:            kv[keyProjectID],
-		AgentID:              kv[keyAgentID],
-		RepoID:               kv[keyRepoID],
-		SessionID:            kv[keySessionID],
-		HiringUserID:         kv[keyHiringUserID],
+		ProjectID:                kv[keyProjectID],
+		AgentID:                  kv[keyAgentID],
+		RepoID:                   kv[keyRepoID],
+		SessionID:                kv[keySessionID],
+		HiringUserID:             kv[keyHiringUserID],
 		RestartRequiredContainer: kv[keyRestartContainer],
 	}, nil
 }
