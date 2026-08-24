@@ -39,12 +39,12 @@
 
 ## 3. Part A — remaining Go call sites
 
-- [ ] Update the ladder in the error string at `api/pkg/org/infrastructure/runtime/helix/spectasks.go:207` (`"sandbox_vcpus must be 1, 4 or 8"`)
-- [ ] Update the ladder in the MCP tool description prose at `api/pkg/org/interfaces/mcptools/spec_tasks.go:56` — org Workers read this string
-- [ ] Update the doc comment at `api/pkg/org/infrastructure/runtime/runtime.go:263` (`"(1, 4 or 8; memory follows)"`)
-- [ ] Update the `"standard 4 vCPU / 8 GB preset"` comment at `api/pkg/types/project.go:246`
-- [ ] Extend the sandboxes-API rungs at `api/pkg/sandbox/controller_provision.go:42-43` and `api/pkg/cli/sandbox/sandbox.go:264-266` to the same five rungs, leaving that surface's default unchanged (see design A6)
-- [ ] Verify the `ValidPreset()` callers (`spec_driven_task_handlers.go:169`, `spec_task_execution_config_handlers.go:109`, `project_handlers.go:409,755`) and the rollback target (`spec_task_execution_config_handlers.go:130`) follow the new ladder symbolically, with no edit needed
+- [x] Update the ladder in the error string at `api/pkg/org/infrastructure/runtime/helix/spectasks.go:207` (`"sandbox_vcpus must be 1, 4 or 8"`)
+- [x] Update the ladder in the MCP tool description prose at `api/pkg/org/interfaces/mcptools/spec_tasks.go:56` — org Workers read this string
+- [x] Update the doc comment at `api/pkg/org/infrastructure/runtime/runtime.go:263` (`"(1, 4 or 8; memory follows)"`)
+- [x] Update the `"standard 4 vCPU / 8 GB preset"` comment at `api/pkg/types/project.go:246`
+- [x] Extend the sandboxes-API rungs at `api/pkg/sandbox/controller_provision.go:42-43` and `api/pkg/cli/sandbox/sandbox.go:264-266` to the same five rungs, leaving that surface's default unchanged (see design A6)
+- [x] Verify the `ValidPreset()` callers (`spec_driven_task_handlers.go:169`, `spec_task_execution_config_handlers.go:109`, `project_handlers.go:409,755`) and the rollback target (`spec_task_execution_config_handlers.go:130`) follow the new ladder symbolically, with no edit needed
 
 ## 4. Part A — frontend
 
