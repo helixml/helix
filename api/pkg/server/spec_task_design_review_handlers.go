@@ -1710,6 +1710,17 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		interaction, interactionErr := s.Store.GetInteraction(ctx, comment.InteractionID)
 		if interactionErr == nil {
 			text := types.TextFromInteraction(interaction)
+			if text == "" && interaction.State == types.InteractionStateError && interaction.Error != "" {
+				// The turn failed before producing anything. The interaction knows
+				// exactly why; without this the user gets an empty response box and
+				// no way to tell a failure from a silent success.
+				text = fmt.Sprintf("[Agent turn failed: %s]", interaction.Error)
+				log.Warn().
+					Str("comment_id", comment.ID).
+					Str("interaction_id", comment.InteractionID).
+					Str("interaction_error", interaction.Error).
+					Msg("⚠️ [HELIX] Agent turn errored with no output - surfacing the interaction error on the comment")
+			}
 			if text != "" {
 				comment.AgentResponse = text
 				comment.AgentResponseEntries = interaction.ResponseEntries
