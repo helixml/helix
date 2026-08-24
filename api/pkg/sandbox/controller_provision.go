@@ -37,10 +37,16 @@ type resourcePreset struct {
 	MemoryMB int
 }
 
+// Kept in step with types.SpecTaskSandboxPresets so a size offered on one
+// surface is not refused on the other. The sandboxes API's own default is
+// deliberately unchanged (the first rung): size here is an explicit user choice
+// at create time, not a default silently applied to work the user did not size.
 var allowedResourcePresets = []resourcePreset{
 	{VCPUs: 1, MemoryMB: 2048},
 	{VCPUs: 4, MemoryMB: 8192},
 	{VCPUs: 8, MemoryMB: 16384},
+	{VCPUs: 12, MemoryMB: 24576},
+	{VCPUs: 16, MemoryMB: 32768},
 }
 
 func resolveSandboxResources(req *types.CreateSandboxRequest) (int, int, error) {

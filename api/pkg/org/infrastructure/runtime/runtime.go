@@ -250,7 +250,8 @@ type CreateSpecTaskInput struct {
 	SkipPlanning   bool     `json:"skip_planning,omitempty"`
 	DependsOn      []string `json:"depends_on,omitempty"`
 
-	// SandboxVCPUs picks the sandbox size preset (1, 4 or 8; memory follows).
+	// SandboxVCPUs picks the sandbox size preset by vCPU count; memory follows.
+	// The selectable counts are types.SpecTaskSandboxPresets.
 	// SandboxRuntime picks ubuntu-desktop or headless-ubuntu. Both are 0/""
 	// for "use the project default".
 	//
