@@ -16,8 +16,10 @@ import {
 import CodeAgentHarnessRow, { HARNESS_SWITCH_SLOT_SX, HarnessHealth } from './CodeAgentHarnessRow'
 import { providerRef } from '../create/AdvancedModelPicker'
 import { getAgentHarnessLabel } from '../agent/AgentHarness'
+import { getProviderEndpointLabel } from './ProviderEndpointIcon'
 import {
   providerEndpointIsConnected,
+  resolveProviderEndpointRef,
   providersForCodeAgentRuntime,
   requiredProviderNameForRuntime,
 } from '../../utils/codeAgentProviders'
@@ -30,6 +32,7 @@ const CodeAgentHarnessesSection: FC<{
   endpoints: TypesProviderEndpoint[]
   loading?: boolean
   readOnly?: boolean
+  organizationName?: string
   subscriptionAction?: (runtime: string) => ReactNode
   subscriptionIdentity?: (runtime: string) => ReactNode
   onChange: (update: TypesOrgCodeAgentHarnessUpdate) => void
@@ -38,6 +41,7 @@ const CodeAgentHarnessesSection: FC<{
   endpoints,
   loading = false,
   readOnly = false,
+  organizationName,
   subscriptionAction,
   subscriptionIdentity,
   onChange,
@@ -58,15 +62,14 @@ const CodeAgentHarnessesSection: FC<{
       {harnesses.map((harness) => {
         const compatibleEndpoints = providersForCodeAgentRuntime(endpoints, harness.runtime)
         const connectedEndpoints = compatibleEndpoints.filter(providerEndpointIsConnected)
-        const allowedProviderRefs = harness.provider_refs == null
-          ? null
-          : new Set(harness.provider_refs)
+        const allowedProviderRefs = harness.provider_refs
         const subscriptionEnabled = harness.subscription_enabled === true
         const allowedEndpoints = subscriptionEnabled
           ? []
           : allowedProviderRefs == null
             ? connectedEndpoints
-            : connectedEndpoints.filter((endpoint) => allowedProviderRefs.has(providerRef(endpoint)))
+            : connectedEndpoints.filter((endpoint) =>
+              allowedProviderRefs.some((ref) => resolveProviderEndpointRef(connectedEndpoints, ref)?.id === endpoint.id))
         const viewerHasSubscription = !!harness.viewer_has_subscription
         const hasSubscription = harness.supports_subscription
           && subscriptionEnabled
@@ -170,6 +173,13 @@ const CodeAgentHarnessesSection: FC<{
                     </IconButton>
                   </Tooltip>
                 </Stack>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                  {harness.provider_refs == null
+                    ? 'Inheriting all compatible providers'
+                    : harness.provider_refs.length === 0
+                      ? 'No API providers enabled'
+                      : 'Using a custom provider selection'}
+                </Typography>
                 {compatibleEndpoints.length > 0 ? (
                   <Stack
                     sx={{
@@ -184,10 +194,12 @@ const CodeAgentHarnessesSection: FC<{
                   >
                     {compatibleEndpoints.map((endpoint) => {
                       const ref = providerRef(endpoint)
+                      const endpointLabel = getProviderEndpointLabel(endpoint, organizationName)
                       const connected = providerEndpointIsConnected(endpoint)
                       const checked = !subscriptionEnabled
                         && connected
-                        && (allowedProviderRefs == null || allowedProviderRefs.has(ref))
+                        && (allowedProviderRefs == null
+                        || allowedProviderRefs.some((candidate) => resolveProviderEndpointRef(compatibleEndpoints, candidate)?.id === endpoint.id))
                       return (
                         <Stack
                           key={ref}
@@ -197,7 +209,7 @@ const CodeAgentHarnessesSection: FC<{
                           spacing={1}
                         >
                           <Box sx={{ minWidth: 0 }}>
-                            <Typography variant="body2">{endpoint.name || 'Unnamed provider'}</Typography>
+                            <Typography variant="body2">{endpointLabel}</Typography>
                             {!connected && (
                               <Typography variant="caption" color="text.secondary">
                                 Not connected
@@ -215,15 +227,15 @@ const CodeAgentHarnessesSection: FC<{
                                 checked={checked}
                                 disabled={readOnly || !connected}
                                 inputProps={{
-                                  'aria-label': `${checked ? 'Disable' : 'Enable'} ${endpoint.name || 'unnamed provider'} for ${harnessLabel}`,
+                                  'aria-label': `${checked ? 'Disable' : 'Enable'} ${endpointLabel} for ${harnessLabel}`,
                                 }}
                                 onChange={(_, enabled) => {
                                   const current = harness.provider_refs == null
-                                    // Preserve temporarily unavailable endpoints
-                                    // when materializing the legacy all-providers policy.
                                     ? [...new Set(compatibleEndpoints.map(providerRef))]
-                                    : harness.provider_refs.filter((candidate) =>
-                                      compatibleEndpoints.some((endpoint) => providerRef(endpoint) === candidate))
+                                    : harness.provider_refs.map((candidate) =>
+                                      resolveProviderEndpointRef(compatibleEndpoints, candidate))
+                                      .filter((endpoint): endpoint is TypesProviderEndpoint => !!endpoint)
+                                      .map(providerRef)
                                   const next = enabled
                                     ? [...new Set([...current, ref])]
                                     : current.filter((candidate) => candidate !== ref)

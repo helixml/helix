@@ -8,6 +8,7 @@ import (
 
 	"github.com/dgraph-io/ristretto/v2"
 	"github.com/helixml/helix/api/pkg/config"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -18,7 +19,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestGetProviderSnapshotMissingHarnessPolicyHidesVisibleProviders(t *testing.T) {
+func TestGetProviderSnapshotMissingHarnessPolicyIncludesGlobalProviders(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	providerManager := manager.NewMockProviderManager(ctrl)
@@ -35,10 +36,46 @@ func TestGetProviderSnapshotMissingHarnessPolicyHidesVisibleProviders(t *testing
 	}
 	providerManager.EXPECT().
 		ListProviderEndpointsForOwner(gomock.Any(), "org_1", types.OwnerTypeOrg).
-		Return([]*types.ProviderEndpoint{{ID: "pe_anthropic", Name: "anthropic"}}, nil)
+		Return([]*types.ProviderEndpoint{
+			{ID: "global/anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+			{ID: "pe_anthropic", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg},
+		}, nil)
 	mockStore.EXPECT().
 		GetOrgCodeAgentHarness(gomock.Any(), "org_1", types.CodeAgentRuntimeClaudeCode).
 		Return(nil, store.ErrNotFound)
+
+	snapshot, err := server.getProviderSnapshot(context.Background(), "user_1", app)
+
+	require.NoError(t, err)
+	require.Equal(t, []external_agent.ProviderRef{
+		{ID: "global/anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+		{ID: "pe_anthropic", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg},
+	}, snapshot)
+}
+
+func TestGetProviderSnapshotSubscriptionExcludesGlobalProviders(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{Store: mockStore, providerManager: providerManager}
+	app := &types.App{
+		OrganizationID: "org_1",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			AgentType:               types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+		}}}},
+	}
+	providerManager.EXPECT().
+		ListProviderEndpointsForOwner(gomock.Any(), "org_1", types.OwnerTypeOrg).
+		Return([]*types.ProviderEndpoint{{
+			ID: "pe_anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal,
+		}}, nil)
+	mockStore.EXPECT().
+		GetOrgCodeAgentHarness(gomock.Any(), "org_1", types.CodeAgentRuntimeClaudeCode).
+		Return(&types.OrgCodeAgentHarness{
+			Enabled: true, SubscriptionEnabled: boolPointer(true), ProviderRefs: []string{},
+		}, nil)
 
 	snapshot, err := server.getProviderSnapshot(context.Background(), "user_1", app)
 
@@ -56,6 +93,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 	tests := []struct {
 		name      string
 		assistant *types.AssistantConfig
+		snapshot  []external_agent.ProviderRef
 		want      *types.CodeAgentConfig
 	}{
 		{
@@ -90,6 +128,23 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 				APIType:         "openai",
 				Runtime:         types.CodeAgentRuntimeZedAgent,
 				ReasoningEffort: types.ReasoningEffortNone,
+			},
+		},
+		{
+			name: "legacy anthropic task ref resolves org endpoint for zed_agent",
+			assistant: &types.AssistantConfig{
+				Provider:         "anthropic",
+				Model:            "claude-sonnet-4-20250514",
+				CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+			},
+			snapshot: []external_agent.ProviderRef{{ID: "pe_org_anthropic", Name: "user/anthropic"}},
+			want: &types.CodeAgentConfig{
+				Provider:  "pe_org_anthropic",
+				Model:     "claude-sonnet-4-20250514",
+				AgentName: "zed-agent",
+				BaseURL:   "http://localhost:8080/v1",
+				APIType:   "anthropic",
+				Runtime:   types.CodeAgentRuntimeZedAgent,
 			},
 		},
 		{
@@ -355,7 +410,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := apiServer.buildCodeAgentConfigFromAssistant(ctx, tt.assistant, helixURL, nil)
+			got := apiServer.buildCodeAgentConfigFromAssistant(ctx, tt.assistant, helixURL, tt.snapshot)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -553,7 +608,7 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 
 			if tt.providerListErr == nil {
 				providerManager.EXPECT().
-					GetClient(gomock.Any(), &manager.GetClientRequest{Provider: providerName, Owner: "user-1"}).
+					GetClient(gomock.Any(), &manager.GetClientRequest{Provider: "pe_ds4", Owner: "user-1"}).
 					Return(providerClient, nil)
 				providerClient.EXPECT().
 					ListModels(gomock.Any()).
@@ -591,7 +646,11 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 			require.NotNil(t, got)
 			assert.Equal(t, tt.wantContext, got.MaxTokens)
 			assert.Equal(t, tt.wantOutputTokens, got.MaxOutputTokens)
-			assert.Equal(t, providerName+"/"+modelName, got.Model)
+			if tt.providerListErr == nil {
+				assert.Equal(t, "pe_ds4/"+modelName, got.Model)
+			} else {
+				assert.Equal(t, providerName+"/"+modelName, got.Model)
+			}
 		})
 	}
 }

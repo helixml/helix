@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -34,6 +35,24 @@ func IsGlobalProvider(provider string) bool {
 		}
 	}
 	return false
+}
+
+func CanonicalProviderName(provider string) string {
+	name := strings.ToLower(provider)
+	for _, prefix := range []string{"user/", "global/"} {
+		if strings.HasPrefix(name, prefix) && IsGlobalProvider(strings.TrimPrefix(name, prefix)) {
+			return strings.TrimPrefix(name, prefix)
+		}
+	}
+	return name
+}
+
+func GlobalProviderID(provider string) string {
+	return "global/" + CanonicalProviderName(provider)
+}
+
+func IsGlobalProviderID(provider string) bool {
+	return strings.HasPrefix(strings.ToLower(provider), "global/") && IsGlobalProvider(CanonicalProviderName(provider))
 }
 
 type ProviderEndpointType string

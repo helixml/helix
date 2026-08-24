@@ -24,6 +24,7 @@ export interface Provider {
   logo: string | React.ComponentType<React.SVGProps<SVGSVGElement>> | React.ComponentType<any>;
   
   base_url: string;
+  endpoint_name?: string;
   configurable_base_url?: boolean;
 
   optional_api_key?: boolean; // If provider doesn't need an API key
@@ -73,6 +74,7 @@ export const PROVIDERS: Provider[] = [
   },
   {
     id: 'user/anthropic',
+    endpoint_name: 'anthropic',
     alias: ['anthropic', 'anthropic-api'],
     name: 'Anthropic',
     description: 'Access Anthropic Claude models for advanced language tasks.',

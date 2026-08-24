@@ -81,6 +81,56 @@ func (suite *MultiClientManagerTestSuite) Test_GetClientUsesOrganizationOwnershi
 	suite.NotNil(client)
 }
 
+func (suite *MultiClientManagerTestSuite) Test_GetClientPrefersLegacyNamedOrganizationAnthropicOverEnvironmentGlobal() {
+	suite.cfg.Providers.Anthropic.APIKey = "env-key"
+	suite.cfg.Providers.Anthropic.APIKeyFromFile = ""
+	suite.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).
+		Return([]*types.ProviderEndpoint{
+			{ID: "pe_global", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal, APIKey: "db-global-key"},
+			{ID: "pe_org", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg, APIKey: "org-key", BaseURL: "https://api.anthropic.com/v1"},
+		}, nil)
+
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
+	client, err := manager.GetClient(context.Background(), &GetClientRequest{
+		Provider: "anthropic", Owner: "org_1", OwnerType: types.OwnerTypeOrg,
+	})
+
+	suite.NoError(err)
+	loggingClient, ok := client.(*logger.LoggingMiddleware)
+	suite.Require().True(ok)
+	suite.Equal("org-key", loggingClient.APIKey())
+}
+
+func (suite *MultiClientManagerTestSuite) Test_GetClientExplicitGlobalBypassesOrganizationProvider() {
+	suite.cfg.Providers.Anthropic.APIKey = "env-key"
+	suite.cfg.Providers.Anthropic.APIKeyFromFile = ""
+
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
+	client, err := manager.GetClient(context.Background(), &GetClientRequest{
+		Provider: "global/anthropic", Owner: "org_1", OwnerType: types.OwnerTypeOrg,
+	})
+
+	suite.NoError(err)
+	loggingClient, ok := client.(*logger.LoggingMiddleware)
+	suite.Require().True(ok)
+	suite.Equal("env-key", loggingClient.APIKey())
+}
+
+func (suite *MultiClientManagerTestSuite) Test_GetClientResolvesDatabaseGlobalWithoutOwner() {
+	suite.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).
+		Return([]*types.ProviderEndpoint{{
+			ID: "pe_global", Name: "custom", EndpointType: types.ProviderEndpointTypeGlobal, APIKey: "db-global-key",
+		}}, nil)
+
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
+	client, err := manager.GetClient(context.Background(), &GetClientRequest{Provider: "custom"})
+
+	suite.NoError(err)
+	loggingClient, ok := client.(*logger.LoggingMiddleware)
+	suite.Require().True(ok)
+	suite.Equal("db-global-key", loggingClient.APIKey())
+}
+
 func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
 	// Create a temporary file for testing
 	tmpDir := suite.T().TempDir()
