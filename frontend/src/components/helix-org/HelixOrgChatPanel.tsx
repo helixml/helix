@@ -400,6 +400,7 @@ const HelixOrgChatPanel: FC = () => {
       >
         <Box sx={{ flexShrink: 0 }}>
           <AgentRestartRequiredBanner
+            key={selectedBotId}
             visible={!!selectedBot?.restart_required}
             working={!!chatSessionId && streaming.currentResponses.has(chatSessionId)}
             busy={busy}

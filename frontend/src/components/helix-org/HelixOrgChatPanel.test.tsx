@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { chatBotStorageKey, focusChatBot } from './chatBotFocus'
@@ -116,5 +116,25 @@ describe('HelixOrgChatPanel query selection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Desktop' }))
     await screen.findByText('Desktop viewer')
     expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()
+  })
+
+  it('re-arms the restart banner when switching to a different stale bot', async () => {
+    mocks.bots = [
+      { id: 'b-one', name: 'Bot One', kind: 'bot', agent_status: 'running', restart_required: true },
+      { id: 'b-two', name: 'Bot Two', kind: 'bot', agent_status: 'running', restart_required: true },
+    ]
+    mocks.router.params = { org_id: 'acme', bot_id: 'b-one' }
+    render(<HelixOrgChatPanel />)
+
+    await screen.findByTestId('agent-restart-required-banner')
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()
+
+    // Switch selection to the other stale bot via the header dropdown.
+    fireEvent.mouseDown(screen.getByRole('combobox'))
+    fireEvent.click(within(screen.getByRole('listbox')).getByText('Bot Two'))
+
+    await screen.findByText('Message Bot Two…')
+    expect(await screen.findByTestId('agent-restart-required-banner')).toBeInTheDocument()
   })
 })
