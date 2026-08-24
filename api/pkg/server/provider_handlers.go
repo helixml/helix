@@ -522,8 +522,12 @@ func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndp
 // outside this singleflight, where it can't leak between endpoints.
 func (s *HelixAPIServer) fetchUpstreamModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint) ([]types.OpenAIModel, error) {
 	result, err, _ := s.modelFetchGroup.Do(providerEndpoint.BaseURL, func() (interface{}, error) {
+		providerRef := providerEndpoint.Name
+		if providerEndpoint.ID != "" {
+			providerRef = providerEndpoint.ID
+		}
 		clientRequest := &manager.GetClientRequest{
-			Provider: providerEndpoint.Name,
+			Provider: providerRef,
 			Owner:    providerEndpoint.Owner,
 		}
 		if providerEndpoint.OwnerType == types.OwnerTypeOrg {

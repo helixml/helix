@@ -332,7 +332,7 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 	warmDone := make(chan struct{})
 
 	s.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
-		Provider: "my-ollama",
+		Provider: "ep_123",
 		Owner:    "user_id",
 	}).DoAndReturn(func(_ context.Context, req *manager.GetClientRequest) (openai.Client, error) {
 		defer close(warmDone)

@@ -880,7 +880,7 @@ func (apiServer *HelixAPIServer) applyAdvertisedModelLimits(ctx context.Context,
 
 	bareModelName := strings.TrimPrefix(modelName, cfg.Provider+"/")
 	for _, endpoint := range endpoints {
-		if endpoint == nil || endpoint.Name != cfg.Provider {
+		if endpoint == nil || (endpoint.ID != cfg.Provider && endpoint.Name != cfg.Provider) {
 			continue
 		}
 

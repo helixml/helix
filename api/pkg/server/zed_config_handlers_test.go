@@ -139,7 +139,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			snapshot: []external_agent.ProviderRef{{ID: "pe_org_anthropic", Name: "user/anthropic"}},
 			want: &types.CodeAgentConfig{
-				Provider:  "user/anthropic",
+				Provider:  "pe_org_anthropic",
 				Model:     "claude-sonnet-4-20250514",
 				AgentName: "zed-agent",
 				BaseURL:   "http://localhost:8080/v1",
@@ -608,7 +608,7 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 
 			if tt.providerListErr == nil {
 				providerManager.EXPECT().
-					GetClient(gomock.Any(), &manager.GetClientRequest{Provider: providerName, Owner: "user-1"}).
+					GetClient(gomock.Any(), &manager.GetClientRequest{Provider: "pe_ds4", Owner: "user-1"}).
 					Return(providerClient, nil)
 				providerClient.EXPECT().
 					ListModels(gomock.Any()).
@@ -646,7 +646,11 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 			require.NotNil(t, got)
 			assert.Equal(t, tt.wantContext, got.MaxTokens)
 			assert.Equal(t, tt.wantOutputTokens, got.MaxOutputTokens)
-			assert.Equal(t, providerName+"/"+modelName, got.Model)
+			if tt.providerListErr == nil {
+				assert.Equal(t, "pe_ds4/"+modelName, got.Model)
+			} else {
+				assert.Equal(t, providerName+"/"+modelName, got.Model)
+			}
 		})
 	}
 }
