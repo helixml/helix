@@ -73,27 +73,27 @@
 
 ## 6. Part B — proxy replay
 
-- [ ] Add the `SessionReplay` interface to `api/pkg/proxy/resilient.go` with a doc comment that names `CreateWebSocketUpgradeFunc`'s `extraHeaders` as its sibling and states the same reconnect rationale
-- [ ] Add `Replay SessionReplay` to `ResilientProxyConfig` and `ResilientProxy` (nil = today's behaviour, so existing callers are unaffected)
-- [ ] Call `p.replay.Observe(buf[:n])` in `copyClientToServer` on each successful read, before the write/buffer branch
-- [ ] Write `p.replay.Frames()` to the new `serverConn` in `reconnect()` immediately after `upgradeFunc` succeeds and **before** flushing the input buffer
-- [ ] Create `api/pkg/proxy/streaminit.go` with an incremental RFC 6455 client-frame parser (7/16/64-bit lengths, 4-byte mask key), capturing the first **text** frame and skipping binary keepalives, ping/pong and close
-- [ ] Clear `user_retry` on the replayed payload by unmarshalling to `map[string]any` and deleting the key — not by round-tripping through `StreamConfig`, which would drop unknown fields
-- [ ] Re-encode the replay as a freshly-masked client text frame; cache it and make `Observe` a no-op once captured
-- [ ] Bound the buffered prefix (a few KB) so a client that never sends a text frame cannot grow it without limit
-- [ ] Return nil from `Frames()` when no init has been seen, so a reconnect before init replays nothing rather than garbage
-- [ ] Pass `Replay: proxy.NewStreamInitReplay()` into `ResilientProxyConfig` in `proxyStreamWebSocket` (`api/pkg/server/external_agent_handlers.go`), adjacent to the existing `UpgradeFunc` line
-- [ ] Handle the partial-frame-across-drop hazard (design B7): expose the last complete frame boundary and discard a partially-written frame's remainder from the input buffer before flushing — or, if that exceeds ~20 lines, ship a `log.Warn` on detected desync and file a follow-up
+- [x] Add the `SessionReplay` interface to `api/pkg/proxy/resilient.go` with a doc comment that names `CreateWebSocketUpgradeFunc`'s `extraHeaders` as its sibling and states the same reconnect rationale
+- [x] Add `Replay SessionReplay` to `ResilientProxyConfig` and `ResilientProxy` (nil = today's behaviour, so existing callers are unaffected)
+- [x] Call `p.replay.Observe(buf[:n])` in `copyClientToServer` on each successful read, before the write/buffer branch
+- [x] Write `p.replay.Frames()` to the new `serverConn` in `reconnect()` immediately after `upgradeFunc` succeeds and **before** flushing the input buffer
+- [x] Create `api/pkg/proxy/streaminit.go` with an incremental RFC 6455 client-frame parser (7/16/64-bit lengths, 4-byte mask key), capturing the first **text** frame and skipping binary keepalives, ping/pong and close
+- [x] Clear `user_retry` on the replayed payload by unmarshalling to `map[string]any` and deleting the key — not by round-tripping through `StreamConfig`, which would drop unknown fields
+- [x] Re-encode the replay as a freshly-masked client text frame; cache it and make `Observe` a no-op once captured
+- [x] Bound the buffered prefix (a few KB) so a client that never sends a text frame cannot grow it without limit
+- [x] Return nil from `Frames()` when no init has been seen, so a reconnect before init replays nothing rather than garbage
+- [x] Pass `Replay: proxy.NewStreamInitReplay()` into `ResilientProxyConfig` in `proxyStreamWebSocket` (`api/pkg/server/external_agent_handlers.go`), adjacent to the existing `UpgradeFunc` line
+- [~] Handle the partial-frame-across-drop hazard (design B7): expose the last complete frame boundary and discard a partially-written frame's remainder from the input buffer before flushing — or, if that exceeds ~20 lines, ship a `log.Warn` on detected desync and file a follow-up
 
 ## 7. Part B — unit tests in `api/pkg/proxy/`
 
-- [ ] `reconnect replays init` — kill the server conn, assert the re-dialled server receives the init before any buffered input
-- [ ] `replayed init has user_retry cleared` — `user_retry: true` in, absent out, every other field unchanged
-- [ ] Parser tests for 7-bit, 16-bit and 64-bit payload length forms
-- [ ] Binary keepalives before init are skipped; the first text frame wins; a later text frame does not overwrite the captured init
-- [ ] The replayed frame is a well-formed masked client text frame
-- [ ] `Frames()` is nil before any init is observed
-- [ ] Replay composes with `extraHeaders` — a read-only reconnect still carries `X-Helix-Readonly` and the replayed payload carries no privilege field
+- [x] `reconnect replays init` — kill the server conn, assert the re-dialled server receives the init before any buffered input
+- [x] `replayed init has user_retry cleared` — `user_retry: true` in, absent out, every other field unchanged
+- [x] Parser tests for 7-bit, 16-bit and 64-bit payload length forms
+- [x] Binary keepalives before init are skipped; the first text frame wins; a later text frame does not overwrite the captured init
+- [x] The replayed frame is a well-formed masked client text frame
+- [x] `Frames()` is nil before any init is observed
+- [x] Replay composes with `extraHeaders` — a read-only reconnect still carries `X-Helix-Readonly` and the replayed payload carries no privilege field
 
 ## 8. Verification — required, not optional
 
@@ -119,6 +119,31 @@
 - [ ] Close `spt_01m0evm3dpanc1sfktywbxhes4` as superseded by this task
 
 ## Notes discovered during implementation
+
+### Part B implementation notes
+
+- `ResilientProxy` is a **raw byte** proxy over two hijacked `net.Conn`s, so
+  `StreamInitReplay` carries its own minimal RFC 6455 client-frame parser. It
+  parses only enough to find the first text frame and then goes inert.
+- Client→server frames are **masked**; the replay is re-encoded with a fresh
+  mask key rather than echoing the original bytes, which is required anyway
+  because stripping `user_retry` changes the payload.
+- The payload is decoded to `map[string]any`, **not** `desktop.StreamConfig`:
+  round-tripping the struct would drop fields a newer browser sends and re-emit
+  `omitempty` fields the client deliberately omitted. Covered by
+  `TestReplayPreservesUnknownFields`.
+- Replay is written to the new backend **before** the input buffer is flushed —
+  the backend is blocked in its init read and will process nothing else first.
+- Malformed JSON disables replay rather than being re-sent verbatim: replaying
+  bytes we cannot read risks re-asserting `user_retry`.
+- `Replay` is optional on `ResilientProxyConfig`, so the `/ws/input` proxy and
+  every other `NewResilientProxy` caller is untouched.
+- A frame declaring a 64-bit length beyond the prefix bound never completes by
+  design (we refuse to size an allocation from an untrusted length), which is
+  what makes the prefix bound reachable and testable.
+- Pre-existing `gofmt` non-compliance in `api/pkg/proxy/resilient_test.go`,
+  confirmed identical on `origin/main` — deliberately left alone rather than
+  reformatted into this diff.
 
 - `swag` was not installed; `go install github.com/swaggo/swag/cmd/swag@latest`
   then run `./stack update_openapi` with `~/go/bin` on PATH.
