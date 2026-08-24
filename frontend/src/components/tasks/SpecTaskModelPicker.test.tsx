@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   TypesCodeAgentRuntime,
+  TypesProviderEndpointType,
   TypesProviderEndpointStatus,
 } from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
@@ -13,6 +14,7 @@ const providers = [
   { id: "pe_together", name: "user/togetherai", model: "together-model" },
 ].map(({ model, ...provider }) => ({
   ...provider,
+  endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeOrg,
   status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
   available_models: [{ id: model, enabled: true, type: "chat" }],
 }));
@@ -64,6 +66,14 @@ describe("buildPickerAgents", () => {
       providers,
       [{ runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode, enabled: true }],
       true,
+      "Probably",
     )[0].models[0].provider?.id).toBe("pe_anthropic");
+    expect(buildPickerAgents(
+      [agent(TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode)],
+      providers,
+      [{ runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode, enabled: true }],
+      true,
+      "Probably",
+    )[0].models[0].providerLabel).toBe("Probably / Anthropic");
   });
 });

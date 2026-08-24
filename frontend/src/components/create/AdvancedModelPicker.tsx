@@ -46,6 +46,7 @@ import { providerEndpointMatchesRef } from '../../utils/codeAgentProviders';
 
 import useRouter from '../../hooks/useRouter';
 import { isLegacyNativeModel, nativeProviderForEndpoint } from '../../utils/nativeModels';
+import { getProviderEndpointLabel } from '../providers/ProviderEndpointIcon';
 
 interface AdvancedModelPickerProps {
   selectedModelId?: string;
@@ -594,9 +595,11 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
               const isGlobalProvider = model.provider?.endpoint_type === 'global';
               const isGlobalProviderDisabled = isGlobalProvider && isMonthlyLimitReached;
               const isModelDisabled = Boolean(isDisabled || isGlobalProviderDisabled);
+              const providerLabel = getProviderEndpointLabel(model.provider, org?.display_name || org?.name);
 
               const listItemContent = (
                 <ListItem
+                  aria-label={`Select ${model.id || 'Unnamed Model'} from ${providerLabel}`}
                   onClick={() => !isModelDisabled && model.id && handleSelectModel(providerRef(model.provider), model.id)}
                   disabled={isModelDisabled}
                   sx={{
@@ -621,7 +624,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 56, mr: 1 }}>
                       <ProviderIcon provider={model.provider} />
                       <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.6rem', mt: 0.5, textAlign: 'center', lineHeight: 1.1 }}>
-                        {model.provider.name}
+                        {providerLabel}
                       </Typography>
                     </Box>
                     <ListItemText

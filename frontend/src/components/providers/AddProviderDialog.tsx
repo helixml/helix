@@ -35,6 +35,7 @@ interface AddProviderDialogProps {
     name: string;
     description: string;
     base_url: string;
+    endpoint_name?: string;
     configurable_base_url?: boolean;
     optional_api_key?: boolean; // If provider doesn't need an API key
     is_custom?: boolean; // If true, the user picks the endpoint name

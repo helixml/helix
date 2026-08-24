@@ -25,6 +25,7 @@ import type { ReactNode } from 'react'
 import { formatCodexAccountDetail, formatCodexAccountRef } from '../components/account/codexSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
 import CodeAgentHarnessesSection from '../components/providers/CodeAgentHarnessesSection';
+import { getProviderPresetDefinition } from '../components/providers/ProviderEndpointIcon';
 import {
   useOrgCodeAgentHarnesses,
   useUpdateOrgCodeAgentHarnesses,
@@ -193,9 +194,7 @@ const Providers: React.FC = () => {
     e.name === 'lmstudio' || e.name === 'ollama' || e.name?.includes('lmstudio') || e.name?.includes('ollama')
   );
 
-  // User-created custom endpoints: anything whose name doesn't match a predefined PROVIDERS id.
-  const knownProviderIds = new Set(PROVIDERS.map(p => p.id));
-  const customEndpoints = ownedEndpoints.filter(e => e.name && !knownProviderIds.has(e.name));
+  const customEndpoints = ownedEndpoints.filter(endpoint => !getProviderPresetDefinition(endpoint));
 
   // Detected but not yet connected local providers
   const unconnectedDetected = (detectedProviders || []).filter(
@@ -245,6 +244,7 @@ const Providers: React.FC = () => {
             endpoints={allEndpoints}
             loading={(isLoadingCodeAgents || isLoadingOrg) && codeAgentHarnesses.length === 0}
             readOnly={!editAllowed}
+            organizationName={org?.display_name || org?.name}
             onChange={handleCodeAgentChange}
             subscriptionIdentity={subscriptionIdentity}
             subscriptionAction={(runtime) => {
@@ -463,7 +463,7 @@ const Providers: React.FC = () => {
             // Synthetic global providers have id "-" and are configured by the server
             // environment, so they cannot be disconnected from this dialog.
             const existingProvider = provider.is_custom ? undefined : ownedEndpoints.find(
-              endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', '')
+              endpoint => getProviderPresetDefinition(endpoint)?.id === provider.id
             );
             const isConfigured = !!existingProvider;
             return (

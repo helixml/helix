@@ -42,6 +42,7 @@ import {
 } from '../../services/codeAgentHarnessesService'
 import NoCodeAgentsDialog from './NoCodeAgentsDialog'
 import AgentHarness, { getAgentHarnessLabel } from './AgentHarness'
+import { getProviderEndpointLabel } from '../providers/ProviderEndpointIcon'
 import {
   providerEndpointIsConnected,
   providerEndpointMatchesRef,
@@ -104,7 +105,7 @@ function isSubscriptionRuntime(runtime: Runtime): boolean {
     || runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI
 }
 
-function apiModelOptions(providers: TypesProviderEndpoint[]): ModelOption[] {
+function apiModelOptions(providers: TypesProviderEndpoint[], organizationName?: string): ModelOption[] {
   return providers.flatMap((provider) => (provider.available_models || [])
     .filter((model) => model.enabled
       && (!model.type || model.type === 'chat' || model.type === 'text'))
@@ -113,7 +114,7 @@ function apiModelOptions(providers: TypesProviderEndpoint[]): ModelOption[] {
       id: model.id || '',
       label: model.id || 'Unnamed model',
       provider,
-      providerLabel: provider.name || 'Provider',
+      providerLabel: getProviderEndpointLabel(provider, organizationName),
       credentialType: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
     }))
     .filter((model) => !!model.id))
@@ -346,10 +347,11 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     : isSubscriptionRuntime(runtime) && (runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
       ? !!claudeSubscriptions?.some((subscription) => subscription.owner_type === 'user')
       : !!codexSubscriptions?.some((subscription) => subscription.owner_type === 'user'))
+  const organizationName = org?.display_name || org?.name
   const allowedProviders = providersAllowedForHarness(providers, runtimeStatus, !!orgName, runtime)
   const models = [
     ...(subscriptionAvailable ? subscriptionModelOptions(runtime) : []),
-    ...apiModelOptions(allowedProviders),
+    ...apiModelOptions(allowedProviders, organizationName),
   ]
   const visibleModels = models.filter((model) => matchesAllTokens(
     query,
@@ -373,7 +375,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
     && value.runtime
     ? subscriptionModelOptions(value.runtime)
-    : apiModelOptions(configuredProviders)
+    : apiModelOptions(configuredProviders, organizationName)
   const modelLabel = configuredModels.find((model) => model.id === value?.model
     && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '')))?.label
     || value?.model?.split('/').pop()
@@ -412,6 +414,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     return (
       <Button
         key={model.key}
+        aria-label={`Select ${model.label} from ${model.providerLabel}`}
         fullWidth
         onClick={() => chooseModel(model)}
         sx={{

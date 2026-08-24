@@ -16,6 +16,7 @@ import {
 import CodeAgentHarnessRow, { HARNESS_SWITCH_SLOT_SX, HarnessHealth } from './CodeAgentHarnessRow'
 import { providerRef } from '../create/AdvancedModelPicker'
 import { getAgentHarnessLabel } from '../agent/AgentHarness'
+import { getProviderEndpointLabel } from './ProviderEndpointIcon'
 import {
   providerEndpointIsConnected,
   providerEndpointMatchesRef,
@@ -31,6 +32,7 @@ const CodeAgentHarnessesSection: FC<{
   endpoints: TypesProviderEndpoint[]
   loading?: boolean
   readOnly?: boolean
+  organizationName?: string
   subscriptionAction?: (runtime: string) => ReactNode
   subscriptionIdentity?: (runtime: string) => ReactNode
   onChange: (update: TypesOrgCodeAgentHarnessUpdate) => void
@@ -39,6 +41,7 @@ const CodeAgentHarnessesSection: FC<{
   endpoints,
   loading = false,
   readOnly = false,
+  organizationName,
   subscriptionAction,
   subscriptionIdentity,
   onChange,
@@ -191,6 +194,7 @@ const CodeAgentHarnessesSection: FC<{
                   >
                     {compatibleEndpoints.map((endpoint) => {
                       const ref = providerRef(endpoint)
+                      const endpointLabel = getProviderEndpointLabel(endpoint, organizationName)
                       const connected = providerEndpointIsConnected(endpoint)
                       const checked = !subscriptionEnabled
                         && connected
@@ -205,7 +209,7 @@ const CodeAgentHarnessesSection: FC<{
                           spacing={1}
                         >
                           <Box sx={{ minWidth: 0 }}>
-                            <Typography variant="body2">{endpoint.name || 'Unnamed provider'}</Typography>
+                            <Typography variant="body2">{endpointLabel}</Typography>
                             {!connected && (
                               <Typography variant="caption" color="text.secondary">
                                 Not connected
@@ -223,7 +227,7 @@ const CodeAgentHarnessesSection: FC<{
                                 checked={checked}
                                 disabled={readOnly || !connected}
                                 inputProps={{
-                                  'aria-label': `${checked ? 'Disable' : 'Enable'} ${endpoint.name || 'unnamed provider'} for ${harnessLabel}`,
+                                  'aria-label': `${checked ? 'Disable' : 'Enable'} ${endpointLabel} for ${harnessLabel}`,
                                 }}
                                 onChange={(_, enabled) => {
                                   const current = harness.provider_refs == null

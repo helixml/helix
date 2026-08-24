@@ -26,6 +26,7 @@ import {
 import useRouter from "../../hooks/useRouter";
 import { matchesAllTokens } from "../../utils/searchUtils";
 import AgentHarness from "../agent/AgentHarness";
+import { getProviderEndpointLabel } from "../providers/ProviderEndpointIcon";
 import {
   CLAUDE_SUBSCRIPTION_MODELS,
   CODEX_SUBSCRIPTION_MODELS,
@@ -270,6 +271,7 @@ const SpecTaskModelPickerView: FC<{
                 return (
                   <Button
                     key={`${agent.agent.id}:${option.key}`}
+                    aria-label={`Select ${option.label} from ${option.providerLabel}`}
                     fullWidth
                     onClick={() => {
                       onSelectAgentModel(
@@ -337,6 +339,7 @@ export function buildPickerAgents(
   providers: TypesProviderEndpoint[],
   harnesses: TypesOrgCodeAgentHarnessStatus[] = [],
   enforceOrgPolicy = false,
+  organizationName?: string,
 ): PickerAgent[] {
   return agents.map((agent) => {
     const assistant = getAssistant(agent);
@@ -372,7 +375,7 @@ export function buildPickerAgents(
           id: availableModel.id || "",
           label: availableModel.id || "Unnamed model",
           provider,
-          providerLabel: provider.name || "Provider",
+          providerLabel: getProviderEndpointLabel(provider, organizationName),
         }))
         .filter((availableModel) => availableModel.id));
     }
@@ -397,8 +400,8 @@ const ProviderAwareSpecTaskModelPicker: FC<SpecTaskModelPickerProps> = (props) =
     { enabled: !loadingOrg },
   );
   const pickerAgents = useMemo(
-    () => buildPickerAgents(props.agents, providers, harnesses, !!orgName),
-    [props.agents, providers, harnesses, orgName],
+    () => buildPickerAgents(props.agents, providers, harnesses, !!orgName, org?.display_name || org?.name),
+    [props.agents, providers, harnesses, orgName, org?.display_name, org?.name],
   );
 
   return (

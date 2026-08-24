@@ -25,18 +25,20 @@ describe('CodeAgentHarnessesSection', () => {
         harnesses={[{ ...harnesses[0], subscription_enabled: false }]}
         endpoints={[{
           id: 'provider-1',
-          name: 'anthropic',
-          endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+          name: 'user/anthropic',
+          endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeOrg,
           status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
           available_models: [{ id: 'model-1', enabled: true, type: 'chat' }],
         }]}
+        organizationName="Probably"
         onChange={onChange}
       />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
     expect(screen.getByText('Inheriting all compatible providers')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Disable anthropic for Claude Code' }))
+    expect(screen.getByText('Probably / Anthropic')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Disable Probably / Anthropic for Claude Code' }))
     expect(onChange).toHaveBeenCalledWith({
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
       enabled: true,
@@ -60,15 +62,15 @@ describe('CodeAgentHarnessesSection', () => {
       />,
     )
 
-    expect(screen.queryByText('anthropic')).not.toBeInTheDocument()
+    expect(screen.queryByText('Anthropic')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
 
-    expect(screen.getByText('anthropic')).toBeInTheDocument()
+    expect(screen.getByText('Anthropic')).toBeInTheDocument()
     expect(screen.getByText('developer@example.com · Claude Max Subscription')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Manage subscription' })).toBeInTheDocument()
     expect(screen.queryByText('task-selected-model')).not.toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Disable subscription for Claude Code' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'Enable anthropic for Claude Code' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Enable Anthropic for Claude Code' })).not.toBeChecked()
     expect(screen.getByText('API providers')).toBeInTheDocument()
     expect(screen.getByRole('button', {
       name: 'API-provider mode is exclusive with subscription mode. Enabled providers expose their models in the task chat.',
@@ -109,8 +111,8 @@ describe('CodeAgentHarnessesSection', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
-    expect(screen.queryByText('openai')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Disable anthropic for Claude Code' }))
+    expect(screen.queryByText('OpenAI')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Disable Anthropic for Claude Code' }))
 
     expect(onChange).toHaveBeenCalledWith({
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
@@ -135,7 +137,7 @@ describe('CodeAgentHarnessesSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
     expect(screen.getByText('No API providers enabled')).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: 'Enable anthropic for Claude Code' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Enable Anthropic for Claude Code' })).not.toBeChecked()
   })
 
   it('disables a provider switch until its API connection is healthy', () => {
@@ -153,7 +155,7 @@ describe('CodeAgentHarnessesSection', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
-    const providerSwitch = screen.getByRole('checkbox', { name: 'Enable anthropic for Claude Code' })
+    const providerSwitch = screen.getByRole('checkbox', { name: 'Enable Anthropic for Claude Code' })
     expect(providerSwitch).not.toBeChecked()
     expect(providerSwitch).toBeDisabled()
     expect(screen.getByText('Not connected')).toBeInTheDocument()
@@ -195,7 +197,7 @@ describe('CodeAgentHarnessesSection', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Enable anthropic for Claude Code' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Enable Anthropic for Claude Code' }))
 
     expect(onChange).toHaveBeenCalledWith({
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
@@ -280,8 +282,8 @@ describe('CodeAgentHarnessesSection', () => {
     const subscriptionSwitch = screen.getByRole('checkbox', { name: 'Enable subscription for Codex' })
     expect(subscriptionSwitch).not.toBeChecked()
     expect(subscriptionSwitch).toBeDisabled()
-    expect(screen.getByText('openai')).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: 'Disable openai for Codex' })).toBeChecked()
+    expect(screen.getByText('OpenAI')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Disable OpenAI for Codex' })).toBeChecked()
   })
 
   it('keeps a disabled-off subscription switch when disconnected', () => {
