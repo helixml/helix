@@ -5209,8 +5209,9 @@ export interface TypesProject {
    */
   default_repo_id?: string;
   /**
-   * Default sandbox resources copied into each new SpecTask. Nil values from
-   * legacy projects resolve to the standard 4 vCPU / 8 GB preset.
+   * Default sandbox resources copied into each new SpecTask. Nil means the
+   * project expresses no preference and the task resolves the global default at
+   * container-create time.
    */
   default_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   /**

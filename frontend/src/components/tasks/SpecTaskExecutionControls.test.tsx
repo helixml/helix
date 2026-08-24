@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TypesCodeAgentRuntime, TypesSandboxRuntime } from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
 import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
+import { DEFAULT_SANDBOX_PRESET } from "../../constants/sandboxPresets";
 
 vi.mock("../../hooks/useSnackbar", () => ({
   default: () => ({ success: vi.fn(), error: vi.fn() }),
@@ -135,7 +136,7 @@ describe("SpecTaskExecutionControls", () => {
     expect(executionConfig).toHaveTextContent("Compute:");
     expect(executionConfig).toHaveTextContent("deepseek-v4-flash");
     expect(executionConfig).toHaveTextContent("Medium");
-    expect(executionConfig).toHaveTextContent("4 vCPU");
+    expect(executionConfig).toHaveTextContent(`${DEFAULT_SANDBOX_PRESET.vcpus} vCPU`);
     const harness = screen.getByLabelText("Harness: opencode");
     expect(harness).toHaveTextContent("opencode");
     expect(harness.querySelector('[data-harness-mark="opencode"]')).toBeInTheDocument();
@@ -284,7 +285,7 @@ describe("SpecTaskExecutionControls", () => {
     )).toBeInTheDocument();
   });
 
-  it("shows the effective 4 vCPU default for legacy tasks without an override", () => {
+  it("shows the effective default for legacy tasks without an override", () => {
     render(
       <SpecTaskExecutionControls
         agents={[codexAgent]}
@@ -294,7 +295,8 @@ describe("SpecTaskExecutionControls", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Change sandbox size" })).toHaveTextContent("4 vCPU");
+    expect(screen.getByRole("button", { name: "Change sandbox size" }))
+      .toHaveTextContent(`${DEFAULT_SANDBOX_PRESET.vcpus} vCPU`);
     expect(screen.queryByText("Uncapped")).not.toBeInTheDocument();
   });
 

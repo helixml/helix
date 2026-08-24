@@ -39325,7 +39325,7 @@
                         "type": "string"
                     },
                     "default_sandbox_resource_overrides": {
-                        "description": "Default sandbox resources copied into each new SpecTask. Nil values from\nlegacy projects resolve to the standard 4 vCPU / 8 GB preset.",
+                        "description": "Default sandbox resources copied into each new SpecTask. Nil means the\nproject expresses no preference and the task resolves the global default at\ncontainer-create time.",
                         "allOf": [
                             {
                                 "$ref": "#/components/schemas/types.SandboxResourceOverrides"
