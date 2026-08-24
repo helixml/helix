@@ -11,7 +11,7 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { EllipsisVertical, Plus, Trash2 } from 'lucide-react'
+import { EllipsisVertical, Pencil, Plus, Trash2 } from 'lucide-react'
 import CardGrid from '../components/widgets/CardGrid'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
@@ -24,9 +24,42 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useViewMode from '../hooks/useViewMode'
 import { matchesAllTokens } from '../utils/searchUtils'
-import { TriggerDTO, useCreateTrigger, useDeleteTrigger, useTriggers } from '../services/triggerService'
+import { useTriggerKinds } from '../services/triggerKindService'
+import { TriggerDTO, useCreateTrigger, useDeleteTrigger, useTriggers, useUpdateTrigger } from '../services/triggerService'
 
 const apiMessage = (error: any) => error?.response?.data?.summary ?? error?.message ?? 'The request failed.'
+
+// EditTriggerDialog exists so the update mutation, which is keyed by
+// trigger id, is constructed inside a component that has one.
+const EditTriggerDialog: FC<{
+  trigger: TriggerDTO
+  orgID: string
+  error: string
+  setError: (message: string) => void
+  onClose: () => void
+}> = ({ trigger, orgID, error, setError, onClose }) => {
+  const snackbar = useSnackbar()
+  const update = useUpdateTrigger(trigger.id ?? '')
+  return (
+    <TriggerFormDialog
+      open
+      trigger={trigger}
+      orgID={orgID}
+      saving={update.isPending}
+      error={error}
+      onClose={onClose}
+      onSubmit={async (payload) => {
+        try {
+          await update.mutateAsync({ ...payload, revision: trigger.revision })
+          onClose()
+          snackbar.success('Trigger updated')
+        } catch (e) {
+          setError(apiMessage(e))
+        }
+      }}
+    />
+  )
+}
 
 const HelixOrgTriggers: FC = () => {
   const router = useRouter()
@@ -35,14 +68,17 @@ const HelixOrgTriggers: FC = () => {
   const { data = [], isLoading } = useTriggers()
   const create = useCreateTrigger()
   const remove = useDeleteTrigger()
+  const { data: kinds = [] } = useTriggerKinds()
   const [mode, setMode] = useViewMode('helix-org-triggers-view')
   const [query, setQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
+  const [editing, setEditing] = useState<TriggerDTO>()
   const [deleting, setDeleting] = useState<TriggerDTO>()
   const [current, setCurrent] = useState<TriggerDTO>()
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [formError, setFormError] = useState('')
   const orgID = router.params.org_id as string
+  const kindLabel = useMemo(() => new Map((kinds ?? []).map((k) => [k.kind as string, k.label ?? (k.kind as string)])), [kinds])
   const filtered = useMemo(() => data.filter((t) => matchesAllTokens(query, [t.name, t.id, t.kind, t.description, ...(t.attached_workers ?? [])].filter(Boolean).join(' '))), [data, query])
   const open = (id?: string) => id && router.navigate('helix_org_trigger_detail', { org_id: orgID, trigger_id: id })
   const openMenu = (event: MouseEvent<HTMLElement>, trigger: TriggerDTO) => { event.stopPropagation(); setCurrent(trigger); setAnchor(event.currentTarget) }
@@ -56,8 +92,8 @@ const HelixOrgTriggers: FC = () => {
   const tableData = useMemo(() => filtered.map((trigger) => ({
     id: trigger.id,
     _data: trigger,
-    name: <Stack spacing={0.25}><a href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); open(trigger.id) }} style={{ fontWeight: 600, color: 'inherit', textDecoration: 'none' }}>{trigger.name}</a><Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>{trigger.id}</Typography></Stack>,
-    kind: <Typography variant="body2" color="text.secondary">{trigger.kind}</Typography>,
+    name: <Stack spacing={0.25}><a href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); open(trigger.id) }} style={{ fontWeight: 600, color: 'inherit', textDecoration: 'none' }}>{trigger.name}</a><Typography variant="caption" color="text.disabled" sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}>{trigger.id}</Typography></Stack>,
+    kind: <Typography variant="body2" color="text.secondary">{kindLabel.get(trigger.kind ?? '') ?? trigger.kind}</Typography>,
     agents: <Tooltip title={(trigger.attached_workers ?? []).join(', ')}><Typography variant="body2" color="text.secondary">{trigger.attached_workers?.length ?? 0}</Typography></Tooltip>,
     description: <Typography variant="body2" color="text.secondary">{trigger.description || '—'}</Typography>,
     created: <Typography variant="body2" color="text.secondary">{trigger.created_at ? new Date(trigger.created_at).toLocaleString() : '—'}</Typography>,
@@ -76,13 +112,17 @@ const HelixOrgTriggers: FC = () => {
           <SimpleTable authenticated fields={[{ name: 'name', title: 'Name' }, { name: 'kind', title: 'Source' }, { name: 'agents', title: 'Agents started' }, { name: 'description', title: 'Description' }, { name: 'created', title: 'Created' }]} data={tableData} getActions={(row) => actions(row._data as TriggerDTO)} />
         ) : <CardGrid items={filtered} getKey={(t) => t.id!} renderCard={(trigger) => (
           <Card sx={{ border: '1px solid rgba(0, 0, 0, 0.08)', borderRadius: 1, boxShadow: 'none', height: '100%', '&:hover': { borderColor: 'rgba(0,0,0,0.12)', backgroundColor: 'rgba(0,0,0,0.01)' } }}>
-            <CardContent onClick={() => open(trigger.id)} sx={{ p: 2, '&:last-child': { pb: 2 }, cursor: 'pointer' }}><Stack direction="row" justifyContent="space-between"><Box><Typography fontWeight={600}>{trigger.name}</Typography><Typography variant="caption" color="text.secondary">{trigger.kind}</Typography></Box>{actions(trigger)}</Stack><Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>{trigger.description || 'No description'}</Typography><Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>Starts {trigger.attached_workers?.length ?? 0} agent{(trigger.attached_workers?.length ?? 0) === 1 ? '' : 's'}</Typography></CardContent>
+            <CardContent onClick={() => open(trigger.id)} sx={{ p: 2, '&:last-child': { pb: 2 }, cursor: 'pointer' }}><Stack direction="row" justifyContent="space-between"><Box><Typography fontWeight={600}>{trigger.name}</Typography><Typography variant="caption" color="text.secondary">{kindLabel.get(trigger.kind ?? '') ?? trigger.kind}</Typography></Box>{actions(trigger)}</Stack><Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>{trigger.description || 'No description'}</Typography><Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>Starts {trigger.attached_workers?.length ?? 0} agent{(trigger.attached_workers?.length ?? 0) === 1 ? '' : 's'}</Typography></CardContent>
           </Card>
         )} />}
       </Stack></Container></Box>
-      <Menu anchorEl={anchor} open={!!anchor} onClose={closeMenu}><MenuItem onClick={(e) => { e.stopPropagation(); const selected = current; closeMenu(); setDeleting(selected) }}><Trash2 size={20} /> Delete</MenuItem></Menu>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={closeMenu}>
+        <MenuItem onClick={(e) => { e.stopPropagation(); const selected = current; closeMenu(); setFormError(''); setEditing(selected) }}><Pencil size={20} /> Edit</MenuItem>
+        <MenuItem onClick={(e) => { e.stopPropagation(); const selected = current; closeMenu(); setDeleting(selected) }}><Trash2 size={20} /> Delete</MenuItem>
+      </Menu>
       {deleting && <DeleteConfirmWindow title="trigger" submitTitle="Delete" onCancel={() => setDeleting(undefined)} onSubmit={async () => { try { await remove.mutateAsync(deleting.id!); snackbar.success('Trigger deleted') } catch (e) { snackbar.error(apiMessage(e)) } finally { setDeleting(undefined) } }}><Typography>Delete <b>{deleting.name}</b>? If this Trigger starts any agents, remove it from those agents first.</Typography></DeleteConfirmWindow>}
-      <TriggerFormDialog open={createOpen} saving={create.isPending} error={formError} onClose={() => setCreateOpen(false)} onSubmit={async (payload) => { try { await create.mutateAsync(payload); setCreateOpen(false); snackbar.success('Trigger created') } catch (e) { setFormError(apiMessage(e)) } }} />
+      <TriggerFormDialog open={createOpen} orgID={orgID} saving={create.isPending} error={formError} onClose={() => setCreateOpen(false)} onSubmit={async (payload) => { try { await create.mutateAsync(payload); setCreateOpen(false); snackbar.success('Trigger created') } catch (e) { setFormError(apiMessage(e)) } }} />
+      {editing && <EditTriggerDialog trigger={editing} orgID={orgID} error={formError} setError={setFormError} onClose={() => setEditing(undefined)} />}
     </HelixOrgShell>
   )
 }
