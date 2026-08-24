@@ -71,6 +71,16 @@ Acceptance criteria:
 - No manual `DROP TABLE` is required, and the design documents the manual SQL as an
   emergency-only escape hatch.
 
+**US-4 — As a kodit maintainer, this regression cannot silently return.**
+
+Acceptance criteria:
+- A test that pre-creates the table at one dimension and then indexes at another fails
+  against unpatched code and passes against the fix.
+- That test actually runs in kodit CI. Today the VectorChord integration tests are
+  `//go:build integration`, the Makefile's tag sets are `fts5 ORT [embed_model]`, and
+  `.github/workflows/test.yaml` has no database service — so the entire existing
+  VectorChord integration suite is dead in CI. Wiring it up is in scope.
+
 ## Non-Goals
 
 - Changing the default embedding provider or model.
@@ -81,11 +91,15 @@ Acceptance criteria:
 
 ## Open Questions
 
-1. **Do we have write access to `github.com/helixml/kodit` and the ability to cut a
-   `v1.3.9` tag?** The fix must land there — `v1.3.8` is the latest published version
-   (verified against `proxy.golang.org`), so no upstream fix exists to just bump to.
-   If the kodit repo is not reachable from the implementation sandbox, this task
-   blocks on that access rather than being reworked into a Helix-side workaround.
+1. ~~Do we have write access to `github.com/helixml/kodit`?~~ **Resolved:** the repo is
+   cloned at `/home/retro/work/kodit`, `main` sits on the `v1.3.8` tag commit
+   (`eb826e6`). Residual question: `origin` there is the Helix git mirror
+   (`http://api:8080/git/code-kodit-1773822357`), **not** `github.com`. Helix's
+   `api/go.mod` requires `github.com/helixml/kodit v1.3.9` to resolve through
+   `proxy.golang.org`, so the commit and tag must reach the GitHub repo. Does the
+   mirror push through, or does someone need to land it on GitHub separately? kodit's
+   `.github/workflows/release.yaml` fires on `release: [published]`, so the tag is cut
+   with `gh release create v1.3.9 --generate-notes` on the GitHub repo.
 2. **Confirm the failing environment is the Meta deployment and it is safe to lose the
    existing code index there.** The fix drops and rebuilds `vectorchord_code_embeddings`
    (and `vectorchord_text_embeddings` if its dimension also changed). Re-indexing all

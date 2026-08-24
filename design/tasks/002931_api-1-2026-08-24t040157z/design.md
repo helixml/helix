@@ -88,8 +88,22 @@ Helix never calls `Reinit`.
 `api/go.mod`: `github.com/helixml/kodit v1.3.8` → `v1.3.9` (plus `go.sum`). Nothing else.
 
 For local verification before the tag exists, use a temporary
-`replace github.com/helixml/kodit => ../kodit` in `api/go.mod` and **revert it before
-committing** — CI has no sibling checkout.
+`replace github.com/helixml/kodit => /home/retro/work/kodit` in `api/go.mod` and
+**revert it before committing** — CI has no sibling checkout.
+
+## Repo and release mechanics
+
+kodit is checked out at `/home/retro/work/kodit`; `main` is on the `v1.3.8` tag commit
+`eb826e6`. Its `origin` is the Helix git mirror
+(`http://api:8080/git/code-kodit-1773822357`), not `github.com/helixml/kodit`.
+
+`v1.3.8` is the newest published version on `proxy.golang.org`, so there is nothing to
+bump to and the tag must be created. `.github/workflows/release.yaml` triggers on
+`release: [published]` — cut it with `gh release create v1.3.9 --generate-notes` against
+the GitHub repo. The Helix `go.mod` bump only resolves once the tag is visible on GitHub
+and the proxy has fetched it (`curl https://proxy.golang.org/github.com/helixml/kodit/@v/list`
+to confirm). See Open Question 1 in `requirements.md` about whether the mirror pushes
+through to GitHub.
 
 ## Alternatives rejected
 
@@ -118,12 +132,36 @@ committing** — CI has no sibling checkout.
    findable; the `onRebuilt` callback fired exactly once.
 5. Index again at 1536 and assert no second rebuild.
 
-Run it against the dev stack's vectorchord:
-`VECTORCHORD_TEST_URL="postgresql://postgres:postgres@localhost:5434/kodit" go test -tags integration -run TestVectorChordEmbeddingStore ./infrastructure/persistence/`
-(port per `docker-compose.dev.yaml` service `vectorchord-kodit`).
-
 Also add a unit test next to `TestVectorChordEmbeddingStore_TableReadyFlag` covering
-that `tableExists` and `readyDimension` are independent.
+that `tableExists` and `readyDimension` are independent. That one runs under plain
+`make test`.
+
+**These integration tests do not currently run anywhere.** The `integration` build tag
+is absent from the Makefile's `TAGS`/`BUILD_TAGS`/`EMBED_TAGS` (`fts5 ORT`, plus
+`embed_model`), and `.github/workflows/test.yaml` runs only `make test` / `make test-e2e`
+with no database service. So the whole existing VectorChord integration suite is dead
+code in CI, which is part of why this shipped. Wire it up:
+
+- Add a `test-integration` target to the Makefile appending the `integration` tag —
+  kodit's `CLAUDE.md` is explicit that raw `go test` is never the entry point, because
+  the Makefile sets CGO flags, `ORT_LIB_DIR`, and the build tags.
+- Add a `vectorchord` service container to the `test` job in
+  `.github/workflows/test.yaml` (`tensorchord/vchord-suite:pg17-20250601`, the same
+  image as `docker-compose.dev.yaml`, with
+  `-c shared_preload_libraries=vchord,vchord_bm25,vector,pg_tokenizer`), export
+  `VECTORCHORD_TEST_URL`, and run `make test-integration`.
+
+Locally:
+
+```bash
+cd /home/retro/work/kodit
+docker compose -f docker-compose.dev.yaml --profile vectorchord up -d vectorchord
+VECTORCHORD_TEST_URL="postgresql://postgres:mysecretpassword@localhost:5432/kodit" \
+  make test-integration PKG=./infrastructure/persistence/...
+```
+
+Note the DSN: the dev compose uses password `mysecretpassword`, database `kodit`, host
+port **5432**. The docstring on the existing test says `5434` — it is stale; do not copy it.
 
 **Helix (end-to-end, in the inner Helix at `localhost:8080`).** This is the acceptance
 gate, not the unit tests:
@@ -159,6 +197,9 @@ gate, not the unit tests:
   external embedding provider that calls back into Helix's own `/v1/embeddings` does
   not deadlock at startup (see the comment at `api/pkg/server/kodit_init.go:44-48`).
   Keep it that way; do not "fix" this by probing eagerly at construction.
+- **Never run raw `go test` in kodit** — its `CLAUDE.md` mandates `make`, which supplies
+  `CGO_LDFLAGS`, `ORT_LIB_DIR`, and the `fts5 ORT [embed_model]` build tags. Tests that
+  need the ONNX runtime fail cryptically without them.
 - Reading a pinned Go dependency's source without a checkout:
   `curl -o /tmp/kodit.zip https://proxy.golang.org/github.com/helixml/kodit/@v/v1.3.8.zip && unzip`.
   `https://proxy.golang.org/<module>/@latest` tells you whether a newer release exists.
