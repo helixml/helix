@@ -123,10 +123,21 @@ Adding a Kind remains "one new file + one map entry": `Describe()` sits beside
 `ParseConfig` and `Validate` in that same file, and `DescribeAll()` walks
 `kindOrder`.
 
+`Describe()` is added to the existing `Strategy` interface rather than a
+separate optional one, so the **compiler** enforces that every Kind has a
+descriptor. No external package implements `transport.Strategy`
+(`processor.Strategy` is a different interface), so this is safe.
+
 **Parity test.** A table test asserts that for every Kind, every `Field` marked
-`Required` causes `Validate()` to fail when that key is absent from the config.
-This test fails today against `email`'s `inbound_address` and is the mechanism
-that keeps the descriptor honest.
+`Required` causes `Validate()` to fail when that key is absent. This guards
+descriptor-vs-validator drift — a field documented as optional that the
+validator actually demands, or vice versa.
+
+It does **not** catch the email bug, which is frontend-vs-backend drift: a
+correct descriptor saying `alias` passes this test on day one. What prevents
+that class of bug is decision 1 — the frontend renders fields *from* the
+descriptor, so there is no second, hand-written list of field names in
+TypeScript to fall out of step.
 
 ### 2. API
 
