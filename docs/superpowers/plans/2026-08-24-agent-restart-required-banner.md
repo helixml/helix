@@ -689,7 +689,7 @@ func TestState_EmptyStampNeverMatches(t *testing.T) {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-cd api && CGO_ENABLED=1 go test ./pkg/server/ -run TestState_Restart -v
+cd api && CGO_ENABLED=1 go test ./pkg/server/ -run 'TestState_(Restart|EmptyStamp)' -v
 ```
 
 Expected: FAIL to compile — `info.RestartRequired undefined`.
@@ -783,7 +783,7 @@ Leave the bare `nodes.New` in `api/pkg/server/helix_org_middleware.go:167` unwir
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-cd api && CGO_ENABLED=1 go test ./pkg/server/ -run TestState_Restart -v
+cd api && CGO_ENABLED=1 go test ./pkg/server/ -run 'TestState_(Restart|EmptyStamp)' -v
 cd api && go build ./pkg/server/ ./pkg/org/... ./pkg/store/ ./pkg/types/
 ```
 

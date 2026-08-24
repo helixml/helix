@@ -245,3 +245,50 @@ keep catching people who have not restarted.
 `notifications/tools/list_changed`. That is the real fix for tool staleness
 and would make the banner unnecessary for tools, but it needs agent-side
 support in Zed and Claude Code. Worth its own issue.
+
+## Verification
+
+Run 2026-08-24 against the live dev stack at `localhost:8080` (API confirmed
+serving this branch's code by grepping the running binary for
+`restart_required_container` and the Task-4 fix log string). Exercised through
+the real REST API against real sandbox containers — not seeded rows, not mocks.
+
+### The load-bearing assumption holds
+
+Every org-bot session in the database carries a populated, unique 64-hex Docker
+container id in `Metadata.ContainerID`. This is what the whole mechanism rests
+on; had it been empty on a running sandbox, the banner would silently never
+fire and the design would need revisiting.
+
+### Every branch, verified live
+
+| Case | Observed | Verdict |
+|---|---|---|
+| Edit tools, sandbox stopped | stamp written = that session's container id; `restart_required` absent | running-only gate holds |
+| Sandbox started, new container | stamp `4e610047…` ≠ live `a0a1ae02…`; `restart_required` false | **self-clears on recreate, with no clearing code** |
+| Edit tools while running | stamp becomes live `a0a1ae02…`; `restart_required: true` | true case |
+| Tools restored to original | tool list byte-identical to before | no test residue |
+
+The self-clearing row is the important one: a genuine container recreate cleared
+a stale stamp without any code clearing it, which is the design's central claim.
+
+### Known limitation found during verification
+
+**Reverting a change does not clear the banner.** Edit config → revert it to
+exactly what the running sandbox already has → the banner still shows until a
+restart. The comparison asks "did restart-sensitive config change since this
+container started", not "does config differ from what the container holds".
+
+This fails toward nagging rather than toward silence, and a restart clears it,
+so it is left as-is. Fixing it would mean stamping a fingerprint of the applied
+config at container start — which requires the container to report what it
+booted with, the heavier design deliberately deferred above.
+
+### Not verified by this run
+
+- **The browser click-path.** The banner's rendering, the confirm dialog, the
+  mid-turn gate, and the restart button were verified by component and panel
+  tests (73 frontend tests) and by the API returning `restart_required` on both
+  the list and detail endpoints — but no one drove the actual UI in a browser.
+- **The post-restart agent behaviour** — that an agent picks up a newly granted
+  tool after the banner's restart — was not exercised.
