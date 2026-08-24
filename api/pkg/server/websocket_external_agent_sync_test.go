@@ -1139,7 +1139,9 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_WithCommentFinalization() {
 		ReviewID:  "review-1",
 		RequestID: "req-cf-123",
 	}
-	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-cf-123").Return(comment, nil).AnyTimes()
+	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), "req-cf-123").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+	s.store.EXPECT().GetCommentByAgentRequestIDs(gomock.Any(), []string{"req-cf-123"}).Return(comment, nil).AnyTimes()
 	s.store.EXPECT().UpdateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, c *types.SpecTaskDesignReviewComment) error {
 			s.Empty(c.RequestID, "RequestID should be cleared")
@@ -1226,7 +1228,9 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive()
 		Return(nil, fmt.Errorf("not found")).AnyTimes()
 
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_skip").Return(nil, nil).AnyTimes()
-	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-skip").
+	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), "req-skip").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+	s.store.EXPECT().GetCommentByAgentRequestIDs(gomock.Any(), []string{"req-skip"}).
 		Return(nil, fmt.Errorf("not found")).AnyTimes()
 
 	// CRITICAL: GetSpecTask MUST NOT be called when the notification is suppressed.
@@ -1293,7 +1297,9 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup()
 		Return(nil, fmt.Errorf("not found")).AnyTimes()
 
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_emit").Return(nil, nil).AnyTimes()
-	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-emit").
+	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), "req-emit").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+	s.store.EXPECT().GetCommentByAgentRequestIDs(gomock.Any(), []string{"req-emit"}).
 		Return(nil, fmt.Errorf("not found")).AnyTimes()
 
 	// GetSpecTask MUST be called when the notification is not suppressed.
@@ -1421,7 +1427,9 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_SignalsDoneUnderInteractionID(
 	)
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), helixSessionID).Return(nil, nil).AnyTimes()
 	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), helixSessionID).Return(nil, nil).AnyTimes()
-	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), interactionID).
+	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), interactionID).
+		Return(nil, fmt.Errorf("record not found")).AnyTimes()
+	s.store.EXPECT().GetCommentByAgentRequestIDs(gomock.Any(), []string{interactionID}).
 		Return(nil, fmt.Errorf("record not found")).AnyTimes()
 
 	err := s.server.handleMessageCompleted("agent-1", &types.SyncMessage{
@@ -1539,7 +1547,9 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_PreservesPriorAgentError() {
 	s.store.EXPECT().GetSpecTaskZedThreadByZedThreadID(gomock.Any(), "thread-preserve").
 		Return(nil, fmt.Errorf("not found")).AnyTimes()
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_preserve").Return(nil, nil).AnyTimes()
-	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-preserve").
+	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), "req-preserve").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+	s.store.EXPECT().GetCommentByAgentRequestIDs(gomock.Any(), []string{"req-preserve"}).
 		Return(nil, fmt.Errorf("not found")).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
@@ -2566,7 +2576,9 @@ func (s *WebSocketSyncSuite) TestFinalizeComment_CommentExists() {
 		RequestID: "req-fin",
 	}
 
-	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-fin").Return(comment, nil)
+	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), "req-fin").
+		Return(nil, fmt.Errorf("not found"))
+	s.store.EXPECT().GetCommentByAgentRequestIDs(gomock.Any(), []string{"req-fin"}).Return(comment, nil)
 	s.store.EXPECT().UpdateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, c *types.SpecTaskDesignReviewComment) error {
 			s.Empty(c.RequestID)
@@ -2605,12 +2617,16 @@ func (s *WebSocketSyncSuite) TestFinalizeComment_CommentExists() {
 }
 
 func (s *WebSocketSyncSuite) TestFinalizeComment_NoComment() {
-	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-missing").
+	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), "req-missing").
+		Return(nil, store.ErrNotFound)
+	s.store.EXPECT().GetCommentByAgentRequestIDs(gomock.Any(), []string{"req-missing"}).
 		Return(nil, store.ErrNotFound)
 
 	err := s.server.finalizeCommentResponse(context.Background(), "req-missing")
 	s.Error(err)
-	s.Contains(err.Error(), "no comment found")
+	// Typed rather than string-matched: the completion handler logs only this
+	// sentinel at DEBUG and treats every other error as a lost answer.
+	s.ErrorIs(err, ErrNoCommentForAgentRequest)
 }
 
 func (s *WebSocketSyncSuite) TestFinalizeComment_EmptyRequestID() {
