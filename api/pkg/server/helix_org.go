@@ -1136,9 +1136,10 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Encrypt: func(plaintext []byte) (string, error) {
 			return crypto.EncryptAES256GCM(plaintext, encryptionKey)
 		},
-		Now:            deps.Now,
-		NewID:          deps.NewID,
-		OnToolsChanged: deps.ToolChangeNotifier,
+		Now:               deps.Now,
+		NewID:             deps.NewID,
+		OnToolsChanged:    deps.ToolChangeNotifier,
+		OnRestartRequired: deps.RestartRequiredNotifier,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init assets service: %w", err)
