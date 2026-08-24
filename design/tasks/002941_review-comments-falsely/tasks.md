@@ -56,20 +56,21 @@
 - [x] **19/19 tests pass** (`CGO_ENABLED=1 go test -run TestCommentTimerSuite ./pkg/server/ -count=1`)
 - [x] Run: `sudo apt-get install -y gcc libc6-dev && CGO_ENABLED=1 go test -run TestCommentTimerSuite ./pkg/server/ -count=1`
 
-## 6. Verify live (mandatory) [~]
+## 6. Verify live (mandatory)
 
-- [ ] Re-run the §0 cold-start sequence **after** the fix: no false stamp, real answer lands on the comment
-- [ ] Post a **second** comment on the same review — confirm it is delivered and answered (queue not blocked)
+- [x] Re-run the §0 cold-start sequence **after** the fix: no false stamp, real answer lands on the comment
+- [x] Post a **second** comment on the same review — delivered and answered in ~30s (queue not blocked)
 - [x] Backfill verified against **real** stranded data: the pre-fix repro comment was recovered on first boot (`repaired=1`, `agent_response_at=16:34:21` from the interaction, not now)
 - [x] Cold-start round 2 (hard `docker stop`): **no false stamp at the 2-min mark**; the timer waited and only acted when the interaction reached a terminal error state
-- [ ] Cold-start round 3 (graceful stop, agent reconnects) — end with the real answer on the comment
-- [ ] Capture screenshots of before/after comment threads into `screenshots/`
+- [x] Cold-start round 3 (graceful stop, agent reconnects): real 1,655-char answer, no stamp
+- [x] Capture screenshots of before/after comment threads into `screenshots/`
 
 ## 7. Ship
 
-- [ ] `cd api && go build ./pkg/...`
-- [ ] `cd frontend && yarn build`
-- [ ] Write `design/2026-08-24-review-comment-timer-false-negative.md` in the helix repo: chosen timer semantics, the single lookup path, the backfill strategy, and the ceilings' justification
-- [ ] Commit with conventional-commit messages; open one PR; report the full URL (`https://github.com/helixml/helix/pull/NNN`)
-- [ ] `gh pr checks <num>` — investigate and fix any CI failure without being asked
-- [ ] Do not touch `spt_01m0sh2mqx8491eg62fkp9qrap` (sandbox defaults + stream init replay)
+- [x] `cd api && go build ./pkg/...`
+- [x] `cd frontend && yarn build` — bundle compiles (22,300 modules); in-place write blocked by the root-owned read-only `dist` bind mount, verified via `vite build --outDir /tmp/fe-dist`
+- [x] Write `design/2026-08-24-review-comment-timer-false-negative.md` in the helix repo: chosen timer semantics, the single lookup path, the backfill strategy, and the ceilings' justification
+- [x] Commit with conventional-commit messages; merge `origin/main`; push `feature/002941-fix-false-agent-did-not`
+- [x] Write `pull_request_helix.md` (the platform opens the PR)
+- [~] Check CI after the PR is opened; fix failures without being asked
+- [x] Did not touch `spt_01m0sh2mqx8491eg62fkp9qrap` (sandbox defaults + stream init replay)
