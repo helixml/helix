@@ -669,12 +669,19 @@ Also worth having, all cheap against the parser:
 
 # Deliverables
 
-- **Two PRs.** PR1 = Part A (defaults, ladder, config, DB migration, ~13 Go sites,
-  6 frontend sites, regenerated OpenAPI). PR2 = Part B (proxy replay + tests),
-  branched off PR1 so the joint end-to-end verification runs on the combined tree.
-  Rationale: different blast radius (a product default plus an irreversible DB
-  migration vs. a wire-protocol change), different reviewers, and each should be
-  revertable without the other. Flagged as Open Question 4.
+- **One PR** (decided by Luke, 2026-08-24): the spec-task system still makes
+  multiple PRs per task awkward to drive, and that operational cost outweighs the
+  reviewability gain. Both parts land on
+  `feature/002936-right-size-spec-task`.
+
+  The original two-PR argument — different blast radius (a product default plus
+  an irreversible DB migration vs. a wire-protocol change), different reviewers,
+  independent revertability — is recorded here because it does not go away by
+  being overruled. Mitigate it inside the single PR instead: keep Part A and
+  Part B in **separate commits** so either can be reverted alone, and give the
+  PR body two clearly separated sections. The migration is the one piece that
+  cannot be un-run, so it must be called out explicitly at the top of the PR body
+  rather than left for a reviewer to find.
 - Design doc at `design/2026-08-24-sandbox-defaults-and-stream-init-replay.md` in
   the helix repo recording the chosen default and its reasoning, the migration
   strategy, and the `user_retry`-on-replay decision.

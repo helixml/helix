@@ -260,6 +260,9 @@ These were open at first review and are now **fixed, not suggestions**:
   178 rows holding `{"vcpus": 8, "memory_mb": 16384}`. Keep the "stop
   materializing, resolve at container-create time" shape.
 - **Sandboxes-API ladder** — `CreateSandboxDialog.tsx` moves with the rest.
+- **One PR, not two** — the spec-task system still makes multiple PRs per task
+  awkward to drive. Both parts land on one branch, kept in separate commits so
+  either half can be reverted alone.
 
 ## Open Questions
 
@@ -290,12 +293,7 @@ These were open at first review and are now **fixed, not suggestions**:
    default. Getting more resources is not harmful and they can re-select 4 CPU.
    Project rows are deliberately **not** touched — projects only store an override
    when an admin explicitly set one. No action expected unless you disagree.
-4. **One PR or two?** `design.md` recommends two — Part A (defaults + config +
-   DB migration + ~12 call sites) and Part B (wire-protocol replay) have
-   different blast radii, different reviewers, and should be independently
-   revertable. PR2 branches off PR1 so the joint end-to-end verification runs on
-   the combined tree. Say if a single PR is preferred.
-5. **Does the shared pipeline actually survive the drop?** When the backend socket
+4. **Does the shared pipeline actually survive the drop?** When the backend socket
    dies, `handleStreamWebSocketInternal`'s `defer streamer.Stop()` runs. If that
    client was the last subscriber, the shared source may be torn down, in which
    case the replayed init legitimately creates a new pipeline rather than

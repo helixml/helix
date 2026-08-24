@@ -110,7 +110,8 @@
 
 ## 9. Ship
 
-- [ ] Open PR1 (Part A) and PR2 (Part B, branched off PR1); state the split rationale in PR2's body
+- [ ] Push the single branch `feature/002936-right-size-spec-task` with Part A and Part B as separate commits, so either half can be reverted alone
+- [ ] Write the PR body in two clearly separated sections, calling out the irreversible migration at the top
 - [ ] Write `design/2026-08-24-sandbox-defaults-and-stream-init-replay.md` in the helix repo recording the chosen default and reasoning, the migration strategy, and the `user_retry`-on-replay decision
 - [ ] State in PR1's body that the migration resets deliberate 4/8192 choices, and why that is acceptable
 - [ ] `gh pr checks` on both PRs; fix CI failures without being asked
