@@ -123,6 +123,18 @@ func (r *workerSecretBindingsRepo) List(_ context.Context, orgID string, workerI
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
+func (r *workerSecretBindingsRepo) ListBySecretID(_ context.Context, secretID string) ([]workersecret.Binding, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]workersecret.Binding, 0)
+	for _, b := range r.rows {
+		if b.SourceKind == workersecret.SourceHelixSecret && b.SecretID == secretID {
+			out = append(out, b)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
 func (r *workerSecretBindingsRepo) Delete(_ context.Context, orgID string, workerID orgchart.NodeID, name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -16996,6 +16996,12 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Revoke Agent grants and delete anyway",
+                        "name": "force",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -17003,6 +17009,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Secret"
+                        }
+                    },
+                    "409": {
+                        "description": "Secret is granted to one or more Agents",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -24494,6 +24506,10 @@ const docTemplate = `{
                 "account_id": {
                     "type": "string"
                 },
+                "available": {
+                    "description": "Available reports whether the bound source still exists. A\ndeleted source leaves the binding in place pointing at nothing,\nand this is the only signal the operator gets.",
+                    "type": "boolean"
+                },
                 "content_type": {
                     "type": "string"
                 },
@@ -30093,7 +30109,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "refresh_token_expires_at": {
-                    "description": "RefreshTokenExpiresAt is when the login itself dies and the user must\nre-authenticate. Refreshing keeps the 8h access token alive but does not\nmove this, so it is the only honest basis for an expiry warning. Zero for\nsetup tokens, which carry no refresh token.",
+                    "description": "RefreshTokenExpiresAt is when the login itself dies and the user must\nre-authenticate. Refreshing keeps the 8h access token alive but does not\nmove this, so it is the only honest basis for an expiry warning. Zero for\nsetup tokens, which carry no refresh token — omitzero so an absent\ndeadline reaches the client as absent, not as \"0001-01-01T00:00:00Z\",\nwhich reads as a date 739850 days in the past.",
                     "type": "string"
                 },
                 "scopes": {

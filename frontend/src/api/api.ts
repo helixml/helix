@@ -538,6 +538,12 @@ export interface ApiUpsertChartPositionsRequest {
 
 export interface ApiWorkerSecretBindingDTO {
   account_id?: string;
+  /**
+   * Available reports whether the bound source still exists. A
+   * deleted source leaves the binding in place pointing at nothing,
+   * and this is the only signal the operator gets.
+   */
+  available?: boolean;
   content_type?: string;
   created_at?: string;
   description?: string;
@@ -3087,7 +3093,9 @@ export interface TypesClaudeSubscription {
    * RefreshTokenExpiresAt is when the login itself dies and the user must
    * re-authenticate. Refreshing keeps the 8h access token alive but does not
    * move this, so it is the only honest basis for an expiry warning. Zero for
-   * setup tokens, which carry no refresh token.
+   * setup tokens, which carry no refresh token — omitzero so an absent
+   * deadline reaches the client as absent, not as "0001-01-01T00:00:00Z",
+   * which reads as a date 739850 days in the past.
    */
   refresh_token_expires_at?: string;
   scopes?: string[];
@@ -16831,10 +16839,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/secrets/{id}
      * @secure
      */
-    v1SecretsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSecret, any>({
+    v1SecretsDelete: (
+      id: string,
+      query?: {
+        /** Revoke Agent grants and delete anyway */
+        force?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSecret, SystemHTTPError>({
         path: `/api/v1/secrets/${id}`,
         method: "DELETE",
+        query: query,
         secure: true,
         ...params,
       }),

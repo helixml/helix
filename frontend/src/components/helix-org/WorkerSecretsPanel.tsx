@@ -95,8 +95,8 @@ const WorkerSecretsPanel: FC<{ agentID?: string; projectID?: string; readOnly?: 
       <Tooltip title={projectID ? 'Create a secret in this Agent’s project' : 'This Agent has no project'}><span><Button size="small" variant="outlined" startIcon={<Plus size={16}/>} onClick={() => setNewSecretOpen(true)} disabled={readOnly || !projectID}>New Secret</Button></span></Tooltip>
     </Box>
     <Alert severity="warning">Granting a binding authorizes this Agent to retrieve and use the credential value. Values are never shown on this page.</Alert>
-    {bindings.map((binding) => <Box key={binding.name} sx={{ display: 'flex', alignItems: 'center', gap: 1, border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }}>
-      <Box sx={{ flex: 1, minWidth: 0 }}><Typography variant="body2" sx={{ fontFamily: 'var(--helix-font-mono)', fontWeight: 600 }}>{binding.name}</Typography><Typography variant="caption" color="text.secondary">{binding.usage || binding.source_kind}</Typography></Box>
+    {bindings.map((binding) => <Box key={binding.name} sx={{ display: 'flex', alignItems: 'center', gap: 1, border: 1, borderColor: binding.available === false ? 'warning.main' : 'divider', borderRadius: 1, p: 1 }}>
+      <Box sx={{ flex: 1, minWidth: 0 }}><Typography variant="body2" sx={{ fontFamily: 'var(--helix-font-mono)', fontWeight: 600 }}>{binding.name}</Typography><Typography variant="caption" color={binding.available === false ? 'warning.main' : 'text.secondary'}>{binding.available === false ? 'Source deleted — this grant no longer resolves. Remove it or grant a new source.' : (binding.usage || binding.source_kind)}</Typography></Box>
       <Tooltip title="Remove secret grant"><span><IconButton aria-label={`Remove ${binding.name}`} size="small" disabled={readOnly || del.isPending} onClick={async () => { try { await del.mutateAsync(binding.name!); snackbar.success(`Removed ${binding.name}`) } catch (error: any) { snackbar.error(error?.response?.data?.error ?? error?.message ?? 'Failed to remove secret') } }}><Trash2 size={18}/></IconButton></span></Tooltip>
     </Box>)}
     <TextField

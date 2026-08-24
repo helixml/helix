@@ -82,6 +82,19 @@ func (r *workerSecretBindingsRepo) List(ctx context.Context, orgID string, worke
 	}
 	return out, nil
 }
+func (r *workerSecretBindingsRepo) ListBySecretID(ctx context.Context, secretID string) ([]workersecret.Binding, error) {
+	var rows []workerSecretBindingRow
+	if err := r.db.WithContext(ctx).
+		Where("source_kind = ? AND secret_id = ?", string(workersecret.SourceHelixSecret), secretID).
+		Order("org_id, worker_id, name").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list worker secret bindings by secret: %w", err)
+	}
+	out := make([]workersecret.Binding, len(rows))
+	for i := range rows {
+		out[i] = bindingDomain(rows[i])
+	}
+	return out, nil
+}
 func (r *workerSecretBindingsRepo) Delete(ctx context.Context, orgID string, workerID orgchart.NodeID, name string) error {
 	res := r.db.WithContext(ctx).Where("org_id = ? AND worker_id = ? AND name = ?", orgID, workerID, name).Delete(&workerSecretBindingRow{})
 	if res.Error != nil {

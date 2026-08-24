@@ -440,16 +440,40 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     },
   });
 
-  // Delete secret mutation
+  // Delete secret mutation. The server refuses with 409 while the secret
+  // is granted to an agent; that refusal becomes the confirm dialog, and
+  // confirming retries with force so the grants are revoked with it.
+  const [secretDeleteConflict, setSecretDeleteConflict] = useState<{
+    secretId: string;
+    message: string;
+  } | null>(null);
   const deleteSecretMutation = useMutation({
-    mutationFn: async (secretId: string) => {
-      await api.getApiClient().v1SecretsDelete(secretId);
+    mutationFn: async ({
+      secretId,
+      force,
+    }: {
+      secretId: string;
+      force?: boolean;
+    }) => {
+      await api
+        .getApiClient()
+        .v1SecretsDelete(secretId, force ? { force: true } : undefined);
     },
     onSuccess: () => {
+      setSecretDeleteConflict(null);
       snackbar.success("Secret deleted");
       refetchSecrets();
     },
-    onError: () => {
+    onError: (error: any, variables) => {
+      if (error?.response?.status === 409) {
+        setSecretDeleteConflict({
+          secretId: variables.secretId,
+          message:
+            error.response.data ||
+            "This secret is granted to one or more agents.",
+        });
+        return;
+      }
       snackbar.error("Failed to delete secret");
     },
   });
@@ -1733,7 +1757,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                     size="small"
                     color="error"
                     onClick={() =>
-                      secret.id && deleteSecretMutation.mutate(secret.id)
+                      secret.id &&
+                      deleteSecretMutation.mutate({ secretId: secret.id })
                     }
                     disabled={deleteSecretMutation.isPending}
                     startIcon={<DeleteIcon />}
@@ -2550,6 +2575,31 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
             }
           >
             {moveProjectMutation.isPending ? "Moving..." : "Move Project"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Secret delete confirmation — raised by the server's 409 */}
+      <Dialog
+        open={Boolean(secretDeleteConflict)}
+        onClose={() => setSecretDeleteConflict(null)}
+      >
+        <DialogTitle>Delete secret?</DialogTitle>
+        <DialogContent>{secretDeleteConflict?.message}</DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSecretDeleteConflict(null)}>Cancel</Button>
+          <Button
+            color="error"
+            disabled={deleteSecretMutation.isPending}
+            onClick={() =>
+              secretDeleteConflict &&
+              deleteSecretMutation.mutate({
+                secretId: secretDeleteConflict.secretId,
+                force: true,
+              })
+            }
+          >
+            Delete anyway
           </Button>
         </DialogActions>
       </Dialog>

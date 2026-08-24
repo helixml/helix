@@ -814,6 +814,12 @@ definitions:
     properties:
       account_id:
         type: string
+      available:
+        description: |-
+          Available reports whether the bound source still exists. A
+          deleted source leaves the binding in place pointing at nothing,
+          and this is the only signal the operator gets.
+        type: boolean
       content_type:
         type: string
       created_at:
@@ -4852,7 +4858,9 @@ definitions:
           RefreshTokenExpiresAt is when the login itself dies and the user must
           re-authenticate. Refreshing keeps the 8h access token alive but does not
           move this, so it is the only honest basis for an expiry warning. Zero for
-          setup tokens, which carry no refresh token.
+          setup tokens, which carry no refresh token — omitzero so an absent
+          deadline reaches the client as absent, not as "0001-01-01T00:00:00Z",
+          which reads as a date 739850 days in the past.
         type: string
       scopes:
         items:
@@ -24596,11 +24604,19 @@ paths:
         name: id
         required: true
         type: string
+      - description: Revoke Agent grants and delete anyway
+        in: query
+        name: force
+        type: boolean
       responses:
         "200":
           description: OK
           schema:
             $ref: '#/definitions/types.Secret'
+        "409":
+          description: Secret is granted to one or more Agents
+          schema:
+            $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
       summary: Delete a secret
