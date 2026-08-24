@@ -60,7 +60,9 @@
 
 - [ ] Re-run the §0 cold-start sequence **after** the fix: no false stamp, real answer lands on the comment
 - [ ] Post a **second** comment on the same review — confirm it is delivered and answered (queue not blocked)
-- [ ] Insert a synthetic stamped comment + completed interaction, restart the API, confirm the reconciliation pass repairs it and logs the count
+- [x] Backfill verified against **real** stranded data: the pre-fix repro comment was recovered on first boot (`repaired=1`, `agent_response_at=16:34:21` from the interaction, not now)
+- [x] Cold-start round 2 (hard `docker stop`): **no false stamp at the 2-min mark**; the timer waited and only acted when the interaction reached a terminal error state
+- [ ] Cold-start round 3 (graceful stop, agent reconnects) — end with the real answer on the comment
 - [ ] Capture screenshots of before/after comment threads into `screenshots/`
 
 ## 7. Ship
