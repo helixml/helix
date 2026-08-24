@@ -3623,14 +3623,6 @@ else
     (cd zed && git pull --ff-only 2>/dev/null || true)
 fi
 
-if [ ! -d "qwen-code" ]; then
-    echo "   Cloning qwen-code..."
-    git clone https://github.com/helixml/qwen-code.git
-else
-    echo "   qwen-code already exists, pulling latest..."
-    (cd qwen-code && git pull --ff-only 2>/dev/null || true)
-fi
-
 echo -e "${GREEN}3. Setting up environment...${NC}"
 
 cd "$WORKSPACE/helix"

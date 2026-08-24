@@ -165,7 +165,7 @@ air-gapped/proxied enterprise installs, and it re-downloads per container. Use
    | `OPENCODE_CONFIG_CONTENT` | the JSON below, marshalled |
    | `HELIX_API_KEY` | `d.userAPIKey` (referenced as `{env:HELIX_API_KEY}`) |
    | `XDG_CONFIG_HOME` | `/home/retro/.config/helix-opencode` |
-   | `XDG_DATA_HOME` | `/home/retro/work/.opencode-state` (persists across restarts, like `QWEN_DATA_DIR`) |
+   | `XDG_DATA_HOME` | `/home/retro/work/.opencode-state` (persists across restarts, like `QWEN_HOME`) |
    | `OPENCODE_DISABLE_AUTOUPDATE` | belt-and-braces alongside the config flag |
 
    The config content (built in Go with a struct, not `map[string]interface{}`,

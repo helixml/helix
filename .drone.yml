@@ -1346,7 +1346,7 @@ steps:
 # ====================================================================
 # Builds the complete sandbox stack:
 #   1. Zed binary (Rust, from helixml/zed)
-#   2. qwen-code (Node.js, from helixml/qwen-code)
+#   2. Qwen Code (pinned official npm release)
 #   3. Desktop images (helix-sway, helix-ubuntu)
 #   4. Sandbox image (embeds desktop tarballs)
 #
@@ -1355,8 +1355,8 @@ steps:
 #   - Branches: use commit hash (e.g., abc123f)
 #
 # Caching:
-#   Zed and qwen-code builds use Docker BuildKit cache mounts for
-#   cargo/npm dependencies. No shared host volumes for build artifacts.
+#   Zed and Qwen Code builds use Docker BuildKit layers for cargo/npm
+#   dependencies. No shared host volumes for build artifacts.
 #
 # No GPU required - builds work on standard runners.
 # ====================================================================
@@ -1402,19 +1402,14 @@ steps:
       # Read pinned versions
       - |
         . /drone/src/sandbox-versions.txt
-        echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_COMMIT}"
+        echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_VERSION}"
         echo "$${ZED_COMMIT}" > /drone/src/zed-commit.txt
-        echo "$${QWEN_COMMIT}" > /drone/src/qwen-code-commit.txt
       # Warn if pinned versions are stale (informational only, doesn't fail)
       - |
         . /drone/src/sandbox-versions.txt
         ZED_HEAD=$$(git ls-remote https://github.com/helixml/zed.git HEAD | cut -f1)
-        QWEN_HEAD=$$(git ls-remote https://github.com/helixml/qwen-code.git HEAD | cut -f1)
         if [ "$${ZED_COMMIT}" != "$${ZED_HEAD}" ]; then
           echo "⚠️  ZED_COMMIT is behind upstream HEAD ($${ZED_HEAD:0:12})"
-        fi
-        if [ "$${QWEN_COMMIT}" != "$${QWEN_HEAD}" ]; then
-          echo "⚠️  QWEN_COMMIT is behind upstream HEAD ($${QWEN_HEAD:0:12})"
         fi
       # Always clone Zed source fresh at the pinned commit.
       # BuildKit handles caching of cargo deps and build artifacts.
@@ -1426,46 +1421,31 @@ steps:
         git -C /drone/src/external/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
         git -C /drone/src/external/zed-source checkout FETCH_HEAD
         echo "✓ Zed source at $$(git -C /drone/src/external/zed-source rev-parse HEAD)"
-      # Always clone qwen-code fresh at the pinned commit.
-      - |
-        . /drone/src/sandbox-versions.txt
-        echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
-        cd /
-        git init /drone/src/external/qwen-source
-        git -C /drone/src/external/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-        git -C /drone/src/external/qwen-source checkout FETCH_HEAD
-        echo "✓ qwen-code source at $$(git -C /drone/src/external/qwen-source rev-parse HEAD)"
       - echo "=== Dependency versions ==="
       - echo "Zed:" && cat /drone/src/zed-commit.txt
-      - echo "qwen-code:" && cat /drone/src/qwen-code-commit.txt
+      - . /drone/src/sandbox-versions.txt && echo "Qwen Code: $${QWEN_VERSION}"
     volumes:
       - name: sandbox-build-cache
         path: /drone/src/cache
 
-  # Step 2: Build qwen-code (with caching)
-  # Builds qwen-code using Dockerfile.qwen-build with BuildKit cache for npm.
+  # Step 2: Install the pinned, bundled Qwen Code npm release.
   - name: build-qwen-code
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
       - |
-        QWEN_SOURCE="/drone/src/external/qwen-source"
-
-        if [ ! -f "$${QWEN_SOURCE}/package.json" ]; then
-          echo "ERROR: qwen-code source not found at $${QWEN_SOURCE}"
-          exit 1
-        fi
-
-        echo "Building qwen-code from source..."
+        . /drone/src/sandbox-versions.txt
+        echo "Installing Qwen Code $${QWEN_VERSION}..."
         mkdir -p qwen-code-build
         docker build \
+          --build-arg QWEN_VERSION=$${QWEN_VERSION} \
           --output type=local,dest=qwen-code-build \
           -f Dockerfile.qwen-build \
-          "$${QWEN_SOURCE}"
+          .
 
-        cat /drone/src/qwen-code-commit.txt > qwen-code-build/.git-commit-hash
-        echo "qwen-code build complete"
+        test "$$(cat qwen-code-build/version)" = "$${QWEN_VERSION}"
+        echo "Qwen Code install complete"
         ls -la qwen-code-build/
     volumes:
       - name: dockersocket
@@ -1922,18 +1902,13 @@ steps:
       - mkdir -p /drone/src/external /drone/src/cache
       - |
         . /drone/src/sandbox-versions.txt
-        echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_COMMIT}"
+        echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_VERSION}"
         echo "$${ZED_COMMIT}" > /drone/src/zed-commit.txt
-        echo "$${QWEN_COMMIT}" > /drone/src/qwen-code-commit.txt
       - |
         . /drone/src/sandbox-versions.txt
         ZED_HEAD=$$(git ls-remote https://github.com/helixml/zed.git HEAD | cut -f1)
-        QWEN_HEAD=$$(git ls-remote https://github.com/helixml/qwen-code.git HEAD | cut -f1)
         if [ "$${ZED_COMMIT}" != "$${ZED_HEAD}" ]; then
           echo "⚠️  ZED_COMMIT is behind upstream HEAD ($${ZED_HEAD:0:12})"
-        fi
-        if [ "$${QWEN_COMMIT}" != "$${QWEN_HEAD}" ]; then
-          echo "⚠️  QWEN_COMMIT is behind upstream HEAD ($${QWEN_HEAD:0:12})"
         fi
       # Clone external sources into this build's workspace.
       - |
@@ -1945,46 +1920,32 @@ steps:
         git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
         git checkout FETCH_HEAD
         echo "✓ Zed source at $$(git rev-parse HEAD)"
-      - |
-        . /drone/src/sandbox-versions.txt
-        echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
-        mkdir -p /drone/src/external/qwen-source
-        cd /drone/src/external/qwen-source
-        git init -q .
-        git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-        git checkout FETCH_HEAD
-        echo "✓ qwen-code source at $$(git rev-parse HEAD)"
       - echo "=== Dependency versions ==="
       - echo "Zed:" && cat /drone/src/zed-commit.txt
-      - echo "qwen-code:" && cat /drone/src/qwen-code-commit.txt
+      - . /drone/src/sandbox-versions.txt && echo "Qwen Code: $${QWEN_VERSION}"
     volumes:
       - name: sandbox-build-cache
         path: /drone/src/cache
 
-  # Step 2: Build qwen-code using Dockerfile.qwen-build with BuildKit cache.
+  # Step 2: Install the pinned, bundled Qwen Code npm release.
   - name: build-qwen-code
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
       - |
-        QWEN_SOURCE="/drone/src/external/qwen-source"
-
-        if [ ! -f "$${QWEN_SOURCE}/package.json" ]; then
-          echo "ERROR: qwen-code source not found at $${QWEN_SOURCE}"
-          exit 1
-        fi
-
-        echo "Building qwen-code from source..."
+        . /drone/src/sandbox-versions.txt
+        echo "Installing Qwen Code $${QWEN_VERSION}..."
         mkdir -p qwen-code-build
         docker build \
           --provenance=false \
+          --build-arg QWEN_VERSION=$${QWEN_VERSION} \
           --output type=local,dest=qwen-code-build \
           -f Dockerfile.qwen-build \
-          "$${QWEN_SOURCE}"
+          .
 
-        cat /drone/src/qwen-code-commit.txt > qwen-code-build/.git-commit-hash
-        echo "qwen-code build complete"
+        test "$$(cat qwen-code-build/version)" = "$${QWEN_VERSION}"
+        echo "Qwen Code install complete"
         ls -la qwen-code-build/
     volumes:
       - name: dockersocket

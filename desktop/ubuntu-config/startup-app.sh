@@ -68,11 +68,15 @@ cat > ~/.config/fontconfig/fonts.conf << 'FONTCONFIG_EOF'
 </fontconfig>
 FONTCONFIG_EOF
 
-# Configure Qwen Code session persistence
-export QWEN_DATA_DIR=$WORK_DIR/.qwen-state
-mkdir -p $QWEN_DATA_DIR
-rm -rf ~/.qwen && ln -sf $QWEN_DATA_DIR ~/.qwen
-gow_log "[start] Qwen data directory set: QWEN_DATA_DIR=$QWEN_DATA_DIR"
+# Configure Qwen Code session persistence. QWEN_HOME and QWEN_RUNTIME_DIR are
+# also passed directly to the ACP server by settings-sync-daemon.
+QWEN_STATE_DIR=$WORK_DIR/.qwen-state
+mkdir -p $QWEN_STATE_DIR
+if [ ! -f $QWEN_STATE_DIR/settings.json ] && [ -f ~/.qwen/settings.json ]; then
+    cp ~/.qwen/settings.json $QWEN_STATE_DIR/settings.json
+fi
+rm -rf ~/.qwen && ln -sf $QWEN_STATE_DIR ~/.qwen
+gow_log "[start] Qwen state directory set: $QWEN_STATE_DIR"
 
 # Codex stores ACP rollouts under ~/.codex. Keep them with the session
 # workspace so a recreated desktop can resume the Zed thread it advertises.

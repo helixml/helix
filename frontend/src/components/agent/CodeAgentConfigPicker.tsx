@@ -75,6 +75,7 @@ interface ModelOption {
 export const SELECTABLE_CODE_AGENT_RUNTIMES: ReadonlyArray<Runtime> = [
   TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
   TypesCodeAgentRuntime.CodeAgentRuntimeGooseCode,
+  TypesCodeAgentRuntime.CodeAgentRuntimeQwenCode,
   TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
   TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
   TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
