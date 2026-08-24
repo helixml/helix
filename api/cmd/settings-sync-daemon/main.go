@@ -25,9 +25,10 @@ import (
 // SettingsPath and KeymapPath are vars (not consts) so unit tests can point
 // them at a tempdir without touching the real Zed config.
 var (
-	SettingsPath    = "/home/retro/.config/zed/settings.json"
-	KeymapPath      = "/home/retro/.config/zed/keymap.json"
-	CodexConfigPath = "/home/retro/.codex/config.toml"
+	SettingsPath     = "/home/retro/.config/zed/settings.json"
+	KeymapPath       = "/home/retro/.config/zed/keymap.json"
+	CodexConfigPath  = "/home/retro/.codex/config.toml"
+	QwenSettingsPath = "/home/retro/work/.qwen-state/settings.json"
 )
 
 const (
@@ -209,14 +210,15 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 
 	switch d.codeAgentConfig.Runtime {
 	case "qwen_code":
-		// Qwen Code: Uses the qwen command as a custom agent_server
+		// Qwen Code: Uses the qwen command as a custom agent_server.
 		// Rewrite localhost URLs for container networking (dev mode fix)
 		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
 		env := map[string]interface{}{
-			"GEMINI_TELEMETRY_ENABLED": "false",
-			"OPENAI_BASE_URL":          baseURL,
-			// Store sessions in persistent workspace directory (survives container restarts)
-			"QWEN_DATA_DIR": "/home/retro/work/.qwen-state",
+			"OPENAI_BASE_URL":               baseURL,
+			"QWEN_HOME":                     "/home/retro/work/.qwen-state",
+			"QWEN_RUNTIME_DIR":              "/home/retro/work/.qwen-state",
+			"QWEN_TELEMETRY_ENABLED":        "false",
+			"QWEN_USAGE_STATISTICS_ENABLED": "false",
 		}
 
 		if d.userAPIKey != "" {
@@ -225,39 +227,52 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		if d.codeAgentConfig.Model != "" {
 			env["OPENAI_MODEL"] = d.codeAgentConfig.Model
 		}
+		if err := ensureQwenSettings(QwenSettingsPath, d.codeAgentConfig.ReasoningEffort); err != nil {
+			log.Printf("ERROR: qwen agent server cannot be registered: %v", err)
+			return nil
+		}
 
 		log.Printf("Using qwen_code runtime: base_url=%s, model=%s",
 			baseURL, d.codeAgentConfig.Model)
 
-		return map[string]interface{}{
-			"qwen": map[string]interface{}{
-				"name":    "qwen",   // Required: Zed expects a name field for agent_servers
-				"type":    "custom", // Required: Zed deserializes agent_servers using tagged enum
-				"command": "qwen",
-				"args": []string{
-					// --yolo makes qwen start its ACP session in YOLO mode so it
-					// auto-approves every tool call. This is passed on the command
-					// line (not just via the "default_mode" setting below) on
-					// purpose: default_mode only takes effect if the host IDE reads
-					// it and sends an ACP session/set_mode after new_session. The
-					// Zed builds pinned for spec-task sandboxes don't do that for
-					// custom agent servers, so without --yolo qwen stays in
-					// ApprovalMode.DEFAULT and every edit round-trips a
-					// session/request_permission that nobody clicks in a headless
-					// sandbox — the agent stalls on an "Allow all edits?" prompt.
-					"--yolo",
-					"--experimental-acp",
-					"--no-telemetry",
-					"--include-directories", "/home/retro/work",
-				},
-				"env": env,
-				// default_mode is the IDE-mediated equivalent of --yolo: newer Zed
-				// reads it and issues session/set_mode("yolo"), which also keeps the
-				// Zed UI mode indicator in sync. Mirrors claude_code's
-				// "bypassPermissions" entry below. --yolo above is the version-
-				// independent guarantee; this is the nicety for IDEs that honour it.
-				"default_mode": "yolo",
+		qwenConfig := map[string]interface{}{
+			"name":    "qwen",   // Required: Zed expects a name field for agent_servers
+			"type":    "custom", // Required: Zed deserializes agent_servers using tagged enum
+			"command": "qwen",
+			"args": []string{
+				// --yolo makes qwen start its ACP session in YOLO mode so it
+				// auto-approves every tool call. This is passed on the command
+				// line (not just via the "default_mode" setting below) on
+				// purpose: default_mode only takes effect if the host IDE reads
+				// it and sends an ACP session/set_mode after new_session. The
+				// Zed builds pinned for spec-task sandboxes don't do that for
+				// custom agent servers, so without --yolo qwen stays in
+				// ApprovalMode.DEFAULT and every edit round-trips a
+				// session/request_permission that nobody clicks in a headless
+				// sandbox — the agent stalls on an "Allow all edits?" prompt.
+				"--yolo",
+				"--acp",
+				"--no-telemetry",
+				"--include-directories", "/home/retro/work",
 			},
+			"env": env,
+			// default_mode is the IDE-mediated equivalent of --yolo: newer Zed
+			// reads it and issues session/set_mode("yolo"), which also keeps the
+			// Zed UI mode indicator in sync. Mirrors claude_code's
+			// "bypassPermissions" entry below. --yolo above is the version-
+			// independent guarantee; this is the nicety for IDEs that honour it.
+			"default_mode": "yolo",
+		}
+		if d.codeAgentConfig.ReasoningEffort != "" {
+			// Qwen exposes reasoning_effort as an ACP session config option.
+			// Zed applies this default after new_session.
+			qwenConfig["default_config_options"] = map[string]string{
+				"reasoning_effort": d.codeAgentConfig.ReasoningEffort,
+			}
+		}
+
+		return map[string]interface{}{
+			"qwen": qwenConfig,
 		}
 
 	case "claude_code":
@@ -563,6 +578,102 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		log.Printf("Using zed_agent runtime (no agent_servers needed), api_type=%s", d.codeAgentConfig.APIType)
 		return nil
 	}
+}
+
+// ensureQwenSettings maintains the small part of Qwen's workspace settings
+// owned by Helix while preserving any unrelated user configuration. Qwen's
+// generic OpenAI-compatible provider sends model.reasoningEffort as a nested
+// `reasoning` object. Self-hosted models exposed through Helix may instead
+// require the OpenAI-compatible top-level `reasoning_effort`, for which Qwen's
+// documented escape hatch is model.generationConfig.extra_body.
+func ensureQwenSettings(path, reasoningEffort string) error {
+	settings := map[string]interface{}{}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return fmt.Errorf("parse existing Qwen settings: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read existing Qwen settings: %w", err)
+	}
+
+	privacy, err := ensureJSONObject(settings, "privacy")
+	if err != nil {
+		return err
+	}
+	privacy["usageStatisticsEnabled"] = false
+	telemetry, err := ensureJSONObject(settings, "telemetry")
+	if err != nil {
+		return err
+	}
+	telemetry["enabled"] = false
+	general, err := ensureJSONObject(settings, "general")
+	if err != nil {
+		return err
+	}
+	general["enableAutoUpdate"] = false
+
+	model, err := ensureJSONObject(settings, "model")
+	if err != nil {
+		return err
+	}
+	generationConfig, err := ensureJSONObject(model, "generationConfig")
+	if err != nil {
+		return err
+	}
+	extraBody, err := ensureJSONObject(generationConfig, "extra_body")
+	if err != nil {
+		return err
+	}
+	if reasoningEffort == "" {
+		delete(extraBody, "reasoning_effort")
+	} else {
+		extraBody["reasoning_effort"] = reasoningEffort
+	}
+
+	data, err = json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal Qwen settings: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create Qwen settings directory: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".settings-*.json")
+	if err != nil {
+		return fmt.Errorf("create temporary Qwen settings: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0644); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("set temporary Qwen settings permissions: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temporary Qwen settings: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temporary Qwen settings: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("install Qwen settings: %w", err)
+	}
+	return nil
+}
+
+func ensureJSONObject(parent map[string]interface{}, key string) (map[string]interface{}, error) {
+	value, exists := parent[key]
+	if !exists {
+		child := map[string]interface{}{}
+		parent[key] = child
+		return child, nil
+	}
+	child, ok := value.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("Qwen setting %q must be an object", key)
+	}
+	return child, nil
 }
 
 func ensureCodexConfig(path, openAIBaseURL string) error {

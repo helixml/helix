@@ -19,9 +19,9 @@ import (
 )
 
 var (
-	ErrReconnectFailed    = errors.New("reconnection failed")
-	ErrInputBufferFull    = errors.New("input buffer full")
-	ErrOutputBufferFull   = errors.New("output buffer full")
+	ErrReconnectFailed  = errors.New("reconnection failed")
+	ErrInputBufferFull  = errors.New("input buffer full")
+	ErrOutputBufferFull = errors.New("output buffer full")
 )
 
 const (
@@ -46,20 +46,40 @@ type DialFunc func(ctx context.Context) (net.Conn, error)
 // UpgradeFunc is a function that performs WebSocket upgrade on a connection
 type UpgradeFunc func(conn net.Conn) error
 
+// SessionReplay carries per-connection state that the backend learns from the
+// client's first frames and would otherwise lose when the backend reconnects.
+//
+// It is the frame-level sibling of CreateWebSocketUpgradeFunc's extraHeaders:
+// both re-apply state that only the original handshake carried, and both belong
+// on the reconnect path rather than only on the initial connection. The header
+// path re-sends what WE know about the caller; this path re-sends what the
+// CLIENT told the backend. Dropping either leaves a half-configured backend —
+// for the desktop stream that means a socket stuck in its 30s init read, which
+// is the bug this exists to fix.
+type SessionReplay interface {
+	// Observe is fed every byte the client sends, in order. Implementations must
+	// be cheap once they have what they need.
+	Observe(b []byte)
+	// Frames returns bytes to write to a freshly-upgraded backend connection
+	// before proxying resumes. Nil when there is nothing to replay.
+	Frames() []byte
+}
+
 // ResilientProxy provides a bidirectional proxy that survives brief server-side disconnections.
 // The client connection (browser) stays alive while the server connection (RevDial to desktop)
 // can be reconnected transparently. Both directions are buffered during reconnection.
 type ResilientProxy struct {
 	// Configuration
-	sessionID    string
-	dialFunc     DialFunc    // Function to dial server (via connman)
-	upgradeFunc  UpgradeFunc // Function to upgrade connection to WebSocket
-	bufferSize   int
+	sessionID   string
+	dialFunc    DialFunc      // Function to dial server (via connman)
+	upgradeFunc UpgradeFunc   // Function to upgrade connection to WebSocket
+	replay      SessionReplay // Optional per-connection state to re-send after reconnect
+	bufferSize  int
 
 	// Connections
-	clientConn    net.Conn // Browser connection (stable)
+	clientConn    net.Conn   // Browser connection (stable)
 	clientWriteMu sync.Mutex // Serializes writes to clientConn (copier + close-frame senders)
-	serverConn    net.Conn // Server connection (may reconnect)
+	serverConn    net.Conn   // Server connection (may reconnect)
 	serverMu      sync.Mutex
 
 	// Input buffering (client → server direction)
@@ -73,12 +93,12 @@ type ResilientProxy struct {
 	outputBufferPos int
 
 	// State
-	reconnecting   atomic.Bool
-	closed         atomic.Bool
-	done           chan struct{}
-	reconnectDone  chan struct{} // Signals reconnection completed
-	reconnectMu    sync.Mutex    // Protects reconnection initiation
-	serverError    chan error    // Channel to signal server errors for reconnection
+	reconnecting  atomic.Bool
+	closed        atomic.Bool
+	done          chan struct{}
+	reconnectDone chan struct{} // Signals reconnection completed
+	reconnectMu   sync.Mutex    // Protects reconnection initiation
+	serverError   chan error    // Channel to signal server errors for reconnection
 
 	// Stats
 	reconnectCount      atomic.Int64
@@ -93,7 +113,10 @@ type ResilientProxyConfig struct {
 	ServerConn  net.Conn
 	DialFunc    DialFunc
 	UpgradeFunc UpgradeFunc
-	BufferSize  int // Size of each direction's buffer (default 512KB)
+	// Replay re-sends per-connection state the client established on the original
+	// socket (the desktop stream's init frame). Nil disables replay.
+	Replay     SessionReplay
+	BufferSize int // Size of each direction's buffer (default 512KB)
 }
 
 // NewResilientProxy creates a new resilient proxy
@@ -109,6 +132,7 @@ func NewResilientProxy(cfg ResilientProxyConfig) *ResilientProxy {
 		serverConn:    cfg.ServerConn,
 		dialFunc:      cfg.DialFunc,
 		upgradeFunc:   cfg.UpgradeFunc,
+		replay:        cfg.Replay,
 		bufferSize:    bufSize,
 		inputBuffer:   make([]byte, bufSize),
 		outputBuffer:  make([]byte, bufSize),
@@ -234,6 +258,13 @@ func (p *ResilientProxy) copyClientToServer(ctx context.Context) error {
 
 		if n == 0 {
 			continue
+		}
+
+		// Watch the client stream for state the backend will need again after a
+		// reconnect. Done before the write/buffer branch so it sees every byte
+		// regardless of which path the data takes.
+		if p.replay != nil {
+			p.replay.Observe(buf[:n])
 		}
 
 		// If reconnecting, buffer the data and wait
@@ -519,6 +550,26 @@ func (p *ResilientProxy) reconnect(ctx context.Context) error {
 		p.serverMu.Lock()
 		p.serverConn = newConn
 		p.serverMu.Unlock()
+
+		// Re-send per-connection state BEFORE the buffered input. The backend is
+		// blocked waiting for it and will not process anything else until it
+		// arrives; the buffered bytes are whatever the client sent while we were
+		// down, which belongs after.
+		if p.replay != nil {
+			if frames := p.replay.Frames(); len(frames) > 0 {
+				if _, err := newConn.Write(frames); err != nil {
+					log.Warn().
+						Str("session_id", p.sessionID).
+						Err(err).
+						Msg("Failed to replay session state to reconnected backend")
+				} else {
+					log.Debug().
+						Str("session_id", p.sessionID).
+						Int("bytes", len(frames)).
+						Msg("Replayed session state to reconnected backend")
+				}
+			}
+		}
 
 		// Flush buffered data in both directions
 		if err := p.flushInputBuffer(); err != nil {

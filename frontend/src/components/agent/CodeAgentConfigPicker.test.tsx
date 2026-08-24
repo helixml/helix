@@ -93,6 +93,7 @@ describe('CodeAgentConfigPicker', () => {
     harnessState.harnesses = [
       TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
       TypesCodeAgentRuntime.CodeAgentRuntimeGooseCode,
+      TypesCodeAgentRuntime.CodeAgentRuntimeQwenCode,
       TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
       TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
       TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
@@ -115,6 +116,7 @@ describe('CodeAgentConfigPicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
     expect(screen.getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Qwen Code' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Codex' })).not.toBeInTheDocument()
   })
 

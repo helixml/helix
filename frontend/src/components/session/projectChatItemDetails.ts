@@ -3,6 +3,7 @@ import type { IApp } from '../../types'
 import { effectiveSpecTaskSandboxRuntime } from '../../utils/specTaskSandboxRuntime'
 import { getAgentHarnessLabel, getAgentHarnessModel, getAgentHarnessRuntime } from '../agent/AgentHarness'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
+import { DEFAULT_SANDBOX_PRESET } from '../../constants/sandboxPresets'
 
 export type ProjectChatItemDetails = {
   repository?: string
@@ -61,8 +62,8 @@ export const getProjectChatItemDetails = ({
 
   if (item.kind !== 'spec-task' || !item.task) return details
 
-  const vcpus = item.task.sandbox_resource_overrides?.vcpus || 4
-  const memoryMb = item.task.sandbox_resource_overrides?.memory_mb || 8192
+  const vcpus = item.task.sandbox_resource_overrides?.vcpus || DEFAULT_SANDBOX_PRESET.vcpus
+  const memoryMb = item.task.sandbox_resource_overrides?.memory_mb || DEFAULT_SANDBOX_PRESET.memory_mb
   const memory = memoryMb % 1024 === 0
     ? `${memoryMb / 1024} GB RAM`
     : `${memoryMb} MB RAM`

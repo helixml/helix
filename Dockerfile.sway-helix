@@ -869,7 +869,7 @@ _INSTALL_ONLYOFFICE
 
 # AI agent privacy configs
 RUN mkdir -p /home/retro/.qwen && \
-    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.qwen/settings.json
+    echo '{"privacy":{"usageStatisticsEnabled":false},"telemetry":{"enabled":false},"general":{"enableAutoUpdate":false}}' > /home/retro/.qwen/settings.json
 
 RUN mkdir -p /home/retro/.gemini && \
     echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
@@ -921,11 +921,12 @@ ENV NVD_BACKEND=direct \
 # Order: Qwen → Sway config → Zed → startup scripts → Go binaries
 # Rationale: Go binaries and startup scripts change most often, so they're at the very end
 
-# Qwen Code
+# Qwen Code (version recorded in /opt/qwen-code/version).
 WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
-RUN chmod +x dist/cli.js && \
-    ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
+RUN test -x bin/qwen && \
+    ln -sf /opt/qwen-code/bin/qwen /usr/local/bin/qwen && \
+    qwen --version
 
 # Helix agent skills (github.com/helixml/skills).
 #

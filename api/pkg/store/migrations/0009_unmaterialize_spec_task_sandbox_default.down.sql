@@ -1,0 +1,3 @@
+-- Irreversible. Which NULLs previously held 4/8192 is not recorded, and
+-- re-materializing every NULL would write an override onto the thousands of rows
+-- that never had one — recreating the bug this migration removes.

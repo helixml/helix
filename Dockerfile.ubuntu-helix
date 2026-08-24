@@ -1137,7 +1137,7 @@ _INSTALL_PLUGINS
 # anything writing into them at runtime (skill links, agent state) fails with
 # EACCES. Dockerfile.sway-helix already chowns .qwen for the same reason.
 RUN mkdir -p /home/retro/.qwen && \
-    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.qwen/settings.json && \
+    echo '{"privacy":{"usageStatisticsEnabled":false},"telemetry":{"enabled":false},"general":{"enableAutoUpdate":false}}' > /home/retro/.qwen/settings.json && \
     chown -R retro:retro /home/retro/.qwen
 
 RUN mkdir -p /home/retro/.gemini && \
@@ -1303,11 +1303,12 @@ _INSTALL_CURSOR_THEME
 # means changes here don't invalidate cached layers for stable components
 # like OnlyOffice, Chrome, Ghostty, cursor theme, etc.
 
-# Qwen Code
+# Qwen Code (version recorded in /opt/qwen-code/version).
 WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
-RUN chmod +x dist/cli.js && \
-    ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
+RUN test -x bin/qwen && \
+    ln -sf /opt/qwen-code/bin/qwen /usr/local/bin/qwen && \
+    qwen --version
 
 # Goose CLI (built from $GOOSE_COMMIT in goose-build stage above).
 # Telemetry: OTEL_SDK_DISABLED=true is set in the ENV block above

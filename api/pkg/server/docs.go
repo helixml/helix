@@ -34771,7 +34771,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "default_sandbox_resource_overrides": {
-                    "description": "Default sandbox resources copied into each new SpecTask. Nil values from\nlegacy projects resolve to the standard 4 vCPU / 8 GB preset.",
+                    "description": "Default sandbox resources copied into each new SpecTask. Nil means the\nproject expresses no preference and the task resolves the global default at\ncontainer-create time.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/types.SandboxResourceOverrides"
@@ -36935,6 +36935,14 @@ const docTemplate = `{
                 "default_chat_system_prompt": {
                     "description": "DefaultChatSystemPrompt is the system prompt the platform applies to\ndirect model chats when the user has not customised one. Surfaced to\nthe frontend so the chat-settings page can prefill the textbox.",
                     "type": "string"
+                },
+                "default_spec_task_sandbox": {
+                    "description": "DefaultSpecTaskSandbox is the sandbox size a new spec task gets when it\nspecifies none. It is operator-configurable\n(HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS/_MEMORY_MB), so the UI has to read\nit from here rather than hardcode a copy — otherwise an operator who moves\nthe default gets a task selector that marks the wrong rung \"Default\" while\ncontainers come up at the configured size.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxResourceOverrides"
+                        }
+                    ]
                 },
                 "deployment_id": {
                     "type": "string"

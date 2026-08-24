@@ -2,7 +2,9 @@ package types
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gorm.io/datatypes"
@@ -82,10 +84,41 @@ type StartPlanningOptions struct {
 	Timezone string `json:"timezone,omitempty"`
 }
 
+// Compile-time fallback for the spec task sandbox size. Config overrides it at
+// startup via SetDefaultSpecTaskSandboxResources; this is what a binary with no
+// configuration does, so it has to be a correct answer on its own.
+//
+// 12 vCPU / 24 GB is the size measured to fix the 2026-08-24 streaming outage:
+// the 4 vCPU / 8 GB predecessor left desktop containers at 99.999% of memory.max
+// with CFS throttling on 80% of periods, which stretched GStreamer's
+// set_state(PLAYING) from under a second to 43-100s. Real steady-state demand of
+// an uncapped desktop runs 2-30 GiB.
 const (
-	DefaultSpecTaskSandboxVCPUs    = 4
-	DefaultSpecTaskSandboxMemoryMB = 8192
+	DefaultSpecTaskSandboxVCPUs    = 12
+	DefaultSpecTaskSandboxMemoryMB = 24576
 )
+
+// configuredSpecTaskSandboxDefault holds the operator-configured default. Nil
+// until SetDefaultSpecTaskSandboxResources runs, so a binary that never
+// configures one keeps the compile-time constants above.
+var configuredSpecTaskSandboxDefault atomic.Pointer[SandboxResourceOverrides]
+
+// SetDefaultSpecTaskSandboxResources installs the operator-configured default
+// sandbox size. Call it once from startup, before anything serves — it is read
+// without synchronisation on every task start and is not meant to change under a
+// running server.
+//
+// It rejects a pair that is not a valid preset rather than accepting a size the
+// UI cannot represent and a failed resize cannot roll back to.
+func SetDefaultSpecTaskSandboxResources(r SandboxResourceOverrides) error {
+	if !r.ValidPreset() {
+		return fmt.Errorf(
+			"default spec task sandbox %d vCPU / %d MB is not a valid preset (vCPUs must be one of %s, with memory following)",
+			r.VCPUs, r.MemoryMB, specTaskSandboxVCPUList())
+	}
+	configuredSpecTaskSandboxDefault.Store(&r)
+	return nil
+}
 
 // SandboxResourceOverrides is the desired CPU and memory limit for the single
 // desktop container owned by a SpecTask. A nil value resolves to the SpecTask
@@ -95,7 +128,29 @@ type SandboxResourceOverrides struct {
 	MemoryMB int `json:"memory_mb,omitempty"`
 }
 
+// SpecTaskSandboxPresets is the ladder of selectable sandbox sizes, ordered
+// smallest first. vCPU is the key: memory is never independently selectable, so
+// every rung must have a distinct vCPU count. Adding a rung here extends both
+// SpecTaskSandboxPresetForVCPUs and ValidPreset; keep it in step with
+// frontend/src/constants/sandboxPresets.ts, which mirrors it for the UI.
+//
+// Existing rungs must stay valid: a stored value that stops being a preset is
+// rejected by every ValidPreset() call site the next time the row is updated.
+var SpecTaskSandboxPresets = []SandboxResourceOverrides{
+	{VCPUs: 1, MemoryMB: 2048},
+	{VCPUs: 4, MemoryMB: 8192},
+	{VCPUs: 8, MemoryMB: 16384},
+	{VCPUs: 12, MemoryMB: 24576},
+	{VCPUs: 16, MemoryMB: 32768},
+}
+
+// DefaultSpecTaskSandboxResources returns the operator-configured default, or
+// the compile-time constants when nothing configured one.
 func DefaultSpecTaskSandboxResources() *SandboxResourceOverrides {
+	if configured := configuredSpecTaskSandboxDefault.Load(); configured != nil {
+		resources := *configured
+		return &resources
+	}
 	return &SandboxResourceOverrides{
 		VCPUs:    DefaultSpecTaskSandboxVCPUs,
 		MemoryMB: DefaultSpecTaskSandboxMemoryMB,
@@ -109,40 +164,41 @@ func EffectiveSpecTaskSandboxResources(resources *SandboxResourceOverrides) Sand
 	return *resources
 }
 
-// SpecTaskSandboxPresetForVCPUs maps a vCPU count to its full preset. Memory
-// is not independently selectable — the UI offers three fixed sizes and
-// ValidPreset rejects any other pairing — so callers that take only a vCPU
-// count (the org MCP create tool, for one) resolve the memory here rather than
-// each restating the table and risking a combination ValidPreset refuses.
+// SpecTaskSandboxPresetForVCPUs maps a vCPU count to its full preset. Memory is
+// not independently selectable — ValidPreset rejects any other pairing — so
+// callers that take only a vCPU count (the org MCP create tool, for one) resolve
+// the memory here rather than each restating the table and risking a combination
+// ValidPreset refuses.
 //
 // Returns false for a vCPU count that has no preset.
 func SpecTaskSandboxPresetForVCPUs(vcpus int) (*SandboxResourceOverrides, bool) {
-	preset := SandboxResourceOverrides{VCPUs: vcpus}
-	switch vcpus {
-	case 1:
-		preset.MemoryMB = 2048
-	case 4:
-		preset.MemoryMB = 8192
-	case 8:
-		preset.MemoryMB = 16384
-	default:
-		return nil, false
+	for _, preset := range SpecTaskSandboxPresets {
+		if preset.VCPUs == vcpus {
+			return &preset, true
+		}
 	}
-	return &preset, true
+	return nil, false
 }
 
 func (r SandboxResourceOverrides) ValidPreset() bool {
-	switch r.VCPUs {
-	case 1:
-		return r.MemoryMB == 2048
-	case 4:
-		return r.MemoryMB == 8192
-	case 8:
-		return r.MemoryMB == 16384
-	default:
-		return false
-	}
+	preset, ok := SpecTaskSandboxPresetForVCPUs(r.VCPUs)
+	return ok && preset.MemoryMB == r.MemoryMB
 }
+
+// specTaskSandboxVCPUList renders the selectable vCPU counts for an error
+// message, so the ladder is stated in one place rather than hand-copied into
+// every validation failure.
+func specTaskSandboxVCPUList() string {
+	counts := make([]string, 0, len(SpecTaskSandboxPresets))
+	for _, preset := range SpecTaskSandboxPresets {
+		counts = append(counts, strconv.Itoa(preset.VCPUs))
+	}
+	return strings.Join(counts, ", ")
+}
+
+// SpecTaskSandboxVCPUList is the selectable vCPU counts as a human-readable
+// list, for tool descriptions and validation errors.
+func SpecTaskSandboxVCPUList() string { return specTaskSandboxVCPUList() }
 
 // EffectiveSpecTaskSandboxRuntime keeps legacy tasks on the full desktop while
 // allowing newly-created tasks to opt into the headless agent runtime.

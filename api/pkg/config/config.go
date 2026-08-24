@@ -187,6 +187,18 @@ type Sandboxes struct {
 	// internal mirror serving the same JSON shape for air-gapped installs.
 	// Empty uses the public GitHub API.
 	OpenCodeReleasesURL string `envconfig:"HELIX_OPENCODE_RELEASES_URL"`
+
+	// DefaultSpecTaskVCPUs / DefaultSpecTaskMemoryMB size the desktop container a
+	// spec task gets when neither the task nor its project chose a size. They must
+	// form a valid preset (types.SandboxResourceOverrides.ValidPreset) — memory is
+	// keyed off vCPUs everywhere else in the system, so an arbitrary pairing here
+	// would produce a container the UI cannot represent and a failed resize cannot
+	// roll back to. An invalid pair fails startup rather than being ignored.
+	//
+	// The defaults below are the correct out-of-the-box values; these exist so an
+	// operator with a bigger or smaller box can move them without a rebuild.
+	DefaultSpecTaskVCPUs    int `envconfig:"HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS" default:"12"`
+	DefaultSpecTaskMemoryMB int `envconfig:"HELIX_SPEC_TASK_SANDBOX_DEFAULT_MEMORY_MB" default:"24576"`
 }
 
 // Compute configures the cloud-provisioning side of Helix's sandbox
@@ -456,6 +468,17 @@ func LoadServerConfig() (ServerConfig, error) {
 			return ServerConfig{}, err
 		}
 		cfg.WebServer.AssetSSHProxyAddress = address
+	}
+	// The spec task sandbox default is read from packages that have no config
+	// handle (desktopBillingResources is a free function; HydraExecutor holds no
+	// ServerConfig), so it is installed as a process-wide value here rather than
+	// threaded through ten constructors. Set once, before anything serves.
+	if err := types.SetDefaultSpecTaskSandboxResources(types.SandboxResourceOverrides{
+		VCPUs:    cfg.Sandboxes.DefaultSpecTaskVCPUs,
+		MemoryMB: cfg.Sandboxes.DefaultSpecTaskMemoryMB,
+	}); err != nil {
+		return ServerConfig{}, fmt.Errorf(
+			"HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS/_MEMORY_MB: %w", err)
 	}
 	return cfg, nil
 }
