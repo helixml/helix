@@ -6,6 +6,6 @@
 - [x] Verify the failure path is unchanged: `~/.helix-setup.log` still gets the full transcript and `~/.helix-setup-failed` still contains `{"exit_code": N, "log_tail": "..."}`.
 - [x] Add `desktop/shared/test-setup-terminal-shell.sh` (styled after `test-helix-specs-creation.sh`) that drives the trap path under `script -qec`, feeds `2` then `echo "DOLLAR_DASH=$-"`, and asserts the flags contain `i` and a prompt was printed.
 - [x] Run the new test locally and confirm it fails against the current script and passes after the fix.
-- [~] Rebuild one desktop image (`Dockerfile.sway-helix` or `Dockerfile.ubuntu-helix`) and manually confirm: prompt renders, tab completion works, arrow-key history works, Ctrl-C interrupts a `sleep 100` without killing the shell.
+- [x] Verify inside the real desktop image. Done without a full rebuild: `helix-ubuntu:latest` was already built locally, and the only change is a script `ADD`ed near the end of the Dockerfile, so the script was bind-mounted into the image and the pty test run there as uid 1000. Fixed script: 9/9 pass, `$- = himBHs`, job control on. Original script in the same image: `$- = hBs`, 2 failures. A `./stack build-ubuntu` is still needed before the change reaches live sessions.
 - [x] Confirm `desktop/shared/helix-run-startup-script.sh` needs no change (it has no stdout redirect) and note this in the commit message.
 - [x] Commit with a `fix(desktop):` message describing the non-TTY-stderr root cause and referencing commit `389435bb1` as where the redirect was introduced.

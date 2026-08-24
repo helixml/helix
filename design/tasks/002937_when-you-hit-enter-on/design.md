@@ -187,3 +187,26 @@ stop logging the debug shell's own session (Q3), plain `exec bash` with a
 (colour/progress suppression during setup) was left out of scope. Q1 was
 confirmed by the symptom match — this is the in-desktop window, not the web
 drawer.
+
+### Verified inside the real desktop image (no rebuild needed)
+
+`helix-ubuntu:latest` was already present locally, and the only change is a
+script `ADD`ed near the end of the Dockerfile, so a full `./stack build-ubuntu`
+was not required just to verify behaviour. Bind-mounting `desktop/shared` into
+the existing image and running the pty test there as uid 1000 exercises the
+image's real bash (5.2.37) and its `/etc/bash.bashrc`:
+
+```bash
+docker run --rm --entrypoint bash --user 1000:1000 \
+  -v /home/retro/work/helix/desktop/shared:/mnt/shared:ro \
+  helix-ubuntu:latest /mnt/shared/test-setup-terminal-shell.sh \
+  /mnt/shared/helix-workspace-setup.sh
+```
+
+Result in-image: fixed script 9/9 pass (`$- = himBHs`, job control on); original
+script 7/9 with `$- = hBs`. This is a handy pattern for any future
+`desktop/shared/*.sh` change — bind-mount over the image instead of rebuilding.
+
+**Still required before the fix reaches live sessions:** `./stack build-ubuntu`
+(and the sway image, if in use), since both bake the script into
+`/usr/local/bin/`. Running containers keep the old copy.
