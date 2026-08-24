@@ -16,12 +16,13 @@
 
 ## 1. Part A — types, ladder, config
 
-- [ ] Set `DefaultSpecTaskSandboxVCPUs = 12` / `DefaultSpecTaskSandboxMemoryMB = 24576` in `api/pkg/types/simple_spec_task.go:86-87`
-- [ ] Add rungs `12/24576` and `16/32768` to `SpecTaskSandboxPresetForVCPUs` and `ValidPreset` (`api/pkg/types/simple_spec_task.go:117-144`), keeping 1/2048, 4/8192 and 8/16384 valid
-- [ ] Add `configuredSpecTaskSandboxDefault atomic.Pointer[SandboxResourceOverrides]` plus `SetDefaultSpecTaskSandboxResources` in `types`, backing `DefaultSpecTaskSandboxResources()` without changing its signature; document the "set once at startup, before serving" contract
-- [ ] Add `DefaultSpecTaskVCPUs` (`HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS`, default `12`) and `DefaultSpecTaskMemoryMB` (`HELIX_SPEC_TASK_SANDBOX_DEFAULT_MEMORY_MB`, default `24576`) to the `Sandboxes` struct in `api/pkg/config/config.go:166`
-- [ ] Call `types.SetDefaultSpecTaskSandboxResources` once at API startup; fail startup loudly when the configured pair fails `ValidPreset()` rather than falling back silently
-- [ ] Clamp vCPUs to `runtime.NumCPU()` in `sandboxResourceLimits` (`api/pkg/hydra/devcontainer.go:1104`), logging once when a clamp occurs — Docker rejects `--cpus` above the host CPU count
+- [x] Set `DefaultSpecTaskSandboxVCPUs = 12` / `DefaultSpecTaskSandboxMemoryMB = 24576` in `api/pkg/types/simple_spec_task.go:86-87`
+- [x] Add rungs `12/24576` and `16/32768` to `SpecTaskSandboxPresetForVCPUs` and `ValidPreset` (`api/pkg/types/simple_spec_task.go:117-144`), keeping 1/2048, 4/8192 and 8/16384 valid — **collapsed both into one `SpecTaskSandboxPresets` table so they cannot drift**
+- [x] Add `configuredSpecTaskSandboxDefault atomic.Pointer[SandboxResourceOverrides]` plus `SetDefaultSpecTaskSandboxResources` in `types`, backing `DefaultSpecTaskSandboxResources()` without changing its signature; document the "set once at startup, before serving" contract
+- [x] Add `DefaultSpecTaskVCPUs` (`HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS`, default `12`) and `DefaultSpecTaskMemoryMB` (`HELIX_SPEC_TASK_SANDBOX_DEFAULT_MEMORY_MB`, default `24576`) to the `Sandboxes` struct in `api/pkg/config/config.go:166`
+- [x] Call `types.SetDefaultSpecTaskSandboxResources` once at API startup; fail startup loudly when the configured pair fails `ValidPreset()` rather than falling back silently — **wired into `LoadServerConfig` so every entry point gets it; `config` already imports `types`, no cycle**
+- [x] Clamp vCPUs to `runtime.NumCPU()` in `sandboxResourceLimits` (`api/pkg/hydra/devcontainer.go:1104`), logging once when a clamp occurs — Docker rejects `--cpus` above the host CPU count
+- [x] Add `SpecTaskSandboxVCPUList()` so validation errors and tool descriptions render the ladder from the table rather than hand-copying it
 
 ## 2. Part A — stop materializing and backfill
 
