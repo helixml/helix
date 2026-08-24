@@ -7,7 +7,7 @@ import type { TypesGitRepository } from '../../api/api'
 import CreateProjectDialog from './CreateProjectDialog'
 
 const mocks = vi.hoisted(() => ({
-  createAgent: vi.fn(),
+  getConfig: vi.fn(),
   createProject: vi.fn(),
   createRepo: vi.fn(),
   projects: [] as Array<{ id: string; name: string }>,
@@ -57,7 +57,7 @@ vi.mock('../../services/oauthProvidersService', () => ({
 
 vi.mock('../agent/CodingAgentForm', () => ({
   default: forwardRef(function MockCodingAgentForm(_, ref) {
-    useImperativeHandle(ref, () => ({ handleCreateAgent: mocks.createAgent }))
+    useImperativeHandle(ref, () => ({ handleGetConfig: mocks.getConfig }))
     return <div>Runtime selector</div>
   }),
 }))
@@ -82,14 +82,10 @@ function renderDialog(repositories: TypesGitRepository[] = []) {
 describe('CreateProjectDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.createAgent.mockResolvedValue({
-      id: 'agent-1',
-      config: { helix: { assistants: [{
-        agent_type: 'zed_external',
-        code_agent_runtime: 'claude_code',
-        code_agent_credential_type: 'subscription',
-        claude_subscription_model: 'claude-opus-5',
-      }] } },
+    mocks.getConfig.mockReturnValue({
+      runtime: 'claude_code',
+      credential_type: 'subscription',
+      model: 'claude-opus-5',
     })
     mocks.createProject.mockResolvedValue({ id: 'project-1' })
     mocks.createRepo.mockResolvedValue({ id: 'repo-1', name: 'demo' })
@@ -135,7 +131,6 @@ describe('CreateProjectDialog', () => {
     fireEvent.click(createProject)
 
     await waitFor(() => expect(mocks.createRepo).toHaveBeenCalledWith('Demo project', ''))
-    await waitFor(() => expect(mocks.createAgent).toHaveBeenCalledOnce())
     expect(mocks.createProject).toHaveBeenCalledWith(expect.objectContaining({
       name: 'Demo project',
       default_repo_id: 'repo-1',
