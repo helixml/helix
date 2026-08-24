@@ -1423,7 +1423,7 @@ steps:
         echo "✓ Zed source at $$(git -C /drone/src/external/zed-source rev-parse HEAD)"
       - echo "=== Dependency versions ==="
       - echo "Zed:" && cat /drone/src/zed-commit.txt
-      - . /drone/src/sandbox-versions.txt && echo "Qwen Code: $${QWEN_VERSION}"
+      - '. /drone/src/sandbox-versions.txt && echo "Qwen Code: $${QWEN_VERSION}"'
     volumes:
       - name: sandbox-build-cache
         path: /drone/src/cache
@@ -1922,7 +1922,7 @@ steps:
         echo "✓ Zed source at $$(git rev-parse HEAD)"
       - echo "=== Dependency versions ==="
       - echo "Zed:" && cat /drone/src/zed-commit.txt
-      - . /drone/src/sandbox-versions.txt && echo "Qwen Code: $${QWEN_VERSION}"
+      - '. /drone/src/sandbox-versions.txt && echo "Qwen Code: $${QWEN_VERSION}"'
     volumes:
       - name: sandbox-build-cache
         path: /drone/src/cache
