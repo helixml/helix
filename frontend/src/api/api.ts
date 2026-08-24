@@ -3268,6 +3268,12 @@ export interface TypesCodeAgentConfig {
    */
   goose_recipes?: TypesCodeAgentGooseRecipe[];
   /**
+   * InputModalities and OutputModalities describe the model's accepted input
+   * and generated output types. They are omitted when the capability is
+   * unknown; code-agent runtimes must not assume attachment support.
+   */
+  input_modalities?: TypesModality[];
+  /**
    * MaxOutputTokens is the model's max completion tokens
    * Looked up from model_info.json, 0 if not found
    */
@@ -3288,6 +3294,7 @@ export interface TypesCodeAgentConfig {
    * mirror decision in one place for air-gapped installs.
    */
   opencode_binary?: TypesCodeAgentBinary;
+  output_modalities?: TypesModality[];
   /** Provider is the LLM provider name (e.g., "anthropic", "openai", "openrouter") */
   provider?: string;
   /**

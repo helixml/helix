@@ -82,16 +82,18 @@ type SettingsDaemon struct {
 
 // CodeAgentConfig mirrors the API response structure for code agent configuration
 type CodeAgentConfig struct {
-	Provider        string `json:"provider"`
-	Model           string `json:"model"`
-	AgentName       string `json:"agent_name"`
-	BaseURL         string `json:"base_url"`
-	APIType         string `json:"api_type"`
-	Runtime         string `json:"runtime"`                    // "zed_agent" or "qwen_code" or "goose_code"
-	ReasoningEffort string `json:"reasoning_effort,omitempty"` // Runtime/model reasoning effort; empty uses the upstream default
-	ServiceTier     string `json:"service_tier,omitempty"`
-	MaxTokens       int    `json:"max_tokens"`        // Model's context window size (0 if unknown)
-	MaxOutputTokens int    `json:"max_output_tokens"` // Model's max completion tokens (0 if unknown)
+	Provider         string   `json:"provider"`
+	Model            string   `json:"model"`
+	AgentName        string   `json:"agent_name"`
+	BaseURL          string   `json:"base_url"`
+	APIType          string   `json:"api_type"`
+	Runtime          string   `json:"runtime"`                    // "zed_agent" or "qwen_code" or "goose_code"
+	ReasoningEffort  string   `json:"reasoning_effort,omitempty"` // Runtime/model reasoning effort; empty uses the upstream default
+	ServiceTier      string   `json:"service_tier,omitempty"`
+	MaxTokens        int      `json:"max_tokens"`        // Model's context window size (0 if unknown)
+	MaxOutputTokens  int      `json:"max_output_tokens"` // Model's max completion tokens (0 if unknown)
+	InputModalities  []string `json:"input_modalities,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
 
 	// Goose-specific fields (only populated when Runtime == "goose_code").
 	GooseRecipes       []GooseRecipe     `json:"goose_recipes,omitempty"`

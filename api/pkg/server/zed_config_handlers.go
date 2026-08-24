@@ -661,7 +661,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 			snapshot := providerSnapshotFromEndpoints(endpoints)
 			cfg := apiServer.buildCodeAgentConfigFromAssistant(ctx, &assistant, helixURL, snapshot)
 			_, modelName := external_agent.AssistantModelSelection(&assistant)
-			apiServer.applyAdvertisedModelLimits(ctx, cfg, modelName, endpoints)
+			apiServer.applyAdvertisedModelMetadata(ctx, cfg, modelName, endpoints)
 			if cfg != nil && cfg.Runtime == types.CodeAgentRuntimeOpenCode {
 				apiServer.applyOpenCodeVersionOverride(ctx, cfg)
 			}
@@ -813,6 +813,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	// Look up model info to get token limits
 	// Get token limits from model info if available (0 means use agent defaults)
 	var maxTokens, maxOutputTokens int
+	var inputModalities, outputModalities []types.Modality
 	if apiServer.modelInfoProvider != nil {
 		modelInfo, err := apiServer.modelInfoProvider.GetModelInfo(ctx, &modelPkg.ModelInfoRequest{
 			Provider: providerName,
@@ -821,6 +822,16 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		if err == nil {
 			maxTokens = modelInfo.ContextLength
 			maxOutputTokens = modelInfo.MaxCompletionTokens
+			inputModalities = append([]types.Modality(nil), modelInfo.InputModalities...)
+			outputModalities = append([]types.Modality(nil), modelInfo.OutputModalities...)
+		}
+	}
+	if profile, ok := modelPkg.LookupModelModalities(modelName); ok {
+		if len(inputModalities) == 0 {
+			inputModalities = profile.Input
+		}
+		if len(outputModalities) == 0 {
+			outputModalities = profile.Output
 		}
 	}
 
@@ -835,6 +846,8 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		ReasoningEffort:  normalizeCodeAgentReasoningEffort(runtime, assistant.ReasoningEffort),
 		MaxTokens:        maxTokens,
 		MaxOutputTokens:  maxOutputTokens,
+		InputModalities:  inputModalities,
+		OutputModalities: outputModalities,
 	}
 }
 
@@ -869,11 +882,10 @@ func (apiServer *HelixAPIServer) applyOpenCodeVersionOverride(ctx context.Contex
 	cfg.OpenCodeBinary = binary
 }
 
-// applyAdvertisedModelLimits makes the selected provider's /v1/models response
-// authoritative for its context window. The bundled model catalogue is still
-// used by buildCodeAgentConfigFromAssistant as a fallback for providers that do
-// not advertise a context length or are temporarily unavailable.
-func (apiServer *HelixAPIServer) applyAdvertisedModelLimits(ctx context.Context, cfg *types.CodeAgentConfig, modelName string, endpoints []*types.ProviderEndpoint) {
+// applyAdvertisedModelMetadata makes the selected provider's /v1/models
+// response authoritative for capabilities it advertises. The bundled model
+// catalogue and curated profiles remain fallbacks for missing metadata.
+func (apiServer *HelixAPIServer) applyAdvertisedModelMetadata(ctx context.Context, cfg *types.CodeAgentConfig, modelName string, endpoints []*types.ProviderEndpoint) {
 	if cfg == nil || cfg.Provider == "" || modelName == "" {
 		return
 	}
@@ -898,18 +910,22 @@ func (apiServer *HelixAPIServer) applyAdvertisedModelLimits(ctx context.Context,
 			if advertisedModel.ID != modelName && advertisedBareName != bareModelName {
 				continue
 			}
-			if advertisedModel.ContextLength <= 0 {
-				continue
+			if len(advertisedModel.InputModalities) > 0 {
+				cfg.InputModalities = make([]types.Modality, 0, len(advertisedModel.InputModalities))
+				for _, modality := range advertisedModel.InputModalities {
+					cfg.InputModalities = append(cfg.InputModalities, types.Modality(modality))
+				}
 			}
-
-			catalogueContextLength := cfg.MaxTokens
-			cfg.MaxTokens = advertisedModel.ContextLength
-			log.Debug().
-				Str("provider", cfg.Provider).
-				Str("model", modelName).
-				Int("advertised_context_length", advertisedModel.ContextLength).
-				Int("catalogue_context_length", catalogueContextLength).
-				Msg("buildCodeAgentConfig: using provider-advertised context length")
+			if advertisedModel.ContextLength > 0 {
+				catalogueContextLength := cfg.MaxTokens
+				cfg.MaxTokens = advertisedModel.ContextLength
+				log.Debug().
+					Str("provider", cfg.Provider).
+					Str("model", modelName).
+					Int("advertised_context_length", advertisedModel.ContextLength).
+					Int("catalogue_context_length", catalogueContextLength).
+					Msg("buildCodeAgentConfig: using provider-advertised context length")
+			}
 			return
 		}
 	}
