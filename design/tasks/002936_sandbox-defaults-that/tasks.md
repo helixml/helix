@@ -29,7 +29,7 @@
 - [x] Delete the `sandboxResources = types.DefaultSpecTaskSandboxResources()` fallback in `api/pkg/services/spec_driven_task_service.go:163` so an unspecified size stores `nil`
 - [x] Delete the same fallback in `api/pkg/org/infrastructure/runtime/helix/spectasks.go:215`
 - [x] Confirm `HydraExecutor.resolveSpecTaskLaunchConfig` (`api/pkg/external-agent/hydra_executor.go:697`) resolves `nil` to the live default at container-create for every start path, including forks and reconciler resumes
-- [ ] Check the API response / frontend render path for a now-nil `task.sandbox_resource_overrides` — it must fall back to the shared default, not render blank
+- [x] Check the API response / frontend render path for a now-nil `task.sandbox_resource_overrides` — it must fall back to the shared default, not render blank
 - [x] Add migration `api/pkg/store/migrations/0009_unmaterialize_spec_task_sandbox_default.up.sql` NULLing `spec_tasks.sandbox_resource_overrides` where it equals exactly `{"vcpus": 4, "memory_mb": 8192}` — see Open Question 1 on `NULL` vs the explicit new pair
 - [x] **Never match `{"vcpus": 8, "memory_mb": 16384}`** — 178 rows on meta hold that as a deliberate user choice. Do not generalise the predicate to "equals a default"
 - [ ] Record the `SELECT sandbox_resource_overrides, count(*) FROM spec_tasks GROUP BY 1` counts before and after, and put both in the PR body — that diff is the safety story for this migration
@@ -48,16 +48,16 @@
 
 ## 4. Part A — frontend
 
-- [ ] Create `frontend/src/constants/sandboxPresets.ts` exporting `SandboxPreset`, `SANDBOX_PRESETS` (five rungs, each with **both** `label` and `description`) and `DEFAULT_SANDBOX_PRESET = SANDBOX_PRESETS[3]`
-- [ ] Point `components/tasks/SpecTaskExecutionControls.tsx:57-60` at the shared module; delete its local table and retype `selectSandbox`'s param as `SandboxPreset`
-- [ ] Point `components/agent/CodeAgentExecutionControls.tsx:54-55` at the shared module; delete its local table
-- [ ] Replace the literals in `pages/Home.tsx:138,174` with `DEFAULT_SANDBOX_PRESET`'s two numeric fields only (never spread `label`/`description` into an API payload)
-- [ ] Replace the useState initial value (`components/tasks/NewSpecTaskForm.tsx:152`) and the `?.memory_mb || 8192` project fallback (`:339`)
-- [ ] Replace the `?.memory_mb || 8192` fallback in `components/session/projectChatItemDetails.ts:65`
-- [ ] Extend the size list in `components/sandboxes/CreateSandboxDialog.tsx:44-46` to match the shared rungs, leaving its default selection unchanged
-- [ ] Confirm a task storing `{"vcpus": 12, "memory_mb": 24576}` now renders with the "12 CPU / 24 GB RAM" rung **selected** — meta's 31 backfilled tasks currently render blank because no 12-vCPU rung exists
-- [ ] Make an unmatched stored value degrade gracefully (show the raw size, not blank), so a future hand-edited row is visible rather than silently unselected
-- [ ] Grep `frontend/src` and confirm no sandbox-default literal survives outside `sandboxPresets.ts` and test fixtures (ignore unrelated `8192`/`16384` in `api_bindings.ts`, `profileBlocks.ts`)
+- [x] Create `frontend/src/constants/sandboxPresets.ts` exporting `SandboxPreset`, `SANDBOX_PRESETS` (five rungs, each with **both** `label` and `description`) and `DEFAULT_SANDBOX_PRESET = SANDBOX_PRESETS[3]`
+- [x] Point `components/tasks/SpecTaskExecutionControls.tsx:57-60` at the shared module; delete its local table and retype `selectSandbox`'s param as `SandboxPreset`
+- [x] Point `components/agent/CodeAgentExecutionControls.tsx:54-55` at the shared module; delete its local table
+- [x] Replace the literals in `pages/Home.tsx:138,174` with `DEFAULT_SANDBOX_PRESET`'s two numeric fields only (never spread `label`/`description` into an API payload)
+- [x] Replace the useState initial value (`components/tasks/NewSpecTaskForm.tsx:152`) and the `?.memory_mb || 8192` project fallback (`:339`)
+- [x] Replace the `?.memory_mb || 8192` fallback in `components/session/projectChatItemDetails.ts:65`
+- [x] Extend the size list in `components/sandboxes/CreateSandboxDialog.tsx:44-46` to match the shared rungs, leaving its default selection unchanged
+- [~] Confirm a task storing `{"vcpus": 12, "memory_mb": 24576}` now renders with the "12 CPU / 24 GB RAM" rung **selected** — meta's 31 backfilled tasks currently render blank because no 12-vCPU rung exists
+- [x] Make an unmatched stored value degrade gracefully (show the raw size, not blank), so a future hand-edited row is visible rather than silently unselected
+- [x] Grep `frontend/src` and confirm no sandbox-default literal survives outside `sandboxPresets.ts` and test fixtures (ignore unrelated `8192`/`16384` in `api_bindings.ts`, `profileBlocks.ts`)
 
 ## 5. Part A — OpenAPI and tests
 
