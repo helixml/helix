@@ -450,6 +450,8 @@ func errStatus(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, store.ErrConflict):
 		return http.StatusConflict
+	case errors.Is(err, nodes.ErrUnknownTool):
+		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError
 	}

@@ -937,14 +937,11 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// read through a closure — by the time any per-org reconcile runs,
 	// RegisterBuiltins has populated it.
 	reg := mcptools.NewRegistry()
-	knownTools := func() map[tool.Name]bool {
-		all := reg.List()
-		out := make(map[tool.Name]bool, len(all))
-		for _, t := range all {
-			out[t.Name()] = true
-		}
-		return out
-	}
+	knownTools := mcptools.Catalogue(reg)
+	// The MCP surface builds its own nodes service off this Config, so it
+	// needs the same catalogue — otherwise a tool name only the REST path
+	// rejects would still be writable over MCP.
+	deps.KnownTools = knownTools
 	svc := buildOrgServices(st, &deps, bc, dispatcher, inboundProvisioners, knownTools)
 
 	// Auto-manage one Slack Trigger per connected workspace.

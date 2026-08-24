@@ -226,6 +226,11 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 			return CreateResult{}, fmt.Errorf("source: %w", err)
 		}
 	}
+	// Same reason: reject an unknown tool name before the agent app is
+	// created, so a typo doesn't cost a create-then-clean-up round trip.
+	if err := s.Nodes.ValidateTools(p.Tools); err != nil {
+		return CreateResult{}, err
+	}
 
 	agentName := strings.TrimSpace(p.Name)
 	if agentName == "" {
