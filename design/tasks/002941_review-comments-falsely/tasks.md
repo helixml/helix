@@ -11,17 +11,17 @@
 - [x] **Capture the pre-fix reproduction**: stamp at 16:32:38 (2 min), agent completed 16:34:21 with 6,791 chars, comment still 56 chars — `screenshots/01-before-false-stamp.png`
 - [x] **New finding**: the completion's `request_id` (`req_…`) is not the id the comment stores (`int_…`) — Zed rebinds it mid-turn. Recorded in design.md; Decision 3 amended.
 
-## 1. Defect 1 — timer must not count time while the agent is unreachable [~]
+## 1. Defect 1 — timer must not count time while the agent is unreachable
 
-- [ ] Rename `commentResponseTimeout` → `commentTimerInterval` (still 2m) and update its doc comment to say it is a poll interval, not a deadline
-- [ ] Add branch: **agent not reachable** (`externalAgentWSManager.getConnection(sessionID)` false, or `comment.InteractionID == ""`) → re-arm, log at INFO with a dedicated "sandbox starting / agent not connected" message, never stamp
-- [ ] Add branch: **connected, non-terminal, zero content** → re-arm (the long-agent-turn case)
-- [ ] Add the two ceilings from the design: 30 min continuous disconnection → `CommentSandboxNotStartedMessage`; 60 min connected-with-no-progress → `CommentTimerNoResponseMessage`
-- [ ] Derive both elapsed values from DB state (`QueuedAt`, `interactions.updated`, connection presence) — no new in-memory state, no new column
-- [ ] Add `CommentSandboxNotStartedMessage` const with an accurate doc comment
-- [ ] Verify the four existing branches (resolved / terminal / streaming / stalled) are unchanged
+- [x] Rename `commentResponseTimeout` → `commentTimerInterval` (still 2m) and update its doc comment to say it is a poll interval, not a deadline
+- [x] Add branch: **agent not reachable** (`externalAgentWSManager.getConnection(sessionID)` false, or `comment.InteractionID == ""`) → re-arm, log at INFO with a dedicated "sandbox starting / agent not connected" message, never stamp
+- [x] Add branch: **connected, non-terminal, zero content** → re-arm (the long-agent-turn case)
+- [x] Add the two ceilings from the design: 30 min continuous disconnection → `CommentSandboxNotStartedMessage`; 60 min connected-with-no-progress → `CommentTimerNoResponseMessage`
+- [x] Derive both elapsed values from DB state (`QueuedAt`, `interactions.updated`, connection presence) — no new in-memory state, no new column
+- [x] Add `CommentSandboxNotStartedMessage` const with an accurate doc comment
+- [x] Verify the four existing branches (resolved / terminal / streaming / stalled) are unchanged
 
-## 2. Defect 2 — one stable lookup path for a late completion
+## 2. Defect 2 — one stable lookup path for a late completion [~]
 
 - [ ] Add `GetCommentForAgentRequest(ctx, id)` to the store (`WHERE request_id = ? OR interaction_id = ?`) + mockgen regeneration
 - [ ] Switch `finalizeCommentResponse` to use it as its only lookup; keep `RequestID` clearing on stamp so the queue still unblocks
