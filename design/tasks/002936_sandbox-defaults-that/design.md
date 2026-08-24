@@ -606,13 +606,40 @@ buffer resumes mid-frame — after replay, the backend would read a frame fragme
 as a header. This hazard predates this change (it applies to keyboard/mouse frames
 today) but replay makes it reachable more often.
 
-The parser added in B3 already knows client frame boundaries, so the fix is cheap
-and belongs here: `StreamInitReplay` exposes the byte offset of the last complete
-frame boundary it has seen; `copyClientToServer` knows how many bytes it
-successfully wrote; on reconnect, if written past the last boundary, discard the
-remainder of that partial frame from the input buffer before flushing. If this
-turns out to be more than ~20 lines, ship it as a `log.Warn` on detected desync
-and file a follow-up rather than growing this PR.
+### Decision at implementation time: documented, not fixed
+
+Re-read of the write path (`copyClientToServer`) confirms the hazard is **wholly
+pre-existing** and untouched by this change:
+
+```go
+_, err = server.Write(buf[:n])
+if err != nil {
+    if bufErr := p.bufferInput(buf[:n]); bufErr != nil { ... }   // whole chunk re-buffered
+```
+
+Two independent sources of desync, both already there:
+1. `Write`'s returned byte count is discarded, so a partially-successful write
+   re-buffers bytes the dead connection already consumed.
+2. Reads are 32KB chunks that do not align with frame boundaries, so an *earlier*
+   successful write can end mid-frame.
+
+The cheap-looking fix in the original sketch does not actually work: `Observe` is
+fed bytes *before* the write is attempted, and writes fail partially, so
+reconciling "bytes parsed into whole frames" against "bytes actually delivered"
+needs accounting the proxy does not currently keep. Doing it properly means
+making the byte proxy frame-aware in the hot path — which `requirements.md`
+lists as an explicit **non-goal**.
+
+Risk assessment for the stream specifically: every client→server frame here is
+small (13-byte keepalives, keyboard/mouse events). Desync needs a frame split
+across TCP segments *and* a write failure inside that window. Low probability,
+and the consequence is one corrupted frame on a connection that is being
+re-established anyway.
+
+**Left as a documented known limitation.** Not worth speculative complexity in
+the hot path of every proxied byte, and not made worse by this change — replay
+makes reconnects *succeed* where they previously always failed, which is the
+only reason the seam is reachable at all.
 
 ## B8. Required unit tests — `api/pkg/proxy/`
 

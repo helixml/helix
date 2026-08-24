@@ -83,7 +83,7 @@
 - [x] Bound the buffered prefix (a few KB) so a client that never sends a text frame cannot grow it without limit
 - [x] Return nil from `Frames()` when no init has been seen, so a reconnect before init replays nothing rather than garbage
 - [x] Pass `Replay: proxy.NewStreamInitReplay()` into `ResilientProxyConfig` in `proxyStreamWebSocket` (`api/pkg/server/external_agent_handlers.go`), adjacent to the existing `UpgradeFunc` line
-- [~] Handle the partial-frame-across-drop hazard (design B7): expose the last complete frame boundary and discard a partially-written frame's remainder from the input buffer before flushing — or, if that exceeds ~20 lines, ship a `log.Warn` on detected desync and file a follow-up
+- [x] Handle the partial-frame-across-drop hazard (design B7) — **documented as a pre-existing known limitation, deliberately not fixed.** The desync originates in `copyClientToServer` discarding `Write`'s byte count and in 32KB reads not aligning with frame boundaries; both predate this change. The sketched cheap fix does not work (`Observe` runs before the write, and writes fail partially), and doing it properly means making the byte proxy frame-aware — an explicit non-goal. See design B7.
 
 ## 7. Part B — unit tests in `api/pkg/proxy/`
 
