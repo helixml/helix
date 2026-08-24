@@ -128,6 +128,30 @@ re-running changed nothing.
 Project rows are deliberately not touched — a project only stores an override
 when an admin explicitly set one.
 
+### How the migration actually gets applied
+
+Worth writing down, because most schema work here goes through GORM AutoMigrate
+and this does not.
+
+`PostgresStore.runMigrations()` calls `MigrateUp()` **before** `AutoMigrate`.
+`MigrateUp` is `golang-migrate` over `//go:embed migrations/*.sql`, tracked in
+the `helix_migrations` table. So:
+
+- A new `NNNN_name.up.sql` file is picked up automatically. There is no registry
+  to add to.
+- **Migrations run before the tables exist on a fresh database.** That is why
+  0009 opens with a `to_regclass('spec_tasks') IS NULL` guard, matching the
+  house pattern in 0006. Without it, a fresh install would fail at startup.
+- A failing migration is loud, not silent: `runMigrations` returns
+  `failed to run version migrations` and startup aborts.
+
+Verified end-to-end through the real runner rather than by piping SQL into
+`psql`: seed a 4/8192 row plus an 8/16384 control, `UPDATE helix_migrations SET
+version = 8`, restart the API. Result — version back to 9 with `dirty = false`,
+the 4/8192 row NULLed, the 8/16384 control untouched. Separately, running 0009
+against a schema with no `spec_tasks` table exits cleanly, confirming the
+fresh-install guard.
+
 ### Two gaps that only end-to-end testing found
 
 **The frontend was re-materializing the default.** With the server fixed, new
