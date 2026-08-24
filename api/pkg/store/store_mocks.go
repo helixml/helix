@@ -25,7 +25,6 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -2641,6 +2640,21 @@ func (m *MockStore) GetCodexSubscriptionForOwner(ctx context.Context, ownerID st
 func (mr *MockStoreMockRecorder) GetCodexSubscriptionForOwner(ctx, ownerID, ownerType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCodexSubscriptionForOwner", reflect.TypeOf((*MockStore)(nil).GetCodexSubscriptionForOwner), ctx, ownerID, ownerType)
+}
+
+// GetCommentByAgentRequestIDs mocks base method.
+func (m *MockStore) GetCommentByAgentRequestIDs(ctx context.Context, ids []string) (*types.SpecTaskDesignReviewComment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCommentByAgentRequestIDs", ctx, ids)
+	ret0, _ := ret[0].(*types.SpecTaskDesignReviewComment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCommentByAgentRequestIDs indicates an expected call of GetCommentByAgentRequestIDs.
+func (mr *MockStoreMockRecorder) GetCommentByAgentRequestIDs(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCommentByAgentRequestIDs", reflect.TypeOf((*MockStore)(nil).GetCommentByAgentRequestIDs), ctx, ids)
 }
 
 // GetCommentByInteractionID mocks base method.
@@ -5557,6 +5571,21 @@ func (mr *MockStoreMockRecorder) ListTeams(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTeams", reflect.TypeOf((*MockStore)(nil).ListTeams), ctx, query)
 }
 
+// ListTimerStampedCommentsWithResponses mocks base method.
+func (m *MockStore) ListTimerStampedCommentsWithResponses(ctx context.Context, stamps []string, limit int) ([]TimerStampedCommentRepair, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTimerStampedCommentsWithResponses", ctx, stamps, limit)
+	ret0, _ := ret[0].([]TimerStampedCommentRepair)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTimerStampedCommentsWithResponses indicates an expected call of ListTimerStampedCommentsWithResponses.
+func (mr *MockStoreMockRecorder) ListTimerStampedCommentsWithResponses(ctx, stamps, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTimerStampedCommentsWithResponses", reflect.TypeOf((*MockStore)(nil).ListTimerStampedCommentsWithResponses), ctx, stamps, limit)
+}
+
 // ListTopUps mocks base method.
 func (m *MockStore) ListTopUps(ctx context.Context, q *ListTopUpsQuery) ([]*types.TopUp, error) {
 	m.ctrl.T.Helper()
@@ -5969,6 +5998,20 @@ func (m *MockStore) RemoveSpecTaskLabel(ctx context.Context, taskID, label strin
 func (mr *MockStoreMockRecorder) RemoveSpecTaskLabel(ctx, taskID, label any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveSpecTaskLabel", reflect.TypeOf((*MockStore)(nil).RemoveSpecTaskLabel), ctx, taskID, label)
+}
+
+// RepairTimerStampedComment mocks base method.
+func (m *MockStore) RepairTimerStampedComment(ctx context.Context, commentID, response string, entries datatypes.JSON, agentResponseAt time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RepairTimerStampedComment", ctx, commentID, response, entries, agentResponseAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RepairTimerStampedComment indicates an expected call of RepairTimerStampedComment.
+func (mr *MockStoreMockRecorder) RepairTimerStampedComment(ctx, commentID, response, entries, agentResponseAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RepairTimerStampedComment", reflect.TypeOf((*MockStore)(nil).RepairTimerStampedComment), ctx, commentID, response, entries, agentResponseAt)
 }
 
 // RequestInteractionCancellationIfWaiting mocks base method.

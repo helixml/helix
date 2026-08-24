@@ -19,17 +19,57 @@ import (
 )
 
 // CommentTimerNoResponseMessage is the AgentResponse stamped onto a comment
-// when the 2-minute response timer fires without the agent producing any
-// content. It must be a stable string because finalizeCommentResponse keys
-// off it to recognise a stale timer-stamp and overwrite it with a late
-// real response.
+// only once the agent has been demonstrably reachable and demonstrably silent
+// for commentSilentAgentCeiling. It is never stamped merely because the
+// backstop timer fired: an interaction with no content yet proves nothing.
+//
+// It must be a stable string because finalizeCommentResponse treats it as "no
+// real response yet" and overwrites it when a late completion arrives. That
+// late completion finds its comment via resolveCommentForAgentRequest, which
+// keys off comment.interaction_id — NOT request_id, which is deliberately
+// cleared when stamping so the session's comment queue is not blocked.
 const CommentTimerNoResponseMessage = "[Agent did not respond - try sending your comment again]"
 
-// commentResponseTimeout is how long we wait for the agent to respond to a
-// queued review comment before the backstop timer fires. The timer is a
-// best-effort safety net behind finalizeCommentResponse (which fires on the
-// message_completed event); see handleCommentTimeout for the decision tree.
-const commentResponseTimeout = 2 * time.Minute
+// CommentSandboxNotStartedMessage is stamped instead when the reason for the
+// silence is that the session's sandbox never came up, so the message names
+// the real cause rather than blaming the agent. Like the message above it is
+// treated as "no real response yet" and is overwritten by a late completion.
+const CommentSandboxNotStartedMessage = "[Sandbox failed to start - try sending your comment again]"
+
+// commentTimerInterval is how often the backstop timer wakes up to make a
+// decision about an in-flight comment. It is a poll interval, NOT a deadline:
+// every tick re-evaluates observable state and either acts on evidence or
+// re-arms. See handleCommentTimeout for the decision tree.
+const commentTimerInterval = 2 * time.Minute
+
+// commentSandboxStartCeiling bounds how long a comment may sit waiting for an
+// unreachable agent before we give up. On a reaped session the comment itself
+// is what boots the desktop container, and boot + Zed startup + thread load
+// routinely takes several minutes — far longer than commentTimerInterval, which
+// is why elapsed time in this state must never be read as "the agent refused to
+// answer". A ceiling exists at all only because request_id stays set while a
+// comment is in flight, and an in-flight comment blocks every later comment for
+// the session; without a bound a permanently dead sandbox would silently wedge
+// the queue forever. 30 minutes is an order of magnitude above observed cold
+// boots, so reaching it means the sandbox failed rather than that it is slow.
+const commentSandboxStartCeiling = 30 * time.Minute
+
+// commentSilentAgentCeiling bounds a *connected* agent that has produced no
+// content at all and whose interaction is not advancing. This is the only path
+// to CommentTimerNoResponseMessage, and it requires positive evidence: the
+// agent is reachable, the interaction is non-terminal, there are zero bytes of
+// response, and interactions.updated has not moved for the whole window. 60
+// minutes is above the longest plausible legitimate agent turn; a long answer
+// bumps interactions.updated and is handled by the streaming branch long before
+// this is reached.
+const commentSilentAgentCeiling = 60 * time.Minute
+
+// isTimerPlaceholderResponse reports whether an AgentResponse is one of the
+// backstop timer's placeholder stamps rather than a real answer. Both are
+// treated as "no response yet" so a late completion overwrites them.
+func isTimerPlaceholderResponse(response string) bool {
+	return response == CommentTimerNoResponseMessage || response == CommentSandboxNotStartedMessage
+}
 
 // Design Review Handlers - Simple versions
 
@@ -40,6 +80,13 @@ const commentResponseTimeout = 2 * time.Minute
 // 2. Triggers processing for all sessions that have pending comments
 func (s *HelixAPIServer) ResumeCommentQueueProcessing(ctx context.Context) {
 	log.Info().Msg("🔄 Resuming comment queue processing after startup...")
+
+	// Step 0: recover comments the backstop timer stamped as unanswered even
+	// though their agent later finished with a real response. Runs in its own
+	// goroutine so a large historical backfill never delays API startup, and is
+	// independent of the queue reconciliation below — these rows are not
+	// in-flight, they are finished-but-wrong.
+	go s.reconcileTimerStampedComments(context.Background())
 
 	// Find all sessions with pending comments up front — used both for terminal
 	// reconciliation and for triggering processing.
@@ -80,6 +127,83 @@ func (s *HelixAPIServer) ResumeCommentQueueProcessing(ctx context.Context) {
 	}
 
 	log.Info().Int("session_count", len(sessionIDs)).Msg("✅ Comment queue processing resumed")
+}
+
+// timerStampedRepairBatchSize bounds one pass of the recovery query so a large
+// historical backfill streams rather than loading every row at once.
+const timerStampedRepairBatchSize = 1000
+
+// reconcileTimerStampedComments repairs comments whose agent_response is a
+// backstop timer placeholder even though the linked interaction finished with a
+// real answer. Those answers were produced, stored on the interaction, and
+// never shown to the user.
+//
+// This extends the existing startup reconciliation rather than shipping a SQL
+// migration for two reasons. First, the correct response text is
+// types.TextFromInteraction — entries take precedence over the legacy flat
+// message — and reimplementing that precedence in SQL would drift from the Go
+// version that every live path uses. Second, running on every boot repairs both
+// the historical backlog and any row stranded later by a residual race, whereas
+// a migration runs once and then stops protecting anything.
+//
+// It is idempotent by construction: the predicate is "agent_response is a
+// placeholder", which stops matching as soon as a row is repaired.
+func (s *HelixAPIServer) reconcileTimerStampedComments(ctx context.Context) {
+	stamps := []string{CommentTimerNoResponseMessage, CommentSandboxNotStartedMessage}
+	total := 0
+
+	for {
+		rows, err := s.Store.ListTimerStampedCommentsWithResponses(ctx, stamps, timerStampedRepairBatchSize)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to list timer-stamped comments for recovery")
+			return
+		}
+		if len(rows) == 0 {
+			break
+		}
+
+		repaired := 0
+		for _, row := range rows {
+			text := types.TextFromEntries(json.RawMessage(row.ResponseEntries), row.ResponseMessage)
+			if text == "" {
+				// The row matched on response_message but yields no text once
+				// entries take precedence. Leave it rather than blanking a stamp
+				// we cannot replace with anything better.
+				log.Warn().
+					Str("comment_id", row.CommentID).
+					Str("interaction_id", row.InteractionID).
+					Msg("Timer-stamped comment recovery: interaction yielded no text, leaving the stamp in place")
+				continue
+			}
+			if err := s.Store.RepairTimerStampedComment(ctx, row.CommentID, text, row.ResponseEntries, row.InteractionUpdated); err != nil {
+				log.Error().Err(err).
+					Str("comment_id", row.CommentID).
+					Msg("Failed to repair timer-stamped comment")
+				continue
+			}
+			repaired++
+			log.Info().
+				Str("comment_id", row.CommentID).
+				Str("interaction_id", row.InteractionID).
+				Str("interaction_state", row.InteractionState).
+				Int("response_length", len(text)).
+				Time("agent_response_at", row.InteractionUpdated).
+				Msg("🔁 [HELIX] Recovered agent response stranded behind a stale timer stamp")
+		}
+
+		total += repaired
+		if repaired == 0 {
+			// Nothing in this batch could be repaired; another pass would return
+			// the same rows forever.
+			break
+		}
+	}
+
+	if total > 0 {
+		log.Info().Int("repaired", total).Msg("✅ Recovered design-review comments that were falsely stamped as unanswered")
+	} else {
+		log.Info().Msg("✅ No falsely-stamped design-review comments to recover")
+	}
 }
 
 // listDesignReviews lists design reviews for a spec task
@@ -855,7 +979,7 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 
 // armCommentTimer (re)arms the per-session backstop timer for a comment. It
 // cancels any existing timer for the session and schedules handleCommentTimeout
-// to run after commentResponseTimeout. A fresh context.Background() is used for
+// to run after commentTimerInterval. A fresh context.Background() is used for
 // the timer body because the originating HTTP request context may already be
 // cancelled by the time the timer fires.
 func (s *HelixAPIServer) armCommentTimer(sessionID, commentID string) {
@@ -864,7 +988,7 @@ func (s *HelixAPIServer) armCommentTimer(sessionID, commentID string) {
 	if existingTimer := s.sessionCommentTimeout[sessionID]; existingTimer != nil {
 		existingTimer.Stop()
 	}
-	s.sessionCommentTimeout[sessionID] = time.AfterFunc(commentResponseTimeout, func() {
+	s.sessionCommentTimeout[sessionID] = time.AfterFunc(commentTimerInterval, func() {
 		s.handleCommentTimeout(context.Background(), sessionID, commentID)
 	})
 }
@@ -919,28 +1043,37 @@ func (s *HelixAPIServer) reconcileStuckInFlightComment(ctx context.Context, sess
 	return true
 }
 
-// handleCommentTimeout is the body of the per-comment 2-minute response timer.
-// It runs on the timer's goroutine when the timer fires. It is exposed as a
+// handleCommentTimeout is the body of the per-comment backstop timer. It runs
+// on the timer's goroutine every commentTimerInterval. It is exposed as a
 // method (rather than living inline as a closure) so it can be unit-tested
 // without spinning a real time.AfterFunc.
 //
-// The decision tree is:
-//   - If the comment is no longer being processed (RequestID cleared) or
-//     already has a real response: nothing to do.
-//   - If the linked interaction has any streamed content OR is in a terminal
-//     state (complete / interrupted / error): the agent IS responding — skip
-//     the error stamp and let finalizeCommentResponse copy the content over
-//     when message_completed eventually arrives. This is the fix for the
-//     "agent is taking longer than 2 minutes to produce a long answer"
-//     false-positive that previously stamped the error onto the comment.
-//   - Otherwise the agent genuinely produced nothing: stamp the error so the
-//     user sees a clear "try again" signal, then process the next queued
-//     comment.
+// The timer is a POLL, not a deadline. Each tick evaluates observable state and
+// either acts on evidence or re-arms; elapsed wall-clock on its own is never
+// treated as proof that the agent refused to answer. The decision tree, in
+// order:
+//
+//   - Resolved (RequestID cleared or a real response landed): nothing to do.
+//   - Interaction terminal (complete / interrupted / error): the agent is DONE
+//     but finalizeCommentResponse never ran — finalize here.
+//   - Interaction has content and is still moving: re-arm and re-check.
+//   - Interaction has content but has not moved for a full interval: the stream
+//     stalled — finalize the partial response to unblock the queue.
+//   - AGENT NOT REACHABLE (no external-agent WebSocket, or the prompt has not
+//     dispatched so there is no interaction yet): the sandbox is booting or
+//     dead. Re-arm. On a reaped session the comment itself is what triggers
+//     container boot, so this state is expected and routinely outlasts several
+//     intervals. Only after commentSandboxStartCeiling do we stamp — and then
+//     with CommentSandboxNotStartedMessage, which names the actual cause.
+//   - Agent reachable but the interaction has no content yet: it is thinking.
+//     Re-arm. Only after commentSilentAgentCeiling with no movement at all is
+//     CommentTimerNoResponseMessage stamped, which is the one place that
+//     message is true.
 func (s *HelixAPIServer) handleCommentTimeout(ctx context.Context, sessionID, commentID string) {
-	log.Warn().
+	log.Debug().
 		Str("session_id", sessionID).
 		Str("comment_id", commentID).
-		Msg("Comment response timeout - agent did not respond within 2 minutes")
+		Msg("Comment backstop timer fired - evaluating agent progress")
 
 	currentComment, fetchErr := s.Store.GetSpecTaskDesignReviewComment(ctx, commentID)
 	if fetchErr != nil {
@@ -959,6 +1092,12 @@ func (s *HelixAPIServer) handleCommentTimeout(ctx context.Context, sessionID, co
 	// — comment.AgentResponse is only populated when message_completed fires.
 	// So an empty AgentResponse by itself does not prove the agent has been
 	// silent.
+	//
+	// lastProgress is the most recent moment we can prove something happened for
+	// this comment. It starts at the queue time and is advanced to the
+	// interaction's Updated once we have one, so the silent-agent ceiling below
+	// measures genuine inactivity rather than time since the process started.
+	lastProgress := commentProgressFloor(currentComment)
 	if currentComment.InteractionID != "" {
 		interaction, ierr := s.Store.GetInteraction(ctx, currentComment.InteractionID)
 		if ierr == nil && interaction != nil {
@@ -994,7 +1133,7 @@ func (s *HelixAPIServer) handleCommentTimeout(ctx context.Context, sessionID, co
 				// stalled mid-stream because the agent died (finalize with what we
 				// have, otherwise the queue is blocked forever). The interaction's
 				// Updated timestamp tells them apart: a live stream keeps bumping it.
-				if time.Since(interaction.Updated) > commentResponseTimeout {
+				if time.Since(interaction.Updated) > commentTimerInterval {
 					log.Warn().
 						Str("session_id", sessionID).
 						Str("comment_id", commentID).
@@ -1019,21 +1158,103 @@ func (s *HelixAPIServer) handleCommentTimeout(ctx context.Context, sessionID, co
 				s.armCommentTimer(sessionID, commentID)
 				return
 			}
+			lastProgress = interaction.Updated
 		} else if ierr != nil {
+			// We cannot read the interaction, so we cannot prove anything about
+			// the agent. Treat it as unreachable (re-arm) rather than blaming it.
 			log.Warn().Err(ierr).
 				Str("comment_id", commentID).
 				Str("interaction_id", currentComment.InteractionID).
-				Msg("Comment timer: failed to load linked interaction, falling through to error stamp")
+				Msg("Comment timer: failed to load linked interaction - treating agent as unreachable and re-arming")
 		}
 	}
 
-	// Genuine no-response: agent produced nothing, interaction has no content
-	// and is still waiting. Surface the error so the user can retry.
-	currentComment.AgentResponse = CommentTimerNoResponseMessage
-	currentComment.RequestID = ""
-	currentComment.QueuedAt = nil
-	if updateErr := s.Store.UpdateSpecTaskDesignReviewComment(ctx, currentComment); updateErr != nil {
-		log.Error().Err(updateErr).Str("comment_id", commentID).Msg("Failed to update timed-out comment")
+	// The interaction has no content yet. That is not evidence of anything on
+	// its own — split on whether the agent is even reachable.
+	if !s.isExternalAgentConnected(sessionID) || currentComment.InteractionID == "" {
+		// Cold / dead sandbox: the comment itself is what boots the container on
+		// a reaped session. Time spent here must not count against the agent.
+		waited := timeSinceQueued(currentComment)
+		if waited > commentSandboxStartCeiling {
+			log.Error().
+				Str("session_id", sessionID).
+				Str("comment_id", commentID).
+				Dur("waited", waited).
+				Msg("🚫 Comment timer: sandbox never came up within the start ceiling - stamping sandbox failure and unblocking the queue")
+			s.stampCommentTimerOutcome(ctx, sessionID, currentComment, CommentSandboxNotStartedMessage)
+			return
+		}
+		log.Info().
+			Str("session_id", sessionID).
+			Str("comment_id", commentID).
+			Str("interaction_id", currentComment.InteractionID).
+			Dur("waited", waited).
+			Msg("⏳ Comment timer: agent not reachable yet (sandbox starting or not yet dispatched) - re-arming without stamping")
+		s.armCommentTimer(sessionID, commentID)
+		return
+	}
+
+	// Agent is connected but has produced nothing. A long turn looks exactly
+	// like this before its first token, so re-arm unless nothing has moved for
+	// the full silent-agent ceiling.
+	silentFor := time.Since(lastProgress)
+	if silentFor > commentSilentAgentCeiling {
+		log.Error().
+			Str("session_id", sessionID).
+			Str("comment_id", commentID).
+			Str("interaction_id", currentComment.InteractionID).
+			Dur("silent_for", silentFor).
+			Msg("🚫 Comment timer: agent connected but silent past the ceiling - stamping no-response and unblocking the queue")
+		s.stampCommentTimerOutcome(ctx, sessionID, currentComment, CommentTimerNoResponseMessage)
+		return
+	}
+	log.Info().
+		Str("session_id", sessionID).
+		Str("comment_id", commentID).
+		Str("interaction_id", currentComment.InteractionID).
+		Dur("silent_for", silentFor).
+		Msg("⏭️  Comment timer: agent connected and still working (no content yet) - re-arming to re-check")
+	s.armCommentTimer(sessionID, commentID)
+}
+
+// commentProgressFloor is the earliest moment the silent-agent ceiling may be
+// measured from: when the comment was queued. A missing QueuedAt yields now,
+// which restarts the window rather than instantly tripping the ceiling.
+func commentProgressFloor(comment *types.SpecTaskDesignReviewComment) time.Time {
+	if comment.QueuedAt == nil {
+		return time.Now()
+	}
+	return *comment.QueuedAt
+}
+
+// timeSinceQueued reports how long a comment has been waiting for the agent.
+// Derived from the comment row so it survives restarts and timer re-arms; a
+// missing QueuedAt yields 0, which keeps the caller below every ceiling and so
+// errs towards waiting rather than stamping.
+func timeSinceQueued(comment *types.SpecTaskDesignReviewComment) time.Duration {
+	if comment.QueuedAt == nil {
+		return 0
+	}
+	return time.Since(*comment.QueuedAt)
+}
+
+// stampCommentTimerOutcome writes a terminal timer outcome onto a comment and
+// unblocks the session's comment queue. RequestID is cleared deliberately: it
+// is the in-flight marker (IsCommentBeingProcessedForSession keys off it), so
+// leaving it set would silently block every later comment for the session. A
+// late completion can still find this comment — resolveCommentForAgentRequest
+// keys off interaction_id, which is never cleared.
+func (s *HelixAPIServer) stampCommentTimerOutcome(
+	ctx context.Context,
+	sessionID string,
+	comment *types.SpecTaskDesignReviewComment,
+	message string,
+) {
+	comment.AgentResponse = message
+	comment.RequestID = ""
+	comment.QueuedAt = nil
+	if updateErr := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); updateErr != nil {
+		log.Error().Err(updateErr).Str("comment_id", comment.ID).Msg("Failed to update timed-out comment")
 		return
 	}
 
@@ -1398,6 +1619,56 @@ func (s *HelixAPIServer) updateCommentWithStreamingResponse(
 	return nil
 }
 
+// ErrNoCommentForAgentRequest is returned by finalizeCommentResponse when a
+// completed agent turn is not linked to any design-review comment. Most
+// interactions are not comments, so callers log this at DEBUG — but ONLY this.
+// Any other error from finalizeCommentResponse means a comment was found and
+// its answer failed to land, which is a lost answer and must be loud.
+var ErrNoCommentForAgentRequest = errors.New("no design-review comment linked to agent request")
+
+// resolveCommentForAgentRequest is the single lookup path from a completed
+// agent turn back to its design-review comment. Everything that finalizes a
+// comment goes through here so there is exactly one answer to "which comment
+// does this completion belong to".
+//
+// The id arriving on message_completed cannot be trusted to be the id stored on
+// the comment. Two things break that assumption, and both were observed in
+// production:
+//
+//   - handleCommentTimeout clears comment.request_id when it stamps a timer
+//     outcome, because request_id is the queue's in-flight marker; and
+//   - the agent rebinds the interaction's ExternalAgentRequestID mid-turn
+//     (MarkInteractionExternalAgentDispatched), so the completion arrives under
+//     an id the comment never stored.
+//
+// So we normalise first — map the incoming id back to its interaction — then
+// match on the two durable columns in one query.
+func (s *HelixAPIServer) resolveCommentForAgentRequest(ctx context.Context, requestID string) (*types.SpecTaskDesignReviewComment, error) {
+	candidates := []string{requestID}
+	if interaction, err := s.Store.GetInteractionByExternalAgentRequestID(ctx, requestID); err == nil && interaction != nil && interaction.ID != requestID {
+		candidates = append(candidates, interaction.ID)
+	}
+
+	comment, err := s.Store.GetCommentByAgentRequestIDs(ctx, candidates)
+	if err != nil {
+		return nil, fmt.Errorf("%w (request %s): %v", ErrNoCommentForAgentRequest, requestID, err)
+	}
+
+	if comment.RequestID != requestID {
+		// The primary key path was broken for this turn. The comment was only
+		// found because interaction_id survived. If this fires, an answer would
+		// have been lost before the resolver existed.
+		log.Warn().
+			Str("comment_id", comment.ID).
+			Str("completion_request_id", requestID).
+			Str("comment_request_id", comment.RequestID).
+			Str("comment_interaction_id", comment.InteractionID).
+			Msg("🧭 [HELIX] Resolved comment via interaction_id - the completion's request_id did not match the comment's")
+	}
+
+	return comment, nil
+}
+
 // finalizeCommentResponse marks a comment response as complete, clears request_id/queued_at and triggers next queue item
 // This is called when message_completed event is received.
 // DATABASE-PRIMARY: Uses database state only (no in-memory fallbacks).
@@ -1409,11 +1680,19 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		return fmt.Errorf("request ID is empty")
 	}
 
-	// Look up comment by request ID from database
-	comment, err := s.Store.GetCommentByRequestID(ctx, requestID)
+	comment, err := s.resolveCommentForAgentRequest(ctx, requestID)
 	if err != nil {
-		// Not all requests are linked to comments - this is normal
-		return fmt.Errorf("no comment found for request %s: %w", requestID, err)
+		return err
+	}
+
+	// Already fully finalized with a real answer: re-running would re-trigger
+	// the queue for a comment that is long done.
+	if comment.RequestID == "" && comment.AgentResponse != "" && !isTimerPlaceholderResponse(comment.AgentResponse) {
+		log.Debug().
+			Str("comment_id", comment.ID).
+			Str("request_id", requestID).
+			Msg("Comment already finalized with a real response, nothing to do")
+		return nil
 	}
 
 	// If the comment doesn't have a real AgentResponse yet, try to populate it
@@ -1421,13 +1700,12 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 	// ResponseMessage but not the comment's AgentResponse directly — we copy
 	// it over at finalization time.
 	//
-	// We also treat the literal timer-stamped error string as "no real
-	// response" so a late message_completed can repair a comment that the
-	// 2-minute timer had pessimistically marked as failed. Without this, the
-	// timer error sticks even when the agent later delivers a perfectly good
-	// answer.
-	needsPopulation := comment.AgentResponse == "" || comment.AgentResponse == CommentTimerNoResponseMessage
-	hadStaleTimerError := comment.AgentResponse == CommentTimerNoResponseMessage
+	// We also treat the literal timer-stamped strings as "no real response" so a
+	// late message_completed can repair a comment the backstop timer had
+	// pessimistically marked as failed. Without this, the timer stamp sticks
+	// even when the agent later delivers a perfectly good answer.
+	needsPopulation := comment.AgentResponse == "" || isTimerPlaceholderResponse(comment.AgentResponse)
+	hadStaleTimerError := isTimerPlaceholderResponse(comment.AgentResponse)
 	if needsPopulation && comment.InteractionID != "" {
 		interaction, interactionErr := s.Store.GetInteraction(ctx, comment.InteractionID)
 		if interactionErr == nil {
@@ -1455,7 +1733,7 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 	}
 
 	// If we still don't have a real response AND we have a session, try the latest interaction
-	if comment.AgentResponse == "" || comment.AgentResponse == CommentTimerNoResponseMessage {
+	if comment.AgentResponse == "" || isTimerPlaceholderResponse(comment.AgentResponse) {
 		s.populateAgentResponseFromSession(ctx, comment)
 	}
 

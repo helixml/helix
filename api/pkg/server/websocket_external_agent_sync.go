@@ -3429,10 +3429,21 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			Msg("🎯 [HELIX] Using request_id from message_completed data to finalize comment")
 
 		if err := apiServer.finalizeCommentResponse(context.Background(), messageRequestID); err != nil {
-			log.Debug().
-				Err(err).
-				Str("request_id", messageRequestID).
-				Msg("No comment found for request_id (this is normal for non-comment interactions)")
+			if errors.Is(err, ErrNoCommentForAgentRequest) {
+				log.Debug().
+					Err(err).
+					Str("request_id", messageRequestID).
+					Msg("No comment found for request_id (this is normal for non-comment interactions)")
+			} else {
+				// A comment WAS found and finalizing it failed. The agent's answer
+				// exists on the interaction but never reached the user's comment.
+				log.Error().
+					Err(err).
+					Str("request_id", messageRequestID).
+					Str("interaction_id", targetInteraction.ID).
+					Str("helix_session_id", helixSessionID).
+					Msg("🚨 [HELIX] Failed to attach completed agent response to its design-review comment - this answer would be lost")
+			}
 		} else {
 			log.Info().
 				Str("request_id", messageRequestID).
@@ -3457,11 +3468,14 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			commentID := pendingComment.ID
 
 			if err := apiServer.finalizeCommentResponse(context.Background(), requestID); err != nil {
+				// We already know this session has a pending comment, so any
+				// failure here is a lost answer, not routine noise.
 				log.Error().
 					Err(err).
 					Str("comment_id", commentID).
 					Str("request_id", requestID).
-					Msg("Failed to finalize comment response")
+					Str("interaction_id", targetInteraction.ID).
+					Msg("🚨 [HELIX] Failed to attach completed agent response to its design-review comment - this answer would be lost")
 			} else {
 				log.Info().
 					Str("comment_id", commentID).

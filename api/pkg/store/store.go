@@ -673,6 +673,9 @@ type Store interface {
 	ListUnresolvedComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error)
 	GetCommentByInteractionID(ctx context.Context, interactionID string) (*types.SpecTaskDesignReviewComment, error)
 	GetCommentByRequestID(ctx context.Context, requestID string) (*types.SpecTaskDesignReviewComment, error)
+	GetCommentByAgentRequestIDs(ctx context.Context, ids []string) (*types.SpecTaskDesignReviewComment, error)
+	ListTimerStampedCommentsWithResponses(ctx context.Context, stamps []string, limit int) ([]TimerStampedCommentRepair, error)
+	RepairTimerStampedComment(ctx context.Context, commentID, response string, entries datatypes.JSON, agentResponseAt time.Time) error
 	GetCommentByPromptID(ctx context.Context, promptID string) (*types.SpecTaskDesignReviewComment, error)
 	GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error)
 	GetPendingCommentByPlanningSessionID(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error)

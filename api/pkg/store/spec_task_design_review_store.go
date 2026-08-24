@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/datatypes"
 )
 
 // Design Review methods
@@ -281,6 +282,86 @@ func (s *PostgresStore) GetCommentByInteractionID(ctx context.Context, interacti
 	var comment types.SpecTaskDesignReviewComment
 	err := s.gdb.WithContext(ctx).
 		Where("interaction_id = ?", interactionID).
+		First(&comment).Error
+	if err != nil {
+		return nil, err
+	}
+	return &comment, nil
+}
+
+// TimerStampedCommentRepair is one comment whose agent_response is a backstop
+// timer placeholder even though its linked interaction finished with real
+// content — i.e. an answer the user was told did not exist.
+type TimerStampedCommentRepair struct {
+	CommentID          string
+	InteractionID      string
+	InteractionState   string
+	ResponseMessage    string
+	ResponseEntries    datatypes.JSON
+	InteractionUpdated time.Time
+}
+
+// ListTimerStampedCommentsWithResponses returns comments carrying one of the
+// timer placeholder stamps whose linked interaction reached a terminal state
+// with real content. The JOIN is what excludes genuine no-responses: a comment
+// with no interaction_id has nothing to recover and never matches.
+func (s *PostgresStore) ListTimerStampedCommentsWithResponses(ctx context.Context, stamps []string, limit int) ([]TimerStampedCommentRepair, error) {
+	var rows []TimerStampedCommentRepair
+	err := s.gdb.WithContext(ctx).
+		Table("spec_task_design_review_comments AS c").
+		Select(`c.id AS comment_id,
+			c.interaction_id AS interaction_id,
+			i.state AS interaction_state,
+			i.response_message AS response_message,
+			i.response_entries AS response_entries,
+			i.updated AS interaction_updated`).
+		Joins("JOIN interactions i ON i.id = c.interaction_id").
+		Where("c.agent_response IN ?", stamps).
+		Where("i.state IN ?", []string{
+			string(types.InteractionStateComplete),
+			string(types.InteractionStateError),
+		}).
+		Where("length(i.response_message) > 0").
+		Order("c.created_at").
+		Limit(limit).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// RepairTimerStampedComment copies a recovered agent response onto the comment.
+// The caller supplies the response text (derived with types.TextFromInteraction
+// so entries take precedence over the legacy flat message, exactly as the live
+// path does). agentResponseAt comes from the interaction rather than time.Now()
+// because the answer is historical — it is when the agent actually replied.
+// request_id and queued_at are deliberately untouched: these rows were already
+// released by the timer, and rewriting the queue markers could re-send an
+// answered comment.
+func (s *PostgresStore) RepairTimerStampedComment(ctx context.Context, commentID, response string, entries datatypes.JSON, agentResponseAt time.Time) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.SpecTaskDesignReviewComment{}).
+		Where("id = ?", commentID).
+		Updates(map[string]interface{}{
+			"agent_response":         response,
+			"agent_response_entries": entries,
+			"agent_response_at":      agentResponseAt,
+		}).Error
+}
+
+// GetCommentByAgentRequestIDs resolves the design-review comment for a
+// completed agent turn from the candidate ids that completion could be keyed
+// by. Both durable columns are searched in one query because neither alone is
+// sufficient: request_id is cleared whenever a comment is finalized or
+// timer-stamped, and the id a completion arrives with is the interaction's
+// *current* ExternalAgentRequestID, which the agent rebinds mid-turn and which
+// therefore may never have matched the value stored at dispatch. interaction_id
+// is unique per comment, so the OR cannot resolve ambiguously.
+func (s *PostgresStore) GetCommentByAgentRequestIDs(ctx context.Context, ids []string) (*types.SpecTaskDesignReviewComment, error) {
+	var comment types.SpecTaskDesignReviewComment
+	err := s.gdb.WithContext(ctx).
+		Where("request_id IN ? OR interaction_id IN ?", ids, ids).
 		First(&comment).Error
 	if err != nil {
 		return nil, err
