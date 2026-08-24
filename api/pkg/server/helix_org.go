@@ -595,8 +595,13 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// Stamp which sandbox container a restart-sensitive config change made
 	// stale. Thin wrapper: the real logic lives in
 	// stampRestartRequiredContainer so it's reachable from a unit test.
+	//
+	// context.WithoutCancel: Nodes.Update has already committed by the
+	// time this fires, so a client disconnect here must not abort the
+	// stamp — doing so would silently drop the new staleness (the banner
+	// never appears) rather than merely delay it.
 	deps.RestartRequiredNotifier = func(ctx context.Context, orgID string, id orgchart.NodeID) {
-		stampRestartRequiredContainer(ctx, st, cfg.APIServer.Store, orgID, id)
+		stampRestartRequiredContainer(context.WithoutCancel(ctx), st, cfg.APIServer.Store, orgID, id)
 	}
 
 	// Wire the helix-runtime HireHook so hire_worker persists the
