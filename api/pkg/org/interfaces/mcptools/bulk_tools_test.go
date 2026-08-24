@@ -31,6 +31,9 @@ func bulkTestEnv(t *testing.T) (*store.Store, *Registry, botCaller) {
 	}
 	injectTestPublishing(&deps)
 	reg := NewRegistry()
+	// The catalogue is read lazily, so wiring it before RegisterBuiltins
+	// is what the composition root does too.
+	deps.KnownTools = Catalogue(reg)
 	if err := RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}

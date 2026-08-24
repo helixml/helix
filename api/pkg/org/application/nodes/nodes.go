@@ -39,6 +39,10 @@ var ErrReportingCycle = errors.New("reporting cycle")
 // repository is not wired. Adapters map it to 501.
 var ErrReportingLinesUnavailable = errors.New("reporting lines not wired")
 
+// ErrUnknownTool is returned by any write that would persist a tool name
+// the live registry does not know. Adapters map it to 400.
+var ErrUnknownTool = errors.New("unknown tool")
+
 // Nodes owns the node-mutation use cases.
 type Nodes struct {
 	nodes          store.Nodes
@@ -134,6 +138,9 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	// An agent gets the caller's tools unioned with the read baseline.
 	tools := p.Tools
 	if p.Kind != orgchart.NodeKindHuman {
+		if err := s.ValidateTools(p.Tools); err != nil {
+			return orgchart.Node{}, err
+		}
 		tools = MergeTools(p.Tools, s.baseTools)
 	}
 	node, err := orgchart.NewNode(id, p.Content, tools, s.now(), orgID)
@@ -183,6 +190,11 @@ type UpdateParams struct {
 // With* builders, bumps UpdatedAt, and persists. Returns
 // store.ErrNotFound (wrapped) when the (orgID, id) row is absent.
 func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p UpdateParams) (orgchart.Node, error) {
+	if p.Tools != nil {
+		if err := s.ValidateTools(*p.Tools); err != nil {
+			return orgchart.Node{}, err
+		}
+	}
 	existing, err := s.nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return orgchart.Node{}, err
@@ -242,6 +254,9 @@ func normalizeProjectIDs(projectIDs []string) []string {
 // and a call that adds nothing writes nothing. Returns store.ErrNotFound
 // (wrapped) when the (orgID, id) row is absent.
 func (s *Nodes) AttachTools(ctx context.Context, orgID string, id orgchart.NodeID, names []tool.Name) (orgchart.Node, error) {
+	if err := s.ValidateTools(names); err != nil {
+		return orgchart.Node{}, err
+	}
 	existing, err := s.nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return orgchart.Node{}, err
@@ -457,6 +472,31 @@ func (s *Nodes) convergeToolNames(existing []tool.Name) []tool.Name {
 		out = append(out, name)
 	}
 	return out
+}
+
+// ValidateTools rejects any name the live registry does not know, so a
+// typo fails the whole write instead of persisting a dead name. A stored
+// name with no tool behind it is silently ignored at invoke time, which
+// leaves the Bot advertising a capability it does not have.
+//
+// It is the single validation the MCP tools and the REST handlers share.
+// An unavailable or empty catalogue skips the check for the same reason
+// pruning does: a runtime that hasn't wired the registry must not guess
+// a name is wrong.
+func (s *Nodes) ValidateTools(names []tool.Name) error {
+	if s == nil || len(names) == 0 || s.knownTools == nil {
+		return nil
+	}
+	known := s.knownTools()
+	if len(known) == 0 {
+		return nil
+	}
+	for _, name := range names {
+		if !known[name] {
+			return fmt.Errorf("%w %q", ErrUnknownTool, name)
+		}
+	}
+	return nil
 }
 
 // RenamedTools maps a retired tool name to the name (or names) that

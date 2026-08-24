@@ -248,7 +248,7 @@ func TestRESTUpdateNonHumanIdentityDoesNotRequireHumanAuthorization(t *testing.T
 func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
-	bot, err := orgchart.NewNode("b-agent", "old content", []tool.Name{"old_tool"}, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode("b-agent", "old content", []tool.Name{mcptools.ManagersName}, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 	rec := do(t, orgapi.Handler(deps), http.MethodPatch, "/bots/b-agent", orgapi.UpdateBotRequest{
 		Name:            &name,
 		Content:         &content,
-		Tools:           []string{"new_tool"},
+		Tools:           []string{mcptools.ChatName},
 		ProjectIDs:      []string{"prj-new"},
 		PreserveContext: &preserve,
 		Identity:        map[string]string{"new": "value"},
@@ -519,5 +519,59 @@ func TestSetBotContentParity_RESTvsMCP(t *testing.T) {
 	}
 	if restBot.Content != "rewritten content" {
 		t.Errorf("content not applied: %q", restBot.Content)
+	}
+}
+
+// TestRESTCreateBot_RejectsUnknownTool: a tool name the registry does not
+// know must fail the create rather than being merged into the baseline
+// and stored. A stored dead name is silently ignored at invoke time, so
+// a typo would leave the operator with a Bot missing a capability they
+// believe it has.
+func TestRESTCreateBot_RejectsUnknownTool(t *testing.T) {
+	deps, st, _ := newDeps(t)
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPost, "/bots", orgapi.CreateBotRequest{
+		ID:      "b-typo",
+		Content: "# Typo",
+		Tools:   []string{mcptools.ChatName, "not_a_real_tool_abc"},
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "not_a_real_tool_abc") {
+		t.Errorf("error should name the offending tool; body=%s", rec.Body)
+	}
+	if _, err := st.Nodes.Get(context.Background(), "org-test", "b-typo"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("rejected create left a bot row: %v", err)
+	}
+}
+
+// TestRESTUpdateBot_RejectsUnknownTool: the same guard on the patch path.
+func TestRESTUpdateBot_RejectsUnknownTool(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	bot, err := orgchart.NewNode("b-eng", "# Eng", []tool.Name{mcptools.ChatName}, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Create(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPatch, "/bots/b-eng", orgapi.UpdateBotRequest{
+		Tools: []string{mcptools.ChatName, "totally_fake_tool_xyz"},
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "totally_fake_tool_xyz") {
+		t.Errorf("error should name the offending tool; body=%s", rec.Body)
+	}
+	got, err := st.Nodes.Get(ctx, "org-test", "b-eng")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameNames(got.Tools, []tool.Name{mcptools.ChatName}) {
+		t.Fatalf("rejected patch mutated the row: %v", got.Tools)
 	}
 }

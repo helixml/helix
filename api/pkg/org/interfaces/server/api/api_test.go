@@ -64,9 +64,14 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 	reg := configregistry.New(st.Configs)
 	topo := reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Triggers: st.Triggers, Attachments: st.WorkerAttachments, Now: clock})
 
+	// The MCP registry is the authority on which tool names exist. The
+	// REST harness wires it exactly as the composition root does, so a
+	// handler test sees the same tool-name validation production does.
+	toolReg := mcpRegistry(t, st, clock, newID)
 	botsSvc := nodes.New(nodes.Deps{
 		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: topo,
 		Now: clock, NewID: newID, BaseTools: mcptools.BaseReadTools,
+		KnownTools: mcptools.Catalogue(toolReg),
 	})
 	assetsSvc, err := assets.New(assets.Deps{
 		Assets: st.Assets, Links: st.AssetLinks, Nodes: st.Nodes,
@@ -111,6 +116,7 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		ChartLayout: chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: clock}),
 		Configs:     reg,
 		Hub:         hub,
+		Tools:       toolReg,
 	}
 	return deps, st, reg
 }
