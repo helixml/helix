@@ -77,8 +77,9 @@ does the opposite thing with no label saying so.
    densities**, so the side pane can never again show less than the page.
 4. **Config visibility only.** No prerequisite gating of unusable kinds, no
    "send test event" button, no liveness probes.
-5. **Internal ids stop reaching the outside world**, via a public `slug`. The
-   list's row membership is unchanged.
+5. **Names become the primary identity in every surface.** Ids stay exactly as
+   they are, URLs included; they are internal identifiers that should be
+   available but never dominant. The list's row membership is unchanged.
 
 ## Design
 
@@ -131,9 +132,9 @@ that keeps the descriptor honest.
 
 - `GET /api/v1/orgs/{org}/trigger-kinds` returns the descriptor list in
   `kindOrder` with templates resolved for the calling org.
-- `TriggerDTO` gains `slug` and `activation` — the resolved fire-this recipe for
-  *this* Trigger (concrete URL, composed email address, schedule summary), so
-  the frontend does no templating.
+- `TriggerDTO` gains `activation` — the resolved fire-this recipe for *this*
+  Trigger (concrete URL, composed email address, schedule summary), so the
+  frontend does no templating.
 - **Webhook route fix.** `server.go` registers `POST /webhooks/{org}/{triggerID}`
   on the org mux; mounted under the authRouter's `/orgs/{org}/` prefix this
   yields the doubled path, and `PathValue("org")` beats the already-resolved
@@ -144,54 +145,47 @@ that keeps the descriptor honest.
   context org. Standalone keeps its `{org}` form. Resulting public URL:
 
   ```
-  POST /api/v1/orgs/{org}/webhooks/{trigger-slug}
+  POST /api/v1/orgs/{org}/webhooks/{trigger_id}
   ```
 
-  Only `webhook_test.go` references the doubled form; no client, frontend, or
-  doc constructs it, so this is not a breaking change in practice.
-- Trigger routes resolve `{handle}` as slug-then-id through one helper, matching
-  the id-or-slug contract `lookupOrg` already establishes.
+  The Trigger id stays in the URL. The fix is only to the duplicated org
+  segment and to the outer org accepting a slug. Only `webhook_test.go`
+  references the doubled form; no client, frontend, or doc constructs it, so
+  this is not a breaking change in practice.
 
-### 3. Public handle: `slug`
+### 3. Naming and identity hierarchy
 
-Internal ids are unchanged. Every `s-` family is a **derived, deterministic
-string** computed at its call site rather than looked up —
-`"s-transcript-"+workerID`, `"s-dm-"+pair`, `"s-team-"+managerID`,
-`"s-slack-ws-"+connID`, and the `s-helix-events` const. They are load-bearing
-addresses; re-minting them would mean adding a lookup at every derivation site.
-They stay, and stop being displayed.
+Nothing about ids changes. They remain internal identifiers, they remain in
+URLs, and the derived `s-` families stay as they are — each is a deterministic
+string computed at its call site (`"s-transcript-"+workerID`, `"s-dm-"+pair`,
+`"s-team-"+managerID`, `"s-slack-ws-"+connID`, the `s-helix-events` const)
+rather than a looked-up key, so they are load-bearing addresses.
 
-- New `slug` column on `org_triggers` with `uniqueIndex idx_trigger_org_slug`.
-- Derived on create from `Name` via the existing `data.SlugifyName`,
-  deconflicted with a `-2`/`-3` suffix.
-- Backfilled from `Name` for existing rows. `Name` is already unique per org
-  (`idx_trigger_org_name`), so collisions are rare and the deconflictor covers
-  them.
-- **Slug does not follow later renames**, because it appears in live webhook
-  URLs. It is directly editable on the detail page, with a warning on webhook
-  kinds that the payload URL changes.
-- System Triggers get readable slugs too: `transcript-b-sam`, `helix-events`,
-  `dm-b-sam-chief-of-staff`.
-
-Where the id stops appearing:
+The defect is that ids currently outrank names visually. On the detail page the
+id is the `h5` headline in monospace and the name is a grey `body2` subtitle
+beneath it — exactly inverted. Every surface makes the same trade to a lesser
+degree.
 
 | Surface | Today | After |
 |---|---|---|
-| Detail URL | `/triggers/tr-afe1fefc-dc64-...` | `/triggers/hello` |
-| Detail page heading | the id, monospace h5; name a grey subtitle | the **name**; id copyable under Advanced |
-| List page | id in monospace under every name | dropped from default columns |
-| Side pane | full uuid under the title | name + kind |
-| Webhook payload URL | `.../webhooks/{ORG_ID}/tr-afe1fefc...` | `.../webhooks/hello` |
-| Attached agents | raw `b-sam` chips | agent display names |
+| Detail page | id is the monospace `h5`; name is a grey subtitle | **name** is the `h5` with the kind chip beside it; description below; id demoted to a small copyable monospace caption in a metadata row alongside Created |
+| Side pane | overview card repeats the name as its title, then prints the full uuid at equal weight | name once, at title weight; id as a small copyable caption |
+| List page | id in monospace directly under every name, competing with it | name keeps its weight; id de-emphasised to a quieter caption so the column reads as one identity, not two |
+| Attached agents | raw `b-sam` / `chief-of-staff` id chips | agent display names, with the id on the chip's tooltip |
+| Breadcrumb | already the name | unchanged |
 
-**MCP root cause.** `create_trigger`'s description tells agents *"Pass `id` as a
-short readable handle (e.g. `s-releases`)"* — this is why agent-created Triggers
-carry `s-` ids. Remove `id` from the tool's arguments; agents pass `name` and the
-server mints both id and slug.
+**Kind labels.** The list and both detail surfaces render the kind as its raw
+enum string — `webhook`, `local`, `helix_events`. The descriptor already carries
+a human `Label` ("Webhook", "Manual or agent event", "Incoming email"), so every
+surface reads that instead. This costs nothing once the descriptor exists and
+removes the last machine string from the default view.
 
-Because the `s-` prefix is currently the only visual cue separating plumbing
-rows from user-created ones, system-managed rows gain a small "system"
-indicator. Nothing is filtered and row membership is unchanged.
+**MCP.** `create_trigger`'s description tells agents *"Pass `id` as a short
+readable handle (e.g. `s-releases`)"*, which is why agent-created Triggers get
+`s-` ids while UI-created ones get `tr-`. Removing `id` from the tool's
+arguments makes new Triggers consistently `tr-`. This is a one-line change that
+touches no existing row, and is *optional* to this pass — it is listed here so
+the inconsistency is recorded, not because prominence depends on it.
 
 ### 4. Frontend
 
@@ -240,15 +234,16 @@ The three surfaces become thin consumers: `TriggerFormDialog` renders
 - **A GitLab webhook install panel.** `install-webhook` and `webhook-status`
   endpoints exist for GitLab with no UI, but the GitHub equivalent carries a
   live status check, which decision 4 excludes. Follow-up.
-- Re-minting internal ids, or renaming the Topic/Stream/Trigger vocabulary in
-  routes such as `/topics/{topic_id}/github/webhook`.
+- Re-minting internal ids, adding a public slug, or removing ids from URLs.
+  Ids are fine where they are; only their visual prominence changes.
+- Renaming the Topic/Stream/Trigger vocabulary in routes such as
+  `/topics/{topic_id}/github/webhook`.
 - Filtering or regrouping the Triggers list (decision 5).
 
 ## Testing
 
 - Go: descriptor/`Validate` parity table test; webhook route resolution test
-  covering slug and id in both deployment modes; slug derivation and
-  deconfliction tests.
+  covering an org slug and an org id in both deployment modes.
 - `cd frontend && yarn build`.
 - End-to-end in the browser at `http://localhost:8080`: create one Trigger of
   every kind the org can support, confirm each shows its fields, current values,
@@ -257,9 +252,6 @@ The three surfaces become thin consumers: `TriggerFormDialog` renders
 
 ## Risks
 
-- **Slug backfill.** Runs over existing rows; a bad slugify or a missed
-  collision breaks trigger URLs. Mitigated by the unique index plus the
-  deconflictor, and by resolution accepting ids indefinitely.
 - **Webhook URL change.** The old doubled path is referenced only by its own
   tests, but any operator who reverse-engineered it would need to re-copy.
 - **Descriptor drift.** The parity test covers required-ness; it does not cover
