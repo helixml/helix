@@ -119,3 +119,71 @@ sandbox version pinned in `sandbox-versions.txt` bumped as usual.
   hands control to an interactive program must save the original fds first
   (`exec 3>&1 4>&2`). Bash interactivity depends on fd0 *and fd2*, not fd1 — a
   shell that runs commands but shows no prompt is almost always non-TTY stderr.
+
+---
+
+## Implementation Notes (added during implementation)
+
+### What was changed
+
+`desktop/shared/helix-workspace-setup.sh` — three small edits, exactly as designed:
+
+1. `exec 3>&1 4>&2` immediately before the `tee` redirect.
+2. `exec 1>&3 2>&4 3>&- 4>&-` in `cleanup_and_prompt()`, placed *after* the
+   failure banner and `.helix-setup-failed` write and *before* the menu, so log
+   contents are unchanged but the menu and shell get the real tty.
+3. The `2|*` branch keeps plain `exec bash`, guarded by `[ -t 0 ]`; with no
+   controlling tty it falls through to `trap - EXIT; exit $exit_code`.
+
+`desktop/shared/test-setup-terminal-shell.sh` — new pty test (below).
+
+### How the test drives the real script (the useful trick)
+
+The design left "how do you test a 1000-line setup script" open. The answer:
+**run the real script with an empty environment and a temp `$HOME`.** With
+`GIT_USER_EMAIL` unset it prints `FATAL: GIT_USER_EMAIL not set` and `exit 1` at
+line ~216 — early, fast, deterministic, and it fires the EXIT trap, which is the
+exact path under test. No harness copy of the logic, no mocking.
+
+```bash
+( sleep 3; printf '2\n'; sleep 2; printf 'echo HELIX_TEST_FLAGS=$-\n'; ... ) \
+  | env -i HOME="$FAKE_HOME" PATH="$PATH" TERM=xterm \
+      script -q -e -c "bash $SETUP_SCRIPT" "$TRANSCRIPT"
+```
+
+Gotchas found while writing it:
+- `env -i` matters. Inheriting the agent's environment leaks `GIT_USER_EMAIL`
+  and the script no longer fails fast.
+- The sleeps are load-bearing. Feeding all input at once races the script's
+  `read` and the debug shell's readline; the trailing sleep keeps the pty open
+  long enough for the last line to flush.
+- The script takes an optional path argument so you can point it at a
+  pre-fix copy (`git show HEAD:… > /tmp/original-setup.sh`) to confirm the test
+  actually catches the bug.
+- Assertions must tolerate readline noise: the transcript contains `^M` and
+  bracketed-paste escapes (`\e[?2004h`) interleaved with the echoed command, so
+  match on a distinctive token (`HELIX_TEST_FLAGS=`), never on a whole line.
+- `set -o | grep ^monitor` is padded with spaces/tabs — `awk '{print $2}'`, not
+  `tr`.
+
+### Verification result
+
+Against the fixed script: **9/9 pass**, `$- = himBHs`, `monitor=on`, and the
+transcript shows a real prompt (`retro@…:~/work$`).
+
+Against the pre-fix script (`/tmp/original-setup.sh`): **7 pass, 2 fail** —
+`$- = hBs` (no `i`) and job control off, while the shell still executed the
+command. That is precisely the reported symptom, reproduced and then fixed.
+
+Logging assertions pass identically in both runs, confirming `~/.helix-setup.log`
+and `~/.helix-setup-failed` are untouched by the change.
+
+### Open questions, as resolved
+
+The design's open questions were not answered before implementation started, so
+the documented assumptions were used: keep `tee` for the whole setup run (Q2),
+stop logging the debug shell's own session (Q3), plain `exec bash` with a
+`[ -t 0 ]` guard rather than `-i`/`-l` (Q4), and add the pty test (Q5). Q6
+(colour/progress suppression during setup) was left out of scope. Q1 was
+confirmed by the symptom match — this is the in-desktop window, not the web
+drawer.
