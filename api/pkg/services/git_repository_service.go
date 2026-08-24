@@ -237,6 +237,15 @@ func (s *GitRepositoryService) recoverIncompletePushes(ctx context.Context) {
 			continue
 		}
 
+		// Refresh all remote-tracking refs once per repository. Fetching each
+		// branch separately turns a repository with hundreds of branches into
+		// hundreds of DNS/TLS round trips during every API restart, which can
+		// starve normal task-provisioning fetches.
+		if err := s.fetchRemoteTrackingRefsForRecovery(ctx, repo); err != nil {
+			log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to refresh remote refs for crash recovery")
+			continue
+		}
+
 		// Check for unpushed commits on each branch
 		branches, err := s.listLocalBranches(ctx, repo.LocalPath)
 		if err != nil {
@@ -300,30 +309,19 @@ func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath s
 	return branches, nil
 }
 
-// isBranchAheadOfRemote checks if a local branch has commits not in the remote
-func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
-	// Fetch the latest remote state so origin/<branch> reflects reality, not
-	// a stale ref from before a crash. Without this, a local branch that is
-	// strictly *behind* the remote looks "ahead" of the outdated tracking ref,
-	// causing spurious push attempts that always fail with PushRejected.
-	_, _, fetchErr := gitcmd.NewCommand("fetch", "origin").
-		AddDynamicArguments(branch).
-		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
-	if fetchErr != nil {
-		// "couldn't find remote ref" is the common case for branches that
-		// exist locally but not on the remote (deleted PR branches, branches
-		// renamed upstream). Drop these to Trace so the ordinary recovery
-		// pass doesn't drown the log; reserve Debug for genuine remote/auth
-		// failures that an operator might want to investigate.
-		ev := log.Debug()
-		if strings.Contains(fetchErr.Error(), "couldn't find remote ref") {
-			ev = log.Trace()
-		}
-		ev.Err(fetchErr).Str("branch", branch).Str("repo_path", repoPath).
-			Msg("Failed to fetch remote before ahead check, skipping branch")
-		return false, nil
-	}
+func (s *GitRepositoryService) fetchRemoteTrackingRefsForRecovery(ctx context.Context, repo *types.GitRepository) error {
+	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, repo)
+	return Fetch(ctx, repo.LocalPath, FetchOptions{
+		Remote:   fetchURL,
+		Force:    true,
+		Prune:    true,
+		Timeout:  5 * time.Minute,
+		RefSpecs: []string{"+refs/heads/*:refs/remotes/origin/*"},
+	})
+}
 
+// isBranchAheadOfRemote checks refreshed origin refs without network access.
+func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
 	// Check if remote tracking ref exists
 	remoteRef := "refs/remotes/origin/" + branch
 	_, _, err := gitcmd.NewCommand("rev-parse").
