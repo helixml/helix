@@ -589,14 +589,24 @@ height, fps, bitrate, session_id), so `GetOrCreate(nodeID, pipelineStr, opts)`
 `[SHARED_VIDEO] Evicted dead source in GetOrCreate` (`:257`) only fires when the
 registered source is dead.
 
-**Caveat that must be observed, not assumed** (Open Question 5): when the backend
-socket dies, `handleStreamWebSocketInternal`'s `defer streamer.Stop()` runs. If
-that client was the last subscriber, the shared source may be torn down before the
-replayed init arrives, in which case the replay legitimately creates a *new*
-pipeline. That is correct but is a restart — and under Part A's starvation a
-restart took 43 s, which is how the outage compounded. Verification must read the
-desktop-bridge log for which branch was taken. If teardown is refcount-immediate,
-a short linger on the shared source is a sensible follow-up, out of scope here.
+**Observed 2026-08-24 — Open Question 5 is answered: the pipeline survives.**
+Forcing a real backend drop (`ss -K` on the desktop-bridge socket, leaving RevDial
+up) produced:
+
+```
+[SHARED_VIDEO] Client subscribed (grace period reconnection, starting catchup)
+```
+
+Not `Evicted dead source in GetOrCreate`, and not `Created new source`. The
+registry has a 60 s grace period (`grace_period=60000` at init) which holds the
+source alive across exactly this window, so the replayed init re-subscribes to
+the *live* pipeline. No restart, no 43 s stall, no leak. The linger follow-up
+contemplated here is unnecessary — the grace period already is it.
+
+Note the contrast with killing the whole `desktop-bridge` process: that destroys
+the registry, so the next connection legitimately logs `Registry initialized` /
+`Created new source`. Correct, but it is not the reconnect path — see the
+"how to force a REAL proxy reconnect" note in `tasks.md`.
 
 ## B7. Known limitation: frame boundaries across a drop
 

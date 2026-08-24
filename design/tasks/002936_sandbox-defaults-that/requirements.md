@@ -293,11 +293,9 @@ These were open at first review and are now **fixed, not suggestions**:
    default. Getting more resources is not harmful and they can re-select 4 CPU.
    Project rows are deliberately **not** touched — projects only store an override
    when an admin explicitly set one. No action expected unless you disagree.
-4. **Does the shared pipeline actually survive the drop?** When the backend socket
-   dies, `handleStreamWebSocketInternal`'s `defer streamer.Stop()` runs. If that
-   client was the last subscriber, the shared source may be torn down, in which
-   case the replayed init legitimately creates a new pipeline rather than
-   subscribing to an existing one. That is correct behaviour but is a pipeline
-   restart, and under Part A's starvation it took 43 s. This must be **observed in
-   the log during verification**, not assumed. If teardown is refcount-immediate,
-   a short linger on the shared source may be a follow-up.
+4. ~~**Does the shared pipeline actually survive the drop?**~~ **Answered
+   2026-08-24 by live test: yes.** A real backend drop produced
+   `[SHARED_VIDEO] Client subscribed (grace period reconnection, starting
+   catchup)` — the registry's 60 s grace period holds the source alive, so the
+   replayed init re-subscribes to the live pipeline rather than restarting it.
+   No `Evicted dead source`, no leak. No follow-up needed.

@@ -97,26 +97,26 @@
 
 ## 8. Verification — required, not optional
 
-- [ ] `cd api && go build ./pkg/...` and `cd frontend && yarn build`
+- [x] `cd api && go build ./pkg/...` and `cd frontend && yarn build`
 - [x] In the inner Helix at `http://localhost:8080`: register `test@helix.ml` / `helixtest`, complete onboarding, create a spec task, open its detail page, confirm video actually plays in the browser
 - [x] Fresh task: `docker exec helix-sandbox-nvidia-1 docker inspect -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}' <container>` shows the new limits (`25769803776 12000000000`, or the clamped CPU value with its log line)
 - [x] Pre-existing task row (non-meta deployment): confirm the migration NULLed it, that starting it produces the new limits, and that the `8/16384` row count is unchanged
-- [ ] On meta: open one of the 31 hand-backfilled tasks and confirm the selector shows "12 CPU / 24 GB RAM" selected rather than blank
+- [x] On meta: open one of the 31 hand-backfilled tasks and confirm the selector shows "12 CPU / 24 GB RAM" selected rather than blank
 - [x] Config override: set `HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS=8` / `..._MEMORY_MB=16384`, restart, create a task, confirm the container follows; then set an invalid pair and confirm startup refuses
 - [x] Real reconnect: with a browser watching a playing stream, restart `desktop-bridge` in the desktop container; confirm video resumes unattended, `reconnect_count` increments, and **no** `failed to read init message` appears in the desktop-bridge log
 - [x] Read the desktop-bridge log for which `GetOrCreate` branch the replayed init took — existing source vs `Evicted dead source` (design B6 / Open Question 5)
-- [ ] Test the next operation after the drop: click in the desktop and confirm input still works; confirm an embed-key read-only viewer still cannot input after a reconnect
+- [x] Test the next operation after the drop: click in the desktop and confirm input still works; confirm an embed-key read-only viewer still cannot input after a reconnect
 - [x] `helix spectask stream <session> --duration 30` returns ~1600 frames at 50–60 FPS at 1920x1080
 
 ## 9. Ship
 
-- [ ] Push the single branch `feature/002936-right-size-spec-task` with Part A and Part B as separate commits, so either half can be reverted alone
-- [ ] Write the PR body in two clearly separated sections, calling out the irreversible migration at the top
-- [ ] Write `design/2026-08-24-sandbox-defaults-and-stream-init-replay.md` in the helix repo recording the chosen default and reasoning, the migration strategy, and the `user_retry`-on-replay decision
-- [ ] State in PR1's body that the migration resets deliberate 4/8192 choices, and why that is acceptable
-- [ ] `gh pr checks` on both PRs; fix CI failures without being asked
-- [ ] Report PR links as full URLs (`https://github.com/helixml/helix/pull/NNN`)
-- [ ] Close `spt_01m0evm3dpanc1sfktywbxhes4` as superseded by this task
+- [x] Push the single branch `feature/002936-right-size-spec-task` with Part A and Part B as separate commits, so either half can be reverted alone
+- [x] Write the PR body in two clearly separated sections, calling out the irreversible migration at the top
+- [x] Write `design/2026-08-24-sandbox-defaults-and-stream-init-replay.md` in the helix repo recording the chosen default and reasoning, the migration strategy, and the `user_retry`-on-replay decision
+- [x] State in PR1's body that the migration resets deliberate 4/8192 choices, and why that is acceptable
+- [~] Check CI once the PR exists and fix failures without being asked (the PR is created by the platform when the user clicks "Open PR"; the branch is pushed)
+- [~] Report the PR link as a full URL (`https://github.com/helixml/helix/pull/NNN`) once the platform opens it
+- [~] Close `spt_01m0evm3dpanc1sfktywbxhes4` as superseded — noted in the PR body; needs a human with access to that task
 
 ## Notes discovered during implementation
 
