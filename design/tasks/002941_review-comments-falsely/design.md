@@ -79,7 +79,7 @@ legitimate duration, both producing an **accurate** message:
 
 | State | Ceiling | Message stamped | Rationale |
 |---|---|---|---|
-| Agent unreachable (branch 5) | 30 min continuous disconnection | `CommentSandboxNotStartedMessage` — *"[Sandbox is still starting - your comment will be answered when it comes up]"* → on ceiling: *"[Sandbox failed to start - try sending your comment again]"* | Observed cold boots run ~7 min. 30 min of continuous disconnection means the sandbox failed, not that it is slow. The message names the real cause. |
+| Agent unreachable (branch 5) | 30 min continuous disconnection | `CommentSandboxNotStartedMessage` = *"[Sandbox failed to start - try sending your comment again]"* | Observed cold boots run ~7 min. 30 min of continuous disconnection means the sandbox failed, not that it is slow. The message names the real cause. **As built, nothing at all is written while waiting** — an interim "still starting" stamp would sit in `agent_response`, where the frontend renders it as the agent's reply, so silence is more honest than a placeholder. |
 | Agent connected, zero content, non-terminal, `interactions.updated` not moving (branch 6) | 60 min | `CommentTimerNoResponseMessage` (unchanged text — here it is *true*) | Longest plausible legitimate agent turn, with headroom. Only reached with the agent demonstrably connected and demonstrably producing nothing. |
 
 Both ceilings measure time **in that state**, not since the comment was queued. Disconnected
