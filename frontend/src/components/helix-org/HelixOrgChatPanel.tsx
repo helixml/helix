@@ -20,6 +20,7 @@ import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import StopIcon from '@mui/icons-material/Stop'
 
+import AgentRestartRequiredBanner from './AgentRestartRequiredBanner'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import AgentChat from '../session/AgentChat'
 import useApi from '../../hooks/useApi'
@@ -425,13 +426,21 @@ const HelixOrgChatPanel: FC = () => {
             )}
           </Box>
         ) : view === 'chat' ? (
-          <AgentChat
-            sessionId={chatSessionId}
-            projectId={projectID}
-            enableInteractionDebugCopy
-            showSessionPromptQueue
-            placeholder={`Message ${selectedBot?.name || selectedBotId}…`}
-          />
+          <>
+            <AgentRestartRequiredBanner
+              visible={!!selectedBot?.restart_required}
+              working={!!chatSessionId && streaming.currentResponses.has(chatSessionId)}
+              busy={busy}
+              onRestart={() => { void handleRestart() }}
+            />
+            <AgentChat
+              sessionId={chatSessionId}
+              projectId={projectID}
+              enableInteractionDebugCopy
+              showSessionPromptQueue
+              placeholder={`Message ${selectedBot?.name || selectedBotId}…`}
+            />
+          </>
         ) : (
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <ExternalAgentDesktopViewer

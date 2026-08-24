@@ -55,6 +55,7 @@ import StopIcon from '@mui/icons-material/Stop'
 import Tooltip from '@mui/material/Tooltip'
 import { useRouter as useRouter5 } from 'react-router5'
 
+import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import AgentConfigForm, { AgentConfigValue } from '../components/helix-org/BotRuntimeForm'
 import ToolPickerDialog from '../components/helix-org/ToolPickerDialog'
@@ -64,6 +65,7 @@ import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
+import { useStreaming } from '../contexts/streaming'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -97,6 +99,7 @@ const HelixOrgBotDetail: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
   const api = useApi()
+  const streaming = useStreaming()
   const orgSlug = router.params.org_id as string | undefined
   const botId = router.params.bot_id as string | undefined
   const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Agents', routeName: 'helix_org_bots' })
@@ -502,6 +505,13 @@ const HelixOrgBotDetail: FC = () => {
                     </Stack>
                   </Stack>
                 </Box>
+
+                <AgentRestartRequiredBanner
+                  visible={!!bot.restart_required}
+                  working={!!chatSessionId && streaming.currentResponses.has(chatSessionId)}
+                  busy={activateAgent.isPending || stopAgent.isPending || restartAgent.isPending}
+                  onRestart={() => { void handleRestartSession() }}
+                />
 
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>Name</Typography>
