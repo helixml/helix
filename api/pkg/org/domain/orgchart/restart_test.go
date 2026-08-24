@@ -69,11 +69,13 @@ func TestRestartFingerprint_ToolNamesCannotRunTogether(t *testing.T) {
 }
 
 // Guards the 0x01 domain separator between the tool list and the content.
-// Concatenated without it, tools ["ab"] + content "c" and tools ["a"] +
-// content "bc" both hash the bytes "abc".
+// The per-name 0x00 terminator alone cannot disambiguate these two: with
+// no separator, one tool "a" plus content "b" and no tools at all plus
+// content "a\x00b" both hash the bytes 61 00 62. Content is free-form
+// markdown, so a NUL in it is reachable.
 func TestRestartFingerprint_ToolsCannotRunIntoContent(t *testing.T) {
-	a := fpNode(t, "c", []tool.Name{"ab"})
-	b := fpNode(t, "bc", []tool.Name{"a"})
+	a := fpNode(t, "b", []tool.Name{"a"})
+	b := fpNode(t, "a\x00b", nil)
 
 	require.NotEqual(t, RestartFingerprint(a), RestartFingerprint(b))
 }
