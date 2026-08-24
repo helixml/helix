@@ -1,5 +1,12 @@
 # Implementation Tasks: Right-Size Spec-Task Sandbox Defaults and Replay Stream Init on Reconnect
 
+> **Settled by Luke — fixed, not suggestions.** Ladder 1/2048, 4/8192, 8/16384,
+> **12/24576**, **16/32768**. Default **12 vCPU / 24576 MB**, still
+> operator-configurable with 12/24576 as the no-env fallback. Migration touches
+> **only** rows holding exactly `{"vcpus": 4, "memory_mb": 8192}` — never the 178
+> rows holding `{"vcpus": 8, "memory_mb": 16384}`. `CreateSandboxDialog.tsx`
+> ladder moves too. All Part B work stands unchanged.
+
 ## 0. Before starting
 
 - [ ] Read the prior-art spec at `helix-specs/design/tasks/002903_default-spec-task/` and lift its frontend de-duplication plan and OpenAPI fan-out warning
@@ -21,8 +28,11 @@
 - [ ] Delete the same fallback in `api/pkg/org/infrastructure/runtime/helix/spectasks.go:215`
 - [ ] Confirm `HydraExecutor.resolveSpecTaskLaunchConfig` (`api/pkg/external-agent/hydra_executor.go:697`) resolves `nil` to the live default at container-create for every start path, including forks and reconciler resumes
 - [ ] Check the API response / frontend render path for a now-nil `task.sandbox_resource_overrides` — it must fall back to the shared default, not render blank
-- [ ] Add migration `api/pkg/store/migrations/0009_unmaterialize_spec_task_sandbox_default.up.sql` NULLing `spec_tasks.sandbox_resource_overrides` where it equals exactly `{"vcpus": 4, "memory_mb": 8192}`
-- [ ] Add the `.down.sql` as a documented no-op (the reversal information does not exist)
+- [ ] Add migration `api/pkg/store/migrations/0009_unmaterialize_spec_task_sandbox_default.up.sql` NULLing `spec_tasks.sandbox_resource_overrides` where it equals exactly `{"vcpus": 4, "memory_mb": 8192}` — see Open Question 1 on `NULL` vs the explicit new pair
+- [ ] **Never match `{"vcpus": 8, "memory_mb": 16384}`** — 178 rows on meta hold that as a deliberate user choice. Do not generalise the predicate to "equals a default"
+- [ ] Record the `SELECT sandbox_resource_overrides, count(*) FROM spec_tasks GROUP BY 1` counts before and after, and put both in the PR body — that diff is the safety story for this migration
+- [ ] Confirm the migration is a no-op on meta, whose 31 stale rows were hand-backfilled to `12/24576` on 2026-08-24
+- [ ] Add the `.down.sql` as a documented no-op (the reversal information does not exist, and re-materializing all NULLs would break the 4102 rows that never had a value)
 - [ ] Do **not** touch project rows — a project only stores an override when an admin explicitly set one
 
 ## 3. Part A — remaining Go call sites
@@ -43,6 +53,8 @@
 - [ ] Replace the useState initial value (`components/tasks/NewSpecTaskForm.tsx:152`) and the `?.memory_mb || 8192` project fallback (`:339`)
 - [ ] Replace the `?.memory_mb || 8192` fallback in `components/session/projectChatItemDetails.ts:65`
 - [ ] Extend the size list in `components/sandboxes/CreateSandboxDialog.tsx:44-46` to match the shared rungs, leaving its default selection unchanged
+- [ ] Confirm a task storing `{"vcpus": 12, "memory_mb": 24576}` now renders with the "12 CPU / 24 GB RAM" rung **selected** — meta's 31 backfilled tasks currently render blank because no 12-vCPU rung exists
+- [ ] Make an unmatched stored value degrade gracefully (show the raw size, not blank), so a future hand-edited row is visible rather than silently unselected
 - [ ] Grep `frontend/src` and confirm no sandbox-default literal survives outside `sandboxPresets.ts` and test fixtures (ignore unrelated `8192`/`16384` in `api_bindings.ts`, `profileBlocks.ts`)
 
 ## 5. Part A — OpenAPI and tests
@@ -52,6 +64,8 @@
 - [ ] Re-point the contrasting project default in `api/pkg/org/infrastructure/runtime/helix/spectasks_sandbox_test.go` (~79) to `1/2048` so `TestSpecTasks_CreateFallsBackToProjectSandboxDefaults` is not vacuous
 - [ ] Add a `sandboxResourceLimits` clamp case to `api/pkg/hydra/devcontainer_test.go`
 - [ ] Add a `SetDefaultSpecTaskSandboxResources` test covering a valid pair, an invalid pair, and restore-after-test
+- [ ] Add a frontend test: a stored `{vcpus: 12, memory_mb: 24576}` selects the 12-CPU rung, and a stored value matching no rung does not render blank
+- [ ] Add a migration test (or documented manual check) that the predicate leaves `{"vcpus": 8, "memory_mb": 16384}` rows untouched
 - [ ] Run `api/pkg/external-agent/task_overrides_test.go` to confirm the symbolic assertions still pass
 - [ ] Run the touched vitest files; update `SpecTaskExecutionControls.test.tsx`, `ProjectChatItemTooltip.test.tsx` and `projectChatItemDetails` fixtures only where they actually fail
 
@@ -84,7 +98,8 @@
 - [ ] `cd api && go build ./pkg/...` and `cd frontend && yarn build`
 - [ ] In the inner Helix at `http://localhost:8080`: register `test@helix.ml` / `helixtest`, complete onboarding, create a spec task, open its detail page, confirm video actually plays in the browser
 - [ ] Fresh task: `docker exec helix-sandbox-nvidia-1 docker inspect -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}' <container>` shows the new limits (`25769803776 12000000000`, or the clamped CPU value with its log line)
-- [ ] Pre-existing task row: confirm the migration NULLed it and that starting it produces the new limits
+- [ ] Pre-existing task row (non-meta deployment): confirm the migration NULLed it, that starting it produces the new limits, and that the `8/16384` row count is unchanged
+- [ ] On meta: open one of the 31 hand-backfilled tasks and confirm the selector shows "12 CPU / 24 GB RAM" selected rather than blank
 - [ ] Config override: set `HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS=8` / `..._MEMORY_MB=16384`, restart, create a task, confirm the container follows; then set an invalid pair and confirm startup refuses
 - [ ] Real reconnect: with a browser watching a playing stream, restart `desktop-bridge` in the desktop container; confirm video resumes unattended, `reconnect_count` increments, and **no** `failed to read init message` appears in the desktop-bridge log
 - [ ] Read the desktop-bridge log for which `GetOrCreate` branch the replayed init took — existing source vs `Evicted dead source` (design B6 / Open Question 5)

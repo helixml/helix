@@ -8,7 +8,22 @@ code with unit tests. They ship as two stacked PRs.
 
 # Part A — sandbox defaults
 
+> **Decided by Luke, 2026-08-24 — fixed, not suggestions.**
+> Ladder: 1/2048, 4/8192, 8/16384, **12/24576**, **16/32768** (2 GB per vCPU
+> throughout). Default: **12 vCPU / 24576 MB**, still operator-configurable, with
+> 12/24576 as the no-env fallback. Migration targets **only** rows holding exactly
+> `{"vcpus": 4, "memory_mb": 8192}` — never the 178 rows holding
+> `{"vcpus": 8, "memory_mb": 16384}`. `CreateSandboxDialog.tsx` ladder moves too.
+> The analysis below is retained as the *why*, not as a live proposal.
+
 ## A1. The chosen default: 12 vCPU / 24576 MB
+
+### Luke's reasoning
+
+24 GB is the number because a Helix-in-Helix task's real steady state exceeds 8 GB
+for the inner stack alone, and the largest uncapped desktop on node01 runs
+29.75 GiB. The supporting arithmetic below arrives at the same figure
+independently.
 
 ### The data
 
@@ -57,9 +72,7 @@ selecting the new 16/32768 rung, or by an operator raising the config default
 (A3). Chasing the max rather than the p90 would halve node density for one
 observation.
 
-Recommendation flagged as **Open Question 1** — if density beats headroom, ship
-8/16384 as the default and keep 12/24576 and 16/32768 as selectable rungs. Every
-other part of this design is unaffected by that choice.
+**Settled.** Luke fixed the default at 12/24576. No longer open.
 
 ### A1a. Clamp vCPUs to host capacity — required for "works out of the box"
 
@@ -177,9 +190,34 @@ sets `VCPUS=6` should be told, not quietly given 12.
 ## A4. Materialized rows — strategy (c), both
 
 Commit `1eff4e801` (2026-08-10) made `CreateTaskFromPrompt` materialize the
-default onto the row, so every task created since carries an explicit
-`{"vcpus": 4, "memory_mb": 8192}` and can never pick up a raised default.
-Confirmed still true today for `spt_01m0s0vktb0twdtwz7cmk6wgtg`.
+default onto the row.
+
+### The real scale — corrects the brief
+
+The brief said "**every** task created since 2026-08-10 carries an explicit
+`{"vcpus": 4, "memory_mb": 8192}`". Luke counted meta's `spec_tasks` today and
+that is not what the data shows:
+
+| rows | value | meaning | action |
+|---|---|---|---|
+| 4102 | `NULL` | inherits the const | **nothing to do** — these pick up the new default for free |
+| 178 | `{"vcpus": 8, "memory_mb": 16384}` | a real user choice | **DO NOT TOUCH** |
+| 31 | `{"vcpus": 4, "memory_mb": 8192}` | the materialized old default | the only stale rows |
+
+Two consequences worth internalising before writing the migration:
+
+1. **The overwhelming majority of rows are already `NULL`.** The materialization
+   bug was far narrower than the outage report implied — most tasks were always
+   going to inherit a raised default. This does not make the fix unnecessary, but
+   it does mean the migration is a 31-row cleanup, not a mass rewrite.
+2. **The 178-row group is the one that matters.** A migration written against
+   "any row holding a value that happens to equal some default" would eat 178
+   deliberate user choices. Match the old pair **exactly** and nothing else.
+
+Luke has **already hand-backfilled the 31 rows on meta** to
+`{"vcpus": 12, "memory_mb": 24576}`, with a backup of the old values. The
+migration must therefore also be a safe no-op on meta — which it is, since those
+rows no longer match the old pair.
 
 ### (b) Stop materializing — the durable fix
 
@@ -209,41 +247,90 @@ with nil. Check the API response shape — if the frontend renders
 `task.sandbox_resource_overrides` directly, a now-nil field must fall back to the
 shared default constant rather than rendering blank.
 
-### (a) Backfill — because (b) alone helps nobody who already has a task
+### (a) Backfill — for every deployment other than meta
 
 New migration `api/pkg/store/migrations/0009_unmaterialize_spec_task_sandbox_default.up.sql`:
 
 ```sql
 -- Between 1eff4e801 (2026-08-10) and this migration, CreateTaskFromPrompt wrote
--- the global default onto every task row, freezing those tasks at 4 vCPU / 8 GB
--- forever. NULL means "no override, use the live default" — which is what these
--- rows meant all along.
+-- the global default onto rows that had no explicit size, freezing those tasks at
+-- 4 vCPU / 8 GB forever. NULL means "no override, use the live default" — which is
+-- what these rows meant all along.
+--
+-- Match the old default pair EXACTLY. On meta this is 31 rows. The 178 rows
+-- holding {"vcpus": 8, "memory_mb": 16384} are deliberate user choices and must
+-- never be caught by this. Do not generalise this predicate to "any row equal to
+-- some default" — 8/16384 was a valid selectable preset the whole time.
+--
+-- No-op on meta, whose 31 rows were hand-backfilled to 12/24576 on 2026-08-24.
 UPDATE spec_tasks
    SET sandbox_resource_overrides = NULL
  WHERE sandbox_resource_overrides = '{"vcpus": 4, "memory_mb": 8192}'::jsonb;
 ```
 
-Match on the exact object, not on the individual keys — anything else risks
-catching a hand-set value. `sandbox_resource_overrides` is
-`gorm:"type:jsonb;serializer:json"`, so `= '…'::jsonb` compares semantically
-(key order independent); confirm with `\d+ spec_tasks` that the column is
-genuinely `jsonb` and not `text` before relying on that, and fall back to
-`::jsonb` casting on both sides if it is `text`.
+`sandbox_resource_overrides` is `gorm:"type:jsonb;serializer:json"`, so
+`= '…'::jsonb` compares semantically (key-order independent). Confirm with
+`\d+ spec_tasks` that the column really is `jsonb` and not `text` before relying
+on that; if it is `text`, cast both sides.
+
+**Sanity-check the predicate against production counts before and after.** Run the
+`SELECT sandbox_resource_overrides, count(*) FROM spec_tasks GROUP BY 1` that
+produced Luke's table, confirm the 8/16384 count is identical after the migration,
+and put both numbers in the PR body. That check is the whole safety story for this
+migration.
 
 Down migration: a no-op with a comment. The information needed to reverse it
 (which NULLs were previously 4/8192) is gone by construction, and re-materializing
-all NULLs would recreate the bug for tasks that never had the value.
+all NULLs would recreate the bug for the 4102 rows that never had the value.
 
-**The blunt-instrument caveat.** A user who deliberately selected 4 vCPU / 8 GB is
-indistinguishable in the data from a materialized default, and gets reset. The
-argument for shipping it anyway: getting more resources is not harmful, the user
-can re-select 4 CPU at any time, and the alternative leaves every task created in
-the last two weeks permanently broken. Flagged as **Open Question 3**.
+### `NULL` vs the explicit new pair — Open Question 1
+
+Luke's hand backfill wrote `{"vcpus": 12, "memory_mb": 24576}`. The shipped
+migration above writes **`NULL`** instead, deliberately: NULL is the only value
+consistent with the "a stored override means the user chose this" principle Luke
+re-affirmed in the same decision. A NULLed row tracks every future default change;
+an explicit `12/24576` row is frozen exactly the way `4/8192` was — it would
+recreate this ticket the next time the default moves.
+
+It is a one-word difference and either is defensible. Flagged rather than decided
+silently because it diverges from what meta now holds. Meta's 31 rows can be
+NULLed separately if that shape is preferred; the migration is a no-op there
+either way.
+
+**Residual caveat.** A user who deliberately selected 4 vCPU / 8 GB is
+indistinguishable in the data from a materialized default and gets reset. Luke's
+counts bound this to at most 31 rows on meta. Getting more resources is not
+harmful and 4 CPU can be re-selected.
 
 **Projects are deliberately not touched.** `project_handlers.go:503` sets
 `DefaultSandboxResourceOverrides` straight from the request — a project only
 carries a value when an admin explicitly configured one. Nulling those would
 destroy real intent.
+
+## A4b. A stored 12/24576 is backend-safe today, frontend-blank today
+
+Luke's note, verified against the code and worth recording because it is
+counter-intuitive:
+
+- **Backend: already safe.** Every `ValidPreset()` call site validates an
+  **incoming request** (`spec_driven_task_handlers.go:169`,
+  `spec_task_execution_config_handlers.go:109`, `project_handlers.go:409,755`).
+  **None** validates a value read from the DB. `sandboxResourceLimits`
+  (`hydra/devcontainer.go:1104`) just multiplies. So meta's 31 hand-backfilled
+  rows already start containers at 12/24576 with today's binary.
+- **Frontend: blank.** `SpecTaskExecutionControls.tsx` renders the selection by
+  matching the stored `vcpus` against its local rung table. With no 12-vCPU rung,
+  those 31 tasks render with **no preset selected**.
+
+The ladder change in A5 fixes this by construction. Two things follow:
+
+1. Verification must include **opening one of the 31 backfilled tasks** and
+   confirming the "12 CPU / 24 GB RAM" rung is selected — not just creating a new
+   task.
+2. While there, make the match degrade gracefully: a stored value matching no rung
+   should show the raw size rather than rendering blank. That is what turned a
+   data change into an invisible UI bug here, and it will happen again the next
+   time someone hand-edits a row.
 
 ## A5. Every call site
 
@@ -344,7 +431,7 @@ mostly headless runtimes — that happens to duplicate the same three rungs.
   not size. No outage evidence exists for that surface, and raising a default
   nobody asked for costs density for no measured benefit.
 
-Flagged as **Open Question 6**.
+**Settled.** Luke confirmed `CreateSandboxDialog.tsx` moves with the rest.
 
 ## A7. Generated OpenAPI
 
@@ -360,8 +447,10 @@ confirm all seven copies moved.
 
 | Test | Why it moves |
 |---|---|
-| `api/pkg/services/spec_driven_task_service_test.go` (~129) | asserted the materialized default; under A4b the row is now **nil** — this is an inversion, not a value bump |
-| `api/pkg/org/infrastructure/runtime/helix/spectasks_sandbox_test.go` (~79) | uses `{4, 8192}` as the contrasting *project* default. Under A4b the no-project case stores nil, so re-point the contrast to `1/2048` (still `ValidPreset`, distinct from the default) or `TestSpecTasks_CreateFallsBackToProjectSandboxDefaults` becomes vacuous |
+| `api/pkg/services/spec_driven_task_service_test.go` (~129) | asserted the materialized default; under A4 (b) the row is now **nil** — this is an inversion, not a value bump |
+| `api/pkg/org/infrastructure/runtime/helix/spectasks_sandbox_test.go` (~79) | uses `{4, 8192}` as the contrasting *project* default. Under A4 (b) the no-project case stores nil, so re-point the contrast to `1/2048` (still `ValidPreset`, distinct from the default) or `TestSpecTasks_CreateFallsBackToProjectSandboxDefaults` becomes vacuous |
+| new — frontend | a stored `{vcpus: 12, memory_mb: 24576}` selects the 12-CPU rung; a stored value matching no rung does not render blank (A4b) |
+| new — migration | the predicate leaves `{"vcpus": 8, "memory_mb": 16384}` rows untouched |
 | `api/pkg/external-agent/task_overrides_test.go:84-85` | references the constants symbolically — should keep passing; **confirm by running, don't assume** |
 | `api/pkg/hydra/devcontainer_test.go:45` | asserts `MemorySwap == wantMemory*2`; add a clamp case |
 | `frontend/.../SpecTaskExecutionControls.test.tsx` (9 sites) | pass `{vcpus: 4, memory_mb: 8192}` as the *current* value — mostly still valid; `:219` clicks the 8-vCPU row and asserts a resize, which still contrasts with a 12-vCPU default. Run before rewriting |
@@ -558,8 +647,11 @@ Also worth having, all cheap against the parser:
    `docker exec helix-sandbox-nvidia-1 docker inspect -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}' <container>`
    → `25769803776 12000000000` for 12/24576 (or the clamped CPU value on a
    smaller host, which must also be logged).
-4. **Part A, pre-existing task** — pick a row created before the change, confirm
-   the migration NULLed it and that starting it produces the new limits.
+4. **Part A, pre-existing task** — on a deployment other than meta, pick a row
+   holding the old pair, confirm the migration NULLed it and that starting it
+   produces the new limits. Confirm the `8/16384` row count is unchanged.
+   On meta, open one of the **31 hand-backfilled tasks** and confirm the selector
+   shows the "12 CPU / 24 GB RAM" rung selected rather than blank (A4b).
 5. **Part A, config** — set `HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS=8` /
    `..._MEMORY_MB=16384`, restart, create a task, confirm the container follows.
    Then set an invalid pair and confirm the API refuses to start.
@@ -594,6 +686,15 @@ Also worth having, all cheap against the parser:
 
 - **vCPU is the primary key of a sandbox preset throughout this codebase.** Memory
   is always derived from it. Never make memory independently selectable.
+- **`ValidPreset()` guards requests, never reads.** Nothing validates a preset
+  loaded from the DB, and `sandboxResourceLimits` just multiplies. So a row can
+  legally hold a size no rung represents: the backend honours it, and the
+  **frontend silently renders no selection**. That asymmetry is why a data
+  backfill can look correct in `docker inspect` and broken in the UI at the same
+  time. Check both.
+- When a value like `8/16384` is *both* a plausible default and a real selectable
+  preset, a migration predicate written as "equals a default" destroys user
+  intent. Match the exact historical pair and diff the group counts before/after.
 - The ladder is enforced in **five** independent places: `ValidPreset()` and
   `SpecTaskSandboxPresetForVCPUs()` in `api/pkg/types/simple_spec_task.go`, the
   org runtime's error string, the org MCP tool *description prose* (Workers read

@@ -44,10 +44,13 @@ escapable only by a manual page reload.
 kills or CFS throttling.
 
 Acceptance criteria:
-- The global default sandbox size is raised from 4 vCPU / 8192 MB to a value
-  justified by the node01 usage sample in `design.md`.
-- The chosen default leaves the p90 observed task at **under 90%** of its memory
-  ceiling.
+- **Decided (Luke):** the global default is raised from 4 vCPU / 8192 MB to
+  **12 vCPU / 24576 MB**. `DefaultSpecTaskSandboxVCPUs = 12`,
+  `DefaultSpecTaskSandboxMemoryMB = 24576`. 24 GB is the number because a
+  Helix-in-Helix task's real steady state exceeds 8 GB for the inner stack alone,
+  and the largest uncapped desktop on node01 runs 29.75 GiB.
+- This also satisfies the brief's rule that the p90 observed task sits at **under
+  90%** of its memory ceiling (see the censoring analysis in `design.md` A1).
 - A newly created spec task's container really carries the new limits, verified
   from the host with
   `docker exec helix-sandbox-nvidia-1 docker inspect -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}' <container>`.
@@ -60,15 +63,26 @@ cluster, `go build -tags ORT`, gopls at 1.9 GB, Zed, gnome-shell)
 **So that** the task is not capped below its known ~24 GB working set.
 
 Acceptance criteria:
+- **Decided (Luke):** the ladder becomes exactly these five rungs, keeping the
+  2 GB-per-vCPU ratio throughout:
+
+  | vCPU | memory MB | |
+  |---|---|---|
+  | 1 | 2048 | unchanged |
+  | 4 | 8192 | unchanged |
+  | 8 | 16384 | unchanged |
+  | 12 | 24576 | **new** — the new default |
+  | 16 | 32768 | **new** — the new ceiling |
+
 - `SpecTaskSandboxPresetForVCPUs` and `ValidPreset`
-  (`api/pkg/types/simple_spec_task.go:117-144`) accept at least one rung above
-  8 vCPU / 16384 MB.
-- Memory remains **not** independently selectable — vCPU stays the preset key and
-  memory is derived from it.
-- All existing rungs (1/2048, 4/8192, 8/16384) remain valid, so no stored value
-  is retroactively rejected by `ValidPreset`.
-- The new rungs are selectable in the UI (`SpecTaskExecutionControls`,
-  `CodeAgentExecutionControls`) and via the org MCP `sandbox_vcpus` argument.
+  (`api/pkg/types/simple_spec_task.go:117-144`) accept all five.
+- Memory remains **not** independently selectable — vCPU picks the rung.
+- All existing rungs remain valid, so no stored value is retroactively rejected
+  by `ValidPreset`.
+- Every UI and prose copy of the ladder moves with it:
+  `SpecTaskExecutionControls.tsx`, `CodeAgentExecutionControls.tsx`,
+  `CreateSandboxDialog.tsx`, and the org MCP tool description in
+  `api/pkg/org/interfaces/mcptools/spec_tasks.go` (currently says "1, 4 or 8").
 
 ### US-3 — An operator can change the default without rebuilding
 **As an** operator with a 500 GB box (or a 16 GB laptop)
@@ -90,15 +104,53 @@ made `CreateTaskFromPrompt` materialize the default onto the row)
 **So that** I am not permanently pinned to `{"vcpus": 4, "memory_mb": 8192}` by an
 accident of when the row was written.
 
+**Actual scale of the problem** (Luke, counted on meta today — this corrects the
+brief, which implied *every* task created since 2026-08-10 was affected):
+
+| rows | `sandbox_resource_overrides` | meaning | action |
+|---|---|---|---|
+| 4102 | `NULL` | inherits the const | nothing to do — these get the new default for free |
+| 178 | `{"vcpus": 8, "memory_mb": 16384}` | a real user choice | **DO NOT TOUCH** |
+| 31 | `{"vcpus": 4, "memory_mb": 8192}` | the materialized old default | the only stale rows |
+
+Only 31 rows were ever stale. Luke has **already backfilled those by hand on
+meta** to `{"vcpus": 12, "memory_mb": 24576}`, keeping a backup of the old values.
+The migration is still needed for every other deployment.
+
 Acceptance criteria:
 - New tasks that did not specify a size and had no project default store **no**
-  sandbox override; the default is resolved at container-create time.
-- Existing rows holding exactly the old default are backfilled so they resolve to
-  the live default.
-- A task where the user *deliberately* chose a size, or where a project default
-  applied, keeps that value. A stored override means "someone chose this".
+  sandbox override; the default is resolved at container-create time. A stored
+  override means "the user chose this", not "this was the default the day the row
+  was written".
+- The migration matches **only** rows holding exactly `{"vcpus": 4,
+  "memory_mb": 8192}`. It must never match `{"vcpus": 8, "memory_mb": 16384}` —
+  that is 178 deliberate user choices on meta alone.
+- A task where the user deliberately chose a size, or where a project default
+  applied, keeps that value.
+- The migration is idempotent and a no-op on meta, whose 31 rows now hold
+  `12/24576` and no longer match the old pair.
 - Verified live: a task row created *before* the change starts a container with
   the new limits.
+
+### US-4a — A stored 12-vCPU value renders correctly in the UI
+**As a** user opening one of the backfilled tasks
+**I want** the sandbox selector to show my task's actual size
+**So that** the task does not appear to have no sandbox configured.
+
+A stored `12/24576` is already safe with today's *backend* code: every
+`ValidPreset()` call site validates an **incoming request**, none validate a value
+read from the DB, and `sandboxResourceLimits` just multiplies. The gap is purely
+in the frontend — until the new ladder lands, `SpecTaskExecutionControls.tsx` has
+no 12-vCPU rung, so meta's 31 backfilled tasks render with **no preset selected**.
+
+Acceptance criteria:
+- After the frontend ladder change, a task storing `{"vcpus": 12,
+  "memory_mb": 24576}` renders with the "12 CPU / 24 GB RAM" rung selected and
+  marked as the default.
+- Verified by opening one of the 31 backfilled tasks on meta, not by unit test
+  alone.
+- A stored value matching **no** rung (possible for any row hand-edited in future)
+  degrades gracefully — it shows the raw size rather than rendering blank.
 
 ### US-5 — Every duplicated copy of the ladder moves together
 **As a** future maintainer
@@ -174,8 +226,8 @@ Acceptance criteria (from the brief; `CLAUDE.md` rules apply):
 ## Non-Goals
 
 - Changing how the sandboxes API (`CreateSandboxDialog`, `controller_provision.go`,
-  `cli/sandbox`) picks its **default** size. Its ladder is extended for
-  consistency; its default is a separate product decision — see `design.md`.
+  `cli/sandbox`) picks its **default** size. Luke confirmed its *ladder* moves
+  with the rest; its default is a separate product decision — see `design.md` A6.
 - Making memory independently selectable from vCPU.
 - Restructuring `ResilientProxy` into a frame-aware WebSocket proxy. Only the
   client's first text frame is parsed.
@@ -195,15 +247,32 @@ in `design.md`. This task supersedes it and is broader — preset ceiling, opera
 config, materialized rows, and Part B. Close `spt_01m0evm3dpanc1sfktywbxhes4` as
 superseded rather than implementing both.
 
+## Settled by Luke
+
+These were open at first review and are now **fixed, not suggestions**:
+
+- **Ladder** — 1/2048, 4/8192, 8/16384, **12/24576**, **16/32768**. 2 GB per vCPU
+  throughout. vCPU picks the rung; memory stays non-independently-selectable.
+- **Default** — 12 vCPU / 24576 MB, still operator-configurable via config, with
+  12/24576 as the no-env fallback.
+- **Migration scope** — target only rows holding exactly `{"vcpus": 4,
+  "memory_mb": 8192}` (31 rows on meta, already hand-backfilled there). Never the
+  178 rows holding `{"vcpus": 8, "memory_mb": 16384}`. Keep the "stop
+  materializing, resolve at container-create time" shape.
+- **Sandboxes-API ladder** — `CreateSandboxDialog.tsx` moves with the rest.
+
 ## Open Questions
 
-1. **Is 12 vCPU / 24 GB the right default, or is 8 vCPU / 16 GB preferred despite
-   the p90 rule?** `design.md` recommends 12/24576 because it is literally the
-   configuration proven live to fix the outage, and because 16 GB leaves the p90
-   task at ~131% of its ceiling. The cost is density: a 12-vCPU default is the
-   entire CPU allocation of this 12-core box, and on a smaller host it must be
-   clamped (see Q2). If density matters more than headroom, say so and we ship
-   8/16384 with 12/24576 and 16/32768 as selectable rungs instead.
+1. **Should the migration write `NULL` or the explicit new pair?** Luke's hand
+   backfill on meta wrote `{"vcpus": 12, "memory_mb": 24576}`. `design.md` A4
+   recommends the shipped migration write **`NULL`** instead, because that is the
+   only value consistent with the "a stored override means the user chose this"
+   principle Luke re-affirmed in the same decision — a NULLed row tracks every
+   future default change, an explicit `12/24576` row is frozen exactly the way
+   `4/8192` was. This is a one-word difference in the migration. Consequence
+   either way is small; flagging it because it diverges from what meta now holds.
+   (Meta's 31 rows can be NULLed separately later if that shape is preferred; the
+   migration is a no-op there regardless.)
 2. **Should the resolved default be clamped to host CPU count?** Docker rejects
    `--cpus` greater than the host's CPU count outright ("Range of CPUs is from
    0.01 to N.00"), so a 12-vCPU default would fail container creation on any host
@@ -213,14 +282,14 @@ superseded rather than implementing both.
    Memory needs no clamp (Docker permits limits above host RAM). Confirm this is
    wanted; it is the difference between a safe default and one that breaks small
    installs.
-3. **Is the backfill migration acceptable as a blunt instrument?** The proposed
-   migration NULLs `spec_tasks.sandbox_resource_overrides` where it equals exactly
-   `{"vcpus":4,"memory_mb":8192}`. Between 2026-08-10 and today a materialized
-   default and a deliberate 4/8192 choice are **indistinguishable in the data**, so
-   a user who genuinely wanted 4/8192 would be reset to the default. The argument
-   for doing it anyway: getting more resources is not harmful, and the user can
-   re-select 4 CPU at any time. Project rows are deliberately **not** touched
-   (projects only store an override when an admin explicitly set one).
+3. **Residual, now small: a deliberate 4/8192 choice is still indistinguishable
+   from a materialized default.** Luke's counts bound this to at most 31 rows on
+   meta (already hand-backfilled), so it is no longer the blunt instrument it
+   looked like at first review. Raised only so other deployments running the
+   migration know the semantics: a user who genuinely picked 4 CPU is reset to the
+   default. Getting more resources is not harmful and they can re-select 4 CPU.
+   Project rows are deliberately **not** touched — projects only store an override
+   when an admin explicitly set one. No action expected unless you disagree.
 4. **One PR or two?** `design.md` recommends two — Part A (defaults + config +
    DB migration + ~12 call sites) and Part B (wire-protocol replay) have
    different blast radii, different reviewers, and should be independently
@@ -234,7 +303,3 @@ superseded rather than implementing both.
    restart, and under Part A's starvation it took 43 s. This must be **observed in
    the log during verification**, not assumed. If teardown is refcount-immediate,
    a short linger on the shared source may be a follow-up.
-6. **Should the sandboxes-API ladder (`CreateSandboxDialog`,
-   `controller_provision.go`, `cli/sandbox`) move too?** `design.md` extends its
-   rungs to match but leaves its default alone. Confirm that split is what you
-   want, or say whether the sandboxes surface should be left entirely untouched.
