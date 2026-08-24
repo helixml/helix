@@ -292,6 +292,60 @@ so it is left as-is. Fixing it would mean stamping a fingerprint of the applied
 config at container start — which requires the container to report what it
 booted with, the heavier design deliberately deferred above.
 
+## App-side instructions: only the REST update path is wired
+
+A Bot's instructions are actually read from the App, not the Node —
+`canonicalAgentProfile` overwrites `BotDTO.Content` with
+`AgentProfile.Instructions`, which maps to
+`app.Config.Helix.Assistants[0].SystemPrompt`. That meant editing
+instructions from the Agent settings page (`/orgs/:org_id/agents/:app_id`)
+changed the App only: the Node's `Content` fingerprint never moved, so the
+mechanism above never armed. Fixed by adding a second, narrower hook,
+`HelixAPIServer.orgAgentInstructionsChanged`, called from
+`api/pkg/server/app_handlers.go` after `updateAgent`'s `Store.UpdateApp`
+succeeds, gated on the system prompt actually changing. It resolves the
+App to its backing Node (`stampRestartRequiredForApp` in
+`api/pkg/server/helix_org.go`, matching `Node.AgentID == app.ID` across the
+App's org) and reuses the same `stampRestartRequiredContainer` the Node
+fingerprint path calls — one stamping implementation, two arming paths.
+
+**Only the `s.updateAgent` HTTP handler is hooked — every path that funnels
+through it is covered, everything that calls `Store.UpdateApp` directly is
+not.** `Store.UpdateApp` has nine call sites across `api/pkg/server/`.
+Checked each for whether it can touch `Assistants[0].SystemPrompt`:
+
+- `app_handlers.go`'s `updateAgent` (REST `PUT /api/v1/agents/{id}`) — the
+  hooked path this change adds.
+- `helix_org_inproc.go`'s `inProcHelixClient.UpdateAgent` /
+  `UpdateAgentContent` — used by the `set_bot_content` MCP tool among
+  others — do **not** bypass the hook: both build an HTTP request in-process
+  and call `c.server.updateAgent(nil, r)` directly, so they run through the
+  exact same code this change instruments. (`set_bot_content` also updates
+  `Node.Content` first, which was already covered by the pre-existing
+  fingerprint mechanism — this call is belt-and-suspenders, not the
+  interesting case.)
+- `helix_org_inproc.go`'s `UpdateAppConfig` (`app.Config = cfg;
+  Store.UpdateApp(...)`) **is** a real bypass: it writes the whole config,
+  including `SystemPrompt`, straight to the store with no hook and no
+  diff check. Its only current caller, `RemoveHelixOrgMCP`
+  (`org/infrastructure/runtime/helix/mcp.go`), only ever touches `MCPs`, so
+  nothing reachable today silently slips through — but the seam itself is
+  unguarded. A future caller of `UpdateAppConfig` that changes the system
+  prompt will not arm the restart-required flag.
+- `helix_org_inproc.go`'s `ApplyAgentDefaults` and `markAgentAppAsOrgKind`,
+  `app_handlers.go`'s avatar upload/delete handlers, `skills.go`'s MCP-skill
+  writer, `zed_config_handlers.go`'s provider-ref healer, and
+  `project_handlers.go`'s skill-preservation sync never write
+  `SystemPrompt` at all (they touch `CodeAgentRuntime`/`Provider`/`Model`,
+  `AgentKind`, `Avatar`, `MCPs`, provider refs, and `Tools` respectively) —
+  they carry no restart-staleness risk today, hooked or not.
+
+So the honest scope of the remaining gap is exactly `UpdateAppConfig`, not
+every other `UpdateApp` call site. Closing it would mean either adding the
+same prompt-diff check there, or moving the check into `Store.UpdateApp`
+itself so no call site can bypass it structurally; neither was attempted —
+out of scope for this change.
+
 ### Not verified by this run
 
 - **The browser click-path.** The banner's rendering, the confirm dialog, the
