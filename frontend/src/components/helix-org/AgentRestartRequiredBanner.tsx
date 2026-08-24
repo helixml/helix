@@ -10,7 +10,7 @@
 // so the button is gated while the agent is working and the cost is spelled
 // out in a confirm dialog.
 
-import { FC, useState } from 'react'
+import { FC, useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
@@ -21,6 +21,7 @@ import DialogTitle from '@mui/material/DialogTitle'
 import Stack from '@mui/material/Stack'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
+import { alpha, useTheme } from '@mui/material/styles'
 import { RotateCcw } from 'lucide-react'
 
 import { APP_FONT_FAMILY } from '../../styles/typography'
@@ -38,8 +39,18 @@ const AgentRestartRequiredBanner: FC<AgentRestartRequiredBannerProps> = ({
   busy = false,
   onRestart,
 }) => {
+  const theme = useTheme()
   const [dismissed, setDismissed] = useState(false)
   const [confirming, setConfirming] = useState(false)
+
+  // Re-arm on a genuine new restart-required cycle. "Not now" is meant to
+  // quiet the banner for the current staleness, not to switch it off for the
+  // life of the page — the parent mounts this component permanently, so
+  // without this the next real config change after a dismissal would be
+  // silently swallowed.
+  useEffect(() => {
+    setDismissed(false)
+  }, [visible])
 
   if (!visible || dismissed) return null
 
@@ -68,8 +79,8 @@ const AgentRestartRequiredBanner: FC<AgentRestartRequiredBannerProps> = ({
           py: 1,
           mb: 1,
           borderRadius: 1,
-          border: '1px solid rgba(255, 167, 38, 0.35)',
-          backgroundColor: 'rgba(255, 167, 38, 0.08)',
+          border: `1px solid ${alpha(theme.palette.warning.main, 0.35)}`,
+          backgroundColor: alpha(theme.palette.warning.main, 0.08),
         }}
       >
         <RotateCcw size={18} strokeWidth={1.8} />

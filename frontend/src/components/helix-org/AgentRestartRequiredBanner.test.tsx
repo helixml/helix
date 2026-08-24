@@ -61,4 +61,18 @@ describe('AgentRestartRequiredBanner', () => {
     render(<AgentRestartRequiredBanner visible busy onRestart={vi.fn()} />)
     expect(screen.getByRole('button', { name: /restart sandbox/i })).toBeDisabled()
   })
+
+  it('re-arms after a dismissal when a new restart requirement arrives', () => {
+    const { rerender } = render(<AgentRestartRequiredBanner visible onRestart={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /not now/i }))
+    expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()
+
+    // The sandbox is restarted: the flag clears.
+    rerender(<AgentRestartRequiredBanner visible={false} onRestart={vi.fn()} />)
+    // The operator edits the bot again: a genuinely new staleness.
+    rerender(<AgentRestartRequiredBanner visible onRestart={vi.fn()} />)
+
+    expect(screen.getByTestId('agent-restart-required-banner')).toBeInTheDocument()
+  })
 })
