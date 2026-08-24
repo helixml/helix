@@ -34,6 +34,10 @@ type WorkerState struct {
 	RepoID       string
 	SessionID    string
 	HiringUserID string
+	// RestartRequiredContainer is the Docker container id of the Worker's
+	// sandbox at the moment a restart-sensitive config change was saved.
+	// Empty when nothing is pending or the sandbox was down at save time.
+	RestartRequiredContainer string
 }
 
 const (
@@ -42,6 +46,12 @@ const (
 	keyRepoID       = "repo_id"
 	keySessionID    = "session_id"
 	keyHiringUserID = "hiring_user_id"
+	// keyRestartContainer stores the sandbox container id that a saved
+	// config change made stale. Docker never reuses a container id, so
+	// comparing it to the session's live ContainerID is what makes the
+	// flag self-clear on every container recreate — there is deliberately
+	// no code anywhere that clears this key.
+	keyRestartContainer = "restart_required_container"
 )
 
 // LoadState returns the Helix-backend state for a Worker.
@@ -54,11 +64,12 @@ func LoadState(ctx context.Context, st *store.Store, orgID string, workerID orgc
 		return WorkerState{}, fmt.Errorf("helix state: get %s/%s: %w", orgID, workerID, err)
 	}
 	return WorkerState{
-		ProjectID:    kv[keyProjectID],
-		AgentID:      kv[keyAgentID],
-		RepoID:       kv[keyRepoID],
-		SessionID:    kv[keySessionID],
-		HiringUserID: kv[keyHiringUserID],
+		ProjectID:            kv[keyProjectID],
+		AgentID:              kv[keyAgentID],
+		RepoID:               kv[keyRepoID],
+		SessionID:            kv[keySessionID],
+		HiringUserID:         kv[keyHiringUserID],
+		RestartRequiredContainer: kv[keyRestartContainer],
 	}, nil
 }
 
@@ -104,4 +115,16 @@ func ClearProject(ctx context.Context, st *store.Store, orgID string, workerID o
 		keyRepoID:    "",
 		keySessionID: "",
 	})
+}
+
+// SaveRestartRequiredContainer records which sandbox container was live
+// when a restart-sensitive config change was saved. Writing "" (no
+// session, or the sandbox is down) is meaningful: it is the no-banner
+// case, so this deliberately does not skip empty values the way
+// SaveHiringUser does.
+func SaveRestartRequiredContainer(ctx context.Context, st *store.Store, orgID string, workerID orgchart.NodeID, containerID string) error {
+	if st == nil || st.NodeRuntimeState == nil {
+		return errors.New("helix state: store is nil")
+	}
+	return st.NodeRuntimeState.Set(ctx, orgID, workerID, Backend, keyRestartContainer, containerID)
 }
