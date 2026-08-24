@@ -55,7 +55,7 @@
 - [x] Replace the useState initial value (`components/tasks/NewSpecTaskForm.tsx:152`) and the `?.memory_mb || 8192` project fallback (`:339`)
 - [x] Replace the `?.memory_mb || 8192` fallback in `components/session/projectChatItemDetails.ts:65`
 - [x] Extend the size list in `components/sandboxes/CreateSandboxDialog.tsx:44-46` to match the shared rungs, leaving its default selection unchanged
-- [~] Confirm a task storing `{"vcpus": 12, "memory_mb": 24576}` now renders with the "12 CPU / 24 GB RAM" rung **selected** — meta's 31 backfilled tasks currently render blank because no 12-vCPU rung exists
+- [x] Confirm a task storing `{"vcpus": 12, "memory_mb": 24576}` now renders with the "12 CPU / 24 GB RAM" rung **selected** — meta's 31 backfilled tasks currently render blank because no 12-vCPU rung exists
 - [x] Make an unmatched stored value degrade gracefully (show the raw size, not blank), so a future hand-edited row is visible rather than silently unselected
 - [x] Grep `frontend/src` and confirm no sandbox-default literal survives outside `sandboxPresets.ts` and test fixtures (ignore unrelated `8192`/`16384` in `api_bindings.ts`, `profileBlocks.ts`)
 
@@ -99,7 +99,7 @@
 
 - [ ] `cd api && go build ./pkg/...` and `cd frontend && yarn build`
 - [ ] In the inner Helix at `http://localhost:8080`: register `test@helix.ml` / `helixtest`, complete onboarding, create a spec task, open its detail page, confirm video actually plays in the browser
-- [ ] Fresh task: `docker exec helix-sandbox-nvidia-1 docker inspect -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}' <container>` shows the new limits (`25769803776 12000000000`, or the clamped CPU value with its log line)
+- [x] Fresh task: `docker exec helix-sandbox-nvidia-1 docker inspect -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}' <container>` shows the new limits (`25769803776 12000000000`, or the clamped CPU value with its log line)
 - [ ] Pre-existing task row (non-meta deployment): confirm the migration NULLed it, that starting it produces the new limits, and that the `8/16384` row count is unchanged
 - [ ] On meta: open one of the 31 hand-backfilled tasks and confirm the selector shows "12 CPU / 24 GB RAM" selected rather than blank
 - [ ] Config override: set `HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS=8` / `..._MEMORY_MB=16384`, restart, create a task, confirm the container follows; then set an invalid pair and confirm startup refuses
@@ -119,6 +119,25 @@
 - [ ] Close `spt_01m0evm3dpanc1sfktywbxhes4` as superseded by this task
 
 ## Notes discovered during implementation
+
+### Gap found by end-to-end testing (would have shipped the bug)
+
+The backend change alone was **not enough**. Both create forms
+(`pages/Home.tsx`, `components/tasks/NewSpecTaskForm.tsx`) initialised their
+sandbox state to the default and `buildNewChatTaskRequest` sends the field
+whenever it is truthy — so every new task row still came back with
+`{"vcpus": 12, "memory_mb": 24576}` written on it. That is the same freeze
+`1eff4e801` caused, just at a new value, and it is invisible to any unit test
+that only exercises the Go service.
+
+Fix: both forms hold `undefined` until the user picks a size (or the project
+supplies a default). The selectors already render `DEFAULT_SANDBOX_PRESET` for
+an undefined value, so the UI is unchanged.
+
+**Lesson for future agents:** when removing a materialized default on the
+server, check every client that constructs the create request. A
+`...(value ? { field: value } : {})` spread with a defaulted state variable
+always sends the field.
 
 ### Part B implementation notes
 
