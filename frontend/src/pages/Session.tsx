@@ -66,6 +66,8 @@ import {
 } from '../components/session/ChatTurnNavigator.logic'
 import { splitSystemPrefix } from '../components/session/CollapsibleSystemPrefix'
 import OrgAgentSessionWorkspace from '../components/helix-org/OrgAgentSessionWorkspace'
+import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
+import { useHelixOrgBot, useRestartBotAgent } from '../services/helixOrgService'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -286,6 +288,17 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   const [isCancelling, setIsCancelling] = useState(false)
 
   const isExternalAgent = session?.data?.config?.agent_type === TypesAgentType.AgentTypeZedExternal
+
+  // A helix-org bot session carries its bot id on the session config. Only
+  // this org chat surface needs it — other Session mounts (spec tasks,
+  // ordinary project chat) leave org_worker_id empty, so the lookup and
+  // restart-required banner stay inert there.
+  const orgWorkerId = (orgChatView && session?.data?.config?.org_worker_id) || ''
+  const { data: orgBotDetail } = useHelixOrgBot(orgWorkerId || undefined, {
+    enabled: !!orgWorkerId,
+  })
+  const orgBot = orgBotDetail?.bot
+  const restartOrgBotAgent = useRestartBotAgent()
 
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
@@ -1583,6 +1596,13 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
       showDrawerButton={true}
       disableContentScroll={true}
     >
+      <AgentRestartRequiredBanner
+        key={orgWorkerId}
+        visible={!!orgBot?.restart_required}
+        working={!!sessionID && isStreaming}
+        busy={restartOrgBotAgent.isPending}
+        onRestart={() => { if (orgWorkerId) void restartOrgBotAgent.mutateAsync(orgWorkerId) }}
+      />
       {isExternalAgent ? (
         <OrgAgentSessionWorkspace
           sessionId={session.data.id || sessionID}
