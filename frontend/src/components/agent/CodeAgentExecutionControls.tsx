@@ -26,6 +26,8 @@ import { getCodeAgentEffortOptions } from './CodeAgentEffortSelect'
 import { useHasEnabledCodeAgentHarnesses } from '../../services/codeAgentHarnessesService'
 import CodeAgentConfigPicker from './CodeAgentConfigPicker'
 import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
+import { sandboxPresetsFor } from '../../constants/sandboxPresets'
+import { useDefaultSandboxPreset } from '../../hooks/useDefaultSandboxPreset'
 
 type MaybePromise = void | Promise<unknown>
 
@@ -48,14 +50,6 @@ export interface CodeAgentExecutionControlsProps {
   /** Select the recommended available harness and model when a new task has no config. */
   autoSelectDefault?: boolean
 }
-
-const SANDBOX_PRESETS = [
-  { vcpus: 1, memory_mb: 2048, description: '2 GB RAM' },
-  { vcpus: 4, memory_mb: 8192, description: '8 GB RAM' },
-  { vcpus: 8, memory_mb: 16384, description: '16 GB RAM' },
-] as const
-
-const DEFAULT_SANDBOX_PRESET = SANDBOX_PRESETS[1]
 
 const compactButtonSx = {
   height: 28,
@@ -101,9 +95,11 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
     && value?.service_tier === 'fast'
     ? `${effortLabel} · Fast`
     : effortLabel
+  const defaultSandboxPreset = useDefaultSandboxPreset()
   const resources = sandboxResourceOverrides?.vcpus
     ? sandboxResourceOverrides
-    : DEFAULT_SANDBOX_PRESET
+    : defaultSandboxPreset
+  const sandboxPresets = sandboxPresetsFor(resources.vcpus, resources.memory_mb)
   const runtimeEnvironment = sandboxRuntime || TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop
   const showSandboxRuntime = sandboxRuntime !== undefined || !!onSandboxRuntimeChange
   const sandboxRuntimeLocked = showSandboxRuntime && !onSandboxRuntimeChange
@@ -287,7 +283,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
         transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
       >
         <ListSubheader disableSticky>Compute</ListSubheader>
-        {SANDBOX_PRESETS.map((preset) => (
+        {sandboxPresets.map((preset) => (
           <MenuItem
             key={preset.vcpus}
             selected={preset.vcpus === resources.vcpus}
@@ -300,7 +296,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
           >
             <Typography variant="body2" sx={{ flex: 1 }}>{preset.vcpus} vCPU</Typography>
             <Typography variant="caption" color="text.secondary">
-              {preset.description}{preset.vcpus === DEFAULT_SANDBOX_PRESET.vcpus ? ' · Default' : ''}
+              {preset.description}{preset.vcpus === defaultSandboxPreset.vcpus ? ' · Default' : ''}
             </Typography>
           </MenuItem>
         ))}

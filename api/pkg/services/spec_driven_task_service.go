@@ -154,13 +154,16 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 			return nil, fmt.Errorf("failed to get project: %w", err)
 		}
 	}
+	// Deliberately left nil when neither the request nor the project chose a size:
+	// a stored override means "someone chose this", not "this was the default the
+	// day the row was written". Materializing it here froze every task created
+	// after 1eff4e801 at 4 vCPU / 8 GB, so a raised default could never reach
+	// them. The default is resolved at container-create time instead — see
+	// HydraExecutor.resolveSpecTaskLaunchConfig.
 	sandboxResources := req.SandboxResourceOverrides
 	if sandboxResources == nil && project != nil && project.DefaultSandboxResourceOverrides != nil {
 		projectResources := *project.DefaultSandboxResourceOverrides
 		sandboxResources = &projectResources
-	}
-	if sandboxResources == nil {
-		sandboxResources = types.DefaultSpecTaskSandboxResources()
 	}
 	sandboxRuntime := req.SandboxRuntime
 	if sandboxRuntime == "" && project != nil {

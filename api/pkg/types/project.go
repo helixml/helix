@@ -242,8 +242,9 @@ type Project struct {
 	// Default sandbox environment for new spec tasks. Empty values from legacy
 	// projects resolve to the full desktop runtime.
 	DefaultSandboxRuntime SandboxRuntime `json:"default_sandbox_runtime,omitempty" gorm:"size:64"`
-	// Default sandbox resources copied into each new SpecTask. Nil values from
-	// legacy projects resolve to the standard 4 vCPU / 8 GB preset.
+	// Default sandbox resources copied into each new SpecTask. Nil means the
+	// project expresses no preference and the task resolves the global default at
+	// container-create time.
 	DefaultSandboxResourceOverrides *SandboxResourceOverrides `json:"default_sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	ProjectManagerHelixAppID string `json:"project_manager_helix_app_id"`

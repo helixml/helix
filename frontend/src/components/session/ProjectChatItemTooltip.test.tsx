@@ -5,6 +5,7 @@ import { TypesCodeAgentCredentialType, TypesCodeAgentRuntime, TypesSandboxRuntim
 import { AppsContext, IAppsContext } from '../../contexts/apps'
 import type { IApp } from '../../types'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
+import { DEFAULT_SANDBOX_PRESET } from '../../constants/sandboxPresets'
 
 const appsContext = (apps: IApp[]): IAppsContext => ({
   apps,
@@ -96,7 +97,9 @@ describe('ProjectChatItemTooltip', () => {
 
     fireEvent.mouseOver(screen.getByRole('button', { name: 'Legacy task row' }))
 
-    expect(await screen.findByText('4 vCPU · 8 GB RAM')).toBeInTheDocument()
+    expect(await screen.findByText(
+      `${DEFAULT_SANDBOX_PRESET.vcpus} vCPU · ${DEFAULT_SANDBOX_PRESET.memory_mb / 1024} GB RAM`,
+    )).toBeInTheDocument()
     expect(screen.getByText('Full Desktop')).toBeInTheDocument()
   })
 })
