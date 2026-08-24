@@ -1207,6 +1207,13 @@ type ServerConfigForFrontend struct {
 	// Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
 	MaxConcurrentDesktops int    `json:"max_concurrent_desktops"`
 	Edition               string `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
+	// DefaultSpecTaskSandbox is the sandbox size a new spec task gets when it
+	// specifies none. It is operator-configurable
+	// (HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS/_MEMORY_MB), so the UI has to read
+	// it from here rather than hardcode a copy — otherwise an operator who moves
+	// the default gets a task selector that marks the wrong rung "Default" while
+	// containers come up at the configured size.
+	DefaultSpecTaskSandbox SandboxResourceOverrides `json:"default_spec_task_sandbox"`
 	// DefaultChatSystemPrompt is the system prompt the platform applies to
 	// direct model chats when the user has not customised one. Surfaced to
 	// the frontend so the chat-settings page can prefill the textbox.

@@ -6286,6 +6286,15 @@ export interface TypesServerConfigForFrontend {
    * the frontend so the chat-settings page can prefill the textbox.
    */
   default_chat_system_prompt?: string;
+  /**
+   * DefaultSpecTaskSandbox is the sandbox size a new spec task gets when it
+   * specifies none. It is operator-configurable
+   * (HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS/_MEMORY_MB), so the UI has to read
+   * it from here rather than hardcode a copy — otherwise an operator who moves
+   * the default gets a task selector that marks the wrong rung "Default" while
+   * containers come up at the configured size.
+   */
+  default_spec_task_sandbox?: TypesSandboxResourceOverrides;
   deployment_id?: string;
   /**
    * DevSubdomain is the base domain used for sandbox preview hostnames.

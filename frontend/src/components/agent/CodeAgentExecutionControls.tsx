@@ -26,7 +26,8 @@ import { getCodeAgentEffortOptions } from './CodeAgentEffortSelect'
 import { useHasEnabledCodeAgentHarnesses } from '../../services/codeAgentHarnessesService'
 import CodeAgentConfigPicker from './CodeAgentConfigPicker'
 import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
-import { DEFAULT_SANDBOX_PRESET, sandboxPresetsFor } from '../../constants/sandboxPresets'
+import { sandboxPresetsFor } from '../../constants/sandboxPresets'
+import { useDefaultSandboxPreset } from '../../hooks/useDefaultSandboxPreset'
 
 type MaybePromise = void | Promise<unknown>
 
@@ -94,9 +95,10 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
     && value?.service_tier === 'fast'
     ? `${effortLabel} · Fast`
     : effortLabel
+  const defaultSandboxPreset = useDefaultSandboxPreset()
   const resources = sandboxResourceOverrides?.vcpus
     ? sandboxResourceOverrides
-    : DEFAULT_SANDBOX_PRESET
+    : defaultSandboxPreset
   const sandboxPresets = sandboxPresetsFor(resources.vcpus, resources.memory_mb)
   const runtimeEnvironment = sandboxRuntime || TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop
   const showSandboxRuntime = sandboxRuntime !== undefined || !!onSandboxRuntimeChange
@@ -294,7 +296,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
           >
             <Typography variant="body2" sx={{ flex: 1 }}>{preset.vcpus} vCPU</Typography>
             <Typography variant="caption" color="text.secondary">
-              {preset.description}{preset.vcpus === DEFAULT_SANDBOX_PRESET.vcpus ? ' · Default' : ''}
+              {preset.description}{preset.vcpus === defaultSandboxPreset.vcpus ? ' · Default' : ''}
             </Typography>
           </MenuItem>
         ))}

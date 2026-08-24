@@ -29,11 +29,8 @@ import { getCodeAgentEffortOptions } from "../agent/CodeAgentEffortSelect";
 import { useModelReasoningEfforts } from "../../hooks/useModelReasoningEfforts";
 import SpecTaskModelPicker from "./SpecTaskModelPicker";
 import { codeAgentExecutionConfigFromApp } from "../../utils/codeAgentExecutionConfig";
-import {
-  DEFAULT_SANDBOX_PRESET,
-  SandboxPreset,
-  sandboxPresetsFor,
-} from "../../constants/sandboxPresets";
+import { SandboxPreset, sandboxPresetsFor } from "../../constants/sandboxPresets";
+import { useDefaultSandboxPreset } from "../../hooks/useDefaultSandboxPreset";
 
 type MaybePromise = void | Promise<unknown>;
 
@@ -145,9 +142,10 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   // runtime list stands. See api/pkg/model/reasoning_efforts.go.
   const supportedEfforts = useModelReasoningEfforts(effectiveModel);
   const effortOptions = getCodeAgentEffortOptions(runtime, supportedEfforts);
+  const defaultSandboxPreset = useDefaultSandboxPreset();
   const effectiveSandboxResources = sandboxResourceOverrides?.vcpus
     ? sandboxResourceOverrides
-    : DEFAULT_SANDBOX_PRESET;
+    : defaultSandboxPreset;
   const sandboxPresets = sandboxPresetsFor(
     effectiveSandboxResources.vcpus, effectiveSandboxResources.memory_mb);
   const sandboxLabel = `${effectiveSandboxResources.vcpus} vCPU`;
@@ -411,7 +409,7 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
             <Typography variant="body2" sx={{ flex: 1, whiteSpace: "nowrap" }}>{preset.vcpus} vCPU</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
               {preset.description}
-              {preset.vcpus === DEFAULT_SANDBOX_PRESET.vcpus ? " · Default" : ""}
+              {preset.vcpus === defaultSandboxPreset.vcpus ? " · Default" : ""}
             </Typography>
           </MenuItem>
         ))}
