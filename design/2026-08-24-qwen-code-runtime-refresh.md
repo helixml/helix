@@ -23,3 +23,13 @@ Unrelated workspace Qwen settings are preserved.
 Qwen Code remains a first-class `qwen_code` runtime in the backend harness
 catalogue and the frontend picker. The existing `AgentHarness` asset provides
 its canonical icon and labels.
+
+## E2E verification
+
+The local Node6 `qwen3.8-27b` workflow was exercised through the task composer
+with a PNG in the initial message. Just-Do-It tasks must include the same
+`BuildAttachmentsSection` used by planning tasks; otherwise the upload is stored
+and committed to `helix-specs`, but the agent is never told its workspace path.
+With that section present, Qwen found the PNG, OCR'd its heading, completed the
+requested repository change, and completed a follow-up commit and push in the
+same live ACP session.
