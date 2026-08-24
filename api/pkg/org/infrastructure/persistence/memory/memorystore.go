@@ -822,12 +822,40 @@ func (r *retiredRepo) ListAll(_ context.Context) ([]streaming.Topic, error) {
 	return append([]streaming.Topic(nil), r.topics...), nil
 }
 
+func (r *retiredRepo) Delete(_ context.Context, orgID, topicID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	kept := make([]streaming.Topic, 0, len(r.topics))
+	for _, t := range r.topics {
+		if t.OrganizationID == orgID && t.ID == topicID {
+			continue
+		}
+		kept = append(kept, t)
+	}
+	r.topics = kept
+	return nil
+}
+
 type retiredSubsRepo struct{ inner *retiredRepo }
 
 func (r *retiredSubsRepo) ListAll(_ context.Context) ([]streaming.Subscription, error) {
 	r.inner.mu.RLock()
 	defer r.inner.mu.RUnlock()
 	return append([]streaming.Subscription(nil), r.inner.subscriptions...), nil
+}
+
+func (r *retiredSubsRepo) Delete(_ context.Context, orgID, workerID, topicID string) error {
+	r.inner.mu.Lock()
+	defer r.inner.mu.Unlock()
+	kept := make([]streaming.Subscription, 0, len(r.inner.subscriptions))
+	for _, sub := range r.inner.subscriptions {
+		if sub.OrganizationID == orgID && sub.NodeID == workerID && sub.TopicID == topicID {
+			continue
+		}
+		kept = append(kept, sub)
+	}
+	r.inner.subscriptions = kept
+	return nil
 }
 
 type retiredInputsRepo struct{ inner *retiredRepo }

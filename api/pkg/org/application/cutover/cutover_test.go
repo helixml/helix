@@ -252,3 +252,75 @@ func TestConvert_NothingToDoOnCleanInstall(t *testing.T) {
 	require.Zero(t, res.Attachments)
 	require.Zero(t, res.Inputs)
 }
+
+// TestConvert_DeletedTriggerStaysDeleted: the conversion consumes each
+// retired row, so a Trigger a user deletes after the upgrade does not
+// come back on the next boot. Without that, every deploy resurrects
+// every Trigger derived from a pre-cutover Topic.
+func TestConvert_DeletedTriggerStaysDeleted(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	memory.SeedRetired(st,
+		[]streaming.Topic{topic(t, "s-general", "general", transport.LocalTransport())}, nil, nil)
+
+	first, err := cutover.Convert(ctx, cutover.Deps{Store: st})
+	require.NoError(t, err)
+	require.Equal(t, 1, first.Triggers)
+
+	require.NoError(t, st.Triggers.Delete(ctx, org, "s-general"))
+
+	second, err := cutover.Convert(ctx, cutover.Deps{Store: st})
+	require.NoError(t, err)
+	require.Zero(t, second.Triggers)
+	require.Empty(t, triggerIDs(t, st))
+}
+
+// TestConvert_DetachedWorkerStaysDetached: same tombstone property for
+// the subscription half — a Worker detached from a Trigger after the
+// upgrade must not be re-attached by the next boot's conversion.
+func TestConvert_DetachedWorkerStaysDetached(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	worker(t, st, "b-sam", false)
+	memory.SeedRetired(st,
+		[]streaming.Topic{topic(t, "s-general", "general", transport.LocalTransport())},
+		[]streaming.Subscription{sub(t, "b-sam", "s-general")}, nil)
+
+	first, err := cutover.Convert(ctx, cutover.Deps{Store: st})
+	require.NoError(t, err)
+	require.Equal(t, 1, first.Attachments)
+
+	rows, err := st.WorkerAttachments.Find(ctx, store.WithOrg(org), store.WithWorkerID(orgchart.NodeID("b-sam")))
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.NoError(t, st.WorkerAttachments.Delete(ctx, org, rows[0].ID))
+
+	second, err := cutover.Convert(ctx, cutover.Deps{Store: st})
+	require.NoError(t, err)
+	require.Zero(t, second.Attachments)
+	require.Empty(t, attachmentSources(t, st, "b-sam"))
+}
+
+// TestConvert_OutputTopicStaysConsumedAfterProcessorDeleted: a skipped
+// Processor output Topic is handled, not deferred. Once its Processor is
+// deleted the branch index no longer recognises the row, so a retained
+// row would be converted into a live Trigger for a stream nobody owns.
+func TestConvert_OutputTopicStaysConsumedAfterProcessorDeleted(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	seedBranch(t, st, "p-truncate", "po-out", "s-truncated")
+	memory.SeedRetired(st,
+		[]streaming.Topic{topic(t, "s-truncated", "p-truncate output", transport.LocalTransport())}, nil, nil)
+
+	first, err := cutover.Convert(ctx, cutover.Deps{Store: st})
+	require.NoError(t, err)
+	require.Zero(t, first.Triggers)
+	require.Equal(t, 1, first.Skipped)
+
+	require.NoError(t, st.Processors.Delete(ctx, org, "p-truncate"))
+
+	second, err := cutover.Convert(ctx, cutover.Deps{Store: st})
+	require.NoError(t, err)
+	require.Zero(t, second.Triggers)
+	require.Empty(t, triggerIDs(t, st))
+}

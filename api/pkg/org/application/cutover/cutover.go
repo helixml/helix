@@ -7,6 +7,25 @@
 // the expected value is success, and a conflicting one is an error, so
 // running it on every boot converges and then does nothing.
 //
+// Repeat-safe is not the same as run-once, and the difference is the
+// user's deletes. A retired row that survives its own conversion is a
+// standing instruction to recreate that Trigger or attachment: delete
+// the Trigger, redeploy, and the next boot builds it again, because
+// "does the target exist?" cannot tell a not-yet-converted row from a
+// converted-then-deleted one. So the conversion CONSUMES what it
+// reads — each retired row is deleted once it has been handled, which
+// is the tombstone. "Handled" includes the outcomes that create
+// nothing: a Processor output Topic (skipped by design), a dangling or
+// human subscription, and a repeat run finding the target already
+// there. A skipped output Topic in particular must not be left behind,
+// because deleting its Processor removes the branch that identifies it
+// and the row would then convert into a Trigger for a stream nobody
+// owns.
+//
+// Consuming a row is destructive by design: after conversion the
+// retired tables are dead weight awaiting a DROP, and the Processor
+// input column is already cleared the same way.
+//
 // What it converts, and the invariant each conversion preserves:
 //
 //   - Every workflow Topic becomes a Trigger with the SAME id. That is
@@ -100,14 +119,17 @@ func Convert(ctx context.Context, d Deps) (Result, error) {
 		key := store.OrgScopedID{OrgID: topic.OrganizationID, ID: topic.ID}
 		if _, isBranch := branches[key]; isBranch {
 			result.Skipped++
-			continue
+		} else {
+			created, err := convertTopic(ctx, d.Store, topic)
+			if err != nil {
+				return result, err
+			}
+			if created {
+				result.Triggers++
+			}
 		}
-		created, err := convertTopic(ctx, d.Store, topic)
-		if err != nil {
-			return result, err
-		}
-		if created {
-			result.Triggers++
+		if err := d.Store.RetiredTopics.Delete(ctx, topic.OrganizationID, topic.ID); err != nil {
+			return result, fmt.Errorf("cutover: consume retired topic %q: %w", topic.ID, err)
 		}
 	}
 
@@ -118,6 +140,9 @@ func Convert(ctx context.Context, d Deps) (Result, error) {
 		}
 		if created {
 			result.Attachments++
+		}
+		if err := d.Store.RetiredSubscriptions.Delete(ctx, sub.OrganizationID, sub.NodeID, string(sub.TopicID)); err != nil {
+			return result, fmt.Errorf("cutover: consume retired subscription %q→%q: %w", sub.NodeID, sub.TopicID, err)
 		}
 	}
 
