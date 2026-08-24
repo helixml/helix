@@ -96,4 +96,25 @@ describe('HelixOrgChatPanel query selection', () => {
     await screen.findByText('Message b-one…')
     expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()
   })
+
+  it('keeps the restart banner visible after switching away from the chat tab', async () => {
+    renderPanel({ bot: { id: 'b-one', agent_status: 'running', restart_required: true } })
+    await screen.findByTestId('agent-restart-required-banner')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Desktop' }))
+    expect(await screen.findByText('Desktop viewer')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-restart-required-banner')).toBeInTheDocument()
+  })
+
+  it('does not re-arm a dismissed restart banner on a tab switch', async () => {
+    renderPanel({ bot: { id: 'b-one', agent_status: 'running', restart_required: true } })
+    await screen.findByTestId('agent-restart-required-banner')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Desktop' }))
+    await screen.findByText('Desktop viewer')
+    expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()
+  })
 })

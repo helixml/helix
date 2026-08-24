@@ -385,7 +385,10 @@ const HelixOrgChatPanel: FC = () => {
         ))}
       </Stack>
 
-      {/* Body — must flex-fill remaining height so EmbeddedSessionView scrolls inside. */}
+      {/* Body — must flex-fill remaining height so EmbeddedSessionView scrolls inside.
+          The restart banner is hoisted here (rather than nested in the view
+          ternary below) so it survives Chat/Desktop/Tasks navigation instead
+          of unmounting — and losing its dismissed state — every tab switch. */}
       <Box
         sx={{
           flex: 1,
@@ -395,6 +398,14 @@ const HelixOrgChatPanel: FC = () => {
           overflow: 'hidden',
         }}
       >
+        <Box sx={{ flexShrink: 0 }}>
+          <AgentRestartRequiredBanner
+            visible={!!selectedBot?.restart_required}
+            working={!!chatSessionId && streaming.currentResponses.has(chatSessionId)}
+            busy={busy}
+            onRestart={() => { void handleRestart() }}
+          />
+        </Box>
         {!selectedBotId ? (
           <Box sx={{ p: 3, textAlign: 'center' }}>
             <Typography variant="body2" color="text.secondary">
@@ -426,21 +437,13 @@ const HelixOrgChatPanel: FC = () => {
             )}
           </Box>
         ) : view === 'chat' ? (
-          <>
-            <AgentRestartRequiredBanner
-              visible={!!selectedBot?.restart_required}
-              working={!!chatSessionId && streaming.currentResponses.has(chatSessionId)}
-              busy={busy}
-              onRestart={() => { void handleRestart() }}
-            />
-            <AgentChat
-              sessionId={chatSessionId}
-              projectId={projectID}
-              enableInteractionDebugCopy
-              showSessionPromptQueue
-              placeholder={`Message ${selectedBot?.name || selectedBotId}…`}
-            />
-          </>
+          <AgentChat
+            sessionId={chatSessionId}
+            projectId={projectID}
+            enableInteractionDebugCopy
+            showSessionPromptQueue
+            placeholder={`Message ${selectedBot?.name || selectedBotId}…`}
+          />
         ) : (
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <ExternalAgentDesktopViewer
