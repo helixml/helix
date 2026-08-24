@@ -92,3 +92,30 @@ func isValidEmailAlias(s string) bool {
 	}
 	return true
 }
+
+func (email) Describe() Descriptor {
+	return Descriptor{
+		Kind:    KindEmail,
+		Label:   "Incoming email",
+		Summary: "Fires when mail arrives at this Trigger's address.",
+		Fields: []Field{{
+			Name:        "alias",
+			Label:       "Inbox alias",
+			Help:        "Lowercase letters, digits, dash and underscore only. No @, + or dots.",
+			Placeholder: "support",
+			Type:        FieldString,
+			Required:    true,
+			Direction:   Inbound,
+		}},
+		Activation: Activation{
+			Summary:         "Send mail to this address. Subject and body become the event.",
+			AddressTemplate: "{field:alias}@<your inbound domain>",
+			Note:            "The exact address depends on the Postmark setup: <hash>+<alias>@inbound.postmarkapp.com when no domain is configured, or <alias>@yourdomain.com when one is.",
+		},
+		Secrets: []SecretRef{{
+			Label:      "Postmark account (token, inbound address, from address)",
+			SettingKey: "transport.postmark",
+			Location:   "Organization Settings",
+		}},
+	}
+}

@@ -92,3 +92,26 @@ func parseWebhookConfig(raw json.RawMessage) (WebhookConfig, error) {
 	}
 	return c, nil
 }
+
+func (webhook) Describe() Descriptor {
+	return Descriptor{
+		Kind:    KindWebhook,
+		Label:   "Webhook",
+		Summary: "Fires when an external system POSTs to this Trigger's URL.",
+		Fields: []Field{{
+			Name:        "outbound_url",
+			Label:       "Also POST every event to (optional)",
+			Help:        "Outbound relay, not the inbound URL. When set, every event on this Trigger is additionally POSTed to this address. Leave empty for inbound-only.",
+			Placeholder: "https://example.com/receive",
+			Type:        FieldURL,
+			Direction:   Outbound,
+		}},
+		Activation: Activation{
+			Summary:     "POST any JSON or text body to this URL. The body becomes the event.",
+			Verb:        "POST",
+			URLTemplate: "{public}/api/v1/orgs/{org}/webhooks/{id}",
+			AuthHeader:  "Authorization: Bearer <your Helix API key>",
+			Note:        "Requests are authenticated with a Helix API key, not a per-Trigger signing secret. Bodies are capped at 1 MiB.",
+		},
+	}
+}

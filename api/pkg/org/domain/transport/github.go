@@ -163,3 +163,60 @@ var SuggestedGitHubEvents = []string{
 	"pull_request_review",
 	"pull_request_review_comment",
 }
+
+func (github) Describe() Descriptor {
+	return Descriptor{
+		Kind:    KindGitHub,
+		Label:   "GitHub event",
+		Summary: "Fires when selected events happen in a GitHub repository.",
+		Fields: []Field{
+			{
+				Name:      "repo",
+				Label:     "Repository",
+				Help:      "The owner/name whose webhook deliveries land on this Trigger.",
+				Type:      FieldGitHubRepo,
+				Required:  true,
+				Direction: Inbound,
+			},
+			{
+				Name:      "events",
+				Label:     "Events",
+				Help:      "GitHub event types to accept. Use * for all events.",
+				Type:      FieldGitHubEvents,
+				Required:  true,
+				Direction: Inbound,
+			},
+			{
+				Name:      "branches",
+				Label:     "Branches",
+				Help:      "Narrows branch-carrying events (push, create, delete). Use * for all, an exact name, or a prefix glob like release/*. Events with no branch are unaffected.",
+				Type:      FieldStringList,
+				Direction: Inbound,
+			},
+			{
+				Name:      "webhook_id",
+				Label:     "GitHub webhook id",
+				Help:      "Set by Helix when it installs the webhook on GitHub.",
+				Type:      FieldString,
+				ReadOnly:  true,
+				Direction: Inbound,
+			},
+			{
+				Name:      "webhook_html_url",
+				Label:     "Webhook on GitHub",
+				Help:      "Set by Helix when it installs the webhook on GitHub.",
+				Type:      FieldURL,
+				ReadOnly:  true,
+				Direction: Inbound,
+			},
+		},
+		Activation: Activation{
+			Summary: "GitHub delivers matching events to Helix. Use the Connect to GitHub panel below to install the webhook.",
+		},
+		Secrets: []SecretRef{{
+			Label:      "GitHub token and webhook signing secret",
+			SettingKey: "transport.github",
+			Location:   "Organization Settings",
+		}},
+	}
+}
