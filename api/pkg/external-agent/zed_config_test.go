@@ -46,13 +46,13 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 	helixURL := "http://api:8080"
 	helixToken := "test-token"
 
-	// Synthetic globals (no ID) and DB-backed providers (with ID) used by
+	// Synthetic globals and DB-backed providers used by
 	// the cases below. Renames are demonstrated by mutating the .Name of a
 	// DB-backed provider while keeping its .ID stable; the agent's stored
 	// reference (the .ID) survives the rename.
 	var (
-		globalOpenAI    = ProviderRef{ID: "", Name: "openai"}
-		globalAnthropic = ProviderRef{ID: "", Name: "anthropic"}
+		globalOpenAI    = ProviderRef{ID: "global/openai", Name: "openai", EndpointType: types.ProviderEndpointTypeGlobal}
+		globalAnthropic = ProviderRef{ID: "global/anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal}
 		dbScalewayID    = "pe_scaleway_01"
 		dbScaleway      = ProviderRef{ID: dbScalewayID, Name: "scaleway"}
 		dbScalewayPrime = ProviderRef{ID: dbScalewayID, Name: "scaleway-prime"} // same ID, renamed
@@ -107,7 +107,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				GenerationModel:         "qwen3-coder-480b",
 			}},
 			snapshot:         []ProviderRef{dbScalewayPrime, globalOpenAI}, // admin renamed scaleway → scaleway-prime
-			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "scaleway-prime/qwen3-coder-480b"},
+			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "pe_scaleway_01/qwen3-coder-480b"},
 			wantMisconfig:    false,
 			why:              "P1-3 core: provider rename must be a no-op for the agent — ID resolves to current name",
 		},
@@ -119,7 +119,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				GenerationModel:         "qwen3-coder-480b",
 			}},
 			snapshot:         []ProviderRef{dbScaleway, globalOpenAI},
-			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "scaleway/qwen3-coder-480b"},
+			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "pe_scaleway_01/qwen3-coder-480b"},
 			wantMisconfig:    false,
 			why:              "control case: agent stored ID resolves to canonical scaleway name",
 		},
@@ -138,7 +138,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				GenerationModel:         "gpt-4o", // stale template default
 			}},
 			snapshot:         []ProviderRef{dbGLM, globalOpenAI},
-			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "glm-helix/glm-5.1"},
+			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "pe_glm_01/glm-5.1"},
 			wantMisconfig:    false,
 			why:              "zed_external source of truth is Model/Provider; the GenerationModel quartet must not shadow it",
 		},
@@ -155,6 +155,31 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			why:              "control case: env-baked global (no ID) resolves by canonical name; anthropic model id passes through verbatim to match Zed's /v1/models listing",
 		},
 		{
+			name: "legacy_anthropic_task_ref_routes_to_org_endpoint",
+			assistants: []types.AssistantConfig{{
+				AgentType:        types.AgentTypeZedExternal,
+				CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+				Provider:         "anthropic",
+				Model:            "claude-sonnet-4-5",
+			}},
+			snapshot:         []ProviderRef{{ID: "global/anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal}, {ID: "pe_org_anthropic", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg}},
+			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5"},
+			wantMisconfig:    false,
+			why:              "legacy task refs must resolve to the organization Anthropic row and retain Anthropic routing",
+		},
+		{
+			name: "explicit_global_openai_keeps_scoped_routing_token",
+			assistants: []types.AssistantConfig{{
+				AgentType: types.AgentTypeZedExternal,
+				Provider:  "global/openai",
+				Model:     "gpt-5.4",
+			}},
+			snapshot:         []ProviderRef{{ID: "pe_org_openai", Name: "user/openai", EndpointType: types.ProviderEndpointTypeOrg}, globalOpenAI},
+			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "global/openai/gpt-5.4"},
+			wantMisconfig:    false,
+			why:              "an explicit env-global selection must not degrade to a bare vendor token",
+		},
+		{
 			name: "legacy_name_match_still_works_for_unsaved_agents",
 			assistants: []types.AssistantConfig{{
 				AgentType:               types.AgentTypeZedExternal,
@@ -162,7 +187,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				GenerationModel:         "gpt-5.4",
 			}},
 			snapshot:         []ProviderRef{globalOpenAI}, // global has Name=openai
-			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "openai/gpt-5.4"},
+			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "global/openai/gpt-5.4"},
 			wantMisconfig:    false,
 			why:              "legacy fallback: agents stored before ID-based references still resolve via case-insensitive name match",
 		},
@@ -310,6 +335,21 @@ func TestMapHelixToZedProvider(t *testing.T) {
 	}
 }
 
+func TestResolveProviderScopesLegacyAndExactRefs(t *testing.T) {
+	snapshot := []ProviderRef{
+		{ID: "global/anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+		{ID: "pe_global", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+		{ID: "pe_org", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg},
+	}
+
+	legacy, _, ok := ResolveProvider("anthropic", snapshot)
+	assert.True(t, ok)
+	assert.Equal(t, "pe_org", legacy.ID)
+	forcedGlobal, _, ok := ResolveProvider("global/anthropic", snapshot)
+	assert.True(t, ok)
+	assert.Equal(t, "global/anthropic", forcedGlobal.ID)
+}
+
 // TestMigrateLegacyProviderRefs covers the on-the-fly heal path that lets
 // agent records saved before the ID-based refactor silently rewrite their
 // stored provider name to the matching DB-backed provider's immutable ID.
@@ -393,6 +433,17 @@ func TestMigrateLegacyProviderRefs(t *testing.T) {
 			wantChanged:    true,
 			wantGenericGen: "pe_user_provider_01",
 			why:            "GenerationModelProvider migrates the same way as the legacy Provider field",
+		},
+		{
+			name: "legacy_anthropic_preset_name_rewrites_to_org_id",
+			assistant: types.AssistantConfig{
+				Provider: "anthropic",
+				Model:    "claude-sonnet-4-5",
+			},
+			snapshot:     []ProviderRef{{ID: "pe_org_anthropic", Name: "user/anthropic"}},
+			wantChanged:  true,
+			wantProvider: "pe_org_anthropic",
+			why:          "legacy Anthropic task refs heal to the visible organization endpoint ID",
 		},
 	}
 
@@ -493,6 +544,13 @@ func TestBuildLanguageModels(t *testing.T) {
 		{
 			name:     "anthropic-only does not inject openai",
 			snapshot: []ProviderRef{{Name: "anthropic"}},
+			want: map[string]LanguageModelConfig{
+				"anthropic": {APIURL: helixURL},
+			},
+		},
+		{
+			name:     "legacy anthropic preset name injects anthropic",
+			snapshot: []ProviderRef{{ID: "pe_org_anthropic", Name: "user/anthropic"}},
 			want: map[string]LanguageModelConfig{
 				"anthropic": {APIURL: helixURL},
 			},

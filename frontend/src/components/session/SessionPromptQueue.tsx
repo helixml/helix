@@ -11,10 +11,11 @@
  * affordance here as on spec-task pages.
  */
 import React, { useState } from 'react'
-import { Box, Button, Chip, Stack, Typography } from '@mui/material'
+import { Box, Button, Chip, IconButton, Stack, Tooltip, Typography } from '@mui/material'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
-import { useQuery } from '@tanstack/react-query'
+import CloseIcon from '@mui/icons-material/Close'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import { listSessionPromptHistory } from '../../services/promptHistoryService'
 import { TypesPromptHistoryEntry } from '../../api/api'
@@ -31,6 +32,7 @@ const VISIBLE_STATUSES = new Set(['pending', 'sending', 'failed'])
 const SessionPromptQueue: React.FC<SessionPromptQueueProps> = ({ sessionId }) => {
   const api = useApi()
   const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
   const [isRestarting, setIsRestarting] = useState(false)
 
   const { data } = useQuery({
@@ -57,6 +59,12 @@ const SessionPromptQueue: React.FC<SessionPromptQueueProps> = ({ sessionId }) =>
       .finally(() => setIsRestarting(false))
   }
 
+  const handleRemove = (entryId: string) => {
+    apiClient.v1PromptHistoryDelete(entryId)
+      .then(() => queryClient.invalidateQueries({ queryKey: ['session-prompt-queue', sessionId] }))
+      .catch((err: unknown) => console.warn('Failed to delete prompt from backend:', err))
+  }
+
   const queuedCount = visible.filter((e) => e.status !== 'failed').length
 
   return (
@@ -78,6 +86,7 @@ const SessionPromptQueue: React.FC<SessionPromptQueueProps> = ({ sessionId }) =>
       </Stack>
       <Stack spacing={0.5}>
         {visible.map((e) => {
+          const entryID = e.id
           const status = classifyPromptQueueEntry({
             status: e.status,
             errorMessage: e.error_message,
@@ -117,6 +126,18 @@ const SessionPromptQueue: React.FC<SessionPromptQueueProps> = ({ sessionId }) =>
                 >
                   {e.content}
                 </Typography>
+                {entryID && (
+                  <Tooltip title="Remove from queue">
+                    <IconButton
+                      size="small"
+                      aria-label="Remove from queue"
+                      onClick={() => handleRemove(entryID)}
+                      sx={{ p: 0.5, flexShrink: 0 }}
+                    >
+                      <CloseIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
               </Stack>
               {isFailed && (
                 <Stack direction="row" alignItems="center" spacing={1} sx={{ pl: 0.5 }}>

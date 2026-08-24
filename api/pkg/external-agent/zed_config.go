@@ -93,7 +93,7 @@ type ContextServerConfig struct {
 // oauthTokenGetter is optional - if provided, OAuth tokens will be injected into stdio MCPs.
 // providerSnapshot is an optional list of provider records visible to the owner
 // (env-baked globals + DB-backed). When non-nil, the agent's stored provider
-// reference (ID for DB-backed, canonical name for globals) is resolved
+// reference (stable ID, or a legacy canonical name) is resolved
 // against it; the resolved provider's current name is used in the model
 // prefix written to settings.json. A missing provider is treated as
 // misconfiguration and Agent.DefaultModel is left unset. Pass nil to skip
@@ -128,6 +128,7 @@ func GenerateZedMCPConfig(
 	assistant := FindZedExternalAssistant(app)
 
 	provider, model := AssistantModelSelection(assistant)
+	providerName := provider
 
 	// Decide whether the agent's stored model fields are usable. There are
 	// two failure modes we MUST NOT paper over:
@@ -155,6 +156,7 @@ func GenerateZedMCPConfig(
 		// without a parent app. Keep the legacy SaaS-friendly default so
 		// those sessions still come up.
 		provider = "anthropic"
+		providerName = provider
 		model = "claude-sonnet-4-6"
 	} else if usesUpstreamSubscription(assistant) {
 		// Subscription credentials only make sense for runtimes that handle
@@ -198,7 +200,10 @@ func GenerateZedMCPConfig(
 				Str("resolved_id", resolved.ID).
 				Msg("zed-config: agent stores provider by name (legacy); re-save the agent so it stores the immutable provider ID")
 		}
-		provider = resolved.Name
+		providerName = resolved.Name
+		if resolved.ID != "" {
+			provider = resolved.ID
+		}
 	}
 
 	// Configure agent. Permissions / ShowOnboarding / AutoOpenPanel are always
@@ -213,7 +218,7 @@ func GenerateZedMCPConfig(
 		// Map Helix provider to Zed's provider type and format model name
 		// Zed only knows: anthropic, openai, google, ollama, copilot, lmstudio, deepseek
 		// All other providers (nebius, together, openrouter, etc.) use OpenAI-compatible API
-		zedProvider, zedModel := mapHelixToZedProvider(provider, model)
+		zedProvider, zedModel := mapHelixToZedProviderToken(providerName, provider, model)
 		// Set feature-specific models to prevent Zed from using its hardcoded
 		// gpt-4.1-mini default for "fast" operations (see
 		// zed-industries/zed#31420). If not set, these fall back to
@@ -552,8 +557,9 @@ func getAPIKeyForProvider(provider string) string {
 // stored IDs. After such a fallback the agent should be re-saved so it picks
 // up the immutable reference.
 type ProviderRef struct {
-	ID   string // empty for env-baked global providers (openai, anthropic, ...)
-	Name string // current canonical name; for DB-backed providers this is the admin-set label
+	ID           string
+	Name         string
+	EndpointType types.ProviderEndpointType
 }
 
 // FindZedExternalAssistant returns the assistant config that owns the
@@ -620,13 +626,35 @@ func ResolveProvider(token string, snapshot []ProviderRef) (ref ProviderRef, byL
 			return p, false, true
 		}
 	}
+	if types.IsGlobalProviderID(token) || strings.HasPrefix(token, "pe_") {
+		return ProviderRef{}, false, false
+	}
+	var selected *ProviderRef
 	for _, p := range snapshot {
-		if strings.EqualFold(p.Name, token) {
-			byLegacy := p.ID != "" // global with no ID is a normal match, not legacy
-			return p, byLegacy, true
+		if types.CanonicalProviderName(p.Name) == types.CanonicalProviderName(token) {
+			if selected == nil || providerRefPrecedence(p) > providerRefPrecedence(*selected) {
+				candidate := p
+				selected = &candidate
+			}
 		}
 	}
+	if selected != nil {
+		return *selected, selected.ID != token, true
+	}
 	return ProviderRef{}, false, false
+}
+
+func providerRefPrecedence(ref ProviderRef) int {
+	switch {
+	case ref.EndpointType == types.ProviderEndpointTypeOrg || ref.EndpointType == types.ProviderEndpointTypeUser:
+		return 3
+	case strings.HasPrefix(ref.ID, "pe_"):
+		return 2
+	case types.IsGlobalProviderID(ref.ID):
+		return 1
+	default:
+		return 3
+	}
 }
 
 // CodeAgentRuntimeAllowsProvider keeps native vendor CLIs on the API shape
@@ -634,6 +662,7 @@ func ResolveProvider(token string, snapshot []ProviderRef) (ref ProviderRef, byL
 // OpenAI Responses. The general-purpose harnesses continue to accept any
 // provider exposed through Helix's OpenAI-compatible proxy.
 func CodeAgentRuntimeAllowsProvider(runtime types.CodeAgentRuntime, providerName string) bool {
+	providerName = types.CanonicalProviderName(providerName)
 	switch runtime {
 	case types.CodeAgentRuntimeClaudeCode:
 		return strings.EqualFold(providerName, string(types.ProviderAnthropic))
@@ -784,7 +813,7 @@ func buildLanguageModels(snapshot []ProviderRef, helixAPIURL string) map[string]
 	hasAnthropic := false
 	hasOpenAICompat := false
 	for _, p := range snapshot {
-		if strings.EqualFold(p.Name, "anthropic") {
+		if types.CanonicalProviderName(p.Name) == string(types.ProviderAnthropic) {
 			hasAnthropic = true
 		} else {
 			hasOpenAICompat = true
@@ -816,7 +845,11 @@ func buildLanguageModels(snapshot []ProviderRef, helixAPIURL string) map[string]
 //	helixProvider="openai", model="gpt-4o" → zedProvider="openai", zedModel="openai/gpt-4o"
 //	helixProvider="nebius", model="Qwen/Qwen3-Coder" → zedProvider="openai", zedModel="nebius/Qwen/Qwen3-Coder"
 func mapHelixToZedProvider(helixProvider, model string) (zedProvider, zedModel string) {
-	provider := strings.ToLower(helixProvider)
+	return mapHelixToZedProviderToken(helixProvider, helixProvider, model)
+}
+
+func mapHelixToZedProviderToken(providerName, routingToken, model string) (zedProvider, zedModel string) {
+	provider := types.CanonicalProviderName(providerName)
 
 	switch provider {
 	case "anthropic":
@@ -833,7 +866,7 @@ func mapHelixToZedProvider(helixProvider, model string) (zedProvider, zedModel s
 		// All other providers (openai, nebius, together, openrouter, azure, google, etc.)
 		// route through Zed's OpenAI provider → Helix's OpenAI-compatible proxy.
 		// Model is prefixed with provider name so Helix can route to the correct backend.
-		return "openai", fmt.Sprintf("%s/%s", helixProvider, model)
+		return "openai", fmt.Sprintf("%s/%s", routingToken, model)
 	}
 }
 

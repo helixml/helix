@@ -28,6 +28,30 @@ export const getProviderIconDefinition = (endpoint: Pick<TypesProviderEndpoint, 
   ))
 }
 
+export const getProviderPresetDefinition = (endpoint: Pick<TypesProviderEndpoint, 'icon' | 'name' | 'base_url'>) => {
+  const name = endpoint.name?.toLowerCase()
+  if (!name) return undefined
+  return PROVIDERS.find(provider => !provider.is_custom && (
+    provider.id.toLowerCase() === name
+    || provider.endpoint_name?.toLowerCase() === name
+    || providerIconKey(provider) === name
+  ))
+}
+
+export const getProviderEndpointLabel = (
+  endpoint: Pick<TypesProviderEndpoint, 'icon' | 'name' | 'base_url' | 'endpoint_type'>,
+  organizationName?: string,
+) => {
+  const name = getProviderPresetDefinition(endpoint)?.name || endpoint.name || 'Unnamed provider'
+  const scope = {
+    org: organizationName?.trim() || 'Organization',
+    global: 'Global',
+    user: 'Personal',
+    team: 'Team',
+  }[endpoint.endpoint_type || '']
+  return scope ? `${scope} / ${name}` : name
+}
+
 export const ProviderMark: FC<{ provider: Provider; size?: number }> = ({ provider, size = 24 }) => {
   const Logo = provider.logo
   if (typeof Logo === 'string') {

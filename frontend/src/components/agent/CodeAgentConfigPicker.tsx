@@ -42,8 +42,11 @@ import {
 } from '../../services/codeAgentHarnessesService'
 import NoCodeAgentsDialog from './NoCodeAgentsDialog'
 import AgentHarness, { getAgentHarnessLabel } from './AgentHarness'
+import { getProviderEndpointLabel } from '../providers/ProviderEndpointIcon'
 import {
   providerEndpointIsConnected,
+  resolveProviderEndpointRef,
+  providersForCodeAgentHarness,
   providerSupportsCodeAgentRuntime,
   providersForCodeAgentRuntime,
 } from '../../utils/codeAgentProviders'
@@ -75,6 +78,7 @@ interface ModelOption {
 export const SELECTABLE_CODE_AGENT_RUNTIMES: ReadonlyArray<Runtime> = [
   TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
   TypesCodeAgentRuntime.CodeAgentRuntimeGooseCode,
+  TypesCodeAgentRuntime.CodeAgentRuntimeQwenCode,
   TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
   TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
   TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
@@ -102,7 +106,7 @@ function isSubscriptionRuntime(runtime: Runtime): boolean {
     || runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI
 }
 
-function apiModelOptions(providers: TypesProviderEndpoint[]): ModelOption[] {
+function apiModelOptions(providers: TypesProviderEndpoint[], organizationName?: string): ModelOption[] {
   return providers.flatMap((provider) => (provider.available_models || [])
     .filter((model) => model.enabled
       && (!model.type || model.type === 'chat' || model.type === 'text'))
@@ -111,7 +115,7 @@ function apiModelOptions(providers: TypesProviderEndpoint[]): ModelOption[] {
       id: model.id || '',
       label: model.id || 'Unnamed model',
       provider,
-      providerLabel: provider.name || 'Provider',
+      providerLabel: getProviderEndpointLabel(provider, organizationName),
       credentialType: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
     }))
     .filter((model) => !!model.id))
@@ -123,12 +127,8 @@ function providersAllowedForHarness(
   enforceOrgPolicy: boolean,
   runtime: Runtime,
 ): TypesProviderEndpoint[] {
-  const compatible = providersForCodeAgentRuntime(providers, runtime)
-    .filter(providerEndpointIsConnected)
-  if (enforceOrgPolicy && harness?.subscription_enabled === true) return []
-  if (!enforceOrgPolicy || harness?.provider_refs == null) return compatible
-  const allowed = new Set(harness.provider_refs)
-  return compatible.filter((provider) => allowed.has(providerRef(provider)))
+  if (enforceOrgPolicy) return providersForCodeAgentHarness(providers, harness, runtime)
+  return providersForCodeAgentRuntime(providers, runtime).filter(providerEndpointIsConnected)
 }
 
 function subscriptionModelOptions(runtime: Runtime): ModelOption[] {
@@ -258,8 +258,8 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   const selectedRuntimeEnabled = !orgName
     || !!findHarnessStatus(orgHarnesses, value?.runtime)?.enabled
   const configuredRuntimeStatus = findHarnessStatus(orgHarnesses, value?.runtime)
-  const selectedProvider = providers.find((provider) =>
-    matchesStoredRef(provider, value?.provider_ref || ''))
+  const runtimeProviders = providersForCodeAgentRuntime(providers, value?.runtime)
+  const selectedProvider = resolveProviderEndpointRef(runtimeProviders, value?.provider_ref)
   const selectedProviderRuntimeCompatible = value?.credential_type
     === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
     || (!!selectedProvider
@@ -273,7 +273,8 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
       : !!value?.provider_ref && selectedProviderRuntimeCompatible
         && configuredRuntimeStatus?.subscription_enabled !== true
         && (configuredRuntimeStatus?.provider_refs == null
-        || configuredRuntimeStatus.provider_refs.includes(value.provider_ref))))
+        || configuredRuntimeStatus.provider_refs.some((ref) =>
+          resolveProviderEndpointRef(runtimeProviders, ref)?.id === selectedProvider.id))))
   const selectedConfigurationAllowed = selectedRuntimeEnabled && selectedSourceAllowed
   const unconfigured = !value?.runtime
     || !value?.model
@@ -347,10 +348,11 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     : isSubscriptionRuntime(runtime) && (runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
       ? !!claudeSubscriptions?.some((subscription) => subscription.owner_type === 'user')
       : !!codexSubscriptions?.some((subscription) => subscription.owner_type === 'user'))
+  const organizationName = org?.display_name || org?.name
   const allowedProviders = providersAllowedForHarness(providers, runtimeStatus, !!orgName, runtime)
   const models = [
     ...(subscriptionAvailable ? subscriptionModelOptions(runtime) : []),
-    ...apiModelOptions(allowedProviders),
+    ...apiModelOptions(allowedProviders, organizationName),
   ]
   const visibleModels = models.filter((model) => matchesAllTokens(
     query,
@@ -374,9 +376,9 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
     && value.runtime
     ? subscriptionModelOptions(value.runtime)
-    : apiModelOptions(configuredProviders)
+    : apiModelOptions(configuredProviders, organizationName)
   const modelLabel = configuredModels.find((model) => model.id === value?.model
-    && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '')))?.label
+    && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '', providers)))?.label
     || value?.model?.split('/').pop()
     || 'Select model'
 
@@ -384,7 +386,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     const sameRuntime = value?.runtime === runtime
       && value?.credential_type === model.credentialType
       && (model.provider
-        ? matchesStoredRef(model.provider, value?.provider_ref || '')
+        ? matchesStoredRef(model.provider, value?.provider_ref || '', providers)
         : !value?.provider_ref)
     onChange({
       runtime,
@@ -409,10 +411,11 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     const selected = value?.runtime === runtime
       && value?.credential_type === model.credentialType
       && value?.model === model.id
-      && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || ''))
+      && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '', providers))
     return (
       <Button
         key={model.key}
+        aria-label={`Select ${model.label} from ${model.providerLabel}`}
         fullWidth
         onClick={() => chooseModel(model)}
         sx={{

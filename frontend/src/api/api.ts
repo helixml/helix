@@ -73,6 +73,12 @@ export interface ApiAgentDetailDTO {
   project_ids?: string[];
   provider?: string;
   reasoning_effort?: string;
+  /**
+   * RestartRequired is true when the sandbox is running but still holds
+   * the tool list and instructions from before the last save. Drives the
+   * restart banner on the bot page and the org chat panel.
+   */
+  restart_required?: boolean;
   tools?: string[];
   updated_at?: string;
 }
@@ -195,6 +201,12 @@ export interface ApiBotDTO {
   project_ids?: string[];
   provider?: string;
   reasoning_effort?: string;
+  /**
+   * RestartRequired is true when the sandbox is running but still holds
+   * the tool list and instructions from before the last save. Drives the
+   * restart banner on the bot page and the org chat panel.
+   */
+  restart_required?: boolean;
   tools?: string[];
   updated_at?: string;
 }

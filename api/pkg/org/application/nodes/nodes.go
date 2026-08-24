@@ -45,14 +45,15 @@ var ErrUnknownTool = errors.New("unknown tool")
 
 // Nodes owns the node-mutation use cases.
 type Nodes struct {
-	nodes          store.Nodes
-	lines          store.ReportingLines
-	reconciler     *reconcile.Reconciler
-	now            func() time.Time
-	newID          func() string
-	baseTools      []tool.Name
-	knownTools     func() map[tool.Name]bool
-	onToolsChanged func(context.Context, string)
+	nodes             store.Nodes
+	lines             store.ReportingLines
+	reconciler        *reconcile.Reconciler
+	now               func() time.Time
+	newID             func() string
+	baseTools         []tool.Name
+	knownTools        func() map[tool.Name]bool
+	onToolsChanged    func(context.Context, string)
+	onRestartRequired func(context.Context, string, orgchart.NodeID)
 }
 
 // Deps are the constructor-injected collaborators for New.
@@ -78,6 +79,11 @@ type Deps struct {
 	// away.
 	KnownTools     func() map[tool.Name]bool
 	OnToolsChanged func(context.Context, string)
+	// OnRestartRequired fires after a write that changed the Node's
+	// restart fingerprint — the config a running sandbox reads once at
+	// startup and never re-reads. The composition root uses it to stamp
+	// which sandbox container is now stale. nil disables the signal.
+	OnRestartRequired func(context.Context, string, orgchart.NodeID)
 }
 
 // New constructs the Nodes service.
@@ -87,14 +93,15 @@ func New(deps Deps) *Nodes {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &Nodes{
-		nodes:          deps.Nodes,
-		lines:          deps.Lines,
-		reconciler:     deps.Reconciler,
-		now:            now,
-		newID:          deps.NewID,
-		baseTools:      deps.BaseTools,
-		knownTools:     deps.KnownTools,
-		onToolsChanged: deps.OnToolsChanged,
+		nodes:             deps.Nodes,
+		lines:             deps.Lines,
+		reconciler:        deps.Reconciler,
+		now:               now,
+		newID:             deps.NewID,
+		baseTools:         deps.BaseTools,
+		knownTools:        deps.KnownTools,
+		onToolsChanged:    deps.OnToolsChanged,
+		onRestartRequired: deps.OnRestartRequired,
 	}
 }
 
@@ -225,8 +232,11 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 	if err := s.nodes.Update(ctx, updated); err != nil {
 		return orgchart.Node{}, err
 	}
-	if p.Tools != nil {
+	if p.Tools != nil && !sameToolList(existing.Tools, updated.Tools) {
 		s.notifyToolsChanged(ctx, updated.AgentID)
+	}
+	if orgchart.RestartFingerprint(existing) != orgchart.RestartFingerprint(updated) {
+		s.notifyRestartRequired(ctx, orgID, updated.ID)
 	}
 	return updated, nil
 }
@@ -270,6 +280,9 @@ func (s *Nodes) AttachTools(ctx context.Context, orgID string, id orgchart.NodeI
 		return orgchart.Node{}, err
 	}
 	s.notifyToolsChanged(ctx, updated.AgentID)
+	if orgchart.RestartFingerprint(existing) != orgchart.RestartFingerprint(updated) {
+		s.notifyRestartRequired(ctx, orgID, updated.ID)
+	}
 	return updated, nil
 }
 
@@ -309,12 +322,21 @@ func (s *Nodes) DetachTools(ctx context.Context, orgID string, id orgchart.NodeI
 		return orgchart.Node{}, err
 	}
 	s.notifyToolsChanged(ctx, updated.AgentID)
+	if orgchart.RestartFingerprint(existing) != orgchart.RestartFingerprint(updated) {
+		s.notifyRestartRequired(ctx, orgID, updated.ID)
+	}
 	return updated, nil
 }
 
 func (s *Nodes) notifyToolsChanged(ctx context.Context, appID string) {
 	if s.onToolsChanged != nil && appID != "" {
 		s.onToolsChanged(ctx, appID)
+	}
+}
+
+func (s *Nodes) notifyRestartRequired(ctx context.Context, orgID string, id orgchart.NodeID) {
+	if s.onRestartRequired != nil {
+		s.onRestartRequired(ctx, orgID, id)
 	}
 }
 

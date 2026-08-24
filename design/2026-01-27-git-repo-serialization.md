@@ -268,9 +268,13 @@ On startup, `recoverIncompletePushes()` checks all external repos for commits th
 locally but haven't been pushed to upstream:
 
 1. List all repos with `ExternalURL` set
-2. For each repo, list all local branches
-3. For each branch, check if local is ahead of `origin/<branch>`
+2. Fetch all remote-tracking refs once per repository
+3. List all local branches and compare each one to the refreshed `origin/<branch>` ref without more network calls
 4. If ahead, push to upstream
+
+The single fetch per repository is important. Fetching once per branch caused 1,768
+network fetches on a development stack with only 16 external repositories, amplified
+intermittent Docker DNS failures, and could starve task-provisioning fetches.
 
 ### Implementation
 
@@ -287,6 +291,7 @@ s.recoverIncompletePushes(ctx)
 
 - `api/pkg/services/git_repository_service.go`:
   - Added `recoverIncompletePushes()` - scans repos on startup
+  - Added `fetchRemoteTrackingRefsForRecovery()` - refreshes all remote refs once per repo
   - Added `listLocalBranches()` - lists local branch names
-  - Added `isBranchAheadOfRemote()` - checks if local is ahead of origin
+  - Added `isBranchAheadOfRemote()` - checks if local is ahead of origin without network access
   - Call `recoverIncompletePushes()` from `Initialize()`

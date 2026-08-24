@@ -34,7 +34,7 @@ var (
 	// under ~/.config.
 	OpenCodeConfigHome = "/home/retro/.config/helix-opencode"
 	// OpenCodeDataHome holds session state. It lives under the workspace so
-	// sessions survive a container restart, matching QWEN_DATA_DIR.
+	// sessions survive a container restart, matching QWEN_HOME.
 	OpenCodeDataHome = "/home/retro/work/.opencode-state"
 )
 

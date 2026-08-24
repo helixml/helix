@@ -160,18 +160,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Build a set of existing provider names to avoid duplicates
-	existingProviderNames := make(map[string]bool)
-	for _, ep := range providerEndpoints {
-		existingProviderNames[ep.Name] = true
-	}
-
 	for _, provider := range globalProviderEndpoints {
-		// Skip if this provider already exists in the database
-		if existingProviderNames[string(provider)] {
-			continue
-		}
-
 		// Sandbox-absorbs-runner equivalent of the old runnerController
 		// gate: skip the Helix provider when no sandbox is currently
 		// serving any model. Otherwise the picker offers an option that
@@ -314,7 +303,7 @@ func (s *HelixAPIServer) globalProviderEndpoint(provider types.Provider) *types.
 	}
 
 	return &types.ProviderEndpoint{
-		ID:             "-",
+		ID:             types.GlobalProviderID(string(provider)),
 		Name:           string(provider),
 		Description:    "",
 		BaseURL:        baseURL,
@@ -533,8 +522,12 @@ func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndp
 // outside this singleflight, where it can't leak between endpoints.
 func (s *HelixAPIServer) fetchUpstreamModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint) ([]types.OpenAIModel, error) {
 	result, err, _ := s.modelFetchGroup.Do(providerEndpoint.BaseURL, func() (interface{}, error) {
+		providerRef := providerEndpoint.Name
+		if providerEndpoint.ID != "" {
+			providerRef = providerEndpoint.ID
+		}
 		clientRequest := &manager.GetClientRequest{
-			Provider: providerEndpoint.Name,
+			Provider: providerRef,
 			Owner:    providerEndpoint.Owner,
 		}
 		if providerEndpoint.OwnerType == types.OwnerTypeOrg {
@@ -728,43 +721,51 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		endpoint.Owner = user.ID
 	}
 
-	// Check for duplicate names
-	var (
-		existingProviders []types.Provider
-		err               error
-	)
-	if endpoint.OwnerType == types.OwnerTypeOrg {
-		existingProviders, err = s.providerManager.ListProvidersForOwner(r.Context(), endpoint.Owner, types.OwnerTypeOrg)
-	} else {
-		existingProviders, err = s.providerManager.ListProviders(r.Context(), endpoint.Owner)
-	}
-	if err != nil {
-		log.Err(err).Msg("error listing providers")
-		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	for _, provider := range existingProviders {
-		if string(provider) == endpoint.Name {
-			http.Error(rw, fmt.Sprintf("Provider with name '%s' already exists", endpoint.Name), http.StatusBadRequest)
-			return
+	// Default endpoint visibility to the authenticated owner scope.
+	if endpoint.EndpointType == "" {
+		if endpoint.OwnerType == types.OwnerTypeOrg {
+			endpoint.EndpointType = types.ProviderEndpointTypeOrg
+		} else {
+			endpoint.EndpointType = types.ProviderEndpointTypeUser
 		}
 	}
 
-	// Default to user endpoint type if not specified
-	if endpoint.EndpointType == "" {
-		endpoint.EndpointType = types.ProviderEndpointTypeUser
-	}
-
-	// Only admins can add global endpoints
-	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal && !isAdmin {
-		http.Error(rw, "Only admins can add global endpoints", http.StatusForbidden)
+	switch endpoint.EndpointType {
+	case types.ProviderEndpointTypeGlobal:
+		if !isAdmin {
+			http.Error(rw, "Only admins can add global endpoints", http.StatusForbidden)
+			return
+		}
+	case types.ProviderEndpointTypeOrg:
+		if endpoint.OwnerType != types.OwnerTypeOrg {
+			http.Error(rw, "Organization provider endpoints require an organization owner", http.StatusBadRequest)
+			return
+		}
+	case types.ProviderEndpointTypeUser:
+		if endpoint.OwnerType != types.OwnerTypeUser {
+			http.Error(rw, "Personal provider endpoints require a user owner", http.StatusBadRequest)
+			return
+		}
+	default:
+		http.Error(rw, fmt.Sprintf("Unsupported endpoint type %q", endpoint.EndpointType), http.StatusBadRequest)
 		return
 	}
 
 	// Only admins can add endpoints with API key path auth
 	if endpoint.APIKeyFromFile != "" && !isAdmin {
 		http.Error(rw, "Only admins can add endpoints with API key path auth", http.StatusForbidden)
+		return
+	}
+
+	endpoint.Name = strings.TrimSpace(endpoint.Name)
+	duplicate, err := s.providerEndpointNameExists(ctx, &endpoint, "")
+	if err != nil {
+		log.Err(err).Msg("error listing providers for name validation")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if duplicate {
+		http.Error(rw, fmt.Sprintf("Provider with name '%s' already exists", endpoint.Name), http.StatusBadRequest)
 		return
 	}
 
@@ -795,6 +796,38 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+}
+
+func (s *HelixAPIServer) providerEndpointNameExists(ctx context.Context, endpoint *types.ProviderEndpoint, excludeID string) (bool, error) {
+	query := &store.ListProviderEndpointsQuery{Owner: endpoint.Owner}
+	switch endpoint.EndpointType {
+	case types.ProviderEndpointTypeGlobal:
+		query.Owner = ""
+		query.WithGlobal = true
+	case types.ProviderEndpointTypeOrg:
+		query.OwnerType = types.OwnerTypeOrg
+	case types.ProviderEndpointTypeUser:
+		query.OwnerType = types.OwnerTypeUser
+	default:
+		return false, fmt.Errorf("unsupported provider endpoint type %q", endpoint.EndpointType)
+	}
+	endpoints, err := s.Store.ListProviderEndpoints(ctx, query)
+	if err != nil {
+		return false, err
+	}
+	wantedName := types.CanonicalProviderName(strings.TrimSpace(endpoint.Name))
+	for _, existing := range endpoints {
+		if existing == nil || existing.ID == excludeID || existing.EndpointType != endpoint.EndpointType {
+			continue
+		}
+		if endpoint.EndpointType != types.ProviderEndpointTypeGlobal && existing.Owner != endpoint.Owner {
+			continue
+		}
+		if types.CanonicalProviderName(strings.TrimSpace(existing.Name)) == wantedName {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // updateProviderEndpoint godoc
@@ -886,10 +919,12 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	// "system"), which the UI treats as read-only, permanently stranding it. This
 	// now matches createProviderEndpoint, which leaves a global endpoint owned by
 	// its admin creator.
+	identityChanged := false
 	if updatedEndpoint.EndpointType != "" && updatedEndpoint.EndpointType != existingEndpoint.EndpointType {
 		switch updatedEndpoint.EndpointType {
 		case types.ProviderEndpointTypeGlobal:
 			existingEndpoint.EndpointType = updatedEndpoint.EndpointType
+			identityChanged = true
 		default:
 			http.Error(rw, fmt.Sprintf("Unsupported endpoint type switch to %q", updatedEndpoint.EndpointType), http.StatusBadRequest)
 			return
@@ -898,27 +933,22 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 
 	// Preserve ID and ownership information
 	// Update name if provided and different from existing
-	if updatedEndpoint.Name != "" && updatedEndpoint.Name != existingEndpoint.Name {
+	if updatedEndpoint.Name != "" && strings.TrimSpace(updatedEndpoint.Name) != existingEndpoint.Name {
 		newName := strings.TrimSpace(updatedEndpoint.Name)
-		// Check for duplicate names with other providers
-		var existingProviders []types.Provider
-		if existingEndpoint.OwnerType == types.OwnerTypeOrg {
-			existingProviders, err = s.providerManager.ListProvidersForOwner(ctx, existingEndpoint.Owner, types.OwnerTypeOrg)
-		} else {
-			existingProviders, err = s.providerManager.ListProviders(ctx, existingEndpoint.Owner)
-		}
+		existingEndpoint.Name = newName
+		identityChanged = true
+	}
+	if identityChanged {
+		duplicate, err := s.providerEndpointNameExists(ctx, existingEndpoint, existingEndpoint.ID)
 		if err != nil {
 			log.Err(err).Msg("error listing providers for name validation")
 			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		for _, provider := range existingProviders {
-			if string(provider) == newName {
-				http.Error(rw, fmt.Sprintf("Provider with name '%s' already exists", newName), http.StatusBadRequest)
-				return
-			}
+		if duplicate {
+			http.Error(rw, fmt.Sprintf("Provider with name '%s' already exists", existingEndpoint.Name), http.StatusBadRequest)
+			return
 		}
-		existingEndpoint.Name = newName
 	}
 	existingEndpoint.Description = updatedEndpoint.Description
 	if updatedEndpoint.Icon != nil {

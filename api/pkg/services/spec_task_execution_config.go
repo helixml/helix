@@ -47,7 +47,7 @@ func (s *SpecDrivenTaskService) migrateSpecTaskCodeAgentConfig(
 		if legacyProjectAppID != "" {
 			app, err := s.store.GetApp(ctx, legacyProjectAppID)
 			if err != nil {
-				if project.CodeAgentConfig == nil || !errors.Is(err, store.ErrNotFound) {
+				if !errors.Is(err, store.ErrNotFound) {
 					return fmt.Errorf("load legacy project coding agent %s: %w", legacyProjectAppID, err)
 				}
 				project.DefaultHelixAppID = ""
@@ -56,6 +56,7 @@ func (s *SpecDrivenTaskService) migrateSpecTaskCodeAgentConfig(
 				}
 				log.Warn().Str("project_id", project.ID).Str("legacy_app_id", legacyProjectAppID).
 					Msg("Cleared missing legacy project App after code-agent config migration")
+				legacyProjectAppID = ""
 				app = nil
 			}
 			if app != nil {
@@ -114,7 +115,7 @@ func (s *SpecDrivenTaskService) migrateSpecTaskCodeAgentConfig(
 		config = external_agent.ApplyExecutionOverrides(config, task.CodeAgentOverrides)
 	}
 	if config == nil {
-		return fmt.Errorf("no code-agent configuration is available")
+		return fmt.Errorf("no coding agent is configured; select one for this task or project and retry")
 	}
 
 	task.CodeAgentConfig = config

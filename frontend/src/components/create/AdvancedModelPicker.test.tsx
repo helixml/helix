@@ -12,10 +12,10 @@ vi.mock('../../services/userService', () => ({
   useGetUserTokenUsage: () => ({ data: undefined, isLoading: false }),
 }))
 vi.mock('../../services/orgService', () => ({
-  useGetOrgByName: () => ({ data: undefined, isLoading: false }),
+  useGetOrgByName: () => ({ data: { id: 'org-1', display_name: 'Probably' }, isLoading: false }),
 }))
 vi.mock('../../hooks/useRouter', () => ({
-  default: () => ({ params: {} }),
+  default: () => ({ params: { org_id: 'probably' } }),
 }))
 
 describe('AdvancedModelPicker', () => {
@@ -24,6 +24,7 @@ describe('AdvancedModelPicker', () => {
       {
         id: 'openai-provider',
         name: 'OpenAI',
+        endpoint_type: 'global',
         base_url: 'https://api.openai.com/v1',
         available_models: [
           { id: 'gpt-5.6-sol', enabled: true, type: 'chat' },
@@ -33,6 +34,7 @@ describe('AdvancedModelPicker', () => {
       {
         id: 'anthropic-provider',
         name: 'Anthropic',
+        endpoint_type: 'org',
         base_url: 'https://api.anthropic.com/v1',
         available_models: [
           { id: 'claude-opus-5', enabled: true, type: 'chat' },
@@ -42,6 +44,7 @@ describe('AdvancedModelPicker', () => {
       {
         id: 'custom-provider',
         name: 'Custom',
+        endpoint_type: 'user',
         base_url: 'http://models.local/v1',
         available_models: [
           { id: 'gpt-4-custom', enabled: true, type: 'chat' },
@@ -64,7 +67,9 @@ describe('AdvancedModelPicker', () => {
     const dialog = within(screen.getByRole('dialog'))
 
     expect(dialog.getByText('gpt-5.6-sol')).toBeInTheDocument()
+    expect(dialog.getByRole('listitem', { name: 'Select gpt-5.6-sol from Global / OpenAI' })).toHaveTextContent('Global / OpenAI')
     expect(dialog.getByText('claude-opus-5')).toBeInTheDocument()
+    expect(dialog.getByRole('listitem', { name: 'Select claude-opus-5 from Probably / Anthropic' })).toHaveTextContent('Probably / Anthropic')
     expect(dialog.getByText('gpt-4-custom')).toBeInTheDocument()
     expect(dialog.queryByText('gpt-4o')).not.toBeInTheDocument()
     expect(dialog.queryByText('claude-opus-4-1')).not.toBeInTheDocument()

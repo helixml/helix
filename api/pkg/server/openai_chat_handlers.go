@@ -468,6 +468,10 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	globalProviders, err := s.providerManager.ListProviders(ctx, "")
 	if err == nil {
 		for _, globalProvider := range globalProviders {
+			globalRef := types.GlobalProviderID(string(globalProvider))
+			if strings.HasPrefix(modelName, globalRef+"/") {
+				return globalRef, strings.TrimPrefix(modelName, globalRef+"/")
+			}
 			residue := modelName
 			if strings.HasPrefix(modelName, string(globalProvider)+"/") {
 				residue = modelName[len(globalProvider)+1:]
@@ -529,6 +533,9 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	//      stripping the provider's literal `Name + "/"` prefix and
 	//      matching the residue against cached/static ids.
 	for _, provider := range providers {
+		if provider.ID != "" && strings.HasPrefix(modelName, provider.ID+"/") {
+			return provider.ID, strings.TrimPrefix(modelName, provider.ID+"/")
+		}
 		residue := modelName
 		if strings.HasPrefix(modelName, provider.Name+"/") {
 			residue = modelName[len(provider.Name)+1:]

@@ -251,10 +251,9 @@ if [ "$UPDATE" = true ]; then
     fi
     log "Helix at: $(run_ssh 'cd ~/helix && git log --oneline -1' 2>/dev/null)"
 
-    # Ensure build dependencies are cloned (cleaned up after full provision)
-    log "Ensuring Zed and Qwen Code repos..."
+    # Ensure the Zed build dependency is cloned.
+    log "Ensuring Zed repo..."
     run_ssh "[ -d ~/zed ] || git clone https://github.com/helixml/zed.git ~/zed" || true
-    run_ssh "[ -d ~/qwen-code ] || git clone https://github.com/helixml/qwen-code.git ~/qwen-code" || true
 
     # Ensure Go is installed (may be missing from older golden images)
     if ! run_ssh "[ -x /usr/local/go/bin/go ]" 2>/dev/null; then
@@ -378,7 +377,7 @@ SVCEOF"
 
     # Cleanup
     run_ssh "rm -rf ~/.cache/go-build" || true
-    # NOTE: Keep ~/zed and ~/qwen-code — they're reused by --update mode
+    # NOTE: Keep ~/zed — it is reused by --update mode
     run_ssh "sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*" || true
     # NOTE: Do NOT run `docker builder prune` here — it destroys BuildKit cache
     # mounts (cargo registry, rustup toolchain, Rust build artifacts) that make
@@ -841,19 +840,17 @@ SVCEOF"
 fi
 
 if ! step_done "clone_deps"; then
-    log "Cloning Zed and Qwen Code repositories..."
+    log "Cloning Zed repository..."
     # Zed IDE fork (needed for external_websocket_sync)
     run_ssh "git clone https://github.com/helixml/zed.git ~/zed 2>/dev/null || (cd ~/zed && git fetch && git pull)" || true
-    # Qwen Code agent
-    run_ssh "git clone https://github.com/helixml/qwen-code.git ~/qwen-code 2>/dev/null || (cd ~/qwen-code && git fetch && git pull)" || true
     mark_step "clone_deps"
 fi
 
 if ! step_done "build_desktop_image"; then
     log "Building full desktop stack (Zed + Qwen Code + helix-ubuntu image)..."
-    log "This builds Zed (Rust), Qwen Code (Node.js), and the GNOME desktop image."
+    log "This builds Zed (Rust), installs pinned Qwen Code, and builds the GNOME desktop image."
     log "First run takes 30-60 minutes. Subsequent builds use Docker cache."
-    # PROJECTS_ROOT tells ./stack where to find zed/ and qwen-code/ repos
+    # PROJECTS_ROOT tells ./stack where to find the Zed repo.
     # SKIP_DESKTOP_TRANSFER=1 skips pushing to local registry (no sandbox running)
     run_ssh "cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 DOCKER_BUILDKIT=1 bash stack build-ubuntu 2>&1" || {
         log "WARNING: Desktop image build failed."
@@ -1027,8 +1024,8 @@ fi
 
 if ! step_done "cleanup"; then
     log "Cleaning up build artifacts to shrink root disk..."
-    # NOTE: Keep ~/zed and ~/qwen-code — the golden image is used for development,
-    # so `./stack build-ubuntu` needs these repos available for rebuilding.
+    # NOTE: Keep ~/zed — the golden image is used for development, so
+    # `./stack build-ubuntu` needs this repo available for rebuilding.
     # Go build cache
     run_ssh "rm -rf ~/.cache/go-build /tmp/go*.tar.gz" || true
     # apt package cache
