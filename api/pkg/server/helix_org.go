@@ -255,6 +255,43 @@ func stampRestartRequiredContainer(ctx context.Context, st *helixorgstore.Store,
 	}
 }
 
+// restartStampApps is the narrow App read the App→Node restart-required
+// resolution needs.
+type restartStampApps interface {
+	GetApp(ctx context.Context, id string) (*types.App, error)
+}
+
+// stampRestartRequiredForApp resolves the Bot (org Node) backed by the
+// given Helix App, if any, and stamps its restart-required container the
+// same way stampRestartRequiredContainer does for direct Node edits.
+//
+// A non-org App, or an org App that doesn't back any Bot, returns quietly
+// — most Apps are neither. A lookup failure is logged and swallowed
+// rather than propagated: this runs after the App save has already
+// committed, so there is nothing left to roll back.
+func stampRestartRequiredForApp(ctx context.Context, st *helixorgstore.Store, sessions restartStampSessions, apps restartStampApps, appID string) {
+	app, err := apps.GetApp(ctx, appID)
+	if err != nil {
+		log.Warn().Err(err).Str("app_id", appID).Msg("restart-required stamp: failed to load app")
+		return
+	}
+	if app == nil || app.OrganizationID == "" {
+		return
+	}
+	nodes, err := st.Nodes.List(ctx, app.OrganizationID)
+	if err != nil {
+		log.Warn().Err(err).Str("org_id", app.OrganizationID).Str("app_id", appID).
+			Msg("restart-required stamp: failed to list org nodes")
+		return
+	}
+	for _, node := range nodes {
+		if node.AgentID == appID {
+			stampRestartRequiredContainer(ctx, st, sessions, app.OrganizationID, node.ID)
+			return
+		}
+	}
+}
+
 // SessionID adapts orgWorkerRuntime to activations.SessionResolver so the
 // manual-activate use case can populate the response's session id without
 // the activations service touching the store.
@@ -602,6 +639,13 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// never appears) rather than merely delay it.
 	deps.RestartRequiredNotifier = func(ctx context.Context, orgID string, id orgchart.NodeID) {
 		stampRestartRequiredContainer(context.WithoutCancel(ctx), st, cfg.APIServer.Store, orgID, id)
+	}
+	// Mirror the notifier above for the App-side instructions edit path
+	// (Agent settings page): a saved system-prompt change is just as
+	// restart-sensitive as a Node.Content edit, but it lands on the App
+	// row, not the Node, so it needs its own App→Node resolution step.
+	cfg.APIServer.orgAgentInstructionsChanged = func(ctx context.Context, appID string) {
+		stampRestartRequiredForApp(context.WithoutCancel(ctx), st, cfg.APIServer.Store, cfg.APIServer.Store, appID)
 	}
 
 	// Wire the helix-runtime HireHook so hire_worker persists the
