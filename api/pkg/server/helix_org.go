@@ -702,6 +702,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	})
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	var agentDelivery lifecycle.AgentDeliveryLifecycle
+	var activationCanceller activations.OutstandingCanceller
 	if provider, ok := cfg.APIServer.pubsub.(pubsub.DurablePubSub); ok {
 		durableQueue, err := agentdelivery.New(ctx, provider, activation.Spawn(spawnerFn), logger)
 		if err != nil {
@@ -712,6 +713,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		}
 		dispatcher.RegisterActivationQueue(durableQueue)
 		agentDelivery = durableQueue
+		activationCanceller = durableQueue
 	}
 	// slackWS resolves the encrypted workspace install, both for inbound
 	// team-id resolution and for Worker secret bindings (a Worker replying
@@ -1060,6 +1062,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Sessions:   workerRuntime,
 		Stopper:    sessionResetter,
 		Resetter:   sessionResetter,
+		Canceller:  activationCanceller,
 	})
 	deps.Activations = svc.Activations
 	// Share the processors service with MCP tools so create_processor uses
