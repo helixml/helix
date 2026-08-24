@@ -19,10 +19,16 @@ func (fakeEnsurer) Ensure(_ context.Context, _ string, _ orgchart.NodeID) (strin
 	return "prj-1", "app-1", "repo-1", nil
 }
 
-type fakeDispatcher struct{ gotID activation.ID }
+type fakeDispatcher struct {
+	gotID  activation.ID
+	events *[]string
+}
 
 func (f *fakeDispatcher) DispatchManual(_ context.Context, _ string, _ orgchart.NodeID, activationID activation.ID) {
 	f.gotID = activationID
+	if f.events != nil {
+		*f.events = append(*f.events, "dispatch")
+	}
 }
 
 // TestActivate_PreAllocatesAuditRow: with a wired repo, Activate mints the
@@ -105,6 +111,19 @@ type fakeResetter struct {
 	bot    orgchart.NodeID
 }
 
+type fakeCanceller struct {
+	called bool
+	events *[]string
+}
+
+func (f *fakeCanceller) CancelOutstanding(_ context.Context, _ string, _ orgchart.NodeID) error {
+	f.called = true
+	if f.events != nil {
+		*f.events = append(*f.events, "cancel")
+	}
+	return nil
+}
+
 func (f *fakeResetter) ResetSession(_ context.Context, orgID string, workerID orgchart.NodeID, sessionID string) error {
 	f.called = sessionID
 	f.org = orgID
@@ -115,9 +134,11 @@ func (f *fakeResetter) ResetSession(_ context.Context, orgID string, workerID or
 func TestStop_NoSessionIsNoop(t *testing.T) {
 	t.Parallel()
 	stopper := &fakeStopper{}
+	canceller := &fakeCanceller{}
 	svc := New(Deps{
-		Sessions: fakeSessions{id: ""},
-		Stopper:  stopper,
+		Sessions:  fakeSessions{id: ""},
+		Stopper:   stopper,
+		Canceller: canceller,
 	})
 	res, err := svc.Stop(context.Background(), "org-test", "w-mark")
 	if err != nil {
@@ -128,6 +149,9 @@ func TestStop_NoSessionIsNoop(t *testing.T) {
 	}
 	if stopper.called != "" {
 		t.Fatalf("StopDesktop called with %q, want no call", stopper.called)
+	}
+	if !canceller.called {
+		t.Fatal("outstanding activations were not cancelled")
 	}
 }
 
@@ -152,8 +176,10 @@ func TestStop_StopsDesktop(t *testing.T) {
 
 func TestRestart_ResetsThenActivates(t *testing.T) {
 	t.Parallel()
-	disp := &fakeDispatcher{}
+	events := []string{}
+	disp := &fakeDispatcher{events: &events}
 	resetter := &fakeResetter{}
+	canceller := &fakeCanceller{events: &events}
 	svc := New(Deps{
 		Repo:       memory.New().Activations,
 		Now:        func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) },
@@ -162,6 +188,7 @@ func TestRestart_ResetsThenActivates(t *testing.T) {
 		Dispatcher: disp,
 		Sessions:   fakeSessions{id: "ses_old"},
 		Resetter:   resetter,
+		Canceller:  canceller,
 	})
 	res, err := svc.Restart(context.Background(), "org-test", "w-mark")
 	if err != nil {
@@ -169,6 +196,12 @@ func TestRestart_ResetsThenActivates(t *testing.T) {
 	}
 	if resetter.called != "ses_old" || resetter.bot != "w-mark" {
 		t.Fatalf("resetter = %+v, want ses_old / w-mark", resetter)
+	}
+	if !canceller.called {
+		t.Fatal("outstanding activations were not cancelled before restart")
+	}
+	if len(events) != 2 || events[0] != "cancel" || events[1] != "dispatch" {
+		t.Fatalf("restart order = %v, want [cancel dispatch]", events)
 	}
 	if res.ActivationID != "a-restart" {
 		t.Fatalf("activation id = %q, want a-restart", res.ActivationID)

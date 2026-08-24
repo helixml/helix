@@ -124,3 +124,32 @@ func TestQueueCleanupAgentRemovesConsumerAndPendingMessages(t *testing.T) {
 	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerHire, EventID: "recreated"})
 	require.Equal(t, "recreated", <-seen)
 }
+
+func TestQueueCancelOutstandingAllowsFreshActivation(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	seen := make(chan string, 2)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		seen <- triggers[0].EventID
+		if triggers[0].EventID == "old" {
+			return errors.New("unconfigured")
+		}
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "old"})
+	require.Equal(t, "old", <-seen)
+	require.NoError(t, q.CancelOutstanding(context.Background(), "org-test", "agent-a"))
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerManual, EventID: "fresh"})
+	select {
+	case got := <-seen:
+		require.Equal(t, "fresh", got)
+	case <-time.After(5 * time.Second):
+		t.Fatal("fresh activation remained blocked behind cancelled delivery")
+	}
+}
