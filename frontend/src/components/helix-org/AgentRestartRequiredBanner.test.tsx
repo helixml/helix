@@ -62,6 +62,20 @@ describe('AgentRestartRequiredBanner', () => {
     expect(screen.getByRole('button', { name: /restart sandbox/i })).toBeDisabled()
   })
 
+  it('pins to the top of its scrolling ancestor when sticky', () => {
+    render(<AgentRestartRequiredBanner visible sticky onRestart={vi.fn()} />)
+    expect(screen.getByTestId('agent-restart-required-banner-sticky-wrapper')).toHaveStyle({
+      position: 'sticky',
+      top: '0px',
+    })
+  })
+
+  it('does not pin when sticky is not set', () => {
+    render(<AgentRestartRequiredBanner visible onRestart={vi.fn()} />)
+    expect(screen.queryByTestId('agent-restart-required-banner-sticky-wrapper')).toBeNull()
+    expect(screen.getByTestId('agent-restart-required-banner')).not.toHaveStyle({ position: 'sticky' })
+  })
+
   it('re-arms after a dismissal when a new restart requirement arrives', () => {
     const { rerender } = render(<AgentRestartRequiredBanner visible onRestart={vi.fn()} />)
 

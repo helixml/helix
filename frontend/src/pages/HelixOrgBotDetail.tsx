@@ -510,6 +510,7 @@ const HelixOrgBotDetail: FC = () => {
                   visible={!!bot.restart_required}
                   working={!!chatSessionId && streaming.currentResponses.has(chatSessionId)}
                   busy={activateAgent.isPending || stopAgent.isPending || restartAgent.isPending}
+                  sticky
                   onRestart={() => { void handleRestartSession() }}
                 />
 

@@ -185,6 +185,7 @@ const App: FC = () => {
             visible={!!restartBannerBot?.restart_required}
             working={false}
             busy={restartOrgAgent.isPending}
+            sticky
             onRestart={() => { if (restartBannerBot?.id) void restartOrgAgent.mutateAsync(restartBannerBot.id) }}
           />
           <Grid container>

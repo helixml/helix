@@ -30,6 +30,11 @@ export interface AgentRestartRequiredBannerProps {
   visible: boolean
   working?: boolean
   busy?: boolean
+  // Pin the banner to the top of its scrolling ancestor. Only for pages
+  // where the banner is mounted inside scrolling content (so it would
+  // otherwise scroll out of view); leave off wherever the banner already
+  // sits in a non-scrolling header row.
+  sticky?: boolean
   onRestart: () => void
 }
 
@@ -37,6 +42,7 @@ const AgentRestartRequiredBanner: FC<AgentRestartRequiredBannerProps> = ({
   visible,
   working = false,
   busy = false,
+  sticky = false,
   onRestart,
 }) => {
   const theme = useTheme()
@@ -66,49 +72,69 @@ const AgentRestartRequiredBanner: FC<AgentRestartRequiredBannerProps> = ({
     onRestart()
   }
 
+  const banner = (
+    <Box
+      data-testid="agent-restart-required-banner"
+      role="status"
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1,
+        px: 1.5,
+        py: 1,
+        mb: 1,
+        borderRadius: 1,
+        border: `1px solid ${alpha(theme.palette.warning.main, 0.35)}`,
+        backgroundColor: alpha(theme.palette.warning.main, 0.08),
+      }}
+    >
+      <RotateCcw size={18} strokeWidth={1.8} />
+      <Typography
+        variant="body2"
+        sx={{ flexGrow: 1, fontSize: '0.8rem', fontFamily: APP_FONT_FAMILY }}
+      >
+        Tool and instruction changes apply after a restart.
+      </Typography>
+      <Stack direction="row" alignItems="center" spacing={0.75}>
+        <Button size="small" onClick={() => setDismissed(true)}>
+          Not now
+        </Button>
+        <Tooltip title={gateReason}>
+          <span>
+            <Button
+              size="small"
+              variant="contained"
+              color="secondary"
+              disabled={gated}
+              onClick={() => setConfirming(true)}
+            >
+              Restart sandbox
+            </Button>
+          </span>
+        </Tooltip>
+      </Stack>
+    </Box>
+  )
+
   return (
     <>
-      <Box
-        data-testid="agent-restart-required-banner"
-        role="status"
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          px: 1.5,
-          py: 1,
-          mb: 1,
-          borderRadius: 1,
-          border: `1px solid ${alpha(theme.palette.warning.main, 0.35)}`,
-          backgroundColor: alpha(theme.palette.warning.main, 0.08),
-        }}
-      >
-        <RotateCcw size={18} strokeWidth={1.8} />
-        <Typography
-          variant="body2"
-          sx={{ flexGrow: 1, fontSize: '0.8rem', fontFamily: APP_FONT_FAMILY }}
+      {sticky ? (
+        // Opaque backdrop behind the banner's translucent warning tint —
+        // without it, scrolled content shows through the pinned banner.
+        <Box
+          data-testid="agent-restart-required-banner-sticky-wrapper"
+          sx={{
+            position: 'sticky',
+            top: 0,
+            zIndex: (t) => t.zIndex.appBar - 1,
+            backgroundColor: 'background.default',
+            pt: 1,
+            pb: 0.5,
+          }}
         >
-          Tool and instruction changes apply after a restart.
-        </Typography>
-        <Stack direction="row" alignItems="center" spacing={0.75}>
-          <Button size="small" onClick={() => setDismissed(true)}>
-            Not now
-          </Button>
-          <Tooltip title={gateReason}>
-            <span>
-              <Button
-                size="small"
-                variant="contained"
-                color="secondary"
-                disabled={gated}
-                onClick={() => setConfirming(true)}
-              >
-                Restart sandbox
-              </Button>
-            </span>
-          </Tooltip>
-        </Stack>
-      </Box>
+          {banner}
+        </Box>
+      ) : banner}
 
       <Dialog open={confirming} onClose={() => setConfirming(false)}>
         <DialogTitle>Restart sandbox?</DialogTitle>
