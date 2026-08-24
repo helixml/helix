@@ -571,6 +571,44 @@ func (s *CommentTimerSuite) TestFinalizeCommentResponse_ResolvesWhenAgentRebinds
 	s.NoError(err)
 }
 
+// TestFinalizeCommentResponse_SurfacesInteractionErrorWhenNoOutput covers a
+// turn that failed before producing anything. The interaction knows exactly why
+// (observed live: "Agent never connected after auto-wake cold-start retries"),
+// so the comment must carry that reason rather than an empty response box.
+func (s *CommentTimerSuite) TestFinalizeCommentResponse_SurfacesInteractionErrorWhenNoOutput() {
+	comment := &types.SpecTaskDesignReviewComment{
+		ID:            "comment-errored",
+		ReviewID:      "review-errored",
+		RequestID:     "int-errored",
+		InteractionID: "int-errored",
+	}
+	failed := &types.Interaction{
+		ID:              "int-errored",
+		State:           types.InteractionStateError,
+		ResponseMessage: "",
+		Error:           "Agent never connected after auto-wake cold-start retries",
+	}
+
+	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), "int-errored").
+		Return(failed, nil)
+	s.store.EXPECT().GetCommentByAgentRequestIDs(gomock.Any(), []string{"int-errored"}).
+		Return(comment, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-errored").
+		Return(failed, nil)
+	s.store.EXPECT().UpdateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c *types.SpecTaskDesignReviewComment) error {
+			s.Equal("[Agent turn failed: Agent never connected after auto-wake cold-start retries]", c.AgentResponse,
+				"a failed turn must explain itself instead of leaving the comment blank")
+			return nil
+		},
+	)
+	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "review-errored").
+		Return(nil, errNotFound{}).AnyTimes()
+
+	err := s.server.finalizeCommentResponse(context.Background(), "int-errored")
+	s.NoError(err)
+}
+
 // TestFinalizeCommentResponse_ReturnsSentinelWhenNoComment pins the distinction
 // Defect 3 depends on: a non-comment interaction must be identifiable as such,
 // so the caller can log it at DEBUG while treating every other failure as a lost
