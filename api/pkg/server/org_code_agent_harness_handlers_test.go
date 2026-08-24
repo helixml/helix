@@ -187,7 +187,7 @@ func TestResolveProviderEndpointPrecedence(t *testing.T) {
 	resolved := resolveProviderEndpointPrecedence([]*types.ProviderEndpoint{
 		{ID: "", Name: "openai", EndpointType: types.ProviderEndpointTypeGlobal},
 		{ID: "pe_global", Name: "openai", EndpointType: types.ProviderEndpointTypeGlobal},
-		{ID: "pe_org", Name: "openai", EndpointType: types.ProviderEndpointTypeOrg},
+		{ID: "pe_org", Name: "user/openai", EndpointType: types.ProviderEndpointTypeOrg},
 		{ID: "pe_anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
 	})
 

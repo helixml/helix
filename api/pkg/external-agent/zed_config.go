@@ -621,7 +621,7 @@ func ResolveProvider(token string, snapshot []ProviderRef) (ref ProviderRef, byL
 		}
 	}
 	for _, p := range snapshot {
-		if strings.EqualFold(p.Name, token) {
+		if types.CanonicalProviderName(p.Name) == types.CanonicalProviderName(token) {
 			byLegacy := p.ID != "" // global with no ID is a normal match, not legacy
 			return p, byLegacy, true
 		}
@@ -634,6 +634,7 @@ func ResolveProvider(token string, snapshot []ProviderRef) (ref ProviderRef, byL
 // OpenAI Responses. The general-purpose harnesses continue to accept any
 // provider exposed through Helix's OpenAI-compatible proxy.
 func CodeAgentRuntimeAllowsProvider(runtime types.CodeAgentRuntime, providerName string) bool {
+	providerName = types.CanonicalProviderName(providerName)
 	switch runtime {
 	case types.CodeAgentRuntimeClaudeCode:
 		return strings.EqualFold(providerName, string(types.ProviderAnthropic))
@@ -784,7 +785,7 @@ func buildLanguageModels(snapshot []ProviderRef, helixAPIURL string) map[string]
 	hasAnthropic := false
 	hasOpenAICompat := false
 	for _, p := range snapshot {
-		if strings.EqualFold(p.Name, "anthropic") {
+		if types.CanonicalProviderName(p.Name) == string(types.ProviderAnthropic) {
 			hasAnthropic = true
 		} else {
 			hasOpenAICompat = true
@@ -816,7 +817,7 @@ func buildLanguageModels(snapshot []ProviderRef, helixAPIURL string) map[string]
 //	helixProvider="openai", model="gpt-4o" → zedProvider="openai", zedModel="openai/gpt-4o"
 //	helixProvider="nebius", model="Qwen/Qwen3-Coder" → zedProvider="openai", zedModel="nebius/Qwen/Qwen3-Coder"
 func mapHelixToZedProvider(helixProvider, model string) (zedProvider, zedModel string) {
-	provider := strings.ToLower(helixProvider)
+	provider := types.CanonicalProviderName(helixProvider)
 
 	switch provider {
 	case "anthropic":

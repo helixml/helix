@@ -469,7 +469,7 @@ func selectProviderEndpoint(endpoints []*types.ProviderEndpoint, providerRef str
 	}
 	var selected *types.ProviderEndpoint
 	for _, endpoint := range endpoints {
-		if !strings.EqualFold(endpoint.Name, providerRef) {
+		if types.CanonicalProviderName(endpoint.Name) != types.CanonicalProviderName(providerRef) {
 			continue
 		}
 		ownerEndpointType := types.ProviderEndpointTypeUser
@@ -496,7 +496,7 @@ func isAnthropicAPIEndpoint(endpoint *types.ProviderEndpoint) bool {
 	if endpoint.VertexProjectID != "" {
 		return false
 	}
-	if strings.EqualFold(endpoint.Name, string(types.ProviderAnthropic)) {
+	if types.CanonicalProviderName(endpoint.Name) == string(types.ProviderAnthropic) {
 		return true
 	}
 	// Host-exact match so a lookalike like api.anthropic.com.proxy.evil.com

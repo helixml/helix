@@ -42,6 +42,7 @@ import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 
 import { useGetOrgByName } from '../../services/orgService';
+import { providerEndpointMatchesRef } from '../../utils/codeAgentProviders';
 
 import useRouter from '../../hooks/useRouter';
 import { isLegacyNativeModel, nativeProviderForEndpoint } from '../../utils/nativeModels';
@@ -140,10 +141,7 @@ export const providerRef = (provider: TypesProviderEndpoint | undefined): string
 // (current scheme) then falls back to a case-insensitive name match
 // (globals + legacy agents stored before the switch to ID-based references).
 export const matchesStoredRef = (provider: TypesProviderEndpoint | undefined, storedRef: string | undefined): boolean => {
-  if (!provider || !storedRef) return false;
-  if (hasRealID(provider) && provider.id === storedRef) return true;
-  if (provider.name && provider.name.toLowerCase() === storedRef.toLowerCase()) return true;
-  return false;
+  return providerEndpointMatchesRef(provider, storedRef);
 };
 
 function fuzzySearch(query: string, models: ModelWithProvider[], modelType: string) {

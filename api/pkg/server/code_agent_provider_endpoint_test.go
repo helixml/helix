@@ -67,3 +67,47 @@ func TestResolveCodeAgentProviderEndpointResolvesSyntheticGlobalOnce(t *testing.
 	require.NoError(t, err)
 	require.Same(t, synthetic, endpoint)
 }
+
+func TestResolveCodeAgentProviderEndpointPrefersLegacyNamedOrganizationAnthropic(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	orgEndpoint := &types.ProviderEndpoint{
+		ID:           "pe_org_anthropic",
+		Name:         "user/anthropic",
+		EndpointType: types.ProviderEndpointTypeOrg,
+	}
+	providerManager.EXPECT().
+		ListProviderEndpointsForOwner(gomock.Any(), "org_1", types.OwnerTypeOrg).
+		Return([]*types.ProviderEndpoint{
+			{Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+			orgEndpoint,
+		}, nil)
+
+	server := &HelixAPIServer{Cfg: &config.ServerConfig{}, providerManager: providerManager}
+	endpoint, err := server.resolveCodeAgentProviderEndpoint(context.Background(), &types.User{
+		ID: "user_1", OrganizationID: "org_1",
+	}, "anthropic")
+
+	require.NoError(t, err)
+	require.Same(t, orgEndpoint, endpoint)
+}
+
+func TestResolveCodeAgentProviderEndpointKeepsExplicitDatabaseID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	globalEndpoint := &types.ProviderEndpoint{ID: "pe_global_anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal}
+	providerManager.EXPECT().
+		ListProviderEndpointsForOwner(gomock.Any(), "org_1", types.OwnerTypeOrg).
+		Return([]*types.ProviderEndpoint{
+			globalEndpoint,
+			{ID: "pe_org_anthropic", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg},
+		}, nil)
+
+	server := &HelixAPIServer{Cfg: &config.ServerConfig{}, providerManager: providerManager}
+	endpoint, err := server.resolveCodeAgentProviderEndpoint(context.Background(), &types.User{
+		ID: "user_1", OrganizationID: "org_1",
+	}, "pe_global_anthropic")
+
+	require.NoError(t, err)
+	require.Same(t, globalEndpoint, endpoint)
+}

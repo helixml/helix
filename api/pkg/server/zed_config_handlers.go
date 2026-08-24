@@ -708,7 +708,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		return nil
 	}
 
-	provider := strings.ToLower(providerName)
+	provider := types.CanonicalProviderName(providerName)
 	var baseURL, apiType, agentName, model string
 
 	// The runtime choice determines how the LLM is configured in Zed
@@ -1156,7 +1156,7 @@ func filterProviderEndpointsByRefs(endpoints []*types.ProviderEndpoint, refs []s
 			continue
 		}
 		for ref := range allowed {
-			if strings.EqualFold(endpoint.Name, ref) {
+			if providerEndpointMatchesRef(endpoint, ref) {
 				filtered = append(filtered, endpoint)
 				break
 			}
@@ -1186,7 +1186,7 @@ func filterProviderEndpointsForHarness(
 }
 
 func providerEndpointMatchesRef(endpoint *types.ProviderEndpoint, ref string) bool {
-	return endpoint != nil && (endpoint.ID == ref || strings.EqualFold(endpoint.Name, ref))
+	return endpoint != nil && (endpoint.ID == ref || types.CanonicalProviderName(endpoint.Name) == types.CanonicalProviderName(ref))
 }
 
 func resolveProviderEndpointPrecedence(endpoints []*types.ProviderEndpoint) []*types.ProviderEndpoint {
@@ -1196,7 +1196,7 @@ func resolveProviderEndpointPrecedence(endpoints []*types.ProviderEndpoint) []*t
 		if endpoint == nil {
 			continue
 		}
-		name := strings.ToLower(endpoint.Name)
+		name := types.CanonicalProviderName(endpoint.Name)
 		idx, exists := byName[name]
 		if !exists {
 			byName[name] = len(resolved)

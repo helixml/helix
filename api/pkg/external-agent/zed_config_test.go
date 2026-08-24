@@ -155,6 +155,19 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			why:              "control case: env-baked global (no ID) resolves by canonical name; anthropic model id passes through verbatim to match Zed's /v1/models listing",
 		},
 		{
+			name: "legacy_anthropic_task_ref_routes_to_org_endpoint",
+			assistants: []types.AssistantConfig{{
+				AgentType:        types.AgentTypeZedExternal,
+				CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+				Provider:         "anthropic",
+				Model:            "claude-sonnet-4-5",
+			}},
+			snapshot:         []ProviderRef{{ID: "pe_org_anthropic", Name: "user/anthropic"}},
+			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5"},
+			wantMisconfig:    false,
+			why:              "legacy task refs must resolve to the organization Anthropic row and retain Anthropic routing",
+		},
+		{
 			name: "legacy_name_match_still_works_for_unsaved_agents",
 			assistants: []types.AssistantConfig{{
 				AgentType:               types.AgentTypeZedExternal,
@@ -394,6 +407,17 @@ func TestMigrateLegacyProviderRefs(t *testing.T) {
 			wantGenericGen: "pe_user_provider_01",
 			why:            "GenerationModelProvider migrates the same way as the legacy Provider field",
 		},
+		{
+			name: "legacy_anthropic_preset_name_rewrites_to_org_id",
+			assistant: types.AssistantConfig{
+				Provider: "anthropic",
+				Model:    "claude-sonnet-4-5",
+			},
+			snapshot:     []ProviderRef{{ID: "pe_org_anthropic", Name: "user/anthropic"}},
+			wantChanged:  true,
+			wantProvider: "pe_org_anthropic",
+			why:          "legacy Anthropic task refs heal to the visible organization endpoint ID",
+		},
 	}
 
 	for _, tc := range cases {
@@ -493,6 +517,13 @@ func TestBuildLanguageModels(t *testing.T) {
 		{
 			name:     "anthropic-only does not inject openai",
 			snapshot: []ProviderRef{{Name: "anthropic"}},
+			want: map[string]LanguageModelConfig{
+				"anthropic": {APIURL: helixURL},
+			},
+		},
+		{
+			name:     "legacy anthropic preset name injects anthropic",
+			snapshot: []ProviderRef{{ID: "pe_org_anthropic", Name: "user/anthropic"}},
 			want: map[string]LanguageModelConfig{
 				"anthropic": {APIURL: helixURL},
 			},

@@ -8,9 +8,9 @@ import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
 import { buildPickerAgents } from "./SpecTaskModelPicker";
 
 const providers = [
-  { id: "pe_anthropic", name: "anthropic", model: "claude-model" },
+  { id: "pe_anthropic", name: "user/anthropic", model: "claude-model" },
   { id: "pe_openai", name: "openai", model: "gpt-model" },
-  { id: "pe_together", name: "togetherai", model: "together-model" },
+  { id: "pe_together", name: "user/togetherai", model: "together-model" },
 ].map(({ model, ...provider }) => ({
   ...provider,
   status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
@@ -52,10 +52,18 @@ describe("buildPickerAgents", () => {
     expect(models(TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent, [])).toEqual([]);
     expect(models(TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent, ["pe_together"]))
       .toEqual(["together-model"]);
+    expect(models(TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent, ["togetherai"]))
+      .toEqual(["together-model"]);
   });
 
   it("applies native harness provider compatibility", () => {
     expect(models(TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode)).toEqual(["claude-model"]);
     expect(models(TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI)).toEqual(["gpt-model"]);
+    expect(buildPickerAgents(
+      [agent(TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode)],
+      providers,
+      [{ runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode, enabled: true }],
+      true,
+    )[0].models[0].provider?.id).toBe("pe_anthropic");
   });
 });

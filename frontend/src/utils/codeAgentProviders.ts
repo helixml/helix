@@ -11,7 +11,15 @@ export function providerEndpointMatchesRef(
 ): boolean {
   if (!provider || !ref) return false
   if (provider.id && provider.id !== '-' && provider.id === ref) return true
-  return provider.name?.toLowerCase() === ref.toLowerCase()
+  return canonicalProviderName(provider.name) === canonicalProviderName(ref)
+}
+
+function canonicalProviderName(name?: string): string {
+  const normalized = name?.toLowerCase() || ''
+  const legacyName = normalized.startsWith('user/') ? normalized.slice(5) : normalized
+  return ['openai', 'togetherai', 'anthropic', 'helix', 'vllm'].includes(legacyName)
+    ? legacyName
+    : normalized
 }
 
 export function providerEndpointIsConnected(provider: TypesProviderEndpoint): boolean {
@@ -38,7 +46,7 @@ export function providerSupportsCodeAgentRuntime(
   runtime?: TypesCodeAgentRuntime | string,
 ): boolean {
   const required = requiredProviderNameForRuntime(runtime)
-  return !required || provider.name?.toLowerCase() === required
+  return !required || canonicalProviderName(provider.name) === required
 }
 
 export function providersForCodeAgentRuntime(

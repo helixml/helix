@@ -161,7 +161,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
 
       // For brand-new custom providers the user picks the endpoint name.
       // Existing custom providers keep their name (edits to the name aren't exposed here).
-      let endpointName = provider.id;
+      let endpointName = provider.endpoint_name || provider.id;
       if (provider.is_custom) {
         if (isEditing && existingProvider?.name) {
           endpointName = existingProvider.name;

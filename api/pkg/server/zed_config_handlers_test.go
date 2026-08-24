@@ -36,7 +36,10 @@ func TestGetProviderSnapshotMissingHarnessPolicyIncludesGlobalProviders(t *testi
 	}
 	providerManager.EXPECT().
 		ListProviderEndpointsForOwner(gomock.Any(), "org_1", types.OwnerTypeOrg).
-		Return([]*types.ProviderEndpoint{{ID: "pe_anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal}}, nil)
+		Return([]*types.ProviderEndpoint{
+			{ID: "", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+			{ID: "pe_anthropic", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg},
+		}, nil)
 	mockStore.EXPECT().
 		GetOrgCodeAgentHarness(gomock.Any(), "org_1", types.CodeAgentRuntimeClaudeCode).
 		Return(nil, store.ErrNotFound)
@@ -44,7 +47,7 @@ func TestGetProviderSnapshotMissingHarnessPolicyIncludesGlobalProviders(t *testi
 	snapshot, err := server.getProviderSnapshot(context.Background(), "user_1", app)
 
 	require.NoError(t, err)
-	require.Equal(t, []external_agent.ProviderRef{{ID: "pe_anthropic", Name: "anthropic"}}, snapshot)
+	require.Equal(t, []external_agent.ProviderRef{{ID: "pe_anthropic", Name: "user/anthropic"}}, snapshot)
 }
 
 func TestGetProviderSnapshotSubscriptionExcludesGlobalProviders(t *testing.T) {
@@ -87,6 +90,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 	tests := []struct {
 		name      string
 		assistant *types.AssistantConfig
+		snapshot  []external_agent.ProviderRef
 		want      *types.CodeAgentConfig
 	}{
 		{
@@ -121,6 +125,23 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 				APIType:         "openai",
 				Runtime:         types.CodeAgentRuntimeZedAgent,
 				ReasoningEffort: types.ReasoningEffortNone,
+			},
+		},
+		{
+			name: "legacy anthropic task ref resolves org endpoint for zed_agent",
+			assistant: &types.AssistantConfig{
+				Provider:         "anthropic",
+				Model:            "claude-sonnet-4-20250514",
+				CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+			},
+			snapshot: []external_agent.ProviderRef{{ID: "pe_org_anthropic", Name: "user/anthropic"}},
+			want: &types.CodeAgentConfig{
+				Provider:  "user/anthropic",
+				Model:     "claude-sonnet-4-20250514",
+				AgentName: "zed-agent",
+				BaseURL:   "http://localhost:8080/v1",
+				APIType:   "anthropic",
+				Runtime:   types.CodeAgentRuntimeZedAgent,
 			},
 		},
 		{
@@ -386,7 +407,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := apiServer.buildCodeAgentConfigFromAssistant(ctx, tt.assistant, helixURL, nil)
+			got := apiServer.buildCodeAgentConfigFromAssistant(ctx, tt.assistant, helixURL, tt.snapshot)
 			assert.Equal(t, tt.want, got)
 		})
 	}

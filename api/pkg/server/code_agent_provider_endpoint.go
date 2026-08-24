@@ -67,35 +67,40 @@ func (s *HelixAPIServer) resolveCodeAgentProviderEndpoint(
 		return nil, fmt.Errorf("provider reference is required")
 	}
 
-	if !strings.HasPrefix(providerRef, "pe_") {
-		switch {
-		case strings.EqualFold(providerRef, string(types.ProviderOpenAI)):
-			return s.getBuiltInOpenAIProviderEndpoint()
-		case strings.EqualFold(providerRef, string(types.ProviderAnthropic)):
-			return s.getBuiltInProviderEndpoint(ctx, string(types.ProviderAnthropic))
-		}
-	}
-
-	if s.providerManager == nil {
-		return nil, fmt.Errorf("provider manager is not configured")
-	}
 	ownerID := user.ID
 	ownerType := types.OwnerTypeUser
 	if user.OrganizationID != "" {
 		ownerID = user.OrganizationID
 		ownerType = types.OwnerTypeOrg
 	}
-	endpoints, err := s.providerManager.ListProviderEndpointsForOwner(ctx, ownerID, ownerType)
-	if err != nil {
-		return nil, fmt.Errorf("list providers: %w", err)
-	}
-	for _, endpoint := range endpoints {
-		if endpoint.ID == providerRef || strings.EqualFold(endpoint.Name, providerRef) {
-			if endpoint.ID == "" {
-				return s.getBuiltInProviderEndpoint(ctx, endpoint.Name)
-			}
-			return endpoint, nil
+	if s.providerManager != nil {
+		endpoints, err := s.providerManager.ListProviderEndpointsForOwner(ctx, ownerID, ownerType)
+		if err != nil {
+			return nil, fmt.Errorf("list providers: %w", err)
 		}
+		for _, endpoint := range endpoints {
+			if endpoint != nil && endpoint.ID != "" && endpoint.ID == providerRef {
+				return endpoint, nil
+			}
+		}
+		for _, endpoint := range resolveProviderEndpointPrecedence(endpoints) {
+			if providerEndpointMatchesRef(endpoint, providerRef) {
+				if endpoint.ID == "" {
+					return s.getBuiltInProviderEndpoint(ctx, types.CanonicalProviderName(endpoint.Name))
+				}
+				return endpoint, nil
+			}
+		}
+	}
+
+	switch types.CanonicalProviderName(providerRef) {
+	case string(types.ProviderOpenAI):
+		return s.getBuiltInOpenAIProviderEndpoint()
+	case string(types.ProviderAnthropic):
+		return s.getBuiltInProviderEndpoint(ctx, string(types.ProviderAnthropic))
+	}
+	if s.providerManager == nil {
+		return nil, fmt.Errorf("provider manager is not configured")
 	}
 	return nil, fmt.Errorf("provider %q is not available to this task", providerRef)
 }

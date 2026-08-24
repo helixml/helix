@@ -323,6 +323,8 @@ describe('CodeAgentConfigPicker', () => {
   })
 
   it('writes the provider and model selected in chat into the task config', () => {
+    providerState.providers = providerState.providers.map((provider) =>
+      provider.id === 'provider-2' ? { ...provider, name: 'user/anthropic' } : provider)
     harnessState.harnesses = harnessState.harnesses.map((harness) =>
       harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
         ? { ...harness, subscription_enabled: false }
