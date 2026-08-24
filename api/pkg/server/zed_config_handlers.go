@@ -826,15 +826,6 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 			outputModalities = append([]types.Modality(nil), modelInfo.OutputModalities...)
 		}
 	}
-	if profile, ok := modelPkg.LookupModelModalities(modelName); ok {
-		if len(inputModalities) == 0 {
-			inputModalities = profile.Input
-		}
-		if len(outputModalities) == 0 {
-			outputModalities = profile.Output
-		}
-	}
-
 	return &types.CodeAgentConfig{
 		Provider:         providerName,
 		Model:            model,

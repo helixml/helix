@@ -663,8 +663,11 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 	}
 }
 
-func TestBuildOpenCodeConfigUsesCuratedVisionCapabilities(t *testing.T) {
-	apiServer := &HelixAPIServer{}
+func TestBuildOpenCodeConfigUsesCatalogueVisionCapabilities(t *testing.T) {
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	apiServer := &HelixAPIServer{modelInfoProvider: modelInfoProvider}
 	assistant := &types.AssistantConfig{
 		AgentType:               types.AgentTypeZedExternal,
 		GenerationModelProvider: "vision-provider",
@@ -677,6 +680,10 @@ func TestBuildOpenCodeConfigUsesCuratedVisionCapabilities(t *testing.T) {
 	)
 
 	require.NotNil(t, got)
-	assert.Equal(t, []types.Modality{types.ModalityText, types.ModalityImage}, got.InputModalities)
+	assert.Equal(t, []types.Modality{
+		types.ModalityText,
+		types.ModalityImage,
+		types.Modality("video"),
+	}, got.InputModalities)
 	assert.Equal(t, []types.Modality{types.ModalityText}, got.OutputModalities)
 }

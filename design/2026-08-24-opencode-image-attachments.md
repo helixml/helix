@@ -16,8 +16,8 @@ context length but no modality metadata, while a direct image request succeeds.
 
 - Carry input and output modalities in `CodeAgentConfig`.
 - Prefer provider-advertised modalities, then catalogue metadata.
-- Use a dated, probed family profile for Qwen 3.8 27B when neither source
-  exposes modalities.
+- Refresh the bundled OpenRouter catalogue with Qwen 3.8 27B metadata for
+  providers whose own model listing omits modalities.
 - Generate OpenCode custom-model `attachment: true` and explicit input/output
   modalities only when Helix knows the model accepts a non-text input.
 - Leave unknown models unchanged instead of guessing attachment support.

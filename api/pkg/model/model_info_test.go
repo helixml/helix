@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,6 +31,32 @@ func TestToModelInfo_ReasoningEffortCapability(t *testing.T) {
 
 	assert.True(t, toModelInfo(withEffort).SupportsReasoningEffort)
 	assert.False(t, toModelInfo(ModelInfoData{}).SupportsReasoningEffort)
+}
+
+func Test_GetQwen38VisionModalities(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	for _, modelID := range []string{"qwen3.8-27b", "qwen/qwen3.8-27b"} {
+		t.Run(modelID, func(t *testing.T) {
+			modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+				Provider: "openrouter",
+				Model:    modelID,
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, []types.Modality{
+				types.ModalityText,
+				types.ModalityImage,
+				types.Modality("video"),
+			}, modelInfo.InputModalities)
+			assert.Equal(t, []types.Modality{types.ModalityText}, modelInfo.OutputModalities)
+			assert.Equal(t, 1_000_000, modelInfo.ContextLength)
+			assert.Equal(t, 131_072, modelInfo.MaxCompletionTokens)
+			assert.Equal(t, "0.0000004", modelInfo.Pricing.Prompt)
+			assert.Equal(t, "0.000003", modelInfo.Pricing.Completion)
+		})
+	}
 }
 
 func Test_GetHaiku35(t *testing.T) {
