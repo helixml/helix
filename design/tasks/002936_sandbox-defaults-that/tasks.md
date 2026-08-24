@@ -61,15 +61,15 @@
 
 ## 5. Part A — OpenAPI and tests
 
-- [ ] Run `./stack update_openapi` and commit all seven regenerated artifacts; re-grep `standard 4 vCPU` to confirm every copy moved
-- [ ] Invert the materialized-default assertion in `api/pkg/services/spec_driven_task_service_test.go` (~129) — the row is now `nil`, not the default
-- [ ] Re-point the contrasting project default in `api/pkg/org/infrastructure/runtime/helix/spectasks_sandbox_test.go` (~79) to `1/2048` so `TestSpecTasks_CreateFallsBackToProjectSandboxDefaults` is not vacuous
-- [ ] Add a `sandboxResourceLimits` clamp case to `api/pkg/hydra/devcontainer_test.go`
-- [ ] Add a `SetDefaultSpecTaskSandboxResources` test covering a valid pair, an invalid pair, and restore-after-test
-- [ ] Add a frontend test: a stored `{vcpus: 12, memory_mb: 24576}` selects the 12-CPU rung, and a stored value matching no rung does not render blank
+- [x] Run `./stack update_openapi` and commit all seven regenerated artifacts; re-grep `standard 4 vCPU` to confirm every copy moved
+- [x] Invert the materialized-default assertion in `api/pkg/services/spec_driven_task_service_test.go` (~129) — the row is now `nil`, not the default
+- [x] Re-point the contrasting project default in `api/pkg/org/infrastructure/runtime/helix/spectasks_sandbox_test.go` (~79) to `1/2048` so `TestSpecTasks_CreateFallsBackToProjectSandboxDefaults` is not vacuous
+- [x] Add a `sandboxResourceLimits` clamp case to `api/pkg/hydra/devcontainer_test.go`
+- [x] Add a `SetDefaultSpecTaskSandboxResources` test covering a valid pair, an invalid pair, and restore-after-test
+- [x] Add a frontend test: a stored `{vcpus: 12, memory_mb: 24576}` selects the 12-CPU rung, and a stored value matching no rung does not render blank
 - [ ] Add a migration test (or documented manual check) that the predicate leaves `{"vcpus": 8, "memory_mb": 16384}` rows untouched
-- [ ] Run `api/pkg/external-agent/task_overrides_test.go` to confirm the symbolic assertions still pass
-- [ ] Run the touched vitest files; update `SpecTaskExecutionControls.test.tsx`, `ProjectChatItemTooltip.test.tsx` and `projectChatItemDetails` fixtures only where they actually fail
+- [x] Run `api/pkg/external-agent/task_overrides_test.go` to confirm the symbolic assertions still pass
+- [x] Run the touched vitest files; update `SpecTaskExecutionControls.test.tsx`, `ProjectChatItemTooltip.test.tsx` and `projectChatItemDetails` fixtures only where they actually fail
 
 ## 6. Part B — proxy replay
 
@@ -117,3 +117,21 @@
 - [ ] `gh pr checks` on both PRs; fix CI failures without being asked
 - [ ] Report PR links as full URLs (`https://github.com/helixml/helix/pull/NNN`)
 - [ ] Close `spt_01m0evm3dpanc1sfktywbxhes4` as superseded by this task
+
+## Notes discovered during implementation
+
+- `swag` was not installed; `go install github.com/swaggo/swag/cmd/swag@latest`
+  then run `./stack update_openapi` with `~/go/bin` on PATH.
+- `~/.npm` cache was root-owned and broke the TypeScript client generation step;
+  `sudo chown -R 1000:1000 /home/retro/.npm` fixes it.
+- `yarn build` fails with EACCES on `frontend/dist` (root-owned bind mount, and
+  CLAUDE.md forbids removing it). Verify with
+  `npx vite build --outDir /tmp/fe-dist --emptyOutDir` instead. The stack is in
+  dev mode (no `FRONTEND_URL` in `.env`), so `dist/` is unused anyway.
+- Pre-existing test failures on this box, confirmed identical on `origin/main`
+  via a temporary worktree — **not** caused by this branch:
+  `TestDiskPressureSuite` (no `zpool` binary) and
+  `pkg/org/infrastructure/persistence/gorm` (needs Postgres).
+- `TestSpecTasks_CreateFallsBackToProjectSandboxDefaults` did **not** need
+  re-pointing after all: it contrasts a project default of 4/8192 against a
+  global default that is no longer materialized, so it stays meaningful.
