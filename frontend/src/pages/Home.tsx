@@ -59,6 +59,7 @@ import {
   preferredSpecTaskSandboxRuntime,
   saveSpecTaskSandboxRuntimePreference,
 } from '../utils/specTaskSandboxRuntime'
+import { defaultSandboxResourceOverrides } from '../constants/sandboxPresets'
 
 const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
 const TASK_ATTACHMENT_ACCEPT = Object.entries(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME)
@@ -133,10 +134,9 @@ const Home: FC = () => {
     readNewChatReasoningEffort(localStorage.getItem('helix_reasoning_effort'))
   ))
   const [taskCodeAgentConfig, setTaskCodeAgentConfig] = useState<TypesCodeAgentExecutionConfig>()
-  const [taskSandboxResources, setTaskSandboxResources] = useState<TypesSandboxResourceOverrides>({
-    vcpus: 4,
-    memory_mb: 8192,
-  })
+  const [taskSandboxResources, setTaskSandboxResources] = useState<TypesSandboxResourceOverrides>(
+    defaultSandboxResourceOverrides(),
+  )
   const [taskSandboxRuntime, setTaskSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
     preferredSpecTaskSandboxRuntime(requestedProjectId),
   )
@@ -171,7 +171,7 @@ const Home: FC = () => {
   // effect above would reset a chosen sandbox size the moment picking a harness
   // seeded the project default and refreshed the project.
   useEffect(() => {
-    setTaskSandboxResources({ vcpus: 4, memory_mb: 8192 })
+    setTaskSandboxResources(defaultSandboxResourceOverrides())
     setTaskSandboxRuntime(preferredSpecTaskSandboxRuntime(
       selectedProjectId,
       selectedProject?.default_sandbox_runtime,

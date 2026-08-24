@@ -40,10 +40,16 @@ const DEFAULT_RUNTIME = (TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu ?? 'he
 // the sandbox is deleted or the container is recreated.
 const PERSISTENT_WORKSPACE_PATH = '/home/retro/work'
 
+// Kept in step with the spec-task ladder (constants/sandboxPresets.ts and
+// types.SpecTaskSandboxPresets) so a size offered on one surface is not refused
+// on the other. The default stays 'small': size here is an explicit choice at
+// create time, not a default silently applied to work the user did not size.
 const RESOURCE_PRESETS = [
   { value: 'small', label: '1 CPU / 2GB RAM', vcpus: 1, memoryMB: 2048 },
   { value: 'medium', label: '4 CPU / 8GB RAM', vcpus: 4, memoryMB: 8192 },
   { value: 'large', label: '8 CPU / 16GB RAM', vcpus: 8, memoryMB: 16384 },
+  { value: 'xlarge', label: '12 CPU / 24GB RAM', vcpus: 12, memoryMB: 24576 },
+  { value: '2xlarge', label: '16 CPU / 32GB RAM', vcpus: 16, memoryMB: 32768 },
 ]
 
 // CreateSandboxDialog asks for a name, runtime, and optional TTL/env.

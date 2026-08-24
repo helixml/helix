@@ -26,6 +26,7 @@ import { getCodeAgentEffortOptions } from './CodeAgentEffortSelect'
 import { useHasEnabledCodeAgentHarnesses } from '../../services/codeAgentHarnessesService'
 import CodeAgentConfigPicker from './CodeAgentConfigPicker'
 import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
+import { DEFAULT_SANDBOX_PRESET, sandboxPresetsFor } from '../../constants/sandboxPresets'
 
 type MaybePromise = void | Promise<unknown>
 
@@ -48,14 +49,6 @@ export interface CodeAgentExecutionControlsProps {
   /** Select the recommended available harness and model when a new task has no config. */
   autoSelectDefault?: boolean
 }
-
-const SANDBOX_PRESETS = [
-  { vcpus: 1, memory_mb: 2048, description: '2 GB RAM' },
-  { vcpus: 4, memory_mb: 8192, description: '8 GB RAM' },
-  { vcpus: 8, memory_mb: 16384, description: '16 GB RAM' },
-] as const
-
-const DEFAULT_SANDBOX_PRESET = SANDBOX_PRESETS[1]
 
 const compactButtonSx = {
   height: 28,
@@ -104,6 +97,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   const resources = sandboxResourceOverrides?.vcpus
     ? sandboxResourceOverrides
     : DEFAULT_SANDBOX_PRESET
+  const sandboxPresets = sandboxPresetsFor(resources.vcpus, resources.memory_mb)
   const runtimeEnvironment = sandboxRuntime || TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop
   const showSandboxRuntime = sandboxRuntime !== undefined || !!onSandboxRuntimeChange
   const sandboxRuntimeLocked = showSandboxRuntime && !onSandboxRuntimeChange
@@ -287,7 +281,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
         transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
       >
         <ListSubheader disableSticky>Compute</ListSubheader>
-        {SANDBOX_PRESETS.map((preset) => (
+        {sandboxPresets.map((preset) => (
           <MenuItem
             key={preset.vcpus}
             selected={preset.vcpus === resources.vcpus}

@@ -29,6 +29,11 @@ import { getCodeAgentEffortOptions } from "../agent/CodeAgentEffortSelect";
 import { useModelReasoningEfforts } from "../../hooks/useModelReasoningEfforts";
 import SpecTaskModelPicker from "./SpecTaskModelPicker";
 import { codeAgentExecutionConfigFromApp } from "../../utils/codeAgentExecutionConfig";
+import {
+  DEFAULT_SANDBOX_PRESET,
+  SandboxPreset,
+  sandboxPresetsFor,
+} from "../../constants/sandboxPresets";
 
 type MaybePromise = void | Promise<unknown>;
 
@@ -52,14 +57,6 @@ interface SpecTaskExecutionControlsProps {
   compact?: boolean;
   grouped?: boolean;
 }
-
-const SANDBOX_PRESETS = [
-  { vcpus: 1, memory_mb: 2048, label: "1 CPU", description: "2 GB RAM" },
-  { vcpus: 4, memory_mb: 8192, label: "4 CPU", description: "8 GB RAM" },
-  { vcpus: 8, memory_mb: 16384, label: "8 CPU", description: "16 GB RAM" },
-] as const;
-
-const DEFAULT_SANDBOX_PRESET = SANDBOX_PRESETS[1];
 
 const compactButtonSx = {
   height: 28,
@@ -151,6 +148,8 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   const effectiveSandboxResources = sandboxResourceOverrides?.vcpus
     ? sandboxResourceOverrides
     : DEFAULT_SANDBOX_PRESET;
+  const sandboxPresets = sandboxPresetsFor(
+    effectiveSandboxResources.vcpus, effectiveSandboxResources.memory_mb);
   const sandboxLabel = `${effectiveSandboxResources.vcpus} vCPU`;
   const effectiveSandboxRuntime = sandboxRuntime
     || TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop;
@@ -199,7 +198,7 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
     );
   };
 
-  const selectSandbox = async (preset: typeof SANDBOX_PRESETS[number]) => {
+  const selectSandbox = async (preset: SandboxPreset) => {
     if (!onSandboxResourceOverridesChange) return;
     setCpuAnchor(null);
     setIsSaving(true);
@@ -401,7 +400,7 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
         transformOrigin={{ vertical: "bottom", horizontal: "left" }}
       >
         <ListSubheader disableSticky>Compute</ListSubheader>
-        {SANDBOX_PRESETS.map((preset) => (
+        {sandboxPresets.map((preset) => (
           <MenuItem
             key={preset.vcpus}
             selected={preset.vcpus === effectiveSandboxResources.vcpus}
