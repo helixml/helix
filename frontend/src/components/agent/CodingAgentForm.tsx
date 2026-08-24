@@ -216,17 +216,17 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
 
   useImperativeHandle(ref, () => ({
     handleCreateAgent,
-    handleGetConfig: () => {
+    handleGetConfig: (): TypesCodeAgentExecutionConfig => {
       const isSub = value.codeAgentRuntime === 'claude_code' || (value.codeAgentRuntime === 'codex_cli' && value.claudeCodeMode === 'subscription')
       const modelToUse = value.codeAgentRuntime === 'codex_cli' && value.claudeCodeMode === 'subscription'
         ? codexSubscriptionModel
         : isSub ? '' : (value.selectedModel || '')
       const providerToUse = isSub ? '' : (value.selectedProvider || '')
       return {
-        runtime: value.codeAgentRuntime,
-        credential_type: value.claudeCodeMode === 'subscription' ? 'subscription' : 'api_key',
-        provider_ref: isSub ? undefined : providerToUse,
-        model: modelToUse || '',
+        runtime: value.codeAgentRuntime as TypesCodeAgentExecutionConfig['runtime'],
+        credential_type: (value.claudeCodeMode === 'subscription' ? 'subscription' : 'api_key') as TypesCodeAgentExecutionConfig['credential_type'],
+        provider_ref: isSub ? undefined : providerToUse || undefined,
+        model: modelToUse || undefined,
       }
     },
   }), [
