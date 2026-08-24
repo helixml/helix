@@ -2,8 +2,8 @@
 
 ## 0. Reproduce first (do not skip)
 
-- [ ] Bring up the inner Helix at `http://localhost:8080`; poll until `helix-api-1`, `helix-frontend-1`, `helix-postgres-1` are `Up` and `8080` returns 200 (allow 5–10 min)
-- [ ] Register `test@helix.ml` / `helixtest`, complete onboarding (org → project)
+- [x] Bring up the inner Helix at `http://localhost:8080`; poll until `helix-api-1`, `helix-frontend-1`, `helix-postgres-1` are `Up` and `8080` returns 200 (allow 5–10 min)
+- [~] Register `test@helix.ml` / `helixtest`, complete onboarding (org → project)
 - [ ] Create a spec task and drive it to `spec_review` with a design review present
 - [ ] Confirm its desktop container is gone: `docker compose exec -T sandbox-nvidia docker ps | grep ubuntu-external-<sid>`; stop it if still running
 - [ ] Post a review comment so the comment itself triggers cold boot; watch `docker logs helix-api-1` and the comment row
