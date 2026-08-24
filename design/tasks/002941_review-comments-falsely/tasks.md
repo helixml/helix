@@ -54,7 +54,8 @@
 - [x] Replaced `TestHandleCommentTimeout_StampsErrorWhenInteractionEmpty` with `_DoesNotStampWhenAgentUnreachable`; stamp coverage retargeted at `_StampsSandboxFailureAfterCeiling` and `_StampsNoResponseAfterSilentCeiling`
 - [x] Added `TestFinalizeCommentResponse_ResolvesWhenAgentRebindsRequestID` and `_ReturnsSentinelWhenNoComment` for the repro findings
 - [x] **19/19 tests pass** (`CGO_ENABLED=1 go test -run TestCommentTimerSuite ./pkg/server/ -count=1`)
-- [x] Run: `sudo apt-get install -y gcc libc6-dev && CGO_ENABLED=1 go test -run TestCommentTimerSuite ./pkg/server/ -count=1`
+- [x] Run: `CGO_ENABLED=1 go test -run TestCommentTimerSuite ./pkg/server/ -count=1` — 20/20 pass
+- [x] Run the **whole** `pkg/server` suite — caught 7 stale mocks in `TestWebSocketSyncSuite` that the targeted run missed; fixed, suite now green
 
 ## 6. Verify live (mandatory)
 

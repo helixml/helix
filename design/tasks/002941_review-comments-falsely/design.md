@@ -344,3 +344,29 @@ UI note: `fill` on the composer sets the DOM value but does not update React sta
   the same session replaces the timer. Any new state must be derived from the DB, not held in
   the timer closure, or it is lost on re-arm and on restart.
 - Do not touch `spt_01m0sh2mqx8491eg62fkp9qrap` (sandbox defaults + stream init replay).
+
+## Implementation notes (written during the build)
+
+- **Run the whole `pkg/server` suite, not just your own.** `go test -run TestCommentTimerSuite`
+  was green while seven call sites in `TestWebSocketSyncSuite` were aborting on the new
+  resolver's `GetInteractionByExternalAgentRequestID` call. Any change to a function reached
+  from `handleMessageCompleted` has a wide mock blast radius.
+- **`isExternalAgentConnected` already existed** (`external_agent_handlers.go:204`). A duplicate
+  was written and deleted; the existing one is used. Tests construct the manager with
+  `NewExternalAgentWSManager()` (the pattern in ~8 other suites) rather than nil-guarding
+  production code, and register a fake connection directly into `manager.connections` to
+  exercise the "agent reachable" branch.
+- **Re-arming in a unit test schedules a real 2-minute `time.AfterFunc`.** `TearDownTest` stops
+  every timer, otherwise one fires against a torn-down gomock controller.
+- **`go build ./pkg/...` needs system libs** this sandbox lacks by default: `pkg-config`,
+  `libglib2.0-dev`, `libgstreamer1.0-dev`, `libgstreamer-plugins-base1.0-dev`,
+  `libpipewire-0.3-dev`, `libspa-0.2-dev`, `libwayland-dev`, `libxkbcommon-dev`. Install them
+  or the go-gst / desktop packages fail with confusing pkg-config errors unrelated to your change.
+- **`frontend/dist` is a root-owned read-only bind mount**, so an in-place `yarn build` fails
+  with `EACCES` after compiling successfully. Verify with `vite build --outDir /tmp/fe-dist`.
+  Do not delete `dist` — CLAUDE.md forbids it (breaks the mount).
+- **`agent_response_at`**: the backfill takes it from `interactions.updated`, unlike the live
+  path which uses `time.Now()`. Recovered answers are historical and dating them "now" would be
+  a lie in the UI.
+- The recovered row's `response_message` was 6,791 chars but `TextFromInteraction` yielded
+  2,870 — concrete evidence for choosing the Go helper over SQL in the backfill.
