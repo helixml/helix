@@ -70,6 +70,7 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 				if info.AgentStatus != "" {
 					dto.AgentStatus = info.AgentStatus
 				}
+				dto.RestartRequired = info.RestartRequired
 				dto.AgentRuntime = info.Runtime
 				dto.AgentModel = info.Model
 			}
@@ -208,6 +209,7 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 			if info.AgentStatus != "" {
 				detail.Bot.AgentStatus = info.AgentStatus
 			}
+			detail.Bot.RestartRequired = info.RestartRequired
 			detail.Bot.AgentRuntime = info.Runtime
 			detail.Bot.AgentModel = info.Model
 			if strings.Contains(r.URL.Path, "/agents/") {

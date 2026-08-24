@@ -23506,6 +23506,10 @@ const docTemplate = `{
                 "reasoning_effort": {
                     "type": "string"
                 },
+                "restart_required": {
+                    "description": "RestartRequired is true when the sandbox is running but still holds\nthe tool list and instructions from before the last save. Drives the\nrestart banner on the bot page and the org chat panel.",
+                    "type": "boolean"
+                },
                 "tools": {
                     "type": "array",
                     "items": {
@@ -23768,6 +23772,10 @@ const docTemplate = `{
                 },
                 "reasoning_effort": {
                     "type": "string"
+                },
+                "restart_required": {
+                    "description": "RestartRequired is true when the sandbox is running but still holds\nthe tool list and instructions from before the last save. Drives the\nrestart banner on the bot page and the org chat panel.",
+                    "type": "boolean"
                 },
                 "tools": {
                     "type": "array",
