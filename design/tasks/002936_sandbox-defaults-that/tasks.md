@@ -32,8 +32,8 @@
 - [x] Check the API response / frontend render path for a now-nil `task.sandbox_resource_overrides` — it must fall back to the shared default, not render blank
 - [x] Add migration `api/pkg/store/migrations/0009_unmaterialize_spec_task_sandbox_default.up.sql` NULLing `spec_tasks.sandbox_resource_overrides` where it equals exactly `{"vcpus": 4, "memory_mb": 8192}` — see Open Question 1 on `NULL` vs the explicit new pair
 - [x] **Never match `{"vcpus": 8, "memory_mb": 16384}`** — 178 rows on meta hold that as a deliberate user choice. Do not generalise the predicate to "equals a default"
-- [ ] Record the `SELECT sandbox_resource_overrides, count(*) FROM spec_tasks GROUP BY 1` counts before and after, and put both in the PR body — that diff is the safety story for this migration
-- [ ] Confirm the migration is a no-op on meta, whose 31 stale rows were hand-backfilled to `12/24576` on 2026-08-24
+- [x] Record the `SELECT sandbox_resource_overrides, count(*) FROM spec_tasks GROUP BY 1` counts before and after, and put both in the PR body — that diff is the safety story for this migration
+- [x] Confirm the migration is a no-op on meta, whose 31 stale rows were hand-backfilled to `12/24576` on 2026-08-24
 - [x] Add the `.down.sql` as a documented no-op (the reversal information does not exist, and re-materializing all NULLs would break the 4102 rows that never had a value)
 - [x] Do **not** touch project rows — a project only stores an override when an admin explicitly set one
 
@@ -67,7 +67,7 @@
 - [x] Add a `sandboxResourceLimits` clamp case to `api/pkg/hydra/devcontainer_test.go`
 - [x] Add a `SetDefaultSpecTaskSandboxResources` test covering a valid pair, an invalid pair, and restore-after-test
 - [x] Add a frontend test: a stored `{vcpus: 12, memory_mb: 24576}` selects the 12-CPU rung, and a stored value matching no rung does not render blank
-- [ ] Add a migration test (or documented manual check) that the predicate leaves `{"vcpus": 8, "memory_mb": 16384}` rows untouched
+- [x] Add a migration test (or documented manual check) that the predicate leaves `{"vcpus": 8, "memory_mb": 16384}` rows untouched
 - [x] Run `api/pkg/external-agent/task_overrides_test.go` to confirm the symbolic assertions still pass
 - [x] Run the touched vitest files; update `SpecTaskExecutionControls.test.tsx`, `ProjectChatItemTooltip.test.tsx` and `projectChatItemDetails` fixtures only where they actually fail
 
@@ -102,7 +102,7 @@
 - [x] Fresh task: `docker exec helix-sandbox-nvidia-1 docker inspect -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}' <container>` shows the new limits (`25769803776 12000000000`, or the clamped CPU value with its log line)
 - [ ] Pre-existing task row (non-meta deployment): confirm the migration NULLed it, that starting it produces the new limits, and that the `8/16384` row count is unchanged
 - [ ] On meta: open one of the 31 hand-backfilled tasks and confirm the selector shows "12 CPU / 24 GB RAM" selected rather than blank
-- [ ] Config override: set `HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS=8` / `..._MEMORY_MB=16384`, restart, create a task, confirm the container follows; then set an invalid pair and confirm startup refuses
+- [x] Config override: set `HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS=8` / `..._MEMORY_MB=16384`, restart, create a task, confirm the container follows; then set an invalid pair and confirm startup refuses
 - [ ] Real reconnect: with a browser watching a playing stream, restart `desktop-bridge` in the desktop container; confirm video resumes unattended, `reconnect_count` increments, and **no** `failed to read init message` appears in the desktop-bridge log
 - [ ] Read the desktop-bridge log for which `GetOrCreate` branch the replayed init took — existing source vs `Evicted dead source` (design B6 / Open Question 5)
 - [ ] Test the next operation after the drop: click in the desktop and confirm input still works; confirm an embed-key read-only viewer still cannot input after a reconnect
@@ -119,6 +119,21 @@
 - [ ] Close `spt_01m0evm3dpanc1sfktywbxhes4` as superseded by this task
 
 ## Notes discovered during implementation
+
+### Second gap found by end-to-end testing: the UI's "Default" marker lied
+
+The default is operator-configurable server-side, but the selector's
+`· Default` marker and pre-selected rung came from the hardcoded frontend
+constant. With `HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS=8` set, the UI still
+marked **12 vCPU** as Default while containers actually came up at 8/16384.
+
+Fix: `/api/v1/config` now carries `default_spec_task_sandbox` (it already
+carries `max_concurrent_desktops` and friends, so this is the established
+channel), and `hooks/useDefaultSandboxPreset.ts` reads it with the compile-time
+constant as the pre-load fallback.
+
+**Lesson:** making a value operator-configurable on the server is only half the
+job if a client renders its own copy of that value.
 
 ### Gap found by end-to-end testing (would have shipped the bug)
 
