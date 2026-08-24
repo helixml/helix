@@ -85,8 +85,11 @@ restart_required_container = session.Metadata.ContainerID
 ```
 
 Comparing fingerprints (rather than "was `Tools` in the patch") also tightens
-the existing `if p.Tools != nil` guard, which currently fires even when the
-submitted list is unchanged.
+the existing `if p.Tools != nil` guard: `sameToolList` compares element by
+element, so it suppresses only a byte-identical resubmit. A pure reorder of
+the same tool set still publishes `onToolsChanged` (fingerprint hashing is
+what makes the *restart* signal reorder-insensitive; the older tools-changed
+notifier is not).
 
 ### Read is pure
 
@@ -178,9 +181,14 @@ The one thing genuinely at risk is an in-flight turn killed mid-work, so the
 guard rails carry that weight:
 
 - **Never restart automatically.** The banner only offers.
-- **Mid-turn restart is gated** — the button is disabled with a tooltip
-  while the agent is working. That is what "the next most convenient point"
-  means in practice.
+- **Mid-turn restart is gated, within what the browser tab can see.** The
+  button is disabled with a tooltip while `streaming.currentResponses` shows
+  a turn in flight for the open session — the local streaming context of
+  *this* tab. There is no server-side "agent is working" signal to key off,
+  so a turn started by a Slack/topic trigger, by another operator, or in
+  another browser tab leaves the button enabled: the gate only covers what
+  this tab is actively streaming. The confirm dialog is the backstop for the
+  turns the gate cannot see.
 - **Confirm dialog states the cost**: "Restarts the sandbox with a fresh
   conversation. The workspace and committed work are kept; the current chat
   history is discarded."
