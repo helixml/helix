@@ -3236,6 +3236,9 @@ func (s *HelixAPIServer) getSessionOutput(_ http.ResponseWriter, r *http.Request
 		resp.InteractionID = last.ID
 		resp.Status = string(last.State)
 		resp.Output = types.TextFromInteraction(last)
+		if resp.Output == "" && last.State == types.InteractionStateError {
+			resp.Output = last.Error
+		}
 		resp.DurationMs = last.Updated.Sub(last.Created).Milliseconds()
 	}
 
