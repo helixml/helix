@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
@@ -65,4 +66,73 @@ func TestState_RestartNotRequiredWhenSandboxStopped(t *testing.T) {
 func TestState_EmptyStampNeverMatches(t *testing.T) {
 	info := runtimeFor(t, "", "", "running")
 	require.False(t, info.RestartRequired)
+}
+
+// fakeSessionGetter satisfies restartStampSessions with a configurable
+// result, so stampRestartRequiredContainer's error paths are directly
+// testable without a live session store.
+type fakeSessionGetter struct {
+	session *types.Session
+	err     error
+}
+
+func (f fakeSessionGetter) GetSession(_ context.Context, _ string) (*types.Session, error) {
+	return f.session, f.err
+}
+
+func TestStampRestartRequiredContainer_StampsLiveContainerID(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	require.NoError(t, runtimehelix.SaveSession(ctx, st, "org-stamp", "b-stamp", "ses_1"))
+
+	session := &types.Session{ID: "ses_1"}
+	session.Metadata.ContainerID = "container-x"
+
+	stampRestartRequiredContainer(ctx, st, fakeSessionGetter{session: session}, "org-stamp", "b-stamp")
+
+	ws, err := runtimehelix.LoadState(ctx, st, "org-stamp", "b-stamp")
+	require.NoError(t, err)
+	require.Equal(t, "container-x", ws.RestartRequiredContainer)
+}
+
+// The regression guard for the stamp-erasure bug: a transient session
+// lookup error must NOT overwrite an already-showing banner with "".
+func TestStampRestartRequiredContainer_LeavesPreviousStampOnSessionLookupError(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	require.NoError(t, runtimehelix.SaveSession(ctx, st, "org-stamp", "b-stamp", "ses_1"))
+	require.NoError(t, runtimehelix.SaveRestartRequiredContainer(ctx, st, "org-stamp", "b-stamp", "previous-container"))
+
+	stampRestartRequiredContainer(ctx, st, fakeSessionGetter{err: errors.New("transient lookup failure")}, "org-stamp", "b-stamp")
+
+	ws, err := runtimehelix.LoadState(ctx, st, "org-stamp", "b-stamp")
+	require.NoError(t, err)
+	require.Equal(t, "previous-container", ws.RestartRequiredContainer)
+}
+
+func TestStampRestartRequiredContainer_StampsEmptyWhenNoSession(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	// No SaveSession call — SessionID stays "".
+
+	stampRestartRequiredContainer(ctx, st, fakeSessionGetter{}, "org-stamp", "b-stamp")
+
+	ws, err := runtimehelix.LoadState(ctx, st, "org-stamp", "b-stamp")
+	require.NoError(t, err)
+	require.Equal(t, "", ws.RestartRequiredContainer)
+}
+
+func TestStampRestartRequiredContainer_StampsEmptyWhenSandboxStopped(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	require.NoError(t, runtimehelix.SaveSession(ctx, st, "org-stamp", "b-stamp", "ses_1"))
+	require.NoError(t, runtimehelix.SaveRestartRequiredContainer(ctx, st, "org-stamp", "b-stamp", "previous-container"))
+
+	session := &types.Session{ID: "ses_1"} // ContainerID zero value ""
+
+	stampRestartRequiredContainer(ctx, st, fakeSessionGetter{session: session}, "org-stamp", "b-stamp")
+
+	ws, err := runtimehelix.LoadState(ctx, st, "org-stamp", "b-stamp")
+	require.NoError(t, err)
+	require.Equal(t, "", ws.RestartRequiredContainer)
 }

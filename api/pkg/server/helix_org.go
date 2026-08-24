@@ -217,6 +217,44 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 	return info, nil
 }
 
+// restartStampSessions is the narrow session read the restart-required
+// stamp needs.
+type restartStampSessions interface {
+	GetSession(ctx context.Context, id string) (*types.Session, error)
+}
+
+// stampRestartRequiredContainer records which sandbox container a
+// restart-sensitive config change made stale.
+//
+// A read error is NOT the same as "no sandbox". Overwriting the stamp with
+// "" on a transient failure would clear a banner that is legitimately
+// showing, so on error we log and leave the previous stamp alone. Genuine
+// absence — no session, or a stopped sandbox with no container — still
+// stamps "", which is the no-banner case and needs no is-it-running check.
+func stampRestartRequiredContainer(ctx context.Context, st *helixorgstore.Store, sessions restartStampSessions, orgID string, id orgchart.NodeID) {
+	ws, err := runtimehelix.LoadState(ctx, st, orgID, id)
+	if err != nil {
+		log.Warn().Err(err).Str("org_id", orgID).Str("bot", string(id)).
+			Msg("restart-required stamp: load worker state failed, leaving previous stamp")
+		return
+	}
+	containerID := ""
+	if ws.SessionID != "" {
+		sess, err := sessions.GetSession(ctx, ws.SessionID)
+		if err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Str("bot", string(id)).Str("session_id", ws.SessionID).
+				Msg("restart-required stamp: get session failed, leaving previous stamp")
+			return
+		}
+		if sess != nil {
+			containerID = sess.Metadata.ContainerID
+		}
+	}
+	if err := runtimehelix.SaveRestartRequiredContainer(ctx, st, orgID, id, containerID); err != nil {
+		log.Warn().Err(err).Str("org_id", orgID).Str("bot", string(id)).Msg("failed to stamp restart-required container")
+	}
+}
+
 // SessionID adapts orgWorkerRuntime to activations.SessionResolver so the
 // manual-activate use case can populate the response's session id without
 // the activations service touching the store.
@@ -555,18 +593,10 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	deps.AgentProfileReader = inProcClient
 	deps.ToolChangeNotifier = cfg.APIServer.publishAgentToolChange
 	// Stamp which sandbox container a restart-sensitive config change made
-	// stale. Writing "" when the bot has no session or its sandbox is down
-	// is the no-banner case, so this needs no is-it-running check.
+	// stale. Thin wrapper: the real logic lives in
+	// stampRestartRequiredContainer so it's reachable from a unit test.
 	deps.RestartRequiredNotifier = func(ctx context.Context, orgID string, id orgchart.NodeID) {
-		containerID := ""
-		if ws, err := runtimehelix.LoadState(ctx, st, orgID, id); err == nil && ws.SessionID != "" {
-			if sess, err := cfg.APIServer.Store.GetSession(ctx, ws.SessionID); err == nil && sess != nil {
-				containerID = sess.Metadata.ContainerID
-			}
-		}
-		if err := runtimehelix.SaveRestartRequiredContainer(ctx, st, orgID, id, containerID); err != nil {
-			log.Warn().Err(err).Str("org_id", orgID).Str("bot", string(id)).Msg("failed to stamp restart-required container")
-		}
+		stampRestartRequiredContainer(ctx, st, cfg.APIServer.Store, orgID, id)
 	}
 
 	// Wire the helix-runtime HireHook so hire_worker persists the
