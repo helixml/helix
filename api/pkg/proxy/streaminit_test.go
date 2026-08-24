@@ -296,3 +296,43 @@ func TestResilientProxyWithoutReplayIsUnchanged(t *testing.T) {
 	p := NewResilientProxy(ResilientProxyConfig{SessionID: "test"})
 	require.Nil(t, p.replay)
 }
+
+// The other half of the read-only guarantee, and the invariant SessionReplay is
+// modelled on: X-Helix-Readonly rides on the upgrade, and the upgrade func runs
+// again on every reconnect. Replay cannot re-grant input because privilege never
+// travels in the init payload — it travels here, and it is re-sent every time.
+//
+// Untested before this change despite the doc comment asserting it.
+func TestUpgradeFuncReemitsExtraHeadersOnEveryUpgrade(t *testing.T) {
+	upgrade := CreateWebSocketUpgradeFunc("/ws/stream", "dGhlIHNhbXBsZSBub25jZQ==", "X-Helix-Readonly", "1")
+
+	// Two independent upgrades stand in for the original connection and the
+	// reconnect: the func holds no state, so both must carry the header.
+	for attempt := 1; attempt <= 2; attempt++ {
+		ours, theirs := net.Pipe()
+
+		got := make(chan string, 1)
+		go func() {
+			defer theirs.Close()
+			buf := make([]byte, 1024)
+			n, err := theirs.Read(buf)
+			if err != nil {
+				got <- ""
+				return
+			}
+			got <- string(buf[:n])
+			// Minimal 101 so the upgrade func returns rather than blocking.
+			_, _ = theirs.Write([]byte("HTTP/1.1 101 Switching Protocols\r\n" +
+				"Upgrade: websocket\r\nConnection: Upgrade\r\n\r\n"))
+		}()
+
+		err := upgrade(ours)
+		ours.Close()
+		require.NoError(t, err, "upgrade %d", attempt)
+
+		request := <-got
+		require.Contains(t, request, "X-Helix-Readonly: 1",
+			"upgrade %d dropped the read-only header; a reconnect would silently re-grant input", attempt)
+		require.Contains(t, request, "GET /ws/stream HTTP/1.1")
+	}
+}
