@@ -127,3 +127,96 @@ func TestMigrateSpecTaskCodeAgentConfigClearsProjectAppAfterPartialMigration(t *
 
 	require.NoError(t, service.migrateSpecTaskCodeAgentConfig(context.Background(), task, project))
 }
+
+func TestMigrateSpecTaskCodeAgentConfigRecoversTaskConfigFromMissingProjectApp(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := &SpecDrivenTaskService{store: mockStore}
+	config := &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeCodexCLI, CredentialType: types.CodeAgentCredentialTypeSubscription, Model: "gpt-5.6-sol",
+	}
+	project := &types.Project{ID: "project-1", DefaultHelixAppID: "app-missing"}
+	task := &types.SpecTask{ID: "task-1", ProjectID: project.ID, CodeAgentConfig: config}
+
+	mockStore.EXPECT().GetApp(gomock.Any(), "app-missing").Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().UpdateProject(gomock.Any(), project).DoAndReturn(func(_ context.Context, got *types.Project) error {
+		require.Empty(t, got.DefaultHelixAppID)
+		return nil
+	})
+
+	require.NoError(t, service.migrateSpecTaskCodeAgentConfig(context.Background(), task, project))
+	require.Equal(t, config, task.CodeAgentConfig)
+}
+
+func TestMigrateSpecTaskCodeAgentConfigRecoversProjectConfigFromMissingProjectApp(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := &SpecDrivenTaskService{store: mockStore}
+	config := &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeCodexCLI, CredentialType: types.CodeAgentCredentialTypeSubscription, Model: "gpt-5.6-sol",
+	}
+	project := &types.Project{ID: "project-1", DefaultHelixAppID: "app-missing", CodeAgentConfig: config}
+	task := &types.SpecTask{ID: "task-1", ProjectID: project.ID}
+
+	mockStore.EXPECT().GetApp(gomock.Any(), "app-missing").Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().UpdateProject(gomock.Any(), project).DoAndReturn(func(_ context.Context, got *types.Project) error {
+		require.Empty(t, got.DefaultHelixAppID)
+		return nil
+	})
+	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).DoAndReturn(func(_ context.Context, got *types.SpecTask) error {
+		require.Equal(t, config, got.CodeAgentConfig)
+		return nil
+	})
+
+	require.NoError(t, service.migrateSpecTaskCodeAgentConfig(context.Background(), task, project))
+}
+
+func TestMigrateSpecTaskCodeAgentConfigRecoversLegacyTaskAppFromMissingProjectApp(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := &SpecDrivenTaskService{store: mockStore}
+	project := &types.Project{ID: "project-1", DefaultHelixAppID: "app-missing"}
+	task := &types.SpecTask{ID: "task-1", ProjectID: project.ID, HelixAppID: "app-legacy"}
+	app := legacyCodingApp(types.AgentKindCoding)
+
+	mockStore.EXPECT().GetApp(gomock.Any(), "app-missing").Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().UpdateProject(gomock.Any(), project).DoAndReturn(func(_ context.Context, got *types.Project) error {
+		require.Empty(t, got.DefaultHelixAppID)
+		return nil
+	})
+	mockStore.EXPECT().GetApp(gomock.Any(), "app-legacy").Return(app, nil)
+	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).DoAndReturn(func(_ context.Context, got *types.SpecTask) error {
+		require.Empty(t, got.HelixAppID)
+		require.NotNil(t, got.CodeAgentConfig)
+		return nil
+	})
+
+	require.NoError(t, service.migrateSpecTaskCodeAgentConfig(context.Background(), task, project))
+}
+
+func TestMigrateSpecTaskCodeAgentConfigReportsMissingProjectAgent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := &SpecDrivenTaskService{store: mockStore}
+	project := &types.Project{ID: "project-1", DefaultHelixAppID: "app-missing"}
+	task := &types.SpecTask{ID: "task-1", ProjectID: project.ID}
+
+	mockStore.EXPECT().GetApp(gomock.Any(), "app-missing").Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().UpdateProject(gomock.Any(), project).DoAndReturn(func(_ context.Context, got *types.Project) error {
+		require.Empty(t, got.DefaultHelixAppID)
+		return nil
+	})
+
+	err := service.migrateSpecTaskCodeAgentConfig(context.Background(), task, project)
+	require.EqualError(t, err, "no coding agent is configured; select one for this task or project and retry")
+	require.NotContains(t, err.Error(), "app-missing")
+}
+
+func TestMigrateSpecTaskCodeAgentConfigReportsProjectlessTaskWithoutConfig(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	service := &SpecDrivenTaskService{store: store.NewMockStore(ctrl)}
+	task := &types.SpecTask{ID: "task-1"}
+
+	err := service.migrateSpecTaskCodeAgentConfig(context.Background(), task, nil)
+	require.EqualError(t, err, "no coding agent is configured; select one for this task or project and retry")
+}
