@@ -207,6 +207,21 @@ func BuildAttachmentsSection(attachments []*types.SpecTaskAttachment, taskDirNam
 	return b.String()
 }
 
+func buildJustDoItPrompt(userPrompt, guidelinesSection, primaryRepoName, repoSection, attachmentsSection, shellCommandsGuidance, gitInstructions string) string {
+	return fmt.Sprintf(`%s
+%s
+---
+
+**Working in /home/retro/work/:** All code repositories are in /home/retro/work/. That's where you make changes.
+
+**Primary Project Directory:** /home/retro/work/%s/
+%s
+%s%s%s
+
+**For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
+`, userPrompt, guidelinesSection, primaryRepoName, repoSection, attachmentsSection, shellCommandsGuidance, gitInstructions)
+}
+
 // humanSize renders a byte count compactly: "248 KB", "1.2 MB".
 func humanSize(n int64) string {
 	const (
