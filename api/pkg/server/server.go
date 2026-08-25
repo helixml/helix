@@ -988,7 +988,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.createAPIKey)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.getAPIKeys)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods(http.MethodDelete)
-	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/api_keys/check", system.Wrapper(apiServer.checkAPIKey)).Methods(http.MethodGet)
 
 	// User search endpoint
 	authRouter.HandleFunc("/users/search", apiServer.searchUsers).Methods(http.MethodGet)
