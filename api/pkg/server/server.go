@@ -541,6 +541,7 @@ func NewServer(
 
 	// Initialize SummaryService for async interaction summaries and session titles
 	apiServer.summaryService = NewSummaryService(store, providerManager, ps)
+	apiServer.specDrivenTaskService.GenerateTaskTitleAsync = apiServer.summaryService.GenerateSpecTaskTitleAsync
 
 	// Initialize git repository base directory
 	if apiServer.gitRepositoryService != nil {

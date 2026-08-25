@@ -39,6 +39,85 @@ func NewSummaryService(store store.Store, providerManager manager.ProviderManage
 	}
 }
 
+// GenerateSpecTaskTitleAsync gives a just-do-it task the concise semantic name
+// that planning tasks normally receive from requirements.md. It intentionally
+// runs off the launch path so title generation cannot delay implementation.
+func (s *SummaryService) GenerateSpecTaskTitleAsync(task *types.SpecTask) {
+	if task == nil {
+		return
+	}
+	prompt := strings.TrimSpace(task.Description)
+	if prompt == "" {
+		prompt = strings.TrimSpace(task.OriginalPrompt)
+	}
+	if prompt == "" {
+		return
+	}
+
+	taskID, ownerID, originalName := task.ID, task.CreatedBy, task.Name
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		title, err := s.generateSpecTaskTitle(ctx, prompt, ownerID)
+		if err != nil {
+			log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to generate just-do-it task title")
+			return
+		}
+		fresh, err := s.store.GetSpecTask(ctx, taskID)
+		if err != nil || fresh.Name != originalName || title == "" || title == fresh.Name {
+			return
+		}
+		fresh.Name = title
+		fresh.UpdatedAt = time.Now()
+		if err := s.store.UpdateSpecTask(ctx, fresh); err != nil {
+			log.Error().Err(err).Str("task_id", taskID).Msg("Failed to save just-do-it task title")
+		}
+	}()
+}
+
+func (s *SummaryService) generateSpecTaskTitle(ctx context.Context, prompt, ownerID string) (string, error) {
+	settings, err := s.store.GetEffectiveSystemSettings(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get system settings: %w", err)
+	}
+	if settings.KoditEnrichmentProvider == "" || settings.KoditEnrichmentModel == "" {
+		return "", nil
+	}
+	client, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
+		Provider: settings.KoditEnrichmentProvider,
+		Owner:    ownerID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get provider client: %w", err)
+	}
+	resp, err := client.CreateChatCompletion(ctx, gopenai.ChatCompletionRequest{
+		Model: settings.KoditEnrichmentModel,
+		Messages: []gopenai.ChatCompletionMessage{
+			{Role: "system", Content: "Generate a concise, descriptive software task title (max 60 characters). Respond with only the title, without quotes or punctuation at the end."},
+			{Role: "user", Content: prompt},
+		},
+		MaxTokens:   30,
+		Temperature: 0.3,
+	})
+	if err != nil {
+		return "", fmt.Errorf("LLM call failed: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return "", nil
+	}
+	return cleanGeneratedTitle(resp.Choices[0].Message.Content, 60), nil
+}
+
+func cleanGeneratedTitle(title string, maxRunes int) string {
+	title = strings.Trim(strings.TrimSpace(title), `"'`)
+	runes := []rune(title)
+	if len(runes) <= maxRunes {
+		return title
+	}
+	return strings.TrimSpace(string(runes[:maxRunes]))
+}
+
 // GenerateInteractionSummaryAsync generates a one-line summary for an interaction asynchronously
 // This is called when an interaction completes (ResponseMessage is set)
 func (s *SummaryService) GenerateInteractionSummaryAsync(ctx context.Context, interaction *types.Interaction, ownerID string) {
