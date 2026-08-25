@@ -2126,6 +2126,7 @@ export interface ServerTaskSpecsResponse {
 /** Disconnect a Claude subscription */
 export interface ServerUpdateClaudeSubscriptionDelegationRequest {
   delegated_org_ids?: string[];
+  switch_to_subscription?: boolean;
 }
 
 export interface ServerVideoStreamingStats {
@@ -10510,7 +10511,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Only the subscription owner may change this.
+     * @description Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Sharing with an owned organization also enables Claude Code subscription mode there. Only the subscription owner may change this.
      *
      * @tags Claude
      * @name V1ClaudeSubscriptionsDelegationUpdate

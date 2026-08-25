@@ -184,6 +184,10 @@ func normalizeHarnessCredentialSources(update *types.OrgCodeAgentHarnessUpdate) 
 	return nil
 }
 
+func claudeHarnessUsesAPIProviderMode(harness *types.OrgCodeAgentHarness) bool {
+	return harness != nil && !(harness.SubscriptionEnabled != nil && *harness.SubscriptionEnabled) && (harness.ProviderRefs == nil || len(harness.ProviderRefs) > 0)
+}
+
 func (apiServer *HelixAPIServer) viewerHasClaudeSubscription(ctx context.Context, orgID, userID string) (bool, error) {
 	_, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, userID, orgID)
 	if errors.Is(err, store.ErrNotFound) {
