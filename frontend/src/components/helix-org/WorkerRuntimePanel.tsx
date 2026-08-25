@@ -7,8 +7,10 @@ import Paper from '@mui/material/Paper'
 import AgentConfigForm, { AgentConfigValue } from './BotRuntimeForm'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import useSnackbar from '../../hooks/useSnackbar'
+import { useOrgCodeAgentHarnesses } from '../../services/codeAgentHarnessesService'
 import {
   SettingsSpecDTO,
+  useHelixOrgBase,
   useHelixOrgSettings,
   useSetHelixOrgSetting,
 } from '../../services/helixOrgService'
@@ -39,7 +41,11 @@ const decodeAgentConfig = (v: string): AgentConfigValue | undefined => {
 }
 
 const DefaultAgentConfigPanel: FC = () => {
+  const { orgID } = useHelixOrgBase()
   const { data, isLoading } = useHelixOrgSettings()
+  const { data: harnesses = [], isLoading: loadingHarnesses } = useOrgCodeAgentHarnesses(orgID, {
+    enabled: !!orgID,
+  })
   const setMut = useSetHelixOrgSetting()
   const snackbar = useSnackbar()
 
@@ -79,9 +85,26 @@ const DefaultAgentConfigPanel: FC = () => {
       .catch((e: any) => snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed'))
   }
 
+  const subscriptionAvailability = {
+    claude: harnesses.some((harness) => harness.runtime === 'claude_code'
+      && harness.enabled
+      && harness.subscription_enabled === true
+      && harness.viewer_has_subscription),
+    codex: harnesses.some((harness) => harness.runtime === 'codex_cli'
+      && harness.enabled
+      && harness.subscription_enabled === true
+      && harness.viewer_has_subscription),
+  }
+
   return (
     <Paper variant="outlined" sx={{ p: 3 }}>
-      {isLoading ? <LoadingSpinner /> : <AgentConfigForm value={value} onChange={handlePatch} />}
+      {isLoading || loadingHarnesses
+        ? <LoadingSpinner />
+        : <AgentConfigForm
+            value={value}
+            onChange={handlePatch}
+            subscriptionAvailability={subscriptionAvailability}
+          />}
     </Paper>
   )
 }

@@ -169,6 +169,14 @@ func TestNormalizeHarnessCredentialSources(t *testing.T) {
 	})
 }
 
+func TestClaudeHarnessUsesAPIProviderMode(t *testing.T) {
+	assert.True(t, claudeHarnessUsesAPIProviderMode(&types.OrgCodeAgentHarness{}))
+	assert.True(t, claudeHarnessUsesAPIProviderMode(&types.OrgCodeAgentHarness{ProviderRefs: []string{"anthropic"}}))
+	assert.False(t, claudeHarnessUsesAPIProviderMode(nil))
+	assert.False(t, claudeHarnessUsesAPIProviderMode(&types.OrgCodeAgentHarness{ProviderRefs: []string{}}))
+	assert.False(t, claudeHarnessUsesAPIProviderMode(&types.OrgCodeAgentHarness{SubscriptionEnabled: boolPointer(true)}))
+}
+
 func TestFilterProviderEndpointsByRefs(t *testing.T) {
 	endpoints := []*types.ProviderEndpoint{
 		{ID: "provider-1", Name: "renamed"},
