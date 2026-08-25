@@ -10,7 +10,7 @@ func TestCleanGeneratedTitle(t *testing.T) {
 		want  string
 	}{
 		{name: "trims model formatting", input: `  "Fix task title generation."  `, max: 60, want: "Fix task title generation."},
-		{name: "counts unicode characters", input: "改善任务标题生成流程", max: 6, want: "改善任务标题"},
+		{name: "counts unicode characters", input: "改善任务标题生成流程", max: 6, want: "改善任..."},
 		{name: "leaves short title", input: "Name build-only tasks early", max: 60, want: "Name build-only tasks early"},
 	}
 

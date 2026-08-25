@@ -59,7 +59,10 @@ func (s *SummaryService) GenerateSpecTaskTitleAsync(task *types.SpecTask) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		title, err := s.generateSpecTaskTitle(ctx, prompt, ownerID)
+		title, _, err := s.generateTitle(ctx, ownerID,
+			"Generate concise, descriptive titles. Respond with only the title, no quotes or extra text.",
+			fmt.Sprintf("Generate a software task title (max 60 characters) for this request:\n\n%s", prompt),
+		)
 		if err != nil {
 			log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to generate just-do-it task title")
 			return
@@ -76,37 +79,41 @@ func (s *SummaryService) GenerateSpecTaskTitleAsync(task *types.SpecTask) {
 	}()
 }
 
-func (s *SummaryService) generateSpecTaskTitle(ctx context.Context, prompt, ownerID string) (string, error) {
+// generateTitle is the shared title-generation path for sessions and tasks.
+// The bool result reports whether an enrichment model is configured, allowing
+// callers with an extractive fallback to distinguish that case from an empty
+// model response.
+func (s *SummaryService) generateTitle(ctx context.Context, ownerID, systemPrompt, prompt string) (string, bool, error) {
 	settings, err := s.store.GetEffectiveSystemSettings(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to get system settings: %w", err)
+		return "", false, fmt.Errorf("failed to get system settings: %w", err)
 	}
 	if settings.KoditEnrichmentProvider == "" || settings.KoditEnrichmentModel == "" {
-		return "", nil
+		return "", false, nil
 	}
 	client, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
 		Provider: settings.KoditEnrichmentProvider,
 		Owner:    ownerID,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to get provider client: %w", err)
+		return "", true, fmt.Errorf("failed to get provider client: %w", err)
 	}
 	resp, err := client.CreateChatCompletion(ctx, gopenai.ChatCompletionRequest{
 		Model: settings.KoditEnrichmentModel,
 		Messages: []gopenai.ChatCompletionMessage{
-			{Role: "system", Content: "Generate a concise, descriptive software task title (max 60 characters). Respond with only the title, without quotes or punctuation at the end."},
+			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: prompt},
 		},
 		MaxTokens:   30,
 		Temperature: 0.3,
 	})
 	if err != nil {
-		return "", fmt.Errorf("LLM call failed: %w", err)
+		return "", true, fmt.Errorf("LLM call failed: %w", err)
 	}
 	if len(resp.Choices) == 0 {
-		return "", nil
+		return "", true, nil
 	}
-	return cleanGeneratedTitle(resp.Choices[0].Message.Content, 60), nil
+	return cleanGeneratedTitle(resp.Choices[0].Message.Content, 60), true, nil
 }
 
 func cleanGeneratedTitle(title string, maxRunes int) string {
@@ -115,7 +122,14 @@ func cleanGeneratedTitle(title string, maxRunes int) string {
 	if len(runes) <= maxRunes {
 		return title
 	}
-	return strings.TrimSpace(string(runes[:maxRunes]))
+	prefix := string(runes[:maxRunes])
+	if idx := strings.LastIndex(prefix, " "); idx > maxRunes/2 {
+		return strings.TrimSpace(prefix[:idx])
+	}
+	if maxRunes <= 3 {
+		return string(runes[:maxRunes])
+	}
+	return strings.TrimSpace(string(runes[:maxRunes-3])) + "..."
 }
 
 // GenerateInteractionSummaryAsync generates a one-line summary for an interaction asynchronously
@@ -349,38 +363,6 @@ func (s *SummaryService) updateSessionTitle(ctx context.Context, sessionID strin
 		forwardSummary = generateInteractionSummary(interactions[len(interactions)-1])
 	}
 
-	// Get the kodit model configuration
-	settings, err := s.store.GetEffectiveSystemSettings(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get system settings: %w", err)
-	}
-
-	// Fall back to most recent interaction summary if kodit not configured
-	if settings.KoditEnrichmentProvider == "" || settings.KoditEnrichmentModel == "" {
-		if session.Name == "" && forwardSummary != "" {
-			// Use most recent interaction as title
-			newTitle := forwardSummary
-			if len(newTitle) > 60 {
-				if idx := strings.LastIndex(newTitle[:60], " "); idx > 30 {
-					newTitle = newTitle[:idx]
-				} else {
-					newTitle = newTitle[:57] + "..."
-				}
-			}
-			return s.store.UpdateSessionName(ctx, sessionID, newTitle)
-		}
-		return nil
-	}
-
-	// Get provider client
-	client, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
-		Provider: settings.KoditEnrichmentProvider,
-		Owner:    ownerID,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to get provider client: %w", err)
-	}
-
 	// Build prompt with previous title context - bias toward NEW topics at end
 	var promptContent string
 	if session.Name != "" {
@@ -401,39 +383,18 @@ Do not include quotes.`, session.Name, toc)
 Generate a session title (max 60 characters) that describes what the user is currently working on. Focus on the [RECENT] turns. Do not include quotes.`, toc)
 	}
 
-	// Make the LLM call
-	resp, err := client.CreateChatCompletion(ctx, gopenai.ChatCompletionRequest{
-		Model: settings.KoditEnrichmentModel,
-		Messages: []gopenai.ChatCompletionMessage{
-			{
-				Role:    "system",
-				Content: `You are a title generator. Generate concise, descriptive titles for conversations. Respond with only the title, no quotes or extra text.`,
-			},
-			{
-				Role:    "user",
-				Content: promptContent,
-			},
-		},
-		MaxTokens:   30,
-		Temperature: 0.3,
-	})
+	newTitle, configured, err := s.generateTitle(ctx, ownerID,
+		"Generate concise, descriptive titles. Respond with only the title, no quotes or extra text.",
+		promptContent,
+	)
 	if err != nil {
-		return fmt.Errorf("LLM call failed: %w", err)
+		return err
 	}
-
-	if len(resp.Choices) == 0 || resp.Choices[0].Message.Content == "" {
-		return nil
-	}
-
-	// Clean up the title
-	newTitle := strings.TrimSpace(resp.Choices[0].Message.Content)
-	newTitle = strings.Trim(newTitle, `"'`)
-	if len(newTitle) > 60 {
-		if idx := strings.LastIndex(newTitle[:60], " "); idx > 30 {
-			newTitle = newTitle[:idx]
-		} else {
-			newTitle = newTitle[:57] + "..."
+	if !configured {
+		if session.Name == "" && forwardSummary != "" {
+			return s.store.UpdateSessionName(ctx, sessionID, cleanGeneratedTitle(forwardSummary, 60))
 		}
+		return nil
 	}
 
 	// Only update if title changed
