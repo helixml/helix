@@ -55,7 +55,7 @@ func RenderPRFooter(value string, repo *types.GitRepository, task *types.SpecTas
 		data.HelixTaskURL = fmt.Sprintf("%s/orgs/%s/projects/%s/tasks/%s",
 			strings.TrimSuffix(helixBaseURL, "/"), orgName, task.ProjectID, task.ID)
 	}
-	if task.DesignDocPath != "" {
+	if task.DesignDocPath != "" && !task.JustDoItMode {
 		data.SpecDocsURL = getSpecDocsBaseURL(repo, task.DesignDocPath)
 	}
 

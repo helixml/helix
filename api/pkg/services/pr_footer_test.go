@@ -32,6 +32,26 @@ func TestRenderDefaultPRFooter(t *testing.T) {
 🚀 Built with [Helix](https://helix.ml)`, footer)
 }
 
+func TestRenderDefaultPRFooterJustDoItOmitsSpecLinks(t *testing.T) {
+	repo := &types.GitRepository{
+		ExternalURL:  "https://github.com/acme/widgets.git",
+		ExternalType: types.ExternalRepositoryTypeGitHub,
+	}
+	task := &types.SpecTask{
+		ID:            "task_123",
+		ProjectID:     "project_123",
+		DesignDocPath: "123-widget",
+		JustDoItMode:  true,
+	}
+
+	footer, err := RenderPRFooter(DefaultPRFooterTemplate, repo, task, "acme", "https://app.helix.ml/")
+	require.NoError(t, err)
+	assert.Equal(t, `---
+🔗 [Open in Helix](https://app.helix.ml/orgs/acme/projects/project_123/tasks/task_123)
+
+🚀 Built with [Helix](https://helix.ml)`, footer)
+}
+
 func TestRenderCustomAndEmptyPRFooter(t *testing.T) {
 	task := &types.SpecTask{ID: "task_123", ProjectID: "project_123"}
 
