@@ -894,12 +894,18 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 		return
 	}
 
-	mergedHeads, err := apiServer.mergedBranchHeads(r.Context(), repoID)
-	if err != nil {
-		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to load merged branch state")
-		http.Error(w, fmt.Sprintf("Failed to determine active branches: %s", err.Error()), http.StatusInternalServerError)
-		return
+	var mergedPullRequests []*types.PullRequest
+	if lister, ok := apiServer.gitRepositoryService.(interface {
+		ListMergedPullRequests(context.Context, string) ([]*types.PullRequest, error)
+	}); ok {
+		mergedPullRequests, err = lister.ListMergedPullRequests(r.Context(), repoID)
+		if err != nil {
+			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to load merged pull requests")
+			http.Error(w, fmt.Sprintf("Failed to determine active branches: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
 	}
+	mergedHeads := mergedHeadsForDefaultBranch(mergedPullRequests, repository.DefaultBranch)
 
 	activeBranches, err := filterActiveBranches(branches, repository.DefaultBranch, mergedHeads, func(branch string) (string, error) {
 		return apiServer.gitRepositoryService.GetLocalBranchSHA(r.Context(), repoID, branch)
@@ -919,6 +925,20 @@ func branchTipWasMerged(branch, branchSHA string, mergedHeads map[string]map[str
 	return merged
 }
 
+func mergedHeadsForDefaultBranch(pullRequests []*types.PullRequest, defaultBranch string) map[string]map[string]struct{} {
+	mergedHeads := make(map[string]map[string]struct{})
+	for _, pullRequest := range pullRequests {
+		if pullRequest.SourceBranch == "" || pullRequest.HeadSHA == "" || pullRequest.TargetBranch != defaultBranch {
+			continue
+		}
+		if mergedHeads[pullRequest.SourceBranch] == nil {
+			mergedHeads[pullRequest.SourceBranch] = make(map[string]struct{})
+		}
+		mergedHeads[pullRequest.SourceBranch][pullRequest.HeadSHA] = struct{}{}
+	}
+	return mergedHeads
+}
+
 func filterActiveBranches(branches []string, defaultBranch string, mergedHeads map[string]map[string]struct{}, resolveSHA func(string) (string, error)) ([]string, error) {
 	activeBranches := make([]string, 0, len(branches))
 	for _, branch := range branches {
@@ -934,47 +954,6 @@ func filterActiveBranches(branches []string, defaultBranch string, mergedHeads m
 		}
 	}
 	return activeBranches, nil
-}
-
-// mergedBranchHeads returns the pushed branch tips that Helix knows were merged
-// for projects where repoID is the primary repository. A branch is only hidden
-// while its current tip matches one of these commits; advancing it makes it
-// active again.
-func (apiServer *HelixAPIServer) mergedBranchHeads(ctx context.Context, repoID string) (map[string]map[string]struct{}, error) {
-	projectIDs, err := apiServer.Store.GetProjectsForRepository(ctx, repoID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find repository projects: %w", err)
-	}
-
-	mergedHeads := make(map[string]map[string]struct{})
-	for _, projectID := range projectIDs {
-		project, err := apiServer.Store.GetProject(ctx, projectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get project %s: %w", projectID, err)
-		}
-		if project.DefaultRepoID != repoID {
-			continue
-		}
-
-		tasks, err := apiServer.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-			ProjectID:       projectID,
-			IncludeArchived: true,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to list project tasks: %w", err)
-		}
-		for _, task := range tasks {
-			if !task.MergedToMain || task.BranchName == "" || task.LastPushCommitHash == "" {
-				continue
-			}
-			if mergedHeads[task.BranchName] == nil {
-				mergedHeads[task.BranchName] = make(map[string]struct{})
-			}
-			mergedHeads[task.BranchName][task.LastPushCommitHash] = struct{}{}
-		}
-	}
-
-	return mergedHeads, nil
 }
 
 // getGitRepositoryFile gets the contents of a file

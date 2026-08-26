@@ -43,6 +43,11 @@ func (c *AzureDevOpsClient) CreatePullRequest(ctx context.Context, repositoryNam
 // repositoryName is the name of the repository
 // project is the name of the project in Azure DevOps
 func (c *AzureDevOpsClient) ListPullRequests(ctx context.Context, repositoryName string, project string) ([]git.GitPullRequest, error) {
+	return c.ListPullRequestsByStatus(ctx, repositoryName, project, git.PullRequestStatusValues.Active)
+}
+
+// ListPullRequestsByStatus lists pull requests using an Azure DevOps status filter.
+func (c *AzureDevOpsClient) ListPullRequestsByStatus(ctx context.Context, repositoryName string, project string, status git.PullRequestStatus) ([]git.GitPullRequest, error) {
 	gitClient, err := git.NewClient(ctx, c.connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure DevOps client: %w", err)
@@ -50,7 +55,7 @@ func (c *AzureDevOpsClient) ListPullRequests(ctx context.Context, repositoryName
 
 	prs, err := gitClient.GetPullRequests(ctx, git.GetPullRequestsArgs{
 		SearchCriteria: &git.GitPullRequestSearchCriteria{
-			Status: ptr.To(git.PullRequestStatusValues.Active),
+			Status: ptr.To(status),
 		},
 		RepositoryId: &repositoryName,
 		Project:      &project,

@@ -221,8 +221,12 @@ func (c *Client) GetMergeRequest(ctx context.Context, projectID, mrIID int) (*gi
 
 // ListMergeRequests lists merge requests for a project
 func (c *Client) ListMergeRequests(ctx context.Context, projectID int) ([]*gitlab.MergeRequest, error) {
+	return c.ListMergeRequestsByState(ctx, projectID, "opened")
+}
+
+// ListMergeRequestsByState lists merge requests using a GitLab state filter.
+func (c *Client) ListMergeRequestsByState(ctx context.Context, projectID int, state string) ([]*gitlab.MergeRequest, error) {
 	var allMRs []*gitlab.MergeRequest
-	state := "opened"
 	opt := &gitlab.ListProjectMergeRequestsOptions{
 		State:       &state,
 		ListOptions: gitlab.ListOptions{PerPage: 100},

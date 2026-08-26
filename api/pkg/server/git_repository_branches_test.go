@@ -3,6 +3,8 @@ package server
 import (
 	"reflect"
 	"testing"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func TestBranchTipWasMerged(t *testing.T) {
@@ -28,6 +30,20 @@ func TestBranchTipWasMerged(t *testing.T) {
 				t.Fatalf("branchTipWasMerged() = %v, want %v", got, tt.wasMerged)
 			}
 		})
+	}
+}
+
+func TestMergedHeadsForDefaultBranch(t *testing.T) {
+	prs := []*types.PullRequest{
+		{SourceBranch: "feature/merged", TargetBranch: "main", HeadSHA: "merged-sha"},
+		{SourceBranch: "feature/release", TargetBranch: "release", HeadSHA: "release-sha"},
+		{SourceBranch: "feature/missing-sha", TargetBranch: "main"},
+	}
+
+	got := mergedHeadsForDefaultBranch(prs, "main")
+	want := map[string]map[string]struct{}{"feature/merged": {"merged-sha": {}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mergedHeadsForDefaultBranch() = %v, want %v", got, want)
 	}
 }
 
