@@ -8,5 +8,5 @@
 - [x] Verify the project task creation form consumes the filtered branch response without changing its current submission behavior.
 - [x] Add backend tests for fresh-at-default, active, known merged, reactivated, unknown-merge-state, deleted, default, and local-only branch cases.
 - [x] Verify the existing frontend branch-selector test still passes with the unchanged API contract.
-- [~] Regenerate API documentation/client artifacts if the API query contract requires it.
-- [ ] Run targeted backend and frontend test suites.
+- [x] Regenerate API documentation/client artifacts if the API query contract requires it (not required; response type is unchanged).
+- [~] Run targeted backend and frontend test suites.
