@@ -33,6 +33,7 @@ Service/handler tests should cover a fresh branch equal to the default tip, an u
 ## Implementation Notes
 
 - Review correction: repository activity must not depend on Helix project/task records because branches can be created remotely. The implementation will use merged pull-request source branch/head metadata from the repository provider instead. Direct merges without provider evidence remain visible conservatively.
+- GitHub, GitLab, and Azure DevOps provider clients now support merged/closed-history queries and normalize source head SHAs. Bitbucket's normalized PR list does not expose a source head SHA, so Bitbucket branches remain visible conservatively rather than being hidden by branch name alone.
 - External repositories are enumerated with authoritative upstream head refs because the local bare mirror intentionally retains unpruned Helix-only refs. Internal repositories continue to use their local refs.
 - Missing merge evidence is handled conservatively: the branch remains visible.
 - Targeted backend tests for active-branch filtering and upstream-ref parsing pass, as does the existing two-test `NewSpecTaskForm` suite. The full services package passes. The full server package still has two unrelated pre-existing failures in `TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentID` and `TestInProcClient_DeleteLinkedAgentContinuesWhenSessionStopFails`.

@@ -6,7 +6,7 @@ Filter the repository branch list used by project task creation so completed and
 
 ## Changes
 
-- Hide branch tips that match a stored Helix merge record.
+- Hide branch tips that match merged pull-request evidence from GitHub, GitLab, or Azure DevOps.
 - Keep fresh, unknown, and post-merge advanced branches visible.
 - Read external branch names from authoritative upstream refs so deleted branches are excluded.
 - Exclude the default and `helix-specs` branches.
