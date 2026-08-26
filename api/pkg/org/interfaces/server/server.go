@@ -119,6 +119,10 @@ func (s *Server) Handler(extras ...Route) http.Handler {
 	// compatibility with the helix MCP backend rewrite; {id} is a Bot ID.
 	mux.Handle("/orgs/{org}/workers/{id}/mcp", withMCPOrgScope(s.mcpHandler()))
 	mux.Handle("POST /webhooks/{org}/{triggerID}", s.webhookHandler())
+	// Embedded in helix the org is already resolved into the request
+	// context by the org-scope middleware and the mount prefix supplies
+	// the {org} segment, so the public URL carries only the Trigger id.
+	mux.Handle("POST /webhooks/{triggerID}", s.webhookHandler())
 	for _, r := range extras {
 		mux.Handle(r.Pattern, r.Handler)
 	}

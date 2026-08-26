@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	triggerapp "github.com/helixml/helix/api/pkg/org/application/triggers"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -48,6 +49,10 @@ type TriggerDTO struct {
 	// only for provider Triggers whose webhook payload URL must be
 	// reachable from the internet, so the UI can warn on loopback.
 	EffectivePublicURL string `json:"effective_public_url,omitempty"`
+	// Activation is the resolved "how do I fire this" recipe for this
+	// Trigger: concrete URL or address, verb, and auth, with every
+	// template in the Kind's descriptor filled in.
+	Activation *transport.ResolvedActivation `json:"activation,omitempty"`
 }
 
 type TriggerWriteRequest struct {
@@ -104,6 +109,26 @@ func (a *apiHandler) triggerDTO(ctx context.Context, orgID string, t trigger.Tri
 	if t.Kind == transport.KindGitHub || t.Kind == transport.KindGitLab {
 		dto.EffectivePublicURL = strings.TrimSpace(a.deps.PublicServerURL)
 	}
+	// The handle is what the caller put in the URL, so a copied
+	// activation URL matches the address they navigated to. Both a slug
+	// and an id resolve, so falling back to the id is safe.
+	handle := helixorgserver.OrgHandleFromContext(ctx)
+	if handle == "" {
+		handle = orgID
+	}
+	for _, d := range transport.DescribeAll() {
+		if d.Kind != t.Kind {
+			continue
+		}
+		resolved := transport.ResolveActivation(d, transport.ActivationParams{
+			PublicURL: strings.TrimSpace(a.deps.PublicServerURL),
+			OrgHandle: handle,
+			TriggerID: t.ID,
+			Config:    config,
+		})
+		dto.Activation = &resolved
+		break
+	}
 	// Attachments are a separate aggregate; a read failure here must
 	// not fail the whole list, so the column just comes back empty.
 	if a.deps.Queries != nil {
@@ -114,6 +139,20 @@ func (a *apiHandler) triggerDTO(ctx context.Context, orgID string, t trigger.Tri
 		}
 	}
 	return dto
+}
+
+type TriggerKindsResponse struct {
+	Kinds []transport.Descriptor `json:"kinds"`
+}
+
+// @Summary Helix-org: list trigger kinds and their settings
+// @Tags HelixOrg
+// @Produce json
+// @Param org path string true "Organization ID or slug"
+// @Success 200 {object} api.TriggerKindsResponse
+// @Router /api/v1/orgs/{org}/trigger-kinds [get]
+func (a *apiHandler) listTriggerKinds(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, TriggerKindsResponse{Kinds: transport.DescribeAll()})
 }
 
 func triggerConfig(config map[string]any) (json.RawMessage, error) {

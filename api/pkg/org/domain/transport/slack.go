@@ -89,3 +89,36 @@ func parseSlackConfig(raw json.RawMessage) (SlackConfig, error) {
 	}
 	return c, nil
 }
+
+func (slack) Describe() Descriptor {
+	return Descriptor{
+		Kind:    KindSlack,
+		Label:   "Slack event",
+		Summary: "Fires when a message arrives in a connected Slack workspace.",
+		Fields: []Field{
+			{
+				Name:      "service_connection_id",
+				Label:     "Slack workspace",
+				Help:      "Which connected workspace this Trigger listens to.",
+				Type:      FieldSlackWorkspace,
+				Required:  true,
+				Direction: Inbound,
+			},
+			{
+				Name:        "channel_id",
+				Label:       "Channel (optional)",
+				Help:        "Limit this Trigger to one channel. Leave empty to receive messages from the whole workspace that no channel-specific Trigger already claims.",
+				Placeholder: "C012ABCDEF",
+				Type:        FieldSlackChannel,
+				Direction:   Inbound,
+			},
+		},
+		Activation: Activation{
+			Summary: "Post a message in the connected workspace (or the specific channel above).",
+		},
+		Secrets: []SecretRef{{
+			Label:    "Slack workspace connection (bot token)",
+			Location: "Organization Settings, Connected Accounts",
+		}},
+	}
+}

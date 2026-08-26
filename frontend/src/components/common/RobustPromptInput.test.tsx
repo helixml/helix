@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, fireEvent, waitFor, screen } from '@testing-library/react'
+import { act, render, fireEvent, waitFor, screen } from '@testing-library/react'
 import { PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import RobustPromptInput from './RobustPromptInput'
 import { buildWorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
@@ -47,6 +47,33 @@ const mkEntry = (id: string, ts: number, overrides: Partial<PromptHistoryEntry> 
   status: 'pending',
   interrupt: false,
   ...overrides,
+})
+
+describe('RobustPromptInput autofocus', () => {
+  it('returns focus to the composer when the selected session changes', async () => {
+    const view = render(
+      <>
+        <button type="button">Outside</button>
+        <RobustPromptInput sessionId="ses_one" onSend={vi.fn()} autoFocus />
+      </>,
+    )
+
+    const composer = view.container.querySelector('textarea')
+    expect(composer).toBeTruthy()
+    await waitFor(() => expect(composer).toHaveFocus())
+
+    act(() => screen.getByRole('button', { name: 'Outside' }).focus())
+    expect(screen.getByRole('button', { name: 'Outside' })).toHaveFocus()
+
+    view.rerender(
+      <>
+        <button type="button">Outside</button>
+        <RobustPromptInput sessionId="ses_two" onSend={vi.fn()} autoFocus />
+      </>,
+    )
+
+    await waitFor(() => expect(view.container.querySelector('textarea')).toHaveFocus())
+  })
 })
 
 describe('RobustPromptInput empty-Enter promotes oldest queued to interrupt', () => {

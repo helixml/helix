@@ -173,6 +173,44 @@ func TestOpenCodeConfigPassesReasoningEffort(t *testing.T) {
 	assert.Equal(t, "high", options["reasoningEffort"])
 }
 
+func TestOpenCodeImageCapabilityIntegration(t *testing.T) {
+	var wireConfig CodeAgentConfig
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"runtime":"opencode",
+		"base_url":"http://outer-api:8080/v1",
+		"model":"vision-provider/qwen3.8-27b",
+		"api_type":"openai",
+		"input_modalities":["text","image"],
+		"output_modalities":["text"]
+	}`), &wireConfig))
+
+	d := openCodeDaemon()
+	d.codeAgentConfig = &wireConfig
+	decoded := decodeOpenCodeConfig(t, d.generateAgentServerConfig())
+
+	providers := decoded["provider"].(map[string]interface{})
+	models := providers["helix"].(map[string]interface{})["models"].(map[string]interface{})
+	model := models["vision-provider/qwen3.8-27b"].(map[string]interface{})
+	assert.Equal(t, true, model["attachment"])
+	assert.Equal(t, map[string]interface{}{
+		"input":  []interface{}{"text", "image"},
+		"output": []interface{}{"text"},
+	}, model["modalities"])
+}
+
+func TestOpenCodeConfigDoesNotGuessAttachmentSupport(t *testing.T) {
+	d := openCodeDaemon()
+	d.codeAgentConfig.InputModalities = nil
+	d.codeAgentConfig.OutputModalities = nil
+
+	decoded := decodeOpenCodeConfig(t, d.generateAgentServerConfig())
+	providers := decoded["provider"].(map[string]interface{})
+	models := providers["helix"].(map[string]interface{})["models"].(map[string]interface{})
+	model := models["anthropic/claude-opus-4-8"].(map[string]interface{})
+	assert.NotContains(t, model, "attachment")
+	assert.NotContains(t, model, "modalities")
+}
+
 // buildOpenCodeArchive builds a tar.gz containing a single "opencode" file,
 // matching the layout of an upstream release, and returns it with its digest.
 func buildOpenCodeArchive(t *testing.T, contents string) ([]byte, string) {

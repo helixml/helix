@@ -420,3 +420,30 @@ func TestWebhookTriggerIsInboundOnly(t *testing.T) {
 		t.Fatalf("originating worker = %q, want empty", routed[0].OriginatingWorkerID)
 	}
 }
+
+// Embedded in helix the org is resolved by middleware into the request
+// context and the mount prefix supplies the {org} segment, so the public
+// URL carries only the Trigger id. Standalone, the org is a path
+// segment. Both must reach the same Trigger.
+func TestWebhookPostResolvesOrgFromContextWhenPathHasNoOrgSegment(t *testing.T) {
+	t.Parallel()
+	rd := &recordingRouter{}
+	st := orggorm.GetOrgTestDB(t)
+	bc := newTopichub(t)
+	h := server.NewFromStore(st, mcptools.NewRegistry(), bc, rd, nil).Handler()
+	seedTrigger(t, st, "s-inbox", transport.KindWebhook)
+
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/s-inbox", strings.NewReader("hello"))
+	req.Header.Set("Content-Type", "text/plain")
+	req = req.WithContext(server.WithOrgID(req.Context(), "org-test"))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %q)", rec.Code, rec.Body.String())
+	}
+	if got := len(rd.snapshot()); got != 1 {
+		t.Fatalf("routed %d events, want 1", got)
+	}
+}

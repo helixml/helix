@@ -214,6 +214,33 @@ tiers the *harness* can express; the model decides which the provider will accep
 unknown model returns `undefined` and the full runtime list stands — **never guess a
 narrower list**, and never offer an effort for a model with no profile.
 
+### Keeping `model_info.json` current
+
+`api/pkg/model/model_info.json` is sourced from OpenRouter. Use the documented public
+model API, including non-text-output models:
+
+```bash
+curl -fsSL 'https://openrouter.ai/api/v1/models?output_modalities=all'
+curl -fsSL 'https://openrouter.ai/api/v1/model/<author>/<model>'
+curl -fsSL 'https://openrouter.ai/api/v1/models/<author>/<canonical-slug>/endpoints'
+```
+
+- **Do not replace the file wholesale with `/api/v1/models`.** The bundled file retains
+  the older, richer per-endpoint schema used for provider-specific IDs and pricing; the
+  public API is model-level and is not a drop-in replacement.
+- For a missing model, copy model capabilities (`context_length`, input/output
+  modalities, canonical slug) from the exact model response and endpoint limits/pricing
+  from the matching endpoint response. `endpoint.provider_model_id` must be an exact ID
+  the configured provider advertises; verify it against that provider's `/v1/models`.
+- Never infer image support from the family name or description. Require OpenRouter or
+  the provider response to list `image` in `input_modalities`, then add a
+  `BaseModelInfoProvider` test for every ID form Helix uses.
+- Keep refreshes narrowly scoped and inspect all pricing changes. A full feed refresh has
+  previously changed Claude entries to batch/regional endpoints and silently altered
+  usage costs.
+- Validate with `jq empty api/pkg/model/model_info.json`, run `go test ./pkg/model`, and
+  exercise the affected model through its real provider before committing.
+
 ### Debugging a suspected effort problem
 
 ```bash

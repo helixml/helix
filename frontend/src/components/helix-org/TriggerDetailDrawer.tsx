@@ -1,16 +1,17 @@
 import { FC } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Chip from '@mui/material/Chip'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { ExternalLink, RadioTower } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
+import { useTriggerKind } from '../../services/triggerKindService'
 import { useTrigger, useTriggerEvents } from '../../services/triggerService'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import HelixOrgSideDrawer from './HelixOrgSideDrawer'
 import HelixOrgOverviewCard from './HelixOrgOverviewCard'
+import TriggerConfig from './trigger/TriggerConfig'
 
 interface Props {
   triggerID?: string
@@ -23,6 +24,7 @@ const TriggerDetailDrawer: FC<Props> = ({ triggerID, agentCount = 0, onClose }) 
   const orgID = router.params.org_id as string
   const { data: trigger, isLoading } = useTrigger(triggerID)
   const { data: history } = useTriggerEvents(triggerID)
+  const kindDescriptor = useTriggerKind(trigger?.kind)
 
   return (
     <HelixOrgSideDrawer
@@ -45,10 +47,9 @@ const TriggerDetailDrawer: FC<Props> = ({ triggerID, agentCount = 0, onClose }) 
       ) : (
         <Stack spacing={2}>
           <HelixOrgOverviewCard
-            title={trigger.name || trigger.id || 'Trigger'}
+            title={kindDescriptor?.label ?? trigger.kind ?? 'Trigger'}
             id={trigger.id}
             icon={<RadioTower size={20} />}
-            status={<Chip label={trigger.kind} size="small" />}
           >
             <Typography variant="body2" sx={{ width: '100%', color: 'rgba(255,255,255,0.82)' }}>
               {trigger.description || 'No description'}
@@ -56,6 +57,7 @@ const TriggerDetailDrawer: FC<Props> = ({ triggerID, agentCount = 0, onClose }) 
             <Typography variant="caption">{agentCount} agent{agentCount === 1 ? '' : 's'}</Typography>
             <Typography variant="caption">{history?.total ?? 0} event{history?.total === 1 ? '' : 's'}</Typography>
           </HelixOrgOverviewCard>
+          <TriggerConfig trigger={trigger} density="compact" mode="read" orgID={orgID} />
           <Box>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>Recent events</Typography>
             {!history?.events?.length ? (

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 )
 
@@ -120,5 +121,73 @@ func TestTriggerDTOPublicURLOnlyForProviderTriggers(t *testing.T) {
 	}), &gh)
 	if gh.EffectivePublicURL != "https://helix.example.com" {
 		t.Fatalf("github effective_public_url = %q", gh.EffectivePublicURL)
+	}
+}
+
+func TestListTriggerKindsReturnsEveryKindWithLabels(t *testing.T) {
+	deps, _, _ := newDeps(t)
+	h := orgapi.Handler(deps)
+
+	rec := do(t, h, http.MethodGet, "/trigger-kinds", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body)
+	}
+
+	var out orgapi.TriggerKindsResponse
+	decode(t, rec, &out)
+
+	if len(out.Kinds) != len(transport.KindValues()) {
+		t.Fatalf("got %d kinds, want %d", len(out.Kinds), len(transport.KindValues()))
+	}
+	for i, want := range transport.KindValues() {
+		if out.Kinds[i].Kind != want {
+			t.Errorf("kind %d = %q, want %q", i, out.Kinds[i].Kind, want)
+		}
+		if out.Kinds[i].Label == "" {
+			t.Errorf("kind %q has no Label", out.Kinds[i].Kind)
+		}
+	}
+}
+
+func TestTriggerDTOCarriesResolvedActivation(t *testing.T) {
+	// newDeps pins the id generator to a constant, so two creates in one
+	// test would collide on the primary key.
+	n := 0
+	deps, _, _ := newDepsClock(t,
+		func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		func() string { n++; return fmt.Sprintf("id-%d", n) },
+	)
+	deps.PublicServerURL = "https://helix.example.com"
+	h := orgapi.Handler(deps)
+
+	var wh orgapi.TriggerDTO
+	decode(t, do(t, h, http.MethodPost, "/triggers", map[string]any{
+		"name": "Inbox", "kind": "webhook",
+	}), &wh)
+
+	if wh.Activation == nil {
+		t.Fatal("Activation is nil, want the resolved webhook recipe")
+	}
+	want := "https://helix.example.com/api/v1/orgs/org-test/webhooks/tr-id-1"
+	if wh.Activation.URL != want {
+		t.Errorf("Activation.URL = %q, want %q", wh.Activation.URL, want)
+	}
+	if wh.Activation.Verb != "POST" {
+		t.Errorf("Activation.Verb = %q, want POST", wh.Activation.Verb)
+	}
+	if wh.Activation.AuthHeader == "" {
+		t.Error("Activation.AuthHeader is empty, want the API key header")
+	}
+
+	var loc orgapi.TriggerDTO
+	decode(t, do(t, h, http.MethodPost, "/triggers", map[string]any{
+		"name": "Chatter", "kind": "local",
+	}), &loc)
+
+	if loc.Activation == nil || loc.Activation.Summary == "" {
+		t.Fatal("local trigger has no activation summary")
+	}
+	if loc.Activation.URL != "" {
+		t.Errorf("local Activation.URL = %q, want empty", loc.Activation.URL)
 	}
 }

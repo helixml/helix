@@ -43,6 +43,7 @@ type Kind string
 // lives in the strategies map.
 type Strategy interface {
 	ParseConfig(json.RawMessage) (Config, error)
+	Describe() Descriptor
 }
 
 // Config is the parsed shape of a Transport's per-Kind configuration.
@@ -66,9 +67,9 @@ var kindOrder = []Kind{KindLocal, KindWebhook, KindEmail, KindGitHub, KindGitLab
 
 // strategies registers every known Kind's Strategy. Adding a new Kind
 // means adding a new file in this package that defines its Kind
-// constant, its Config type with Validate(), and its Strategy
-// implementation — plus one entry here AND in kindOrder. Validate()
-// itself does not change.
+// constant, its Config type with Validate(), its Describe() descriptor,
+// and its Strategy implementation — plus one entry here AND in
+// kindOrder. Validate() itself does not change.
 var strategies = map[Kind]Strategy{
 	KindLocal:       local{},
 	KindWebhook:     webhook{},

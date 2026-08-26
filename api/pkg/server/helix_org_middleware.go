@@ -283,6 +283,7 @@ func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 			return
 		}
 		ctx := helixorgserver.WithOrgID(r.Context(), org.ID)
+		ctx = helixorgserver.WithOrgHandle(ctx, mux.Vars(r)["org"])
 		// Bridge the authenticated caller into the runtime-helix context
 		// so lifecycle.Create persists them as the Bot's hiring user
 		// (SaveHiringUser reads runtimehelix.UserIDFromContext). Without
