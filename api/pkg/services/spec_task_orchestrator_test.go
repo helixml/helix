@@ -997,9 +997,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestForegroundRefreshCoalescesWithBackgr
 	task := makePullRequestTask(1)
 	startedAt := time.Now().Add(-48 * time.Hour)
 	task.StatusUpdatedAt = &startedAt
-	s.Require().True(s.orchestrator.beginPRPoll(task.ID, time.Minute, time.Now().Add(-5*time.Minute)))
-	s.orchestrator.finishPRPoll(task.ID)
-	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil).Times(3)
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil).Times(2)
 	pollStarted := make(chan struct{})
 	finishPoll := make(chan struct{})
 	s.gitService.EXPECT().GetPullRequest(ctx, "repo-1", "1").DoAndReturn(
@@ -1010,19 +1008,41 @@ func (s *SpecTaskOrchestratorTestSuite) TestForegroundRefreshCoalescesWithBackgr
 		},
 	)
 
-	results := make(chan error, 2)
-	go func() { results <- s.orchestrator.RefreshPullRequestStatus(ctx, task.ID) }()
+	backgroundResult := make(chan error, 1)
+	go func() {
+		_, err := s.orchestrator.pollPullRequestTask(
+			ctx,
+			task,
+			pullRequestPollingInterval(task, time.Now()),
+			time.Now(),
+		)
+		backgroundResult <- err
+	}()
 	select {
 	case <-pollStarted:
 	case <-time.After(time.Second):
-		s.FailNow("foreground poll did not start")
+		s.FailNow("background poll did not start")
 	}
-	go func() { results <- s.orchestrator.RefreshPullRequestStatus(ctx, task.ID) }()
-	s.Require().NoError(<-results)
+
+	// The viewer request is coalesced while the scheduler's poll is in flight.
+	s.Require().NoError(s.orchestrator.RefreshPullRequestStatus(ctx, task.ID))
 	close(finishPoll)
-	s.Require().NoError(<-results)
+	s.Require().NoError(<-backgroundResult)
 
 	// The completed poll also throttles another immediate foreground refresh.
+	s.Require().NoError(s.orchestrator.RefreshPullRequestStatus(ctx, task.ID))
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestForegroundRefreshOverridesAgeBasedInterval() {
+	ctx := context.Background()
+	task := makePullRequestTask(1)
+	startedAt := time.Now().Add(-48 * time.Hour)
+	task.StatusUpdatedAt = &startedAt
+	s.Require().True(s.orchestrator.beginPRPoll(task.ID, time.Minute, time.Now().Add(-5*time.Minute)))
+	s.orchestrator.finishPRPoll(task.ID)
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	s.gitService.EXPECT().GetPullRequest(ctx, "repo-1", "1").Return(nil, fmt.Errorf("upstream unavailable"))
+
 	s.Require().NoError(s.orchestrator.RefreshPullRequestStatus(ctx, task.ID))
 }
 
