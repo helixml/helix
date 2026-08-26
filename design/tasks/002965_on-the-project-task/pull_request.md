@@ -6,10 +6,11 @@ Filter the repository branch list used by project task creation so completed and
 
 ## Changes
 
-- Hide branch tips that match merged pull-request evidence from GitHub, GitLab, or Azure DevOps.
+- Hide branch tips that exactly match a non-first parent of a merge commit on the default branch.
 - Keep fresh, unknown, and post-merge advanced branches visible.
 - Read external branch names from authoritative upstream refs so deleted branches are excluded.
 - Exclude the default and `helix-specs` branches.
+- Avoid GitHub, GitLab, Azure DevOps, or Bitbucket API dependencies.
 
 ## Testing
 
