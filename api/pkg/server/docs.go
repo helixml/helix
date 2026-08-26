@@ -30474,6 +30474,13 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.CodeAgentGooseRecipe"
                     }
                 },
+                "input_modalities": {
+                    "description": "InputModalities and OutputModalities describe the model's accepted input\nand generated output types. They are omitted when the capability is\nunknown; code-agent runtimes must not assume attachment support.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Modality"
+                    }
+                },
                 "max_output_tokens": {
                     "description": "MaxOutputTokens is the model's max completion tokens\nLooked up from model_info.json, 0 if not found",
                     "type": "integer"
@@ -30493,6 +30500,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.CodeAgentBinary"
                         }
                     ]
+                },
+                "output_modalities": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Modality"
+                    }
                 },
                 "provider": {
                     "description": "Provider is the LLM provider name (e.g., \"anthropic\", \"openai\", \"openrouter\")",

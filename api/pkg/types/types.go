@@ -2521,6 +2521,11 @@ type CodeAgentConfig struct {
 	// MaxOutputTokens is the model's max completion tokens
 	// Looked up from model_info.json, 0 if not found
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
+	// InputModalities and OutputModalities describe the model's accepted input
+	// and generated output types. They are omitted when the capability is
+	// unknown; code-agent runtimes must not assume attachment support.
+	InputModalities  []Modality `json:"input_modalities,omitempty"`
+	OutputModalities []Modality `json:"output_modalities,omitempty"`
 
 	// GooseRecipes lists project-declared Goose recipes with absolute paths
 	// resolved inside the desktop container. Only set when Runtime is

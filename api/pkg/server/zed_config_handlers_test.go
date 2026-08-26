@@ -533,12 +533,16 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 		providerModelsErr    error
 		wantContext          int
 		wantOutputTokens     int
+		advertisedModalities []string
+		wantInputModalities  []types.Modality
 	}{
 		{
-			name:              "advertised context overrides larger catalogue value",
-			advertisedContext: 262144,
-			wantContext:       262144,
-			wantOutputTokens:  catalogueOutputTokens,
+			name:                 "advertised context overrides larger catalogue value",
+			advertisedContext:    262144,
+			advertisedModalities: []string{"text", "image"},
+			wantContext:          262144,
+			wantOutputTokens:     catalogueOutputTokens,
+			wantInputModalities:  []types.Modality{types.ModalityText, types.ModalityImage},
 		},
 		{
 			name:                 "advertised context works without catalogue metadata",
@@ -616,7 +620,10 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 						if tt.providerModelsErr != nil {
 							return nil
 						}
-						return []types.OpenAIModel{{ID: modelName, ContextLength: tt.advertisedContext}}
+						return []types.OpenAIModel{{
+							ID: modelName, ContextLength: tt.advertisedContext,
+							InputModalities: tt.advertisedModalities,
+						}}
 					}(), tt.providerModelsErr)
 			}
 
@@ -646,6 +653,7 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 			require.NotNil(t, got)
 			assert.Equal(t, tt.wantContext, got.MaxTokens)
 			assert.Equal(t, tt.wantOutputTokens, got.MaxOutputTokens)
+			assert.Equal(t, tt.wantInputModalities, got.InputModalities)
 			if tt.providerListErr == nil {
 				assert.Equal(t, "pe_ds4/"+modelName, got.Model)
 			} else {
@@ -653,4 +661,29 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildOpenCodeConfigUsesCatalogueVisionCapabilities(t *testing.T) {
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	apiServer := &HelixAPIServer{modelInfoProvider: modelInfoProvider}
+	assistant := &types.AssistantConfig{
+		AgentType:               types.AgentTypeZedExternal,
+		GenerationModelProvider: "vision-provider",
+		GenerationModel:         "qwen3.8-27b",
+		CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+	}
+
+	got := apiServer.buildCodeAgentConfigFromAssistant(
+		context.Background(), assistant, "http://helix-api:8080", nil,
+	)
+
+	require.NotNil(t, got)
+	assert.Equal(t, []types.Modality{
+		types.ModalityText,
+		types.ModalityImage,
+		types.Modality("video"),
+	}, got.InputModalities)
+	assert.Equal(t, []types.Modality{types.ModalityText}, got.OutputModalities)
 }

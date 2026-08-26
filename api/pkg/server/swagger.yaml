@@ -5123,6 +5123,14 @@ definitions:
         items:
           $ref: '#/definitions/types.CodeAgentGooseRecipe'
         type: array
+      input_modalities:
+        description: |-
+          InputModalities and OutputModalities describe the model's accepted input
+          and generated output types. They are omitted when the capability is
+          unknown; code-agent runtimes must not assume attachment support.
+        items:
+          $ref: '#/definitions/types.Modality'
+        type: array
       max_output_tokens:
         description: |-
           MaxOutputTokens is the model's max completion tokens
@@ -5147,6 +5155,10 @@ definitions:
           than the baked floor. The API resolves the artifact (URL + digest) so
           the container never has to know the release URL scheme — that keeps the
           mirror decision in one place for air-gapped installs.
+      output_modalities:
+        items:
+          $ref: '#/definitions/types.Modality'
+        type: array
       provider:
         description: Provider is the LLM provider name (e.g., "anthropic", "openai",
           "openrouter")
