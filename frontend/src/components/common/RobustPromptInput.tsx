@@ -109,6 +109,8 @@ interface RobustPromptInputProps {
    * bottom — the shape every mobile compose screen has.
    */
   fill?: boolean
+  /** Removes the composer's top corners when an attached drawer is rendered above it. */
+  hasAttachedHeader?: boolean
   sendMode?: 'queued' | 'direct'
   inlineImageAttachments?: boolean
   deferredFileAttachments?: boolean
@@ -535,6 +537,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   disabled = false,
   maxHeight = 200,
   fill = false,
+  hasAttachedHeader = false,
   specTaskId,
   projectId,
   apiClient,
@@ -1389,7 +1392,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       <Collapse in={hasVisibleQueue} unmountOnExit>
         <Box
           sx={{
-            borderRadius: '20px 20px 0 0',
+            borderRadius: hasAttachedHeader ? 0 : '20px 20px 0 0',
             border: '1px solid',
             borderBottom: 0,
             borderColor: (theme) => getChatColors(theme).border,
@@ -1485,7 +1488,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           flexDirection: 'column',
           ...(fill && { flex: 1, minHeight: 0 }),
           bgcolor: (theme) => fill ? 'transparent' : getChatColors(theme).composerSurface,
-          borderRadius: fill ? 0 : hasVisibleQueue ? '0 0 22px 22px' : '22px',
+          borderRadius: fill
+            ? 0
+            : hasVisibleQueue || hasAttachedHeader
+              ? '0 0 22px 22px'
+              : '22px',
           border: fill ? 'none' : '1px solid',
           borderColor: isDraggingOver
             ? 'primary.main'
