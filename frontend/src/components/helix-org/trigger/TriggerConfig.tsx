@@ -56,8 +56,19 @@ const TriggerConfig: FC<Props> = ({ trigger, density = 'full', mode, orgID, onCh
     setName(trigger?.name ?? '')
     setDescription(trigger?.description ?? '')
     setKind(trigger?.kind ?? 'local')
-    setRawConfig(JSON.stringify(trigger?.config ?? {}, null, 2))
   }, [trigger?.id, trigger?.name, trigger?.description, trigger?.kind, trigger?.revision])
+
+  // rawConfig is seeded during render for the same reason as draft: it is
+  // authoritative for unmodelled keys, so a copy that arrives one commit
+  // late would strip them on the first emit before restoring them. Unlike
+  // draft this does not wait for the descriptor — the raw blob is the
+  // Trigger's own config, known immediately.
+  const configKey = `${trigger?.id ?? ''}|${trigger?.revision ?? ''}`
+  const [seededConfigKey, setSeededConfigKey] = useState<string | undefined>(undefined)
+  if (seededConfigKey !== configKey) {
+    setSeededConfigKey(configKey)
+    setRawConfig(JSON.stringify(trigger?.config ?? {}, null, 2))
+  }
 
   // Seed the draft DURING RENDER, not in an effect. Field components such
   // as CronScheduleFields read their prop only in useState initialisers, so

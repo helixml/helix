@@ -12,6 +12,7 @@ import Typography from '@mui/material/Typography'
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import TriggerWebhookPanel from '../components/helix-org/TriggerWebhookPanel'
 import TriggerConfig, { TriggerConfigValue } from '../components/helix-org/trigger/TriggerConfig'
+import { configEquals } from '../components/helix-org/trigger/triggerConfigModel'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import CopyButtonWithCheck from '../components/session/CopyButtonWithCheck'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
@@ -36,13 +37,11 @@ const TriggerConfiguration: FC<{ trigger: TriggerDTO; orgID: string }> = ({ trig
   // Bumped by Cancel to remount TriggerConfig, which owns the draft.
   const [resetKey, setResetKey] = useState(0)
 
-  const saved = JSON.stringify({
-    name: trigger.name ?? '',
-    description: trigger.description ?? '',
-    config: trigger.config ?? {},
-  })
-  const current = value && JSON.stringify({ name: value.name, description: value.description, config: value.config })
-  const dirty = !!current && current !== saved
+  const dirty = !!value && !(
+    value.name === (trigger.name ?? '') &&
+    value.description === (trigger.description ?? '') &&
+    configEquals(value.config, trigger.config ?? {})
+  )
 
   const save = async () => {
     if (!value) return

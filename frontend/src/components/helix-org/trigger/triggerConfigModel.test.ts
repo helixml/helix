@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { draftToConfig, initialDraft, missingRequired } from './triggerConfigModel'
+import { configEquals, draftToConfig, initialDraft, missingRequired } from './triggerConfigModel'
 import { TransportDirection, TransportFieldType, TransportKind } from '../../../api/api'
 import type { TriggerKindDescriptor } from '../../../services/triggerKindService'
 
@@ -96,8 +96,20 @@ describe('initialDraft defaults', () => {
     activation: { summary: 'Scheduler fires it.' },
   }
 
-  it('seeds a field from its descriptor default when there is no saved config', () => {
-    expect(initialDraft(cronDesc, {})).toEqual({ schedule: '0 9 * * 1-5', message: '' })
+  it('pins the browser timezone onto a zone-less cron default', () => {
+    // The stored expression drives the scheduler, which runs in the API
+    // container's zone (UTC). A default that only LOOKS local in the form
+    // would fire hours off, silently.
+    const { schedule } = initialDraft(cronDesc, {}) as { schedule: string }
+    expect(schedule).toMatch(/^CRON_TZ=\S+ 0 9 \* \* 1,2,3,4,5$/)
+    expect(schedule).toContain(Intl.DateTimeFormat().resolvedOptions().timeZone)
+  })
+
+  it('leaves a saved cron value untouched, zone or no zone', () => {
+    expect(initialDraft(cronDesc, { schedule: '0 9 * * 1-5' })).toEqual({
+      schedule: '0 9 * * 1-5',
+      message: '',
+    })
   })
 
   it('never lets a default override a saved value', () => {
@@ -113,5 +125,24 @@ describe('initialDraft defaults', () => {
 
   it('a defaulted required field is not reported missing', () => {
     expect(missingRequired(cronDesc, initialDraft(cronDesc, {}))).toEqual([])
+  })
+})
+
+describe('configEquals', () => {
+  it('ignores key order, so a reordered merge is not reported as an edit', () => {
+    expect(configEquals(
+      { keep_key: 'a', legacy_key: 'b', outbound_url: 'https://x' },
+      { outbound_url: 'https://x', keep_key: 'a', legacy_key: 'b' },
+    )).toBe(true)
+  })
+
+  it('still sees a real change', () => {
+    expect(configEquals({ a: 1 }, { a: 2 })).toBe(false)
+    expect(configEquals({ a: 1 }, { a: 1, b: 2 })).toBe(false)
+  })
+
+  it('compares nested objects and arrays by content', () => {
+    expect(configEquals({ x: { p: 1, q: 2 }, l: ['a', 'b'] }, { l: ['a', 'b'], x: { q: 2, p: 1 } })).toBe(true)
+    expect(configEquals({ l: ['a', 'b'] }, { l: ['b', 'a'] })).toBe(false)
   })
 })
