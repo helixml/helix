@@ -3669,7 +3669,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Only the subscription owner may change this.",
+                "description": "Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Sharing with an owned organization also enables Claude Code subscription mode there. Only the subscription owner may change this.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3725,6 +3725,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -28063,6 +28069,9 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "switch_to_subscription": {
+                    "type": "boolean"
                 }
             }
         },
