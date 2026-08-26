@@ -140,3 +140,34 @@ vs `tr-` inconsistency for agent-created Triggers remains.
 
 The detail page's Cancel/discard button was reimplemented as a remount key,
 since `TriggerConfig` now owns the draft state.
+
+## Screenshots
+
+Captured against the running dev stack at `localhost:8080`, after the fixes from
+both review rounds.
+
+### Trigger detail — webhook
+
+The same Trigger from the original report. The name leads with the kind's human
+label beside it; the id is a copyable caption rather than the headline. The
+`outbound_url` field is marked **Outbound** and says so in words. "How to fire
+this" carries the payload URL, the auth header, and a pasteable curl.
+
+![Trigger detail, webhook](screenshots/2026-08-24-trigger-config-ux/detail-webhook.png)
+
+### New Trigger — Slack
+
+Previously a `{}` textarea that could not produce a valid Slack Trigger. Now the
+required workspace picker, the optional channel, an up-front "Required" alert
+rather than a server 400, and where the credentials live. The list behind it
+shows human kind labels instead of raw enum strings.
+
+![New Trigger, Slack](screenshots/2026-08-24-trigger-config-ux/create-slack.png)
+
+### Org-chart side pane
+
+Previously name, id, description and two counts. Now the same `TriggerConfig`
+the detail page uses, at compact density, so the pane cannot show less than the
+page.
+
+![Org chart side pane](screenshots/2026-08-24-trigger-config-ux/side-pane.png)
