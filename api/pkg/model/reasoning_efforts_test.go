@@ -177,8 +177,8 @@ func TestGetModelInfoAppliesOverlay(t *testing.T) {
 
 	t.Run("unknown model still errors", func(t *testing.T) {
 		_, err := provider.GetModelInfo(context.Background(), &ModelInfoRequest{
-			Provider: "ds4-flash-node06",
-			Model:    "qwen3.8-27b",
+			Provider: "custom-provider",
+			Model:    "claude-opus-5",
 		})
 		require.Error(t, err, "a model with no catalogue entry must not become priceable")
 	})

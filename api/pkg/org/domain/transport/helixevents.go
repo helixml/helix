@@ -45,3 +45,15 @@ func (t Transport) HelixEventsConfig() (HelixEventsConfig, error) {
 	}
 	return c.(HelixEventsConfig), nil
 }
+
+func (helixEvents) Describe() Descriptor {
+	return Descriptor{
+		Kind:          KindHelixEvents,
+		Label:         "Helix event bus",
+		Summary:       "Org-wide bus carrying Helix's own events. Created and maintained by Helix; one per org.",
+		SystemManaged: true,
+		Activation: Activation{
+			Summary: "Helix publishes to this Trigger automatically when org events occur. There is nothing to configure.",
+		},
+	}
+}

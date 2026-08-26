@@ -60,3 +60,61 @@ func parseGitLabConfig(raw json.RawMessage) (GitLabConfig, error) {
 	}
 	return config, nil
 }
+
+func (gitlab) Describe() Descriptor {
+	return Descriptor{
+		Kind:    KindGitLab,
+		Label:   "GitLab event",
+		Summary: "Fires when selected events happen in a GitLab project.",
+		Fields: []Field{
+			{
+				Name:      "repository_id",
+				Label:     "Project",
+				Help:      "The Helix repository record this Trigger listens to.",
+				Type:      FieldGitLabRepo,
+				Required:  true,
+				Direction: Inbound,
+			},
+			{
+				Name:      "events",
+				Label:     "Events",
+				Help:      "GitLab event types to accept.",
+				Type:      FieldGitLabEvents,
+				Required:  true,
+				Direction: Inbound,
+			},
+			{
+				Name:      "repo",
+				Label:     "Project path",
+				Help:      "The namespace/project path, recorded when the project is selected.",
+				Type:      FieldString,
+				ReadOnly:  true,
+				Direction: Inbound,
+			},
+			{
+				Name:      "webhook_id",
+				Label:     "GitLab webhook id",
+				Help:      "Set by Helix when it installs the webhook on GitLab.",
+				Type:      FieldString,
+				ReadOnly:  true,
+				Direction: Inbound,
+			},
+			{
+				Name:      "webhook_html_url",
+				Label:     "Webhook on GitLab",
+				Help:      "Set by Helix when it installs the webhook on GitLab.",
+				Type:      FieldURL,
+				ReadOnly:  true,
+				Direction: Inbound,
+			},
+		},
+		Activation: Activation{
+			Summary: "GitLab delivers matching events to Helix.",
+		},
+		Secrets: []SecretRef{{
+			Label:      "GitLab webhook authentication",
+			SettingKey: "transport.gitlab",
+			Location:   "Organization Settings",
+		}},
+	}
+}
