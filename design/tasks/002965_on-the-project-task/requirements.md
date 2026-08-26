@@ -8,9 +8,9 @@
 ## Acceptance Criteria
 
 - The existing-branch selector on the project task creation form excludes the repository's default branch and Helix's `helix-specs` branch.
-- A branch is considered inactive only when Helix has affirmative evidence that the branch was merged and the branch's current tip still matches the merged head commit.
+- A branch is considered inactive only when its current tip exactly matches a non-first parent of a merge commit reachable from the default branch.
 - A newly created branch remains visible even when its tip is identical to the default-branch tip and it has no unique commits yet.
-- A branch with no known matching merge record remains visible; Git ancestry alone must not be used to hide it.
+- A branch without exact merge-parent evidence remains visible.
 - If new commits are added to a previously merged branch, it is shown again.
 - Branches deleted from an external upstream are not shown, even when a stale local ref remains in Helix's repository mirror.
 - The selector retains its current alphabetical sorting, search, empty-state text, and submission behavior.
@@ -21,8 +21,9 @@
 
 - Automatically deleting merged branches.
 - Changing branch options for repositories other than the project's primary repository.
-- Defining activity by a fixed “recently merged” time window; the current tip compared with recorded merge evidence is the source of truth.
+- Defining activity by a fixed “recently merged” time window.
+- Detecting squash, rebase, or fast-forward merges, which cannot be distinguished reliably from fresh branches using the local commit graph alone.
 
 ## Open Questions
 
-- Is conservative behavior acceptable for branches merged outside Helix with no pull-request metadata available? Such a merge cannot be distinguished reliably from a fresh branch at the same commit, so this design keeps the branch visible rather than hiding valid work.
+None.
