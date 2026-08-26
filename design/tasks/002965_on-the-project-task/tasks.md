@@ -10,3 +10,5 @@
 - [x] Verify the existing frontend branch-selector test still passes with the unchanged API contract.
 - [x] Regenerate API documentation/client artifacts if the API query contract requires it (not required; response type is unchanged).
 - [x] Run targeted backend and frontend test suites.
+- [~] Replace Helix project/task merge lookup with repository-provider merged pull-request evidence.
+- [ ] Re-run tests, merge current main, and push the corrected implementation.
