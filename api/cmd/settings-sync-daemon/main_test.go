@@ -785,14 +785,14 @@ func TestEnsureCodexConfig(t *testing.T) {
 	assert.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
 	assert.NoError(t, os.WriteFile(path, existing, 0644))
 
-	assert.NoError(t, ensureCodexConfig(path, "http://api:8080/v1"))
+	assert.NoError(t, ensureCodexConfig(path, "http://api:8080/v1", "gpt-5.6-terra"))
 	data, err := os.ReadFile(path)
 	assert.NoError(t, err)
 	var config map[string]interface{}
 	assert.NoError(t, toml.Unmarshal(data, &config))
 	assert.Equal(t, "never", config["approval_policy"])
 	assert.Equal(t, "danger-full-access", config["sandbox_mode"])
-	assert.Equal(t, "gpt-5.6-sol", config["model"])
+	assert.Equal(t, "gpt-5.6-terra", config["model"])
 	assert.Equal(t, "https://user-proxy.example/v1", config["openai_base_url"])
 	assert.Equal(t, "helix", config["model_provider"])
 	providers, ok := config["model_providers"].(map[string]interface{})
@@ -808,12 +808,13 @@ func TestEnsureCodexConfig(t *testing.T) {
 	assert.True(t, ok)
 	assert.Contains(t, projects, "/workspace")
 
-	assert.NoError(t, ensureCodexConfig(path, ""))
+	assert.NoError(t, ensureCodexConfig(path, "", ""))
 	data, err = os.ReadFile(path)
 	assert.NoError(t, err)
 	config = map[string]interface{}{}
 	assert.NoError(t, toml.Unmarshal(data, &config))
 	assert.Equal(t, "https://user-proxy.example/v1", config["openai_base_url"])
+	assert.NotContains(t, config, "model")
 	assert.NotContains(t, config, "model_provider")
 	providers, ok = config["model_providers"].(map[string]interface{})
 	assert.True(t, ok)
@@ -826,7 +827,7 @@ func TestCodexAgentServerUsesFullAccess(t *testing.T) {
 	CodexConfigPath = filepath.Join(t.TempDir(), "config.toml")
 	t.Cleanup(func() { CodexConfigPath = originalPath })
 
-	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{Runtime: "codex_cli", BaseURL: "http://api/v1"}}
+	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{Runtime: "codex_cli", BaseURL: "http://api/v1", Model: "gpt-5.6-terra"}}
 	cfg := d.generateAgentServerConfig()
 	codex, ok := cfg["codex-acp"].(map[string]interface{})
 	assert.True(t, ok)
@@ -842,6 +843,7 @@ func TestCodexAgentServerUsesFullAccess(t *testing.T) {
 	assert.NoError(t, toml.Unmarshal(data, &persisted))
 	assert.Equal(t, "never", persisted["approval_policy"])
 	assert.Equal(t, "danger-full-access", persisted["sandbox_mode"])
+	assert.Equal(t, "gpt-5.6-terra", persisted["model"])
 	assert.Equal(t, "helix", persisted["model_provider"])
 	providers, ok := persisted["model_providers"].(map[string]interface{})
 	assert.True(t, ok)

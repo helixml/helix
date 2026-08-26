@@ -4325,7 +4325,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Only the subscription owner may change this.",
+                "description": "Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Sharing with an owned organization also enables Claude Code subscription mode there. Only the subscription owner may change this.",
                 "tags": [
                     "Claude"
                 ],
@@ -4395,6 +4395,16 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -32578,6 +32588,9 @@
                         "items": {
                             "type": "string"
                         }
+                    },
+                    "switch_to_subscription": {
+                        "type": "boolean"
                     }
                 }
             },

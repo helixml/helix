@@ -349,7 +349,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		if d.codeAgentConfig.BaseURL != "" {
 			codexBaseURL = d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
 		}
-		if err := ensureCodexConfig(CodexConfigPath, codexBaseURL); err != nil {
+		if err := ensureCodexConfig(CodexConfigPath, codexBaseURL, d.codeAgentConfig.Model); err != nil {
 			log.Printf("Failed to configure Codex: %v", err)
 			return nil
 		}
@@ -678,7 +678,7 @@ func ensureJSONObject(parent map[string]interface{}, key string) (map[string]int
 	return child, nil
 }
 
-func ensureCodexConfig(path, openAIBaseURL string) error {
+func ensureCodexConfig(path, openAIBaseURL, model string) error {
 	config := map[string]interface{}{}
 	data, err := os.ReadFile(path)
 	if err == nil {
@@ -691,6 +691,11 @@ func ensureCodexConfig(path, openAIBaseURL string) error {
 
 	config["approval_policy"] = "never"
 	config["sandbox_mode"] = "danger-full-access"
+	if model == "" {
+		delete(config, "model")
+	} else {
+		config["model"] = model
+	}
 	providers, _ := config["model_providers"].(map[string]interface{})
 	if openAIBaseURL == "" {
 		if config["model_provider"] == "helix" {

@@ -5,6 +5,7 @@
 // on the settings page, or deferred-until-create in the new-org dialog).
 
 import { FC } from 'react'
+import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import FormControl from '@mui/material/FormControl'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -37,6 +38,11 @@ export interface AgentConfigValue {
   reasoning_effort?: string
 }
 
+export interface AgentSubscriptionAvailability {
+  claude: boolean
+  codex: boolean
+}
+
 // Strong code-generation models to surface first in the picker.
 const RECOMMENDED_MODELS = [
   'claude-opus-4-5-20251101',
@@ -48,15 +54,18 @@ export const AgentConfigForm: FC<{
   onChange: (patch: Partial<AgentConfigValue>) => void
   showReasoningEffort?: boolean
   disabled?: boolean
-}> = ({ value, onChange, showReasoningEffort = false, disabled = false }) => {
+  subscriptionAvailability?: AgentSubscriptionAvailability
+}> = ({ value, onChange, showReasoningEffort = false, disabled = false, subscriptionAvailability }) => {
   const { data: providers } = useHelixProviders()
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const { data: codexSubscriptions } = useCodexSubscriptions()
   // Warm the models cache for the currently-selected provider.
   useHelixModelsForProvider(value.provider, { enabled: !!value.provider })
 
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
+  const hasClaudeSubscription = subscriptionAvailability?.claude
+    ?? (claudeSubscriptions?.length ?? 0) > 0
+  const hasCodexSubscription = subscriptionAvailability?.codex
+    ?? (codexSubscriptions?.length ?? 0) > 0
   const hasAnthropicProvider = (providers ?? []).includes('anthropic')
   const hasOpenAIProvider = (providers ?? []).includes('openai')
 
@@ -64,6 +73,10 @@ export const AgentConfigForm: FC<{
   const isCodex = value.runtime === 'codex_cli'
   const supportsSubscription = isClaude || isCodex
   const hasRuntimeSubscription = isClaude ? hasClaudeSubscription : isCodex ? hasCodexSubscription : false
+  const subscriptionUnavailableForOrg = !!subscriptionAvailability
+    && supportsSubscription
+    && value.credentials === 'subscription'
+    && !hasRuntimeSubscription
   const hasRuntimeAPIKey = isClaude ? hasAnthropicProvider : isCodex ? hasOpenAIProvider : false
   const apiKeyMode = !supportsSubscription || value.credentials === 'api_key'
   const effortValue = !value.reasoning_effort || value.reasoning_effort === 'none' ? 'default' : value.reasoning_effort
@@ -213,7 +226,9 @@ export const AgentConfigForm: FC<{
                     {hasRuntimeSubscription ? (
                       <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
                     ) : (
-                      <Typography variant="caption" color="text.secondary">(not connected)</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {subscriptionAvailability ? '(not available for this organization)' : '(not connected)'}
+                      </Typography>
                     )}
                   </Box>
                 }
@@ -235,6 +250,11 @@ export const AgentConfigForm: FC<{
               />
             </RadioGroup>
           </FormControl>
+          {subscriptionUnavailableForOrg && (
+            <Alert severity="warning" sx={{ mt: 1 }}>
+              This subscription is not available for this organization. Enable it under Organization Settings &gt; Providers.
+            </Alert>
+          )}
         </Box>
       )}
 
