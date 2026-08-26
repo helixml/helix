@@ -174,6 +174,7 @@ const AgentChat: FC<AgentChatProps> = ({
               isCancelling={isCancelling}
               leadingActions={leadingActions}
               showContextUsage
+              autoFocus
               placeholder={placeholder}
               disabled={disabled}
               enableSandboxCompletions
