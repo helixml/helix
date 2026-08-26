@@ -5256,6 +5256,24 @@ func (apiServer *HelixAPIServer) handleThreadTitleChanged(agentSessionID string,
 		return fmt.Errorf("failed to update session name: %w", err)
 	}
 
+	// The coding agent generates a useful thread title near the beginning of a
+	// run. Planning tasks later get their canonical name from requirements.md;
+	// just-do-it tasks skip that artifact, so reuse the already-generated thread
+	// title instead. This works with the task's configured coding model and does
+	// not depend on the optional Kodit enrichment model being configured.
+	if taskID := session.Metadata.SpecTaskID; taskID != "" && strings.TrimSpace(newTitle) != "" {
+		task, taskErr := apiServer.Controller.Options.Store.GetSpecTask(ctx, taskID)
+		if taskErr != nil {
+			log.Warn().Err(taskErr).Str("spec_task_id", taskID).Msg("Failed to load task for thread title sync")
+		} else if task.JustDoItMode && task.UserShortTitle == "" && task.Name != newTitle {
+			task.Name = newTitle
+			task.UpdatedAt = time.Now()
+			if taskErr := apiServer.Controller.Options.Store.UpdateSpecTask(ctx, task); taskErr != nil {
+				log.Warn().Err(taskErr).Str("spec_task_id", taskID).Msg("Failed to update just-do-it task name from thread title")
+			}
+		}
+	}
+
 	log.Info().
 		Str("acp_thread_id", acpThreadID).
 		Str("helix_session_id", helixSessionID).
