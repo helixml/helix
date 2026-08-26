@@ -14768,6 +14768,37 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/trigger-kinds": {
+            "get": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list trigger kinds and their settings",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.TriggerKindsResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/triggers": {
             "get": {
                 "tags": [
@@ -28874,6 +28905,14 @@
             "api.TriggerDTO": {
                 "type": "object",
                 "properties": {
+                    "activation": {
+                        "description": "Activation is the resolved \"how do I fire this\" recipe for this\nTrigger: concrete URL or address, verb, and auth, with every\ntemplate in the Kind's descriptor filled in.",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/transport.ResolvedActivation"
+                            }
+                        ]
+                    },
                     "attached_workers": {
                         "description": "AttachedWorkers are the Workers this Trigger activates — the\nattachment-model successor of the Topics page's subscriber list.",
                         "type": "array",
@@ -28943,6 +28982,17 @@
                     },
                     "total": {
                         "type": "integer"
+                    }
+                }
+            },
+            "api.TriggerKindsResponse": {
+                "type": "object",
+                "properties": {
+                    "kinds": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/transport.Descriptor"
+                        }
                     }
                 }
             },
@@ -32824,6 +32874,192 @@
                     },
                     "status_code": {
                         "type": "integer"
+                    }
+                }
+            },
+            "transport.Activation": {
+                "type": "object",
+                "properties": {
+                    "address_template": {
+                        "type": "string"
+                    },
+                    "auth_header": {
+                        "type": "string"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "summary": {
+                        "type": "string"
+                    },
+                    "url_template": {
+                        "type": "string"
+                    },
+                    "verb": {
+                        "type": "string"
+                    }
+                }
+            },
+            "transport.Descriptor": {
+                "type": "object",
+                "properties": {
+                    "activation": {
+                        "$ref": "#/components/schemas/transport.Activation"
+                    },
+                    "fields": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/transport.Field"
+                        }
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/transport.Kind"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "secrets": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/transport.SecretRef"
+                        }
+                    },
+                    "summary": {
+                        "type": "string"
+                    },
+                    "system_managed": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "transport.Direction": {
+                "type": "string",
+                "enum": [
+                    "inbound",
+                    "outbound"
+                ],
+                "x-enum-varnames": [
+                    "Inbound",
+                    "Outbound"
+                ]
+            },
+            "transport.Field": {
+                "type": "object",
+                "properties": {
+                    "default": {
+                        "description": "Default is the value a create form seeds this field with when the\nTrigger has no stored config. It must itself validate.",
+                        "type": "string"
+                    },
+                    "direction": {
+                        "$ref": "#/components/schemas/transport.Direction"
+                    },
+                    "help": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "placeholder": {
+                        "type": "string"
+                    },
+                    "read_only": {
+                        "type": "boolean"
+                    },
+                    "required": {
+                        "type": "boolean"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/transport.FieldType"
+                    }
+                }
+            },
+            "transport.FieldType": {
+                "type": "string",
+                "enum": [
+                    "string",
+                    "url",
+                    "string_list",
+                    "cron",
+                    "github_repo",
+                    "github_events",
+                    "gitlab_repo",
+                    "gitlab_events",
+                    "slack_workspace",
+                    "slack_channel"
+                ],
+                "x-enum-varnames": [
+                    "FieldString",
+                    "FieldURL",
+                    "FieldStringList",
+                    "FieldCron",
+                    "FieldGitHubRepo",
+                    "FieldGitHubEvents",
+                    "FieldGitLabRepo",
+                    "FieldGitLabEvents",
+                    "FieldSlackWorkspace",
+                    "FieldSlackChannel"
+                ]
+            },
+            "transport.Kind": {
+                "type": "string",
+                "enum": [
+                    "gitlab",
+                    "github",
+                    "local",
+                    "slack",
+                    "helix_events",
+                    "webhook",
+                    "cron",
+                    "email"
+                ],
+                "x-enum-varnames": [
+                    "KindGitLab",
+                    "KindGitHub",
+                    "KindLocal",
+                    "KindSlack",
+                    "KindHelixEvents",
+                    "KindWebhook",
+                    "KindCron",
+                    "KindEmail"
+                ]
+            },
+            "transport.ResolvedActivation": {
+                "type": "object",
+                "properties": {
+                    "address": {
+                        "type": "string"
+                    },
+                    "auth_header": {
+                        "type": "string"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "summary": {
+                        "type": "string"
+                    },
+                    "url": {
+                        "type": "string"
+                    },
+                    "verb": {
+                        "type": "string"
+                    }
+                }
+            },
+            "transport.SecretRef": {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "type": "string"
+                    },
+                    "location": {
+                        "type": "string"
+                    },
+                    "setting_key": {
+                        "type": "string"
                     }
                 }
             },

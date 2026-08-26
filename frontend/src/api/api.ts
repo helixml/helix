@@ -463,6 +463,12 @@ export interface ApiToolDTO {
 
 export interface ApiTriggerDTO {
   /**
+   * Activation is the resolved "how do I fire this" recipe for this
+   * Trigger: concrete URL or address, verb, and auth, with every
+   * template in the Kind's descriptor filled in.
+   */
+  activation?: TransportResolvedActivation;
+  /**
    * AttachedWorkers are the Workers this Trigger activates — the
    * attachment-model successor of the Topics page's subscriber list.
    */
@@ -494,6 +500,10 @@ export interface ApiTriggerEventsResponse {
   limit?: number;
   offset?: number;
   total?: number;
+}
+
+export interface ApiTriggerKindsResponse {
+  kinds?: TransportDescriptor[];
 }
 
 export interface ApiTriggerListResponse {
@@ -2252,6 +2262,85 @@ export enum StripeSubscriptionStatus {
 export interface SystemHTTPError {
   message?: string;
   status_code?: number;
+}
+
+export interface TransportActivation {
+  address_template?: string;
+  auth_header?: string;
+  note?: string;
+  summary?: string;
+  url_template?: string;
+  verb?: string;
+}
+
+export interface TransportDescriptor {
+  activation?: TransportActivation;
+  fields?: TransportField[];
+  kind?: TransportKind;
+  label?: string;
+  secrets?: TransportSecretRef[];
+  summary?: string;
+  system_managed?: boolean;
+}
+
+export enum TransportDirection {
+  Inbound = "inbound",
+  Outbound = "outbound",
+}
+
+export interface TransportField {
+  /**
+   * Default is the value a create form seeds this field with when the
+   * Trigger has no stored config. It must itself validate.
+   */
+  default?: string;
+  direction?: TransportDirection;
+  help?: string;
+  label?: string;
+  name?: string;
+  placeholder?: string;
+  read_only?: boolean;
+  required?: boolean;
+  type?: TransportFieldType;
+}
+
+export enum TransportFieldType {
+  FieldString = "string",
+  FieldURL = "url",
+  FieldStringList = "string_list",
+  FieldCron = "cron",
+  FieldGitHubRepo = "github_repo",
+  FieldGitHubEvents = "github_events",
+  FieldGitLabRepo = "gitlab_repo",
+  FieldGitLabEvents = "gitlab_events",
+  FieldSlackWorkspace = "slack_workspace",
+  FieldSlackChannel = "slack_channel",
+}
+
+export enum TransportKind {
+  KindGitLab = "gitlab",
+  KindGitHub = "github",
+  KindLocal = "local",
+  KindSlack = "slack",
+  KindHelixEvents = "helix_events",
+  KindWebhook = "webhook",
+  KindCron = "cron",
+  KindEmail = "email",
+}
+
+export interface TransportResolvedActivation {
+  address?: string;
+  auth_header?: string;
+  note?: string;
+  summary?: string;
+  url?: string;
+  verb?: string;
+}
+
+export interface TransportSecretRef {
+  label?: string;
+  location?: string;
+  setting_key?: string;
 }
 
 export interface TypesAPIError {
@@ -14892,6 +14981,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/orgs/${org}/tools`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTriggerKindsDetail
+     * @summary Helix-org: list trigger kinds and their settings
+     * @request GET:/api/v1/orgs/{org}/trigger-kinds
+     */
+    v1OrgsTriggerKindsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiTriggerKindsResponse, any>({
+        path: `/api/v1/orgs/${org}/trigger-kinds`,
+        method: "GET",
         format: "json",
         ...params,
       }),

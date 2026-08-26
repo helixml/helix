@@ -358,6 +358,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /settings", Handler: http.HandlerFunc(a.listSettings)},
 		{Pattern: "PUT /settings/{key}", Handler: http.HandlerFunc(a.setSetting)},
 		{Pattern: "DELETE /settings/{key}", Handler: http.HandlerFunc(a.deleteSetting)},
+		{Pattern: "GET /trigger-kinds", Handler: http.HandlerFunc(a.listTriggerKinds)},
 		{Pattern: "GET /triggers", Handler: http.HandlerFunc(a.listTriggers)},
 		{Pattern: "POST /triggers", Handler: http.HandlerFunc(a.createTrigger)},
 		{Pattern: "GET /triggers/{id}", Handler: http.HandlerFunc(a.getTrigger)},
