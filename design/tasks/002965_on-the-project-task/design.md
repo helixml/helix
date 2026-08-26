@@ -2,7 +2,7 @@
 
 ## Current State
 
-`NewSpecTaskForm.tsx` calls `GET /api/v1/git/repositories/{id}/branches`, receives only branch-name strings, removes the default branch, and sorts the remainder. The generic endpoint cannot describe merge state. The backend already provides `GitRepositoryService.IsBranchMerged`, which checks whether a branch tip is an ancestor of the target branch with Git merge-base semantics. External reads sync branches first, but `SyncAllBranches` intentionally disables pruning, so an upstream-deleted branch may remain locally.
+`NewSpecTaskForm.tsx` calls `GET /api/v1/git/repositories/{id}/branches`, receives only branch-name strings, removes the default branch, and sorts the remainder. The generic endpoint cannot describe merge state. Spec tasks record `MergedToMain`, `MergedAt`, and `LastPushCommitHash`, and pull-request data includes state, source branch, and head SHA. The existing `IsBranchMerged` ancestry check is not sufficient here: a fresh branch created at the default tip looks identical to a fully merged branch in the commit graph. External reads sync branches first, but `SyncAllBranches` intentionally disables pruning, so an upstream-deleted branch may remain locally.
 
 ## Design
 
@@ -10,22 +10,23 @@ Add an opt-in active-only mode to the repository branches API rather than changi
 
 Under the repository's existing read lock and external-sync flow, the backend will:
 
-1. Resolve the repository's configured default branch and its current tip.
+1. Resolve the repository's configured default branch.
 2. List candidate branch refs, excluding the default branch and `helix-specs`.
 3. For external repositories, compare candidates with the authoritative upstream branch names so stale local refs deleted upstream are excluded without globally pruning local-only Helix refs.
-4. Mark a candidate active when its tip is not an ancestor of the default-branch tip.
-5. Return active branch names in the existing string-array response shape.
+4. Collect known merged head commits by source branch from Helix task merge records and available pull-request provider metadata.
+5. Hide a candidate only when its current tip equals a known merged head commit for that same branch. Treat candidates without matching merge evidence as active.
+6. Return active branch names in the existing string-array response shape.
 
-This Git-level check deliberately uses the current tip rather than the task's stored `MergedToMain` flag. Stored merge state belongs to one task and becomes stale if a branch receives later commits; tip reachability correctly makes such a branch active again. Keep alphabetical ordering in the frontend to preserve current presentation.
+Matching the current tip to the recorded merged head handles both sides of the requirement: a fresh branch at the default tip has no merge record and stays visible, while an unchanged merged branch is hidden. If new commits are pushed after merging, the tip no longer matches and the branch becomes active again. Provider head-SHA metadata also works for squash and rebase merges because it records which source tip was merged without requiring that commit to appear in the default branch's ancestry. Keep alphabetical ordering in the frontend to preserve current presentation.
 
 ## Key Decisions and Constraints
 
 - The filter is opt-in to avoid changing Git repository detail screens or other consumers of the all-branches endpoint.
-- No time threshold is used. “Active” describes unmerged work now, not how recently a merge occurred.
+- No time threshold is used. A matching merged head remains inactive until the branch advances.
 - Do not enable blanket fetch pruning: `helix-specs` and other local-only work can legitimately be absent upstream.
-- The existing ancestry helper detects merge-commit and fast-forward merges. Squash/rebase merge handling remains dependent on the answer in `requirements.md`.
+- Prefer false positives in the selector over false negatives: without affirmative merge evidence, keep the branch visible.
 - Preserve authorization, locking, and sync behavior of the current branches handler.
 
 ## Testing
 
-Service/handler tests should construct histories for unmerged, fully merged, and merged-then-advanced branches, plus simulate an external branch missing upstream but present locally. Frontend tests should verify the active-only request, rendered options, ordering, and empty/error behavior.
+Service/handler tests should cover a fresh branch equal to the default tip, an unchanged branch with a matching merge record, a merged-then-advanced branch, a branch with no merge metadata, and an external branch missing upstream but present locally. Include merge-commit and squash/rebase provider records where supported. Frontend tests should verify the active-only request, rendered options, ordering, and empty/error behavior.
