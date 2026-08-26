@@ -9,4 +9,4 @@
 - [x] Add backend tests for fresh-at-default, active, known merged, reactivated, unknown-merge-state, deleted, default, and local-only branch cases.
 - [x] Verify the existing frontend branch-selector test still passes with the unchanged API contract.
 - [x] Regenerate API documentation/client artifacts if the API query contract requires it (not required; response type is unchanged).
-- [~] Run targeted backend and frontend test suites.
+- [x] Run targeted backend and frontend test suites.
