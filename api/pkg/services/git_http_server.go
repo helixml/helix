@@ -1523,31 +1523,6 @@ func (s *GitHTTPServer) SyncOpenPRDescriptions(ctx context.Context, task *types.
 		return
 	}
 
-	// Planning tasks get a descriptive name from the requirements.md H1 when
-	// their design docs are pushed. Just-do-it tasks skip that artifact, but
-	// their implementation agent still writes pull_request.md with a concise,
-	// model-authored title. Use the primary repository's PR title as the
-	// equivalent naming signal so build-only tasks do not remain named after a
-	// truncated first line of the original prompt.
-	if task.JustDoItMode {
-		primaryRepoName := ""
-		for _, repo := range repos {
-			if repo != nil && repo.LocalPath == primaryRepoPath {
-				primaryRepoName = repo.Name
-				break
-			}
-		}
-		if title, _, found := s.getPullRequestContent(primaryRepoPath, task, primaryRepoName); found && title != task.Name {
-			task.Name = title
-			task.UpdatedAt = time.Now()
-			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
-				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update just-do-it task name from PR title")
-			} else {
-				log.Info().Str("task_id", task.ID).Str("new_name", title).Msg("Updated just-do-it task name from PR title")
-			}
-		}
-	}
-
 	orgName := ""
 	if task.OrganizationID != "" {
 		if org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: task.OrganizationID}); err == nil && org != nil {

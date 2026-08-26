@@ -42,21 +42,20 @@ type SpecDrivenTaskService struct {
 	store    store.Store
 	notifier notification.Notifier
 	// controller               *controller.Controller
-	externalAgentExecutor    external_agent.Executor    // Wolf executor for launching external agents
-	gitRepositoryService     *GitRepositoryService      // Service for git repository operations
-	RegisterRequestMapping   RequestMappingRegistrar    // Callback to register request-to-session mappings
-	EnqueueMessageToAgent    SpecTaskMessageEnqueuer    // Callback to enqueue messages onto the session-scoped prompt queue (the single sender path)
-	helixAgentID             string                     // ID of Helix agent for spec generation
-	zedAgentPool             []string                   // Pool of available Zed agents
-	testMode                 bool                       // If true, skip async operations for testing
-	ZedIntegrationService    *ZedIntegrationService     // Service for Zed instance and thread management
-	ZedToHelixSessionService *ZedToHelixSessionService  // Service for Zed→Helix session creation
-	SessionContextService    *SessionContextService     // Service for inter-session coordination
-	auditLogService          *AuditLogService           // Service for audit logging
-	koditService             KoditServicer              // Kodit code intelligence (for MCP documentation in prompts)
-	ExecInDesktop            DesktopExecFunc            // Callback to exec commands in running desktop containers
-	ReadAttachmentBlob       AttachmentBlobReader       // Callback to load attachment bytes from filestore
-	GenerateTaskTitleAsync   func(task *types.SpecTask) // Optional async title generation for just-do-it tasks
+	externalAgentExecutor    external_agent.Executor   // Wolf executor for launching external agents
+	gitRepositoryService     *GitRepositoryService     // Service for git repository operations
+	RegisterRequestMapping   RequestMappingRegistrar   // Callback to register request-to-session mappings
+	EnqueueMessageToAgent    SpecTaskMessageEnqueuer   // Callback to enqueue messages onto the session-scoped prompt queue (the single sender path)
+	helixAgentID             string                    // ID of Helix agent for spec generation
+	zedAgentPool             []string                  // Pool of available Zed agents
+	testMode                 bool                      // If true, skip async operations for testing
+	ZedIntegrationService    *ZedIntegrationService    // Service for Zed instance and thread management
+	ZedToHelixSessionService *ZedToHelixSessionService // Service for Zed→Helix session creation
+	SessionContextService    *SessionContextService    // Service for inter-session coordination
+	auditLogService          *AuditLogService          // Service for audit logging
+	koditService             KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
+	ExecInDesktop            DesktopExecFunc           // Callback to exec commands in running desktop containers
+	ReadAttachmentBlob       AttachmentBlobReader      // Callback to load attachment bytes from filestore
 	wg                       sync.WaitGroup
 }
 
@@ -792,14 +791,6 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task status for Just Do It mode")
 		return
-	}
-
-	// Planning normally replaces the prompt-derived placeholder name with the
-	// requirements title. Just-do-it skips planning, so ask the shared title
-	// service to produce the equivalent concise name as soon as work starts.
-	// This is asynchronous and must not delay the implementation container.
-	if s.GenerateTaskTitleAsync != nil {
-		s.GenerateTaskTitleAsync(task)
 	}
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
