@@ -2289,6 +2289,11 @@ export enum TransportDirection {
 }
 
 export interface TransportField {
+  /**
+   * Default is the value a create form seeds this field with when the
+   * Trigger has no stored config. It must itself validate.
+   */
+  default?: string;
   direction?: TransportDirection;
   help?: string;
   label?: string;
@@ -2313,14 +2318,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
+  KindGitLab = "gitlab",
+  KindGitHub = "github",
+  KindLocal = "local",
   KindSlack = "slack",
-  KindEmail = "email",
+  KindHelixEvents = "helix_events",
   KindWebhook = "webhook",
   KindCron = "cron",
-  KindLocal = "local",
-  KindGitHub = "github",
-  KindHelixEvents = "helix_events",
-  KindGitLab = "gitlab",
+  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {

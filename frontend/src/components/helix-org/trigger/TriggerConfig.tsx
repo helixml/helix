@@ -38,7 +38,7 @@ interface Props {
 }
 
 const TriggerConfig: FC<Props> = ({ trigger, density = 'full', mode, orgID, onChange }) => {
-  const { data: kinds = [] } = useTriggerKinds()
+  const { data: kinds = [], isLoading: kindsLoading } = useTriggerKinds()
   const [name, setName] = useState(trigger?.name ?? '')
   const [description, setDescription] = useState(trigger?.description ?? '')
   const [kind, setKind] = useState(trigger?.kind ?? 'local')
@@ -59,29 +59,42 @@ const TriggerConfig: FC<Props> = ({ trigger, density = 'full', mode, orgID, onCh
     setRawConfig(JSON.stringify(trigger?.config ?? {}, null, 2))
   }, [trigger?.id, trigger?.name, trigger?.description, trigger?.kind, trigger?.revision])
 
-  useEffect(() => {
-    if (desc) setDraft(initialDraft(desc, savedConfig))
-    // savedConfig is derived from trigger.revision, which is in the deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desc?.kind, trigger?.id, trigger?.revision])
+  // Seed the draft DURING RENDER, not in an effect. Field components such
+  // as CronScheduleFields read their prop only in useState initialisers, so
+  // a draft populated one commit later leaves them latched on their own
+  // defaults — editing any single control then silently rewrites the rest
+  // of the schedule. Setting state during render makes React re-render
+  // before committing children, so they never mount with a stale value.
+  const draftKey = `${desc?.kind ?? ''}|${trigger?.id ?? ''}|${trigger?.revision ?? ''}`
+  const [seededKey, setSeededKey] = useState<string | undefined>(undefined)
+  if (desc && seededKey !== draftKey) {
+    setSeededKey(draftKey)
+    setDraft(initialDraft(desc, savedConfig))
+  }
 
   const missing = missingRequired(desc, draft)
 
   useEffect(() => {
     if (!onChange) return
-    let merged = draftToConfig(desc, draft, savedConfig)
-    if (rawConfig.trim() && rawConfig.trim() !== '{}') {
-      try {
-        const parsed = JSON.parse(rawConfig)
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          const modelled = new Set((desc?.fields ?? []).map((field) => field.name))
-          for (const [key, value] of Object.entries(parsed)) {
-            if (!modelled.has(key)) merged[key] = value
-          }
+    const merged = draftToConfig(desc, draft, savedConfig)
+    // The raw JSON box is AUTHORITATIVE for keys the form does not model, so
+    // deleting a key there actually removes it. Without dropping the
+    // carried-over keys first, draftToConfig's {...existing} base would
+    // silently resurrect anything the user deleted. Modelled keys are never
+    // touched here — the fields above own those, read-only ones included.
+    try {
+      const parsed = JSON.parse(rawConfig || '{}')
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const modelled = new Set((desc?.fields ?? []).map((field) => field.name))
+        for (const key of Object.keys(merged)) {
+          if (!modelled.has(key)) delete merged[key]
         }
-      } catch {
-        // Surfaced through rawError below; the modelled fields still submit.
+        for (const [key, value] of Object.entries(parsed)) {
+          if (!modelled.has(key)) merged[key] = value
+        }
       }
+    } catch {
+      // Surfaced through rawError below; the modelled fields still submit.
     }
     onChange({ name: name.trim(), description: description.trim(), kind, config: merged }, !!name.trim() && missing.length === 0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -131,7 +144,11 @@ const TriggerConfig: FC<Props> = ({ trigger, density = 'full', mode, orgID, onCh
         </>
       )}
 
-      {ordered.length === 0 ? (
+      {!desc ? (
+        <Typography variant="caption" color="text.secondary">
+          {kindsLoading ? 'Loading settings…' : 'Unknown Trigger type; edit the raw JSON below.'}
+        </Typography>
+      ) : ordered.length === 0 ? (
         <Typography variant="caption" color="text.secondary">This Trigger type has no settings.</Typography>
       ) : (
         ordered
@@ -179,7 +196,7 @@ const TriggerConfig: FC<Props> = ({ trigger, density = 'full', mode, orgID, onCh
               size="small"
               fullWidth
               error={!!rawError}
-              helperText={rawError || 'Edit keys the form above does not cover. Changes here are merged with the fields above.'}
+              helperText={rawError || 'Keys the form models are controlled by the fields above. Anything else here is saved as-is, and removing it here removes it.'}
               sx={{ '& textarea': { fontFamily: 'monospace', fontSize: '0.8rem' } }}
             />
           </AccordionDetails>

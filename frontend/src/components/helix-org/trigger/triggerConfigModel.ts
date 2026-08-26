@@ -18,8 +18,10 @@ export function initialDraft(
     const value = saved[name]
     if (isListField(field)) {
       draft[name] = Array.isArray(value) ? value : []
+    } else if (value === undefined || value === null || value === '') {
+      draft[name] = field.default ?? ''
     } else {
-      draft[name] = value === undefined || value === null ? '' : String(value)
+      draft[name] = String(value)
     }
   }
   return draft

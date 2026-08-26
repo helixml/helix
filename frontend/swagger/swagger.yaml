@@ -3545,6 +3545,11 @@ definitions:
     - Outbound
   transport.Field:
     properties:
+      default:
+        description: |-
+          Default is the value a create form seeds this field with when the
+          Trigger has no stored config. It must itself validate.
+        type: string
       direction:
         $ref: '#/definitions/transport.Direction'
       help:
@@ -3588,24 +3593,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
+    - gitlab
+    - github
+    - local
     - slack
-    - email
+    - helix_events
     - webhook
     - cron
-    - local
-    - github
-    - helix_events
-    - gitlab
+    - email
     type: string
     x-enum-varnames:
+    - KindGitLab
+    - KindGitHub
+    - KindLocal
     - KindSlack
-    - KindEmail
+    - KindHelixEvents
     - KindWebhook
     - KindCron
-    - KindLocal
-    - KindGitHub
-    - KindHelixEvents
-    - KindGitLab
+    - KindEmail
   transport.ResolvedActivation:
     properties:
       address:

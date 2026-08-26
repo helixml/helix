@@ -32946,6 +32946,10 @@
             "transport.Field": {
                 "type": "object",
                 "properties": {
+                    "default": {
+                        "description": "Default is the value a create form seeds this field with when the\nTrigger has no stored config. It must itself validate.",
+                        "type": "string"
+                    },
                     "direction": {
                         "$ref": "#/components/schemas/transport.Direction"
                     },
@@ -33002,24 +33006,24 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
+                    "gitlab",
+                    "github",
+                    "local",
                     "slack",
-                    "email",
+                    "helix_events",
                     "webhook",
                     "cron",
-                    "local",
-                    "github",
-                    "helix_events",
-                    "gitlab"
+                    "email"
                 ],
                 "x-enum-varnames": [
+                    "KindGitLab",
+                    "KindGitHub",
+                    "KindLocal",
                     "KindSlack",
-                    "KindEmail",
+                    "KindHelixEvents",
                     "KindWebhook",
                     "KindCron",
-                    "KindLocal",
-                    "KindGitHub",
-                    "KindHelixEvents",
-                    "KindGitLab"
+                    "KindEmail"
                 ]
             },
             "transport.ResolvedActivation": {

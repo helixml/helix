@@ -6,13 +6,18 @@ import Typography from '@mui/material/Typography'
 import MarkdownCodeBlock from '../../session/MarkdownCodeBlock'
 import type { TransportResolvedActivation } from '../../../api/api'
 
-const curlFor = (activation: TransportResolvedActivation): string =>
-  [
-    `curl -X ${activation.verb || 'POST'} '${activation.url}' \\`,
-    "  -H 'Authorization: Bearer $HELIX_API_KEY' \\",
-    "  -H 'Content-Type: application/json' \\",
-    `  -d '{"hello":"world"}'`,
-  ].join('\n')
+// The auth line comes from the descriptor's auth_header so the example and
+// the documented header cannot drift. The header names its credential in
+// angle brackets ("Bearer <your Helix API key>"); swap that for a shell
+// variable so the command is pasteable as-is.
+const curlFor = (activation: TransportResolvedActivation): string => {
+  const lines = [`curl -X ${activation.verb || 'POST'} '${activation.url}' \\`]
+  if (activation.auth_header) {
+    lines.push(`  -H '${activation.auth_header.replace(/<[^>]+>/, '$HELIX_API_KEY')}' \\`)
+  }
+  lines.push("  -H 'Content-Type: application/json' \\", `  -d '{"hello":"world"}'`)
+  return lines.join('\n')
+}
 
 const TriggerActivationCard: FC<{
   activation?: TransportResolvedActivation

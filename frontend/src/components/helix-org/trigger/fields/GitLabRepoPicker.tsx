@@ -9,13 +9,15 @@ import { TypesExternalRepositoryType } from '../../../../api/api'
 import useAccount from '../../../../hooks/useAccount'
 import { useGitRepositories } from '../../../../services/gitRepositoryService'
 
+// `repo` (the namespace/project path) is not set here: the webhook
+// provisioner writes it server-side on install, and the descriptor marks it
+// read-only. This picker owns `repository_id` only.
 const GitLabRepoPicker: FC<{
   value: string
   onChange: (next: string) => void
-  onRepoPathChange?: (path: string) => void
   label: string
   help?: string
-}> = ({ value, onChange, onRepoPathChange, label, help }) => {
+}> = ({ value, onChange, label, help }) => {
   const account = useAccount()
   const repositories = useGitRepositories({ organizationId: account.organizationTools.organization?.id })
   const gitLabRepositories = (repositories.data ?? []).filter(
@@ -30,12 +32,7 @@ const GitLabRepoPicker: FC<{
         labelId="trigger-gitlab-repo-label"
         label={label}
         value={gitLabRepositories.some((repo) => repo.id === value) ? value : ''}
-        onChange={(event) => {
-          const next = event.target.value as string
-          onChange(next)
-          const repo = gitLabRepositories.find((item) => item.id === next)
-          onRepoPathChange?.(repo?.external_url ?? '')
-        }}
+        onChange={(event) => onChange(event.target.value as string)}
       >
         {gitLabRepositories.map((repo) => (
           <MenuItem key={repo.id} value={repo.id ?? ''}>

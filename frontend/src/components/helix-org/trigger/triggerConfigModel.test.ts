@@ -76,3 +76,42 @@ describe('draftToConfig', () => {
     expect(out.legacy_key).toBe('keep me')
   })
 })
+
+describe('initialDraft defaults', () => {
+  const cronDesc: TriggerKindDescriptor = {
+    kind: TransportKind.KindCron,
+    label: 'Schedule',
+    summary: 'Fires on a schedule.',
+    fields: [
+      {
+        name: 'schedule',
+        label: 'Schedule',
+        type: TransportFieldType.FieldCron,
+        required: true,
+        default: '0 9 * * 1-5',
+        direction: TransportDirection.Inbound,
+      },
+      { name: 'message', label: 'Message', type: TransportFieldType.FieldString, direction: TransportDirection.Inbound },
+    ],
+    activation: { summary: 'Scheduler fires it.' },
+  }
+
+  it('seeds a field from its descriptor default when there is no saved config', () => {
+    expect(initialDraft(cronDesc, {})).toEqual({ schedule: '0 9 * * 1-5', message: '' })
+  })
+
+  it('never lets a default override a saved value', () => {
+    expect(initialDraft(cronDesc, { schedule: 'CRON_TZ=Europe/Berlin 0 9 * * 2,3,4,5' })).toEqual({
+      schedule: 'CRON_TZ=Europe/Berlin 0 9 * * 2,3,4,5',
+      message: '',
+    })
+  })
+
+  it('leaves a required field with no default empty, so it still reads as missing', () => {
+    expect(missingRequired(emailDesc, initialDraft(emailDesc, {}))).toEqual(['alias'])
+  })
+
+  it('a defaulted required field is not reported missing', () => {
+    expect(missingRequired(cronDesc, initialDraft(cronDesc, {}))).toEqual([])
+  })
+})

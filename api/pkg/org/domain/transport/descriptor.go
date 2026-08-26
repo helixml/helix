@@ -35,14 +35,17 @@ const (
 
 // Field is one configurable key inside a Transport's Config blob.
 type Field struct {
-	Name        string    `json:"name"`
-	Label       string    `json:"label"`
-	Help        string    `json:"help,omitempty"`
-	Placeholder string    `json:"placeholder,omitempty"`
-	Type        FieldType `json:"type"`
-	Required    bool      `json:"required,omitempty"`
-	ReadOnly    bool      `json:"read_only,omitempty"`
-	Direction   Direction `json:"direction"`
+	Name        string `json:"name"`
+	Label       string `json:"label"`
+	Help        string `json:"help,omitempty"`
+	Placeholder string `json:"placeholder,omitempty"`
+	// Default is the value a create form seeds this field with when the
+	// Trigger has no stored config. It must itself validate.
+	Default   string    `json:"default,omitempty"`
+	Type      FieldType `json:"type"`
+	Required  bool      `json:"required,omitempty"`
+	ReadOnly  bool      `json:"read_only,omitempty"`
+	Direction Direction `json:"direction"`
 }
 
 // Activation describes how a Trigger of this Kind is fired. Templates use

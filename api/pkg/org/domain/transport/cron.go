@@ -120,9 +120,12 @@ func (cron) Describe() Descriptor {
 		Summary: "Fires on a schedule. Nothing external is involved.",
 		Fields: []Field{
 			{
-				Name:      "schedule",
-				Label:     "Schedule",
-				Help:      "Standard 5-field cron expression, optionally prefixed with CRON_TZ=<zone>. Consecutive fires must be at least 90 seconds apart.",
+				Name:  "schedule",
+				Label: "Schedule",
+				Help:  "Standard 5-field cron expression, optionally prefixed with CRON_TZ=<zone>. Consecutive fires must be at least 90 seconds apart.",
+				// Weekdays at 09:00. Carries no CRON_TZ, so the UI resolves
+				// the zone from the browser rather than pinning UTC.
+				Default:   "0 9 * * 1-5",
 				Type:      FieldCron,
 				Required:  true,
 				Direction: Inbound,

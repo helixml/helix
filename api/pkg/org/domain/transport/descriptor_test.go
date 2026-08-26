@@ -167,3 +167,35 @@ func TestResolveActivation_LocalHasSummaryButNoURL(t *testing.T) {
 		t.Errorf("URL = %q, want empty for a local trigger", got.URL)
 	}
 }
+
+// A Field's Default must itself be valid: a default the validator rejects
+// would put every new Trigger of that Kind into a broken state.
+func TestDescriptorDefaultsAreValid(t *testing.T) {
+	t.Parallel()
+
+	for _, d := range transport.DescribeAll() {
+		cfg := map[string]any{}
+		hasDefault := false
+		for _, f := range d.Fields {
+			if f.Default != "" {
+				cfg[f.Name] = f.Default
+				hasDefault = true
+				continue
+			}
+			if f.Required {
+				cfg[f.Name] = sampleFor(f)
+			}
+		}
+		if !hasDefault {
+			continue
+		}
+		raw, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatalf("kind %q: marshal config: %v", d.Kind, err)
+		}
+		tr := transport.Transport{Kind: d.Kind, Config: raw}
+		if err := tr.Validate(); err != nil {
+			t.Errorf("kind %q: config built from field defaults does not validate: %v", d.Kind, err)
+		}
+	}
+}
