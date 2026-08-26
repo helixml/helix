@@ -6,7 +6,7 @@
 - [x] Keep fresh branches and branches without affirmative merge evidence visible, including branches currently equal to the default tip.
 - [x] Make a merged branch active again when later commits change its tip.
 - [x] Verify the project task creation form consumes the filtered branch response without changing its current submission behavior.
-- [~] Add backend tests for fresh-at-default, active, known merged, reactivated, unknown-merge-state, deleted, default, and local-only branch cases.
-- [ ] Add frontend tests for the request, sorted options, empty state, and errors.
+- [x] Add backend tests for fresh-at-default, active, known merged, reactivated, unknown-merge-state, deleted, default, and local-only branch cases.
+- [~] Verify the existing frontend branch-selector test still passes with the unchanged API contract.
 - [ ] Regenerate API documentation/client artifacts if the API query contract requires it.
 - [ ] Run targeted backend and frontend test suites.
