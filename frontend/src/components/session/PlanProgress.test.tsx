@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ResponseEntry } from "./InteractionInference";
@@ -107,6 +107,19 @@ describe("plan progress normalization", () => {
     expect(screen.getByRole("button", { name: "Collapse plan" })).toBeInTheDocument();
     expect(screen.getByText("Inspect")).toBeInTheDocument();
     expect(screen.getByText("Verify")).toBeInTheDocument();
+  });
+
+  it("shows an ellipsis when expanded plan steps overflow", () => {
+    const longStep = "Implement a deliberately long plan step that cannot fit on one line";
+    render(<PlanProgress steps={[{ step: longStep, status: "inProgress" }]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand plan" }));
+
+    expect(within(screen.getByRole("list")).getByText(longStep)).toHaveStyle({
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    });
   });
 
   it("compresses very long plans into a continuous fixed track", () => {
