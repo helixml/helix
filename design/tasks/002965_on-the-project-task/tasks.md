@@ -12,6 +12,6 @@
 - [x] Run targeted backend and frontend test suites.
 - [x] Replace Helix project/task merge lookup with repository-provider merged pull-request evidence.
 - [x] Re-run tests, merge current main, and push the corrected implementation.
-- [~] Remove provider API merge-history dependencies and implement local merge-parent detection.
-- [ ] Add local Git tests for fresh, merged, advanced, deleted, and uncertain branches.
+- [x] Remove provider API merge-history dependencies and implement local merge-parent detection.
+- [~] Add local Git tests for fresh, merged, advanced, deleted, and uncertain branches.
 - [ ] Re-run tests, merge current main, and push the clean local-only implementation.
