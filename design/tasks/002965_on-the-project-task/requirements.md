@@ -14,7 +14,6 @@
 - If new commits are added to a previously merged branch, it is shown again.
 - Branches deleted from an external upstream are not shown, even when a stale local ref remains in Helix's repository mirror.
 - The selector retains its current alphabetical sorting, search, empty-state text, and submission behavior.
-- Other repository screens and callers that need the complete branch list continue to receive it.
 - Failures to determine active branches are reported through the existing API error handling; the form must not silently present an unfiltered list.
 - Backend and frontend tests cover active, merged, reactivated, deleted, default, and `helix-specs` branches.
 

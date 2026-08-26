@@ -6,7 +6,7 @@
 
 ## Design
 
-Add an opt-in active-only mode to the repository branches API rather than changing the existing endpoint's default behavior. The task form requests active branches for the project's primary repository; existing callers continue to request all branches.
+Update the existing repository branches API to return active branches. The task form continues using the same endpoint and response shape, without a new query mode or frontend API contract.
 
 Under the repository's existing read lock and external-sync flow, the backend will:
 
@@ -21,7 +21,6 @@ Matching the current tip to the recorded merged head handles both sides of the r
 
 ## Key Decisions and Constraints
 
-- The filter is opt-in to avoid changing Git repository detail screens or other consumers of the all-branches endpoint.
 - No time threshold is used. A matching merged head remains inactive until the branch advances.
 - Do not enable blanket fetch pruning: `helix-specs` and other local-only work can legitimately be absent upstream.
 - Prefer false positives in the selector over false negatives: without affirmative merge evidence, keep the branch visible.
