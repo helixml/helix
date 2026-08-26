@@ -1016,6 +1016,39 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_Bac
 	assert.Equal(s.T(), types.TaskStatusPullRequest, task.Status)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_TerminalCISkipsUnchangedHeadAndPollsNewHead() {
+	ctx := context.Background()
+	task := makePullRequestTask(1)
+	task.RepoPullRequests[0].CIStatus = CIStatusNone
+	task.RepoPullRequests[0].CIHeadSHA = "sha-1"
+
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(&types.PullRequest{State: types.PullRequestStateOpen, HeadSHA: "sha-1"}, nil)
+	s.gitService.EXPECT().
+		GetCIStatus(ctx, "repo-1", "1", "sha-1").
+		Return(&types.CIStatus{State: CIStatusPassed}, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, task).Return(nil)
+	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
+
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(&types.PullRequest{State: types.PullRequestStateOpen, HeadSHA: "sha-1"}, nil)
+	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
+
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(&types.PullRequest{State: types.PullRequestStateOpen, HeadSHA: "sha-2"}, nil)
+	s.gitService.EXPECT().
+		GetCIStatus(ctx, "repo-1", "1", "sha-2").
+		Return(&types.CIStatus{State: CIStatusRunning}, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, task).Return(nil)
+
+	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
+	s.Equal("sha-2", task.RepoPullRequests[0].CIHeadSHA)
+	s.Equal(CIStatusRunning, task.RepoPullRequests[0].CIStatus)
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestCheckTaskForExternalPRActivity_NoPRDoesNotTreatBranchAsMerged() {
 	ctx := context.Background()
 	task := &types.SpecTask{
