@@ -275,14 +275,9 @@ func (c *Client) GetPullRequest(ctx context.Context, owner, repo string, number 
 
 // ListPullRequests lists pull requests for a repository
 func (c *Client) ListPullRequests(ctx context.Context, owner, repo string) ([]*github.PullRequest, error) {
-	return c.ListPullRequestsByState(ctx, owner, repo, "open")
-}
-
-// ListPullRequestsByState lists pull requests using a GitHub state filter.
-func (c *Client) ListPullRequestsByState(ctx context.Context, owner, repo, state string) ([]*github.PullRequest, error) {
 	var allPRs []*github.PullRequest
 	opt := &github.PullRequestListOptions{
-		State:       state,
+		State:       "open",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 

@@ -883,9 +883,18 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 
 	// For external repos, sync from upstream before reading
 	var branches []string
+	var mergedHeads map[string]struct{}
+	defaultBranch := repository.DefaultBranch
+	if defaultBranch == "" {
+		defaultBranch = "main"
+	}
 	err = apiServer.gitRepositoryService.WithExternalRepoRead(r.Context(), repository, func() error {
 		var listErr error
 		branches, listErr = apiServer.gitRepositoryService.ListBranches(r.Context(), repoID)
+		if listErr != nil {
+			return listErr
+		}
+		mergedHeads, listErr = services.GetMergeParentSHAs(r.Context(), repository.LocalPath, defaultBranch)
 		return listErr
 	})
 	if err != nil {
@@ -894,20 +903,7 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 		return
 	}
 
-	var mergedPullRequests []*types.PullRequest
-	if lister, ok := apiServer.gitRepositoryService.(interface {
-		ListMergedPullRequests(context.Context, string) ([]*types.PullRequest, error)
-	}); ok {
-		mergedPullRequests, err = lister.ListMergedPullRequests(r.Context(), repoID)
-		if err != nil {
-			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to load merged pull requests")
-			http.Error(w, fmt.Sprintf("Failed to determine active branches: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
-	}
-	mergedHeads := mergedHeadsForDefaultBranch(mergedPullRequests, repository.DefaultBranch)
-
-	activeBranches, err := filterActiveBranches(branches, repository.DefaultBranch, mergedHeads, func(branch string) (string, error) {
+	activeBranches, err := filterActiveBranches(branches, defaultBranch, mergedHeads, func(branch string) (string, error) {
 		return apiServer.gitRepositoryService.GetLocalBranchSHA(r.Context(), repoID, branch)
 	})
 	if err != nil {
@@ -920,26 +916,12 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 	json.NewEncoder(w).Encode(activeBranches)
 }
 
-func branchTipWasMerged(branch, branchSHA string, mergedHeads map[string]map[string]struct{}) bool {
-	_, merged := mergedHeads[branch][branchSHA]
+func branchTipWasMerged(branchSHA string, mergedHeads map[string]struct{}) bool {
+	_, merged := mergedHeads[branchSHA]
 	return merged
 }
 
-func mergedHeadsForDefaultBranch(pullRequests []*types.PullRequest, defaultBranch string) map[string]map[string]struct{} {
-	mergedHeads := make(map[string]map[string]struct{})
-	for _, pullRequest := range pullRequests {
-		if pullRequest.SourceBranch == "" || pullRequest.HeadSHA == "" || pullRequest.TargetBranch != defaultBranch {
-			continue
-		}
-		if mergedHeads[pullRequest.SourceBranch] == nil {
-			mergedHeads[pullRequest.SourceBranch] = make(map[string]struct{})
-		}
-		mergedHeads[pullRequest.SourceBranch][pullRequest.HeadSHA] = struct{}{}
-	}
-	return mergedHeads
-}
-
-func filterActiveBranches(branches []string, defaultBranch string, mergedHeads map[string]map[string]struct{}, resolveSHA func(string) (string, error)) ([]string, error) {
+func filterActiveBranches(branches []string, defaultBranch string, mergedHeads map[string]struct{}, resolveSHA func(string) (string, error)) ([]string, error) {
 	activeBranches := make([]string, 0, len(branches))
 	for _, branch := range branches {
 		if branch == defaultBranch || branch == "helix-specs" {
@@ -949,7 +931,7 @@ func filterActiveBranches(branches []string, defaultBranch string, mergedHeads m
 		if err != nil {
 			return nil, fmt.Errorf("resolve branch %s: %w", branch, err)
 		}
-		if !branchTipWasMerged(branch, branchSHA, mergedHeads) {
+		if !branchTipWasMerged(branchSHA, mergedHeads) {
 			activeBranches = append(activeBranches, branch)
 		}
 	}

@@ -3,47 +3,28 @@ package server
 import (
 	"reflect"
 	"testing"
-
-	"github.com/helixml/helix/api/pkg/types"
 )
 
 func TestBranchTipWasMerged(t *testing.T) {
-	mergedHeads := map[string]map[string]struct{}{
-		"feature/merged": {"merged-sha": {}},
-	}
+	mergedHeads := map[string]struct{}{"merged-sha": {}}
 
 	tests := []struct {
 		name      string
-		branch    string
 		sha       string
 		wasMerged bool
 	}{
-		{name: "matching merged tip", branch: "feature/merged", sha: "merged-sha", wasMerged: true},
-		{name: "merged branch advanced", branch: "feature/merged", sha: "new-sha", wasMerged: false},
-		{name: "fresh branch at default tip", branch: "feature/fresh", sha: "default-sha", wasMerged: false},
-		{name: "branch without merge evidence", branch: "feature/unknown", sha: "unknown-sha", wasMerged: false},
+		{name: "matching merged tip", sha: "merged-sha", wasMerged: true},
+		{name: "merged branch advanced", sha: "new-sha", wasMerged: false},
+		{name: "fresh branch at default tip", sha: "default-sha", wasMerged: false},
+		{name: "branch without merge evidence", sha: "unknown-sha", wasMerged: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := branchTipWasMerged(tt.branch, tt.sha, mergedHeads); got != tt.wasMerged {
+			if got := branchTipWasMerged(tt.sha, mergedHeads); got != tt.wasMerged {
 				t.Fatalf("branchTipWasMerged() = %v, want %v", got, tt.wasMerged)
 			}
 		})
-	}
-}
-
-func TestMergedHeadsForDefaultBranch(t *testing.T) {
-	prs := []*types.PullRequest{
-		{SourceBranch: "feature/merged", TargetBranch: "main", HeadSHA: "merged-sha"},
-		{SourceBranch: "feature/release", TargetBranch: "release", HeadSHA: "release-sha"},
-		{SourceBranch: "feature/missing-sha", TargetBranch: "main"},
-	}
-
-	got := mergedHeadsForDefaultBranch(prs, "main")
-	want := map[string]map[string]struct{}{"feature/merged": {"merged-sha": {}}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("mergedHeadsForDefaultBranch() = %v, want %v", got, want)
 	}
 }
 
@@ -55,10 +36,7 @@ func TestFilterActiveBranches(t *testing.T) {
 		"feature/reactivated": "new-sha",
 		"feature/unknown":     "unknown-sha",
 	}
-	mergedHeads := map[string]map[string]struct{}{
-		"feature/merged":      {"merged-sha": {}},
-		"feature/reactivated": {"old-sha": {}},
-	}
+	mergedHeads := map[string]struct{}{"merged-sha": {}, "old-sha": {}}
 
 	got, err := filterActiveBranches(branches, "main", mergedHeads, func(branch string) (string, error) {
 		return branchSHAs[branch], nil

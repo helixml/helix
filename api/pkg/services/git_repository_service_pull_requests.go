@@ -17,7 +17,6 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 
 	gh "github.com/google/go-github/v57/github"
-	azgit "github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
 	"github.com/rs/zerolog/log"
 	gl "github.com/xanzy/go-gitlab"
 )
@@ -265,32 +264,6 @@ func (s *GitRepositoryService) ListPullRequests(ctx context.Context, repoID stri
 	return prs, nil
 }
 
-// ListMergedPullRequests returns merged pull requests with source branch and
-// head SHA metadata. Providers that cannot supply source head SHAs return no
-// evidence so callers conservatively keep those branches visible.
-func (s *GitRepositoryService) ListMergedPullRequests(ctx context.Context, repoID string) ([]*types.PullRequest, error) {
-	repo, err := s.GetRepository(ctx, repoID)
-	if err != nil {
-		return nil, fmt.Errorf("repository not found: %w", err)
-	}
-	if repo.ExternalURL == "" {
-		return nil, nil
-	}
-
-	switch repo.ExternalType {
-	case types.ExternalRepositoryTypeADO:
-		return s.listAzureDevOpsPullRequestsByStatus(ctx, repo, azgit.PullRequestStatusValues.Completed)
-	case types.ExternalRepositoryTypeGitHub:
-		return s.listGitHubPullRequestsByState(ctx, repo, "closed", true)
-	case types.ExternalRepositoryTypeGitLab:
-		return s.listGitLabMergeRequestsByState(ctx, repo, "merged")
-	case types.ExternalRepositoryTypeBitbucket:
-		return nil, nil
-	default:
-		return nil, fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
-	}
-}
-
 // listPullRequestsUncached performs the actual upstream PR list call, dispatched
 // by the repository's external provider type. ListPullRequests wraps this with
 // the prListCache.
@@ -354,10 +327,6 @@ func pullRequestStateFromAzureDevOps(state string) types.PullRequestState {
 }
 
 func (s *GitRepositoryService) listAzureDevOpsPullRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
-	return s.listAzureDevOpsPullRequestsByStatus(ctx, repo, azgit.PullRequestStatusValues.Active)
-}
-
-func (s *GitRepositoryService) listAzureDevOpsPullRequestsByStatus(ctx context.Context, repo *types.GitRepository, status azgit.PullRequestStatus) ([]*types.PullRequest, error) {
 	client, err := s.getAzureDevOpsClient(ctx, repo)
 	if err != nil {
 		return nil, err
@@ -374,7 +343,7 @@ func (s *GitRepositoryService) listAzureDevOpsPullRequestsByStatus(ctx context.C
 		return nil, err
 	}
 
-	gitPRs, err := client.ListPullRequestsByStatus(ctx, repositoryName, project, status)
+	gitPRs, err := client.ListPullRequests(ctx, repositoryName, project)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pull requests: %w", err)
 	}
@@ -401,15 +370,11 @@ func (s *GitRepositoryService) listAzureDevOpsPullRequestsByStatus(ctx context.C
 		}
 
 		if gitPR.SourceRefName != nil {
-			pr.SourceBranch = strings.TrimPrefix(*gitPR.SourceRefName, "refs/heads/")
+			pr.SourceBranch = *gitPR.SourceRefName
 		}
 
 		if gitPR.TargetRefName != nil {
-			pr.TargetBranch = strings.TrimPrefix(*gitPR.TargetRefName, "refs/heads/")
-		}
-
-		if gitPR.LastMergeSourceCommit != nil && gitPR.LastMergeSourceCommit.CommitId != nil {
-			pr.HeadSHA = *gitPR.LastMergeSourceCommit.CommitId
+			pr.TargetBranch = *gitPR.TargetRefName
 		}
 
 		if gitPR.CreationDate != nil {
@@ -724,10 +689,6 @@ func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo
 }
 
 func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
-	return s.listGitHubPullRequestsByState(ctx, repo, "open", false)
-}
-
-func (s *GitRepositoryService) listGitHubPullRequestsByState(ctx context.Context, repo *types.GitRepository, state string, mergedOnly bool) ([]*types.PullRequest, error) {
 	client, err := s.getGitHubClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
@@ -738,16 +699,13 @@ func (s *GitRepositoryService) listGitHubPullRequestsByState(ctx context.Context
 		return nil, fmt.Errorf("failed to parse GitHub URL: %w", err)
 	}
 
-	ghPRs, err := client.ListPullRequestsByState(ctx, owner, repoName, state)
+	ghPRs, err := client.ListPullRequests(ctx, owner, repoName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pull requests: %w", err)
 	}
 
 	prs := make([]*types.PullRequest, 0, len(ghPRs))
 	for _, ghPR := range ghPRs {
-		if mergedOnly && ghPR.MergedAt == nil {
-			continue
-		}
 		pr := &types.PullRequest{
 			ID:           strconv.Itoa(ghPR.GetNumber()),
 			Number:       ghPR.GetNumber(),
@@ -757,7 +715,6 @@ func (s *GitRepositoryService) listGitHubPullRequestsByState(ctx context.Context
 			SourceBranch: ghPR.GetHead().GetRef(),
 			TargetBranch: ghPR.GetBase().GetRef(),
 			URL:          ghPR.GetHTMLURL(),
-			HeadSHA:      ghPR.GetHead().GetSHA(),
 		}
 
 		if ghPR.GetUser() != nil {
@@ -1034,10 +991,6 @@ func (s *GitRepositoryService) createGitLabMergeRequest(ctx context.Context, rep
 }
 
 func (s *GitRepositoryService) listGitLabMergeRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
-	return s.listGitLabMergeRequestsByState(ctx, repo, "opened")
-}
-
-func (s *GitRepositoryService) listGitLabMergeRequestsByState(ctx context.Context, repo *types.GitRepository, state string) ([]*types.PullRequest, error) {
 	client, err := s.getGitLabClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
@@ -1048,7 +1001,7 @@ func (s *GitRepositoryService) listGitLabMergeRequestsByState(ctx context.Contex
 		return nil, err
 	}
 
-	glMRs, err := client.ListMergeRequestsByState(ctx, projectID, state)
+	glMRs, err := client.ListMergeRequests(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list merge requests: %w", err)
 	}
@@ -1064,7 +1017,6 @@ func (s *GitRepositoryService) listGitLabMergeRequestsByState(ctx context.Contex
 			SourceBranch: glMR.SourceBranch,
 			TargetBranch: glMR.TargetBranch,
 			URL:          glMR.WebURL,
-			HeadSHA:      glMR.SHA,
 		}
 
 		if glMR.Author != nil {
