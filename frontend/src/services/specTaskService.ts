@@ -41,6 +41,8 @@ const QUERY_KEYS = {
       { projectId, archivedOnly, withDependsOn, labels, limit, offset, sort, participantIds },
     ] as const,
   specTask: (id: string) => ["spec-tasks", id] as const,
+  foregroundPRRefresh: (id: string) =>
+    ["spec-task-pr-refresh", id] as const,
   executionConfig: (id: string) => ["spec-tasks", id, "execution-config"] as const,
   specTaskUsage: (id: string) => ["spec-tasks", id, "usage"] as const,
   taskProgress: (id: string) => ["spec-tasks", id, "progress"] as const,
@@ -252,6 +254,30 @@ export function useSpecTask(
     enabled: options?.enabled !== false && !!taskId,
     refetchInterval:
       options?.refetchInterval !== undefined ? options.refetchInterval : 10000,
+  });
+}
+
+// Keep external PR and CI state fresh while a task detail surface is mounted.
+// React Query pauses this interval for background browser tabs and shares one
+// request between duplicate views of the same task.
+export function useForegroundSpecTaskPRRefresh(taskId: string, enabled: boolean) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.foregroundPRRefresh(taskId),
+    queryFn: async () => {
+      await api.getApiClient().v1SpecTasksRefreshPullRequestCreate(taskId);
+      await queryClient.invalidateQueries({
+        queryKey: QUERY_KEYS.specTask(taskId),
+        exact: true,
+      });
+      return null;
+    },
+    enabled: enabled && !!taskId,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    retry: false,
   });
 }
 

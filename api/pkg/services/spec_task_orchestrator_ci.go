@@ -37,6 +37,10 @@ func (o *SpecTaskOrchestrator) pollCIStatusForPR(
 	prevHead := repoPR.CIHeadSHA
 	mutated := false
 
+	if prevHead == headSHA && (prevState == CIStatusPassed || prevState == CIStatusFailed) {
+		return false
+	}
+
 	// New commit → reset prevState so we don't suppress a transition
 	// notification when the next commit's CI lands. Persist the SHA
 	// reset even if we fail to fetch the new verdict.

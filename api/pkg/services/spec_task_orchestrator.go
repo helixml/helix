@@ -43,9 +43,20 @@ type SpecTaskOrchestrator struct {
 	wg                    sync.WaitGroup
 	backlogProjectLocks   sync.Map // map[project_id]*sync.Mutex
 	orchestrationInterval time.Duration
-	prPollInterval        time.Duration // Interval for polling external PR status (default 1 minute)
+	prPollInterval        time.Duration // Scheduler tick interval for external PR status (default 30 seconds)
+	prPollMu              sync.Mutex
+	prPollLast            map[string]time.Time
+	prPollInFlight        map[string]struct{}
 	testMode              bool
 }
+
+const (
+	recentPRPollingWindow   = 30 * time.Minute
+	stalePRPollingWindow    = 24 * time.Hour
+	recentPRPollingInterval = 30 * time.Second
+	stalePRPollingInterval  = 5 * time.Minute
+	oldPRPollingInterval    = time.Hour
+)
 
 // ContainerExecutor defines the interface for container lifecycle management
 type ContainerExecutor interface {
@@ -81,6 +92,8 @@ func NewSpecTaskOrchestrator(
 		containerExecutor:     containerExecutor,
 		stopChan:              make(chan struct{}),
 		orchestrationInterval: 10 * time.Second, // Check every 10 seconds
+		prPollLast:            make(map[string]time.Time),
+		prPollInFlight:        make(map[string]struct{}),
 		testMode:              false,
 	}
 }
@@ -121,7 +134,7 @@ func (o *SpecTaskOrchestrator) Start(ctx context.Context) error {
 	o.wg.Add(1)
 	go o.orchestrationLoop(ctx)
 
-	// Start PR polling loop (runs every 1 minute to check external PR status)
+	// Start the scheduler that checks which PR tasks are due for polling.
 	o.wg.Add(1)
 	go o.prPollLoop(ctx)
 
@@ -254,7 +267,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 		return
 	}
 
-	// Filter to only active tasks (PR polling handled by separate 1-minute loop)
+	// Filter to only active tasks (PR polling is handled by a separate scheduler)
 	activeStatuses := map[types.SpecTaskStatus]bool{
 		types.TaskStatusBacklog:              true,
 		types.TaskStatusQueuedSpecGeneration: true,
@@ -1026,7 +1039,7 @@ func (o *SpecTaskOrchestrator) projectHasExternalRepo(ctx context.Context, proje
 }
 
 // handlePullRequest polls external repo for PR merge status
-// Called from the dedicated PR polling loop (runs every 1 minute)
+// Called from the dedicated PR polling scheduler.
 func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
 	// Try to create PRs for repos that didn't have the branch ready when the
 	// user first clicked "Open PR". This covers the case where the agent pushes
@@ -1250,14 +1263,15 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 	return nil
 }
 
-// prPollLoop polls external repos for PR merge status every minute
+// prPollLoop runs the PR scheduler at the fastest polling cadence. Individual
+// tasks are skipped until their age-based interval has elapsed.
 func (o *SpecTaskOrchestrator) prPollLoop(ctx context.Context) {
 	defer o.wg.Done()
 
-	// Use configured interval or default to 1 minute
+	// Tests can override the scheduler tick independently of task intervals.
 	interval := o.prPollInterval
 	if interval == 0 {
-		interval = 30 * time.Second
+		interval = recentPRPollingInterval
 	}
 
 	ticker := time.NewTicker(interval)
@@ -1288,8 +1302,14 @@ func (o *SpecTaskOrchestrator) pollPullRequests(ctx context.Context) {
 		return
 	}
 
+	now := time.Now()
+	activeTaskIDs := make(map[string]struct{}, len(tasks))
 	for _, task := range tasks {
-		err := o.handlePullRequest(ctx, task)
+		activeTaskIDs[task.ID] = struct{}{}
+		polled, err := o.pollPullRequestTask(ctx, task, pullRequestPollingInterval(task, now), now)
+		if !polled {
+			continue
+		}
 		if err != nil {
 			// Tasks with deleted projects are expected - don't spam logs
 			if isDeletedProjectError(err) {
@@ -1303,6 +1323,94 @@ func (o *SpecTaskOrchestrator) pollPullRequests(ctx context.Context) {
 					Str("task_id", task.ID).
 					Msg("Failed to poll PR status")
 			}
+		}
+	}
+	o.forgetInactivePRPolls(activeTaskIDs)
+}
+
+// RefreshPullRequestStatus performs the same synchronization as the background
+// scheduler for a task actively viewed in the UI. Calls are coalesced with
+// background work and other viewers to at most one poll every 30 seconds.
+func (o *SpecTaskOrchestrator) RefreshPullRequestStatus(ctx context.Context, taskID string) error {
+	task, err := o.store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("get spec task: %w", err)
+	}
+	if task.Status != types.TaskStatusPullRequest {
+		return nil
+	}
+	_, err = o.pollPullRequestTask(ctx, task, recentPRPollingInterval, time.Now())
+	return err
+}
+
+func pullRequestPollingInterval(task *types.SpecTask, now time.Time) time.Duration {
+	startedAt := task.CreatedAt
+	if task.StatusUpdatedAt != nil && !task.StatusUpdatedAt.IsZero() {
+		startedAt = *task.StatusUpdatedAt
+	}
+	if startedAt.IsZero() || startedAt.After(now) {
+		return recentPRPollingInterval
+	}
+
+	age := now.Sub(startedAt)
+	switch {
+	case age >= stalePRPollingWindow:
+		return oldPRPollingInterval
+	case age >= recentPRPollingWindow:
+		return stalePRPollingInterval
+	default:
+		return recentPRPollingInterval
+	}
+}
+
+func (o *SpecTaskOrchestrator) pollPullRequestTask(
+	ctx context.Context,
+	task *types.SpecTask,
+	interval time.Duration,
+	now time.Time,
+) (bool, error) {
+	if !o.beginPRPoll(task.ID, interval, now) {
+		return false, nil
+	}
+	defer o.finishPRPoll(task.ID)
+	return true, o.handlePullRequest(ctx, task)
+}
+
+func (o *SpecTaskOrchestrator) beginPRPoll(taskID string, interval time.Duration, now time.Time) bool {
+	o.prPollMu.Lock()
+	defer o.prPollMu.Unlock()
+	if o.prPollLast == nil {
+		o.prPollLast = make(map[string]time.Time)
+	}
+	if o.prPollInFlight == nil {
+		o.prPollInFlight = make(map[string]struct{})
+	}
+	if _, ok := o.prPollInFlight[taskID]; ok {
+		return false
+	}
+	if last, ok := o.prPollLast[taskID]; ok && now.Sub(last) < interval {
+		return false
+	}
+	o.prPollLast[taskID] = now
+	o.prPollInFlight[taskID] = struct{}{}
+	return true
+}
+
+func (o *SpecTaskOrchestrator) finishPRPoll(taskID string) {
+	o.prPollMu.Lock()
+	defer o.prPollMu.Unlock()
+	delete(o.prPollInFlight, taskID)
+}
+
+func (o *SpecTaskOrchestrator) forgetInactivePRPolls(activeTaskIDs map[string]struct{}) {
+	o.prPollMu.Lock()
+	defer o.prPollMu.Unlock()
+	for taskID := range o.prPollLast {
+		if _, active := activeTaskIDs[taskID]; active {
+			continue
+		}
+		if _, polling := o.prPollInFlight[taskID]; !polling {
+			delete(o.prPollLast, taskID)
 		}
 	}
 }
@@ -1436,8 +1544,10 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 					PRURL:          pr.URL,
 					PRState:        string(pr.State),
 				})
+				now := time.Now()
 				task.Status = types.TaskStatusPullRequest
-				task.UpdatedAt = time.Now()
+				task.StatusUpdatedAt = &now
+				task.UpdatedAt = now
 				if err := o.store.UpdateSpecTask(ctx, task); err != nil {
 					return err
 				}

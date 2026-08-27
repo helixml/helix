@@ -78,6 +78,7 @@ import {
 import {
   useUpdateSpecTask,
   useSpecTask,
+  useForegroundSpecTaskPRRefresh,
   useCloneGroups,
   useZedThreads,
   useSpecTasks,
@@ -210,6 +211,8 @@ interface SpecTaskDetailContentProps {
   autoOpenReview?: boolean;
   /** Replace route close with reversible content-panel collapse. */
   allowContentCollapse?: boolean;
+  /** Poll GitHub while this task is visible. Disabled for read-only embeds. */
+  enableForegroundPRRefresh?: boolean;
   onClose?: () => void;
   /** Called when user clicks "Review Spec" - if provided, opens in workspace pane instead of navigating */
   onOpenReview?: (
@@ -233,6 +236,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   padContent = false,
   autoOpenReview = true,
   allowContentCollapse = false,
+  enableForegroundPRRefresh = true,
   onClose,
   onOpenReview,
   onTaskArchived,
@@ -281,6 +285,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     enabled: !!taskId,
     refetchInterval: 2300, // 2.3s - prime to avoid sync with other polling
   });
+  useForegroundSpecTaskPRRefresh(
+    taskId,
+    enableForegroundPRRefresh && task?.status === TypesSpecTaskStatus.TaskStatusPullRequest,
+  );
   const isHeadless = task?.sandbox_runtime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu;
   const { data: currentExecutionConfig } = useGetSpecTaskExecutionConfig(
     taskId,
