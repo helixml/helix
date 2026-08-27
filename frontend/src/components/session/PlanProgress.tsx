@@ -226,6 +226,10 @@ const PlanChecklist: FC<{ steps: PlanStep[]; composer?: boolean }> = ({ steps, c
               component="span"
               sx={{
                 minWidth: 0,
+                flex: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
                 color: step.status === "inProgress" ? colors.foreground : colors.subtle,
                 opacity: step.status === "completed" ? 0.55 : step.status === "pending" ? 0.7 : 0.9,
               }}
