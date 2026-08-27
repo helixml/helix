@@ -336,6 +336,7 @@ func (s *HelixAPIServer) resolveModelProviderLive(ctx context.Context, modelName
 
 	dbProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      ownerID,
+		OwnerType:  types.OwnerTypeUser,
 		WithGlobal: true,
 	})
 	if err != nil {

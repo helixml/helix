@@ -141,14 +141,23 @@ func (s *FindProviderWithModelSuite) TestExplicitEnvironmentGlobalRefRemainsScop
 
 func (s *FindProviderWithModelSuite) TestExplicitOrganizationRefRemainsScopedWithSameVendorGlobal() {
 	s.manager.EXPECT().ListProviders(gomock.Any(), "").Return([]types.Provider{types.ProviderOpenAI}, nil)
-	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+		Owner:      "user_x",
+		OwnerType:  types.OwnerTypeUser,
+		WithGlobal: true,
+	}).Return([]*types.ProviderEndpoint{
 		{ID: "pe_global_openai", Name: "openai", EndpointType: types.ProviderEndpointTypeGlobal},
-		{ID: "pe_org_openai", Name: "user/openai", Owner: "org_test", EndpointType: types.ProviderEndpointTypeOrg},
-	}, nil).AnyTimes()
+	}, nil)
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+		Owner:     "org_test",
+		OwnerType: types.OwnerTypeOrg,
+	}).Return([]*types.ProviderEndpoint{
+		{ID: "pe_org_openrouter", Name: "openrouter", Owner: "org_test", OwnerType: types.OwnerTypeOrg, EndpointType: types.ProviderEndpointTypeOrg},
+	}, nil)
 
-	provider, bare := s.server.findProviderWithModel(context.Background(), "pe_org_openai/gpt-5.4", "user_x", "org_test")
-	s.Equal("pe_org_openai", provider)
-	s.Equal("gpt-5.4", bare)
+	provider, bare := s.server.findProviderWithModel(context.Background(), "pe_org_openrouter/cohere/north-mini-code:free", "user_x", "org_test")
+	s.Equal("pe_org_openrouter", provider)
+	s.Equal("cohere/north-mini-code:free", bare)
 }
 
 // Unknown model — no cache hit anywhere — returns the empty pair so the
