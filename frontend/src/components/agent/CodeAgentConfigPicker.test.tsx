@@ -15,6 +15,7 @@ import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfi
 
 const harnessState = vi.hoisted(() => ({ harnesses: [] as any[] }))
 const providerState = vi.hoisted(() => ({ providers: [] as any[] }))
+const routerState = vi.hoisted(() => ({ name: 'org_chat' }))
 const navigate = vi.hoisted(() => vi.fn())
 
 vi.mock('../../services/orgService', () => ({
@@ -24,7 +25,7 @@ vi.mock('../../services/providersService', () => ({
   useListProviders: () => ({ data: providerState.providers, isLoading: false }),
 }))
 vi.mock('../../hooks/useRouter', () => ({
-  default: () => ({ params: { org_id: 'test-org' }, navigate }),
+  default: () => ({ name: routerState.name, params: { org_id: 'test-org' }, navigate }),
 }))
 vi.mock('../account/ClaudeSubscriptionConnect', () => ({
   useClaudeSubscriptions: () => ({ data: [] }),
@@ -69,6 +70,7 @@ function AutoSelectingPicker({
 describe('CodeAgentConfigPicker', () => {
   beforeEach(() => {
     navigate.mockClear()
+    routerState.name = 'org_chat'
     providerState.providers = [
       {
         id: 'provider-1',
@@ -421,6 +423,28 @@ describe('CodeAgentConfigPicker', () => {
     const trigger = screen.getByRole('button', { name: 'Change coding agent' })
     expect(trigger).toHaveTextContent('Configure harness')
     expect(trigger).not.toHaveTextContent('api-model')
+  })
+
+  it('shows a task-owned config read-only on embed routes without inventory', () => {
+    routerState.name = 'embed_task'
+    harnessState.harnesses = []
+    providerState.providers = []
+    renderPicker(
+      <CodeAgentConfigPicker
+        onChange={vi.fn()}
+        value={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+          credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+          provider_ref: 'global/openai',
+          model: 'gpt-5.6-sol',
+        }}
+      />,
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Change coding agent' })
+    expect(trigger).toHaveTextContent('gpt-5.6-sol')
+    expect(trigger).not.toHaveTextContent('Configure harness')
+    expect(trigger).toBeDisabled()
   })
 
   it('does not mutate an existing task whose provider is no longer allowed', async () => {

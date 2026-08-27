@@ -124,7 +124,7 @@ func (d *SettingsDaemon) buildOpenCodeConfig(baseURL string) openCodeConfig {
 	qualified := openCodeProviderID + "/" + modelID
 
 	model := openCodeModel{
-		Name:     modelID,
+		Name:     strings.TrimPrefix(modelID, d.codeAgentConfig.Provider+"/"),
 		ToolCall: true,
 	}
 	if len(d.codeAgentConfig.InputModalities) > 0 || len(d.codeAgentConfig.OutputModalities) > 0 {
