@@ -2447,6 +2447,9 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 	if repo.LocalPath == "" {
 		return nil, fmt.Errorf("repository has no local path")
 	}
+	if repo.IsExternal && repo.ExternalURL != "" {
+		return s.listExternalBranches(ctx, repo)
+	}
 
 	// Use gitea's git module to list branches
 	gitRepo, err := giteagit.OpenRepository(ctx, repo.LocalPath)
@@ -2461,6 +2464,34 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 	}
 
 	return branches, nil
+}
+
+// listExternalBranches reads the authoritative upstream refs. The local bare
+// mirror intentionally does not prune because it also contains Helix-only refs,
+// so listing its refs would keep branches that were deleted upstream.
+func (s *GitRepositoryService) listExternalBranches(ctx context.Context, repo *types.GitRepository) ([]string, error) {
+	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, repo)
+	stdout, _, err := gitcmd.NewCommand("ls-remote", "--heads").
+		AddDynamicArguments(fetchURL).
+		RunStdString(ctx, &gitcmd.RunOpts{Timeout: 5 * time.Minute})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list upstream branches: %w", err)
+	}
+
+	return parseLsRemoteBranches(stdout), nil
+}
+
+func parseLsRemoteBranches(stdout string) []string {
+	const headsPrefix = "refs/heads/"
+	branches := make([]string, 0)
+	for _, line := range strings.Split(stdout, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || !strings.HasPrefix(fields[1], headsPrefix) {
+			continue
+		}
+		branches = append(branches, strings.TrimPrefix(fields[1], headsPrefix))
+	}
+	return branches
 }
 
 // IsBranchMerged checks if a branch has been merged into the target branch.
