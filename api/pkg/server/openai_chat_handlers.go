@@ -436,6 +436,7 @@ func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, owne
 	// These are visible to all users but owned by the admin who created them
 	providers, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      ownerID,
+		OwnerType:  types.OwnerTypeUser,
 		WithGlobal: true,
 	})
 	if err == nil {
@@ -500,6 +501,7 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	// Check database-stored provider endpoints for the user (user + global from DB)
 	providers, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      ownerID,
+		OwnerType:  types.OwnerTypeUser,
 		WithGlobal: true,
 	})
 	if err != nil {
@@ -511,6 +513,7 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	if orgID != "" && orgID != ownerID {
 		orgProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 			Owner:      orgID,
+			OwnerType:  types.OwnerTypeOrg,
 			WithGlobal: false, // Global already covered above
 		})
 		if err != nil {

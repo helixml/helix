@@ -27515,6 +27515,46 @@ paths:
       summary: Get spec-driven task progress
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/refresh-pull-request:
+    post:
+      description: Immediately synchronize pull request and CI status for a task being
+        actively viewed. Requests are coalesced to one poll per task every 30 seconds.
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Refresh a spec task's pull request status
+      tags:
+      - spec-tasks
   /api/v1/spec-tasks/{taskId}/specs:
     get:
       description: Get the generated specifications for human review

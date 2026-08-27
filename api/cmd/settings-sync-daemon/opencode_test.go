@@ -144,6 +144,20 @@ func TestOpenCodeConfigModelIsProviderQualified(t *testing.T) {
 	assert.Equal(t, float64(32000), limit["output"])
 }
 
+func TestOpenCodeConfigDisplaysModelWithoutProviderRoutingID(t *testing.T) {
+	d := openCodeDaemon()
+	d.codeAgentConfig.Provider = "pe_01m0zdqzjds298g7"
+	d.codeAgentConfig.Model = "pe_01m0zdqzjds298g7/cohere/north-mini-code:free"
+
+	decoded := decodeOpenCodeConfig(t, d.generateAgentServerConfig())
+	assert.Equal(t, "helix/pe_01m0zdqzjds298g7/cohere/north-mini-code:free", decoded["model"])
+
+	providers := decoded["provider"].(map[string]interface{})
+	models := providers["helix"].(map[string]interface{})["models"].(map[string]interface{})
+	model := models["pe_01m0zdqzjds298g7/cohere/north-mini-code:free"].(map[string]interface{})
+	assert.Equal(t, "cohere/north-mini-code:free", model["name"])
+}
+
 // Zero limits would tell opencode the context window is empty, so it would
 // compact after every turn. Unknown limits must be omitted instead.
 func TestOpenCodeConfigOmitsUnknownLimits(t *testing.T) {

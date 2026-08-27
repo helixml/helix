@@ -56,6 +56,7 @@ import {
   isLegacyNativeModel,
   nativeProviderForRuntime,
 } from '../../utils/nativeModels'
+import { isEmbedRouteName } from '../../utils/organizations'
 
 type Runtime = TypesCodeAgentRuntime
 
@@ -219,6 +220,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
 }) => {
   const router = useRouter()
   const orgName = router.params.org_id
+  const isEmbedRoute = isEmbedRouteName(router.name)
   const { data: org, isLoading: loadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
   const { data: providers = [], isLoading: loadingProviders } = useListProviders({
     loadModels: true,
@@ -275,7 +277,9 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
         && (configuredRuntimeStatus?.provider_refs == null
         || configuredRuntimeStatus.provider_refs.some((ref) =>
           resolveProviderEndpointRef(runtimeProviders, ref)?.id === selectedProvider.id))))
-  const selectedConfigurationAllowed = selectedRuntimeEnabled && selectedSourceAllowed
+  const selectedConfigurationAllowed = isEmbedRoute
+    ? !!value?.runtime && !!value?.model
+    : selectedRuntimeEnabled && selectedSourceAllowed
   const unconfigured = !value?.runtime
     || !value?.model
     || (policySettled && !selectedConfigurationAllowed)
@@ -450,7 +454,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
         <Box component="span" sx={{ display: 'inline-flex', minWidth: 0 }}>
           <Button
             aria-label="Change coding agent"
-            disabled={disabled}
+            disabled={disabled || isEmbedRoute}
             onClick={(event) => {
               // Nothing to pick from: explain and offer the fix rather than
               // opening an empty popover.

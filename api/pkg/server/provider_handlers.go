@@ -74,6 +74,7 @@ func (s *HelixAPIServer) isProvidersManagementEnabled(ctx context.Context) bool 
 // @Success 200 {array} types.ProviderEndpoint
 // @Param with_models query bool false "Include models"
 // @Param org_id query string false "Organization ID"
+// @Param code_agent_runtime query string false "Filter by organization code-agent harness policy"
 // @Param all query bool false "Include all endpoints (system admin only)"
 // @Router /api/v1/provider-endpoints [get]
 // @Security BearerAuth
@@ -81,7 +82,20 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 	ctx := r.Context()
 	includeModels := r.URL.Query().Get("with_models") == "true"
 	orgID := r.URL.Query().Get("org_id")
+	runtimeParam := r.URL.Query().Get("code_agent_runtime")
 	all := r.URL.Query().Get("all") == "true"
+	var runtime types.CodeAgentRuntime
+	if runtimeParam != "" {
+		if orgID == "" {
+			http.Error(rw, "org_id is required with code_agent_runtime", http.StatusBadRequest)
+			return
+		}
+		runtime = types.CodeAgentRuntime(runtimeParam)
+		if !types.IsSelectableCodeAgentRuntime(runtime) {
+			http.Error(rw, fmt.Sprintf("unsupported code agent runtime %q", runtime), http.StatusBadRequest)
+			return
+		}
+	}
 
 	if orgID != "" {
 		org, err := s.lookupOrg(ctx, orgID)
@@ -104,6 +118,16 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		if err != nil {
 			log.Err(err).Msg("error authorizing org member")
 			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
+			return
+		}
+	}
+
+	var harness *types.OrgCodeAgentHarness
+	if runtimeParam != "" {
+		var err error
+		harness, err = s.loadOrgCodeAgentHarnessPolicy(ctx, orgID, runtime)
+		if err != nil {
+			writeErrResponse(rw, err, http.StatusInternalServerError)
 			return
 		}
 	}
@@ -173,6 +197,9 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		}
 
 		providerEndpoints = append(providerEndpoints, s.globalProviderEndpoint(provider))
+	}
+	if harness != nil {
+		providerEndpoints = filterProviderEndpointsForHarness(providerEndpoints, harness, runtime)
 	}
 
 	// Set default
@@ -336,6 +363,7 @@ func (s *HelixAPIServer) resolveModelProviderLive(ctx context.Context, modelName
 
 	dbProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      ownerID,
+		OwnerType:  types.OwnerTypeUser,
 		WithGlobal: true,
 	})
 	if err != nil {

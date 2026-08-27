@@ -169,6 +169,42 @@ func (s *ProviderHandlersSuite) TestListProvidersKeepsDatabaseAndEnvironmentGlob
 	s.ElementsMatch([]string{"pe_global_anthropic", "global/anthropic"}, []string{endpoints[0].ID, endpoints[1].ID})
 }
 
+func (s *ProviderHandlersSuite) TestListProvidersFiltersByCodeAgentRuntime() {
+	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org_1"}).Return(&types.Organization{ID: "org_1"}, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{OrganizationID: "org_1", UserID: "user_id"}, nil)
+	s.store.EXPECT().GetOrgCodeAgentHarness(gomock.Any(), "org_1", types.CodeAgentRuntimeClaudeCode).Return(&types.OrgCodeAgentHarness{
+		OrganizationID: "org_1", Runtime: types.CodeAgentRuntimeClaudeCode, Enabled: true, ProviderRefs: []string{"pe_anthropic"},
+	}, nil)
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
+		{ID: "pe_anthropic", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg},
+		{ID: "pe_openai", Name: "openai", EndpointType: types.ProviderEndpointTypeOrg},
+	}, nil)
+	s.manager.EXPECT().ListProviders(gomock.Any(), "").Return([]types.Provider{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/provider-endpoints?org_id=org_1&code_agent_runtime=claude_code", nil).WithContext(s.authCtx)
+	rr := httptest.NewRecorder()
+	s.server.listProviderEndpoints(rr, req)
+
+	var endpoints []*types.ProviderEndpoint
+	s.Require().Equal(http.StatusOK, rr.Code)
+	s.Require().NoError(json.Unmarshal(rr.Body.Bytes(), &endpoints))
+	s.Require().Len(endpoints, 1)
+	s.Equal("pe_anthropic", endpoints[0].ID)
+}
+
+func (s *ProviderHandlersSuite) TestListProvidersRejectsInvalidCodeAgentRuntimeQuery() {
+	tests := []string{
+		"/v1/provider-endpoints?code_agent_runtime=opencode",
+		"/v1/provider-endpoints?org_id=org_1&code_agent_runtime=not_a_runtime",
+	}
+	for _, target := range tests {
+		req := httptest.NewRequest(http.MethodGet, target, nil).WithContext(s.authCtx)
+		rr := httptest.NewRecorder()
+		s.server.listProviderEndpoints(rr, req)
+		s.Equal(http.StatusBadRequest, rr.Code, target)
+	}
+}
+
 func (s *ProviderHandlersSuite) TestListProviders_NoModelInfo() {
 	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
 		{
