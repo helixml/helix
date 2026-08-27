@@ -1581,29 +1581,22 @@ steps:
   # call, streaming and interaction completion — with no display server. The
   # value is not in the prompt, so only a real tool call produces it.
   #
-  # Cost control: one short qwen3.8-27b turn against the configured Bunker
-  # endpoint per build.
+  # The E2E server provides a deterministic OpenAI-compatible model which
+  # forces the native agent through read_file and validates the tool result.
+  # This keeps the gate independent of external model availability.
   - name: zed-e2e-headless-smoke
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
-      OPENAI_API_KEY:
-        from_secret: bunker_api_key
-      OPENAI_BASE_URL:
-        from_secret: bunker_base_url
     commands:
       - |
         ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
 
-        echo "Running headless Zed smoke test (zed-agent, qwen3.8-27b)..."
+        echo "Running deterministic headless Zed smoke test..."
         docker run --rm \
-          -e OPENAI_API_KEY="$${OPENAI_API_KEY}" \
-          -e OPENAI_BASE_URL="$${OPENAI_BASE_URL}" \
           -e E2E_AGENTS="zed-agent" \
           -e E2E_HEADLESS=1 \
           -e E2E_SMOKE=1 \
-          -e E2E_MODEL_PROVIDER=openai \
-          -e E2E_MODEL=qwen3.8-27b \
           -e TEST_TIMEOUT=300 \
           zed-ws-e2e:$${ZED_COMMIT}
 
