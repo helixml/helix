@@ -18645,6 +18645,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Immediately synchronize pull request and CI status for a task being actively viewed. Requests are coalesced to one poll per task every 30 seconds.
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksRefreshPullRequestCreate
+     * @summary Refresh a spec task's pull request status
+     * @request POST:/api/v1/spec-tasks/{taskId}/refresh-pull-request
+     * @secure
+     */
+    v1SpecTasksRefreshPullRequestCreate: (taskId: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/refresh-pull-request`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get the generated specifications for human review
      *
      * @tags spec-driven-tasks

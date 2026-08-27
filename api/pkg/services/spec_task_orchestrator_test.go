@@ -937,6 +937,115 @@ func makePullRequestTask(prCount int) *types.SpecTask {
 	}
 }
 
+func TestPullRequestPollingInterval(t *testing.T) {
+	now := time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		age  time.Duration
+		want time.Duration
+	}{
+		{name: "new task", age: 29 * time.Minute, want: 30 * time.Second},
+		{name: "thirty minutes old", age: 30 * time.Minute, want: 5 * time.Minute},
+		{name: "same day", age: 23*time.Hour + 59*time.Minute, want: 5 * time.Minute},
+		{name: "one day old", age: 24 * time.Hour, want: time.Hour},
+		{name: "older task", age: 7 * 24 * time.Hour, want: time.Hour},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			startedAt := now.Add(-tt.age)
+			task := &types.SpecTask{StatusUpdatedAt: &startedAt}
+			assert.Equal(t, tt.want, pullRequestPollingInterval(task, now))
+		})
+	}
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestPollPullRequestsUsesAgeBasedIntervals() {
+	ctx := context.Background()
+	now := time.Now()
+	recentStarted := now.Add(-10 * time.Minute)
+	staleStarted := now.Add(-2 * time.Hour)
+	oldStarted := now.Add(-48 * time.Hour)
+	recent := makePullRequestTask(1)
+	recent.ID = "recent"
+	recent.StatusUpdatedAt = &recentStarted
+	stale := makePullRequestTask(1)
+	stale.ID = "stale"
+	stale.StatusUpdatedAt = &staleStarted
+	old := makePullRequestTask(1)
+	old.ID = "old"
+	old.StatusUpdatedAt = &oldStarted
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		Status: types.TaskStatusPullRequest,
+	}).Return([]*types.SpecTask{recent, stale, old}, nil)
+	s.gitService.EXPECT().GetPullRequest(ctx, "repo-1", "1").Return(nil, fmt.Errorf("upstream unavailable"))
+	s.orchestrator.prPollLast = map[string]time.Time{
+		"recent": now.Add(-time.Minute),
+		"stale":  now.Add(-time.Minute),
+		"old":    now.Add(-time.Minute),
+	}
+
+	s.orchestrator.pollPullRequests(ctx)
+
+	assert.WithinDuration(s.T(), now, s.orchestrator.prPollLast["recent"], time.Second)
+	assert.WithinDuration(s.T(), now.Add(-time.Minute), s.orchestrator.prPollLast["stale"], time.Second)
+	assert.WithinDuration(s.T(), now.Add(-time.Minute), s.orchestrator.prPollLast["old"], time.Second)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestForegroundRefreshCoalescesWithBackgroundPoll() {
+	ctx := context.Background()
+	task := makePullRequestTask(1)
+	startedAt := time.Now().Add(-48 * time.Hour)
+	task.StatusUpdatedAt = &startedAt
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil).Times(2)
+	pollStarted := make(chan struct{})
+	finishPoll := make(chan struct{})
+	s.gitService.EXPECT().GetPullRequest(ctx, "repo-1", "1").DoAndReturn(
+		func(context.Context, string, string) (*types.PullRequest, error) {
+			close(pollStarted)
+			<-finishPoll
+			return nil, fmt.Errorf("upstream unavailable")
+		},
+	)
+
+	backgroundResult := make(chan error, 1)
+	go func() {
+		_, err := s.orchestrator.pollPullRequestTask(
+			ctx,
+			task,
+			pullRequestPollingInterval(task, time.Now()),
+			time.Now(),
+		)
+		backgroundResult <- err
+	}()
+	select {
+	case <-pollStarted:
+	case <-time.After(time.Second):
+		s.FailNow("background poll did not start")
+	}
+
+	// The viewer request is coalesced while the scheduler's poll is in flight.
+	s.Require().NoError(s.orchestrator.RefreshPullRequestStatus(ctx, task.ID))
+	close(finishPoll)
+	s.Require().NoError(<-backgroundResult)
+
+	// The completed poll also throttles another immediate foreground refresh.
+	s.Require().NoError(s.orchestrator.RefreshPullRequestStatus(ctx, task.ID))
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestForegroundRefreshOverridesAgeBasedInterval() {
+	ctx := context.Background()
+	task := makePullRequestTask(1)
+	startedAt := time.Now().Add(-48 * time.Hour)
+	task.StatusUpdatedAt = &startedAt
+	s.Require().True(s.orchestrator.beginPRPoll(task.ID, time.Minute, time.Now().Add(-5*time.Minute)))
+	s.orchestrator.finishPRPoll(task.ID)
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	s.gitService.EXPECT().GetPullRequest(ctx, "repo-1", "1").Return(nil, fmt.Errorf("upstream unavailable"))
+
+	s.Require().NoError(s.orchestrator.RefreshPullRequestStatus(ctx, task.ID))
+}
+
 // Regression test for the pod-restart-triggered "wrongly merged" bug.
 // Before the fix, if GetPullRequest returned an error for every tracked PR
 // in a single poll cycle, the `allMerged` flag stayed at its `true` default
