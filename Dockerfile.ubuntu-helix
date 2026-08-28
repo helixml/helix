@@ -25,6 +25,10 @@ ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:92906d87596d63
 # upstream `download_cli.sh` install path.
 ARG GOOSE_COMMIT=ca26f01d3acd9871691fa8981f05d19aed9a3b82
 
+# Rootless BuildKit binaries used by headless sessions. Pin the multi-platform
+# image index so amd64 and arm64 builds resolve reproducibly.
+FROM moby/buildkit:v0.27.1-rootless@sha256:5616ed4e78a3552f3575864c8ab585c882b892c4e93b6a7b6ac8afbc98bd2f7a AS rootless-buildkit
+
 # ====================================================================
 # Go build stage for Helix binaries
 # ====================================================================
@@ -113,8 +117,13 @@ RUN apt-get update && apt-get install -y \
     libgbm-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.87.0
+# Install Rust. Download to a file so a network failure cannot be hidden by a
+# successful shell at the end of a pipeline and cached as a valid toolchain.
+RUN curl --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors -fsS \
+        https://sh.rustup.rs -o /tmp/rustup-init.sh && \
+    sh /tmp/rustup-init.sh -y --default-toolchain 1.87.0 && \
+    rm /tmp/rustup-init.sh && \
+    /root/.cargo/bin/rustc --version
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Copy all plugin sources (needed for both architectures)
@@ -132,17 +141,17 @@ set -e
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Building ARM64 plugins ==="
     # Build vsockenc (delegates encoding to host VideoToolbox)
-    cd /build/gst-vsockenc && \
-        meson setup builddir --prefix=/usr --libdir=lib && \
-        meson compile -C builddir && \
-        meson install -C builddir --destdir=/install
+    cd /build/gst-vsockenc
+    meson setup builddir --prefix=/usr --libdir=lib
+    meson compile -C builddir
+    meson install -C builddir --destdir=/install
     find /install -name "libgstvsockenc.so" -exec cp {} /libgstvsockenc.so \;
     echo "vsockenc built"
 
     # Build pipewirezerocopysrc (DMA-BUF passthrough for virtio-gpu)
-    cd /build/gst-pipewire-zerocopy && \
-        nice -n 19 cargo build --locked --release && \
-        cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
+    cd /build/gst-pipewire-zerocopy
+    nice -n 19 cargo build --locked --release
+    cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
     echo "pipewirezerocopysrc built"
 else
     echo "=== Building amd64 plugins ==="
@@ -153,9 +162,9 @@ else
     fi
 
     # Build pipewirezerocopysrc with CUDA support
-    cd /build/gst-pipewire-zerocopy && \
-        nice -n 19 cargo build --locked --release && \
-        cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
+    cd /build/gst-pipewire-zerocopy
+    nice -n 19 cargo build --locked --release
+    cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
     echo "pipewirezerocopysrc built (amd64)"
 
     # No vsockenc on amd64 — create placeholder
@@ -672,6 +681,22 @@ if [ "$(id -u)" = "0" ]; then
         source "${init_script}"
     done
 fi
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+    if [ -f /zed-build/zed ] && [ ! -e /usr/local/bin/zed ]; then
+        ln -sf /zed-build/zed /usr/local/bin/zed
+    fi
+    if [ -n "${WORKSPACE_DIR:-}" ] && [ -d "${WORKSPACE_DIR}" ] && [ -d /home/retro/work ]; then
+        chown "${UNAME}:${UNAME}" "${WORKSPACE_DIR}" /home/retro/work
+    fi
+    if [ -n "${@:-}" ]; then
+        exec setpriv --bounding-set=-sys_admin --nnp -- \
+            gosu "${UNAME}" /bin/bash -c "$@"
+    fi
+    gow_log "Launching the container's startup script as user '${UNAME}'"
+    chmod +x /opt/gow/startup.sh 2>/dev/null || true
+    exec setpriv --bounding-set=-sys_admin --nnp -- \
+        gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
+fi
 if [ -n "${@:-}" ]; then
     /bin/bash -c "$@"
     exit $?
@@ -712,7 +737,11 @@ ENV LANG=en_US.UTF-8 \
 # GOW dbus init script
 COPY <<_DBUS_INIT /etc/cont-init.d/99-startdbus.sh
 #!/bin/bash
-service dbus start 2>/dev/null || true
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+    setpriv --bounding-set=-sys_admin --nnp -- service dbus start 2>/dev/null || true
+else
+    service dbus start 2>/dev/null || true
+fi
 _DBUS_INIT
 RUN chmod 755 /etc/cont-init.d/99-startdbus.sh
 
@@ -751,7 +780,16 @@ RUN apt-get update \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin \
+        podman crun uidmap fuse-overlayfs passt slirp4netns \
+    && { grep -q '^retro:' /etc/subuid || echo 'retro:100000:65536' >> /etc/subuid; } \
+    && { grep -q '^retro:' /etc/subgid || echo 'retro:100000:65536' >> /etc/subgid; } \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=rootless-buildkit \
+    /usr/bin/buildkitd \
+    /usr/bin/buildctl \
+    /usr/bin/rootlesskit \
+    /usr/local/bin/
 
 # NVIDIA Container Toolkit (enables GPU passthrough in inner containers)
 # This allows the desktop's dockerd to run containers with --runtime=nvidia
@@ -1048,8 +1086,10 @@ RUN cd /tmp/drone-ci-mcp && npm install && npm run build && npm pack && npm inst
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
     CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
 
-# Start dockerd inside desktop container if /var/lib/docker is volume-mounted
+# Start the per-session container engine: rootful Docker for desktops and
+# rootless Podman for unprivileged headless agents.
 ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
+ADD desktop/shared/headless-containers.conf /opt/helix/headless-containers.conf
 RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
 
 # Workspace README
