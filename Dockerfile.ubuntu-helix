@@ -25,6 +25,10 @@ ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:92906d87596d63
 # upstream `download_cli.sh` install path.
 ARG GOOSE_COMMIT=ca26f01d3acd9871691fa8981f05d19aed9a3b82
 
+# Rootless BuildKit binaries used by headless sessions. Pin the multi-platform
+# image index so amd64 and arm64 builds resolve reproducibly.
+FROM moby/buildkit:v0.27.1-rootless@sha256:5616ed4e78a3552f3575864c8ab585c882b892c4e93b6a7b6ac8afbc98bd2f7a AS rootless-buildkit
+
 # ====================================================================
 # Go build stage for Helix binaries
 # ====================================================================
@@ -780,6 +784,12 @@ RUN apt-get update \
     && { grep -q '^retro:' /etc/subuid || echo 'retro:100000:65536' >> /etc/subuid; } \
     && { grep -q '^retro:' /etc/subgid || echo 'retro:100000:65536' >> /etc/subgid; } \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=rootless-buildkit \
+    /usr/bin/buildkitd \
+    /usr/bin/buildctl \
+    /usr/bin/rootlesskit \
+    /usr/local/bin/
 
 # NVIDIA Container Toolkit (enables GPU passthrough in inner containers)
 # This allows the desktop's dockerd to run containers with --runtime=nvidia

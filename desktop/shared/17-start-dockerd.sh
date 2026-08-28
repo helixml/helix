@@ -6,6 +6,11 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     PODMAN_DATA=/home/retro/.local/share/containers
     PODMAN_RUNTIME=/run/user/1000
     PODMAN_SOCKET=${PODMAN_RUNTIME}/podman/podman.sock
+    BUILDKIT_RUNTIME=${PODMAN_RUNTIME}/buildkit
+    BUILDKIT_SOCKET=${BUILDKIT_RUNTIME}/buildkitd.sock
+    BUILDKIT_ROOTLESSKIT_STATE=${PODMAN_RUNTIME}/buildkit-rootlesskit
+    BUILDKIT_DATA=${PODMAN_DATA}/buildkit-state
+    BUILDKIT_TMP=${PODMAN_DATA}/buildkit-tmp
 
     if ! mountpoint -q "${PODMAN_DATA}" 2>/dev/null; then
         echo "[podman] ERROR: ${PODMAN_DATA} is not a volume mount"
@@ -22,7 +27,14 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     # The agent also stores Zed state below ~/.local/share, so hand those
     # parent directories back to the unprivileged user before it starts.
     install -d -m 0755 -o retro -g retro /home/retro/.local /home/retro/.local/share
-    install -d -m 0700 -o retro -g retro "${PODMAN_DATA}" "${PODMAN_RUNTIME}" "${PODMAN_RUNTIME}/podman"
+    install -d -m 0700 -o retro -g retro \
+        "${PODMAN_DATA}" \
+        "${PODMAN_RUNTIME}" \
+        "${PODMAN_RUNTIME}/podman" \
+        "${BUILDKIT_RUNTIME}" \
+        "${BUILDKIT_ROOTLESSKIT_STATE}" \
+        "${BUILDKIT_DATA}" \
+        "${BUILDKIT_TMP}"
     install -d -m 0755 -o retro -g retro /home/retro/.config/containers
     cp /opt/helix/headless-containers.conf /home/retro/.config/containers/containers.conf
     chown retro:retro /home/retro/.config/containers/containers.conf
@@ -48,7 +60,7 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     for i in $(seq 1 30); do
         if DOCKER_HOST="unix://${PODMAN_SOCKET}" docker info >/dev/null 2>&1; then
             echo "[podman] Rootless container engine is ready (attempt ${i})"
-            return 0
+            break
         fi
         if [ "${i}" -eq 30 ]; then
             echo "[podman] FATAL: rootless container engine not ready after 30s"
@@ -56,6 +68,72 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
         fi
         sleep 1
     done
+
+    rm -f \
+        "${BUILDKIT_SOCKET}" \
+        "${BUILDKIT_ROOTLESSKIT_STATE}/api.sock" \
+        "${BUILDKIT_ROOTLESSKIT_STATE}/child_pid" \
+        "${BUILDKIT_ROOTLESSKIT_STATE}/lock"
+    gosu retro env \
+        HOME=/home/retro \
+        USER=retro \
+        XDG_RUNTIME_DIR="${PODMAN_RUNTIME}" \
+        TMPDIR="${BUILDKIT_TMP}" \
+        BUILDKIT_SOCKET="${BUILDKIT_SOCKET}" \
+        BUILDKIT_ROOTLESSKIT_STATE="${BUILDKIT_ROOTLESSKIT_STATE}" \
+        BUILDKIT_DATA="${BUILDKIT_DATA}" \
+        bash -c '
+        while true; do
+            echo "[$(date -Iseconds)] Starting rootless BuildKit daemon..."
+            env -u BUILDKIT_HOST rootlesskit \
+                --state-dir="${BUILDKIT_ROOTLESSKIT_STATE}" \
+                buildkitd \
+                --root="${BUILDKIT_DATA}" \
+                --addr="unix://${BUILDKIT_SOCKET}" \
+                --oci-worker-no-process-sandbox
+            EXIT_CODE=$?
+            echo "[$(date -Iseconds)] BuildKit exited with code ${EXIT_CODE}, restarting in 2s..."
+            rm -f \
+                "${BUILDKIT_SOCKET}" \
+                "${BUILDKIT_ROOTLESSKIT_STATE}/api.sock" \
+                "${BUILDKIT_ROOTLESSKIT_STATE}/child_pid" \
+                "${BUILDKIT_ROOTLESSKIT_STATE}/lock"
+            sleep 2
+        done
+    ' 2>&1 | gosu retro sed -u 's/^/[ROOTLESS-BUILDKIT] /' &
+
+    echo "[buildkit] Waiting for rootless BuildKit API..."
+    for i in $(seq 1 30); do
+        if gosu retro buildctl --addr "unix://${BUILDKIT_SOCKET}" debug workers >/dev/null 2>&1; then
+            echo "[buildkit] Rootless BuildKit is ready (attempt ${i})"
+            break
+        fi
+        if [ "${i}" -eq 30 ]; then
+            echo "[buildkit] FATAL: rootless BuildKit not ready after 30s"
+            exit 1
+        fi
+        sleep 1
+    done
+
+    if ! gosu retro env -u BUILDX_BUILDER \
+        HOME=/home/retro \
+        DOCKER_HOST="unix://${PODMAN_SOCKET}" \
+        docker buildx inspect helix-rootless >/dev/null 2>&1; then
+        gosu retro env -u BUILDX_BUILDER \
+            HOME=/home/retro \
+            DOCKER_HOST="unix://${PODMAN_SOCKET}" \
+            docker buildx create \
+                --name helix-rootless \
+                --driver remote \
+                "unix://${BUILDKIT_SOCKET}"
+    fi
+    gosu retro env -u BUILDX_BUILDER \
+        HOME=/home/retro \
+        DOCKER_HOST="unix://${PODMAN_SOCKET}" \
+        docker buildx use helix-rootless --default
+    echo "[buildkit] Configured helix-rootless as the default Buildx builder"
+
+    return 0
 fi
 
 if ! mountpoint -q /var/lib/docker 2>/dev/null; then

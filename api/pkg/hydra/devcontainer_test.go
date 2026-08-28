@@ -167,6 +167,7 @@ func TestBuildEnvRootlessContainerEngine(t *testing.T) {
 			"DOCKER_HOST=tcp://attacker:2375",
 			"CONTAINER_HOST=tcp://attacker:2375",
 			"DOCKER_BUILDKIT=1",
+			"BUILDX_BUILDER=attacker",
 			"BUILDKIT_HOST=tcp://attacker:1234",
 			"HELIX_REGISTRY=attacker:5000",
 		},
@@ -180,6 +181,8 @@ func TestBuildEnvRootlessContainerEngine(t *testing.T) {
 	require.Contains(t, env, "CONTAINER_HOST=unix:///run/user/1000/podman/podman.sock")
 	require.Equal(t, 1, countEnvVar(env, "DOCKER_BUILDKIT"))
 	require.Contains(t, env, "DOCKER_BUILDKIT=0")
+	require.Equal(t, 1, countEnvVar(env, "BUILDX_BUILDER"))
+	require.Contains(t, env, "BUILDX_BUILDER=helix-rootless")
 	require.Zero(t, countEnvVar(env, "BUILDKIT_HOST"))
 	require.Zero(t, countEnvVar(env, "HELIX_REGISTRY"))
 }

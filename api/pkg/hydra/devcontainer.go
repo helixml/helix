@@ -851,6 +851,7 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		env = overrideEnvVar(env, "DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock")
 		env = overrideEnvVar(env, "CONTAINER_HOST", "unix:///run/user/1000/podman/podman.sock")
 		env = overrideEnvVar(env, "DOCKER_BUILDKIT", "0")
+		env = overrideEnvVar(env, "BUILDX_BUILDER", "helix-rootless")
 	}
 
 	// Add display settings if this is not a headless container
