@@ -99,14 +99,14 @@ type helixOrgHandlers struct {
 	// Fans out to every github topic whose (repo, events) matches
 	// the delivery — multi-topic behaviour.
 	publicGitHubWebhook http.Handler
-	// publicGitHubWebhookForStream is the per-topic variant. Path:
-	// /api/v1/orgs/{org}/topics/{topic_id}/github/webhook —
-	// deliveries to this URL are pinned to exactly one topic so
+	// publicGitHubWebhookForTrigger is the per-Trigger variant. Path:
+	// /api/v1/orgs/{org}/triggers/{trigger_id}/github/webhook —
+	// deliveries to this URL are pinned to exactly one Trigger so
 	// operators get a 1:1 mapping between GitHub webhooks and helix
 	// Triggers. The Trigger's own (repo, events) config still applies
 	// so cross-repo or non-whitelisted-event deliveries drop with
 	// 204 (no GitHub retries).
-	publicGitHubWebhookForStream  http.Handler
+	publicGitHubWebhookForTrigger http.Handler
 	publicGitLabWebhookForTrigger http.Handler
 	// publicSlackEvents is the global inbound Slack Events API handler
 	// mounted on the INSECURE router at /api/v1/slack/events. Slack
@@ -463,20 +463,9 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 			Handle("/orgs/{org}/github/webhook", orgHandlers.publicGitHubWebhook).
 			Methods(http.MethodPost)
 	}
-	// Per-stream variant — operators paste this URL into a GitHub repo's
-	// webhook config when they want a 1:1 mapping between a GitHub webhook
-	// and a helix stream. Insecure mount: GitHub deliveries authenticate
-	// via HMAC over the body, not a helix session.
-	if orgHandlers.publicGitHubWebhookForStream != nil {
-		insecureRouter.
-			Handle("/orgs/{org}/topics/{topic_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
-			Methods(http.MethodPost)
-	}
-	if orgHandlers.publicGitLabWebhookForTrigger != nil {
-		insecureRouter.
-			Handle("/orgs/{org}/topics/{topic_id}/gitlab/webhook", orgHandlers.publicGitLabWebhookForTrigger).
-			Methods(http.MethodPost)
-	}
+	registerPublicTriggerWebhookRoutes(insecureRouter,
+		orgHandlers.publicGitHubWebhookForTrigger,
+		orgHandlers.publicGitLabWebhookForTrigger)
 	// GitHub App Manifest flow callbacks — top-level browser navigations
 	// from github.com (GET), so they must be on the insecure router (no
 	// session cookie / API key). The conversion callback authenticates
@@ -1390,7 +1379,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// the org-level handler (HMAC over body); routes deliveries to
 	// the single Trigger named in the path so operators can hand
 	// GitHub a Trigger-specific URL.
-	publicGitHubWebhookForStream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	publicGitHubWebhookForTrigger := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		orgSlugOrID := vars["org"]
 		triggerID := vars["trigger_id"]
@@ -1480,7 +1469,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		streamCron:                    streamCronScheduler,
 		githubDeliveryRun:             githubDeliveryReconciler.Run,
 		publicGitHubWebhook:           publicGitHubWebhook,
-		publicGitHubWebhookForStream:  publicGitHubWebhookForStream,
+		publicGitHubWebhookForTrigger: publicGitHubWebhookForTrigger,
 		publicGitLabWebhookForTrigger: publicGitLabWebhookForTrigger,
 		publicGitHubManifestCallback:  publicGitHubManifestCallback,
 		publicSlackEvents:             publicSlackEvents,
@@ -1810,4 +1799,44 @@ func openOrgStore(helixStore helixstore.Store) (*helixorgstore.Store, error) {
 		return nil, fmt.Errorf("open helix-org gorm: %w", err)
 	}
 	return st, nil
+}
+
+// publicTriggerWebhookPathPrefixes are the per-Trigger public webhook
+// path shapes, newest first.
+//
+// `triggers` is what the provisioner writes into a repo's webhook config
+// today. `topics` is the pre-#3087 shape: those URLs live in third-party
+// GitHub and GitLab configs we cannot rewrite, so the old prefix stays
+// mounted on the same handlers until every install has been migrated.
+//
+// Both declare the path variable as {trigger_id} because that is the name
+// the handlers read. gorilla/mux only populates variables named in the
+// pattern, so a pattern declaring {topic_id} silently hands the handler an
+// empty id — the #3087 regression that 400'd every delivery.
+var publicTriggerWebhookPathPrefixes = []string{
+	"/orgs/{org}/triggers/{trigger_id}",
+	"/orgs/{org}/topics/{trigger_id}",
+}
+
+// registerPublicTriggerWebhookRoutes mounts the per-Trigger GitHub and
+// GitLab webhook handlers on every supported path shape.
+//
+// INSECURE mount, deliberately: these carry an HMAC over the body
+// (X-Hub-Signature-256 / X-Gitlab-Token), verified inside the transport,
+// and no helix session cookie or API key. They must be registered BEFORE
+// authRouter's PathPrefix("/orgs/{org}/") or requireUser rejects every
+// delivery with 401 before the transport can check the signature.
+func registerPublicTriggerWebhookRoutes(insecureRouter *mux.Router, github, gitlab http.Handler) {
+	for _, prefix := range publicTriggerWebhookPathPrefixes {
+		if github != nil {
+			insecureRouter.
+				Handle(prefix+"/github/webhook", github).
+				Methods(http.MethodPost)
+		}
+		if gitlab != nil {
+			insecureRouter.
+				Handle(prefix+"/gitlab/webhook", gitlab).
+				Methods(http.MethodPost)
+		}
+	}
 }
