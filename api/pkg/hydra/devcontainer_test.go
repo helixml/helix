@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	dockertypes "github.com/docker/docker/api/types"
+	"github.com/stretchr/testify/require"
 )
 
 func TestImageTag(t *testing.T) {
@@ -94,6 +95,34 @@ func TestBuildEnvHeadlessOmitsDisplayAndGPU(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestBuildHostConfigHeadlessUsesDockerSecurityDefaults(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeHeadless,
+		Privileged:    false,
+	})
+	require.NoError(t, err)
+	require.False(t, hostConfig.Privileged)
+	require.Empty(t, hostConfig.CapAdd)
+	require.Equal(t, []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}, []string(hostConfig.CapDrop))
+	require.Empty(t, hostConfig.SecurityOpt)
+}
+
+func TestBuildHostConfigPrivilegedPreservesDesktopSecurityOptions(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeUbuntu,
+		Privileged:    true,
+	})
+	require.NoError(t, err)
+	require.True(t, hostConfig.Privileged)
+	require.Empty(t, hostConfig.CapAdd)
+	require.Empty(t, hostConfig.CapDrop)
+	require.Equal(t, []string{"seccomp=unconfined", "apparmor=unconfined"}, hostConfig.SecurityOpt)
 }
 
 func TestResolveRegistryImage(t *testing.T) {

@@ -1052,8 +1052,12 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		NetworkMode: networkMode,
 		IpcMode:     "host",
 		Privileged:  req.Privileged,
-		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
 		Resources:   resources,
+	}
+	if req.Privileged {
+		hostConfig.SecurityOpt = []string{"seccomp=unconfined", "apparmor=unconfined"}
+	} else {
+		hostConfig.CapDrop = []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
 	}
 
 	// Persistent dev containers (hosted web services) must survive a host
@@ -1063,12 +1067,6 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	// bypassing the slow provision-fresh-sandbox + full-rebuild recovery path.
 	if req.Persistent {
 		hostConfig.RestartPolicy = container.RestartPolicy{Name: "unless-stopped"}
-	}
-
-	// Only add explicit capabilities when not in privileged mode
-	// (privileged mode already grants all capabilities)
-	if !req.Privileged {
-		hostConfig.CapAdd = []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
 	}
 
 	// Resolve "api"/"outer-api" via the sandbox dns-proxy instead of pinning a
