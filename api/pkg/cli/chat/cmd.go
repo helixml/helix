@@ -31,8 +31,8 @@ Examples:
   # Chat with a specific agent
   helix chat --agent=a1b2c3 "hi"
   
-  # Continue an existing session
-  helix chat --agent=a1b2c3 --session=ses_123 "what did we discuss?"
+  # Continue an existing session (the session retains its agent configuration)
+  helix chat --session=ses_123 "what did we discuss?"
   
   # Use a specific model
   helix chat --agent=a1b2c3 --model=claude-3-5-sonnet "explain this code"
@@ -43,8 +43,8 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		message := args[0]
 
-		if agentID == "" {
-			return fmt.Errorf("agent ID is required (use --agent flag)")
+		if agentID == "" && sessionID == "" {
+			return fmt.Errorf("agent ID or session ID is required (use --agent or --session)")
 		}
 
 		ctx, cancel := context.WithTimeout(cmd.Context(), time.Duration(timeout)*time.Second)
@@ -126,7 +126,7 @@ Examples:
 }
 
 func init() {
-	rootCmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent ID to chat with (required)")
+	rootCmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent ID to start a new chat with")
 	rootCmd.Flags().StringVar(&model, "model", "", "Model to use (optional, uses agent default)")
 	rootCmd.Flags().StringVar(&sessionID, "session", "", "Session ID to continue existing conversation")
 	rootCmd.Flags().StringVar(&agentType, "agent-type", "", "Agent type override (e.g., 'zed_external')")
@@ -134,7 +134,6 @@ func init() {
 	rootCmd.Flags().BoolVar(&stream, "stream", false, "Enable streaming response")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 
-	rootCmd.MarkFlagRequired("agent")
 }
 
 func New() *cobra.Command {
