@@ -1,6 +1,62 @@
 #!/bin/bash
-# Start dockerd inside the desktop container.
-# Each desktop container runs its own dockerd with a volume-backed /var/lib/docker.
+# Start the per-session container engine. Desktop sessions use rootful Docker;
+# unprivileged headless sessions use a rootless Podman compatibility socket.
+
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+    PODMAN_DATA=/home/retro/.local/share/containers
+    PODMAN_RUNTIME=/run/user/1000
+    PODMAN_SOCKET=${PODMAN_RUNTIME}/podman/podman.sock
+
+    if ! mountpoint -q "${PODMAN_DATA}" 2>/dev/null; then
+        echo "[podman] ERROR: ${PODMAN_DATA} is not a volume mount"
+        exit 1
+    fi
+    for device in /dev/fuse /dev/net/tun; do
+        if [ ! -c "${device}" ]; then
+            echo "[podman] ERROR: required device ${device} is unavailable"
+            exit 1
+        fi
+    done
+
+    # Docker creates missing parents for the nested storage mount as root.
+    # The agent also stores Zed state below ~/.local/share, so hand those
+    # parent directories back to the unprivileged user before it starts.
+    install -d -m 0755 -o retro -g retro /home/retro/.local /home/retro/.local/share
+    install -d -m 0700 -o retro -g retro "${PODMAN_DATA}" "${PODMAN_RUNTIME}" "${PODMAN_RUNTIME}/podman"
+    install -d -m 0755 -o retro -g retro /home/retro/.config/containers
+    cp /opt/helix/headless-containers.conf /home/retro/.config/containers/containers.conf
+    chown retro:retro /home/retro/.config/containers/containers.conf
+
+    rm -f "${PODMAN_SOCKET}"
+    gosu retro env \
+        HOME=/home/retro \
+        XDG_RUNTIME_DIR="${PODMAN_RUNTIME}" \
+        CONTAINERS_CONF=/home/retro/.config/containers/containers.conf \
+        PODMAN_SOCKET="${PODMAN_SOCKET}" \
+        bash -c '
+        while true; do
+            echo "[$(date -Iseconds)] Starting rootless Podman API service..."
+            env -u CONTAINER_HOST -u DOCKER_HOST \
+                podman system service --time=0 "unix://${PODMAN_SOCKET}"
+            EXIT_CODE=$?
+            echo "[$(date -Iseconds)] Podman API service exited with code ${EXIT_CODE}, restarting in 2s..."
+            sleep 2
+        done
+    ' 2>&1 | gosu retro sed -u 's/^/[ROOTLESS-PODMAN] /' &
+
+    echo "[podman] Waiting for Docker-compatible API..."
+    for i in $(seq 1 30); do
+        if DOCKER_HOST="unix://${PODMAN_SOCKET}" docker info >/dev/null 2>&1; then
+            echo "[podman] Rootless container engine is ready (attempt ${i})"
+            return 0
+        fi
+        if [ "${i}" -eq 30 ]; then
+            echo "[podman] FATAL: rootless container engine not ready after 30s"
+            exit 1
+        fi
+        sleep 1
+    done
+fi
 
 if ! mountpoint -q /var/lib/docker 2>/dev/null; then
     echo "[dockerd] ERROR: /var/lib/docker is not a volume mount."

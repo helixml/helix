@@ -844,6 +844,14 @@ func materializeWorkspaceFiles(mounts []MountConfig, files map[string][]byte) er
 func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string {
 	env := make([]string, len(req.Env))
 	copy(env, req.Env)
+	if req.RootlessContainerEngine {
+		env = removeEnvVar(env, "BUILDKIT_HOST")
+		env = removeEnvVar(env, "HELIX_REGISTRY")
+		env = overrideEnvVar(env, "HELIX_ROOTLESS_CONTAINER_ENGINE", "1")
+		env = overrideEnvVar(env, "DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock")
+		env = overrideEnvVar(env, "CONTAINER_HOST", "unix:///run/user/1000/podman/podman.sock")
+		env = overrideEnvVar(env, "DOCKER_BUILDKIT", "0")
+	}
 
 	// Add display settings if this is not a headless container
 	if req.ContainerType != DevContainerTypeHeadless {
@@ -972,17 +980,19 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// Dev containers mount their per-session Docker socket, but helix-buildkit runs
 	// on the sandbox's main dockerd. Pass the BuildKit endpoint directly so the
 	// 17-start-dockerd.sh init script can create the helix-shared buildx builder.
-	if buildkitHost := GetBuildKitHost(); buildkitHost != "" {
-		env = append(env, fmt.Sprintf("BUILDKIT_HOST=%s", buildkitHost))
-		log.Debug().Str("buildkit_host", buildkitHost).Msg("Added BUILDKIT_HOST to dev container env")
-	}
+	if !req.RootlessContainerEngine {
+		if buildkitHost := GetBuildKitHost(); buildkitHost != "" {
+			env = append(env, fmt.Sprintf("BUILDKIT_HOST=%s", buildkitHost))
+			log.Debug().Str("buildkit_host", buildkitHost).Msg("Added BUILDKIT_HOST to dev container env")
+		}
 
-	// Add HELIX_REGISTRY for registry-based image loading (push/pull instead of tarball --load).
-	// When a build changes only one layer in a 7.73GB image, --load transfers the entire tarball
-	// (~9.5s). Registry push/pull transfers only changed layers (~0.6s) — a 16x improvement.
-	if registryHost := GetRegistryHost(); registryHost != "" {
-		env = append(env, fmt.Sprintf("HELIX_REGISTRY=%s", registryHost))
-		log.Debug().Str("registry_host", registryHost).Msg("Added HELIX_REGISTRY to dev container env")
+		// Add HELIX_REGISTRY for registry-based image loading (push/pull instead of tarball --load).
+		// When a build changes only one layer in a 7.73GB image, --load transfers the entire tarball
+		// (~9.5s). Registry push/pull transfers only changed layers (~0.6s) — a 16x improvement.
+		if registryHost := GetRegistryHost(); registryHost != "" {
+			env = append(env, fmt.Sprintf("HELIX_REGISTRY=%s", registryHost))
+			log.Debug().Str("registry_host", registryHost).Msg("Added HELIX_REGISTRY to dev container env")
+		}
 	}
 
 	// Override API URLs with sandbox's own HELIX_API_URL
@@ -1026,8 +1036,26 @@ func overrideEnvVar(env []string, key, value string) []string {
 	return append(env, prefix+value)
 }
 
+func removeEnvVar(env []string, key string) []string {
+	prefix := key + "="
+	filtered := env[:0]
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, prefix) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
+}
+
 // buildHostConfig builds the host configuration for the container
 func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (*container.HostConfig, error) {
+	if req.RootlessContainerEngine && req.ContainerType != DevContainerTypeHeadless {
+		return nil, fmt.Errorf("rootless container engine requires a headless container")
+	}
+	if req.RootlessContainerEngine && req.Privileged {
+		return nil, fmt.Errorf("rootless container engine cannot run in privileged mode")
+	}
+
 	// Use the network from the request if specified, otherwise default to bridge.
 	// Previously we used host network mode which caused port conflicts when running
 	// multiple desktop containers (they all shared ports 9876/9877).
@@ -1045,19 +1073,40 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.ContainerType != DevContainerTypeHeadless {
 		resources.DeviceCgroupRules = dm.getDeviceCgroupRules()
 	}
+	if req.RootlessContainerEngine {
+		resources.Devices = append(resources.Devices,
+			container.DeviceMapping{PathOnHost: "/dev/fuse", PathInContainer: "/dev/fuse", CgroupPermissions: "rwm"},
+			container.DeviceMapping{PathOnHost: "/dev/net/tun", PathInContainer: "/dev/net/tun", CgroupPermissions: "rwm"},
+		)
+	}
 	// Apply CPU and memory limits when requested. NanoCPUs uses 10^9 units per CPU.
 	resources.NanoCPUs, resources.Memory, resources.MemorySwap = sandboxResourceLimits(req.VCPUs, req.MemoryMB)
 
 	hostConfig := &container.HostConfig{
 		NetworkMode: networkMode,
-		IpcMode:     "host",
 		Privileged:  req.Privileged,
 		Resources:   resources,
 	}
 	if req.Privileged {
+		hostConfig.IpcMode = "host"
 		hostConfig.SecurityOpt = []string{"seccomp=unconfined", "apparmor=unconfined"}
 	} else {
-		hostConfig.CapDrop = []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
+		hostConfig.CapDrop = []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
+		if req.RootlessContainerEngine {
+			// The trusted init process needs SYS_ADMIN in its bounding set so
+			// rootless Podman can create its subordinate user namespace. Before
+			// the agent starts, the image drops SYS_ADMIN from the agent's
+			// bounding set and enables no_new_privs.
+			hostConfig.CapAdd = []string{"SYS_ADMIN"}
+			hostConfig.SecurityOpt = []string{"seccomp=unconfined"}
+			// Rootless Podman needs to mount procfs entries that Docker masks or
+			// makes read-only by default. Empty, non-nil slices explicitly
+			// override those daemon defaults through the Docker API.
+			hostConfig.MaskedPaths = []string{}
+			hostConfig.ReadonlyPaths = []string{}
+		} else {
+			hostConfig.CapDrop = append([]string{"SYS_ADMIN"}, hostConfig.CapDrop...)
+		}
 	}
 
 	// Persistent dev containers (hosted web services) must survive a host
@@ -1323,13 +1372,15 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mo
 	// This allows docker build cache to be shared across all sessions
 	// BuildKit uses content-addressed storage, so concurrent access is safe
 	buildkitCacheDir := filepath.Join(dm.manager.dataDir, SharedBuildKitCacheDir)
-	if _, err := os.Stat(buildkitCacheDir); err == nil {
-		mounts = append(mounts, mount.Mount{
-			Type:   mount.TypeBind,
-			Source: buildkitCacheDir,
-			Target: "/buildkit-cache",
-		})
-		log.Debug().Str("source", buildkitCacheDir).Msg("Added shared BuildKit cache mount")
+	if !req.RootlessContainerEngine {
+		if _, err := os.Stat(buildkitCacheDir); err == nil {
+			mounts = append(mounts, mount.Mount{
+				Type:   mount.TypeBind,
+				Source: buildkitCacheDir,
+				Target: "/buildkit-cache",
+			})
+			log.Debug().Str("source", buildkitCacheDir).Msg("Added shared BuildKit cache mount")
+		}
 	}
 
 	return mounts, nil

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
@@ -123,6 +124,35 @@ func TestBuildEnvVarsForcesHeadlessStartup(t *testing.T) {
 		require.False(t, strings.HasPrefix(entry, "NVIDIA_"), entry)
 		require.False(t, strings.HasPrefix(entry, "ZED_ALLOW_EMULATED_GPU="), entry)
 	}
+}
+
+func TestExternalAgentIsolation(t *testing.T) {
+	require.Equal(t, containerIsolation{rootlessContainerEngine: true}, externalAgentIsolation("headless"))
+	for _, containerType := range []string{"ubuntu", "sway", "zorin", "xfce", "kde"} {
+		require.Equal(t, containerIsolation{privileged: true}, externalAgentIsolation(containerType), containerType)
+	}
+}
+
+func TestBuildMountsUsesContainerEngineStorageForRuntime(t *testing.T) {
+	executor := newTestExecutor(nil)
+	agent := &types.DesktopAgent{SessionID: "ses_1"}
+
+	headlessMounts := executor.buildMounts(agent, "/workspace/ses_1", "headless")
+	require.Equal(t, "docker-data-ses_1", mountSourceForDestination(headlessMounts, "/home/retro/.local/share/containers"))
+	require.Empty(t, mountSourceForDestination(headlessMounts, "/var/lib/docker"))
+
+	desktopMounts := executor.buildMounts(agent, "/workspace/ses_1", "ubuntu")
+	require.Equal(t, "docker-data-ses_1", mountSourceForDestination(desktopMounts, "/var/lib/docker"))
+	require.Empty(t, mountSourceForDestination(desktopMounts, "/home/retro/.local/share/containers"))
+}
+
+func mountSourceForDestination(mounts []hydra.MountConfig, destination string) string {
+	for _, item := range mounts {
+		if item.Destination == destination {
+			return item.Source
+		}
+	}
+	return ""
 }
 
 func countEnvKey(env []string, key string) int {
