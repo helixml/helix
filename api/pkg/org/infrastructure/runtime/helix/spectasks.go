@@ -96,6 +96,23 @@ func (s *SpecTasks) OwnProjectID(ctx context.Context, orgID string, workerID org
 // always the Worker's hiring user, so cross-project mutations are still
 // attributed to a real Helix user.
 func (s *SpecTasks) resolveProject(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID string) (projectID, hiringUserID string, err error) {
+	// A project principal (a spec task's own coding agent) has no Worker
+	// runtime state — it carries its project and acting user directly. It is
+	// pinned to that one project: naming any other is refused rather than
+	// silently redirected, so a task can never reach a sibling project.
+	if principal, ok := runtime.ProjectPrincipalFromContext(ctx); ok {
+		if requestedProjectID != "" && requestedProjectID != principal.ProjectID {
+			return "", "", fmt.Errorf("caller is scoped to project %s and cannot act on project %s", principal.ProjectID, requestedProjectID)
+		}
+		project, projErr := s.tasks.GetProject(ctx, principal.ProjectID)
+		if projErr != nil {
+			return "", "", fmt.Errorf("get project: %w", projErr)
+		}
+		if project.OrganizationID != orgID {
+			return "", "", fmt.Errorf("project %s does not belong to this caller's organization", principal.ProjectID)
+		}
+		return principal.ProjectID, principal.ActingUserID, nil
+	}
 	state, err := LoadState(ctx, s.orgStore, orgID, workerID)
 	if err != nil {
 		return "", "", fmt.Errorf("load worker state: %w", err)
@@ -180,22 +197,21 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 	}
 
 	// Sandbox size and runtime resolve exactly as CreateTaskFromPrompt resolves
-	// them for the REST path: explicit value, else the project default, else
-	// the global default. A Worker filing a task through MCP must land on the
-	// same sandbox it would have got through the UI.
+	// them for the REST path: explicit value, else the project default, else nil
+	// and the global default is applied at container-create time. A Worker filing
+	// a task through MCP must land on the same sandbox it would have got through
+	// the UI.
 	var sandboxResources *types.SandboxResourceOverrides
 	if in.SandboxVCPUs != 0 {
 		preset, ok := types.SpecTaskSandboxPresetForVCPUs(in.SandboxVCPUs)
 		if !ok {
-			return runtime.SpecTaskView{}, fmt.Errorf("sandbox_vcpus must be 1, 4 or 8 (got %d)", in.SandboxVCPUs)
+			return runtime.SpecTaskView{}, fmt.Errorf("sandbox_vcpus must be one of %s (got %d)",
+				types.SpecTaskSandboxVCPUList(), in.SandboxVCPUs)
 		}
 		sandboxResources = preset
 	} else if project.DefaultSandboxResourceOverrides != nil {
 		projectResources := *project.DefaultSandboxResourceOverrides
 		sandboxResources = &projectResources
-	}
-	if sandboxResources == nil {
-		sandboxResources = types.DefaultSpecTaskSandboxResources()
 	}
 
 	sandboxRuntime := types.SandboxRuntime(strings.TrimSpace(in.SandboxRuntime))

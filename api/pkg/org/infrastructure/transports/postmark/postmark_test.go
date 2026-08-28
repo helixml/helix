@@ -12,29 +12,40 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/transports/postmark"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
-// recordingDispatcher captures Dispatch calls for assertion.
-type recordingDispatcher struct {
+// recordingPublisher wraps the real publish use case so tests can
+// assert what a delivery produced.
+type recordingPublisher struct {
+	inner  *publishing.Publishing
 	mu     sync.Mutex
 	events []streaming.Event
 }
 
-func (d *recordingDispatcher) Dispatch(_ context.Context, e streaming.Event) {
+func (d *recordingPublisher) PublishDelivery(ctx context.Context, orgID, triggerID string, eventID streaming.EventID, msg streaming.Message) (streaming.Event, error) {
+	e, err := d.inner.PublishDelivery(ctx, orgID, triggerID, eventID, msg)
+	if err != nil {
+		return e, err
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.events = append(d.events, e)
+	return e, nil
 }
 
-func (d *recordingDispatcher) snapshot() []streaming.Event {
+func (d *recordingPublisher) snapshot() []streaming.Event {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	out := make([]streaming.Event, len(d.events))
@@ -42,7 +53,7 @@ func (d *recordingDispatcher) snapshot() []streaming.Event {
 	return out
 }
 
-func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordingDispatcher, *wakebus.Bus, *configregistry.Registry) {
+func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordingPublisher, *wakebus.Bus, *configregistry.Registry) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ps, err := pubsub.NewInMemoryNats()
@@ -50,14 +61,14 @@ func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordi
 		t.Fatalf("NewInMemoryNats: %v", err)
 	}
 	bc := wakebus.New(ps)
-	rd := &recordingDispatcher{}
+	rd := &recordingPublisher{inner: publishing.New(publishing.Deps{Triggers: st.Triggers, Events: st.Events, Hub: bc, Now: func() time.Time { return time.Now().UTC() }, NewID: uuid.NewString})}
 	reg := configregistry.New(st.Configs)
 	reg.Register(configregistry.Spec{
 		Key:     "transport.postmark",
 		Type:    configregistry.TypeObject,
 		Secrets: []string{"token"},
 	})
-	tp := postmark.New("org-test", reg, st, bc, rd, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tp := postmark.New("org-test", reg, st, rd, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return tp, st, rd, bc, reg
 }
 
@@ -69,28 +80,27 @@ func setPostmarkConfig(t *testing.T, reg *configregistry.Registry, token, inboun
 	}
 }
 
-func seedEmailTopic(t *testing.T, st *store.Store, id streaming.TopicID, alias string) streaming.Topic {
+func seedEmailTrigger(t *testing.T, st *store.Store, id, alias string) trigger.Trigger {
 	t.Helper()
 	cfg, _ := json.Marshal(transport.EmailConfig{Alias: alias})
-	topic, err := streaming.NewTopic(id, string(id), "", "w-owner", time.Now().UTC(),
-		transport.Transport{Kind: transport.KindEmail, Config: cfg}, "org-test")
+	row, err := trigger.New(id, "org-test", id, "", transport.KindEmail, cfg, "w-owner", time.Now().UTC())
 	if err != nil {
-		t.Fatalf("new topic: %v", err)
+		t.Fatalf("new trigger: %v", err)
 	}
-	if err := st.Topics.Create(context.Background(), topic); err != nil {
-		t.Fatalf("create topic: %v", err)
+	if err := st.Triggers.Create(context.Background(), row); err != nil {
+		t.Fatalf("create trigger: %v", err)
 	}
-	return topic
+	return row
 }
 
 // TestInboundHappyPath: a Postmark inbound POST with `+sam` alias
-// lands as an Event on the s-support topic, with all envelope
-// fields populated and the dispatcher fired.
+// lands as an event on the s-support Trigger, with all envelope
+// fields populated and the publish path exercised.
 func TestInboundHappyPath(t *testing.T) {
 	t.Parallel()
 	tp, st, rd, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	seedEmailTopic(t, st, "s-support", "sam")
+	seedEmailTrigger(t, st, "s-support", "sam")
 
 	srv := httptest.NewServer(tp.HandleInbound())
 	t.Cleanup(srv.Close)
@@ -117,7 +127,7 @@ func TestInboundHappyPath(t *testing.T) {
 		t.Fatalf("status = %d, body = %q", resp.StatusCode, got)
 	}
 
-	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-support", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-support", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -149,7 +159,7 @@ func TestInboundNoAliasReturns400(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	seedEmailTopic(t, st, "s-support", "sam")
+	seedEmailTrigger(t, st, "s-support", "sam")
 	srv := httptest.NewServer(tp.HandleInbound())
 	t.Cleanup(srv.Close)
 
@@ -170,7 +180,7 @@ func TestInboundUnknownAliasReturns404(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	seedEmailTopic(t, st, "s-support", "sam") // alias=sam exists
+	seedEmailTrigger(t, st, "s-support", "sam") // alias=sam exists
 	srv := httptest.NewServer(tp.HandleInbound())
 	t.Cleanup(srv.Close)
 
@@ -204,7 +214,7 @@ func TestInboundReplyPopulatesInReplyTo(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	seedEmailTopic(t, st, "s-support", "sam")
+	seedEmailTrigger(t, st, "s-support", "sam")
 	srv := httptest.NewServer(tp.HandleInbound())
 	t.Cleanup(srv.Close)
 
@@ -225,7 +235,7 @@ func TestInboundReplyPopulatesInReplyTo(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-support", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-support", 10)
 	msg, _ := events[0].Message()
 	if msg.InReplyTo != "<original@example.com>" {
 		t.Fatalf("InReplyTo = %q", msg.InReplyTo)
@@ -240,174 +250,6 @@ func TestInboundReplyPopulatesInReplyTo(t *testing.T) {
 // from the transport's perspective — we *send* outbound, Postmark
 // receives). Tests use this to assert outbound payload shape without
 // hitting the real API.
-type fakePostmark struct {
-	mu       sync.Mutex
-	requests []fakePostmarkRequest
-	status   int
-}
-type fakePostmarkRequest struct {
-	headers http.Header
-	payload map[string]any
-}
-
-func newFakePostmark(t *testing.T) (*httptest.Server, *fakePostmark) {
-	t.Helper()
-	fp := &fakePostmark{status: http.StatusOK}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = r.Body.Close()
-		var p map[string]any
-		_ = json.Unmarshal(body, &p)
-		fp.mu.Lock()
-		fp.requests = append(fp.requests, fakePostmarkRequest{headers: r.Header.Clone(), payload: p})
-		s := fp.status
-		fp.mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(s)
-		_, _ = w.Write([]byte(`{"ErrorCode":0,"Message":"OK","MessageID":"abc-fake"}`))
-	}))
-	t.Cleanup(srv.Close)
-	return srv, fp
-}
-
-func (fp *fakePostmark) snapshot() []fakePostmarkRequest {
-	fp.mu.Lock()
-	defer fp.mu.Unlock()
-	out := make([]fakePostmarkRequest, len(fp.requests))
-	copy(out, fp.requests)
-	return out
-}
-
-// TestEmitOutbound: a Message published to an email topic POSTs to
-// Postmark with all the right fields — From from server config,
-// To/Subject/Body from the Message, ReplyTo derived from alias,
-// InReplyTo / References headers when threading.
-func TestEmitOutbound(t *testing.T) {
-	t.Parallel()
-	tp, st, _, _, reg := newTestTransport(t)
-	setPostmarkConfig(t, reg, "secret-token", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	topic := seedEmailTopic(t, st, "s-support", "sam")
-
-	fakeSrv, fp := newFakePostmark(t)
-	tp.SetSendURL(fakeSrv.URL)
-
-	msg := streaming.Message{
-		From:      "w-sam",
-		To:        []string{"alice@example.com"},
-		Subject:   "Re: Webhook question",
-		Body:      "Most webhook flow issues are config or subscription mismatches.",
-		InReplyTo: "<original@example.com>",
-		ThreadID:  "<root@example.com>",
-	}
-	event, err := streaming.NewMessageEvent(
-		streaming.EventID("e-1"),
-		topic.ID,
-		"w-sam",
-		msg,
-		time.Now().UTC(),
-		"org-test",
-	)
-	if err != nil {
-		t.Fatalf("new event: %v", err)
-	}
-
-	if err := tp.Emit(context.Background(), event); err != nil {
-		t.Fatalf("Emit: %v", err)
-	}
-
-	got := fp.snapshot()
-	if len(got) != 1 {
-		t.Fatalf("postmark requests = %d, want 1", len(got))
-	}
-	req := got[0]
-	if h := req.headers.Get("X-Postmark-Server-Token"); h != "secret-token" {
-		t.Fatalf("token header = %q", h)
-	}
-	if req.payload["From"] != "you@gmail.com" {
-		t.Fatalf("From = %v, want you@gmail.com (server-config from)", req.payload["From"])
-	}
-	if req.payload["To"] != "alice@example.com" {
-		t.Fatalf("To = %v", req.payload["To"])
-	}
-	if req.payload["ReplyTo"] != "abc123+sam@inbound.postmarkapp.com" {
-		t.Fatalf("ReplyTo = %v", req.payload["ReplyTo"])
-	}
-	if req.payload["Subject"] != "Re: Webhook question" {
-		t.Fatalf("Subject = %v", req.payload["Subject"])
-	}
-	if !strings.Contains(req.payload["TextBody"].(string), "Most webhook flow issues") {
-		t.Fatalf("TextBody = %v", req.payload["TextBody"])
-	}
-	headers, ok := req.payload["Headers"].([]any)
-	if !ok || len(headers) != 2 {
-		t.Fatalf("Headers = %v, want 2 entries (In-Reply-To, References)", req.payload["Headers"])
-	}
-}
-
-// TestEmitOverridesFromIfRealAddress: when the role's Message.From is
-// a real email address (not a WorkerID), use it as the From header
-// instead of the server-config default. Lets a future "billing" agent
-// send From a different verified Sender Signature.
-func TestEmitOverridesFromIfRealAddress(t *testing.T) {
-	t.Parallel()
-	tp, st, _, _, reg := newTestTransport(t)
-	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "default@x.com")
-	topic := seedEmailTopic(t, st, "s-billing", "billing")
-
-	fakeSrv, fp := newFakePostmark(t)
-	tp.SetSendURL(fakeSrv.URL)
-
-	msg := streaming.Message{
-		From: "billing@x.com",
-		To:   []string{"alice@example.com"},
-		Body: "...",
-	}
-	event, _ := streaming.NewMessageEvent("e-1", topic.ID, "w-billing", msg, time.Now().UTC(), "org-test")
-	if err := tp.Emit(context.Background(), event); err != nil {
-		t.Fatalf("Emit: %v", err)
-	}
-	got := fp.snapshot()
-	if got[0].payload["From"] != "billing@x.com" {
-		t.Fatalf("From = %v, want override", got[0].payload["From"])
-	}
-}
-
-func TestEmitNoRecipient(t *testing.T) {
-	t.Parallel()
-	tp, st, _, _, reg := newTestTransport(t)
-	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	topic := seedEmailTopic(t, st, "s-support", "sam")
-
-	msg := streaming.Message{
-		Body: "I forgot the recipient",
-	}
-	event, _ := streaming.NewMessageEvent("e-1", topic.ID, "", msg, time.Now().UTC(), "org-test")
-	err := tp.Emit(context.Background(), event)
-	if err == nil || !strings.Contains(err.Error(), "no recipient") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestEmitPostmarkError(t *testing.T) {
-	t.Parallel()
-	tp, st, _, _, reg := newTestTransport(t)
-	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	topic := seedEmailTopic(t, st, "s-support", "sam")
-
-	fakeSrv, fp := newFakePostmark(t)
-	fp.status = http.StatusUnprocessableEntity
-	tp.SetSendURL(fakeSrv.URL)
-
-	msg := streaming.Message{
-		To:   []string{"alice@example.com"},
-		Body: "...",
-	}
-	event, _ := streaming.NewMessageEvent("e-1", topic.ID, "w-sam", msg, time.Now().UTC(), "org-test")
-	err := tp.Emit(context.Background(), event)
-	if err == nil || !strings.Contains(err.Error(), "postmark 422") {
-		t.Fatalf("err = %v, want postmark 422", err)
-	}
-}
 
 func TestAliasAddressHashForm(t *testing.T) {
 	t.Parallel()

@@ -1,8 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, fireEvent, waitFor, screen } from '@testing-library/react'
+import { act, render, fireEvent, waitFor, screen } from '@testing-library/react'
 import { PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import RobustPromptInput from './RobustPromptInput'
 import { buildWorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
+import { QUEUE_DISPATCH_GRACE_MS } from '../../utils/promptQueueVisibility'
 
 const updateInterrupt = vi.fn()
 const saveToHistory = vi.fn()
@@ -46,6 +47,33 @@ const mkEntry = (id: string, ts: number, overrides: Partial<PromptHistoryEntry> 
   status: 'pending',
   interrupt: false,
   ...overrides,
+})
+
+describe('RobustPromptInput autofocus', () => {
+  it('returns focus to the composer when the selected session changes', async () => {
+    const view = render(
+      <>
+        <button type="button">Outside</button>
+        <RobustPromptInput sessionId="ses_one" onSend={vi.fn()} autoFocus />
+      </>,
+    )
+
+    const composer = view.container.querySelector('textarea')
+    expect(composer).toBeTruthy()
+    await waitFor(() => expect(composer).toHaveFocus())
+
+    act(() => screen.getByRole('button', { name: 'Outside' }).focus())
+    expect(screen.getByRole('button', { name: 'Outside' })).toHaveFocus()
+
+    view.rerender(
+      <>
+        <button type="button">Outside</button>
+        <RobustPromptInput sessionId="ses_two" onSend={vi.fn()} autoFocus />
+      </>,
+    )
+
+    await waitFor(() => expect(view.container.querySelector('textarea')).toHaveFocus())
+  })
 })
 
 describe('RobustPromptInput empty-Enter promotes oldest queued to interrupt', () => {
@@ -211,6 +239,52 @@ describe('RobustPromptInput active-turn controls', () => {
 
     expect(screen.getByText('1 queued')).toBeInTheDocument()
     expect(screen.queryByText(/saved locally/i)).not.toBeInTheDocument()
+  })
+})
+
+// The queue panel claims a message is waiting. A prompt handed to an idle agent
+// is not waiting — the backend dispatches it within milliseconds — so showing
+// "1 queued" for it is wrong, even briefly.
+describe('RobustPromptInput queue panel only appears for genuinely queued prompts', () => {
+  beforeEach(() => {
+    pendingPrompts = []
+  })
+
+  const renderQueued = (props: Record<string, unknown> = {}) =>
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        specTaskId="task_1"
+        projectId="prj_1"
+        apiClient={{} as any}
+        onSend={vi.fn()}
+        {...props}
+      />
+    )
+
+  it('stays hidden for a prompt just submitted to an idle agent', () => {
+    pendingPrompts = [mkEntry('a', Date.now())]
+    renderQueued()
+    expect(screen.queryByText(/queued/)).not.toBeInTheDocument()
+  })
+
+  it('shows a prompt submitted while the agent is mid-turn', () => {
+    pendingPrompts = [mkEntry('a', Date.now())]
+    renderQueued({ isAgentBusy: true })
+    expect(screen.getByText('1 queued')).toBeInTheDocument()
+  })
+
+  it('shows a backlog even when the agent is idle', () => {
+    pendingPrompts = [mkEntry('a', Date.now()), mkEntry('b', Date.now())]
+    renderQueued()
+    expect(screen.getByText('2 queued')).toBeInTheDocument()
+  })
+
+  it('reveals an undispatched prompt once the grace window elapses', async () => {
+    pendingPrompts = [mkEntry('a', Date.now() - (QUEUE_DISPATCH_GRACE_MS - 150))]
+    renderQueued()
+    expect(screen.queryByText(/queued/)).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('1 queued')).toBeInTheDocument())
   })
 })
 

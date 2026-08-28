@@ -31,7 +31,7 @@ const EmbedTaskPage: FC = () => {
     // DesktopStreamViewer.tsx toggleFullscreen), the iframe's window
     // is resized to the browser viewport and 100dvh expands with it.
     <Box sx={{ height: '100dvh', overflow: 'hidden', backgroundColor: bg }}>
-      <SpecTaskDetailContent taskId={taskId} />
+      <SpecTaskDetailContent taskId={taskId} enableForegroundPRRefresh={false} />
     </Box>
   )
 }

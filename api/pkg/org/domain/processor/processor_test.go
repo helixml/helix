@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
@@ -20,13 +21,13 @@ func cfg(t *testing.T, v any) json.RawMessage {
 }
 
 func out(topic string) []processor.Output {
-	return []processor.Output{{TopicID: streaming.TopicID(topic)}}
+	return []processor.Output{{ID: "po-" + topic, StreamID: streaming.StreamID(topic)}}
 }
 
 func newTemplateProc(t *testing.T, tmpl string) processor.Processor {
 	t.Helper()
 	p, err := processor.NewProcessor(
-		"p-fmt", "Formatter", "s-in", processor.KindTemplate,
+		"p-fmt", "Formatter", eventsource.Trigger("s-in"), processor.KindTemplate,
 		cfg(t, map[string]string{"template": tmpl}), out("s-out"),
 		"w-owner", time.Now(), "org-1",
 	)
@@ -48,8 +49,8 @@ func TestTemplateRendersBody(t *testing.T) {
 	if got := res[0].Message.Body; got != "BODY: hello world" {
 		t.Errorf("body = %q, want %q", got, "BODY: hello world")
 	}
-	if res[0].TopicID != "s-out" {
-		t.Errorf("topic = %q, want s-out", res[0].TopicID)
+	if res[0].Output.StreamID != "s-out" {
+		t.Errorf("topic = %q, want s-out", res[0].Output.StreamID)
 	}
 	if res[0].Message.BodyContentType != "text/plain" {
 		t.Errorf("content type = %q, want text/plain", res[0].Message.BodyContentType)
@@ -106,7 +107,7 @@ func TestTemplateFuncMap(t *testing.T) {
 
 func TestTemplateMalformedRejectedAtValidation(t *testing.T) {
 	_, err := processor.NewProcessor(
-		"p-bad", "Bad", "s-in", processor.KindTemplate,
+		"p-bad", "Bad", eventsource.Trigger("s-in"), processor.KindTemplate,
 		cfg(t, map[string]string{"template": "{{ .Message.body "}), out("s-out"),
 		"", time.Now(), "org-1",
 	)
@@ -117,7 +118,7 @@ func TestTemplateMalformedRejectedAtValidation(t *testing.T) {
 
 func TestTemplateEmptyRejected(t *testing.T) {
 	_, err := processor.NewProcessor(
-		"p-empty", "Empty", "s-in", processor.KindTemplate,
+		"p-empty", "Empty", eventsource.Trigger("s-in"), processor.KindTemplate,
 		cfg(t, map[string]string{"template": "   "}), out("s-out"),
 		"", time.Now(), "org-1",
 	)
@@ -128,9 +129,9 @@ func TestTemplateEmptyRejected(t *testing.T) {
 
 func TestTemplateRequiresSingleOutput(t *testing.T) {
 	_, err := processor.NewProcessor(
-		"p-multi", "Multi", "s-in", processor.KindTemplate,
+		"p-multi", "Multi", eventsource.Trigger("s-in"), processor.KindTemplate,
 		cfg(t, map[string]string{"template": "x"}),
-		[]processor.Output{{TopicID: "s-a"}, {TopicID: "s-b"}},
+		[]processor.Output{{ID: "po-a", StreamID: "s-a"}, {ID: "po-b", StreamID: "s-b"}},
 		"", time.Now(), "org-1",
 	)
 	if err == nil {
@@ -140,7 +141,7 @@ func TestTemplateRequiresSingleOutput(t *testing.T) {
 
 func TestUnknownKindRejected(t *testing.T) {
 	_, err := processor.NewProcessor(
-		"p-x", "X", "s-in", processor.Kind("nope"),
+		"p-x", "X", eventsource.Trigger("s-in"), processor.Kind("nope"),
 		nil, out("s-out"), "", time.Now(), "org-1",
 	)
 	if err == nil {
@@ -152,7 +153,7 @@ func TestValidateRequiredFields(t *testing.T) {
 	base := func() processor.Processor {
 		return processor.Processor{
 			ID: "p-1", OrganizationID: "org-1", Name: "n",
-			InputTopicID: "s-in", Kind: processor.KindTemplate,
+			InputSource: eventsource.Trigger("s-in"), Kind: processor.KindTemplate,
 			Config:  cfg(t, map[string]string{"template": "x"}),
 			Outputs: out("s-out"), CreatedAt: time.Now(),
 		}
@@ -162,7 +163,7 @@ func TestValidateRequiredFields(t *testing.T) {
 		"empty org":    func(p *processor.Processor) { p.OrganizationID = "" },
 		"empty name":   func(p *processor.Processor) { p.Name = "" },
 		"no outputs":   func(p *processor.Processor) { p.Outputs = nil },
-		"empty output": func(p *processor.Processor) { p.Outputs = []processor.Output{{TopicID: ""}} },
+		"empty output": func(p *processor.Processor) { p.Outputs = []processor.Output{{StreamID: ""}} },
 		"empty kind":   func(p *processor.Processor) { p.Kind = "" },
 	}
 	for name, mut := range cases {
@@ -178,10 +179,12 @@ func TestValidateRequiredFields(t *testing.T) {
 
 func TestEmptyInputIsValid(t *testing.T) {
 	// A processor with no input topic is valid but inert (unwired).
+	outputs := out("s-out")
+	outputs[0].ID = "po-out"
 	p := processor.Processor{
-		ID: "p-1", OrganizationID: "org-1", Name: "n", InputTopicID: "",
+		ID: "p-1", OrganizationID: "org-1", Name: "n",
 		Kind: processor.KindTemplate, Config: cfg(t, map[string]string{"template": "x"}),
-		Outputs: out("s-out"), CreatedAt: time.Now(),
+		Outputs: outputs, CreatedAt: time.Now(),
 	}
 	if err := p.Validate(); err != nil {
 		t.Errorf("empty input should be valid (inert), got %v", err)

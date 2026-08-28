@@ -39,11 +39,11 @@ type SandboxInstanceInfo struct {
 
 	// Inference profile state — populated from the heartbeat. Empty for
 	// pure-agent sandboxes with no profile assigned.
-	ActiveProfileID string                                       `json:"active_profile_id,omitempty"`
-	ProfileStatus   string                                       `json:"profile_status,omitempty"`
-	ProfileError    string                                       `json:"profile_error,omitempty"`
-	ServiceHealth   map[string]string                            `json:"service_health,omitempty"`
-	ProfileProgress map[string]types.ServiceDownloadProgress     `json:"profile_progress,omitempty"`
+	ActiveProfileID string                                   `json:"active_profile_id,omitempty"`
+	ProfileStatus   string                                   `json:"profile_status,omitempty"`
+	ProfileError    string                                   `json:"profile_error,omitempty"`
+	ServiceHealth   map[string]string                        `json:"service_health,omitempty"`
+	ProfileProgress map[string]types.ServiceDownloadProgress `json:"profile_progress,omitempty"`
 
 	// Hardware reported by the sandbox heartbeat — drives the admin UI's
 	// per-runner architecture display so an operator can pick a compatible

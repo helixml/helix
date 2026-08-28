@@ -9,6 +9,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
@@ -16,9 +17,9 @@ import (
 
 // BotLog reads a single Bot's activation transcript — assistant text,
 // tool calls, tool results — newest first. It's a shortcut over the
-// underlying primitives: resolves the deterministic activation Topic
-// (s-transcript-<botID>), auto-subscribes the caller (so the agent
-// doesn't have to chain subscribe + read_events), then returns the
+// underlying primitives: resolves the deterministic transcript channel
+// (s-transcript-<botID>), attaches the caller to it (so the agent
+// doesn't have to chain attach_worker + read_events), then returns the
 // events scoped to that one Bot.
 //
 // Same pagination/long-poll semantics as read_events: pass since=<eventId>
@@ -37,9 +38,9 @@ func (t *BotLog) InputSchema() *jsonschema.Schema { return botLogSchema }
 func (t *BotLog) Description() string {
 	return "Read a Bot's activation log — assistant text, tool calls, tool results — " +
 		"newest first. Reach for this whenever the user wants to watch/audit/tail/" +
-		"observe what a named Bot is doing or did. Auto-subscribes the caller to " +
+		"observe what a named Bot is doing or did. Attaches the caller to " +
 		"the Bot's transcript on first call; subsequent calls reuse the " +
-		"subscription. Same since/wait/limit semantics as read_events but scoped to " +
+		"attachment. Same since/wait/limit semantics as read_events but scoped to " +
 		"one Bot. Pass activationId to narrow further to a single activation's " +
 		"transcript (the time window between that activation's start and end)."
 }
@@ -96,8 +97,8 @@ func (t *BotLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 		return nil, fmt.Errorf("bot %q: %w", target, err)
 	}
 
-	topicID := activation.TranscriptID(target)
-	if _, err := t.deps.Queries.GetTopic(ctx, orgID, topicID); err != nil {
+	transcriptID := activation.TranscriptID(target)
+	if _, err := t.deps.Queries.GetTrigger(ctx, orgID, transcriptID); err != nil {
 		return nil, fmt.Errorf("transcript for %q: %w", target, err)
 	}
 
@@ -127,12 +128,12 @@ func (t *BotLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 		actWindow = &w
 	}
 
-	// Auto-subscribe the caller via the subscriptions service (validates
-	// the caller + topic exist, idempotent get-or-create). After this,
-	// plain read_events also includes this Bot's transcript.
+	// Attach the caller via the attachments service (validates the caller
+	// and the source exist, idempotent). After this, plain read_events
+	// also includes this Bot's transcript.
 	caller := inv.Caller.ID()
-	if _, _, err := t.deps.Subscriptions.Subscribe(ctx, orgID, caller, topicID); err != nil {
-		return nil, fmt.Errorf("subscribe bot %q to %q: %w", caller, topicID, err)
+	if err := t.deps.Attachments.AttachAll(ctx, orgID, caller, []eventsource.SourceRef{eventsource.Trigger(transcriptID)}, string(caller)); err != nil {
+		return nil, fmt.Errorf("attach bot %q to %q: %w", caller, transcriptID, err)
 	}
 
 	limit := args.Limit
@@ -151,7 +152,7 @@ func (t *BotLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 	}
 	since := streaming.EventID(args.Since)
 
-	fresh, err := t.fresh(ctx, orgID, topicID, limit, since)
+	fresh, err := t.fresh(ctx, orgID, transcriptID, limit, since)
 	if err != nil {
 		return nil, err
 	}
@@ -162,8 +163,8 @@ func (t *BotLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 		return marshalEvents(fresh), nil
 	}
 
-	wake := t.deps.Hub.Subscribe(orgID, []streaming.TopicID{topicID})
-	defer t.deps.Hub.Unsubscribe([]streaming.TopicID{topicID}, wake)
+	wake := t.deps.Hub.Subscribe(orgID, []streaming.StreamID{transcriptID})
+	defer t.deps.Hub.Unsubscribe([]streaming.StreamID{transcriptID}, wake)
 
 	timer := time.NewTimer(time.Duration(wait) * time.Second)
 	defer timer.Stop()
@@ -175,7 +176,7 @@ func (t *BotLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 		return marshalEvents(nil), nil
 	}
 
-	fresh, err = t.fresh(ctx, orgID, topicID, limit, since)
+	fresh, err = t.fresh(ctx, orgID, transcriptID, limit, since)
 	if err != nil {
 		return nil, err
 	}
@@ -208,10 +209,10 @@ func filterToActivationWindow(events []streaming.Event, startedAt, endedAt time.
 // fresh returns events on the transcript newer than `since`
 // (exclusive), newest-first, up to `limit`. Empty `since` means "return
 // everything up to limit".
-func (t *BotLog) fresh(ctx context.Context, orgID string, topicID streaming.TopicID, limit int, since streaming.EventID) ([]streaming.Event, error) {
-	events, err := t.deps.Queries.TopicEvents(ctx, orgID, topicID, limit)
+func (t *BotLog) fresh(ctx context.Context, orgID string, streamID streaming.StreamID, limit int, since streaming.EventID) ([]streaming.Event, error) {
+	events, err := t.deps.Queries.StreamEvents(ctx, orgID, streamID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("list events on %q: %w", topicID, err)
+		return nil, fmt.Errorf("list events on %q: %w", streamID, err)
 	}
 	if since == "" {
 		return events, nil

@@ -5,6 +5,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import { IAppFlatState } from '../../types'
 import AppSettings from './AppSettings'
 import OrgAgentSettings from './OrgAgentSettings'
+import WorkerSecretsPanel from '../helix-org/WorkerSecretsPanel'
 import { BotDetailDTO } from '../../services/helixOrgService'
 import {
   AgentSettingsPage,
@@ -170,8 +171,8 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
           </AgentSettingsSection>
 
           <AgentSettingsSection
-            title="Subscriptions"
-            description="Choose the organization topics that trigger this worker."
+            title="Triggers"
+            description="Choose what starts this agent. You can use a Trigger directly or the result of a Processor."
           >
             <AgentSettingsRow>
               <OrgAgentSettings
@@ -181,6 +182,15 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
                 detail={orgAgentDetail}
                 embedded
               />
+            </AgentSettingsRow>
+          </AgentSettingsSection>
+
+          <AgentSettingsSection
+            title="Secrets"
+            description="Choose which credentials this agent may retrieve when it needs them."
+          >
+            <AgentSettingsRow>
+              <WorkerSecretsPanel agentID={orgAgentDetail?.bot?.id} projectID={orgAgentDetail?.project_id} readOnly={readOnly} />
             </AgentSettingsRow>
           </AgentSettingsSection>
 

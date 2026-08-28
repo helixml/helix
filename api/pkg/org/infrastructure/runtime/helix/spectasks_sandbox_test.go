@@ -94,9 +94,14 @@ func TestSpecTasks_CreateFallsBackToProjectSandboxDefaults(t *testing.T) {
 	}
 }
 
-// With neither an explicit value nor a project default, the global defaults
-// apply — a task must never be created with an empty sandbox spec.
-func TestSpecTasks_CreateUsesGlobalSandboxDefaults(t *testing.T) {
+// With neither an explicit value nor a project default, the row stores NO
+// override and the global default is resolved at container-create time.
+//
+// Materializing it here is what froze every task created after 1eff4e801 at
+// 4 vCPU / 8 GB: a stored override is indistinguishable from a user's choice, so
+// a raised default could never reach those rows. Asserting nil is the point of
+// this test, not an accident of it.
+func TestSpecTasks_CreateLeavesGlobalSandboxDefaultUnmaterialized(t *testing.T) {
 	t.Parallel()
 	task, err := createInProject(t, plainProject(), runtime.CreateSpecTaskInput{
 		Name: "Ordinary", Description: "no overrides",
@@ -104,8 +109,13 @@ func TestSpecTasks_CreateUsesGlobalSandboxDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if task.SandboxResourceOverrides == nil || !task.SandboxResourceOverrides.ValidPreset() {
-		t.Fatalf("resources = %+v, want the global default preset", task.SandboxResourceOverrides)
+	if task.SandboxResourceOverrides != nil {
+		t.Fatalf("resources = %+v, want nil so the live default applies at start",
+			task.SandboxResourceOverrides)
+	}
+	// Nil still resolves to a usable preset for the container that eventually starts.
+	if effective := types.EffectiveSpecTaskSandboxResources(task.SandboxResourceOverrides); !effective.ValidPreset() {
+		t.Fatalf("effective resources = %+v, want a valid preset", effective)
 	}
 	if task.SandboxRuntime != types.SandboxRuntimeUbuntuDesktop {
 		t.Fatalf("runtime = %q, want the global default ubuntu-desktop", task.SandboxRuntime)
@@ -122,8 +132,10 @@ func TestSpecTasks_CreateRejectsUnknownSandboxSize(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for a vCPU count with no preset")
 	}
-	if !strings.Contains(err.Error(), "1, 4 or 8") {
-		t.Fatalf("err = %v, want it to name the legal sizes", err)
+	// Derived, not hand-copied: a Worker reads this message and retries with a
+	// size from it, so a stale list here would hide a stale list in production.
+	if !strings.Contains(err.Error(), types.SpecTaskSandboxVCPUList()) {
+		t.Fatalf("err = %v, want it to name the legal sizes %s", err, types.SpecTaskSandboxVCPUList())
 	}
 }
 

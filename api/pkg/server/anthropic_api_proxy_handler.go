@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/anthropic"
-	"github.com/helixml/helix/api/pkg/external-agent"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"

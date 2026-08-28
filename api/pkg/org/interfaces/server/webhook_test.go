@@ -3,10 +3,8 @@ package server_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,11 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
@@ -30,34 +29,37 @@ import (
 // the webhook handler fans events out to subscribed Workers. Safe for
 // concurrent calls — httptest.Server runs each request on its own
 // goroutine.
-type recordingDispatcher struct {
+// recordingRouter captures the events publishing routed, so tests can
+// assert the webhook reached the routing layer at all.
+type recordingRouter struct {
 	mu     sync.Mutex
-	events []streaming.Event
+	events []eventsource.Event
 }
 
-func (d *recordingDispatcher) Dispatch(_ context.Context, e streaming.Event) {
+func (d *recordingRouter) Route(_ context.Context, e eventsource.Event) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.events = append(d.events, e)
+	return nil
 }
 
-func (d *recordingDispatcher) snapshot() []streaming.Event {
+func (d *recordingRouter) snapshot() []eventsource.Event {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	out := make([]streaming.Event, len(d.events))
+	out := make([]eventsource.Event, len(d.events))
 	copy(out, d.events)
 	return out
 }
 
 // newWebhookServer wires an in-memory store, a real broadcaster, and
-// the supplied dispatcher (may be nil) into a Server. Returns the
-// running httptest.Server plus the store + broadcaster so tests can
-// seed topics and observe wakeups.
-func newWebhookServer(t *testing.T, dispatcher publishing.Dispatcher) (*httptest.Server, *store.Store, *wakebus.Bus) {
+// the supplied router (may be nil) into a Server. Returns the running
+// httptest.Server plus the store + broadcaster so tests can seed
+// Triggers and observe wakeups.
+func newWebhookServer(t *testing.T, router publishing.Router) (*httptest.Server, *store.Store, *wakebus.Bus) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	bc := newTopichub(t)
-	srv := httptest.NewServer(server.NewFromStore(s, mcptools.NewRegistry(), bc, dispatcher, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, mcptools.NewRegistry(), bc, router, nil).Handler())
 	t.Cleanup(srv.Close)
 	return srv, s, bc
 }
@@ -75,33 +77,32 @@ func newTopichub(t *testing.T) *wakebus.Bus {
 	return wakebus.New(ps)
 }
 
-// seedTopic creates a Topic with the given transport kind. The
+// seedTrigger creates a Trigger with the given transport kind. The
 // caller's createdBy is a fixed test sentinel; we don't seed a
 // matching Worker because the webhook path doesn't read it.
-func seedTopic(t *testing.T, s *store.Store, id streaming.TopicID, kind transport.Kind) {
+func seedTrigger(t *testing.T, s *store.Store, id string, kind transport.Kind) {
 	t.Helper()
-	topic, err := streaming.NewTopic(id, string(id), "", "w-owner", time.Now().UTC(),
-		transport.Transport{Kind: kind}, "org-test")
+	row, err := trigger.New(id, "org-test", id, "", kind, nil, "w-owner", time.Now().UTC())
 	if err != nil {
-		t.Fatalf("new topic %q: %v", id, err)
+		t.Fatalf("new trigger %q: %v", id, err)
 	}
-	if err := s.Topics.Create(context.Background(), topic); err != nil {
-		t.Fatalf("seed topic %q: %v", id, err)
+	if err := s.Triggers.Create(context.Background(), row); err != nil {
+		t.Fatalf("seed trigger %q: %v", id, err)
 	}
 }
 
 // TestWebhookPostAppendsEvent walks the happy path: POSTing a body to
-// /webhooks/<topicID> appends an event with empty source (system-
+// /webhooks/<triggerID> appends an event with empty source (system-
 // emitted) and the raw body. The dispatcher receives the event, and a
-// long-poll observer of that topic wakes.
+// long-poll observer of that stream wakes.
 func TestWebhookPostAppendsEvent(t *testing.T) {
 	t.Parallel()
-	rd := &recordingDispatcher{}
+	rd := &recordingRouter{}
 	srv, s, bc := newWebhookServer(t, rd)
-	seedTopic(t, s, "s-inbox", transport.KindWebhook)
+	seedTrigger(t, s, "s-inbox", transport.KindWebhook)
 
-	wake := bc.Subscribe("org-test", []streaming.TopicID{"s-inbox"})
-	t.Cleanup(func() { bc.Unsubscribe([]streaming.TopicID{"s-inbox"}, wake) })
+	wake := bc.Subscribe("org-test", []streaming.StreamID{"s-inbox"})
+	t.Cleanup(func() { bc.Unsubscribe([]streaming.StreamID{"s-inbox"}, wake) })
 	// wakebus is pubsub-backed (NATS); the SUB has to round-trip to
 	// the embedded server before Publish can route to us. Give it a
 	// short window — the wake check at the bottom of the test then
@@ -119,7 +120,7 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 		t.Fatalf("status = %d, body = %q", resp.StatusCode, string(b))
 	}
 
-	events, err := s.Events.ListForTopic(context.Background(), "org-test", "s-inbox", 10)
+	events, err := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -139,8 +140,8 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 	if events[0].Source != "" {
 		t.Fatalf("source = %q, want empty (system-emitted)", events[0].Source)
 	}
-	if events[0].TopicID != "s-inbox" {
-		t.Fatalf("topicID = %q, want s-inbox", events[0].TopicID)
+	if events[0].StreamID != "s-inbox" {
+		t.Fatalf("streamID = %q, want s-inbox", events[0].StreamID)
 	}
 
 	dispatched := rd.snapshot()
@@ -156,13 +157,13 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 }
 
 // TestWebhookPostErrors covers the rejection paths the handler must
-// turn into HTTP errors: unknown topics, wrong-transport topics,
+// turn into HTTP errors: unknown Triggers, wrong-transport Triggers,
 // empty bodies, and wrong HTTP methods.
 func TestWebhookPostErrors(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedTopic(t, s, "s-inbox", transport.KindWebhook)
-	seedTopic(t, s, "s-local", transport.KindLocal)
+	seedTrigger(t, s, "s-inbox", transport.KindWebhook)
+	seedTrigger(t, s, "s-local", transport.KindLocal)
 
 	cases := []struct {
 		name     string
@@ -171,8 +172,8 @@ func TestWebhookPostErrors(t *testing.T) {
 		body     string
 		wantCode int
 	}{
-		{"unknown topic", "POST", "/webhooks/org-test/s-ghost", "x", http.StatusNotFound},
-		{"wrong-transport topic (local) is not a webhook", "POST", "/webhooks/org-test/s-local", "x", http.StatusNotFound},
+		{"unknown trigger", "POST", "/webhooks/org-test/s-ghost", "x", http.StatusNotFound},
+		{"wrong-transport trigger (local) is not a webhook", "POST", "/webhooks/org-test/s-local", "x", http.StatusNotFound},
 		{"empty body", "POST", "/webhooks/org-test/s-inbox", "", http.StatusBadRequest},
 		{"GET not allowed", "GET", "/webhooks/org-test/s-inbox", "", http.StatusMethodNotAllowed},
 		{"PUT not allowed", "PUT", "/webhooks/org-test/s-inbox", "x", http.StatusMethodNotAllowed},
@@ -199,12 +200,12 @@ func TestWebhookPostErrors(t *testing.T) {
 }
 
 // TestWebhookErrorsLeaveStoreClean asserts that error paths don't
-// half-create state. After a failed POST, the topic's event list
+// half-create state. After a failed POST, the stream's event list
 // must be empty.
 func TestWebhookErrorsLeaveStoreClean(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedTopic(t, s, "s-inbox", transport.KindWebhook)
+	seedTrigger(t, s, "s-inbox", transport.KindWebhook)
 
 	// Empty body → 400. No event should land.
 	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", strings.NewReader(""))
@@ -216,7 +217,7 @@ func TestWebhookErrorsLeaveStoreClean(t *testing.T) {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
 
-	events, err := s.Events.ListForTopic(context.Background(), "org-test", "s-inbox", 10)
+	events, err := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -231,7 +232,7 @@ func TestWebhookErrorsLeaveStoreClean(t *testing.T) {
 func TestWebhookBodySizeBoundary(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedTopic(t, s, "s-inbox", transport.KindWebhook)
+	seedTrigger(t, s, "s-inbox", transport.KindWebhook)
 
 	atLimit := bytes.Repeat([]byte("a"), 1<<20)
 	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", bytes.NewReader(atLimit))
@@ -261,7 +262,7 @@ func TestWebhookBodySizeBoundary(t *testing.T) {
 func TestWebhookWithNilCollaborators(t *testing.T) {
 	t.Parallel()
 	s := orggorm.GetOrgTestDB(t)
-	seedTopic(t, s, "s-inbox", transport.KindWebhook)
+	seedTrigger(t, s, "s-inbox", transport.KindWebhook)
 	srv := httptest.NewServer(server.NewFromStore(s, mcptools.NewRegistry(), nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
@@ -274,7 +275,7 @@ func TestWebhookWithNilCollaborators(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 
-	events, _ := s.Events.ListForTopic(context.Background(), "org-test", "s-inbox", 10)
+	events, _ := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -286,7 +287,7 @@ func TestWebhookWithNilCollaborators(t *testing.T) {
 func TestWebhookPreservesBodyExactly(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedTopic(t, s, "s-inbox", transport.KindWebhook)
+	seedTrigger(t, s, "s-inbox", transport.KindWebhook)
 
 	body := "line one\nline two\n\ttabbed → emoji 🚀 — UTF-8 preserved"
 	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "application/json", strings.NewReader(body))
@@ -298,7 +299,7 @@ func TestWebhookPreservesBodyExactly(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 
-	events, _ := s.Events.ListForTopic(context.Background(), "org-test", "s-inbox", 10)
+	events, _ := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -316,9 +317,9 @@ func TestWebhookPreservesBodyExactly(t *testing.T) {
 // matching dispatch.
 func TestWebhookConcurrentPosts(t *testing.T) {
 	t.Parallel()
-	rd := &recordingDispatcher{}
+	rd := &recordingRouter{}
 	srv, s, _ := newWebhookServer(t, rd)
-	seedTopic(t, s, "s-inbox", transport.KindWebhook)
+	seedTrigger(t, s, "s-inbox", transport.KindWebhook)
 
 	const N = 25
 	var wg sync.WaitGroup
@@ -340,7 +341,7 @@ func TestWebhookConcurrentPosts(t *testing.T) {
 	}
 	wg.Wait()
 
-	events, err := s.Events.ListForTopic(context.Background(), "org-test", "s-inbox", 100)
+	events, err := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 100)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -360,14 +361,14 @@ func TestWebhookConcurrentPosts(t *testing.T) {
 	}
 }
 
-// TestWebhookDoesNotLeakAcrossTopics verifies that a POST to one
-// webhook topic lands only on that topic — not on a sibling
-// webhook topic that happens to exist.
-func TestWebhookDoesNotLeakAcrossTopics(t *testing.T) {
+// TestWebhookDoesNotLeakAcrossTriggers verifies that a POST to one
+// webhook Trigger lands only on that Trigger — not on a sibling
+// webhook Trigger that happens to exist.
+func TestWebhookDoesNotLeakAcrossTriggers(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedTopic(t, s, "s-inbox", transport.KindWebhook)
-	seedTopic(t, s, "s-other", transport.KindWebhook)
+	seedTrigger(t, s, "s-inbox", transport.KindWebhook)
+	seedTrigger(t, s, "s-other", transport.KindWebhook)
 
 	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", strings.NewReader("for inbox"))
 	if err != nil {
@@ -378,8 +379,8 @@ func TestWebhookDoesNotLeakAcrossTopics(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	inboxEvents, _ := s.Events.ListForTopic(context.Background(), "org-test", "s-inbox", 10)
-	otherEvents, _ := s.Events.ListForTopic(context.Background(), "org-test", "s-other", 10)
+	inboxEvents, _ := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
+	otherEvents, _ := s.Events.ListForStream(context.Background(), "org-test", "s-other", 10)
 	if len(inboxEvents) != 1 {
 		t.Fatalf("inbox events = %d, want 1", len(inboxEvents))
 	}
@@ -388,41 +389,17 @@ func TestWebhookDoesNotLeakAcrossTopics(t *testing.T) {
 	}
 }
 
-// TestWebhookInboundDoesNotEcho proves that a bidirectional webhook
-// Topic (one with both inbound and outbound configured) does *not*
-// echo inbound POSTs back out to its own outbound URL. The dispatcher
-// skips emit for events with empty Source — i.e. events that came
-// from this transport's own inbound — so a topic that's
-// bidirectional doesn't loop. Only Worker-published events
-// (Source != "") emit outbound.
-func TestWebhookInboundDoesNotEcho(t *testing.T) {
+// TestWebhookTriggerIsInboundOnly pins what replaced the old
+// "inbound must not echo outbound" guard: after the cutover a Trigger
+// has no outbound side at all, so a webhook Trigger's config carries no
+// destination and nothing can loop. The event lands, routes, and stops.
+func TestWebhookTriggerIsInboundOnly(t *testing.T) {
 	t.Parallel()
-	caught := make(chan string, 1)
-	catcher := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = r.Body.Close()
-		caught <- string(body)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	t.Cleanup(catcher.Close)
+	router := &recordingRouter{}
+	srv, s, _ := newWebhookServer(t, router)
+	seedTrigger(t, s, "s-bridge", transport.KindWebhook)
 
-	st := orggorm.GetOrgTestDB(t)
-	d := dispatch.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	srv := httptest.NewServer(server.NewFromStore(st, mcptools.NewRegistry(), newTopichub(t), d, nil).Handler())
-	t.Cleanup(srv.Close)
-
-	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: catcher.URL})
-	topic, err := streaming.NewTopic("s-bridge", "bridge", "", "w-owner", time.Now().UTC(),
-		transport.Transport{Kind: transport.KindWebhook, Config: cfg}, "org-test")
-	if err != nil {
-		t.Fatalf("new topic: %v", err)
-	}
-	if err := st.Topics.Create(context.Background(), topic); err != nil {
-		t.Fatalf("create topic: %v", err)
-	}
-
-	body := "round-trip text"
-	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-bridge", "text/plain", strings.NewReader(body))
+	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-bridge", "text/plain", strings.NewReader("round-trip text"))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -431,11 +408,42 @@ func TestWebhookInboundDoesNotEcho(t *testing.T) {
 		t.Fatalf("inbound status = %d", resp.StatusCode)
 	}
 
-	select {
-	case got := <-caught:
-		t.Fatalf("inbound event echoed to outbound: %q", got)
-	case <-time.After(500 * time.Millisecond):
-		// Expected: nothing arrives at the catcher because inbound
-		// events have empty Source and the dispatcher skips emit.
+	routed := router.snapshot()
+	if len(routed) != 1 {
+		t.Fatalf("routed events = %d, want 1", len(routed))
+	}
+	if routed[0].Source != eventsource.Trigger("s-bridge") {
+		t.Fatalf("routed source = %+v, want trigger:s-bridge", routed[0].Source)
+	}
+	// Nobody authored it: an inbound delivery has no originating Worker.
+	if routed[0].OriginatingWorkerID != "" {
+		t.Fatalf("originating worker = %q, want empty", routed[0].OriginatingWorkerID)
+	}
+}
+
+// Embedded in helix the org is resolved by middleware into the request
+// context and the mount prefix supplies the {org} segment, so the public
+// URL carries only the Trigger id. Standalone, the org is a path
+// segment. Both must reach the same Trigger.
+func TestWebhookPostResolvesOrgFromContextWhenPathHasNoOrgSegment(t *testing.T) {
+	t.Parallel()
+	rd := &recordingRouter{}
+	st := orggorm.GetOrgTestDB(t)
+	bc := newTopichub(t)
+	h := server.NewFromStore(st, mcptools.NewRegistry(), bc, rd, nil).Handler()
+	seedTrigger(t, st, "s-inbox", transport.KindWebhook)
+
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/s-inbox", strings.NewReader("hello"))
+	req.Header.Set("Content-Type", "text/plain")
+	req = req.WithContext(server.WithOrgID(req.Context(), "org-test"))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %q)", rec.Code, rec.Body.String())
+	}
+	if got := len(rd.snapshot()); got != 1 {
+		t.Fatalf("routed %d events, want 1", got)
 	}
 }

@@ -202,7 +202,7 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 	// Recover incomplete pushes from before a crash in the background.
 	// If we crashed between receive-pack and upstream push, the commit is in the
 	// middle repo but not upstream. Push any such commits now to prevent data loss.
-	// Runs async so it doesn't block API startup (fetching every branch can take minutes).
+	// Runs async so it doesn't block API startup (fetching every repository can take minutes).
 	go s.recoverIncompletePushes(context.Background())
 
 	log.Info().
@@ -234,6 +234,15 @@ func (s *GitRepositoryService) recoverIncompletePushes(ctx context.Context) {
 
 		// Check if repo directory exists
 		if _, err := os.Stat(repo.LocalPath); os.IsNotExist(err) {
+			continue
+		}
+
+		// Refresh all remote-tracking refs once per repository. Fetching each
+		// branch separately turns a repository with hundreds of branches into
+		// hundreds of DNS/TLS round trips during every API restart, which can
+		// starve normal task-provisioning fetches.
+		if err := s.fetchRemoteTrackingRefsForRecovery(ctx, repo); err != nil {
+			log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to refresh remote refs for crash recovery")
 			continue
 		}
 
@@ -300,30 +309,19 @@ func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath s
 	return branches, nil
 }
 
-// isBranchAheadOfRemote checks if a local branch has commits not in the remote
-func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
-	// Fetch the latest remote state so origin/<branch> reflects reality, not
-	// a stale ref from before a crash. Without this, a local branch that is
-	// strictly *behind* the remote looks "ahead" of the outdated tracking ref,
-	// causing spurious push attempts that always fail with PushRejected.
-	_, _, fetchErr := gitcmd.NewCommand("fetch", "origin").
-		AddDynamicArguments(branch).
-		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
-	if fetchErr != nil {
-		// "couldn't find remote ref" is the common case for branches that
-		// exist locally but not on the remote (deleted PR branches, branches
-		// renamed upstream). Drop these to Trace so the ordinary recovery
-		// pass doesn't drown the log; reserve Debug for genuine remote/auth
-		// failures that an operator might want to investigate.
-		ev := log.Debug()
-		if strings.Contains(fetchErr.Error(), "couldn't find remote ref") {
-			ev = log.Trace()
-		}
-		ev.Err(fetchErr).Str("branch", branch).Str("repo_path", repoPath).
-			Msg("Failed to fetch remote before ahead check, skipping branch")
-		return false, nil
-	}
+func (s *GitRepositoryService) fetchRemoteTrackingRefsForRecovery(ctx context.Context, repo *types.GitRepository) error {
+	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, repo)
+	return Fetch(ctx, repo.LocalPath, FetchOptions{
+		Remote:   fetchURL,
+		Force:    true,
+		Prune:    true,
+		Timeout:  5 * time.Minute,
+		RefSpecs: []string{"+refs/heads/*:refs/remotes/origin/*"},
+	})
+}
 
+// isBranchAheadOfRemote checks refreshed origin refs without network access.
+func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
 	// Check if remote tracking ref exists
 	remoteRef := "refs/remotes/origin/" + branch
 	_, _, err := gitcmd.NewCommand("rev-parse").
@@ -2449,6 +2447,9 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 	if repo.LocalPath == "" {
 		return nil, fmt.Errorf("repository has no local path")
 	}
+	if repo.IsExternal && repo.ExternalURL != "" {
+		return s.listExternalBranches(ctx, repo)
+	}
 
 	// Use gitea's git module to list branches
 	gitRepo, err := giteagit.OpenRepository(ctx, repo.LocalPath)
@@ -2463,6 +2464,34 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 	}
 
 	return branches, nil
+}
+
+// listExternalBranches reads the authoritative upstream refs. The local bare
+// mirror intentionally does not prune because it also contains Helix-only refs,
+// so listing its refs would keep branches that were deleted upstream.
+func (s *GitRepositoryService) listExternalBranches(ctx context.Context, repo *types.GitRepository) ([]string, error) {
+	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, repo)
+	stdout, _, err := gitcmd.NewCommand("ls-remote", "--heads").
+		AddDynamicArguments(fetchURL).
+		RunStdString(ctx, &gitcmd.RunOpts{Timeout: 5 * time.Minute})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list upstream branches: %w", err)
+	}
+
+	return parseLsRemoteBranches(stdout), nil
+}
+
+func parseLsRemoteBranches(stdout string) []string {
+	const headsPrefix = "refs/heads/"
+	branches := make([]string, 0)
+	for _, line := range strings.Split(stdout, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || !strings.HasPrefix(fields[1], headsPrefix) {
+			continue
+		}
+		branches = append(branches, strings.TrimPrefix(fields[1], headsPrefix))
+	}
+	return branches
 }
 
 // IsBranchMerged checks if a branch has been merged into the target branch.

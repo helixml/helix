@@ -20,6 +20,8 @@ import {
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import RobustPromptInput from '../components/common/RobustPromptInput'
 import CodeAgentExecutionControls from '../components/agent/CodeAgentExecutionControls'
+import { useSeedProjectCodeAgentConfig } from '../hooks/useSeedProjectCodeAgentConfig'
+import { CodeAgentConfigChangeSource } from '../utils/codeAgentExecutionConfig'
 import ManagedCreateProjectDialog from '../components/project/ManagedCreateProjectDialog'
 import Page from '../components/system/Page'
 import { useAccount } from '../contexts/account'
@@ -131,10 +133,13 @@ const Home: FC = () => {
     readNewChatReasoningEffort(localStorage.getItem('helix_reasoning_effort'))
   ))
   const [taskCodeAgentConfig, setTaskCodeAgentConfig] = useState<TypesCodeAgentExecutionConfig>()
-  const [taskSandboxResources, setTaskSandboxResources] = useState<TypesSandboxResourceOverrides>({
-    vcpus: 4,
-    memory_mb: 8192,
-  })
+  // Undefined until the user picks a size, so the create request omits
+  // sandbox_resource_overrides and the server resolves the live default at
+  // container-create time. Sending the default explicitly would materialize it
+  // onto the row and pin that task to today's value forever. The selector still
+  // displays the default for an undefined value.
+  const [taskSandboxResources, setTaskSandboxResources] =
+    useState<TypesSandboxResourceOverrides | undefined>()
   const [taskSandboxRuntime, setTaskSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
     preferredSpecTaskSandboxRuntime(requestedProjectId),
   )
@@ -163,16 +168,32 @@ const Home: FC = () => {
 
   useEffect(() => {
     setTaskCodeAgentConfig(selectedProject?.code_agent_config)
-    setTaskSandboxResources({ vcpus: 4, memory_mb: 8192 })
+  }, [selectedProjectId, projectCodeAgentConfigKey])
+
+  // Compute follows the project, not its coding default. Keeping it in the
+  // effect above would reset a chosen sandbox size the moment picking a harness
+  // seeded the project default and refreshed the project.
+  useEffect(() => {
+    setTaskSandboxResources(undefined)
     setTaskSandboxRuntime(preferredSpecTaskSandboxRuntime(
       selectedProjectId,
       selectedProject?.default_sandbox_runtime,
     ))
-  }, [selectedProjectId, projectCodeAgentConfigKey, selectedProject?.default_sandbox_runtime])
+  }, [selectedProjectId, selectedProject?.default_sandbox_runtime])
 
   const handleTaskSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
     setTaskSandboxRuntime(runtime)
     saveSpecTaskSandboxRuntimePreference(selectedProjectId, runtime)
+  }
+
+  const seedProjectCodeAgentConfig = useSeedProjectCodeAgentConfig(selectedProject)
+
+  const handleTaskCodeAgentConfigChange = (
+    next: TypesCodeAgentExecutionConfig,
+    source: CodeAgentConfigChangeSource,
+  ) => {
+    setTaskCodeAgentConfig(next)
+    seedProjectCodeAgentConfig(next, source)
   }
 
   const isProjectContext = !!selectedProjectId
@@ -321,7 +342,7 @@ const Home: FC = () => {
         value={taskCodeAgentConfig}
         sandboxResourceOverrides={taskSandboxResources}
         sandboxRuntime={taskSandboxRuntime}
-        onChange={setTaskCodeAgentConfig}
+        onChange={handleTaskCodeAgentConfigChange}
         onSandboxResourceOverridesChange={setTaskSandboxResources}
         onSandboxRuntimeChange={handleTaskSandboxRuntimeChange}
         disabled={submitting}

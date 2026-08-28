@@ -75,8 +75,43 @@ func TestSandboxResourceOverridesValidPreset(t *testing.T) {
 	require.True(t, (types.SandboxResourceOverrides{VCPUs: 1, MemoryMB: 2048}).ValidPreset())
 	require.True(t, (types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192}).ValidPreset())
 	require.True(t, (types.SandboxResourceOverrides{VCPUs: 8, MemoryMB: 16384}).ValidPreset())
+	require.True(t, (types.SandboxResourceOverrides{VCPUs: 12, MemoryMB: 24576}).ValidPreset())
+	require.True(t, (types.SandboxResourceOverrides{VCPUs: 16, MemoryMB: 32768}).ValidPreset())
 	require.False(t, (types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 4096}).ValidPreset())
 	require.False(t, (types.SandboxResourceOverrides{}).ValidPreset())
+}
+
+// The rungs that predate the 2026-08-24 ladder extension must stay valid: every
+// ValidPreset() call site guards an incoming request, so a rung that stopped
+// being a preset would make the next update of an existing row fail. 178 rows on
+// meta hold 8/16384 as a deliberate choice.
+func TestSandboxResourceOverridesExistingRungsStayValid(t *testing.T) {
+	for _, legacy := range []types.SandboxResourceOverrides{
+		{VCPUs: 1, MemoryMB: 2048},
+		{VCPUs: 4, MemoryMB: 8192},
+		{VCPUs: 8, MemoryMB: 16384},
+	} {
+		require.True(t, legacy.ValidPreset(), "rung %+v must remain selectable", legacy)
+	}
+}
+
+func TestSetDefaultSpecTaskSandboxResources(t *testing.T) {
+	original := *types.DefaultSpecTaskSandboxResources()
+	t.Cleanup(func() {
+		require.NoError(t, types.SetDefaultSpecTaskSandboxResources(original))
+	})
+
+	require.NoError(t, types.SetDefaultSpecTaskSandboxResources(
+		types.SandboxResourceOverrides{VCPUs: 8, MemoryMB: 16384}))
+	require.Equal(t, types.SandboxResourceOverrides{VCPUs: 8, MemoryMB: 16384},
+		types.EffectiveSpecTaskSandboxResources(nil))
+
+	// An operator who configures a pair off the ladder is told, not silently
+	// given something else — and the previously installed value survives.
+	require.Error(t, types.SetDefaultSpecTaskSandboxResources(
+		types.SandboxResourceOverrides{VCPUs: 6, MemoryMB: 12288}))
+	require.Equal(t, types.SandboxResourceOverrides{VCPUs: 8, MemoryMB: 16384},
+		types.EffectiveSpecTaskSandboxResources(nil))
 }
 
 func TestEffectiveSpecTaskSandboxResourcesUsesDefault(t *testing.T) {

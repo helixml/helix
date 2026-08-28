@@ -750,13 +750,6 @@ Use these tools to interact with GitHub:
 				DefaultBranch: "helix",
 			},
 			{
-				GitHubURL:     "github.com/helixml/qwen-code",
-				IsPrimary:     false,
-				AllowFork:     true,
-				SubPath:       "qwen-code",
-				DefaultBranch: "main",
-			},
-			{
 				GitHubURL:     "github.com/helixml/docs",
 				IsPrimary:     false,
 				AllowFork:     true,
@@ -769,8 +762,7 @@ Use these tools to interact with GitHub:
 				Prompt: `Set up the Helix development environment:
 1. Clone the Helix repository if not already present
 2. Clone the Zed fork (github.com/helixml/zed)
-3. Clone the Qwen Code fork (github.com/helixml/qwen-code)
-4. Run ./stack start to start the full Helix stack
+3. Run ./stack start to start the full Helix stack
 
 Docker runs natively inside the desktop (docker-in-desktop mode).
 The inner sandbox runs on the same dockerd and can nest arbitrarily deep.`,

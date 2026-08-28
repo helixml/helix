@@ -79,3 +79,42 @@ func TestReportAgentStartupErrorIsIdempotentAfterInteractionCompletes(t *testing
 	require.NotNil(t, response)
 	assert.False(t, response.Transitioned)
 }
+
+func TestGetSessionOutputSurfacesStartupError(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		response string
+		want     string
+	}{
+		{name: "empty response", want: "Agent startup failed: provider not enabled"},
+		{name: "existing response", response: "partial response", want: "partial response"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			server := &HelixAPIServer{Store: mockStore}
+			session := &types.Session{ID: "ses_1", Owner: "user_1"}
+			interaction := &types.Interaction{
+				ID:              "int_1",
+				SessionID:       session.ID,
+				State:           types.InteractionStateError,
+				Error:           "Agent startup failed: provider not enabled",
+				ResponseMessage: tc.response,
+			}
+
+			mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+			mockStore.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+				[]*types.Interaction{interaction}, int64(1), nil,
+			)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/ses_1/output", nil)
+			req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: session.Owner}))
+
+			response, httpErr := server.getSessionOutput(httptest.NewRecorder(), req)
+			require.Nil(t, httpErr)
+			require.NotNil(t, response)
+			assert.Equal(t, tc.want, response.Output)
+		})
+	}
+}

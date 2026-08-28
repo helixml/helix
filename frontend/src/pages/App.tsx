@@ -39,10 +39,12 @@ import OrgAgentSettings from '../components/app/OrgAgentSettings'
 import FocusedAgentDetails from '../components/app/FocusedAgentDetails'
 import MemoriesManagement from '../components/app/MemoriesManagement'
 import HelixOrgTopNav from '../components/helix-org/HelixOrgTopNav'
+import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
 import {
   useActivateBot,
   useListHelixOrgBotDetails,
   useListHelixOrgBots,
+  useRestartBotAgent,
 } from '../services/helixOrgService'
 import { AGENT_TYPE_ZED_EXTERNAL } from '../types'
 import { isOrgAgent, usesFocusedAgentDetails } from '../utils/apps'
@@ -71,6 +73,12 @@ const App: FC = () => {
   const orgAgentDetailLoading = orgAgentsLoading
     || (orgAgents.length > 0 && orgAgentDetails.some((detail) => !detail))
   const activateOrgAgent = useActivateBot()
+  // The Bot backing this App, resolved for the restart-required banner.
+  // There is no direct App->Bot lookup endpoint, so match the org's Bot
+  // list (already fetched above for appIsOrgAgent) on agent_id, which is
+  // the Node's AgentID — the App's own id.
+  const restartBannerBot = orgAgents.find((bot) => bot.agent_id === params.app_id)
+  const restartOrgAgent = useRestartBotAgent()
   // Get user access information from appTools
   const { userAccess } = appTools
 
@@ -172,6 +180,14 @@ const App: FC = () => {
         }}
       >
         <Box sx={{ width: '100%', pl: 2, pr: 2, mt: 2 }}>
+          <AgentRestartRequiredBanner
+            key={restartBannerBot?.id}
+            visible={!!restartBannerBot?.restart_required}
+            working={false}
+            busy={restartOrgAgent.isPending}
+            sticky
+            onRestart={() => { if (restartBannerBot?.id) void restartOrgAgent.mutateAsync(restartBannerBot.id) }}
+          />
           <Grid container>
             <Grid item xs={12} sx={{
               p: 0,

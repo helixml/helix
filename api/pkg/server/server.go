@@ -118,7 +118,11 @@ type HelixAPIServer struct {
 	// subsystem registers (helix-org, in registerHelixOrgRoutes) so it can react to
 	// the connection types it owns without the generic service-connection
 	// handlers depending on it. nil when unregistered.
-	onServiceConnectionChange   func(ctx context.Context, conn *types.ServiceConnection, deleted bool)
+	onServiceConnectionChange func(ctx context.Context, conn *types.ServiceConnection, deleted bool)
+	// orgAgentInstructionsChanged, when wired, is called after an App's
+	// system prompt changes so the helix-org layer can flag any Bot backed
+	// by that App as needing a sandbox restart. nil when helix-org is off.
+	orgAgentInstructionsChanged func(ctx context.Context, appID string)
 	Stripe                      *stripe.Stripe
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller
@@ -1058,6 +1062,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/provider-endpoints", apiServer.createProviderEndpoint).Methods(http.MethodPost)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.updateProviderEndpoint).Methods(http.MethodPut)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.deleteProviderEndpoint).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/provider-endpoints/{id}/available-models", apiServer.listProviderEndpointModels).Methods(http.MethodGet)
+	authRouter.HandleFunc("/provider-endpoints/{id}/models", apiServer.updateProviderEndpointModels).Methods(http.MethodPut)
 	authRouter.HandleFunc("/provider-endpoints/{id}/local-models", apiServer.listLocalModels).Methods(http.MethodGet)
 	authRouter.HandleFunc("/provider-endpoints/{id}/local-models/load", apiServer.loadLocalModel).Methods(http.MethodPost)
 	authRouter.HandleFunc("/provider-endpoints/{id}/local-models/unload", apiServer.unloadLocalModel).Methods(http.MethodPost)
@@ -1626,7 +1632,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost, http.MethodOptions)
 	authRouter.HandleFunc("/spec-tasks", apiServer.listTasks).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.getTask).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/refresh-pull-request", apiServer.refreshSpecTaskPullRequest).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.updateSpecTask).Methods(http.MethodPut)
+	authRouter.HandleFunc("/agent-tools", apiServer.listAgentToolCatalogue).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/execution-config", apiServer.getSpecTaskExecutionConfig).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/execution-config", apiServer.updateSpecTaskExecutionConfig).Methods(http.MethodPatch)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.deleteSpecTask).Methods(http.MethodDelete)

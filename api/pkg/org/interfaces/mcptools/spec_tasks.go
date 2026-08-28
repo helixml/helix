@@ -11,6 +11,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // This file holds the MCP spec-task tools — the surface a helix-org
@@ -49,11 +50,15 @@ var createSpecTaskSchema = mustSchema[createSpecTaskArgs]()
 func (t *CreateSpecTask) Name() tool.Name                 { return CreateSpecTaskName }
 func (t *CreateSpecTask) InputSchema() *jsonschema.Schema { return createSpecTaskSchema }
 func (t *CreateSpecTask) Description() string {
+	// The ladder is rendered from types.SpecTaskSandboxPresets rather than spelled
+	// out here: a Worker follows this prose literally, so a stale copy makes it
+	// pass a vCPU count the API then rejects.
 	return "Create a new spec task. Provide a short name and a high-level " +
 		"description of the desired outcome. Optional: project_id (a project you manage in " +
 		"your org — omit to use your own project), type (feature|bug|refactor), priority " +
 		"(low|medium|high|critical), skip_planning (go straight to implementation), depends_on " +
-		"(task IDs), sandbox_vcpus (1, 4 or 8 — memory follows; omit for the project default), " +
+		"(task IDs), sandbox_vcpus (" + types.SpecTaskSandboxVCPUList() +
+		" — memory follows; omit for the project default), " +
 		"sandbox_runtime (headless-ubuntu for agent-only work, ubuntu-desktop when the task " +
 		"needs a GUI; omit for the project default). " +
 		"The task runs on the coding agent and model configured for the project, which is your " +

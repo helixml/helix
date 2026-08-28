@@ -20,7 +20,11 @@ const EmbedSessionPage: FC = () => {
   const bg = theme.palette.background.default
 
   return (
-    <Box sx={{ height: '100dvh', overflow: 'hidden', backgroundColor: bg }}>
+    // display:flex is load-bearing, not cosmetic. ExternalAgentDesktopViewer's root
+    // sizes itself with `flex: 1` (it has no height of its own), so in a plain block
+    // wrapper that flex is inert and the viewer collapses to its content height —
+    // the desktop renders small and top-aligned with dead space beneath it.
+    <Box sx={{ height: '100dvh', overflow: 'hidden', backgroundColor: bg, display: 'flex', flexDirection: 'column' }}>
       <ExternalAgentDesktopViewer
         sessionId={sessionId}
         sandboxId={sessionId}

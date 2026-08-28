@@ -17,6 +17,6 @@ var (
 	// The org Publishing service is the event-publish surface the
 	// attention→topic bridge needs, and the bridge is the AttentionService
 	// event sink.
-	_ orgEventPublisher          = (*publishing.Publishing)(nil)
+	_ orgEventPublisher           = (*publishing.Publishing)(nil)
 	_ services.AttentionEventSink = (*attentionTopicPublisher)(nil)
 )

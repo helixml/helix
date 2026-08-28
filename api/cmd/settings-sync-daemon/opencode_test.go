@@ -144,6 +144,20 @@ func TestOpenCodeConfigModelIsProviderQualified(t *testing.T) {
 	assert.Equal(t, float64(32000), limit["output"])
 }
 
+func TestOpenCodeConfigDisplaysModelWithoutProviderRoutingID(t *testing.T) {
+	d := openCodeDaemon()
+	d.codeAgentConfig.Provider = "pe_01m0zdqzjds298g7"
+	d.codeAgentConfig.Model = "pe_01m0zdqzjds298g7/cohere/north-mini-code:free"
+
+	decoded := decodeOpenCodeConfig(t, d.generateAgentServerConfig())
+	assert.Equal(t, "helix/pe_01m0zdqzjds298g7/cohere/north-mini-code:free", decoded["model"])
+
+	providers := decoded["provider"].(map[string]interface{})
+	models := providers["helix"].(map[string]interface{})["models"].(map[string]interface{})
+	model := models["pe_01m0zdqzjds298g7/cohere/north-mini-code:free"].(map[string]interface{})
+	assert.Equal(t, "cohere/north-mini-code:free", model["name"])
+}
+
 // Zero limits would tell opencode the context window is empty, so it would
 // compact after every turn. Unknown limits must be omitted instead.
 func TestOpenCodeConfigOmitsUnknownLimits(t *testing.T) {
@@ -171,6 +185,44 @@ func TestOpenCodeConfigPassesReasoningEffort(t *testing.T) {
 	options, ok := model["options"].(map[string]interface{})
 	require.True(t, ok)
 	assert.Equal(t, "high", options["reasoningEffort"])
+}
+
+func TestOpenCodeImageCapabilityIntegration(t *testing.T) {
+	var wireConfig CodeAgentConfig
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"runtime":"opencode",
+		"base_url":"http://outer-api:8080/v1",
+		"model":"vision-provider/qwen3.8-27b",
+		"api_type":"openai",
+		"input_modalities":["text","image"],
+		"output_modalities":["text"]
+	}`), &wireConfig))
+
+	d := openCodeDaemon()
+	d.codeAgentConfig = &wireConfig
+	decoded := decodeOpenCodeConfig(t, d.generateAgentServerConfig())
+
+	providers := decoded["provider"].(map[string]interface{})
+	models := providers["helix"].(map[string]interface{})["models"].(map[string]interface{})
+	model := models["vision-provider/qwen3.8-27b"].(map[string]interface{})
+	assert.Equal(t, true, model["attachment"])
+	assert.Equal(t, map[string]interface{}{
+		"input":  []interface{}{"text", "image"},
+		"output": []interface{}{"text"},
+	}, model["modalities"])
+}
+
+func TestOpenCodeConfigDoesNotGuessAttachmentSupport(t *testing.T) {
+	d := openCodeDaemon()
+	d.codeAgentConfig.InputModalities = nil
+	d.codeAgentConfig.OutputModalities = nil
+
+	decoded := decodeOpenCodeConfig(t, d.generateAgentServerConfig())
+	providers := decoded["provider"].(map[string]interface{})
+	models := providers["helix"].(map[string]interface{})["models"].(map[string]interface{})
+	model := models["anthropic/claude-opus-4-8"].(map[string]interface{})
+	assert.NotContains(t, model, "attachment")
+	assert.NotContains(t, model, "modalities")
 }
 
 // buildOpenCodeArchive builds a tar.gz containing a single "opencode" file,

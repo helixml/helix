@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/assets"
+	"github.com/helixml/helix/api/pkg/org/application/attachments"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
@@ -18,13 +19,12 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	orgsandboxes "github.com/helixml/helix/api/pkg/org/application/sandboxes"
 	"github.com/helixml/helix/api/pkg/org/application/spectasks"
-	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
-	"github.com/helixml/helix/api/pkg/org/application/topics"
+	"github.com/helixml/helix/api/pkg/org/application/triggers"
+	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
-	"github.com/helixml/helix/api/pkg/org/domain/credential"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/assetssh"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
@@ -45,13 +45,12 @@ type AgentProfileReader interface {
 	AgentProfile(ctx context.Context, appID string) (name, instructions string, err error)
 }
 
-// EventDispatcher fans a freshly-published Event out to every subscribed
-// Bot as a separate Spawner activation. Tools call it after persisting
-// an Event. The interface keeps tools.Deps free of a dependency on the
-// dispatch package (avoiding an import cycle: the dispatcher itself
-// imports tools).
+// EventDispatcher fans a freshly-published event out to every attached
+// Bot as a separate Spawner activation. The interface keeps tools.Deps
+// free of a dependency on the dispatch package (avoiding an import
+// cycle: the dispatcher itself imports tools).
 type EventDispatcher interface {
-	Dispatch(ctx context.Context, event streaming.Event)
+	Route(ctx context.Context, e eventsource.Event) error
 	// DispatchHire fires a create activation. activationID is the
 	// pre-allocated audit-row ID create_bot created before calling
 	// DispatchHire — it travels through the trigger so the Spawner reuses
@@ -75,10 +74,14 @@ type Deps struct {
 	// workers services) — set_bot_content and attach_tool/detach_tool
 	// delegate here; create_bot goes through Lifecycle, which itself drives
 	// Nodes.
-	Nodes         *nodes.Nodes
-	Topics        *topics.Topics
-	Subscriptions *subscriptions.Subscriptions
-	Publishing    *publishing.Publishing
+	Nodes *nodes.Nodes
+	// Triggers owns Trigger create/update/delete plus inbound-hook
+	// provisioning — the same service the REST /triggers handlers drive.
+	Triggers *triggers.Service
+	// Attachments owns attach/detach of a Worker to a source. Same
+	// service as the REST attachment endpoints.
+	Attachments *attachments.Service
+	Publishing  *publishing.Publishing
 	// Lifecycle owns Create (the MCP create_bot tool delegates here, the
 	// same service the REST POST /bots handler drives).
 	Lifecycle *lifecycle.Service
@@ -86,7 +89,7 @@ type Deps struct {
 	// (start_bot / stop_bot / restart_bot). Same service as the REST
 	// activate / stop-agent / restart-agent endpoints.
 	Activations *activations.Activations
-	// Processors owns create/update/delete/list of Topic processors
+	// Processors owns create/update/delete/list of Processors
 	// (template, truncate, filter, js). Same service as the REST
 	// /processors handlers. nil → processor tools report "not wired".
 	Processors           *processors.Processors
@@ -116,12 +119,8 @@ type Deps struct {
 	// Repositories backs list_repositories / list_bot_repositories /
 	// attach_repository / detach_repository — org git repos attached to
 	// Bot projects so sandboxes can clone the code.
-	Repositories runtime.Repositories
-	// CredentialProviders is the registry mint_credential dispatches on.
-	CredentialProviders map[string]credential.Provider
-	// RecordCredential lets the host redact a minted token if the agent
-	// later echoes it into user-visible output.
-	RecordCredential func(orgID, provider, token string)
+	Repositories  runtime.Repositories
+	WorkerSecrets *workersecrets.Service
 	// Hub lets the long-poll read tools (read_events, bot_log) block on
 	// new events. It is a broadcaster, not a store.
 	Hub *wakebus.Bus
@@ -144,17 +143,23 @@ type Deps struct {
 //
 // Hub/Dispatcher are optional (nil → publish skips notify/dispatch).
 type Config struct {
-	Store               *store.Store
-	Queries             *queries.Queries
-	Now                 Clock
-	NewID               IDGen
-	Hub                 *wakebus.Bus
-	Dispatcher          EventDispatcher
-	AgentContentUpdater AgentContentUpdater
-	AgentProfileReader  AgentProfileReader
-	ToolChangeNotifier  func(context.Context, string)
-	HireHook            runtime.HireHook
-	ProjectConfig       runtime.ProjectConfig
+	Store                   *store.Store
+	Queries                 *queries.Queries
+	Now                     Clock
+	NewID                   IDGen
+	Hub                     *wakebus.Bus
+	Dispatcher              EventDispatcher
+	AgentContentUpdater     AgentContentUpdater
+	AgentProfileReader      AgentProfileReader
+	ToolChangeNotifier      func(context.Context, string)
+	RestartRequiredNotifier func(context.Context, string, orgchart.NodeID)
+	// KnownTools reports the live tool catalogue so the bots service can
+	// prune persisted names the registry no longer knows. nil disables
+	// pruning.
+	KnownTools    func() map[tool.Name]bool
+	HireHook      runtime.HireHook
+	ProjectConfig runtime.ProjectConfig
+	WorkerSecrets *workersecrets.Service
 	// SpecTasks is the runtime port the spec-task tools dispatch on. nil
 	// → Build defaults to runtime.NoopSpecTasks{} so the tools return a
 	// clear "not wired" error instead of nil-derefing.
@@ -171,10 +176,8 @@ type Config struct {
 	ProjectAccess projects.OwnProjectResolver
 	// Repositories is the runtime port for org git-repo list/attach/detach.
 	// nil → Build defaults to runtime.NoopRepositories{}.
-	Repositories        runtime.Repositories
-	Reconciler          *reconcile.Reconciler
-	CredentialProviders map[string]credential.Provider
-	RecordCredential    func(orgID, provider, token string)
+	Repositories runtime.Repositories
+	Reconciler   *reconcile.Reconciler
 	// Lifecycle, when set, is used verbatim instead of building a fresh one,
 	// so the MCP tools share the composition root's reconciler-complete
 	// service. nil → lifecycleService() builds a standalone service.
@@ -184,9 +187,14 @@ type Config struct {
 	// ports). nil → those tools report "not wired".
 	Activations *activations.Activations
 	// Processors, when set, is used by create/list/get/update/delete
-	// processor tools. Built at the composition root (needs topics
-	// provisioners). nil → Build() constructs one from Store when possible.
-	Processors           *processors.Processors
+	// processor tools. nil → Build() constructs one from Store when
+	// possible.
+	Processors *processors.Processors
+	// Triggers, when set, is used verbatim so the MCP surface shares the
+	// composition root's provisioner-complete service. nil → Build()
+	// constructs one from Store.
+	Triggers             *triggers.Service
+	Attachments          *attachments.Service
 	Assets               *assets.Service
 	AssetSSH             ServerAssetRuntime
 	AssetSSHIssuer       AssetSSHIdentityIssuer
@@ -204,8 +212,8 @@ func (c Config) Build() Deps {
 	return Deps{
 		Queries:              c.Queries,
 		Nodes:                c.botsService(),
-		Topics:               c.topicsService(),
-		Subscriptions:        c.subscriptionsService(),
+		Triggers:             c.triggersService(),
+		Attachments:          c.attachmentsService(),
 		Publishing:           c.Publishing,
 		Lifecycle:            c.lifecycleService(),
 		Activations:          c.Activations,
@@ -219,12 +227,11 @@ func (c Config) Build() Deps {
 		AgentContentUpdater:  c.AgentContentUpdater,
 		AgentProfileReader:   c.AgentProfileReader,
 		ProjectConfig:        c.ProjectConfig,
+		WorkerSecrets:        c.WorkerSecrets,
 		SpecTasks:            c.specTasksService(),
 		Projects:             c.projectsService(),
 		Sandboxes:            c.sandboxesService(),
 		Repositories:         c.repositoriesPort(),
-		CredentialProviders:  c.CredentialProviders,
-		RecordCredential:     c.RecordCredential,
 		Hub:                  c.Hub,
 		HumanDelivery:        c.HumanDelivery,
 	}
@@ -253,10 +260,11 @@ func (c Config) processorsService() *processors.Processors {
 		return nil
 	}
 	return processors.New(processors.Deps{
-		Processors: c.Store.Processors,
-		Topics:     c.topicsService(),
-		Now:        c.Now,
-		NewID:      c.NewID,
+		Processors:  c.Store.Processors,
+		Triggers:    c.Store.Triggers,
+		Attachments: c.Store.WorkerAttachments,
+		Now:         c.Now,
+		NewID:       c.NewID,
 	})
 }
 
@@ -304,14 +312,16 @@ func (c Config) specTasksService() *spectasks.Service {
 	return spectasks.New(port, members)
 }
 
-// subscriptionsService builds the subscription application service.
-func (c Config) subscriptionsService() *subscriptions.Subscriptions {
-	return subscriptions.New(subscriptions.Deps{
-		Subscriptions: c.Store.Subscriptions,
-		Topics:        c.Store.Topics,
-		Nodes:         c.Store.Nodes,
-		Now:           c.Now,
-	})
+// attachmentsService returns the pre-built attachment service when the
+// composition root supplied one; otherwise builds one over the store.
+func (c Config) attachmentsService() *attachments.Service {
+	if c.Attachments != nil {
+		return c.Attachments
+	}
+	if c.Store == nil {
+		return nil
+	}
+	return attachments.New(attachments.Deps{Store: c.Store, Now: c.Now, NewID: c.NewID})
 }
 
 // lifecycleService builds the bot-lifecycle service (Create/Delete) for
@@ -326,7 +336,7 @@ func (c Config) lifecycleService() *lifecycle.Service {
 	svc := &lifecycle.Service{
 		Store:           c.Store,
 		Nodes:           c.botsService(),
-		Subscriber:      c.subscriptionsService(),
+		Attacher:        c.attachmentsService(),
 		NodeReconcilers: []lifecycle.NodeReconciler{c.Reconciler},
 		HireHook:        c.HireHook,
 		Now:             c.Now,
@@ -345,22 +355,34 @@ func (c Config) lifecycleService() *lifecycle.Service {
 // the REST bot handlers union the same set.
 func (c Config) botsService() *nodes.Nodes {
 	return nodes.New(nodes.Deps{
-		Nodes:          c.Store.Nodes,
-		Lines:          c.Store.ReportingLines,
-		Reconciler:     c.Reconciler,
-		Now:            c.Now,
-		NewID:          c.NewID,
-		BaseTools:      BaseReadTools,
-		OnToolsChanged: c.ToolChangeNotifier,
+		Nodes:             c.Store.Nodes,
+		Lines:             c.Store.ReportingLines,
+		Reconciler:        c.Reconciler,
+		Now:               c.Now,
+		NewID:             c.NewID,
+		BaseTools:         BaseReadTools,
+		KnownTools:        c.KnownTools,
+		OnToolsChanged:    c.ToolChangeNotifier,
+		OnRestartRequired: c.RestartRequiredNotifier,
 	})
 }
 
-// topicsService builds the topic-mutation application service.
-func (c Config) topicsService() *topics.Topics {
-	return topics.New(topics.Deps{
-		Topics: c.Store.Topics,
-		Now:    c.Now,
-		NewID:  c.NewID,
+// triggersService returns the pre-built Trigger service when the
+// composition root supplied one (with its inbound provisioners);
+// otherwise builds a provisioner-less one over the store.
+func (c Config) triggersService() *triggers.Service {
+	if c.Triggers != nil {
+		return c.Triggers
+	}
+	if c.Store == nil {
+		return nil
+	}
+	return triggers.New(triggers.Deps{
+		Triggers:    c.Store.Triggers,
+		Attachments: c.Store.WorkerAttachments,
+		Events:      c.Store.Events,
+		Now:         c.Now,
+		NewID:       c.NewID,
 	})
 }
 
@@ -370,27 +392,27 @@ func (c Config) topicsService() *topics.Topics {
 // calling Build().
 func DefaultDeps(s *store.Store) Config {
 	c := Config{
-		Store:               s,
-		Now:                 func() time.Time { return time.Now().UTC() },
-		NewID:               uuid.NewString,
-		HireHook:            runtime.NoopHireHook{},
-		ProjectConfig:       runtime.NoopProjectConfig{},
-		SpecTasks:           runtime.NoopSpecTasks{},
-		Projects:            runtime.NoopProjects{},
-		Sandboxes:           runtime.NoopSandboxes{},
-		Repositories:        runtime.NoopRepositories{},
-		CredentialProviders: map[string]credential.Provider{},
+		Store:         s,
+		Now:           func() time.Time { return time.Now().UTC() },
+		NewID:         uuid.NewString,
+		HireHook:      runtime.NoopHireHook{},
+		ProjectConfig: runtime.NoopProjectConfig{},
+		SpecTasks:     runtime.NoopSpecTasks{},
+		Projects:      runtime.NoopProjects{},
+		Sandboxes:     runtime.NoopSandboxes{},
+		Repositories:  runtime.NoopRepositories{},
 	}
 	c.Reconciler = reconcile.New(reconcile.Deps{
 		Nodes:          s.Nodes,
 		ReportingLines: s.ReportingLines,
-		Topics:         s.Topics,
-		Subscriptions:  s.Subscriptions,
+		Triggers:       s.Triggers,
+		Attachments:    s.WorkerAttachments,
 		Now:            c.Now,
 	})
 	c.Queries = queries.New(queries.Deps{
 		Nodes: s.Nodes, ReportingLines: s.ReportingLines,
-		Topics: s.Topics, Subscriptions: s.Subscriptions, Events: s.Events,
+		Triggers: s.Triggers, Attachments: s.WorkerAttachments,
+		Processors: s.Processors, Events: s.Events,
 		Activations: s.Activations,
 	})
 	return c
@@ -424,12 +446,12 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&AttachTool{deps: deps},
 		&DetachTool{deps: deps},
 		&DeleteBot{deps: deps},
-		&CreateTopic{deps: deps},
-		&MintCredential{deps: deps, providers: deps.CredentialProviders},
-		&TopicMembers{deps: deps},
-		&Subscribe{deps: deps},
-		&Unsubscribe{deps: deps},
-		&Publish{deps: deps},
+		&CreateTrigger{deps: deps},
+		&GetSecret{deps: deps},
+		&TriggerMembers{deps: deps},
+		&AttachWorker{deps: deps},
+		&DetachWorker{deps: deps},
+		&Chat{deps: deps},
 		&DM{deps: deps},
 		&AskHuman{deps: deps},
 		&SetHumanContact{deps: deps},
@@ -489,9 +511,9 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		NewListSpecTasks(deps),
 		NewGetSpecTask(deps),
 		NewReviewSpecTaskSpec(deps),
-		&ListTopics{deps: deps},
-		&GetTopic{deps: deps},
-		&ListTopicEvents{deps: deps},
+		&ListTriggers{deps: deps},
+		&GetTrigger{deps: deps},
+		&ListTriggerEvents{deps: deps},
 		&ReadEvents{deps: deps},
 		&BotLog{deps: deps},
 		&ListProcessors{deps: deps},

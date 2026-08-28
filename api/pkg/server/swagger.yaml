@@ -1,4 +1,18 @@
 definitions:
+  api.APIError:
+    properties:
+      code:
+        type: string
+      correlation_id:
+        type: string
+      field:
+        type: string
+      resource:
+        additionalProperties: {}
+        type: object
+      summary:
+        type: string
+    type: object
   api.AddBotParentRequest:
     properties:
       parent_id:
@@ -81,6 +95,12 @@ definitions:
         type: string
       reasoning_effort:
         type: string
+      restart_required:
+        description: |-
+          RestartRequired is true when the sandbox is running but still holds
+          the tool list and instructions from before the last save. Drives the
+          restart banner on the bot page and the org chat panel.
+        type: boolean
       tools:
         items:
           type: string
@@ -146,6 +166,29 @@ definitions:
         items:
           $ref: '#/definitions/api.AssetDTO'
         type: array
+    type: object
+  api.AttachmentDTO:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      source:
+        $ref: '#/definitions/api.SourceRefDTO'
+      worker_id:
+        type: string
+    type: object
+  api.AttachmentListResponse:
+    properties:
+      attachments:
+        items:
+          $ref: '#/definitions/api.AttachmentDTO'
+        type: array
+    type: object
+  api.AttachmentWriteRequest:
+    properties:
+      source:
+        $ref: '#/definitions/api.SourceRefDTO'
     type: object
   api.BotActivateDTO:
     properties:
@@ -249,6 +292,12 @@ definitions:
         type: string
       reasoning_effort:
         type: string
+      restart_required:
+        description: |-
+          RestartRequired is true when the sandbox is running but still holds
+          the tool list and instructions from before the last save. Drives the
+          restart banner on the bot page and the org chat panel.
+        type: boolean
       tools:
         items:
           type: string
@@ -267,22 +316,6 @@ definitions:
         $ref: '#/definitions/api.BotDTO'
       project_id:
         type: string
-    type: object
-  api.BotSubscriptionDTO:
-    properties:
-      created_at:
-        type: string
-      topic_id:
-        type: string
-    type: object
-  api.BotSubscriptionsResponse:
-    properties:
-      bot_id:
-        type: string
-      subscriptions:
-        items:
-          $ref: '#/definitions/api.BotSubscriptionDTO'
-        type: array
     type: object
   api.ChartPositionDTO:
     properties:
@@ -354,7 +387,7 @@ definitions:
         items:
           type: string
         type: array
-      topics:
+      triggers:
         items:
           type: string
         type: array
@@ -366,49 +399,9 @@ definitions:
       id:
         type: string
     type: object
-  api.CreateTopicRequest:
-    properties:
-      as:
-        description: |-
-          As is the Bot that creates the topic — the bot whose chat
-          the human is in. Empty leaves the topic unattributed (CreatedBy is
-          cosmetic: it only anchors the node on the chart).
-        type: string
-      description:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      transport:
-        $ref: '#/definitions/api.TransportRequestField'
-    type: object
   api.ErrorResponse:
     properties:
       error:
-        type: string
-    type: object
-  api.EventCard:
-    properties:
-      body:
-        type: string
-      created_at:
-        type: string
-      from:
-        type: string
-      has_message:
-        type: boolean
-      id:
-        type: string
-      message_body:
-        type: string
-      source:
-        type: string
-      subject:
-        type: string
-      to:
-        type: string
-      topic_id:
         type: string
     type: object
   api.GitHubInstallationStatus:
@@ -533,67 +526,6 @@ definitions:
       webhook_id:
         type: integer
     type: object
-  api.MessageAttributes:
-    properties:
-      body:
-        type: string
-      created_at:
-        type: string
-      from:
-        type: string
-      has_message:
-        type: boolean
-      raw:
-        description: |-
-          Raw is the canonical Message envelope JSON exactly as stored — the
-          same shape a processor's `.Message` template/filter context sees
-          ({"from":…,"subject":…,"body":…,"thread_id":…,…}). Lets the UI show
-          operators which fields are available.
-        type: string
-      source:
-        type: string
-      subject:
-        type: string
-      to:
-        items:
-          type: string
-        type: array
-      topic_id:
-        type: string
-    type: object
-  api.MessageResource:
-    properties:
-      attributes:
-        $ref: '#/definitions/api.MessageAttributes'
-      id:
-        type: string
-      type:
-        type: string
-    type: object
-  api.MessagesDocument:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/api.MessageResource'
-        type: array
-      links:
-        additionalProperties:
-          type: string
-        type: object
-      meta:
-        $ref: '#/definitions/api.MessagesMeta'
-    type: object
-  api.MessagesMeta:
-    properties:
-      page:
-        type: integer
-      size:
-        type: integer
-      total:
-        type: integer
-      total_pages:
-        type: integer
-    type: object
   api.OrgOverview:
     properties:
       bots:
@@ -603,6 +535,8 @@ definitions:
     type: object
   api.ProcessorOutputDTO:
     properties:
+      id:
+        type: string
       label:
         type: string
       managed_for:
@@ -613,9 +547,7 @@ definitions:
         type: string
       match:
         type: string
-      owned:
-        type: boolean
-      topic_id:
+      source:
         type: string
     type: object
   api.ProcessorWriteRequest:
@@ -629,7 +561,7 @@ definitions:
                 type: object
               created_by:
                 type: string
-              input_topic_id:
+              input_source:
                 type: string
               kind:
                 type: string
@@ -644,30 +576,23 @@ definitions:
             type: string
         type: object
     type: object
-  api.PublishRequest:
+  api.PutWorkerSecretRequest:
     properties:
-      as:
-        description: |-
-          As is the Bot the message is sent as — the bot whose chat the
-          human is in. Empty means human/system-origin (the dispatcher treats
-          it as such). There is no global "owner" sender any more.
+      account_id:
         type: string
-      body:
+      content_type:
         type: string
-      subject:
+      description:
         type: string
-      threadId:
+      export_key:
         type: string
-      to:
-        items:
-          type: string
-        type: array
-    type: object
-  api.PublishResponse:
-    properties:
-      delivery:
-        $ref: '#/definitions/publishing.DeliveryReceipt'
-      event_id:
+      secret_id:
+        type: string
+      source_kind:
+        $ref: '#/definitions/workersecret.SourceKind'
+      suggested_filename:
+        type: string
+      usage:
         type: string
     type: object
   api.ServerAssetDTO:
@@ -733,9 +658,15 @@ definitions:
       value:
         type: string
     type: object
-  api.SubscribeBotRequest:
+  api.SourceRefDTO:
     properties:
-      topic_id:
+      kind:
+        type: string
+      output_id:
+        type: string
+      processor_id:
+        type: string
+      trigger_id:
         type: string
     type: object
   api.ToolDTO:
@@ -745,22 +676,34 @@ definitions:
       name:
         type: string
     type: object
-  api.TopicDTO:
+  api.TriggerDTO:
     properties:
-      can_publish:
-        type: boolean
+      activation:
+        allOf:
+        - $ref: '#/definitions/transport.ResolvedActivation'
+        description: |-
+          Activation is the resolved "how do I fire this" recipe for this
+          Trigger: concrete URL or address, verb, and auth, with every
+          template in the Kind's descriptor filled in.
+      attached_workers:
+        description: |-
+          AttachedWorkers are the Workers this Trigger activates — the
+          attachment-model successor of the Topics page's subscriber list.
+        items:
+          type: string
+        type: array
       config:
-        additionalProperties: true
+        additionalProperties: {}
         type: object
       created_at:
         type: string
-      created_by:
-        type: string
       description:
         type: string
-      disable_reason:
-        type: string
       effective_public_url:
+        description: |-
+          EffectivePublicURL is helix's public base URL (SERVER_URL), set
+          only for provider Triggers whose webhook payload URL must be
+          reachable from the internet, so the UI can warn on loopback.
         type: string
       id:
         type: string
@@ -768,32 +711,59 @@ definitions:
         type: string
       name:
         type: string
-      recent_events:
-        items:
-          $ref: '#/definitions/api.EventCard'
-        type: array
-      subscribers:
-        items:
-          type: string
-        type: array
+      revision:
+        type: string
     type: object
-  api.TopicsResponse:
+  api.TriggerEventDTO:
     properties:
-      recent:
+      body:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      source:
+        type: string
+    type: object
+  api.TriggerEventsResponse:
+    properties:
+      events:
         items:
-          $ref: '#/definitions/api.EventCard'
+          $ref: '#/definitions/api.TriggerEventDTO'
         type: array
-      topics:
+      limit:
+        type: integer
+      offset:
+        type: integer
+      total:
+        type: integer
+    type: object
+  api.TriggerKindsResponse:
+    properties:
+      kinds:
         items:
-          $ref: '#/definitions/api.TopicDTO'
+          $ref: '#/definitions/transport.Descriptor'
         type: array
     type: object
-  api.TransportRequestField:
+  api.TriggerListResponse:
+    properties:
+      triggers:
+        items:
+          $ref: '#/definitions/api.TriggerDTO'
+        type: array
+    type: object
+  api.TriggerWriteRequest:
     properties:
       config:
-        additionalProperties: true
+        additionalProperties: {}
         type: object
+      description:
+        type: string
       kind:
+        type: string
+      name:
+        type: string
+      revision:
         type: string
     type: object
   api.UpdateAssetRequest:
@@ -859,21 +829,43 @@ definitions:
       user:
         type: string
     type: object
-  api.UpdateTopicRequest:
-    properties:
-      description:
-        type: string
-      name:
-        type: string
-      transport:
-        $ref: '#/definitions/api.TransportRequestField'
-    type: object
   api.UpsertChartPositionsRequest:
     properties:
       positions:
         items:
           $ref: '#/definitions/api.ChartPositionDTO'
         type: array
+    type: object
+  api.WorkerSecretBindingDTO:
+    properties:
+      account_id:
+        type: string
+      available:
+        description: |-
+          Available reports whether the bound source still exists. A
+          deleted source leaves the binding in place pointing at nothing,
+          and this is the only signal the operator gets.
+        type: boolean
+      content_type:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      export_key:
+        type: string
+      name:
+        type: string
+      secret_id:
+        type: string
+      source_kind:
+        $ref: '#/definitions/workersecret.SourceKind'
+      suggested_filename:
+        type: string
+      updated_at:
+        type: string
+      usage:
+        type: string
     type: object
   asset.AuthType:
     enum:
@@ -1765,19 +1757,6 @@ definitions:
       filtered:
         type: boolean
       severity:
-        type: string
-    type: object
-  publishing.DeliveryReceipt:
-    properties:
-      destination:
-        type: string
-      error:
-        type: string
-      messageId:
-        type: string
-      provider:
-        type: string
-      status:
         type: string
     type: object
   server.ActivateTrialRequest:
@@ -3336,6 +3315,8 @@ definitions:
         items:
           type: string
         type: array
+      switch_to_subscription:
+        type: boolean
     type: object
   server.VideoStreamingStats:
     properties:
@@ -3517,6 +3498,142 @@ definitions:
         type: string
       status_code:
         type: integer
+    type: object
+  transport.Activation:
+    properties:
+      address_template:
+        type: string
+      auth_header:
+        type: string
+      note:
+        type: string
+      summary:
+        type: string
+      url_template:
+        type: string
+      verb:
+        type: string
+    type: object
+  transport.Descriptor:
+    properties:
+      activation:
+        $ref: '#/definitions/transport.Activation'
+      fields:
+        items:
+          $ref: '#/definitions/transport.Field'
+        type: array
+      kind:
+        $ref: '#/definitions/transport.Kind'
+      label:
+        type: string
+      secrets:
+        items:
+          $ref: '#/definitions/transport.SecretRef'
+        type: array
+      summary:
+        type: string
+      system_managed:
+        type: boolean
+    type: object
+  transport.Direction:
+    enum:
+    - inbound
+    - outbound
+    type: string
+    x-enum-varnames:
+    - Inbound
+    - Outbound
+  transport.Field:
+    properties:
+      default:
+        description: |-
+          Default is the value a create form seeds this field with when the
+          Trigger has no stored config. It must itself validate.
+        type: string
+      direction:
+        $ref: '#/definitions/transport.Direction'
+      help:
+        type: string
+      label:
+        type: string
+      name:
+        type: string
+      placeholder:
+        type: string
+      read_only:
+        type: boolean
+      required:
+        type: boolean
+      type:
+        $ref: '#/definitions/transport.FieldType'
+    type: object
+  transport.FieldType:
+    enum:
+    - string
+    - url
+    - string_list
+    - cron
+    - github_repo
+    - github_events
+    - gitlab_repo
+    - gitlab_events
+    - slack_workspace
+    - slack_channel
+    type: string
+    x-enum-varnames:
+    - FieldString
+    - FieldURL
+    - FieldStringList
+    - FieldCron
+    - FieldGitHubRepo
+    - FieldGitHubEvents
+    - FieldGitLabRepo
+    - FieldGitLabEvents
+    - FieldSlackWorkspace
+    - FieldSlackChannel
+  transport.Kind:
+    enum:
+    - gitlab
+    - github
+    - local
+    - slack
+    - helix_events
+    - webhook
+    - cron
+    - email
+    type: string
+    x-enum-varnames:
+    - KindGitLab
+    - KindGitHub
+    - KindLocal
+    - KindSlack
+    - KindHelixEvents
+    - KindWebhook
+    - KindCron
+    - KindEmail
+  transport.ResolvedActivation:
+    properties:
+      address:
+        type: string
+      auth_header:
+        type: string
+      note:
+        type: string
+      summary:
+        type: string
+      url:
+        type: string
+      verb:
+        type: string
+    type: object
+  transport.SecretRef:
+    properties:
+      label:
+        type: string
+      location:
+        type: string
+      setting_key:
+        type: string
     type: object
   types.APIError:
     properties:
@@ -3764,6 +3881,13 @@ definitions:
         items:
           $ref: '#/definitions/types.Trigger'
         type: array
+    type: object
+  types.AgentToolInfo:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
     type: object
   types.AgentType:
     enum:
@@ -4898,7 +5022,9 @@ definitions:
           RefreshTokenExpiresAt is when the login itself dies and the user must
           re-authenticate. Refreshing keeps the 8h access token alive but does not
           move this, so it is the only honest basis for an expiry warning. Zero for
-          setup tokens, which carry no refresh token.
+          setup tokens, which carry no refresh token — omitzero so an absent
+          deadline reaches the client as absent, not as "0001-01-01T00:00:00Z",
+          which reads as a date 739850 days in the past.
         type: string
       scopes:
         items:
@@ -5147,6 +5273,14 @@ definitions:
         items:
           $ref: '#/definitions/types.CodeAgentGooseRecipe'
         type: array
+      input_modalities:
+        description: |-
+          InputModalities and OutputModalities describe the model's accepted input
+          and generated output types. They are omitted when the capability is
+          unknown; code-agent runtimes must not assume attachment support.
+        items:
+          $ref: '#/definitions/types.Modality'
+        type: array
       max_output_tokens:
         description: |-
           MaxOutputTokens is the model's max completion tokens
@@ -5171,6 +5305,10 @@ definitions:
           than the baked floor. The API resolves the artifact (URL + digest) so
           the container never has to know the release URL scheme — that keeps the
           mirror decision in one place for air-gapped installs.
+      output_modalities:
+        items:
+          $ref: '#/definitions/types.Modality'
+        type: array
       provider:
         description: Provider is the LLM provider name (e.g., "anthropic", "openai",
           "openrouter")
@@ -7654,6 +7792,14 @@ definitions:
         type: boolean
       id:
         type: string
+      input_modalities:
+        description: |-
+          InputModalities is the model's accepted input types ("text", "image",
+          "file", ...). Same provenance and same nil-means-unknown rule as
+          SupportedParameters.
+        items:
+          type: string
+        type: array
       model_info:
         $ref: '#/definitions/types.ModelInfo'
       name:
@@ -7681,6 +7827,16 @@ definitions:
           because sending a value the provider rejects aborts the whole turn.
       root:
         type: string
+      supported_parameters:
+        description: |-
+          SupportedParameters is the set of request parameters the model accepts,
+          as reported by aggregators that publish it (OpenRouter's /v1/models does;
+          plain OpenAI-compatible servers don't). Used by the model picker to
+          filter a several-hundred-model catalogue down to, for example, the models
+          that can actually call tools. Nil means the provider didn't say.
+        items:
+          type: string
+        type: array
       type:
         type: string
     type: object
@@ -8253,6 +8409,13 @@ definitions:
     type: object
   types.Project:
     properties:
+      agent_tools:
+        description: |-
+          AgentTools is the Helix MCP tool allowlist every spec task in this
+          project inherits. Empty means no Helix MCP surface at all.
+        items:
+          type: string
+        type: array
       auto_start_backlog_tasks:
         description: Automation settings
         type: boolean
@@ -8279,8 +8442,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.SandboxResourceOverrides'
         description: |-
-          Default sandbox resources copied into each new SpecTask. Nil values from
-          legacy projects resolve to the standard 4 vCPU / 8 GB preset.
+          Default sandbox resources copied into each new SpecTask. Nil means the
+          project expresses no preference and the task resolves the global default at
+          container-create time.
       default_sandbox_runtime:
         allOf:
         - $ref: '#/definitions/types.SandboxRuntime'
@@ -8645,6 +8809,11 @@ definitions:
     type: object
   types.ProjectUpdateRequest:
     properties:
+      agent_tools:
+        description: Helix MCP tools granted to every spec task
+        items:
+          type: string
+        type: array
       auto_start_backlog_tasks:
         type: boolean
       code_agent_config:
@@ -8937,6 +9106,21 @@ definitions:
         type: string
       vertex_region:
         type: string
+    type: object
+  types.ProviderEndpointModels:
+    properties:
+      enabled_models:
+        description: |-
+          EnabledModels is the operator's whitelist. Empty means every model in
+          Models is available — the default for a newly added provider.
+        items:
+          type: string
+        type: array
+      models:
+        description: Models is the provider's full upstream catalogue, unfiltered.
+        items:
+          $ref: '#/definitions/types.OpenAIModel'
+        type: array
     type: object
   types.ProviderEndpointStatus:
     enum:
@@ -9907,6 +10091,16 @@ definitions:
           direct model chats when the user has not customised one. Surfaced to
           the frontend so the chat-settings page can prefill the textbox.
         type: string
+      default_spec_task_sandbox:
+        allOf:
+        - $ref: '#/definitions/types.SandboxResourceOverrides'
+        description: |-
+          DefaultSpecTaskSandbox is the sandbox size a new spec task gets when it
+          specifies none. It is operator-configurable
+          (HELIX_SPEC_TASK_SANDBOX_DEFAULT_VCPUS/_MEMORY_MB), so the UI has to read
+          it from here rather than hardcode a copy — otherwise an operator who moves
+          the default gets a task selector that marks the wrong rung "Default" while
+          containers come up at the configured size.
       deployment_id:
         type: string
       dev_subdomain:
@@ -10858,6 +11052,13 @@ definitions:
     type: object
   types.SpecTask:
     properties:
+      agent_tools:
+        description: |-
+          AgentTools are Helix MCP tools granted to this task on top of the
+          project's list. The effective surface is the union of the two.
+        items:
+          type: string
+        type: array
       agent_work_state:
         allOf:
         - $ref: '#/definitions/types.AgentWorkState'
@@ -11479,6 +11680,11 @@ definitions:
     - TaskStatusImplementationFailed
   types.SpecTaskUpdateRequest:
     properties:
+      agent_tools:
+        description: Extra Helix MCP tools for this task, on top of the project's
+        items:
+          type: string
+        type: array
       assignee_id:
         description: Pointer to allow clearing (set to empty string to unassign)
         type: string
@@ -11511,6 +11717,13 @@ definitions:
     type: object
   types.SpecTaskWithProject:
     properties:
+      agent_tools:
+        description: |-
+          AgentTools are Helix MCP tools granted to this task on top of the
+          project's list. The effective surface is the union of the two.
+        items:
+          type: string
+        type: array
       agent_work_state:
         allOf:
         - $ref: '#/definitions/types.AgentWorkState'
@@ -12713,6 +12926,13 @@ definitions:
       vertex_region:
         type: string
     type: object
+  types.UpdateProviderEndpointModels:
+    properties:
+      models:
+        items:
+          type: string
+        type: array
+    type: object
   types.UpdateSandboxRequest:
     properties:
       name:
@@ -13651,6 +13871,37 @@ definitions:
       zed_instance_id:
         type: string
     type: object
+  workersecret.AvailableSource:
+    properties:
+      account_id:
+        type: string
+      already_bound:
+        type: boolean
+      export_key:
+        type: string
+      group:
+        type: string
+      label:
+        type: string
+      proposed_name:
+        type: string
+      resource_id:
+        type: string
+      secret_id:
+        type: string
+      source_kind:
+        $ref: '#/definitions/workersecret.SourceKind'
+      usage:
+        type: string
+    type: object
+  workersecret.SourceKind:
+    enum:
+    - helix_secret
+    - connected_account
+    type: string
+    x-enum-varnames:
+    - SourceHelixSecret
+    - SourceConnectedAccount
 host: app.helix.ml
 info:
   contact:
@@ -14400,6 +14651,25 @@ paths:
       summary: Activate a trial for a user (Admin, cloud only)
       tags:
       - users
+  /api/v1/agent-tools:
+    get:
+      description: Returns the catalogue backing the project and task tool pickers.
+        The set is static per deployment; a project grants a subset to all its tasks
+        and a task may add more on top.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AgentToolInfo'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List the Helix MCP tools that can be granted to spec tasks
+      tags:
+      - spec-driven-tasks
   /api/v1/agents:
     get:
       description: List agents for the user. Agents are pre-configured to spawn sessions
@@ -15927,7 +16197,8 @@ paths:
       consumes:
       - application/json
       description: Grant (or revoke) permission for an organization's orchestrated
-        agents to authenticate as the subscription owner. Only the subscription owner
+        agents to authenticate as the subscription owner. Sharing with an owned organization
+        also enables Claude Code subscription mode there. Only the subscription owner
         may change this.
       parameters:
       - description: Subscription ID
@@ -15962,6 +16233,10 @@ paths:
             $ref: '#/definitions/system.HTTPError'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/system.HTTPError'
       security:
@@ -20210,8 +20485,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Create a canonical Agent with its org-chart position, communication
-        topics, tools, and Agent App configuration.
+      description: Create a canonical Agent with its org-chart position, trigger attachments,
+        tools, and Agent App configuration.
       parameters:
       - description: Organization slug or ID
         in: path
@@ -20247,7 +20522,7 @@ paths:
   /api/v1/orgs/{org}/agents/{id}:
     delete:
       description: Delete an Agent after archiving its runtime-owned project and deleting
-        its Agent App, knowledge, runtime state, subscriptions, reporting lines, and
+        its Agent App, knowledge, runtime state, attachments, reporting lines, and
         org-chart row. Repositories are preserved.
       parameters:
       - description: Organization slug or ID
@@ -20375,6 +20650,97 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: activate an agent'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/agents/{id}/attachments:
+    get:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AttachmentListResponse'
+      summary: 'Helix-org: list agent attachments'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Source
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.AttachmentWriteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.AttachmentDTO'
+      summary: 'Helix-org: attach an agent to a source'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/agents/{id}/attachments/{attachment_id}:
+    delete:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Attachment ID
+        in: path
+        name: attachment_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: 'Helix-org: delete an agent attachment'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/agents/{id}/available-secrets:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/workersecret.AvailableSource'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: List sources that may be granted to an Agent
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/agents/{id}/chat:
@@ -20518,6 +20884,48 @@ paths:
       summary: 'Helix-org: restart an agent session'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/agents/{id}/secrets:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.WorkerSecretBindingDTO'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: List an Agent's secret bindings
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/agents/{id}/secrets/{name}:
+    delete:
+      responses:
+        "204":
+          description: No Content
+      security:
+      - ApiKeyAuth: []
+      summary: Delete an Agent secret binding
+      tags:
+      - HelixOrg
+    put:
+      parameters:
+      - description: Binding metadata
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.PutWorkerSecretRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WorkerSecretBindingDTO'
+      security:
+      - ApiKeyAuth: []
+      summary: Create or replace an Agent secret binding
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/agents/{id}/stop-agent:
     post:
       parameters:
@@ -20545,99 +20953,6 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: stop an agent desktop'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/subscriptions:
-    get:
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.BotSubscriptionsResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list an agent''s subscriptions'
-      tags:
-      - HelixOrg
-    post:
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Topic to subscribe the Agent to
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.SubscribeBotRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.BotSubscriptionDTO'
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.BotSubscriptionDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: subscribe an agent to a topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/subscriptions/{topic_id}:
-    delete:
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Topic ID
-        in: path
-        name: topic_id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: unsubscribe an agent from a topic'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/assets:
@@ -20801,7 +21116,7 @@ paths:
       consumes:
       - application/json
       description: Create a Bot. Wraps the lifecycle Create so REST + chat creates
-        share semantics (base-tool union, reporting line, transcript topics, create
+        share semantics (base-tool union, reporting line, transcript channel, create
         dispatch).
       parameters:
       - description: Organization slug or id
@@ -20838,8 +21153,8 @@ paths:
   /api/v1/orgs/{org}/bots/{id}:
     delete:
       description: 'Delete a Bot. Cascades: archives its runtime-owned project, detaches
-        and deletes the Helix agent app, clears runtime state, drops subscriptions
-        + reporting lines, then the bot row. Repositories and activations are preserved.'
+        and deletes the Helix agent app, clears runtime state, drops attachments +
+        reporting lines, then the bot row. Repositories and activations are preserved.'
       parameters:
       - description: Bot ID
         in: path
@@ -21092,84 +21407,6 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: stop a bot''s agent desktop'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/bots/{id}/subscriptions:
-    get:
-      parameters:
-      - description: Bot ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.BotSubscriptionsResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list a bot''s subscriptions'
-      tags:
-      - HelixOrg
-    post:
-      parameters:
-      - description: Bot ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: topic to subscribe to
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.SubscribeBotRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.BotSubscriptionDTO'
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.BotSubscriptionDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: subscribe a bot to a topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/bots/{id}/subscriptions/{topic_id}:
-    delete:
-      parameters:
-      - description: Bot ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Topic ID
-        in: path
-        name: topic_id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: unsubscribe a bot from a topic'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/chart/positions:
@@ -21637,50 +21874,80 @@ paths:
       summary: 'Helix-org: list available MCP tools'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/topics:
+  /api/v1/orgs/{org}/trigger-kinds:
     get:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.TopicsResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list topics'
+            $ref: '#/definitions/api.TriggerKindsResponse'
+      summary: 'Helix-org: list trigger kinds and their settings'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/triggers:
+    get:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.TriggerListResponse'
+      summary: 'Helix-org: list triggers'
       tags:
       - HelixOrg
     post:
       consumes:
       - application/json
       parameters:
-      - description: Topic spec
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Trigger
         in: body
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/api.CreateTopicRequest'
+          $ref: '#/definitions/api.TriggerWriteRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/api.TopicDTO'
+            $ref: '#/definitions/api.TriggerDTO'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: create a topic'
+            $ref: '#/definitions/api.APIError'
+      summary: 'Helix-org: create a trigger'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}:
+  /api/v1/orgs/{org}/triggers/{id}:
     delete:
       parameters:
-      - description: Topic ID
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Trigger ID
         in: path
         name: id
         required: true
@@ -21688,18 +21955,17 @@ paths:
       responses:
         "204":
           description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: delete a topic'
+      summary: 'Helix-org: delete a trigger'
       tags:
       - HelixOrg
     get:
       parameters:
-      - description: Topic ID
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Trigger ID
         in: path
         name: id
         required: true
@@ -21710,75 +21976,79 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.TopicDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: get a topic'
+            $ref: '#/definitions/api.TriggerDTO'
+      summary: 'Helix-org: get a trigger'
       tags:
       - HelixOrg
     put:
       consumes:
       - application/json
       parameters:
-      - description: Topic ID
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Trigger ID
         in: path
         name: id
         required: true
         type: string
-      - description: Topic patch
+      - description: Trigger
         in: body
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/api.UpdateTopicRequest'
+          $ref: '#/definitions/api.TriggerWriteRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.TopicDTO'
-        "400":
-          description: Bad Request
+            $ref: '#/definitions/api.TriggerDTO'
+        "409":
+          description: Conflict
           schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: update a topic'
+            $ref: '#/definitions/api.APIError'
+      summary: 'Helix-org: update a trigger'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/events:
+  /api/v1/orgs/{org}/triggers/{id}/events:
     get:
       parameters:
-      - description: Topic ID
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Trigger ID
         in: path
         name: id
         required: true
         type: string
+      - description: Page size (1-100)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
       produces:
-      - text/event-stream
+      - application/json
       responses:
         "200":
-          description: 'SSE: event: message / data: [EventCard,...]'
+          description: OK
           schema:
-            type: string
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: SSE topic of events for one topic'
+            $ref: '#/definitions/api.TriggerEventsResponse'
+      summary: 'Helix-org: list trigger events'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/github/install-webhook:
+  /api/v1/orgs/{org}/triggers/{id}/github/install-webhook:
     post:
       parameters:
-      - description: Topic ID
+      - description: Trigger ID
         in: path
         name: id
         required: true
@@ -21807,10 +22077,10 @@ paths:
       summary: 'Helix-org: auto-install the webhook for a github topic'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/github/webhook-status:
+  /api/v1/orgs/{org}/triggers/{id}/github/webhook-status:
     get:
       parameters:
-      - description: Topic ID
+      - description: Trigger ID
         in: path
         name: id
         required: true
@@ -21831,10 +22101,10 @@ paths:
       summary: 'Helix-org: live webhook status for a github topic'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook:
+  /api/v1/orgs/{org}/triggers/{id}/gitlab/install-webhook:
     post:
       parameters:
-      - description: Topic ID
+      - description: Trigger ID
         in: path
         name: id
         required: true
@@ -21848,13 +22118,13 @@ paths:
             $ref: '#/definitions/api.InstallGitLabWebhookResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: auto-install the webhook for a GitLab topic'
+      summary: 'Helix-org: auto-install the webhook for a GitLab Trigger'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status:
+  /api/v1/orgs/{org}/triggers/{id}/gitlab/webhook-status:
     get:
       parameters:
-      - description: Topic ID
+      - description: Trigger ID
         in: path
         name: id
         required: true
@@ -21868,98 +22138,7 @@ paths:
             $ref: '#/definitions/api.GitLabWebhookStatusResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: live webhook status for a GitLab topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/messages:
-    delete:
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: clear all messages from a topic'
-      tags:
-      - HelixOrg
-    get:
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: 1-based page number (default 1)
-        in: query
-        name: page[number]
-        type: integer
-      - description: page size (default 50, max 200)
-        in: query
-        name: page[size]
-        type: integer
-      produces:
-      - application/vnd.api+json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.MessagesDocument'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list a topic''s messages (JSON:API, paginated)'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/topics/{id}/publish:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Topic ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Message body+optional subject/to
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.PublishRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.PublishResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: publish a message to a topic'
+      summary: 'Helix-org: live webhook status for a GitLab Trigger'
       tags:
       - HelixOrg
   /api/v1/projects:
@@ -23678,6 +23857,46 @@ paths:
             $ref: '#/definitions/types.UpdateProviderEndpoint'
       security:
       - BearerAuth: []
+  /api/v1/provider-endpoints/{id}/available-models:
+    get:
+      description: Returns every model the upstream provider advertises, plus the
+        subset currently enabled on the endpoint. Aggregators such as OpenRouter list
+        hundreds of models, so this is deliberately separate from the endpoint's effective
+        (enabled-only) model list.
+      parameters:
+      - description: Provider endpoint ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Bypass the cached catalogue and refetch from upstream
+        in: query
+        name: refresh
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProviderEndpointModels'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List a provider endpoint's full model catalogue
+      tags:
+      - providers
   /api/v1/provider-endpoints/{id}/daily-usage:
     get:
       consumes:
@@ -23721,6 +23940,48 @@ paths:
       security:
       - BearerAuth: []
       summary: Get provider daily usage
+      tags:
+      - providers
+  /api/v1/provider-endpoints/{id}/models:
+    put:
+      consumes:
+      - application/json
+      description: Replaces the endpoint's enabled-models whitelist. An empty list
+        enables the provider's whole catalogue.
+      parameters:
+      - description: Provider endpoint ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Enabled models
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateProviderEndpointModels'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProviderEndpoint'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Set the models enabled on a provider endpoint
       tags:
       - providers
   /api/v1/provider-endpoints/{id}/throughput-usage:
@@ -24553,11 +24814,19 @@ paths:
         name: id
         required: true
         type: string
+      - description: Revoke Agent grants and delete anyway
+        in: query
+        name: force
+        type: boolean
       responses:
         "200":
           description: OK
           schema:
             $ref: '#/definitions/types.Secret'
+        "409":
+          description: Secret is granted to one or more Agents
+          schema:
+            $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
       summary: Delete a secret
@@ -27246,6 +27515,46 @@ paths:
       summary: Get spec-driven task progress
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/refresh-pull-request:
+    post:
+      description: Immediately synchronize pull request and CI status for a task being
+        actively viewed. Requests are coalesced to one poll per task every 30 seconds.
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Refresh a spec task's pull request status
+      tags:
+      - spec-tasks
   /api/v1/spec-tasks/{taskId}/specs:
     get:
       description: Get the generated specifications for human review

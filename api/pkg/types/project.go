@@ -242,8 +242,9 @@ type Project struct {
 	// Default sandbox environment for new spec tasks. Empty values from legacy
 	// projects resolve to the full desktop runtime.
 	DefaultSandboxRuntime SandboxRuntime `json:"default_sandbox_runtime,omitempty" gorm:"size:64"`
-	// Default sandbox resources copied into each new SpecTask. Nil values from
-	// legacy projects resolve to the standard 4 vCPU / 8 GB preset.
+	// Default sandbox resources copied into each new SpecTask. Nil means the
+	// project expresses no preference and the task resolves the global default at
+	// container-create time.
 	DefaultSandboxResourceOverrides *SandboxResourceOverrides `json:"default_sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	ProjectManagerHelixAppID string `json:"project_manager_helix_app_id"`
@@ -258,6 +259,10 @@ type Project struct {
 	GuidelinesVersion   int       `json:"guidelines_version"`    // Incremented on each update
 	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"` // When guidelines were last updated
 	GuidelinesUpdatedBy string    `json:"guidelines_updated_by"` // User ID who last updated guidelines
+
+	// AgentTools is the Helix MCP tool allowlist every spec task in this
+	// project inherits. Empty means no Helix MCP surface at all.
+	AgentTools []string `json:"agent_tools,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Project-level skills - these overlay on top of agent skills
 	// Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
@@ -409,6 +414,7 @@ type ProjectUpdateRequest struct {
 	KoditEnabled                    *bool                     `json:"kodit_enabled,omitempty"`                      // Whether Kodit code intelligence is enabled
 	Guidelines                      *string                   `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
 	Skills                          *AssistantSkills          `json:"skills,omitempty"`                             // Project-level skills
+	AgentTools                      *[]string                 `json:"agent_tools,omitempty"`                        // Helix MCP tools granted to every spec task
 	Metadata                        *ProjectMetadata          `json:"metadata,omitempty"`
 }
 

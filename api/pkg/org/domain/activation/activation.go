@@ -51,7 +51,7 @@ type Activation struct {
 	StartedAt      time.Time
 	EndedAt        *time.Time
 	Outcome        Outcome
-	TranscriptID   streaming.TopicID
+	TranscriptID   streaming.StreamID
 }
 
 // New constructs an Activation, validating invariants. orgID is

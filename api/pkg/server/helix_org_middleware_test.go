@@ -643,3 +643,26 @@ func TestRemoveLegacyHelixOrgMCPsStampsOrgIDOnContext(t *testing.T) {
 		t.Fatalf("orgID on context = %q, want %q", got, orgID)
 	}
 }
+
+func TestHelixOrgPrivilegedMutation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		method string
+		path   string
+		want   bool
+	}{
+		{http.MethodPut, "/api/v1/orgs/test/agents/w-1/secrets/GH_TOKEN", true},
+		{http.MethodDelete, "/api/v1/orgs/test/agents/w-1/secrets/GH_TOKEN", true},
+		{http.MethodGet, "/api/v1/orgs/test/agents/w-1/secrets", false},
+		{http.MethodGet, "/api/v1/orgs/test/agents/w-1/available-secrets", false},
+		{http.MethodPatch, "/api/v1/orgs/test/assets/a-1", true},
+		{http.MethodPatch, "/api/v1/orgs/test/agents/w-1", false},
+	}
+	for _, tt := range tests {
+		req := httptest.NewRequest(tt.method, tt.path, nil)
+		req = mux.SetURLVars(req, map[string]string{"org": "test"})
+		if got := isHelixOrgPrivilegedMutation(req); got != tt.want {
+			t.Errorf("%s %s = %v, want %v", tt.method, tt.path, got, tt.want)
+		}
+	}
+}

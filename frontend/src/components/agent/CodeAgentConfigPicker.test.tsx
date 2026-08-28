@@ -7,22 +7,25 @@ import {
   TypesCodeAgentCredentialType,
   TypesCodeAgentExecutionConfig,
   TypesCodeAgentRuntime,
+  TypesProviderEndpointType,
   TypesProviderEndpointStatus,
 } from '../../api/api'
 import CodeAgentConfigPicker from './CodeAgentConfigPicker'
+import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
 
 const harnessState = vi.hoisted(() => ({ harnesses: [] as any[] }))
 const providerState = vi.hoisted(() => ({ providers: [] as any[] }))
+const routerState = vi.hoisted(() => ({ name: 'org_chat' }))
 const navigate = vi.hoisted(() => vi.fn())
 
 vi.mock('../../services/orgService', () => ({
-  useGetOrgByName: () => ({ data: { id: 'org-1' }, isLoading: false }),
+  useGetOrgByName: () => ({ data: { id: 'org-1', display_name: 'Probably' }, isLoading: false }),
 }))
 vi.mock('../../services/providersService', () => ({
   useListProviders: () => ({ data: providerState.providers, isLoading: false }),
 }))
 vi.mock('../../hooks/useRouter', () => ({
-  default: () => ({ params: { org_id: 'test-org' }, navigate }),
+  default: () => ({ name: routerState.name, params: { org_id: 'test-org' }, navigate }),
 }))
 vi.mock('../account/ClaudeSubscriptionConnect', () => ({
   useClaudeSubscriptions: () => ({ data: [] }),
@@ -48,7 +51,7 @@ function AutoSelectingPicker({
   onChange,
   initial,
 }: {
-  onChange?: (value: TypesCodeAgentExecutionConfig) => void
+  onChange?: (value: TypesCodeAgentExecutionConfig, source: CodeAgentConfigChangeSource) => void
   initial?: TypesCodeAgentExecutionConfig
 }) {
   const [value, setValue] = useState<TypesCodeAgentExecutionConfig | undefined>(initial)
@@ -56,8 +59,8 @@ function AutoSelectingPicker({
     <CodeAgentConfigPicker
       value={value}
       autoSelectDefault
-      onChange={(next) => {
-        onChange?.(next)
+      onChange={(next, source) => {
+        onChange?.(next, source)
         setValue(next)
       }}
     />
@@ -67,10 +70,12 @@ function AutoSelectingPicker({
 describe('CodeAgentConfigPicker', () => {
   beforeEach(() => {
     navigate.mockClear()
+    routerState.name = 'org_chat'
     providerState.providers = [
       {
         id: 'provider-1',
         name: 'OpenAI',
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
         status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
         available_models: [
           { id: 'api-model', enabled: true, type: 'text' },
@@ -81,6 +86,7 @@ describe('CodeAgentConfigPicker', () => {
       {
         id: 'provider-2',
         name: 'Anthropic',
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
         status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
         available_models: [
           { id: 'claude-api-model', enabled: true, type: 'chat' },
@@ -92,6 +98,7 @@ describe('CodeAgentConfigPicker', () => {
     harnessState.harnesses = [
       TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
       TypesCodeAgentRuntime.CodeAgentRuntimeGooseCode,
+      TypesCodeAgentRuntime.CodeAgentRuntimeQwenCode,
       TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
       TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
       TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
@@ -114,6 +121,7 @@ describe('CodeAgentConfigPicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
     expect(screen.getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Qwen Code' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Codex' })).not.toBeInTheDocument()
   })
 
@@ -123,11 +131,15 @@ describe('CodeAgentConfigPicker', () => {
 
     expect(screen.getByText('api-model')).toBeInTheDocument()
     expect(screen.getByText('claude-api-model')).toBeInTheDocument()
-    expect(screen.getAllByText('OpenAI').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Anthropic').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Global / OpenAI').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Global / Anthropic').length).toBeGreaterThan(0)
   })
 
   it('hides models from providers disabled for the selected harness', () => {
+    providerState.providers = providerState.providers.map((provider) => ({
+      ...provider,
+      endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeOrg,
+    }))
     harnessState.harnesses = harnessState.harnesses.map((harness) =>
       harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent
         ? { ...harness, provider_refs: ['provider-2'] }
@@ -136,9 +148,21 @@ describe('CodeAgentConfigPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
 
     expect(screen.queryByText('api-model')).not.toBeInTheDocument()
-    expect(screen.queryByText('OpenAI')).not.toBeInTheDocument()
+    expect(screen.queryByText('Probably / OpenAI')).not.toBeInTheDocument()
     expect(screen.getByText('claude-api-model')).toBeInTheDocument()
-    expect(screen.getAllByText('Anthropic').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Probably / Anthropic').length).toBeGreaterThan(0)
+  })
+
+  it('treats an explicit empty provider list as API providers disabled', () => {
+    harnessState.harnesses = harnessState.harnesses.map((harness) =>
+      harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent
+        ? { ...harness, provider_refs: [] }
+        : harness)
+    renderPicker(<CodeAgentConfigPicker onChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
+
+    expect(screen.queryByText('api-model')).not.toBeInTheDocument()
+    expect(screen.queryByText('claude-api-model')).not.toBeInTheDocument()
   })
 
   it('does not expose cached models from a disconnected provider', () => {
@@ -197,7 +221,7 @@ describe('CodeAgentConfigPicker', () => {
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
       provider_ref: undefined,
       model: 'claude-opus-5',
-    }))
+    }), 'user')
   })
 
   it('defaults a new task to Claude Opus when Claude subscription is available', async () => {
@@ -208,7 +232,7 @@ describe('CodeAgentConfigPicker', () => {
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
       model: 'claude-opus-5',
-    }))
+    }, 'auto'))
     expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('Claude Opus 5')
   })
 
@@ -225,7 +249,7 @@ describe('CodeAgentConfigPicker', () => {
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
       model: 'gpt-5.6-sol',
-    }))
+    }, 'auto'))
   })
 
   it('defaults a new task to Claude Opus from a connected Anthropic provider', async () => {
@@ -242,7 +266,7 @@ describe('CodeAgentConfigPicker', () => {
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
       provider_ref: 'provider-2',
       model: 'claude-opus-5',
-    }))
+    }, 'auto'))
     expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('claude-opus-5')
   })
 
@@ -299,10 +323,14 @@ describe('CodeAgentConfigPicker', () => {
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
       provider_ref: 'provider-1',
       model: 'gpt-5.6-sol',
-    }))
+    }, 'auto'))
   })
 
   it('writes the provider and model selected in chat into the task config', () => {
+    providerState.providers = providerState.providers.map((provider) =>
+      provider.id === 'provider-2'
+        ? { ...provider, name: 'user/anthropic', endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeOrg }
+        : provider)
     harnessState.harnesses = harnessState.harnesses.map((harness) =>
       harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
         ? { ...harness, subscription_enabled: false }
@@ -311,13 +339,47 @@ describe('CodeAgentConfigPicker', () => {
     renderPicker(<CodeAgentConfigPicker onChange={onChange} />)
     fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
     fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
-    fireEvent.click(screen.getByText('claude-fable-5'))
+    const option = screen.getByRole('button', { name: 'Select claude-fable-5 from Probably / Anthropic' })
+    expect(option).toHaveTextContent('Probably / Anthropic')
+    fireEvent.click(option)
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
       provider_ref: 'provider-2',
       model: 'claude-fable-5',
-    }))
+    }), 'user')
+  })
+
+  it('shows duplicate vendor scopes and stores the selected endpoint ID', () => {
+    providerState.providers = [
+      {
+        id: 'pe_org_anthropic',
+        name: 'user/anthropic',
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeOrg,
+        status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+        available_models: [{ id: 'org-claude', enabled: true, type: 'chat' }],
+      },
+      {
+        id: 'global/anthropic',
+        name: 'anthropic',
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+        status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+        available_models: [{ id: 'global-claude', enabled: true, type: 'chat' }],
+      },
+    ]
+    const onChange = vi.fn()
+    renderPicker(<CodeAgentConfigPicker onChange={onChange} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Zed Agent' }))
+
+    expect(screen.getByText('Probably / Anthropic')).toBeInTheDocument()
+    expect(screen.getByText('Global / Anthropic')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Select global-claude from Global / Anthropic' }))
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      provider_ref: 'global/anthropic',
+      model: 'global-claude',
+    }), 'user')
   })
 
   it('keeps older native models in a collapsed legacy section', () => {
@@ -363,7 +425,33 @@ describe('CodeAgentConfigPicker', () => {
     expect(trigger).not.toHaveTextContent('api-model')
   })
 
+  it('shows a task-owned config read-only on embed routes without inventory', () => {
+    routerState.name = 'embed_task'
+    harnessState.harnesses = []
+    providerState.providers = []
+    renderPicker(
+      <CodeAgentConfigPicker
+        onChange={vi.fn()}
+        value={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+          credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+          provider_ref: 'global/openai',
+          model: 'gpt-5.6-sol',
+        }}
+      />,
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Change coding agent' })
+    expect(trigger).toHaveTextContent('gpt-5.6-sol')
+    expect(trigger).not.toHaveTextContent('Configure harness')
+    expect(trigger).toBeDisabled()
+  })
+
   it('does not mutate an existing task whose provider is no longer allowed', async () => {
+    providerState.providers = providerState.providers.map((provider) => ({
+      ...provider,
+      endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeOrg,
+    }))
     harnessState.harnesses = harnessState.harnesses.map((harness) =>
       harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
         ? { ...harness, subscription_enabled: false, provider_refs: ['provider-2'] }
@@ -407,7 +495,7 @@ describe('CodeAgentConfigPicker', () => {
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
       model: 'claude-opus-5',
-    }))
+    }, 'auto'))
   })
 
   it('defaults to Codex Sol when OpenAI is the only connected native provider', async () => {
@@ -428,7 +516,7 @@ describe('CodeAgentConfigPicker', () => {
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
       provider_ref: 'provider-1',
       model: 'gpt-5.6-sol',
-    }))
+    }, 'auto'))
     expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('gpt-5.6-sol')
   })
 })

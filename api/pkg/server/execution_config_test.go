@@ -44,6 +44,7 @@ func TestIsDeferredNativeHarnessProjectConfig(t *testing.T) {
 				Runtime:        types.CodeAgentRuntimeOpenCode,
 				CredentialType: types.CodeAgentCredentialTypeAPIKey,
 			},
+			want: true,
 		},
 		{
 			name: "subscription",

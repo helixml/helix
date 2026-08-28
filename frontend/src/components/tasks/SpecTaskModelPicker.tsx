@@ -14,22 +14,33 @@ import { ChevronDown, Search } from "lucide-react";
 import type {
   TypesProviderEndpoint,
   TypesAgentExecutionConfig,
+  TypesOrgCodeAgentHarnessStatus,
 } from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp, IAssistantConfig } from "../../types";
 import { useGetOrgByName } from "../../services/orgService";
 import { useListProviders } from "../../services/providersService";
+import {
+  findHarnessStatus,
+  useOrgCodeAgentHarnesses,
+} from "../../services/codeAgentHarnessesService";
 import useRouter from "../../hooks/useRouter";
 import { matchesAllTokens } from "../../utils/searchUtils";
 import AgentHarness from "../agent/AgentHarness";
+import { getProviderEndpointLabel } from "../providers/ProviderEndpointIcon";
 import {
   CLAUDE_SUBSCRIPTION_MODELS,
   CODEX_SUBSCRIPTION_MODELS,
 } from "../agent/CodingAgentForm";
 import {
-  matchesStoredRef,
   ProviderIcon,
   providerRef,
 } from "../create/AdvancedModelPicker";
+import {
+  providerEndpointIsConnected,
+  providersForCodeAgentHarness,
+  providersForCodeAgentRuntime,
+  resolveProviderEndpointRef,
+} from "../../utils/codeAgentProviders";
 
 export type TaskModelOption = { id: string; label: string };
 
@@ -89,6 +100,7 @@ const SpecTaskModelPickerView: FC<{
   const searchRef = useRef<HTMLInputElement>(null);
 
   const activeAgent = agents.find(({ agent }) => agent.id === selectedAgentId);
+  const providerEndpoints = agents.flatMap(({ models }) => models.flatMap(({ provider }) => provider ? [provider] : []));
   const browsedAgent = agents.find(({ agent }) => agent.id === browsedAgentId) || activeAgent || agents[0];
   const searching = query.trim().length > 0;
   const visibleModels = useMemo(() => {
@@ -121,7 +133,7 @@ const SpecTaskModelPickerView: FC<{
     || currentExecutionConfig?.runtime
     || "zed_agent";
   const activeModel = activeAgent?.models.find((option) => option.id === model
-    && (!option.provider || matchesStoredRef(option.provider, providerRefValue)))
+    && (!option.provider || resolveProviderEndpointRef(providerEndpoints, providerRefValue)?.id === option.provider.id))
     || activeAgent?.models.find((option) => option.id === model);
   const activeModelLabel = activeModel?.label.replace(/ \(.+\)$/, "")
     || model.split("/").pop()
@@ -255,11 +267,12 @@ const SpecTaskModelPickerView: FC<{
               {visibleModels.map(({ agent, option }) => {
                 const selected = agent.agent.id === activeAgent?.agent.id
                   && option.id === model
-                  && (!option.provider || matchesStoredRef(option.provider, providerRefValue));
+                  && (!option.provider || resolveProviderEndpointRef(providerEndpoints, providerRefValue)?.id === option.provider.id);
                 const agentName = agent.agent.config?.helix?.name || "Unnamed agent";
                 return (
                   <Button
                     key={`${agent.agent.id}:${option.key}`}
+                    aria-label={`Select ${option.label} from ${option.providerLabel}`}
                     fullWidth
                     onClick={() => {
                       onSelectAgentModel(
@@ -322,30 +335,40 @@ function getAssistant(agent: IApp): IAssistantConfig | undefined {
   ) || agent.config?.helix?.assistants?.[0];
 }
 
-function buildPickerAgents(
+export function buildPickerAgents(
   agents: IApp[],
   providers: TypesProviderEndpoint[],
+  harnesses: TypesOrgCodeAgentHarnessStatus[] = [],
+  enforceOrgPolicy = false,
+  organizationName?: string,
 ): PickerAgent[] {
   return agents.map((agent) => {
     const assistant = getAssistant(agent);
     const runtime = assistant?.code_agent_runtime;
     const usesSubscription = assistant?.code_agent_credential_type === "subscription";
+    const harness = findHarnessStatus(harnesses, runtime);
     let models: PickerModel[];
 
-    if (usesSubscription && runtime === "claude_code") {
-      models = CLAUDE_SUBSCRIPTION_MODELS.map((option) => ({
+    const subscriptionAllowed = !enforceOrgPolicy
+      || (!!harness?.enabled
+        && harness.subscription_enabled === true
+        && !!harness.viewer_has_subscription);
+    if (usesSubscription) {
+      const subscriptionModels = runtime === "claude_code"
+        ? CLAUDE_SUBSCRIPTION_MODELS
+        : runtime === "codex_cli"
+          ? CODEX_SUBSCRIPTION_MODELS
+          : [];
+      models = subscriptionAllowed ? subscriptionModels.map((option) => ({
         ...option,
         key: option.id,
-        providerLabel: "Claude Code",
-      }));
-    } else if (usesSubscription && runtime === "codex_cli") {
-      models = CODEX_SUBSCRIPTION_MODELS.map((option) => ({
-        ...option,
-        key: option.id,
-        providerLabel: "Codex",
-      }));
+        providerLabel: runtime === "claude_code" ? "Claude Code" : "Codex",
+      })) : [];
     } else {
-      models = providers.flatMap((provider) => (provider.available_models || [])
+      const allowedProviders = enforceOrgPolicy
+        ? providersForCodeAgentHarness(providers, harness, runtime)
+        : providersForCodeAgentRuntime(providers, runtime).filter(providerEndpointIsConnected);
+      models = allowedProviders.flatMap((provider) => (provider.available_models || [])
         .filter((availableModel) => availableModel.enabled
           && (!availableModel.type || availableModel.type === "chat" || availableModel.type === "text"))
         .map((availableModel) => ({
@@ -353,7 +376,7 @@ function buildPickerAgents(
           id: availableModel.id || "",
           label: availableModel.id || "Unnamed model",
           provider,
-          providerLabel: provider.name || "Provider",
+          providerLabel: getProviderEndpointLabel(provider, organizationName),
         }))
         .filter((availableModel) => availableModel.id));
     }
@@ -365,43 +388,34 @@ function buildPickerAgents(
 const ProviderAwareSpecTaskModelPicker: FC<SpecTaskModelPickerProps> = (props) => {
   const router = useRouter();
   const orgName = router.params.org_id;
+  const needsProviders = props.agents.some((agent) =>
+    getAssistant(agent)?.code_agent_credential_type !== "subscription");
   const { data: org, isLoading: loadingOrg } = useGetOrgByName(orgName, orgName !== undefined);
   const { data: providers = [], isLoading } = useListProviders({
     loadModels: true,
     orgId: org?.id,
-    enabled: !loadingOrg,
+    enabled: !loadingOrg && needsProviders,
   });
+  const { data: harnesses = [], isLoading: loadingHarnesses } = useOrgCodeAgentHarnesses(
+    org?.id,
+    { enabled: !loadingOrg },
+  );
   const pickerAgents = useMemo(
-    () => buildPickerAgents(props.agents, providers),
-    [props.agents, providers],
+    () => buildPickerAgents(props.agents, providers, harnesses, !!orgName, org?.display_name || org?.name),
+    [props.agents, providers, harnesses, orgName, org?.display_name, org?.name],
   );
 
   return (
     <SpecTaskModelPickerView
       {...props}
       agents={pickerAgents}
-      loading={isLoading || loadingOrg}
+      loading={(needsProviders && isLoading) || loadingOrg || loadingHarnesses}
     />
   );
 };
 
-const SubscriptionSpecTaskModelPicker: FC<SpecTaskModelPickerProps> = (props) => {
-  const pickerAgents = useMemo(
-    () => buildPickerAgents(props.agents, []),
-    [props.agents],
-  );
-  return <SpecTaskModelPickerView {...props} agents={pickerAgents} />;
-};
-
 const SpecTaskModelPicker: FC<SpecTaskModelPickerProps> = (props) => {
-  const needsProviders = props.agents.some((agent) => {
-    const assistant = getAssistant(agent);
-    return assistant?.code_agent_credential_type !== "subscription"
-      || (assistant.code_agent_runtime !== "claude_code" && assistant.code_agent_runtime !== "codex_cli");
-  });
-  return needsProviders
-    ? <ProviderAwareSpecTaskModelPicker {...props} />
-    : <SubscriptionSpecTaskModelPicker {...props} />;
+  return <ProviderAwareSpecTaskModelPicker {...props} />;
 };
 
 export default SpecTaskModelPicker;

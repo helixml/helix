@@ -692,11 +692,16 @@ func TestExtractUserOverrides_SkipsHelixOwnedContextServers(t *testing.T) {
 // default_mode: "bypassPermissions" entry; this test keeps the two in
 // step. If you remove the default_mode field, this test fails.
 func TestQwenCodeAgentServerHasYoloDefaultMode(t *testing.T) {
+	oldQwenSettingsPath := QwenSettingsPath
+	QwenSettingsPath = filepath.Join(t.TempDir(), "qwen", "settings.json")
+	t.Cleanup(func() { QwenSettingsPath = oldQwenSettingsPath })
+
 	d := &SettingsDaemon{
 		codeAgentConfig: &CodeAgentConfig{
-			Runtime: "qwen_code",
-			BaseURL: "http://outer-api:8080/v1",
-			Model:   "nebius/zai-org/GLM-5.1",
+			Runtime:         "qwen_code",
+			BaseURL:         "http://outer-api:8080/v1",
+			Model:           "node-6/qwen3.8-27b",
+			ReasoningEffort: "xhigh",
 		},
 		userAPIKey: "hl-test-key",
 	}
@@ -717,6 +722,61 @@ func TestQwenCodeAgentServerHasYoloDefaultMode(t *testing.T) {
 	assert.True(t, ok, "qwen entry must have args")
 	assert.Contains(t, args, "--yolo",
 		"qwen args must include --yolo so the ACP session starts in YOLO mode without depending on the IDE")
+	assert.Contains(t, args, "--acp")
+	assert.NotContains(t, args, "--experimental-acp")
+
+	env, ok := qwen["env"].(map[string]interface{})
+	assert.True(t, ok, "qwen entry must have env")
+	assert.Equal(t, "/home/retro/work/.qwen-state", env["QWEN_HOME"])
+	assert.Equal(t, "/home/retro/work/.qwen-state", env["QWEN_RUNTIME_DIR"])
+	assert.Equal(t, "false", env["QWEN_TELEMETRY_ENABLED"])
+	assert.Equal(t, "false", env["QWEN_USAGE_STATISTICS_ENABLED"])
+	assert.NotContains(t, env, "QWEN_DATA_DIR")
+
+	defaults, ok := qwen["default_config_options"].(map[string]string)
+	assert.True(t, ok, "qwen entry must have default ACP config options")
+	assert.Equal(t, "xhigh", defaults["reasoning_effort"])
+
+	data, err := os.ReadFile(QwenSettingsPath)
+	require.NoError(t, err)
+	var settings map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &settings))
+	model := settings["model"].(map[string]interface{})
+	generationConfig := model["generationConfig"].(map[string]interface{})
+	extraBody := generationConfig["extra_body"].(map[string]interface{})
+	assert.Equal(t, "xhigh", extraBody["reasoning_effort"])
+}
+
+func TestEnsureQwenSettingsPreservesUserConfigAndClearsEffort(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "qwen", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, os.WriteFile(path, []byte(`{
+  "general": {"vimMode": true},
+  "model": {"generationConfig": {"timeout": 60000, "extra_body": {"custom": true}}}
+}`), 0644))
+
+	require.NoError(t, ensureQwenSettings(path, "medium"))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var settings map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &settings))
+	assert.Equal(t, true, settings["general"].(map[string]interface{})["vimMode"])
+	model := settings["model"].(map[string]interface{})
+	generationConfig := model["generationConfig"].(map[string]interface{})
+	assert.Equal(t, float64(60000), generationConfig["timeout"])
+	extraBody := generationConfig["extra_body"].(map[string]interface{})
+	assert.Equal(t, true, extraBody["custom"])
+	assert.Equal(t, "medium", extraBody["reasoning_effort"])
+
+	require.NoError(t, ensureQwenSettings(path, ""))
+	data, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &settings))
+	model = settings["model"].(map[string]interface{})
+	generationConfig = model["generationConfig"].(map[string]interface{})
+	extraBody = generationConfig["extra_body"].(map[string]interface{})
+	assert.NotContains(t, extraBody, "reasoning_effort")
+	assert.Equal(t, true, extraBody["custom"])
 }
 
 func TestEnsureCodexConfig(t *testing.T) {
@@ -725,14 +785,14 @@ func TestEnsureCodexConfig(t *testing.T) {
 	assert.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
 	assert.NoError(t, os.WriteFile(path, existing, 0644))
 
-	assert.NoError(t, ensureCodexConfig(path, "http://api:8080/v1"))
+	assert.NoError(t, ensureCodexConfig(path, "http://api:8080/v1", "gpt-5.6-terra"))
 	data, err := os.ReadFile(path)
 	assert.NoError(t, err)
 	var config map[string]interface{}
 	assert.NoError(t, toml.Unmarshal(data, &config))
 	assert.Equal(t, "never", config["approval_policy"])
 	assert.Equal(t, "danger-full-access", config["sandbox_mode"])
-	assert.Equal(t, "gpt-5.6-sol", config["model"])
+	assert.Equal(t, "gpt-5.6-terra", config["model"])
 	assert.Equal(t, "https://user-proxy.example/v1", config["openai_base_url"])
 	assert.Equal(t, "helix", config["model_provider"])
 	providers, ok := config["model_providers"].(map[string]interface{})
@@ -748,12 +808,13 @@ func TestEnsureCodexConfig(t *testing.T) {
 	assert.True(t, ok)
 	assert.Contains(t, projects, "/workspace")
 
-	assert.NoError(t, ensureCodexConfig(path, ""))
+	assert.NoError(t, ensureCodexConfig(path, "", ""))
 	data, err = os.ReadFile(path)
 	assert.NoError(t, err)
 	config = map[string]interface{}{}
 	assert.NoError(t, toml.Unmarshal(data, &config))
 	assert.Equal(t, "https://user-proxy.example/v1", config["openai_base_url"])
+	assert.NotContains(t, config, "model")
 	assert.NotContains(t, config, "model_provider")
 	providers, ok = config["model_providers"].(map[string]interface{})
 	assert.True(t, ok)
@@ -766,7 +827,7 @@ func TestCodexAgentServerUsesFullAccess(t *testing.T) {
 	CodexConfigPath = filepath.Join(t.TempDir(), "config.toml")
 	t.Cleanup(func() { CodexConfigPath = originalPath })
 
-	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{Runtime: "codex_cli", BaseURL: "http://api/v1"}}
+	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{Runtime: "codex_cli", BaseURL: "http://api/v1", Model: "gpt-5.6-terra"}}
 	cfg := d.generateAgentServerConfig()
 	codex, ok := cfg["codex-acp"].(map[string]interface{})
 	assert.True(t, ok)
@@ -782,6 +843,7 @@ func TestCodexAgentServerUsesFullAccess(t *testing.T) {
 	assert.NoError(t, toml.Unmarshal(data, &persisted))
 	assert.Equal(t, "never", persisted["approval_policy"])
 	assert.Equal(t, "danger-full-access", persisted["sandbox_mode"])
+	assert.Equal(t, "gpt-5.6-terra", persisted["model"])
 	assert.Equal(t, "helix", persisted["model_provider"])
 	providers, ok := persisted["model_providers"].(map[string]interface{})
 	assert.True(t, ok)

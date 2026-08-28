@@ -333,6 +333,27 @@ func (s *GitIntegrationSuite) TestSyncFromUpstream() {
 	s.Equal(upstreamCommit, middleCommit, "Middle should match upstream after sync")
 }
 
+func (s *GitIntegrationSuite) TestRecoverIncompletePushes() {
+	worktree := filepath.Join(s.testDir, "recovery-worktree")
+	err := giteagit.Clone(s.ctx, s.testRepo.LocalPath, worktree, giteagit.CloneRepoOptions{})
+	s.Require().NoError(err)
+
+	s.createCommitInClone(worktree, "recovered.txt", "recover me", "Recover incomplete push")
+	_, _, err = gitcmd.NewCommand("push", "origin", "main").
+		RunStdString(s.ctx, &gitcmd.RunOpts{Dir: worktree})
+	s.Require().NoError(err)
+
+	s.NotEqual(s.getMiddleCommit("main"), s.getUpstreamCommit("main"))
+	s.mockStore.EXPECT().
+		ListGitRepositories(gomock.Any(), gomock.Any()).
+		Return([]*types.GitRepository{s.testRepo}, nil)
+
+	s.gitRepoService.recoverIncompletePushes(s.ctx)
+
+	s.Equal(s.getMiddleCommit("main"), s.getUpstreamCommit("main"))
+	s.assertUpstreamHasCommit("Recover incomplete push")
+}
+
 func (s *GitIntegrationSuite) TestForceSyncOverwritesDivergedLocal() {
 	// Create a commit in middle repo directly (simulating divergence)
 	middleRepoPath := s.testRepo.LocalPath

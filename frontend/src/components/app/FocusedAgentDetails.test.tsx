@@ -15,6 +15,10 @@ vi.mock('./OrgAgentSettings', () => ({
   default: ({ section }: { section: string }) => <div data-testid={`org-${section}`} />,
 }))
 
+vi.mock('../helix-org/WorkerSecretsPanel', () => ({
+  default: () => <div data-testid="worker-secrets" />,
+}))
+
 const renderDetails = (kind: 'coding' | 'org', accessManagement?: ReactNode) => render(
   <FocusedAgentDetails
     agentID="app_test"
@@ -57,13 +61,14 @@ describe('FocusedAgentDetails', () => {
       />,
     )
 
-    for (const title of ['General', 'Desktop', 'Instructions', 'Available tools', 'Subscriptions', 'Permissions']) {
+    for (const title of ['General', 'Desktop', 'Instructions', 'Available tools', 'Triggers', 'Secrets', 'Permissions']) {
       expect(screen.getByRole('heading', { name: title })).toBeInTheDocument()
     }
     for (const section of ['basics', 'runtime', 'instructions', 'tools', 'subscriptions', 'access']) {
       expect(screen.getByTestId(`org-${section}`)).toBeInTheDocument()
     }
     expect(screen.getByTestId('agent-access')).toBeInTheDocument()
+    expect(screen.getByTestId('worker-secrets')).toBeInTheDocument()
   })
 
   it('explains when an org backing agent is no longer linked to a worker', () => {

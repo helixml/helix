@@ -82,23 +82,23 @@ func TestCreateBotUnionWithCallerTools(t *testing.T) {
 	t.Parallel()
 	deps, caller := newCreateBotCaller(t, "org-test")
 	bot := invokeCreateBot(t, deps, caller,
-		`{"id":"b-qa","content":"# QA","tools":["publish","managers","subscribe"]}`)
+		`{"id":"b-qa","content":"# QA","tools":["chat","managers","attach_worker"]}`)
 	want := []tool.Name{
 		// Caller's order preserved, deduped (managers comes from the
 		// caller, not from the baseline appendage).
-		PublishName,
+		ChatName,
 		ManagersName,
-		SubscribeName,
+		AttachWorkerName,
 		// Baseline tail in BaseReadTools order, minus the already-present `managers`.
 		ReportsName,
 		ListBotsName,
 		GetBotName,
-		ListTopicsName,
-		GetTopicName,
-		ListTopicEventsName,
+		ListTriggersName,
+		GetTriggerName,
+		ListTriggerEventsName,
 		ReadEventsName,
 		BotLogName,
-		MintCredentialName,
+		GetSecretName,
 		AskHumanName,
 		ListSecretsName,
 		ListProcessorsName,

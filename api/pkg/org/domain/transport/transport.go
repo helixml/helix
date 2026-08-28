@@ -43,6 +43,7 @@ type Kind string
 // lives in the strategies map.
 type Strategy interface {
 	ParseConfig(json.RawMessage) (Config, error)
+	Describe() Descriptor
 }
 
 // Config is the parsed shape of a Transport's per-Kind configuration.
@@ -61,14 +62,14 @@ type Config interface {
 // (it's the default), then the others in the order they were added to
 // the system. The order is part of the public surface — it shows up
 // in JSON Schema enum lists, in "(valid: …)" error messages, and in
-// the MCP create_topic tool description. Tests pin it explicitly.
+// the MCP create_trigger tool description. Tests pin it explicitly.
 var kindOrder = []Kind{KindLocal, KindWebhook, KindEmail, KindGitHub, KindGitLab, KindCron, KindSlack, KindHelixEvents}
 
 // strategies registers every known Kind's Strategy. Adding a new Kind
 // means adding a new file in this package that defines its Kind
-// constant, its Config type with Validate(), and its Strategy
-// implementation — plus one entry here AND in kindOrder. Validate()
-// itself does not change.
+// constant, its Config type with Validate(), its Describe() descriptor,
+// and its Strategy implementation — plus one entry here AND in
+// kindOrder. Validate() itself does not change.
 var strategies = map[Kind]Strategy{
 	KindLocal:       local{},
 	KindWebhook:     webhook{},

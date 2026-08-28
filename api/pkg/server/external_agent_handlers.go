@@ -1484,6 +1484,17 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	}
 	upgradeFunc := proxy.CreateWebSocketUpgradeFunc("/ws/stream", wsKey, streamUpgradeHeaders...)
 
+	// The two halves of per-connection state that a reconnect must re-apply: the
+	// headers we know about the caller (above) and the init frame the client sent
+	// (below). desktop-bridge will not start a streamer without init, so a
+	// reconnect that dropped it leaves the backend stuck in a 30s read while the
+	// browser shows a live-but-frozen picture.
+	//
+	// Read-only is enforced entirely by the header, which this replay cannot
+	// touch: StreamConfig carries no privilege field, so a replayed init cannot
+	// re-grant input to an embed-key viewer.
+	streamInitReplay := proxy.NewStreamInitReplay()
+
 	// Create resilient proxy
 	resilientProxy := proxy.NewResilientProxy(proxy.ResilientProxyConfig{
 		SessionID:   proxySessionID,
@@ -1491,6 +1502,7 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 		ServerConn:  serverConn,
 		DialFunc:    dialFunc,
 		UpgradeFunc: upgradeFunc,
+		Replay:      streamInitReplay,
 	})
 	defer resilientProxy.Close()
 

@@ -81,7 +81,7 @@ func (g GitHubConfig) Validate() error {
 	}
 	// Repo must be exactly "owner/name" — one slash, both halves
 	// non-empty. Anything else is a typo we'd rather catch at
-	// create_topic time than have webhook deliveries silently miss
+	// create_trigger time than have webhook deliveries silently miss
 	// the topic.
 	parts := strings.Split(g.Repo, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
@@ -147,7 +147,7 @@ func parseGitHubConfig(raw json.RawMessage) (GitHubConfig, error) {
 // deployment, registry_package, …) and operators can opt in to any of
 // them without us shipping a code change. The format check still
 // catches the typo case (uppercase, dashes, leading digits) at
-// create_topic time. The frontend mirrors this pattern as
+// create_trigger time. The frontend mirrors this pattern as
 // GITHUB_EVENT_PATTERN.
 var githubEventNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,63}$`)
 
@@ -162,4 +162,61 @@ var SuggestedGitHubEvents = []string{
 	"pull_request",
 	"pull_request_review",
 	"pull_request_review_comment",
+}
+
+func (github) Describe() Descriptor {
+	return Descriptor{
+		Kind:    KindGitHub,
+		Label:   "GitHub event",
+		Summary: "Fires when selected events happen in a GitHub repository.",
+		Fields: []Field{
+			{
+				Name:      "repo",
+				Label:     "Repository",
+				Help:      "The owner/name whose webhook deliveries land on this Trigger.",
+				Type:      FieldGitHubRepo,
+				Required:  true,
+				Direction: Inbound,
+			},
+			{
+				Name:      "events",
+				Label:     "Events",
+				Help:      "GitHub event types to accept. Use * for all events.",
+				Type:      FieldGitHubEvents,
+				Required:  true,
+				Direction: Inbound,
+			},
+			{
+				Name:      "branches",
+				Label:     "Branches",
+				Help:      "Narrows branch-carrying events (push, create, delete). Use * for all, an exact name, or a prefix glob like release/*. Events with no branch are unaffected.",
+				Type:      FieldStringList,
+				Direction: Inbound,
+			},
+			{
+				Name:      "webhook_id",
+				Label:     "GitHub webhook id",
+				Help:      "Set by Helix when it installs the webhook on GitHub.",
+				Type:      FieldString,
+				ReadOnly:  true,
+				Direction: Inbound,
+			},
+			{
+				Name:      "webhook_html_url",
+				Label:     "Webhook on GitHub",
+				Help:      "Set by Helix when it installs the webhook on GitHub.",
+				Type:      FieldURL,
+				ReadOnly:  true,
+				Direction: Inbound,
+			},
+		},
+		Activation: Activation{
+			Summary: "GitHub delivers matching events to Helix. Use the Connect to GitHub panel below to install the webhook.",
+		},
+		Secrets: []SecretRef{{
+			Label:      "GitHub token and webhook signing secret",
+			SettingKey: "transport.github",
+			Location:   "Organization Settings",
+		}},
+	}
 }

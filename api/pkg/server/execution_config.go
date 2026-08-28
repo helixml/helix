@@ -248,8 +248,7 @@ func isDeferredNativeHarnessProjectConfig(config *types.CodeAgentExecutionConfig
 		config.ProviderRef != "" || config.Model != "" {
 		return false
 	}
-	return config.Runtime == types.CodeAgentRuntimeClaudeCode ||
-		config.Runtime == types.CodeAgentRuntimeCodexCLI
+	return true
 }
 
 // Projects choose a harness, while each task chooses the credential source and

@@ -21,7 +21,7 @@ Slack channel.
 - Human nodes and their existing `Identity` map.
 - `ask_human` as the only Bot-facing delivery action.
 - Org-scoped Slack workspace connections and decrypted bot tokens.
-- `mint_credential` for the Chief of Staff to resolve user, team, and channel
+- an explicitly granted Slack binding plus `get_secret` for the Chief of Staff to resolve user, team, and channel
   IDs through Slack's API during setup.
 - The automated Slack router and its per-Worker managed outputs.
 - The domain-event-backed Slack thread participant log and inbound
@@ -150,7 +150,7 @@ reaches the originating Bot.
 
 The seeded Chief of Staff prompt now asks what the org is for, who its key
 people are, and whether future contact should use Helix or Slack. For Slack it
-asks for an email and optional channel name, then uses `mint_credential` and
+asks for an email and optional channel name, then uses `get_secret` and
 Slack's `users.lookupByEmail` and `conversations.list` APIs to resolve canonical
 IDs before calling `set_human_contact`.
 

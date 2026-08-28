@@ -191,17 +191,14 @@ func (r *nodesRepo) ClaimAgentApp(ctx context.Context, orgID string, id orgchart
 	return res.RowsAffected == 1, nil
 }
 
-// Delete removes the node row and drops its node-anchored subscriptions
-// in the same transaction. The reporting lines that reference this node
-// (as manager or report) are removed by the ON DELETE CASCADE foreign
-// keys on org_reporting_lines (installed in OpenWithDB), so no app code
-// clears them - that's the whole point of the association table.
+// Delete removes the node row. Its node-anchored attachments and the
+// reporting lines that reference this node (as manager or report) are
+// removed by the ON DELETE CASCADE foreign keys on
+// org_worker_attachments and org_reporting_lines (installed in
+// OpenWithDB), so no app code clears them - that's the whole point of
+// the association tables.
 func (r *nodesRepo) Delete(ctx context.Context, orgID string, id orgchart.NodeID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("org_id = ? AND bot_id = ?", orgID, string(id)).
-			Delete(&subscriptionRow{}).Error; err != nil {
-			return fmt.Errorf("delete node: drop subscriptions: %w", err)
-		}
 		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&nodeRow{})
 		if res.Error != nil {
 			return fmt.Errorf("delete node: %w", res.Error)

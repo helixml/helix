@@ -12,24 +12,27 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	"github.com/helixml/helix/api/pkg/org/interfaces/server"
+	"github.com/helixml/helix/api/pkg/org/internal/orgtest"
 )
 
 func injectTestPublishing(cfg *mcptools.Config) {
 	deps := publishing.Deps{
-		Topics:     cfg.Store.Topics,
-		Events:     cfg.Store.Events,
-		Dispatcher: cfg.Dispatcher,
-		Now:        cfg.Now,
-		NewID:      cfg.NewID,
+		Triggers: cfg.Store.Triggers,
+		Events:   cfg.Store.Events,
+		Now:      cfg.Now,
+		NewID:    cfg.NewID,
+	}
+	if cfg.Dispatcher != nil {
+		deps.Router = cfg.Dispatcher
 	}
 	if cfg.Hub != nil {
 		deps.Hub = cfg.Hub
@@ -88,9 +91,9 @@ func TestDemoOwnerCreatesCEO(t *testing.T) {
 		"# Owner\nBootstrap owner.",
 		[]tool.Name{
 			mcptools.CreateBotName,
-			mcptools.CreateTopicName,
-			mcptools.SubscribeName,
-			mcptools.PublishName,
+			mcptools.CreateTriggerName,
+			mcptools.AttachWorkerName,
+			mcptools.ChatName,
 		},
 		now,
 		"org-test",
@@ -102,31 +105,31 @@ func TestDemoOwnerCreatesCEO(t *testing.T) {
 
 	ownerSession := connectMCP(t, srv.URL, "b-owner")
 
-	invokeExpectID(t, ownerSession, mcptools.CreateTopicName, map[string]any{
+	invokeExpectID(t, ownerSession, mcptools.CreateTriggerName, map[string]any{
 		"id":   "s-general",
 		"name": "general",
 	})
-	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{"botId": "b-owner", "topicIds": []string{"s-general"}})
+	invokeOK(t, ownerSession, mcptools.AttachWorkerName, map[string]any{"botId": "b-owner", "triggerIds": []string{"s-general"}})
 
 	// create_bot subscribes the new CEO to s-general at creation — one call,
 	// no follow-up subscribe needed (this is the "fewest steps" behavior).
 	invokeExpectID(t, ownerSession, mcptools.CreateBotName, map[string]any{
 		"id":       "b-ceo",
 		"content":  "# CEO\nLead the company.",
-		"tools":    []string{"publish", "subscribe"},
-		"topics":   []string{"s-general"},
+		"tools":    []string{"chat", "attach_worker"},
+		"triggers": []string{"s-general"},
 		"parentId": "b-owner",
 	})
 
-	if _, err := s.Subscriptions.Find(ctx, "org-test", "b-ceo", "s-general"); err != nil {
-		t.Fatalf("CEO subscription on s-general missing: %v", err)
+	if !attachedTo(t, s, "b-ceo", "s-general") {
+		t.Fatal("CEO attachment to s-general missing")
 	}
 
-	invokeExpectID(t, ownerSession, mcptools.PublishName, map[string]any{
-		"topicId": "s-general",
-		"body":    "please hire all of your staff",
+	invokeExpectID(t, ownerSession, mcptools.ChatName, map[string]any{
+		"triggerId": "s-general",
+		"body":      "please hire all of your staff",
 	})
-	ceoEvents, err := s.Events.ListForBot(ctx, "org-test", "b-ceo", 10)
+	ceoEvents, err := botEvents(t, s, "b-ceo")
 	if err != nil {
 		t.Fatalf("ceo events: %v", err)
 	}
@@ -184,8 +187,8 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 	invokeExpectID(t, ownerSession, mcptools.CreateBotName, map[string]any{
 		"id":       "b-eng",
 		"content":  "# Engineer v1\nBuild stuff.",
-		"tools":    []string{"publish"},
-		"topics":   []string{},
+		"tools":    []string{"chat"},
+		"triggers": []string{},
 		"parentId": "b-owner",
 	})
 
@@ -328,17 +331,17 @@ func TestTopicMembers(t *testing.T) {
 	owner, _ := orgchart.NewNode(
 		"b-owner",
 		"# Owner",
-		[]tool.Name{mcptools.CreateTopicName, mcptools.TopicMembersName, mcptools.SubscribeName},
+		[]tool.Name{mcptools.CreateTriggerName, mcptools.TriggerMembersName, mcptools.AttachWorkerName},
 		now,
 		"org-test",
 	)
 	mustCreate(t, s.Nodes.Create(ctx, owner))
-	// Subscriptions are bot-anchored — give b-listener its own surface so
-	// a subscribe-by-listener doesn't accidentally subscribe b-owner too.
+	// Attachments are worker-anchored — give b-listener its own surface so
+	// an attach-by-listener doesn't accidentally attach b-owner too.
 	listener, _ := orgchart.NewNode(
 		"b-listener",
 		"# Listener",
-		[]tool.Name{mcptools.SubscribeName},
+		[]tool.Name{mcptools.AttachWorkerName},
 		now,
 		"org-test",
 	)
@@ -347,28 +350,28 @@ func TestTopicMembers(t *testing.T) {
 	ownerSession := connectMCP(t, srv.URL, "b-owner")
 	listenerSession := connectMCP(t, srv.URL, "b-listener")
 
-	invokeExpectID(t, ownerSession, mcptools.CreateTopicName, map[string]any{
+	invokeExpectID(t, ownerSession, mcptools.CreateTriggerName, map[string]any{
 		"id":   "s-room",
 		"name": "room",
 	})
 
-	// Empty before anyone subscribes.
+	// Empty before anyone attaches.
 	if got := membersOf(t, ownerSession, "s-room"); len(got) != 0 {
-		t.Fatalf("members before subscribe = %v, want empty", got)
+		t.Fatalf("members before attach = %v, want empty", got)
 	}
 
-	invokeOK(t, listenerSession, mcptools.SubscribeName, map[string]any{"botId": "b-listener", "topicIds": []string{"s-room"}})
+	invokeOK(t, listenerSession, mcptools.AttachWorkerName, map[string]any{"botId": "b-listener", "triggerIds": []string{"s-room"}})
 
 	if got := membersOf(t, ownerSession, "s-room"); len(got) != 1 || got[0] != "b-listener" {
-		t.Fatalf("members after subscribe = %v, want [b-listener]", got)
+		t.Fatalf("members after attach = %v, want [b-listener]", got)
 	}
 }
 
-// TestSubscribeOtherBots verifies subscribe targets an arbitrary Bot (not
-// just the caller): the owner subscribes other bots to a Topic — the
-// primitive that lets the initiator open a DM by creating a Topic and
-// adding both parties, without requiring the recipient to self-subscribe.
-func TestSubscribeOtherBots(t *testing.T) {
+// TestAttachOtherWorkers verifies attach_worker targets an arbitrary Bot
+// (not just the caller): the owner attaches other bots to a Trigger — the
+// primitive that lets an initiator open a channel and add both parties,
+// without requiring the recipient to attach itself.
+func TestAttachOtherWorkers(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
@@ -387,12 +390,12 @@ func TestSubscribeOtherBots(t *testing.T) {
 	owner, _ := orgchart.NewNode(
 		"b-owner",
 		"# Owner",
-		[]tool.Name{mcptools.CreateTopicName, mcptools.SubscribeName, mcptools.TopicMembersName},
+		[]tool.Name{mcptools.CreateTriggerName, mcptools.AttachWorkerName, mcptools.TriggerMembersName},
 		now,
 		"org-test",
 	)
 	mustCreate(t, s.Nodes.Create(ctx, owner))
-	// Subscriptions are bot-anchored: each bot gets its own sub rows.
+	// Attachments are worker-anchored: each bot gets its own rows.
 	alice, _ := orgchart.NewNode("b-alice", "# Alice", nil, now, "org-test")
 	mustCreate(t, s.Nodes.Create(ctx, alice))
 	bob, _ := orgchart.NewNode("b-bob", "# Bob", nil, now, "org-test")
@@ -400,24 +403,24 @@ func TestSubscribeOtherBots(t *testing.T) {
 
 	ownerSession := connectMCP(t, srv.URL, "b-owner")
 
-	invokeExpectID(t, ownerSession, mcptools.CreateTopicName, map[string]any{
+	invokeExpectID(t, ownerSession, mcptools.CreateTriggerName, map[string]any{
 		"id":   "s-dm",
 		"name": "alice ↔ bob",
 	})
 
-	// Owner subscribes both parties to the topic (subscribe targets any bot).
-	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{
-		"botId":    "b-alice",
-		"topicIds": []string{"s-dm"},
+	// Owner attaches both parties to the Trigger (attach_worker targets any bot).
+	invokeOK(t, ownerSession, mcptools.AttachWorkerName, map[string]any{
+		"botId":      "b-alice",
+		"triggerIds": []string{"s-dm"},
 	})
-	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{
-		"botId":    "b-bob",
-		"topicIds": []string{"s-dm"},
+	invokeOK(t, ownerSession, mcptools.AttachWorkerName, map[string]any{
+		"botId":      "b-bob",
+		"triggerIds": []string{"s-dm"},
 	})
 
 	got := membersOf(t, ownerSession, "s-dm")
 	if len(got) != 2 {
-		t.Fatalf("members after subscribe = %v, want two", got)
+		t.Fatalf("members after attach = %v, want two", got)
 	}
 	want := map[string]bool{"b-alice": true, "b-bob": true}
 	for _, m := range got {
@@ -426,26 +429,26 @@ func TestSubscribeOtherBots(t *testing.T) {
 		}
 	}
 
-	// Idempotent: re-subscribing an already-subscribed bot is a no-op.
-	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{
-		"botId":    "b-alice",
-		"topicIds": []string{"s-dm"},
+	// Idempotent: re-attaching an already-attached bot is a no-op.
+	invokeOK(t, ownerSession, mcptools.AttachWorkerName, map[string]any{
+		"botId":      "b-alice",
+		"triggerIds": []string{"s-dm"},
 	})
-	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{
-		"botId":    "b-owner",
-		"topicIds": []string{"s-dm"},
+	invokeOK(t, ownerSession, mcptools.AttachWorkerName, map[string]any{
+		"botId":      "b-owner",
+		"triggerIds": []string{"s-dm"},
 	})
 	got = membersOf(t, ownerSession, "s-dm")
 	if len(got) != 3 {
-		t.Fatalf("members after re-subscribe = %v, want three", got)
+		t.Fatalf("members after re-attach = %v, want three", got)
 	}
 
-	// Unknown bot -> error, no partial subscription created.
-	if _, err := invokeTool(t, ownerSession, mcptools.SubscribeName, map[string]any{
-		"botId":    "b-ghost",
-		"topicIds": []string{"s-dm"},
+	// Unknown bot -> error, no partial attachment created.
+	if _, err := invokeTool(t, ownerSession, mcptools.AttachWorkerName, map[string]any{
+		"botId":      "b-ghost",
+		"triggerIds": []string{"s-dm"},
 	}); err == nil {
-		t.Fatalf("subscribing unknown bot should error")
+		t.Fatalf("attaching unknown bot should error")
 	}
 	if got = membersOf(t, ownerSession, "s-dm"); len(got) != 3 {
 		t.Fatalf("members after failed subscribe = %v, want three (unchanged)", got)
@@ -455,7 +458,7 @@ func TestSubscribeOtherBots(t *testing.T) {
 // TestDM exercises the dm tool over MCP. DM channels are provisioned by
 // topology for reporting pairs, so the test wires a reporting line
 // (Alice manages Bob) and reconciles first; the dm call then publishes
-// over the existing per-pair Topic, and the reverse DM reuses it.
+// over the existing per-pair channel, and the reverse DM reuses it.
 func TestDM(t *testing.T) {
 	t.Parallel()
 
@@ -499,28 +502,28 @@ func TestDM(t *testing.T) {
 		t.Fatalf("dm: %v", err)
 	}
 	var out struct {
-		ID      string `json:"id"`
-		TopicID string `json:"topicId"`
-		To      string `json:"to"`
+		ID        string `json:"id"`
+		TriggerID string `json:"triggerId"`
+		To        string `json:"to"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("unmarshal dm: %v", err)
 	}
-	if out.TopicID != "s-dm-b-alice-b-bob" {
-		t.Fatalf("topicId = %q, want s-dm-b-alice-b-bob", out.TopicID)
+	if out.TriggerID != "s-dm-b-alice-b-bob" {
+		t.Fatalf("triggerId = %q, want s-dm-b-alice-b-bob", out.TriggerID)
 	}
 	if out.To != "b-bob" {
 		t.Fatalf("to = %q, want b-bob", out.To)
 	}
 
-	// Both bots are subscribed (the DM tool resolves participants); the
+	// Both bots are attached (topology provisioned the channel); the
 	// event landed in the store.
 	for _, bid := range []orgchart.NodeID{"b-alice", "b-bob"} {
-		if _, err := s.Subscriptions.Find(ctx, "org-test", bid, streaming.TopicID(out.TopicID)); err != nil {
-			t.Fatalf("%s not subscribed to %s: %v", bid, out.TopicID, err)
+		if !attachedTo(t, s, bid, out.TriggerID) {
+			t.Fatalf("%s not attached to %s", bid, out.TriggerID)
 		}
 	}
-	events, _ := s.Events.ListForBot(ctx, "org-test", "b-bob", 10)
+	events, _ := botEvents(t, s, "b-bob")
 	if len(events) != 1 {
 		t.Fatalf("bob events = %+v, want one", events)
 	}
@@ -535,7 +538,7 @@ func TestDM(t *testing.T) {
 		t.Fatalf("dm envelope = %+v, want from=b-alice to=[b-bob]", msg)
 	}
 
-	// Bob replies. Reverse direction reuses the same Topic — the IDs are
+	// Bob replies. Reverse direction reuses the same channel — the IDs are
 	// sorted, so A→B and B→A share one ordered conversation.
 	raw, err = invokeTool(t, bobSession, mcptools.DMName, map[string]any{
 		"toBotId": "b-alice",
@@ -545,15 +548,15 @@ func TestDM(t *testing.T) {
 		t.Fatalf("reply dm: %v", err)
 	}
 	var reply struct {
-		TopicID string `json:"topicId"`
+		TriggerID string `json:"triggerId"`
 	}
 	_ = json.Unmarshal(raw, &reply)
-	if reply.TopicID != out.TopicID {
-		t.Fatalf("reply topicId = %q, want %q (DM topic should be reused)", reply.TopicID, out.TopicID)
+	if reply.TriggerID != out.TriggerID {
+		t.Fatalf("reply triggerId = %q, want %q (DM channel should be reused)", reply.TriggerID, out.TriggerID)
 	}
 
-	// Alice can read the conversation through her own subscription.
-	events, _ = s.Events.ListForBot(ctx, "org-test", "b-alice", 10)
+	// Alice can read the conversation through her own attachment.
+	events, _ = botEvents(t, s, "b-alice")
 	if len(events) != 2 {
 		t.Fatalf("alice events = %+v, want two", events)
 	}
@@ -568,8 +571,8 @@ func TestDM(t *testing.T) {
 }
 
 // TestReadsOverMCP exercises the read tools: an Owner with the full
-// builtin tool set lists bots, lists topics, and reads back events on
-// subscribed topics, all over MCP.
+// builtin tool set lists bots, lists Triggers, and reads back events
+// from attached sources, all over MCP.
 func TestReadsOverMCP(t *testing.T) {
 	t.Parallel()
 
@@ -590,12 +593,12 @@ func TestReadsOverMCP(t *testing.T) {
 		"b-owner",
 		"# Owner",
 		[]tool.Name{
-			mcptools.CreateTopicName,
-			mcptools.SubscribeName,
-			mcptools.PublishName,
+			mcptools.CreateTriggerName,
+			mcptools.AttachWorkerName,
+			mcptools.ChatName,
 			mcptools.ListBotsName,
-			mcptools.ListTopicsName,
-			mcptools.ListTopicEventsName,
+			mcptools.ListTriggersName,
+			mcptools.ListTriggerEventsName,
 			mcptools.ReadEventsName,
 		},
 		now,
@@ -623,30 +626,30 @@ func TestReadsOverMCP(t *testing.T) {
 	}
 
 	// Drive a small mutation through to populate read targets.
-	invokeExpectID(t, ownerSession, mcptools.CreateTopicName, map[string]any{
+	invokeExpectID(t, ownerSession, mcptools.CreateTriggerName, map[string]any{
 		"id":   "s-news",
 		"name": "news",
 	})
-	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{"botId": "b-owner", "topicIds": []string{"s-news"}})
-	invokeExpectID(t, ownerSession, mcptools.PublishName, map[string]any{
-		"topicId": "s-news",
-		"body":    "first event",
+	invokeOK(t, ownerSession, mcptools.AttachWorkerName, map[string]any{"botId": "b-owner", "triggerIds": []string{"s-news"}})
+	invokeExpectID(t, ownerSession, mcptools.ChatName, map[string]any{
+		"triggerId": "s-news",
+		"body":      "first event",
 	})
 
-	rawTopics, err := invokeTool(t, ownerSession, mcptools.ListTopicsName, map[string]any{})
+	rawTriggers, err := invokeTool(t, ownerSession, mcptools.ListTriggersName, map[string]any{})
 	if err != nil {
-		t.Fatalf("list_topics: %v", err)
+		t.Fatalf("list_triggers: %v", err)
 	}
-	var listTopicsOut struct {
-		Topics []struct {
+	var listTriggersOut struct {
+		Triggers []struct {
 			ID string `json:"id"`
-		} `json:"topics"`
+		} `json:"triggers"`
 	}
-	if err := json.Unmarshal(rawTopics, &listTopicsOut); err != nil {
-		t.Fatalf("unmarshal list_topics: %v", err)
+	if err := json.Unmarshal(rawTriggers, &listTriggersOut); err != nil {
+		t.Fatalf("unmarshal list_triggers: %v", err)
 	}
-	if len(listTopicsOut.Topics) != 1 || listTopicsOut.Topics[0].ID != "s-news" {
-		t.Fatalf("list_topics = %+v, want [{s-news}]", listTopicsOut.Topics)
+	if len(listTriggersOut.Triggers) != 1 || listTriggersOut.Triggers[0].ID != "s-news" {
+		t.Fatalf("list_triggers = %+v, want [{s-news}]", listTriggersOut.Triggers)
 	}
 
 	rawEvents, err := invokeTool(t, ownerSession, mcptools.ReadEventsName, map[string]any{})
@@ -666,11 +669,11 @@ func TestReadsOverMCP(t *testing.T) {
 	}
 }
 
-func membersOf(t *testing.T, session *mcp.ClientSession, topicID string) []string {
+func membersOf(t *testing.T, session *mcp.ClientSession, triggerID string) []string {
 	t.Helper()
-	raw, err := invokeTool(t, session, mcptools.TopicMembersName, map[string]any{"topicId": topicID})
+	raw, err := invokeTool(t, session, mcptools.TriggerMembersName, map[string]any{"triggerId": triggerID})
 	if err != nil {
-		t.Fatalf("topic_members %s: %v", topicID, err)
+		t.Fatalf("trigger_members %s: %v", triggerID, err)
 	}
 	var out struct {
 		Members []string `json:"members"`
@@ -707,16 +710,15 @@ func TestBotLog(t *testing.T) {
 	bot, _ := orgchart.NewNode("b-bot", "# Bot", nil, now, "org-test")
 	mustCreate(t, s.Nodes.Create(ctx, bot))
 
-	// Pre-create the transcript + seed a couple of events. In production
-	// create_bot creates the topic and the spawner publishes events; here
-	// we shortcut.
-	topicID := activation.TranscriptID("b-bot")
-	topic, _ := streaming.NewTopic(topicID, "Activations: b-bot", "", "b-owner", now, transport.Transport{}, "org-test")
-	mustCreate(t, s.Topics.Create(ctx, topic))
+	// Pre-create the transcript channel + seed a couple of events. In
+	// production the reconciler creates the channel and the spawner
+	// publishes events; here we shortcut.
+	transcriptID := activation.TranscriptID("b-bot")
+	orgtest.Trigger(t, s, "org-test", transcriptID)
 	for i, body := range []string{"--- session start ---", "assistant: hello", "=== exit: ok ==="} {
 		ev, _ := streaming.NewEvent(
 			streaming.EventID(fmt.Sprintf("e-%d", i)),
-			topicID,
+			transcriptID,
 			"b-bot",
 			body,
 			now.Add(time.Duration(i)*time.Second),
@@ -727,7 +729,7 @@ func TestBotLog(t *testing.T) {
 
 	ownerSession := connectMCP(t, srv.URL, "b-owner")
 
-	// First call: returns events newest-first AND auto-subscribes owner.
+	// First call: returns events newest-first AND attaches the owner.
 	raw, err := invokeTool(t, ownerSession, mcptools.BotLogName, map[string]any{
 		"botId": "b-bot",
 	})
@@ -750,8 +752,8 @@ func TestBotLog(t *testing.T) {
 	if out.Events[0].Body != "=== exit: ok ===" {
 		t.Fatalf("newest = %q, want exit marker", out.Events[0].Body)
 	}
-	if _, err := s.Subscriptions.Find(ctx, "org-test", "b-owner", topicID); err != nil {
-		t.Fatalf("owner not subscribed after bot_log: %v", err)
+	if !attachedTo(t, s, "b-owner", transcriptID) {
+		t.Fatal("owner not attached after bot_log")
 	}
 
 	// since= filters out events at or before the given ID. Pass the
@@ -802,9 +804,8 @@ func TestBotLogFiltersByActivationID(t *testing.T) {
 	bot, _ := orgchart.NewNode("b-bot", "# Bot", nil, base, "org-test")
 	mustCreate(t, s.Nodes.Create(ctx, bot))
 
-	topicID := activation.TranscriptID("b-bot")
-	str, _ := streaming.NewTopic(topicID, "Activations: b-bot", "", "b-owner", base, transport.Transport{}, "org-test")
-	mustCreate(t, s.Topics.Create(ctx, str))
+	transcriptID := activation.TranscriptID("b-bot")
+	orgtest.Trigger(t, s, "org-test", transcriptID)
 
 	// Two activations, non-overlapping windows. Events at +1s and +2s
 	// land inside their respective activation's window.
@@ -835,7 +836,7 @@ func TestBotLogFiltersByActivationID(t *testing.T) {
 		{"e-2b", a2Start.Add(2 * time.Second), "assistant: a2-second"},
 	}
 	for _, p := range plan {
-		ev, _ := streaming.NewEvent(streaming.EventID(p.id), topicID, "b-bot", p.body, p.at, "org-test")
+		ev, _ := streaming.NewEvent(streaming.EventID(p.id), transcriptID, "b-bot", p.body, p.at, "org-test")
 		mustCreate(t, s.Events.Append(ctx, ev))
 	}
 
@@ -913,8 +914,7 @@ func TestBotLogFiltersByActivationID(t *testing.T) {
 	// IDs.
 	other, _ := orgchart.NewNode("b-other", "# Other", nil, base, "org-test")
 	mustCreate(t, s.Nodes.Create(ctx, other))
-	otherTopic, _ := streaming.NewTopic(activation.TranscriptID("b-other"), "Activations: b-other", "", "b-owner", base, transport.Transport{}, "org-test")
-	mustCreate(t, s.Topics.Create(ctx, otherTopic))
+	orgtest.Trigger(t, s, "org-test", activation.TranscriptID("b-other"))
 	a3, _ := activation.New("a-3", "b-other", []activation.Trigger{{Kind: activation.TriggerHire}}, base, "org-test")
 	mustCreate(t, s.Activations.Create(ctx, a3))
 	if _, err := invokeTool(t, ownerSession, mcptools.BotLogName, map[string]any{
@@ -1002,7 +1002,7 @@ func TestCreateBotInjectsBaselineOverMCP(t *testing.T) {
 	invokeExpectID(t, ownerSession, mcptools.CreateBotName, map[string]any{
 		"id":       "b-qa-1",
 		"content":  "# QA Engineer\nDM and publish only.",
-		"tools":    []string{"dm", "publish", "subscribe", "read_events"},
+		"tools":    []string{"dm", "chat", "attach_worker", "read_events"},
 		"parentId": "b-owner",
 	})
 
@@ -1021,7 +1021,7 @@ func TestCreateBotInjectsBaselineOverMCP(t *testing.T) {
 		}
 	}
 	// Caller-supplied tools must also still be present.
-	for _, name := range []string{"dm", "publish", "subscribe", "read_events"} {
+	for _, name := range []string{"dm", "chat", "attach_worker", "read_events"} {
 		if !got[name] {
 			t.Errorf("caller-specified tool %q missing from b-qa-1 MCP surface; got: %+v", name, got)
 		}
@@ -1101,4 +1101,26 @@ func invokeOK(t *testing.T, session *mcp.ClientSession, toolName tool.Name, args
 	if _, err := invokeTool(t, session, toolName, args); err != nil {
 		t.Fatalf("%s: %v", toolName, err)
 	}
+}
+
+// attachedTo reports whether a Worker is attached to a Trigger.
+func attachedTo(t *testing.T, s *store.Store, worker orgchart.NodeID, triggerID string) bool {
+	t.Helper()
+	rows, err := s.WorkerAttachments.Find(context.Background(), store.WithOrg("org-test"),
+		store.WithWorkerID(worker), store.WithTriggerID(triggerID), store.WithLimit(1))
+	if err != nil {
+		t.Fatalf("find attachment: %v", err)
+	}
+	return len(rows) > 0
+}
+
+// botEvents reads a Worker's inbox — the union of the streams behind its
+// attachments — the same way read_events does.
+func botEvents(t *testing.T, s *store.Store, worker orgchart.NodeID) ([]streaming.Event, error) {
+	t.Helper()
+	q := queries.New(queries.Deps{
+		Nodes: s.Nodes, Triggers: s.Triggers, Attachments: s.WorkerAttachments,
+		Processors: s.Processors, Events: s.Events,
+	})
+	return q.BotEvents(context.Background(), "org-test", worker, 10)
 }

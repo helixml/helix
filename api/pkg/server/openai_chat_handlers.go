@@ -436,6 +436,7 @@ func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, owne
 	// These are visible to all users but owned by the admin who created them
 	providers, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      ownerID,
+		OwnerType:  types.OwnerTypeUser,
 		WithGlobal: true,
 	})
 	if err == nil {
@@ -468,6 +469,10 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	globalProviders, err := s.providerManager.ListProviders(ctx, "")
 	if err == nil {
 		for _, globalProvider := range globalProviders {
+			globalRef := types.GlobalProviderID(string(globalProvider))
+			if strings.HasPrefix(modelName, globalRef+"/") {
+				return globalRef, strings.TrimPrefix(modelName, globalRef+"/")
+			}
 			residue := modelName
 			if strings.HasPrefix(modelName, string(globalProvider)+"/") {
 				residue = modelName[len(globalProvider)+1:]
@@ -496,6 +501,7 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	// Check database-stored provider endpoints for the user (user + global from DB)
 	providers, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      ownerID,
+		OwnerType:  types.OwnerTypeUser,
 		WithGlobal: true,
 	})
 	if err != nil {
@@ -507,6 +513,7 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	if orgID != "" && orgID != ownerID {
 		orgProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 			Owner:      orgID,
+			OwnerType:  types.OwnerTypeOrg,
 			WithGlobal: false, // Global already covered above
 		})
 		if err != nil {
@@ -529,6 +536,9 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	//      stripping the provider's literal `Name + "/"` prefix and
 	//      matching the residue against cached/static ids.
 	for _, provider := range providers {
+		if provider.ID != "" && strings.HasPrefix(modelName, provider.ID+"/") {
+			return provider.ID, strings.TrimPrefix(modelName, provider.ID+"/")
+		}
 		residue := modelName
 		if strings.HasPrefix(modelName, provider.Name+"/") {
 			residue = modelName[len(provider.Name)+1:]

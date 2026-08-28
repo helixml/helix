@@ -1,8 +1,14 @@
 // Package store defines the persistence contracts for the org-graph
-// subsystem (nodes, topics, events,
-// subscriptions, activations, configs). The concrete
-// implementation lives in the sibling gorm sub-package — dialect-
-// portable GORM, wired against helix's Postgres connection.
+// subsystem (nodes, triggers, events, worker attachments, processors,
+// activations, configs). The concrete implementation lives in the
+// sibling gorm sub-package — dialect-portable GORM, wired against
+// helix's Postgres connection.
+//
+// Topics and Subscriptions are the retired pre-cutover model. They are
+// no longer part of the runtime: the only reader is the repeat-safe
+// conversion in application/cutover, which turns them into Triggers and
+// Worker attachments. Their rows and repositories are deleted once
+// deployed data has converted.
 package store
 
 import (
@@ -11,12 +17,15 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	"github.com/helixml/helix/api/pkg/org/domain/attachment"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
 	"github.com/helixml/helix/api/pkg/org/domain/domainevent"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
+	"github.com/helixml/helix/api/pkg/org/domain/workersecret"
 )
 
 // ErrNotFound signals that the requested record does not exist.
@@ -92,98 +101,130 @@ type NodeRuntimeState interface {
 	Clear(ctx context.Context, orgID string, nodeID orgchart.NodeID, backend string) error
 }
 
-// Topics persists named event sources. Topics are created explicitly
-// via the create_topic tool. Every Topic carries a Transport — the
-// default (TransportLocal) keeps events local and notifies the
-// in-process broadcaster; other transports compose external I/O over
-// the same local store.
-type Topics interface {
-	Create(ctx context.Context, s streaming.Topic) error
-	Get(ctx context.Context, orgID string, id streaming.TopicID) (streaming.Topic, error)
-	List(ctx context.Context, orgID string) ([]streaming.Topic, error)
-	// ListByTransportKind returns every topic whose transport kind
-	// matches, across every org. Used by background components that
-	// scan tenant boundaries (e.g. the cron topic scheduler) — NOT
-	// for any per-tenant request path. Returns an empty slice when no
-	// topics match; never returns ErrNotFound for "no rows".
-	ListByTransportKind(ctx context.Context, kind transport.Kind) ([]streaming.Topic, error)
-	// Update replaces the mutable fields on a Topic: name,
-	// description, and the entire transport (kind + config). The
-	// composite (id, orgID) identifies the row; ID, OrganizationID,
-	// CreatedBy and CreatedAt are immutable and ignored. Returns
-	// store.ErrNotFound when the row doesn't exist.
-	Update(ctx context.Context, s streaming.Topic) error
-	// Delete removes a topic row. Composite key (id, orgID). Callers
-	// (REST handler, MCP delete_topic tool when added) are
-	// responsible for any cascading subscription / role-manifest
-	// cleanup — the Topics repo itself is intentionally narrow.
-	Delete(ctx context.Context, orgID string, id streaming.TopicID) error
+// RetiredTopics is the read side of the pre-cutover Topic table. It
+// exists solely so application/cutover can convert those rows into
+// Triggers, Processor inputs and Worker attachments. No runtime service
+// may read or write Topics.
+//
+// ListAll deliberately crosses tenant boundaries: the conversion runs
+// once at boot for the whole deployment, before any org is scoped.
+//
+// Delete removes one converted row. The conversion consumes what it
+// reads: a retained row is a standing instruction to recreate the
+// Trigger, so it would undo the user's next delete on the next boot.
+type RetiredTopics interface {
+	ListAll(ctx context.Context) ([]streaming.Topic, error)
+	Delete(ctx context.Context, orgID, topicID string) error
 }
 
-// Subscriptions persists (Bot, Topic) links. The triple
-// (orgID, botID, topicID) is the key — there is no synthetic ID.
-// Subscriptions are BOT-anchored: deleting a Bot drops its
-// subscriptions. Subscriptions are driven explicitly (subscribe /
-// unsubscribe), letting each Bot consume exactly the topics it should.
-type Subscriptions interface {
-	Create(ctx context.Context, sub streaming.Subscription) error
-	Delete(ctx context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) error
-	Find(ctx context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) (streaming.Subscription, error)
-	ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID) ([]streaming.Subscription, error)
-	ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) ([]streaming.Subscription, error)
+// RetiredSubscriptions is the read side of the pre-cutover
+// (Worker, Topic) subscription table, read only by application/cutover.
+// Delete consumes one converted row, for the same reason as
+// RetiredTopics.Delete.
+type RetiredSubscriptions interface {
+	ListAll(ctx context.Context) ([]streaming.Subscription, error)
+	Delete(ctx context.Context, orgID, workerID, topicID string) error
 }
 
-// Events persists entries published on a Topic.
+// RetiredProcessorInputs reads the pre-cutover `input_topic_id` column
+// that Processor.InputSource replaced. Keyed by (org, processor) so the
+// conversion can rewrite each Processor's input exactly once, and clears
+// the column afterwards so a repeat run skips it.
+type RetiredProcessorInputs interface {
+	ListAll(ctx context.Context) (map[OrgScopedID]streaming.StreamID, error)
+	Clear(ctx context.Context, orgID, processorID string) error
+}
+
+// OrgScopedID is the composite (org, entity) key the retired readers
+// return, mirroring the composite primary key every org_* table uses.
+type OrgScopedID struct {
+	OrgID string
+	ID    string
+}
+
+// Events persists the entries appended to an event stream. A stream is
+// owned either by a Trigger (its id is the stream id) or by one
+// Processor output branch (the branch records its stream id).
 type Events interface {
 	Append(ctx context.Context, e streaming.Event) error
-	// DeleteForTopic removes every event belonging to one Topic. Clearing an
-	// already-empty Topic is successful; callers verify the Topic exists before
-	// invoking this repository operation.
-	DeleteForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) error
-	ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID, limit int) ([]streaming.Event, error)
-	// PageForTopic returns a window of events on one Topic, newest
-	// first (same ordering as ListForTopic), skipping offset rows and
+	// DeleteForStream removes every event on one stream. Clearing an
+	// already-empty stream is successful; callers verify the source
+	// exists before invoking this repository operation.
+	DeleteForStream(ctx context.Context, orgID string, topicID streaming.StreamID) error
+	ListForStream(ctx context.Context, orgID string, streamID streaming.StreamID, limit int) ([]streaming.Event, error)
+	// PageForStream returns a window of events on one stream, newest
+	// first (same ordering as ListForStream), skipping offset rows and
 	// returning at most limit. Powers page-number pagination of the
-	// REST messages endpoint. offset/limit <= 0 are treated as "no
-	// skip" / "no cap" respectively.
-	PageForTopic(ctx context.Context, orgID string, topicID streaming.TopicID, limit, offset int) ([]streaming.Event, error)
-	// CountForTopic returns the total number of events on one Topic —
-	// the total-count meta the paginated messages endpoint surfaces,
+	// REST events endpoint. offset/limit <= 0 are treated as "no skip" /
+	// "no cap" respectively.
+	PageForStream(ctx context.Context, orgID string, topicID streaming.StreamID, limit, offset int) ([]streaming.Event, error)
+	// CountForStream returns the total number of events on one stream —
+	// the total-count meta the paginated events endpoint surfaces,
 	// independent of any page window.
-	CountForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) (int, error)
-	ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID, limit int) ([]streaming.Event, error)
-	ListSince(ctx context.Context, orgID string, topicIDs []streaming.TopicID, since streaming.EventID, limit int) ([]streaming.Event, error)
-	// ListAll returns events across every Topic in the given org,
-	// newest first. Powers the unified "All topics" activity feed in
-	// the UI. If limit <= 0, no limit is applied — callers are
-	// expected to pass a sane cap.
+	CountForStream(ctx context.Context, orgID string, topicID streaming.StreamID) (int, error)
+	// ListForStreams returns the newest events across a set of streams —
+	// a Worker's inbox is the union of the streams behind its
+	// attachments. Empty set returns no rows.
+	ListForStreams(ctx context.Context, orgID string, streamIDs []streaming.StreamID, limit int) ([]streaming.Event, error)
+	ListSince(ctx context.Context, orgID string, streamIDs []streaming.StreamID, since streaming.EventID, limit int) ([]streaming.Event, error)
+	// ListAll returns events across every stream in the given org,
+	// newest first. Powers the unified activity feed in the UI. If
+	// limit <= 0, no limit is applied — callers are expected to pass a
+	// sane cap.
 	ListAll(ctx context.Context, orgID string, limit int) ([]streaming.Event, error)
 }
 
 // Processors persists Processor nodes — the transform/filter boxes
-// interposed on the edge between a Topic and its subscribers. A
-// Processor reads one input Topic (InputTopicID) and writes its
-// auto-provisioned output Topics. ListByInputTopic is the dispatch
-// hot path: on every publish the runner asks "which processors read
-// this topic?".
+// interposed between a source and the Workers attached downstream. A
+// Processor reads one terminal source (InputSource) and writes its
+// durable output branches. ListByInputSource is the dispatch hot path:
+// on every published event the runner asks "which processors read this
+// source?".
 type Processors interface {
 	Create(ctx context.Context, p processor.Processor) error
 	Get(ctx context.Context, orgID string, id processor.ProcessorID) (processor.Processor, error)
 	List(ctx context.Context, orgID string) ([]processor.Processor, error)
-	// ListByInputTopic returns every processor in the org whose
-	// InputTopicID matches — the dispatcher's fan-out lookup. Returns
-	// an empty slice when none match; never ErrNotFound for "no rows".
-	ListByInputTopic(ctx context.Context, orgID string, in streaming.TopicID) ([]processor.Processor, error)
+	// ListByInputSource returns every processor in the org whose
+	// InputSource matches — the runner's fan-out lookup. Returns an
+	// empty slice when none match; never ErrNotFound for "no rows".
+	ListByInputSource(ctx context.Context, orgID string, in eventsource.SourceRef) ([]processor.Processor, error)
 	// Update replaces the mutable fields: name, kind, config, outputs.
 	// Composite (id, orgID) identifies the row; ID, OrganizationID,
 	// CreatedBy, CreatedAt are immutable. Returns ErrNotFound when the
 	// row doesn't exist.
 	Update(ctx context.Context, p processor.Processor) error
 	// Delete removes a processor row. Composite key (id, orgID).
-	// Cascading the auto-created output Topics is the caller's job
-	// (the processors application service), mirroring how Topics.Delete
-	// leaves subscription cleanup to its caller.
+	// Cascading attachments to its outputs is the caller's job (the
+	// processors application service).
 	Delete(ctx context.Context, orgID string, id processor.ProcessorID) error
+}
+
+// Triggers persists inbound event sources. Tenant-scoped callers must include
+// WithOrg in every Find query.
+type Triggers interface {
+	Create(context.Context, trigger.Trigger) error
+	Update(context.Context, trigger.Trigger) error
+	Delete(context.Context, string, string) error
+	Find(context.Context, ...Option) ([]trigger.Trigger, error)
+}
+
+// WorkerAttachments persists terminal source-to-Worker graph edges.
+type WorkerAttachments interface {
+	Create(context.Context, attachment.Attachment) error
+	Delete(context.Context, string, string) error
+	Find(context.Context, ...Option) ([]attachment.Attachment, error)
+}
+
+type WorkerSecretBindings interface {
+	Create(context.Context, workersecret.Binding) error
+	Update(context.Context, workersecret.Binding) error
+	Get(context.Context, string, orgchart.NodeID, string) (workersecret.Binding, error)
+	List(context.Context, string, orgchart.NodeID) ([]workersecret.Binding, error)
+	// ListBySecretID finds every binding pointing at one Helix secret,
+	// across Workers and organizations, so deleting that secret can
+	// report and revoke its grants instead of orphaning them.
+	ListBySecretID(context.Context, string) ([]workersecret.Binding, error)
+	Delete(context.Context, string, orgchart.NodeID, string) error
 }
 
 type Assets interface {
@@ -243,21 +284,27 @@ type ChartPositions interface {
 // storage boundary is part of the domain package, not a parallel
 // declaration here. Lifted in B5.5.
 type Store struct {
-	Nodes            Nodes
-	ReportingLines   ReportingLines
-	NodeRuntimeState NodeRuntimeState
-	Topics           Topics
-	Subscriptions    Subscriptions
-	Events           Events
-	Configs          Configs
-	Activations      activation.Repository
-	Processors       Processors
-	Assets           Assets
-	AssetLinks       AssetLinks
+	Nodes                Nodes
+	ReportingLines       ReportingLines
+	NodeRuntimeState     NodeRuntimeState
+	Events               Events
+	Configs              Configs
+	Activations          activation.Repository
+	Processors           Processors
+	Triggers             Triggers
+	WorkerAttachments    WorkerAttachments
+	WorkerSecretBindings WorkerSecretBindings
+	Assets               Assets
+	AssetLinks           AssetLinks
 	// ChartPositions is the free-placed canvas layout for the org chart UI.
 	ChartPositions ChartPositions
 	// DomainEvents is the append-only decision/audit log (e.g. Slack
 	// thread participation). Typed port defined beside its aggregate,
 	// like Activations.
 	DomainEvents domainevent.Repository
+	// Retired* are the pre-cutover read models. Only application/cutover
+	// touches them; they disappear with the physical tables.
+	RetiredTopics          RetiredTopics
+	RetiredSubscriptions   RetiredSubscriptions
+	RetiredProcessorInputs RetiredProcessorInputs
 }

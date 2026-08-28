@@ -8,39 +8,44 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
 
-// recordingDispatcher captures every event passed to Dispatch so tests
-// can assert on fan-out without booting a real dispatcher.
-type recordingDispatcher struct {
-	mu     sync.Mutex
-	events []streaming.Event
+// recordingPublisher is the real publish use case wired to the same
+// store, wrapped so tests can assert what the scheduler published
+// without booting a dispatcher.
+type recordingPublisher struct {
+	inner *publishing.Publishing
+	mu    sync.Mutex
+	calls []string
 }
 
-func (d *recordingDispatcher) Dispatch(_ context.Context, e streaming.Event) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.events = append(d.events, e)
+func (p *recordingPublisher) PublishToTrigger(ctx context.Context, orgID, triggerID, from string, msg streaming.Message) (streaming.Event, error) {
+	p.mu.Lock()
+	p.calls = append(p.calls, triggerID)
+	p.mu.Unlock()
+	return p.inner.PublishToTrigger(ctx, orgID, triggerID, from, msg)
 }
 
-func (d *recordingDispatcher) snapshot() []streaming.Event {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	out := make([]streaming.Event, len(d.events))
-	copy(out, d.events)
+func (p *recordingPublisher) snapshot() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, len(p.calls))
+	copy(out, p.calls)
 	return out
 }
 
 // newTestScheduler wires a Scheduler against the memory store + a
-// recording dispatcher. Returns the scheduler, the store (for
-// inserting/updating topics), and the dispatcher (for assertions).
-func newTestScheduler(t *testing.T) (*Scheduler, *recordingDispatcher) {
+// recording publisher. Returns the scheduler and the publisher (for
+// assertions); the store is reachable as s.store.
+func newTestScheduler(t *testing.T) (*Scheduler, *recordingPublisher) {
 	t.Helper()
 	st := memory.New()
-	disp := &recordingDispatcher{}
 	// Deterministic id + clock so events are reproducible.
 	idCounter := 0
 	newID := func() string {
@@ -49,50 +54,60 @@ func newTestScheduler(t *testing.T) (*Scheduler, *recordingDispatcher) {
 	}
 	fixedNow := time.Date(2030, 6, 1, 12, 0, 0, 0, time.UTC)
 	now := func() time.Time { return fixedNow }
-	s, err := New(st, nil, disp, newID, now)
+	pub := &recordingPublisher{inner: publishing.New(publishing.Deps{Triggers: st.Triggers, Events: st.Events, Now: now, NewID: newID})}
+	s, err := New(st, pub, newID, now)
 	if err != nil {
 		t.Fatalf("New scheduler: %v", err)
 	}
-	return s, disp
+	return s, pub
 }
 
-func makeCronTopic(t *testing.T, s *Scheduler, orgID string, topicID streaming.TopicID, schedule string) {
-	makeCronTopicWithMessage(t, s, orgID, topicID, schedule, "")
+func makeCronTrigger(t *testing.T, s *Scheduler, orgID, triggerID, schedule string) {
+	makeCronTriggerWithMessage(t, s, orgID, triggerID, schedule, "")
 }
 
-func makeCronTopicWithMessage(t *testing.T, s *Scheduler, orgID string, topicID streaming.TopicID, schedule, message string) {
+func makeCronTriggerWithMessage(t *testing.T, s *Scheduler, orgID, triggerID, schedule, message string) {
 	t.Helper()
 	cfg, err := json.Marshal(transport.CronConfig{Schedule: schedule, Message: message})
 	if err != nil {
 		t.Fatalf("marshal cron config: %v", err)
 	}
-	tp := transport.Transport{Kind: transport.KindCron, Config: cfg}
-	// Use topicID as the name suffix so multiple topics in the same
+	// Use triggerID as the name suffix so multiple Triggers in the same
 	// org satisfy the per-org name uniqueness constraint.
-	topic, err := streaming.NewTopic(topicID, "cron-"+string(topicID), "scheduled trigger", "w-owner", time.Now().UTC(), tp, orgID)
+	row, err := trigger.New(triggerID, orgID, "cron-"+triggerID, "scheduled trigger", transport.KindCron, cfg, "w-owner", time.Now().UTC())
 	if err != nil {
-		t.Fatalf("NewTopic: %v", err)
+		t.Fatalf("trigger.New: %v", err)
 	}
-	if err := s.store.Topics.Create(context.Background(), topic); err != nil {
-		t.Fatalf("Topics.Create: %v", err)
+	if err := s.store.Triggers.Create(context.Background(), row); err != nil {
+		t.Fatalf("Triggers.Create: %v", err)
 	}
+}
+
+// getTrigger reads one Trigger back for the mutate-and-write-back tests.
+func getTrigger(t *testing.T, s *Scheduler, orgID, id string) trigger.Trigger {
+	t.Helper()
+	rows, err := s.store.Triggers.Find(context.Background(), store.WithOrg(orgID), store.WithID(id), store.WithLimit(1))
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("get trigger %q: %v", id, err)
+	}
+	return rows[0]
 }
 
 func TestFireUsesConfiguredMessage(t *testing.T) {
 	t.Parallel()
 
-	s, disp := newTestScheduler(t)
-	makeCronTopicWithMessage(t, s, "org-test", "s-cron", "@daily", "Prepare the daily status report")
+	s, pub := newTestScheduler(t)
+	makeCronTriggerWithMessage(t, s, "org-test", "s-cron", "@daily", "Prepare the daily status report")
 
 	if err := s.fire(context.Background(), "org-test", "s-cron"); err != nil {
 		t.Fatalf("fire: %v", err)
 	}
-	events, err := s.store.Events.ListForTopic(context.Background(), "org-test", "s-cron", 10)
+	events, err := s.store.Events.ListForStream(context.Background(), "org-test", "s-cron", 10)
 	if err != nil {
-		t.Fatalf("ListForTopic: %v", err)
+		t.Fatalf("ListForStream: %v", err)
 	}
 	if len(events) != 1 {
-		t.Fatalf("events on topic = %d, want 1", len(events))
+		t.Fatalf("events on stream = %d, want 1", len(events))
 	}
 	msg, err := events[0].Message()
 	if err != nil {
@@ -104,32 +119,32 @@ func TestFireUsesConfiguredMessage(t *testing.T) {
 	if msg.BodyContentType != "text/plain" {
 		t.Fatalf("BodyContentType = %q, want text/plain", msg.BodyContentType)
 	}
-	if len(disp.snapshot()) != 1 {
-		t.Fatalf("dispatched events = %d, want 1", len(disp.snapshot()))
+	if got := pub.snapshot(); len(got) != 1 || got[0] != "s-cron" {
+		t.Fatalf("published = %v, want [s-cron]", got)
 	}
 }
 
-// TestFirePublishesEventAndDispatches proves the fire() path
-// invariant — every tick appends an event and hands it to the
-// dispatcher. This is what makes subscribed Workers wake up; if this
-// breaks, cron topics stop activating.
-func TestFirePublishesEventAndDispatches(t *testing.T) {
+// TestFirePublishesEvent proves the fire() path invariant — every tick
+// goes through the shared publish use case, which appends the event and
+// routes it. This is what makes attached Workers wake up; if it breaks,
+// cron Triggers stop activating.
+func TestFirePublishesEvent(t *testing.T) {
 	t.Parallel()
 
-	s, disp := newTestScheduler(t)
-	makeCronTopic(t, s, "org-test", "s-cron", "@daily")
+	s, pub := newTestScheduler(t)
+	makeCronTrigger(t, s, "org-test", "s-cron", "@daily")
 
 	if err := s.fire(context.Background(), "org-test", "s-cron"); err != nil {
 		t.Fatalf("fire: %v", err)
 	}
 
 	// Event was appended to the store.
-	events, err := s.store.Events.ListForTopic(context.Background(), "org-test", "s-cron", 10)
+	events, err := s.store.Events.ListForStream(context.Background(), "org-test", "s-cron", 10)
 	if err != nil {
-		t.Fatalf("ListForTopic: %v", err)
+		t.Fatalf("ListForStream: %v", err)
 	}
 	if len(events) != 1 {
-		t.Fatalf("events on topic = %d, want 1", len(events))
+		t.Fatalf("events on stream = %d, want 1", len(events))
 	}
 	// System-emitted events have empty Source.
 	if events[0].Source != "" {
@@ -144,25 +159,22 @@ func TestFirePublishesEventAndDispatches(t *testing.T) {
 		t.Fatalf("Body = %q, want kind:scheduled", msg.Body)
 	}
 
-	// Dispatcher saw the same event.
-	dispatched := disp.snapshot()
-	if len(dispatched) != 1 {
-		t.Fatalf("dispatched events = %d, want 1", len(dispatched))
-	}
-	if dispatched[0].TopicID != "s-cron" {
-		t.Fatalf("dispatched TopicID = %q, want s-cron", dispatched[0].TopicID)
+	// The publish went to the Trigger's own stream.
+	published := pub.snapshot()
+	if len(published) != 1 || published[0] != "s-cron" {
+		t.Fatalf("published = %v, want [s-cron]", published)
 	}
 }
 
-// TestReconcileSchedulesCronTopics verifies that running reconcile
-// against a cron topic creates a gocron.Job — the prerequisite for
+// TestReconcileSchedulesCronTriggers verifies that running reconcile
+// against a cron Trigger creates a gocron.Job — the prerequisite for
 // any future tick.
-func TestReconcileSchedulesCronTopics(t *testing.T) {
+func TestReconcileSchedulesCronTriggers(t *testing.T) {
 	t.Parallel()
 
 	s, _ := newTestScheduler(t)
-	makeCronTopic(t, s, "org-a", "s-1", "@hourly")
-	makeCronTopic(t, s, "org-b", "s-2", "0 9 * * 1")
+	makeCronTrigger(t, s, "org-a", "s-1", "@hourly")
+	makeCronTrigger(t, s, "org-b", "s-2", "0 9 * * 1")
 
 	if err := s.reconcile(context.Background()); err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -181,15 +193,15 @@ func TestReconcileSchedulesCronTopics(t *testing.T) {
 	}
 }
 
-// TestReconcileRemovesDeletedTopics proves that when a cron topic
+// TestReconcileRemovesDeletedTriggers proves that when a cron Trigger
 // disappears from the store, the next reconcile drops its gocron.Job —
 // no zombie ticks after delete.
-func TestReconcileRemovesDeletedTopics(t *testing.T) {
+func TestReconcileRemovesDeletedTriggers(t *testing.T) {
 	t.Parallel()
 
 	s, _ := newTestScheduler(t)
-	makeCronTopic(t, s, "org-a", "s-keep", "@hourly")
-	makeCronTopic(t, s, "org-a", "s-drop", "@daily")
+	makeCronTrigger(t, s, "org-a", "s-keep", "@hourly")
+	makeCronTrigger(t, s, "org-a", "s-drop", "@daily")
 	if err := s.reconcile(context.Background()); err != nil {
 		t.Fatalf("initial reconcile: %v", err)
 	}
@@ -197,7 +209,7 @@ func TestReconcileRemovesDeletedTopics(t *testing.T) {
 		t.Fatalf("jobs after seed = %d, want 2", got)
 	}
 
-	if err := s.store.Topics.Delete(context.Background(), "org-a", "s-drop"); err != nil {
+	if err := s.store.Triggers.Delete(context.Background(), "org-a", "s-drop"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if err := s.reconcile(context.Background()); err != nil {
@@ -214,13 +226,13 @@ func TestReconcileRemovesDeletedTopics(t *testing.T) {
 }
 
 // TestReconcileUpdatesChangedSchedule verifies the schedule-change
-// path — when a topic's TransportConfig changes, reconcile picks up
+// path — when a Trigger's config changes, reconcile picks up
 // the new cadence within one cycle (≤ 10s in production).
 func TestReconcileUpdatesChangedSchedule(t *testing.T) {
 	t.Parallel()
 
 	s, _ := newTestScheduler(t)
-	makeCronTopic(t, s, "org-a", "s-1", "@hourly")
+	makeCronTrigger(t, s, "org-a", "s-1", "@hourly")
 	if err := s.reconcile(context.Background()); err != nil {
 		t.Fatalf("initial reconcile: %v", err)
 	}
@@ -230,16 +242,13 @@ func TestReconcileUpdatesChangedSchedule(t *testing.T) {
 
 	// Read, mutate, write back. Update replaces transport_config
 	// wholesale so the new schedule appears on next reconcile.
-	topic, err := s.store.Topics.Get(context.Background(), "org-a", "s-1")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
+	row := getTrigger(t, s, "org-a", "s-1")
 	newCfg, err := json.Marshal(transport.CronConfig{Schedule: "@daily"})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	topic.Transport.Config = newCfg
-	if err := s.store.Topics.Update(context.Background(), topic); err != nil {
+	row.Config = newCfg
+	if err := s.store.Triggers.Update(context.Background(), row); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
@@ -259,22 +268,19 @@ func TestReconcileUpdatesChangedSchedule(t *testing.T) {
 // no longer validates (e.g. a sub-90s config snuck in via SQL after
 // initial creation) is logged and skipped — no panic, no job
 // registered. Constructed by mutating an existing topic's transport
-// config in the memory store, since NewTopic guards the front door.
+// config in the memory store, since trigger.New guards the front door.
 func TestReconcileSkipsInvalidSchedule(t *testing.T) {
 	t.Parallel()
 
 	s, _ := newTestScheduler(t)
-	makeCronTopic(t, s, "org-a", "s-bad", "@hourly")
+	makeCronTrigger(t, s, "org-a", "s-bad", "@hourly")
 	// Replace the row's transport config wholesale with a sub-90s
 	// schedule. The memory Update doesn't re-validate the transport,
 	// matching the production gorm Update — exactly the case
 	// reconcile's defensive Validate guards against.
-	topic, err := s.store.Topics.Get(context.Background(), "org-a", "s-bad")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	topic.Transport.Config = json.RawMessage(`{"schedule":"* * * * *"}`)
-	if err := s.store.Topics.Update(context.Background(), topic); err != nil {
+	row := getTrigger(t, s, "org-a", "s-bad")
+	row.Config = json.RawMessage(`{"schedule":"* * * * *"}`)
+	if err := s.store.Triggers.Update(context.Background(), row); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
@@ -287,14 +293,14 @@ func TestReconcileSkipsInvalidSchedule(t *testing.T) {
 }
 
 // TestFirePanicRecovery proves the recover() in fireFn — a bad
-// dispatcher (or any panic in the fire path) does NOT take down the
+// publisher (or any panic in the fire path) does NOT take down the
 // scheduler goroutine.
 func TestFirePanicRecovery(t *testing.T) {
 	t.Parallel()
 
 	s, _ := newTestScheduler(t)
-	s.dispatcher = panickyDispatcher{}
-	makeCronTopic(t, s, "org-a", "s-1", "@hourly")
+	s.publisher = panickyPublisher{}
+	makeCronTrigger(t, s, "org-a", "s-1", "@hourly")
 
 	// fireFn wraps fire in recover; invoking it directly must not
 	// propagate the panic.
@@ -306,8 +312,8 @@ func TestFirePanicRecovery(t *testing.T) {
 	s.fireFn("org-a", "s-1")()
 }
 
-type panickyDispatcher struct{}
+type panickyPublisher struct{}
 
-func (panickyDispatcher) Dispatch(_ context.Context, _ streaming.Event) {
-	panic("simulated dispatcher failure")
+func (panickyPublisher) PublishToTrigger(_ context.Context, _, _, _ string, _ streaming.Message) (streaming.Event, error) {
+	panic("simulated publisher failure")
 }

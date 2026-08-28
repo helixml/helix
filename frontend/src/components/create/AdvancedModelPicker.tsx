@@ -42,8 +42,11 @@ import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 
 import { useGetOrgByName } from '../../services/orgService';
+import { resolveProviderEndpointRef } from '../../utils/codeAgentProviders';
 
 import useRouter from '../../hooks/useRouter';
+import { isLegacyNativeModel, nativeProviderForEndpoint } from '../../utils/nativeModels';
+import { getProviderEndpointLabel } from '../providers/ProviderEndpointIcon';
 
 interface AdvancedModelPickerProps {
   selectedModelId?: string;
@@ -138,11 +141,8 @@ export const providerRef = (provider: TypesProviderEndpoint | undefined): string
 // Matches a stored agent reference against a provider. Tries ID first
 // (current scheme) then falls back to a case-insensitive name match
 // (globals + legacy agents stored before the switch to ID-based references).
-export const matchesStoredRef = (provider: TypesProviderEndpoint | undefined, storedRef: string | undefined): boolean => {
-  if (!provider || !storedRef) return false;
-  if (hasRealID(provider) && provider.id === storedRef) return true;
-  if (provider.name && provider.name.toLowerCase() === storedRef.toLowerCase()) return true;
-  return false;
+export const matchesStoredRef = (provider: TypesProviderEndpoint | undefined, storedRef: string | undefined, providers: TypesProviderEndpoint[] = []): boolean => {
+  return !!provider && resolveProviderEndpointRef(providers.length ? providers : [provider], storedRef)?.id === provider.id;
 };
 
 function fuzzySearch(query: string, models: ModelWithProvider[], modelType: string) {
@@ -210,6 +210,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   const dialogOpen = externalOpen !== undefined ? externalOpen : internalDialogOpen;
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyEnabled, setShowOnlyEnabled] = useState(true);
+  const [legacyModelsOpen, setLegacyModelsOpen] = useState(false);
 
   // Track the initially selected model when dialog opens (so it stays at top without jumping)
   const initialSelectedModelRef = useRef<string | undefined>(undefined);
@@ -218,6 +219,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   useEffect(() => {
     if (externalOpen) {
       setSearchQuery('');
+      setLegacyModelsOpen(false);
       initialSelectedModelRef.current = selectedModelId;
     }
   }, [externalOpen]);
@@ -281,7 +283,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
           // Try to find a model of the right type from the same provider first
           let newModel = allModels.find(model =>
             model.type === effectiveType &&
-            matchesStoredRef(model.provider, selectedProvider)
+            matchesStoredRef(model.provider, selectedProvider, providers || [])
           );
 
           // If no model found from the same provider, fall back to any provider
@@ -315,7 +317,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     const selectedModel = allModels.find(model => model.id === selectedModelId);
     let providerName = selectedModel?.provider?.name;
     if (!providerName && selectedProvider) {
-      const matched = providers?.find((p: TypesProviderEndpoint) => matchesStoredRef(p, selectedProvider));
+      const matched = resolveProviderEndpointRef(providers || [], selectedProvider);
       providerName = matched?.name || selectedProvider;
     }
     if (providerName) {
@@ -376,8 +378,19 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     return models;
   }, [searchQuery, allModels, currentType, showOnlyEnabled, recommendedModels, dialogOpen]);
 
+  const currentModels = filteredModels.filter((model) =>
+    model.id === selectedModelId
+    || !isLegacyNativeModel(model.id || '', nativeProviderForEndpoint(model.provider)))
+  const legacyModels = filteredModels.filter((model) =>
+    model.id !== selectedModelId
+    && isLegacyNativeModel(model.id || '', nativeProviderForEndpoint(model.provider)))
+  const displayedModels: Array<ModelWithProvider | null> = searchQuery || legacyModels.length === 0
+    ? [...currentModels, ...legacyModels]
+    : [...currentModels, null, ...(legacyModelsOpen ? legacyModels : [])]
+
   const handleOpenDialog = () => {
     setSearchQuery('');
+    setLegacyModelsOpen(false);
     // Capture the initially selected model so we can pin it to the top without jumping
     initialSelectedModelRef.current = selectedModelId;
     setInternalDialogOpen(true);
@@ -554,7 +567,26 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                  <CircularProgress />
                </Box>
             )}
-            {!isLoading && filteredModels.map((model) => {
+            {!isLoading && displayedModels.map((model) => {
+              if (!model) {
+                return (
+                  <Button
+                    key="legacy-models"
+                    fullWidth
+                    aria-expanded={legacyModelsOpen}
+                    aria-label={`${legacyModelsOpen ? 'Hide' : 'Show'} Legacy models`}
+                    onClick={() => setLegacyModelsOpen((open) => !open)}
+                    endIcon={(
+                      <ArrowDropDownIcon
+                        sx={{ transform: legacyModelsOpen ? 'rotate(180deg)' : undefined }}
+                      />
+                    )}
+                    sx={{ justifyContent: 'space-between', color: 'text.secondary', textTransform: 'none' }}
+                  >
+                    Legacy models ({legacyModels.length})
+                  </Button>
+                )
+              }
               const formattedContextLength = formatContextLength(model.context_length);
               const isDisabled = !model.enabled;
               const isRecommended = recommendedModels.includes(model.id || '');
@@ -563,9 +595,11 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
               const isGlobalProvider = model.provider?.endpoint_type === 'global';
               const isGlobalProviderDisabled = isGlobalProvider && isMonthlyLimitReached;
               const isModelDisabled = Boolean(isDisabled || isGlobalProviderDisabled);
+              const providerLabel = getProviderEndpointLabel(model.provider, org?.display_name || org?.name);
 
               const listItemContent = (
                 <ListItem
+                  aria-label={`Select ${model.id || 'Unnamed Model'} from ${providerLabel}`}
                   onClick={() => !isModelDisabled && model.id && handleSelectModel(providerRef(model.provider), model.id)}
                   disabled={isModelDisabled}
                   sx={{
@@ -590,7 +624,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 56, mr: 1 }}>
                       <ProviderIcon provider={model.provider} />
                       <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.6rem', mt: 0.5, textAlign: 'center', lineHeight: 1.1 }}>
-                        {model.provider.name}
+                        {providerLabel}
                       </Typography>
                     </Box>
                     <ListItemText

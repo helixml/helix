@@ -75,6 +75,11 @@ export function getClaudeLoginExpiry(refreshTokenExpiresAt?: string | null): Cla
   if (!refreshTokenExpiresAt) return null
   const expiresAt = new Date(refreshTokenExpiresAt)
   if (isNaN(expiresAt.getTime())) return null
+  // Go renders an unset time.Time as "0001-01-01T00:00:00Z". That parses
+  // cleanly, so a falsy check does not catch it — it just is not a deadline.
+  // Setup tokens carry no refresh token and so have none at all, and reading
+  // year 1 as one claimed "Expired 739850d ago" against a working login.
+  if (expiresAt.getTime() <= 0) return null
 
   const diffMs = expiresAt.getTime() - Date.now()
   const DAY_MS = 24 * 60 * 60 * 1000

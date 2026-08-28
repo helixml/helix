@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -43,6 +44,24 @@ func TestSandboxResourceLimits(t *testing.T) {
 	}
 	if memorySwap != wantMemory*2 {
 		t.Fatalf("MemorySwap = %d, want %d", memorySwap, wantMemory*2)
+	}
+}
+
+// Docker refuses a NanoCPUs above the host CPU count outright, so an unclamped
+// default larger than a small host fails container creation rather than degrade.
+func TestSandboxResourceLimitsClampsVCPUsToHost(t *testing.T) {
+	hostCPUs := runtime.NumCPU()
+
+	nanoCPUs, _, _ := sandboxResourceLimits(hostCPUs*2, 1024)
+	if want := int64(hostCPUs) * 1_000_000_000; nanoCPUs != want {
+		t.Fatalf("NanoCPUs = %d, want %d (clamped to host)", nanoCPUs, want)
+	}
+
+	// Memory is deliberately NOT clamped: Docker accepts a limit above host RAM,
+	// and an unreachable ceiling beats one that OOM-kills the desktop.
+	_, memory, _ := sandboxResourceLimits(1, 1024*1024)
+	if want := int64(1024*1024) * 1024 * 1024; memory != want {
+		t.Fatalf("Memory = %d, want %d (unclamped)", memory, want)
 	}
 }
 

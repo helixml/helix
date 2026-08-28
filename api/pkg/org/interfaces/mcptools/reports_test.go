@@ -25,8 +25,8 @@ func TestReports_TeamTopicAndDMTopics(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.TeamTopicID == nil || *got.TeamTopicID != channels.TeamTopicID("b-jane") {
-		t.Fatalf("teamTopicId = %v, want s-team-b-jane", got.TeamTopicID)
+	if got.TeamChatID == nil || *got.TeamChatID != channels.TeamTriggerID("b-jane") {
+		t.Fatalf("teamTopicId = %v, want s-team-b-jane", got.TeamChatID)
 	}
 	if len(got.Reports) != 2 {
 		t.Fatalf("reports = %+v, want 2 (b-li, b-sam)", got.Reports)
@@ -35,12 +35,12 @@ func TestReports_TeamTopicAndDMTopics(t *testing.T) {
 		if r.Manages {
 			t.Fatalf("report %s should not manage anyone (no sub-reports)", r.ID)
 		}
-		if r.TeamTopicID != nil {
+		if r.TeamChatID != nil {
 			t.Fatalf("non-managing report %s must not carry a teamTopicId", r.ID)
 		}
-		wantDM := channels.DMTopicID("b-jane", r.ID)
-		if r.DMTopicID != wantDM {
-			t.Fatalf("report %s dmTopicId = %q, want %q", r.ID, r.DMTopicID, wantDM)
+		wantDM := channels.DMTriggerID("b-jane", r.ID)
+		if r.DMChannelID != wantDM {
+			t.Fatalf("report %s dmTopicId = %q, want %q", r.ID, r.DMChannelID, wantDM)
 		}
 	}
 }
@@ -67,11 +67,11 @@ func TestReports_ManagesFlagSurfacesSubTeam(t *testing.T) {
 	if !jane.Manages {
 		t.Fatalf("b-jane should be flagged manages:true")
 	}
-	if jane.TeamTopicID == nil || *jane.TeamTopicID != channels.TeamTopicID("b-jane") {
-		t.Fatalf("b-jane teamTopicId = %v, want s-team-b-jane", jane.TeamTopicID)
+	if jane.TeamChatID == nil || *jane.TeamChatID != channels.TeamTriggerID("b-jane") {
+		t.Fatalf("b-jane teamTopicId = %v, want s-team-b-jane", jane.TeamChatID)
 	}
-	if jane.DMTopicID != channels.DMTopicID("b-owner", "b-jane") {
-		t.Fatalf("b-jane dmTopicId = %q, want %q", jane.DMTopicID, channels.DMTopicID("b-owner", "b-jane"))
+	if jane.DMChannelID != channels.DMTriggerID("b-owner", "b-jane") {
+		t.Fatalf("b-jane dmTopicId = %q, want %q", jane.DMChannelID, channels.DMTriggerID("b-owner", "b-jane"))
 	}
 }
 
@@ -89,8 +89,8 @@ func TestReports_NoReportsNullTeamTopic(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.TeamTopicID != nil {
-		t.Fatalf("teamTopicId = %v, want null", *got.TeamTopicID)
+	if got.TeamChatID != nil {
+		t.Fatalf("teamTopicId = %v, want null", *got.TeamChatID)
 	}
 	if got.Reports == nil || len(got.Reports) != 0 {
 		t.Fatalf("reports = %+v, want empty array", got.Reports)

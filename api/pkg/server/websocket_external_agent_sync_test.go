@@ -2651,6 +2651,42 @@ func (s *WebSocketSyncSuite) TestThreadTitleChanged_UpdatesSessionName() {
 	s.NoError(err)
 }
 
+func (s *WebSocketSyncSuite) TestThreadTitleChanged_UpdatesJustDoItTaskName() {
+	s.server.contextMappings["thread-task-title"] = "ses_task_title"
+
+	session := &types.Session{
+		ID:    "ses_task_title",
+		Owner: "user-1",
+		Name:  "Just Do It: We used to rewrite the title of tasks when...",
+		Metadata: types.SessionMetadata{
+			SpecTaskID: "spt_title",
+		},
+	}
+	task := &types.SpecTask{
+		ID:           "spt_title",
+		Name:         "We used to rewrite the title of tasks when they go...",
+		JustDoItMode: true,
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	s.store.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+	s.store.EXPECT().UpdateSpecTask(gomock.Any(), task).DoAndReturn(
+		func(_ context.Context, updated *types.SpecTask) error {
+			s.Equal("Generate descriptive task titles", updated.Name)
+			return nil
+		},
+	)
+
+	err := s.server.handleThreadTitleChanged("agent-1", &types.SyncMessage{
+		EventType: "thread_title_changed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-task-title",
+			"title":         "Generate descriptive task titles",
+		},
+	})
+	s.NoError(err)
+}
+
 func (s *WebSocketSyncSuite) TestThreadTitleChanged_NoMappedSession() {
 	syncMsg := &types.SyncMessage{
 		EventType: "thread_title_changed",

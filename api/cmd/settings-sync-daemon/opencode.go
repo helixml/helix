@@ -34,7 +34,7 @@ var (
 	// under ~/.config.
 	OpenCodeConfigHome = "/home/retro/.config/helix-opencode"
 	// OpenCodeDataHome holds session state. It lives under the workspace so
-	// sessions survive a container restart, matching QWEN_DATA_DIR.
+	// sessions survive a container restart, matching QWEN_HOME.
 	OpenCodeDataHome = "/home/retro/work/.opencode-state"
 )
 
@@ -84,10 +84,17 @@ type openCodeVendorOptions struct {
 }
 
 type openCodeModel struct {
-	Name     string               `json:"name"`
-	ToolCall bool                 `json:"tool_call"`
-	Limit    *openCodeModelLimit  `json:"limit,omitempty"`
-	Options  *openCodeModelOption `json:"options,omitempty"`
+	Name       string                   `json:"name"`
+	ToolCall   bool                     `json:"tool_call"`
+	Attachment bool                     `json:"attachment,omitempty"`
+	Modalities *openCodeModelModalities `json:"modalities,omitempty"`
+	Limit      *openCodeModelLimit      `json:"limit,omitempty"`
+	Options    *openCodeModelOption     `json:"options,omitempty"`
+}
+
+type openCodeModelModalities struct {
+	Input  []string `json:"input,omitempty"`
+	Output []string `json:"output,omitempty"`
 }
 
 type openCodeModelLimit struct {
@@ -117,8 +124,20 @@ func (d *SettingsDaemon) buildOpenCodeConfig(baseURL string) openCodeConfig {
 	qualified := openCodeProviderID + "/" + modelID
 
 	model := openCodeModel{
-		Name:     modelID,
+		Name:     strings.TrimPrefix(modelID, d.codeAgentConfig.Provider+"/"),
 		ToolCall: true,
+	}
+	if len(d.codeAgentConfig.InputModalities) > 0 || len(d.codeAgentConfig.OutputModalities) > 0 {
+		model.Modalities = &openCodeModelModalities{
+			Input:  d.codeAgentConfig.InputModalities,
+			Output: d.codeAgentConfig.OutputModalities,
+		}
+		for _, modality := range d.codeAgentConfig.InputModalities {
+			if modality != "text" {
+				model.Attachment = true
+				break
+			}
+		}
 	}
 	// Only declare limits we actually know. Writing zeros would tell opencode
 	// the context window is empty and it would compact after every turn.

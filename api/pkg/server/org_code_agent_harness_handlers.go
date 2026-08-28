@@ -184,6 +184,10 @@ func normalizeHarnessCredentialSources(update *types.OrgCodeAgentHarnessUpdate) 
 	return nil
 }
 
+func claudeHarnessUsesAPIProviderMode(harness *types.OrgCodeAgentHarness) bool {
+	return harness != nil && !(harness.SubscriptionEnabled != nil && *harness.SubscriptionEnabled) && (harness.ProviderRefs == nil || len(harness.ProviderRefs) > 0)
+}
+
 func (apiServer *HelixAPIServer) viewerHasClaudeSubscription(ctx context.Context, orgID, userID string) (bool, error) {
 	_, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, userID, orgID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -247,10 +251,17 @@ func (apiServer *HelixAPIServer) validateOrgCodeAgentHarness(
 		}
 		return nil
 	}
-	if providerRef != "" && !harness.AllowsProvider(providerRef) {
-		return fmt.Errorf("provider %q is not enabled for coding-agent harness %q in this organization", providerRef, runtime)
+	if providerRef == "" {
+		return nil
 	}
-	return nil
+	endpoints, err := apiServer.listEndpointsForApp(ctx, "", &types.App{OrganizationID: orgID})
+	if err != nil {
+		return fmt.Errorf("failed to list providers: %w", err)
+	}
+	if resolveProviderEndpointRef(filterProviderEndpointsForHarness(endpoints, harness, runtime), providerRef) != nil {
+		return nil
+	}
+	return fmt.Errorf("provider %q is not enabled for coding-agent harness %q in this organization", providerRef, runtime)
 }
 
 func (apiServer *HelixAPIServer) loadOrgCodeAgentHarnessPolicy(

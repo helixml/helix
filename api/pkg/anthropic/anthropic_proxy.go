@@ -439,6 +439,9 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 
 	usage := respMessage.Usage
 	modelName := string(respMessage.Model)
+	if modelName == "" {
+		return
+	}
 
 	vals, ok := oai.GetContextValues(ctx)
 	if !ok {

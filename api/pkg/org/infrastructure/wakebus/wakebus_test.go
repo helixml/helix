@@ -63,7 +63,7 @@ func TestSubscribeAndNotify_WakesMatchingSubscriber(t *testing.T) { // B1
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.Subscribe("org-test", []streaming.TopicID{"s-a", "s-b"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a", "s-b"})
 	time.Sleep(subInstall)
 	h.Notify("org-test", "s-a")
 	select {
@@ -77,7 +77,7 @@ func TestNotify_IgnoresOtherTopics(t *testing.T) { // B2
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.Subscribe("org-test", []streaming.TopicID{"s-a"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a"})
 	time.Sleep(subInstall)
 	h.Notify("org-test", "s-b")
 	select {
@@ -91,7 +91,7 @@ func TestNotify_CoalescesBurstyNotifications(t *testing.T) { // B3
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.Subscribe("org-test", []streaming.TopicID{"s-a"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a"})
 	time.Sleep(subInstall)
 	for i := 0; i < 100; i++ {
 		h.Notify("org-test", "s-a")
@@ -125,9 +125,9 @@ func TestUnsubscribe_StopsDelivery(t *testing.T) { // B4
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.Subscribe("org-test", []streaming.TopicID{"s-a"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a"})
 	time.Sleep(subInstall)
-	h.Unsubscribe([]streaming.TopicID{"s-a"}, ch)
+	h.Unsubscribe([]streaming.StreamID{"s-a"}, ch)
 	h.Notify("org-test", "s-a")
 	select {
 	case <-ch:
@@ -144,7 +144,7 @@ func TestNotify_WakesEveryMatchingSubscriber(t *testing.T) { // B5
 	var wg sync.WaitGroup
 	channels := make([]chan struct{}, n)
 	for i := range channels {
-		channels[i] = h.Subscribe("org-test", []streaming.TopicID{"s-a"})
+		channels[i] = h.Subscribe("org-test", []streaming.StreamID{"s-a"})
 	}
 	time.Sleep(subInstall)
 	for i := range channels {
@@ -168,7 +168,7 @@ func TestSubscriber_RegisteredForMultipleTopics_WakesOnAny(t *testing.T) { // B6
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.Subscribe("org-test", []streaming.TopicID{"s-a", "s-b", "s-c"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a", "s-b", "s-c"})
 	time.Sleep(subInstall)
 
 	// Notify on s-b — the middle one — to prove order doesn't matter.
@@ -235,7 +235,7 @@ func TestNotify_NonBlockingOnFullSubscriberChannel(t *testing.T) { // B9
 	// Subscribe but never drain the channel — the second notify must
 	// not block. If Notify weren't non-blocking, this test would hang
 	// past the timeout and fail.
-	ch := h.Subscribe("org-test", []streaming.TopicID{"s-a"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a"})
 	_ = ch // not draining intentionally
 	time.Sleep(subInstall)
 
@@ -260,14 +260,14 @@ func TestUnsubscribe_EmptyTopicListIsNoop(t *testing.T) { // B10
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.Subscribe("org-test", []streaming.TopicID{"s-a"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a"})
 	time.Sleep(subInstall)
 
 	// Calling Unsubscribe with an empty list MUST NOT panic and MUST
 	// NOT drop the existing subscription. After the no-op, the
 	// subscriber is still woken by Notify on s-a.
 	h.Unsubscribe(nil, ch)
-	h.Unsubscribe([]streaming.TopicID{}, ch)
+	h.Unsubscribe([]streaming.StreamID{}, ch)
 
 	h.Notify("org-test", "s-a")
 	select {
@@ -290,7 +290,7 @@ func TestConcurrent_SubscribeNotifyUnsubscribe_RaceFree(t *testing.T) { // B11
 
 	// One durable subscriber registered before any Notify — guaranteed
 	// to observe at least one wake.
-	durable := h.Subscribe("org-test", []streaming.TopicID{"s-shared"})
+	durable := h.Subscribe("org-test", []streaming.StreamID{"s-shared"})
 	time.Sleep(subInstall)
 
 	var wg sync.WaitGroup
@@ -317,8 +317,8 @@ func TestConcurrent_SubscribeNotifyUnsubscribe_RaceFree(t *testing.T) { // B11
 			defer wg.Done()
 			<-start
 			for i := 0; i < iterations; i++ {
-				ch := h.Subscribe("org-test", []streaming.TopicID{"s-shared"})
-				h.Unsubscribe([]streaming.TopicID{"s-shared"}, ch)
+				ch := h.Subscribe("org-test", []streaming.StreamID{"s-shared"})
+				h.Unsubscribe([]streaming.StreamID{"s-shared"}, ch)
 			}
 		}()
 	}
@@ -349,8 +349,8 @@ func TestNotify_IsolatedAcrossOrgs(t *testing.T) {
 	t.Parallel()
 
 	h := newHub(t)
-	chA := h.Subscribe("org-a", []streaming.TopicID{"s-general"})
-	chB := h.Subscribe("org-b", []streaming.TopicID{"s-general"})
+	chA := h.Subscribe("org-a", []streaming.StreamID{"s-general"})
+	chB := h.Subscribe("org-b", []streaming.StreamID{"s-general"})
 	time.Sleep(subInstall)
 
 	h.Notify("org-a", "s-general")

@@ -51,6 +51,10 @@ type SessionResetter interface {
 	ResetSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionID string) error
 }
 
+type OutstandingCanceller interface {
+	CancelOutstanding(ctx context.Context, orgID string, workerID orgchart.NodeID) error
+}
+
 // ErrActivateUnavailable is returned by Activate when the project
 // ensurer or dispatcher isn't wired. Adapters map it to 501.
 var ErrActivateUnavailable = errors.New("activate is not wired in this deployment")
@@ -71,6 +75,7 @@ type Activations struct {
 	sessions   SessionResolver
 	stopper    DesktopStopper
 	resetter   SessionResetter
+	canceller  OutstandingCanceller
 }
 
 // Deps are the constructor-injected collaborators for New. Repo may be
@@ -88,6 +93,7 @@ type Deps struct {
 	Sessions   SessionResolver
 	Stopper    DesktopStopper
 	Resetter   SessionResetter
+	Canceller  OutstandingCanceller
 }
 
 // New constructs the Activations service.
@@ -105,6 +111,7 @@ func New(deps Deps) *Activations {
 		sessions:   deps.Sessions,
 		stopper:    deps.Stopper,
 		resetter:   deps.Resetter,
+		canceller:  deps.Canceller,
 	}
 }
 
@@ -179,6 +186,11 @@ func (a *Activations) Stop(ctx context.Context, orgID string, workerID orgchart.
 	if err := orgchart.ValidID(string(workerID)); err != nil {
 		return StopResult{}, fmt.Errorf("worker id: %w", err)
 	}
+	if a.canceller != nil {
+		if err := a.canceller.CancelOutstanding(ctx, orgID, workerID); err != nil {
+			return StopResult{}, fmt.Errorf("cancel outstanding activations: %w", err)
+		}
+	}
 	var sessionID string
 	if a.sessions != nil {
 		sessionID, _ = a.sessions.SessionID(ctx, orgID, workerID)
@@ -199,6 +211,11 @@ func (a *Activations) Stop(ctx context.Context, orgID string, workerID orgchart.
 func (a *Activations) Restart(ctx context.Context, orgID string, workerID orgchart.NodeID) (ActivateResult, error) {
 	if err := orgchart.ValidID(string(workerID)); err != nil {
 		return ActivateResult{}, fmt.Errorf("worker id: %w", err)
+	}
+	if a.canceller != nil {
+		if err := a.canceller.CancelOutstanding(ctx, orgID, workerID); err != nil {
+			return ActivateResult{}, fmt.Errorf("cancel outstanding activations: %w", err)
+		}
 	}
 	var sessionID string
 	if a.sessions != nil {

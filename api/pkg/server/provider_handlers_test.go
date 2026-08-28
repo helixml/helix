@@ -153,6 +153,58 @@ func (s *ProviderHandlersSuite) TestListProviders() {
 	s.Require().Equal("0.0008", resp[0].AvailableModels[1].ModelInfo.Pricing.Prompt)
 }
 
+func (s *ProviderHandlersSuite) TestListProvidersKeepsDatabaseAndEnvironmentGlobalDuplicates() {
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{{
+		ID: "pe_global_anthropic", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal,
+	}}, nil)
+	s.manager.EXPECT().ListProviders(gomock.Any(), "").Return([]types.Provider{types.ProviderAnthropic}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/provider-endpoints", nil).WithContext(s.authCtx)
+	rr := httptest.NewRecorder()
+	s.server.listProviderEndpoints(rr, req)
+
+	var endpoints []*types.ProviderEndpoint
+	s.Require().NoError(json.Unmarshal(rr.Body.Bytes(), &endpoints))
+	s.Require().Len(endpoints, 2)
+	s.ElementsMatch([]string{"pe_global_anthropic", "global/anthropic"}, []string{endpoints[0].ID, endpoints[1].ID})
+}
+
+func (s *ProviderHandlersSuite) TestListProvidersFiltersByCodeAgentRuntime() {
+	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org_1"}).Return(&types.Organization{ID: "org_1"}, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{OrganizationID: "org_1", UserID: "user_id"}, nil)
+	s.store.EXPECT().GetOrgCodeAgentHarness(gomock.Any(), "org_1", types.CodeAgentRuntimeClaudeCode).Return(&types.OrgCodeAgentHarness{
+		OrganizationID: "org_1", Runtime: types.CodeAgentRuntimeClaudeCode, Enabled: true, ProviderRefs: []string{"pe_anthropic"},
+	}, nil)
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
+		{ID: "pe_anthropic", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeOrg},
+		{ID: "pe_openai", Name: "openai", EndpointType: types.ProviderEndpointTypeOrg},
+	}, nil)
+	s.manager.EXPECT().ListProviders(gomock.Any(), "").Return([]types.Provider{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/provider-endpoints?org_id=org_1&code_agent_runtime=claude_code", nil).WithContext(s.authCtx)
+	rr := httptest.NewRecorder()
+	s.server.listProviderEndpoints(rr, req)
+
+	var endpoints []*types.ProviderEndpoint
+	s.Require().Equal(http.StatusOK, rr.Code)
+	s.Require().NoError(json.Unmarshal(rr.Body.Bytes(), &endpoints))
+	s.Require().Len(endpoints, 1)
+	s.Equal("pe_anthropic", endpoints[0].ID)
+}
+
+func (s *ProviderHandlersSuite) TestListProvidersRejectsInvalidCodeAgentRuntimeQuery() {
+	tests := []string{
+		"/v1/provider-endpoints?code_agent_runtime=opencode",
+		"/v1/provider-endpoints?org_id=org_1&code_agent_runtime=not_a_runtime",
+	}
+	for _, target := range tests {
+		req := httptest.NewRequest(http.MethodGet, target, nil).WithContext(s.authCtx)
+		rr := httptest.NewRecorder()
+		s.server.listProviderEndpoints(rr, req)
+		s.Equal(http.StatusBadRequest, rr.Code, target)
+	}
+}
+
 func (s *ProviderHandlersSuite) TestListProviders_NoModelInfo() {
 	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
 		{
@@ -298,7 +350,7 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 		ProvidersManagementEnabled: true,
 	}, nil)
 
-	s.manager.EXPECT().ListProviders(gomock.Any(), "user_id").Return([]types.Provider{}, nil)
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{Owner: "user_id", OwnerType: types.OwnerTypeUser}).Return(nil, nil)
 
 	createdEndpoint := &types.ProviderEndpoint{
 		ID:           "ep_123",
@@ -316,7 +368,7 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 	warmDone := make(chan struct{})
 
 	s.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
-		Provider: "my-ollama",
+		Provider: "ep_123",
 		Owner:    "user_id",
 	}).DoAndReturn(func(_ context.Context, req *manager.GetClientRequest) (openai.Client, error) {
 		defer close(warmDone)
@@ -351,6 +403,194 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 		s.Equal("called", warmAPIKeySeen.Load(), "cache warm goroutine should have run")
 	case <-time.After(5 * time.Second):
 		s.Fail("cache warm goroutine did not complete in time")
+	}
+}
+
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_ValidatesCanonicalNameWithinEffectiveScope() {
+	s.server.authMiddleware = &authMiddleware{
+		store: s.store,
+		cfg:   authMiddlewareConfig{adminUserIDs: []string{"user_id"}},
+	}
+	s.server.Cfg.Providers.Anthropic.APIKey = "env-anthropic-key"
+
+	tests := []struct {
+		name      string
+		endpoint  types.ProviderEndpoint
+		existing  []*types.ProviderEndpoint
+		duplicate bool
+		malformed bool
+	}{
+		{
+			name: "org may coexist with db and env global",
+			endpoint: types.ProviderEndpoint{Name: "anthropic", Owner: "org_1", OwnerType: types.OwnerTypeOrg,
+				EndpointType: types.ProviderEndpointTypeOrg},
+			existing: []*types.ProviderEndpoint{{ID: "pe_global", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal}},
+		},
+		{
+			name: "same org canonical duplicate rejected",
+			endpoint: types.ProviderEndpoint{Name: "anthropic", Owner: "org_1", OwnerType: types.OwnerTypeOrg,
+				EndpointType: types.ProviderEndpointTypeOrg},
+			existing:  []*types.ProviderEndpoint{{ID: "pe_org", Name: "anthropic", Owner: "org_1", EndpointType: types.ProviderEndpointTypeOrg}},
+			duplicate: true,
+		},
+		{
+			name: "same org legacy duplicate rejected",
+			endpoint: types.ProviderEndpoint{Name: "anthropic", Owner: "org_1", OwnerType: types.OwnerTypeOrg,
+				EndpointType: types.ProviderEndpointTypeOrg},
+			existing:  []*types.ProviderEndpoint{{ID: "pe_org", Name: "user/anthropic", Owner: "org_1", EndpointType: types.ProviderEndpointTypeOrg}},
+			duplicate: true,
+		},
+		{
+			name:      "org owner defaults to org scope",
+			endpoint:  types.ProviderEndpoint{Name: "anthropic", Owner: "org_1", OwnerType: types.OwnerTypeOrg},
+			existing:  []*types.ProviderEndpoint{{ID: "pe_org", Name: "user/anthropic", Owner: "org_1", EndpointType: types.ProviderEndpointTypeOrg}},
+			duplicate: true,
+		},
+		{
+			name: "other org may use same canonical name",
+			endpoint: types.ProviderEndpoint{Name: "anthropic", Owner: "org_1", OwnerType: types.OwnerTypeOrg,
+				EndpointType: types.ProviderEndpointTypeOrg},
+			existing: []*types.ProviderEndpoint{{ID: "pe_other_org", Name: "user/anthropic", Owner: "org_2", EndpointType: types.ProviderEndpointTypeOrg}},
+		},
+		{
+			name:     "db global may coexist with env global and personal row",
+			endpoint: types.ProviderEndpoint{Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+			existing: []*types.ProviderEndpoint{{ID: "pe_personal", Name: "anthropic", Owner: "user_2", EndpointType: types.ProviderEndpointTypeUser}},
+		},
+		{
+			name: "org owner with personal type rejected",
+			endpoint: types.ProviderEndpoint{Name: "anthropic", Owner: "org_1", OwnerType: types.OwnerTypeOrg,
+				EndpointType: types.ProviderEndpointTypeUser},
+			malformed: true,
+		},
+		{
+			name:      "user owner with org type rejected",
+			endpoint:  types.ProviderEndpoint{Name: "anthropic", EndpointType: types.ProviderEndpointTypeOrg},
+			malformed: true,
+		},
+		{
+			name:      "team scope rejected",
+			endpoint:  types.ProviderEndpoint{Name: "anthropic", EndpointType: types.ProviderEndpointTypeTeam},
+			malformed: true,
+		},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
+			if tt.endpoint.OwnerType == types.OwnerTypeOrg {
+				expectOrgOwner(s.store, tt.endpoint.Owner, "user_id")
+			}
+			if !tt.malformed {
+				query := &store.ListProviderEndpointsQuery{Owner: "user_id", OwnerType: types.OwnerTypeUser}
+				effectiveType := tt.endpoint.EndpointType
+				if effectiveType == "" && tt.endpoint.OwnerType == types.OwnerTypeOrg {
+					effectiveType = types.ProviderEndpointTypeOrg
+				}
+				if effectiveType == types.ProviderEndpointTypeOrg {
+					query.Owner = tt.endpoint.Owner
+					query.OwnerType = types.OwnerTypeOrg
+				} else if effectiveType == types.ProviderEndpointTypeGlobal {
+					query = &store.ListProviderEndpointsQuery{WithGlobal: true}
+				}
+				s.store.EXPECT().ListProviderEndpoints(gomock.Any(), query).Return(tt.existing, nil)
+			}
+			if !tt.duplicate && !tt.malformed {
+				s.store.EXPECT().CreateProviderEndpoint(gomock.Any(), gomock.Any()).Return(nil, errors.New("create reached"))
+			}
+
+			body, err := json.Marshal(tt.endpoint)
+			s.Require().NoError(err)
+			req := httptest.NewRequest(http.MethodPost, "/v1/provider-endpoints", bytes.NewReader(body)).WithContext(s.authCtx)
+			rr := httptest.NewRecorder()
+			s.server.createProviderEndpoint(rr, req)
+
+			if tt.duplicate {
+				s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+				s.Contains(rr.Body.String(), "already exists")
+			} else if tt.malformed {
+				s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+			} else {
+				s.Equal(http.StatusInternalServerError, rr.Code, rr.Body.String())
+				s.Contains(rr.Body.String(), "create reached")
+			}
+		})
+	}
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_ValidatesRenameAndTypeSwitchScope() {
+	tests := []struct {
+		name      string
+		existing  *types.ProviderEndpoint
+		update    types.UpdateProviderEndpoint
+		rows      []*types.ProviderEndpoint
+		duplicate bool
+	}{
+		{
+			name: "rename may coexist with db global",
+			existing: &types.ProviderEndpoint{ID: "pe_current", Name: "old", Owner: "user_id", OwnerType: types.OwnerTypeUser,
+				EndpointType: types.ProviderEndpointTypeUser},
+			update: types.UpdateProviderEndpoint{Name: "anthropic"},
+			rows: []*types.ProviderEndpoint{
+				{ID: "pe_current", Name: "old", Owner: "user_id", EndpointType: types.ProviderEndpointTypeUser},
+				{ID: "pe_global", Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+			},
+		},
+		{
+			name: "rename rejects legacy duplicate in user scope",
+			existing: &types.ProviderEndpoint{ID: "pe_current", Name: "old", Owner: "user_id", OwnerType: types.OwnerTypeUser,
+				EndpointType: types.ProviderEndpointTypeUser},
+			update: types.UpdateProviderEndpoint{Name: "anthropic"},
+			rows: []*types.ProviderEndpoint{
+				{ID: "pe_current", Name: "old", Owner: "user_id", EndpointType: types.ProviderEndpointTypeUser},
+				{ID: "pe_duplicate", Name: "user/anthropic", Owner: "user_id", EndpointType: types.ProviderEndpointTypeUser},
+			},
+			duplicate: true,
+		},
+		{
+			name: "unchanged name rejects type switch into duplicate global scope",
+			existing: &types.ProviderEndpoint{ID: "pe_current", Name: "anthropic", Owner: "user_id", OwnerType: types.OwnerTypeUser,
+				EndpointType: types.ProviderEndpointTypeUser},
+			update: types.UpdateProviderEndpoint{Name: "anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+			rows: []*types.ProviderEndpoint{
+				{ID: "pe_current", Name: "anthropic", Owner: "user_id", EndpointType: types.ProviderEndpointTypeUser},
+				{ID: "pe_global", Name: "user/anthropic", EndpointType: types.ProviderEndpointTypeGlobal},
+			},
+			duplicate: true,
+		},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
+			s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: tt.existing.ID}).Return(tt.existing, nil)
+			query := &store.ListProviderEndpointsQuery{Owner: tt.existing.Owner, OwnerType: types.OwnerTypeUser}
+			if tt.update.EndpointType == types.ProviderEndpointTypeGlobal {
+				query = &store.ListProviderEndpointsQuery{WithGlobal: true}
+			}
+			s.store.EXPECT().ListProviderEndpoints(gomock.Any(), query).Return(tt.rows, nil)
+			if !tt.duplicate {
+				s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+						return endpoint, nil
+					})
+			}
+
+			body, err := json.Marshal(tt.update)
+			s.Require().NoError(err)
+			req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+tt.existing.ID, bytes.NewReader(body))
+			req = req.WithContext(setRequestUser(context.Background(), types.User{ID: "user_id", Admin: true}))
+			req = mux.SetURLVars(req, map[string]string{"id": tt.existing.ID})
+			rr := httptest.NewRecorder()
+			s.server.updateProviderEndpoint(rr, req)
+
+			if tt.duplicate {
+				s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+				s.Contains(rr.Body.String(), "already exists")
+			} else {
+				s.Equal(http.StatusOK, rr.Code, rr.Body.String())
+			}
+		})
 	}
 }
 
@@ -651,6 +891,7 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchUserToGlobal() 
 	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
 		ID: endpointID,
 	}).Return(existing, nil)
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{WithGlobal: true}).Return([]*types.ProviderEndpoint{existing}, nil)
 	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
 			s.Equal(types.ProviderEndpointTypeGlobal, ep.EndpointType)
@@ -791,7 +1032,7 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_AdminUpdatesPresentat
 			s.True(ep.BillingEnabled)
 			return ep, nil
 		})
-	s.manager.EXPECT().ListProviders(gomock.Any(), "admin_id").Return([]types.Provider{}, nil)
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{WithGlobal: true}).Return([]*types.ProviderEndpoint{existing}, nil)
 
 	update := types.UpdateProviderEndpoint{
 		Name:           "DeepSeek Production",
@@ -975,7 +1216,7 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_RenameInvalidatesOldK
 	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
 		ID: endpointID,
 	}).Return(existing, nil)
-	s.manager.EXPECT().ListProviders(gomock.Any(), "user_id").Return([]types.Provider{}, nil)
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{Owner: "user_id", OwnerType: types.OwnerTypeUser}).Return(nil, nil)
 	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
 			s.Equal("new-name", ep.Name)
@@ -1172,4 +1413,183 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_Headers() {
 			s.Equal(http.StatusOK, rr.Code, rr.Body.String())
 		})
 	}
+}
+
+// Flipping the admin UI's "Providers Management" toggle must be enough for a
+// non-admin to create a provider endpoint. Before, the handler also demanded
+// ENABLE_CUSTOM_USER_PROVIDERS=true and rejected with "Custom user providers
+// are not enabled" even though /config told the frontend the feature was on.
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_NonAdminAllowedBySystemSetting() {
+	s.server.authMiddleware = &authMiddleware{
+		store: s.store,
+		cfg:   authMiddlewareConfig{},
+	}
+	s.server.Cfg.Providers.EnableCustomUserProviders = false
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user_id"}, nil).AnyTimes()
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+
+	body, err := json.Marshal(types.ProviderEndpoint{
+		Name:         "my-openrouter",
+		BaseURL:      "https://openrouter.ai/api/v1",
+		APIKey:       "sk-secret",
+		EndpointType: types.ProviderEndpointTypeUser,
+	})
+	s.Require().NoError(err)
+
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{Owner: "user_id", OwnerType: types.OwnerTypeUser}).Return(nil, nil)
+	s.store.EXPECT().CreateProviderEndpoint(gomock.Any(), gomock.Any()).Return(&types.ProviderEndpoint{
+		ID:           "ep_openrouter",
+		Name:         "my-openrouter",
+		BaseURL:      "https://openrouter.ai/api/v1",
+		APIKey:       "sk-secret",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}, nil)
+
+	warmDone := make(chan struct{})
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *manager.GetClientRequest) (openai.Client, error) {
+			return s.openAiClient, nil
+		})
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{{ID: "gpt-4o"}}, nil)
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *model.ModelInfoRequest) (*types.ModelInfo, error) {
+			close(warmDone)
+			return nil, errors.New("not found")
+		})
+
+	req, err := http.NewRequest("POST", "/v1/provider-endpoints", bytes.NewReader(body))
+	s.Require().NoError(err)
+	req = req.WithContext(s.authCtx)
+
+	rr := httptest.NewRecorder()
+	s.server.createProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code, rr.Body.String())
+
+	select {
+	case <-warmDone:
+	case <-time.After(5 * time.Second):
+		s.Fail("cache warm goroutine did not complete in time")
+	}
+}
+
+// With both the system setting and the env var off, a non-admin is still denied.
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_NonAdminDeniedWhenDisabled() {
+	s.server.authMiddleware = &authMiddleware{
+		store: s.store,
+		cfg:   authMiddlewareConfig{},
+	}
+	s.server.Cfg.Providers.EnableCustomUserProviders = false
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user_id"}, nil).AnyTimes()
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: false,
+	}, nil)
+
+	body, err := json.Marshal(types.ProviderEndpoint{
+		Name:         "my-openrouter",
+		BaseURL:      "https://openrouter.ai/api/v1",
+		EndpointType: types.ProviderEndpointTypeUser,
+	})
+	s.Require().NoError(err)
+
+	req, err := http.NewRequest("POST", "/v1/provider-endpoints", bytes.NewReader(body))
+	s.Require().NoError(err)
+	req = req.WithContext(s.authCtx)
+
+	rr := httptest.NewRecorder()
+	s.server.createProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code, rr.Body.String())
+}
+
+// An endpoint with an explicit model list must expose only those models, even
+// when upstream /v1/models answers with a full catalogue. This is what makes
+// the "edit models" whitelist mean anything for an aggregator like OpenRouter,
+// which lists 400+ models the operator may not want to offer.
+func (s *ProviderHandlersSuite) TestGetProviderModels_EnabledListFiltersCatalogue() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "openrouter",
+		Owner:   "user_wl",
+		BaseURL: "https://openrouter.ai/api/v1",
+		Models:  []string{"anthropic/claude-opus-5", "pinned/not-upstream"},
+	}
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{
+		{ID: "anthropic/claude-opus-5", ContextLength: 200000},
+		{ID: "openai/gpt-5.2"},
+		{ID: "meta/llama-4"},
+	}, nil)
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+
+	result, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.Require().Len(result.Models, 2)
+	// Upstream metadata is kept for models that exist upstream...
+	s.Equal("anthropic/claude-opus-5", result.Models[0].ID)
+	s.Equal(200000, result.Models[0].ContextLength)
+	// ...and an enabled id the upstream doesn't advertise is still offered, so
+	// pinning a model an aggregator temporarily drops keeps working.
+	s.Equal("pinned/not-upstream", result.Models[1].ID)
+	s.True(result.Models[1].Enabled)
+}
+
+// The catalogue read powers the model picker itself, so it must NOT apply the
+// whitelist — otherwise the operator could only ever re-pick what they already
+// enabled and could never add a model back.
+func (s *ProviderHandlersSuite) TestGetProviderCatalogue_IgnoresEnabledList() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "openrouter-cat",
+		Owner:   "user_cat",
+		BaseURL: "https://openrouter.ai/api/v1/cat",
+		Models:  []string{"anthropic/claude-opus-5"},
+	}
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil).AnyTimes()
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{
+		{ID: "anthropic/claude-opus-5"},
+		{ID: "openai/gpt-5.2"},
+		{ID: "meta/llama-4"},
+	}, nil).AnyTimes()
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+
+	catalogue, err := s.server.getProviderCatalogue(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.Require().Len(catalogue.Models, 3)
+
+	// The effective list for the same endpoint is filtered.
+	effective, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.Require().Len(effective.Models, 1)
+	s.Equal("anthropic/claude-opus-5", effective.Models[0].ID)
+}
+
+// Two endpoints sharing a BaseURL have independent whitelists. The upstream
+// fetch is still deduplicated, but the filtering must not leak between them.
+func (s *ProviderHandlersSuite) TestGetProviderModels_SharedBaseURLKeepsSeparateEnabledLists() {
+	shared := "http://shared.local/v1"
+	a := &types.ProviderEndpoint{Name: "prov-a", Owner: "user_a", BaseURL: shared, Models: []string{"model-a"}}
+	b := &types.ProviderEndpoint{Name: "prov-b", Owner: "user_b", BaseURL: shared, Models: []string{"model-b"}}
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil).AnyTimes()
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{
+		{ID: "model-a"}, {ID: "model-b"}, {ID: "model-c"},
+	}, nil).AnyTimes()
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+
+	resA, err := s.server.getProviderModels(context.Background(), a)
+	s.Require().NoError(err)
+	s.Require().Len(resA.Models, 1)
+	s.Equal("model-a", resA.Models[0].ID)
+
+	resB, err := s.server.getProviderModels(context.Background(), b)
+	s.Require().NoError(err)
+	s.Require().Len(resB.Models, 1)
+	s.Equal("model-b", resB.Models[0].ID)
 }

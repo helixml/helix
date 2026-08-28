@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/domainevent"
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
@@ -20,10 +21,10 @@ import (
 const defaultWindow = 7 * 24 * time.Hour
 
 // Publisher is the narrow publish port the follower uses to deliver a
-// message to a thread member's route Topic. publishing.Publishing satisfies
-// it (same shape as processing.Publisher).
+// message on a thread member's route branch. publishing.Publishing
+// satisfies it (same shape as processing.Publisher).
 type Publisher interface {
-	Publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error)
+	Publish(ctx context.Context, orgID string, src eventsource.SourceRef, streamID streaming.StreamID, from string, msg streaming.Message) (streaming.Event, error)
 }
 
 // ThreadFollower implements processing.PostRouter for Slack auto-routers. It
@@ -177,19 +178,19 @@ func (f *ThreadFollower) AfterRoute(ctx context.Context, p processor.Processor, 
 	subject := threadSubject(p.ID, root)
 
 	// route output Topic ⇄ ManagedFor Worker.
-	workerByTopic := map[streaming.TopicID]string{}
-	topicByWorker := map[string]streaming.TopicID{}
+	workerByOutput := map[string]string{}
+	outputByWorker := map[string]processor.Output{}
 	for _, o := range p.Outputs {
 		if o.ManagedFor != "" {
-			workerByTopic[o.TopicID] = o.ManagedFor
-			topicByWorker[o.ManagedFor] = o.TopicID
+			workerByOutput[o.ID] = o.ManagedFor
+			outputByWorker[o.ManagedFor] = o
 		}
 	}
 
 	// Workers this message was name-matched to.
 	matched := map[string]struct{}{}
 	for _, res := range results {
-		if w, ok := workerByTopic[res.TopicID]; ok {
+		if w, ok := workerByOutput[res.Output.ID]; ok {
 			matched[w] = struct{}{}
 		}
 	}
@@ -233,9 +234,9 @@ func (f *ThreadFollower) AfterRoute(ctx context.Context, p processor.Processor, 
 				f.logger.Warn("slackrouting.threadfollow: list DM recipients", "channel", extra.Channel, "err", err)
 			} else if len(recipients) > 0 {
 				workerID := recipients[0].Worker
-				if topic, ok := topicByWorker[workerID]; ok {
-					if _, err := f.publisher.Publish(ctx, orgID, topic, "", msg); err != nil {
-						f.logger.Warn("slackrouting.threadfollow: deliver DM reply", "worker", workerID, "topic", topic, "err", err)
+				if out, ok := outputByWorker[workerID]; ok {
+					if _, err := f.publisher.Publish(ctx, orgID, p.Source(out), out.StreamID, "", msg); err != nil {
+						f.logger.Warn("slackrouting.threadfollow: deliver DM reply", "worker", workerID, "output", out.ID, "err", err)
 					} else {
 						matched[workerID] = struct{}{}
 						if _, ok := priorSet[workerID]; !ok {
@@ -258,12 +259,12 @@ func (f *ThreadFollower) AfterRoute(ctx context.Context, p processor.Processor, 
 		if _, ok := matched[w]; ok {
 			continue
 		}
-		topic, ok := topicByWorker[w]
+		out, ok := outputByWorker[w]
 		if !ok {
 			continue // member's managed route is gone (Worker departed) — skip
 		}
-		if _, err := f.publisher.Publish(ctx, orgID, topic, "", msg); err != nil {
-			f.logger.Warn("slackrouting.threadfollow: deliver to member", "worker", w, "topic", topic, "err", err)
+		if _, err := f.publisher.Publish(ctx, orgID, p.Source(out), out.StreamID, "", msg); err != nil {
+			f.logger.Warn("slackrouting.threadfollow: deliver to member", "worker", w, "output", out.ID, "err", err)
 		}
 	}
 }

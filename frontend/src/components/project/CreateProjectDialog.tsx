@@ -30,7 +30,6 @@ import CodingAgentForm from '../agent/CodingAgentForm'
 import type { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 import { getAgentHarnessLabel } from '../agent/AgentHarness'
 import BrowseProvidersDialog from './BrowseProvidersDialog'
-import { codeAgentExecutionConfigFromApp } from '../../utils/codeAgentExecutionConfig'
 
 
 
@@ -103,7 +102,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const [newAgentName, setNewAgentName] = useState(getAgentHarnessLabel('zed_agent'))
-  const [creatingAgent, setCreatingAgent] = useState(false)
   const codingAgentFormRef = useRef<CodingAgentFormHandle>(null)
 
   // Agent names are implementation details in project creation. Keep a stable,
@@ -283,10 +281,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       return
     }
 
-    const createdAgent = await codingAgentFormRef.current?.handleCreateAgent()
-    if (!createdAgent?.id) {
-      return
-    }
+    const codeAgentConfig = codingAgentFormRef.current?.handleGetConfig()
 
     try {
       const result = await createProjectMutation.mutateAsync({
@@ -294,7 +289,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
         description: '',
         default_repo_id: repoIdToUse,
         organization_id: account.organizationTools.organization?.id,
-        code_agent_config: codeAgentExecutionConfigFromApp(createdAgent),
+        code_agent_config: codeAgentConfig,
       })
       snackbar.success('Project created successfully')
       onClose()
@@ -313,7 +308,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
 
   const isSubmitDisabled = createProjectMutation.isPending
     || creatingRepo
-    || creatingAgent
     || projectsLoading
     || !name.trim()
     || projectNameExists
@@ -557,11 +551,10 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
               setSelectedModel(nextValue.selectedModel)
               setNewAgentName(nextValue.agentName)
             }}
-            disabled={creatingAgent || createProjectMutation.isPending || creatingRepo}
+            disabled={createProjectMutation.isPending || creatingRepo}
             recommendedModels={RECOMMENDED_CODING_MODELS}
             createAgentDescription="Code development agent for spec tasks"
             createAgentOrganizationId={account.organizationTools.organization?.id}
-            onCreateStateChange={setCreatingAgent}
             showCredentialSelection={false}
             showModelSelection={false}
             showAgentName={false}
@@ -581,10 +574,10 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
           disabled={isSubmitDisabled}
           sx={{ mr: 1, mb: 1 }}
         >
-          {createProjectMutation.isPending || creatingRepo || creatingAgent ? (
+          {createProjectMutation.isPending || creatingRepo ? (
             <>
               <CircularProgress size={16} sx={{ mr: 1 }} />
-              {creatingAgent ? 'Creating Agent...' : 'Creating...'}
+              Creating...
             </>
           ) : (
             <>

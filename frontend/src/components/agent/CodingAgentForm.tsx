@@ -4,6 +4,7 @@ import { Alert, Box, Button, CircularProgress, FormControl, FormControlLabel, Me
 import { SxProps, Theme } from '@mui/material/styles'
 
 import { CodeAgentRuntime, ICreateAgentParams } from '../../contexts/apps'
+import { TypesCodeAgentExecutionConfig } from '../../api/api'
 import useApps from '../../hooks/useApps'
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from '../../types'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
@@ -44,6 +45,7 @@ export interface CodingAgentFormValue {
 
 export interface CodingAgentFormHandle {
   handleCreateAgent: () => Promise<IApp | null>
+  handleGetConfig: () => TypesCodeAgentExecutionConfig
 }
 
 interface CodingAgentFormProps {
@@ -214,6 +216,19 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
 
   useImperativeHandle(ref, () => ({
     handleCreateAgent,
+    handleGetConfig: (): TypesCodeAgentExecutionConfig => {
+      const isSub = value.codeAgentRuntime === 'claude_code' || (value.codeAgentRuntime === 'codex_cli' && value.claudeCodeMode === 'subscription')
+      const modelToUse = value.codeAgentRuntime === 'codex_cli' && value.claudeCodeMode === 'subscription'
+        ? codexSubscriptionModel
+        : isSub ? '' : (value.selectedModel || '')
+      const providerToUse = isSub ? '' : (value.selectedProvider || '')
+      return {
+        runtime: value.codeAgentRuntime as TypesCodeAgentExecutionConfig['runtime'],
+        credential_type: (value.claudeCodeMode === 'subscription' ? 'subscription' : 'api_key') as TypesCodeAgentExecutionConfig['credential_type'],
+        provider_ref: isSub ? undefined : providerToUse || undefined,
+        model: modelToUse || undefined,
+      }
+    },
   }), [
     handleCreateAgent,
     apps,

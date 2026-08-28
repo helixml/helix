@@ -266,10 +266,10 @@ func newTestServerWithPrompts(t *testing.T, includeCreateBot bool) (*httptest.Se
 	}
 	deps := mcptools.DefaultDeps(s)
 	deps.Publishing = publishing.New(publishing.Deps{
-		Topics: s.Topics,
-		Events: s.Events,
-		Now:    deps.Now,
-		NewID:  deps.NewID,
+		Triggers: s.Triggers,
+		Events:   s.Events,
+		Now:      deps.Now,
+		NewID:    deps.NewID,
 	})
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)

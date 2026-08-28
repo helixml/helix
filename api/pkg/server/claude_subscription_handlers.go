@@ -549,11 +549,12 @@ func (apiServer *HelixAPIServer) getClaudeSubscription(_ http.ResponseWriter, re
 // UpdateClaudeSubscriptionDelegationRequest sets which organizations may run
 // agents on this subscription for its owner.
 type UpdateClaudeSubscriptionDelegationRequest struct {
-	DelegatedOrgIDs []string `json:"delegated_org_ids"`
+	DelegatedOrgIDs      []string `json:"delegated_org_ids"`
+	SwitchToSubscription bool     `json:"switch_to_subscription,omitempty"`
 }
 
 // @Summary Set which orgs may use a Claude subscription for delegated agent runs
-// @Description Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Only the subscription owner may change this.
+// @Description Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Sharing with an owned organization also enables Claude Code subscription mode there. Only the subscription owner may change this.
 // @Tags Claude
 // @Accept json
 // @Produce json
@@ -564,6 +565,7 @@ type UpdateClaudeSubscriptionDelegationRequest struct {
 // @Failure 401 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
+// @Failure 409 {object} system.HTTPError
 // @Security BearerAuth
 // @Router /api/v1/claude-subscriptions/{id}/delegation [put]
 func (apiServer *HelixAPIServer) updateClaudeSubscriptionDelegation(_ http.ResponseWriter, req *http.Request) (*types.ClaudeSubscription, *system.HTTPError) {
@@ -606,6 +608,29 @@ func (apiServer *HelixAPIServer) updateClaudeSubscriptionDelegation(_ http.Respo
 			return nil, system.NewHTTPError403("not a member of organization " + orgID)
 		}
 		granted = append(granted, orgID)
+	}
+
+	harnesses := make(map[string]*types.OrgCodeAgentHarness, len(granted))
+	for _, orgID := range granted {
+		if _, err := apiServer.authorizeOrgOwner(req.Context(), user, orgID); err != nil {
+			return nil, system.NewHTTPError403("only an organization owner can enable Claude Code for " + orgID)
+		}
+		harness, err := apiServer.Store.GetOrgCodeAgentHarness(req.Context(), orgID, types.CodeAgentRuntimeClaudeCode)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError500("failed to resolve Claude Code settings: " + err.Error())
+		}
+		if err == nil && claudeHarnessUsesAPIProviderMode(harness) && !body.SwitchToSubscription {
+			return nil, system.NewHTTPError409("organization " + orgID + " is using API-provider mode; confirm switching Claude Code to the subscription")
+		}
+		if err == nil && harness.SubscriptionEnabled != nil && *harness.SubscriptionEnabled {
+			continue
+		}
+		harnesses[orgID] = harness
+	}
+	for orgID := range harnesses {
+		if err := apiServer.enableSubscriptionCodeAgentHarness(req.Context(), orgID, user.ID, types.CodeAgentRuntimeClaudeCode); err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
 	}
 
 	sub.DelegatedOrgIDs = granted
@@ -1036,7 +1061,11 @@ func (apiServer *HelixAPIServer) completeClaudeOAuthLogin(_ http.ResponseWriter,
 		AccessToken:  tokens.AccessToken,
 		RefreshToken: tokens.RefreshToken,
 		ExpiresAt:    tokens.ExpiresAt,
-		Scopes:       tokens.Scopes,
+		// Carry the login deadline through. Dropping it left every
+		// browser-connected subscription with no recorded expiry until a
+		// background refresh happened to supply one.
+		RefreshTokenExpiresAt: tokens.RefreshExpiresAt,
+		Scopes:                tokens.Scopes,
 	}
 	return apiServer.createClaudeSubscriptionFrom(req.Context(), user, createReq)
 }

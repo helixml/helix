@@ -59,6 +59,10 @@ import { CSS } from '@dnd-kit/utilities'
 import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import { Api } from '../../api/api'
 import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
+import {
+  nextQueueVisibilityDeadline,
+  selectVisibleQueuedPrompts,
+} from '../../utils/promptQueueVisibility'
 import { getChatColors } from '../session/chatStyles'
 import ChatAttachmentTray from './ChatAttachmentTray'
 import ContextMenuModal from '../widgets/ContextMenuModal'
@@ -105,6 +109,8 @@ interface RobustPromptInputProps {
    * bottom — the shape every mobile compose screen has.
    */
   fill?: boolean
+  /** Removes the composer's top corners when an attached drawer is rendered above it. */
+  hasAttachedHeader?: boolean
   sendMode?: 'queued' | 'direct'
   inlineImageAttachments?: boolean
   deferredFileAttachments?: boolean
@@ -531,6 +537,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   disabled = false,
   maxHeight = 200,
   fill = false,
+  hasAttachedHeader = false,
   specTaskId,
   projectId,
   apiClient,
@@ -1322,7 +1329,30 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     // Within same mode, maintain original order by timestamp
     return a.timestamp - b.timestamp
   })
-  const hasVisibleQueue = backendQueueEnabled && showQueue && queuedMessages.length > 0
+  // Only surface the queue panel for prompts that are genuinely waiting — a
+  // lone prompt handed to an idle agent is being delivered, not queued, and
+  // showing "1 queued" for it is a lie that clears itself a second later.
+  // See utils/promptQueueVisibility.ts.
+  const visibleQueuedMessages = selectVisibleQueuedPrompts(queuedMessages, { isAgentBusy })
+  const hasVisibleQueue = backendQueueEnabled && showQueue && visibleQueuedMessages.length > 0
+
+  // Keep the last non-empty list on screen while the panel collapses, so the
+  // header never flashes "0 queued" mid-animation. Collapse unmounts it after.
+  const lastVisibleQueueRef = useRef<PromptHistoryEntry[]>(visibleQueuedMessages)
+  if (visibleQueuedMessages.length > 0) lastVisibleQueueRef.current = visibleQueuedMessages
+  const renderedQueueMessages = hasVisibleQueue ? visibleQueuedMessages : lastVisibleQueueRef.current
+
+  // A prompt hidden by the grace window must still appear if its dispatch never
+  // lands, so schedule the single re-render that reveals it. queueRevealAt is a
+  // plain timestamp, so this effect re-arms only when the queue itself changes.
+  const queueRevealAt = nextQueueVisibilityDeadline(queuedMessages, { isAgentBusy })
+  const [, setQueueRevealTick] = useState(0)
+  useEffect(() => {
+    if (queueRevealAt === null) return
+    const delay = Math.max(0, queueRevealAt - Date.now()) + 50
+    const timer = setTimeout(() => setQueueRevealTick(n => n + 1), delay)
+    return () => clearTimeout(timer)
+  }, [queueRevealAt])
   const promptPlaceholder = isDraggingOver
     ? inlineImageAttachments
       ? 'Drop image to attach...'
@@ -1359,10 +1389,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           backend-backed queue (spec-task). For plain sessions (org-chat,
           team desktop) the local queue is a non-authoritative ghost — the
           session-keyed SessionPromptQueue is the single source there. */}
-      <Collapse in={hasVisibleQueue}>
+      <Collapse in={hasVisibleQueue} unmountOnExit>
         <Box
           sx={{
-            borderRadius: '20px 20px 0 0',
+            borderRadius: hasAttachedHeader ? 0 : '20px 20px 0 0',
             border: '1px solid',
             borderBottom: 0,
             borderColor: (theme) => getChatColors(theme).border,
@@ -1390,8 +1420,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               {editingId
                 ? 'Editing queued message'
                 : isOnline
-                  ? `${queuedMessages.length} queued`
-                  : `${queuedMessages.length} queued · offline`}
+                  ? `${renderedQueueMessages.length} queued`
+                  : `${renderedQueueMessages.length} queued · offline`}
             </Typography>
           </Box>
 
@@ -1403,15 +1433,15 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               onDragEnd={handleDragEnd}
             >
               <SortableContext
-                items={queuedMessages.map(m => m.id)}
+                items={renderedQueueMessages.map(m => m.id)}
                 strategy={verticalListSortingStrategy}
               >
-                {queuedMessages.map((entry, index) => (
+                {renderedQueueMessages.map((entry, index) => (
                     <SortableQueueItem
                       key={entry.id}
                       entry={entry}
                       index={index}
-                      totalCount={queuedMessages.length}
+                      totalCount={renderedQueueMessages.length}
                       isSending={entry.id === sendingId}
                       isEditing={entry.id === editingId}
                       editingContent={editingContent}
@@ -1458,7 +1488,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           flexDirection: 'column',
           ...(fill && { flex: 1, minHeight: 0 }),
           bgcolor: (theme) => fill ? 'transparent' : getChatColors(theme).composerSurface,
-          borderRadius: fill ? 0 : hasVisibleQueue ? '0 0 22px 22px' : '22px',
+          borderRadius: fill
+            ? 0
+            : hasVisibleQueue || hasAttachedHeader
+              ? '0 0 22px 22px'
+              : '22px',
           border: fill ? 'none' : '1px solid',
           borderColor: isDraggingOver
             ? 'primary.main'

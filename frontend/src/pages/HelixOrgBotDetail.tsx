@@ -55,14 +55,17 @@ import StopIcon from '@mui/icons-material/Stop'
 import Tooltip from '@mui/material/Tooltip'
 import { useRouter as useRouter5 } from 'react-router5'
 
+import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import AgentConfigForm, { AgentConfigValue } from '../components/helix-org/BotRuntimeForm'
 import ToolPickerDialog from '../components/helix-org/ToolPickerDialog'
+import WorkerSecretsPanel from '../components/helix-org/WorkerSecretsPanel'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
+import { useStreaming } from '../contexts/streaming'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -73,15 +76,18 @@ import {
   useActivateBot,
   useDeleteBot,
   useHelixOrgBot,
-  useListBotSubscriptions,
+  useListHelixOrgProcessors,
   useListHelixOrgTools,
-  useListHelixOrgTopics,
   useRestartBotAgent,
   useStopBotAgent,
-  useSubscribeBot,
-  useUnsubscribeBot,
   useUpdateBot,
 } from '../services/helixOrgService'
+import {
+  useAgentAttachments,
+  useCreateAgentAttachment,
+  useDeleteAgentAttachment,
+  useTriggers,
+} from '../services/triggerService'
 import {
   WorkerChatReader,
   fetchExistingWorkerSession,
@@ -93,6 +99,7 @@ const HelixOrgBotDetail: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
   const api = useApi()
+  const streaming = useStreaming()
   const orgSlug = router.params.org_id as string | undefined
   const botId = router.params.bot_id as string | undefined
   const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Agents', routeName: 'helix_org_bots' })
@@ -499,6 +506,14 @@ const HelixOrgBotDetail: FC = () => {
                   </Stack>
                 </Box>
 
+                <AgentRestartRequiredBanner
+                  visible={!!bot.restart_required}
+                  working={!!chatSessionId && streaming.currentResponses.has(chatSessionId)}
+                  busy={activateAgent.isPending || stopAgent.isPending || restartAgent.isPending}
+                  sticky
+                  onRestart={() => { void handleRestartSession() }}
+                />
+
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>Name</Typography>
                   <TextField
@@ -661,7 +676,9 @@ const HelixOrgBotDetail: FC = () => {
                   </Typography>
                 </Box>
 
-                <SubscriptionsPanel botID={bot?.id} />
+                <AttachmentsPanel botID={bot?.id} />
+                <Divider sx={{ my: 2 }} />
+                <WorkerSecretsPanel agentID={bot?.id} projectID={projectID} />
               </Stack>
             </Grid>
 
@@ -858,76 +875,66 @@ const HelixOrgBotDetail: FC = () => {
   )
 }
 
-// SubscriptionsPanel surfaces the topics this Bot consumes — and the
-// multi-select to change that set. Subscriptions are bot-anchored:
-// deleting the bot drops them.
-//
-// disableCloseOnSelect so toggling several topics in one pass doesn't
-// bounce the popper closed.
-const SubscriptionsPanel: FC<{ botID?: string }> = ({ botID }) => {
-  const snackbar = useSnackbar()
-  const { data: streamsData, isLoading: streamsLoading } = useListHelixOrgTopics()
-  const { data: subsData, isLoading: subsLoading } = useListBotSubscriptions(botID)
-  const subscribe = useSubscribeBot(botID)
-  const unsubscribe = useUnsubscribeBot(botID)
+type SourceOption = { key: string; label: string; description: string; source: { kind: string; trigger_id?: string; processor_id?: string; output_id?: string } }
 
-  const allTopics = streamsData?.topics ?? []
-  const subscribedIDs = useMemo(
-    () => new Set((subsData?.subscriptions ?? []).map((s) => s.topic_id)),
-    [subsData],
-  )
-  const subscribedTopics = useMemo(
-    () => allTopics.filter((s) => subscribedIDs.has(s.id)),
-    [allTopics, subscribedIDs],
-  )
+const AttachmentsPanel: FC<{ botID?: string }> = ({ botID }) => {
+  const snackbar = useSnackbar()
+  const { data: triggers = [], isLoading: triggersLoading } = useTriggers()
+  const { data: processors = [], isLoading: processorsLoading } = useListHelixOrgProcessors()
+  const { data: attachments = [], isLoading: attachmentsLoading } = useAgentAttachments(botID)
+  const attach = useCreateAgentAttachment(botID)
+  const detach = useDeleteAgentAttachment(botID)
+  const options = useMemo<SourceOption[]>(() => [
+    ...triggers.map((trigger) => ({ key: `trigger:${trigger.id}`, label: trigger.name || trigger.id!, description: `Trigger · ${trigger.kind}`, source: { kind: 'trigger', trigger_id: trigger.id } })),
+    ...processors.flatMap((processor) => processor.outputs.map((output) => ({ key: `processor_output:${processor.id}:${output.id}`, label: `${processor.name} · ${output.label || output.id}`, description: `Processed event · ${output.id}`, source: { kind: 'processor_output', processor_id: processor.id, output_id: output.id } }))),
+  ], [triggers, processors])
+  const attachmentKey = (source: { kind?: string; trigger_id?: string; processor_id?: string; output_id?: string }) => source.kind === 'trigger' ? `trigger:${source.trigger_id}` : `processor_output:${source.processor_id}:${source.output_id}`
+  const selectedKeys = useMemo(() => new Set(attachments.map((item) => attachmentKey(item.source ?? {}))), [attachments])
+  const selected = useMemo(() => options.filter((option) => selectedKeys.has(option.key)), [options, selectedKeys])
 
   if (!botID) {
     return null
   }
 
-  const handleChange = async (_e: unknown, next: typeof allTopics) => {
-    const nextIDs = new Set(next.map((s) => s.id))
-    const toAdd = next.filter((s) => !subscribedIDs.has(s.id))
-    const toRemove = (subsData?.subscriptions ?? []).filter((s) => !nextIDs.has(s.topic_id))
+  const handleChange = async (_e: unknown, next: SourceOption[]) => {
+    const nextKeys = new Set(next.map((source) => source.key))
+    const toAdd = next.filter((source) => !selectedKeys.has(source.key))
+    const toRemove = attachments.filter((item) => !nextKeys.has(attachmentKey(item.source ?? {})))
     try {
-      for (const s of toAdd) await subscribe.mutateAsync(s.id)
-      for (const s of toRemove) await unsubscribe.mutateAsync(s.topic_id)
+      for (const source of toAdd) await attach.mutateAsync({ source: source.source })
+      for (const item of toRemove) await detach.mutateAsync(item.id!)
       if (toAdd.length || toRemove.length) {
-        snackbar.success(`subscriptions updated (${toAdd.length} added, ${toRemove.length} removed)`)
+        snackbar.success(`Triggers updated (${toAdd.length} added, ${toRemove.length} removed)`)
       }
     } catch (err: any) {
-      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'subscription update failed')
+      snackbar.error(err?.response?.data?.summary ?? err?.message ?? 'Could not update triggers')
     }
   }
 
   return (
     <Box>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Subscriptions ({subscribedTopics.length})
+        Triggers ({selected.length})
       </Typography>
       <Autocomplete
         multiple
         disableCloseOnSelect
-        loading={streamsLoading || subsLoading}
-        options={allTopics}
-        value={subscribedTopics}
+        loading={triggersLoading || processorsLoading || attachmentsLoading}
+        options={options}
+        value={selected}
         onChange={handleChange}
-        getOptionLabel={(s) => s.id}
-        isOptionEqualToValue={(a, b) => a.id === b.id}
+        getOptionLabel={(source) => source.label}
+        isOptionEqualToValue={(a, b) => a.key === b.key}
         renderOption={(props, option, { selected }) => {
           // Pass key explicitly rather than via the props spread —
           // React 18.3 warns when a spread object carries a key.
           const { key, ...liProps } = props as typeof props & { key?: Key }
           return (
-            <li key={key ?? option.id} {...liProps}>
+            <li key={key ?? option.key} {...liProps}>
               <Checkbox checked={selected} sx={{ mr: 1 }} />
               <Box>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{option.id}</Typography>
-                {option.description && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                    {option.description}
-                  </Typography>
-                )}
+                <Typography variant="body2">{option.label}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{option.description}</Typography>
               </Box>
             </li>
           )
@@ -935,7 +942,7 @@ const SubscriptionsPanel: FC<{ botID?: string }> = ({ botID }) => {
         renderInput={(params) => (
           <TextField
             {...params}
-            placeholder={subscribedTopics.length === 0 ? 'Subscribe this agent to a topic...' : ''}
+            placeholder={selected.length === 0 ? 'Choose triggers or processed events…' : ''}
             variant="outlined"
             size="small"
           />
@@ -945,18 +952,17 @@ const SubscriptionsPanel: FC<{ botID?: string }> = ({ botID }) => {
             const { key, ...tagProps } = getTagProps({ index })
             return (
               <Chip
-                key={key ?? option.id}
+                key={key ?? option.key}
                 {...tagProps}
-                label={option.id}
+                label={option.label}
                 size="small"
-                sx={{ fontFamily: 'monospace' }}
               />
             )
           })
         }
       />
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-        Subscriptions belong to this agent and are removed when it is deleted.
+        This agent starts when any selected Trigger or processed event occurs.
       </Typography>
     </Box>
   )

@@ -125,6 +125,23 @@ func (q *Queue) CleanupAgent(ctx context.Context, orgID string, agentID orgchart
 	return nil
 }
 
+// CancelOutstanding discards queued and in-flight deliveries without marking
+// the agent removed, so Restart can enqueue a clean activation immediately.
+func (q *Queue) CancelOutstanding(ctx context.Context, orgID string, agentID orgchart.NodeID) error {
+	name := consumerName(orgID, agentID)
+	lock := q.publishLock(name)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if err := q.pubsub.DeleteDurableConsumer(ctx, streamName, name); err != nil {
+		return err
+	}
+	q.mu.Lock()
+	delete(q.active, name)
+	q.mu.Unlock()
+	return q.pubsub.PurgeDurableSubject(ctx, streamName, subjectFor(orgID, agentID))
+}
+
 func (q *Queue) RestoreAgent(orgID string, agentID orgchart.NodeID) {
 	name := consumerName(orgID, agentID)
 	lock := q.publishLock(name)

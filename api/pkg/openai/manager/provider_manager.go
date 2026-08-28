@@ -41,7 +41,7 @@ type ProviderManager interface {
 	ListProviders(ctx context.Context, owner string) ([]types.Provider, error)
 	ListProvidersForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]types.Provider, error)
 	// ListProviderEndpoints returns the full provider records visible to the
-	// owner: synthetic entries for env-baked global providers (ID="",
+	// owner: synthetic entries for env-baked global providers (ID="global/<name>",
 	// Name=canonical) plus DB-backed user/org provider records. Used by
 	// agent-config code paths that need to resolve an agent's stored
 	// provider reference (an immutable ID for DB-backed, the canonical name
@@ -358,7 +358,7 @@ func (m *MultiClientManager) ListProvidersForOwner(ctx context.Context, owner st
 
 // ListProviderEndpoints returns full provider records visible to the owner.
 // Env-baked globals are returned as synthetic *ProviderEndpoint values with
-// ID="" and Name=canonical; DB-backed user/org providers are returned with
+// ID="global/<name>" and Name=canonical; DB-backed user/org providers are returned with
 // their real ID and current admin-set Name. Use this when callers need to
 // resolve an agent's stored provider reference to its current canonical name
 // — the agent record stores the immutable ID, settings.json carries the
@@ -376,6 +376,7 @@ func (m *MultiClientManager) ListProviderEndpointsForOwner(ctx context.Context, 
 	endpoints := make([]*types.ProviderEndpoint, 0, len(m.globalClients))
 	for provider := range m.globalClients {
 		endpoints = append(endpoints, &types.ProviderEndpoint{
+			ID:           types.GlobalProviderID(string(provider)),
 			Name:         string(provider),
 			EndpointType: types.ProviderEndpointTypeGlobal,
 		})
@@ -398,7 +399,7 @@ func (m *MultiClientManager) ListProviderEndpointsForOwner(ctx context.Context, 
 	return endpoints, nil
 }
 
-func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest) (openai.Client, error) {
+func (m *MultiClientManager) GetClient(ctx context.Context, req *GetClientRequest) (openai.Client, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -413,27 +414,49 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 			Str("owner", req.Owner).
 			Msg("TRACE: Provider manager GetClient called with app ID")
 	}
+	if types.IsGlobalProviderID(req.Provider) {
+		m.globalClientsMu.RLock()
+		client, ok := m.globalClients[types.Provider(types.CanonicalProviderName(req.Provider))]
+		m.globalClientsMu.RUnlock()
+		if ok {
+			return client.client, nil
+		}
+		return nil, fmt.Errorf("no client found for provider: %s", req.Provider)
+	}
+
+	var userProviders []*types.ProviderEndpoint
+	loadStoredClient := func() (openai.Client, bool, error) {
+		var err error
+		userProviders, err = m.store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+			Owner:      req.Owner,
+			OwnerType:  req.OwnerType,
+			WithGlobal: true,
+		})
+		if err != nil {
+			return nil, false, err
+		}
+		provider := selectProviderEndpoint(userProviders, req.Provider, req.OwnerType)
+		if provider == nil {
+			return nil, false, nil
+		}
+		client, err := m.initializeClient(provider)
+		return client, true, err
+	}
+	if req.Owner != "" {
+		if client, found, err := loadStoredClient(); err != nil || found {
+			return client, err
+		}
+	}
 
 	m.globalClientsMu.RLock()
-	defer m.globalClientsMu.RUnlock()
-
 	client, ok := m.globalClients[types.Provider(req.Provider)]
+	m.globalClientsMu.RUnlock()
 	if ok {
 		return client.client, nil
 	}
-
-	userProviders, err := m.store.ListProviderEndpoints(context.Background(), &store.ListProviderEndpointsQuery{
-		Owner:      req.Owner,
-		OwnerType:  req.OwnerType,
-		WithGlobal: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	for _, provider := range userProviders {
-		if provider.Name == req.Provider || provider.ID == req.Provider {
-			return m.initializeClient(provider)
+	if req.Owner == "" {
+		if client, found, err := loadStoredClient(); err != nil || found {
+			return client, err
 		}
 	}
 
@@ -446,6 +469,28 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 		availableProviders = append(availableProviders, provider.Name)
 	}
 	return nil, fmt.Errorf("no client found for provider: %s, available providers: [%s]", req.Provider, strings.Join(availableProviders, ", "))
+}
+
+func selectProviderEndpoint(endpoints []*types.ProviderEndpoint, providerRef string, ownerType types.OwnerType) *types.ProviderEndpoint {
+	for _, endpoint := range endpoints {
+		if endpoint.ID == providerRef {
+			return endpoint
+		}
+	}
+	var selected *types.ProviderEndpoint
+	for _, endpoint := range endpoints {
+		if types.CanonicalProviderName(endpoint.Name) != types.CanonicalProviderName(providerRef) {
+			continue
+		}
+		ownerEndpointType := types.ProviderEndpointTypeUser
+		if ownerType == types.OwnerTypeOrg {
+			ownerEndpointType = types.ProviderEndpointTypeOrg
+		}
+		if selected == nil || endpoint.EndpointType == ownerEndpointType {
+			selected = endpoint
+		}
+	}
+	return selected
 }
 
 // isAnthropicAPIEndpoint reports whether a DB/UI-configured provider endpoint
@@ -461,7 +506,7 @@ func isAnthropicAPIEndpoint(endpoint *types.ProviderEndpoint) bool {
 	if endpoint.VertexProjectID != "" {
 		return false
 	}
-	if strings.EqualFold(endpoint.Name, string(types.ProviderAnthropic)) {
+	if types.CanonicalProviderName(endpoint.Name) == string(types.ProviderAnthropic) {
 		return true
 	}
 	// Host-exact match so a lookalike like api.anthropic.com.proxy.evil.com

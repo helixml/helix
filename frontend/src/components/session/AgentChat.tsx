@@ -12,6 +12,8 @@ import { useRefreshSpecTaskStatus } from '../../services/specTaskService'
 import { SESSION_TYPE_TEXT } from '../../types'
 import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from './EmbeddedSessionView'
+import type { ResponseEntry } from './InteractionInference'
+import { ComposerPlanProgress, planStepsFromResponseEntries } from './PlanProgress'
 import SessionPromptQueue from './SessionPromptQueue'
 import { getChatColors } from './chatStyles'
 import type { WorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
@@ -25,6 +27,7 @@ interface AgentChatProps {
   showSessionPromptQueue?: boolean
   enableInteractionDebugCopy?: boolean
   onWillSend?: () => void
+  appendText?: string
   leadingActions?: ReactNode
   footerContent?: ReactNode
   reviewComments?: readonly WorkspaceReviewComment[]
@@ -42,6 +45,7 @@ const AgentChat: FC<AgentChatProps> = ({
   showSessionPromptQueue = false,
   enableInteractionDebugCopy,
   onWillSend,
+  appendText,
   leadingActions,
   footerContent,
   reviewComments,
@@ -53,6 +57,8 @@ const AgentChat: FC<AgentChatProps> = ({
   const streaming = useStreaming()
   const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
   const [isCancelling, setIsCancelling] = useState(false)
+  const [composerPlanExpanded, setComposerPlanExpanded] = useState(false)
+  const [dismissedPlanInteractionId, setDismissedPlanInteractionId] = useState<string | null>(null)
   const apiClient = api.getApiClient()
   const refreshSpecTaskStatus = useRefreshSpecTaskStatus(specTaskId)
 
@@ -68,8 +74,17 @@ const AgentChat: FC<AgentChatProps> = ({
       TypesInteractionState.InteractionStateWaiting,
     [latestInteractionsResponse?.data?.interactions?.[0]?.state],
   )
+  const latestInteraction = latestInteractionsResponse?.data?.interactions?.[0]
+  const latestInteractionId = latestInteraction?.id || null
+  const composerPlanSteps = isAgentBusy
+    ? planStepsFromResponseEntries(latestInteraction?.response_entries as unknown as ResponseEntry[] | undefined)
+    : []
+  const showComposerPlan = composerPlanSteps.length > 0
+    && dismissedPlanInteractionId !== latestInteractionId
 
   const handleSend = useCallback(async (message: string, interrupt?: boolean) => {
+    setComposerPlanExpanded(false)
+    setDismissedPlanInteractionId(null)
     await streaming.NewInference({
       type: SESSION_TYPE_TEXT,
       message,
@@ -157,6 +172,20 @@ const AgentChat: FC<AgentChatProps> = ({
       >
         <Box sx={{ width: '100%', maxWidth: 768, mx: 'auto' }}>
           <Box sx={{ position: 'relative', zIndex: 1 }}>
+            {showComposerPlan && (
+              <ComposerPlanProgress
+                steps={composerPlanSteps}
+                expanded={composerPlanExpanded}
+                onToggle={() => {
+                  setComposerPlanExpanded((value) => !value)
+                  requestAnimationFrame(() => sessionViewRef.current?.scrollToBottom())
+                }}
+                onDismiss={() => {
+                  setDismissedPlanInteractionId(latestInteractionId)
+                  setComposerPlanExpanded(false)
+                }}
+              />
+            )}
             <RobustPromptInput
               sessionId={sessionId}
               specTaskId={specTaskId}
@@ -164,6 +193,7 @@ const AgentChat: FC<AgentChatProps> = ({
               apiClient={apiClient}
               onSend={handleSend}
               onWillSend={onWillSend}
+              appendText={appendText}
               onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
               onFileUpload={handleFileUpload}
               onCancel={handleCancel}
@@ -171,12 +201,14 @@ const AgentChat: FC<AgentChatProps> = ({
               isCancelling={isCancelling}
               leadingActions={leadingActions}
               showContextUsage
+              autoFocus
               placeholder={placeholder}
               disabled={disabled}
               enableSandboxCompletions
               reviewComments={reviewComments}
               onRemoveReviewComment={onRemoveReviewComment}
               onReviewCommentsSent={onReviewCommentsSent}
+              hasAttachedHeader={showComposerPlan && composerPlanExpanded}
             />
           </Box>
           {footerContent && (

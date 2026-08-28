@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { TypesCodeAgentCredentialType, TypesCodeAgentRuntime } from '../api/api'
 import { IApp } from '../types'
-import { codeAgentExecutionConfigFromApp, findCodeAgentAppForConfig } from './codeAgentExecutionConfig'
+import {
+  codeAgentExecutionConfigFromApp,
+  findCodeAgentAppForConfig,
+  shouldSeedProjectCodeAgentConfig,
+} from './codeAgentExecutionConfig'
 
 function appWithAssistant(assistant: IApp['config']['helix']['assistants'][number]): IApp {
   return {
@@ -63,5 +67,44 @@ describe('codeAgentExecutionConfigFromApp', () => {
     const config = codeAgentExecutionConfigFromApp(app)
 
     expect(findCodeAgentAppForConfig([app], config)?.id).toBe(app.id)
+  })
+})
+
+describe('shouldSeedProjectCodeAgentConfig', () => {
+  const pick = {
+    runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+    credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+    model: 'claude-opus-5',
+  }
+
+  it('seeds a project that has no coding configuration', () => {
+    expect(shouldSeedProjectCodeAgentConfig(undefined, pick)).toBe(true)
+    expect(shouldSeedProjectCodeAgentConfig({}, pick)).toBe(true)
+  })
+
+  it('leaves a project that already records a model alone', () => {
+    expect(shouldSeedProjectCodeAgentConfig({
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_ref: 'openai',
+      model: 'gpt-5.6-sol',
+    }, pick)).toBe(false)
+  })
+
+  it('completes a runtime-only project default with a model for that runtime', () => {
+    const deferred = {
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+    }
+    expect(shouldSeedProjectCodeAgentConfig(deferred, pick)).toBe(true)
+    expect(shouldSeedProjectCodeAgentConfig(deferred, {
+      ...pick,
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+    })).toBe(false)
+  })
+
+  it('ignores an incomplete pick', () => {
+    expect(shouldSeedProjectCodeAgentConfig(undefined, undefined)).toBe(false)
+    expect(shouldSeedProjectCodeAgentConfig(undefined, { runtime: pick.runtime })).toBe(false)
   })
 })

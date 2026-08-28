@@ -883,9 +883,18 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 
 	// For external repos, sync from upstream before reading
 	var branches []string
+	var mergedHeads map[string]struct{}
+	defaultBranch := repository.DefaultBranch
+	if defaultBranch == "" {
+		defaultBranch = "main"
+	}
 	err = apiServer.gitRepositoryService.WithExternalRepoRead(r.Context(), repository, func() error {
 		var listErr error
 		branches, listErr = apiServer.gitRepositoryService.ListBranches(r.Context(), repoID)
+		if listErr != nil {
+			return listErr
+		}
+		mergedHeads, listErr = services.GetMergeParentSHAs(r.Context(), repository.LocalPath, defaultBranch)
 		return listErr
 	})
 	if err != nil {
@@ -894,8 +903,39 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 		return
 	}
 
+	activeBranches, err := filterActiveBranches(branches, defaultBranch, mergedHeads, func(branch string) (string, error) {
+		return apiServer.gitRepositoryService.GetLocalBranchSHA(r.Context(), repoID, branch)
+	})
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to resolve branch tip")
+		http.Error(w, fmt.Sprintf("Failed to determine active branches: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(branches)
+	json.NewEncoder(w).Encode(activeBranches)
+}
+
+func branchTipWasMerged(branchSHA string, mergedHeads map[string]struct{}) bool {
+	_, merged := mergedHeads[branchSHA]
+	return merged
+}
+
+func filterActiveBranches(branches []string, defaultBranch string, mergedHeads map[string]struct{}, resolveSHA func(string) (string, error)) ([]string, error) {
+	activeBranches := make([]string, 0, len(branches))
+	for _, branch := range branches {
+		if branch == defaultBranch || branch == "helix-specs" {
+			continue
+		}
+		branchSHA, err := resolveSHA(branch)
+		if err != nil {
+			return nil, fmt.Errorf("resolve branch %s: %w", branch, err)
+		}
+		if !branchTipWasMerged(branchSHA, mergedHeads) {
+			activeBranches = append(activeBranches, branch)
+		}
+	}
+	return activeBranches, nil
 }
 
 // getGitRepositoryFile gets the contents of a file

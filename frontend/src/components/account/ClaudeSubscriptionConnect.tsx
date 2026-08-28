@@ -123,9 +123,9 @@ const DelegationPicker: FC<DelegationPickerProps> = ({
   return (
     <Box sx={{ mt: 1.5 }}>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-        Let these organizations&apos; agents use this subscription when they run work on your
-        behalf — for example a bot you own that is launched by a shared service account. Without
-        this, your subscription is only used for sessions you own.
+        Sharing with an organization enables Claude Code subscription mode there. Its agents can
+        then use this subscription when they run work on your behalf - for example a bot you own
+        that is launched by a shared service account.
       </Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
         {grantedCount === 0
@@ -305,6 +305,12 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   // Disconnect / delete state
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string>('')
+  const [delegationConflict, setDelegationConflict] = useState<{
+    id: string
+    orgIDs: string[]
+    organizationID: string
+    organizationName: string
+  } | null>(null)
   const disconnectMutation = useMutation({
     mutationFn: async (id: string) => (await api.getApiClient().v1ClaudeSubscriptionsDelete(id)).data,
     onSuccess: () => {
@@ -319,13 +325,35 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   // service account) authenticate as this subscription's owner. Owner-only, and
   // opt-in per org — without it nobody else's automation can spend your quota.
   const delegationMutation = useMutation({
-    mutationFn: async ({ id, orgIDs }: { id: string; orgIDs: string[] }) => {
-      return api.put(`/api/v1/claude-subscriptions/${id}/delegation`, {
+    mutationFn: async ({ id, orgIDs, switchToSubscription }: {
+      id: string
+      orgIDs: string[]
+      organizationID: string
+      switchToSubscription?: boolean
+    }) => {
+      return (await api.getApiClient().v1ClaudeSubscriptionsDelegationUpdate(id, {
         delegated_org_ids: orgIDs,
-      }, {}, { snackbar: true })
+        switch_to_subscription: switchToSubscription,
+      })).data
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
+      for (const orgID of variables.orgIDs) {
+        queryClient.invalidateQueries({ queryKey: codeAgentHarnessesQueryKey(orgID) })
+      }
+      setDelegationConflict(null)
+    },
+    onError: (error: any, variables) => {
+      if (error?.response?.status === 409 && !variables.switchToSubscription) {
+        setDelegationConflict({
+          id: variables.id,
+          orgIDs: variables.orgIDs,
+          organizationID: variables.organizationID,
+          organizationName: orgLabel(variables.organizationID),
+        })
+        return
+      }
+      snackbar.error(error?.response?.data?.message || error?.message || 'Could not update subscription sharing')
     },
   })
 
@@ -334,8 +362,40 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     const next = enabled
       ? Array.from(new Set([...current, orgID]))
       : current.filter((id) => id !== orgID)
-    delegationMutation.mutate({ id: sub.id, orgIDs: next })
+    delegationMutation.mutate({ id: sub.id, orgIDs: next, organizationID: orgID })
   }
+
+  const delegationConflictDialog = (
+    <Dialog open={!!delegationConflict} onClose={() => setDelegationConflict(null)}>
+      <DialogTitle>Switch {delegationConflict?.organizationName} to Claude subscription mode?</DialogTitle>
+      <DialogContent>
+        <DialogContentText>
+          This organization currently uses API providers for Claude Code. Sharing your subscription
+          will replace that mode for Claude Code and make your Claude models available in task creation.
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, py: 2 }}>
+        <Button onClick={() => setDelegationConflict(null)} sx={{ textTransform: 'none' }}>Cancel</Button>
+        <Button
+          variant="contained"
+          color="secondary"
+          disabled={delegationMutation.isPending || !delegationConflict}
+          onClick={() => {
+            if (!delegationConflict) return
+            delegationMutation.mutate({
+              id: delegationConflict.id,
+              orgIDs: delegationConflict.orgIDs,
+              organizationID: delegationConflict.organizationID,
+              switchToSubscription: true,
+            })
+          }}
+          sx={{ textTransform: 'none' }}
+        >
+          {delegationMutation.isPending ? 'Switching...' : 'Switch and share'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  )
 
   // Setup token dialog state
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false)
@@ -1091,6 +1151,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
 
         {tokenDialog}
         {disconnectDialog}
+        {delegationConflictDialog}
       </>
     )
   }

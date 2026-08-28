@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	assetapp "github.com/helixml/helix/api/pkg/org/application/assets"
+	"github.com/helixml/helix/api/pkg/org/application/attachments"
 	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
@@ -34,12 +35,14 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	orgsandboxes "github.com/helixml/helix/api/pkg/org/application/sandboxes"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
-	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
-	"github.com/helixml/helix/api/pkg/org/application/topics"
+	"github.com/helixml/helix/api/pkg/org/application/triggers"
+	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
-	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
+	"github.com/helixml/helix/api/pkg/org/domain/workersecret"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/agentdelivery"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/assetssh"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
@@ -49,7 +52,6 @@ import (
 	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
 	gitlabtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/gitlab"
 	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
-	"github.com/helixml/helix/api/pkg/org/infrastructure/transports/webhook"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
@@ -57,9 +59,9 @@ import (
 	"github.com/helixml/helix/api/pkg/server/helixorg"
 	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 
+	"github.com/helixml/helix/api/pkg/org/application/cutover"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/services"
 	helixstore "github.com/helixml/helix/api/pkg/store"
@@ -71,7 +73,11 @@ import (
 // mounted under /api/v1/orgs/{org}/. The React UI at
 // /orgs/:org_id/helix-org/* consumes those endpoints.
 type helixOrgHandlers struct {
-	api       http.Handler
+	api http.Handler
+	// mcpServer is the org MCP server behind `api`. Held directly so the
+	// spec-task MCP backend can serve a project-scoped caller through the
+	// same registry and audit path (ServeMCPForCaller).
+	mcpServer *helixorgserver.Server
 	scope     *helixOrgScope
 	store     *helixorgstore.Store
 	lifecycle *lifecycle.Service
@@ -80,7 +86,7 @@ type helixOrgHandlers struct {
 	// org-lifecycle handlers (org create, membership add/remove) can drive it.
 	seeder *orgGraphSeeder
 	// streamCron is the in-process scheduler that fires events on
-	// KindCron topics. The server's run loop calls Start on it in a
+	// KindCron Triggers. The server's run loop calls Start on it in a
 	// goroutine so it runs for the lifetime of the API process.
 	streamCron        *streamcron.Scheduler
 	githubDeliveryRun func(ctx context.Context)
@@ -93,15 +99,15 @@ type helixOrgHandlers struct {
 	// Fans out to every github topic whose (repo, events) matches
 	// the delivery — multi-topic behaviour.
 	publicGitHubWebhook http.Handler
-	// publicGitHubWebhookForStream is the per-topic variant. Path:
-	// /api/v1/orgs/{org}/topics/{topic_id}/github/webhook —
-	// deliveries to this URL are pinned to exactly one topic so
+	// publicGitHubWebhookForTrigger is the per-Trigger variant. Path:
+	// /api/v1/orgs/{org}/triggers/{trigger_id}/github/webhook —
+	// deliveries to this URL are pinned to exactly one Trigger so
 	// operators get a 1:1 mapping between GitHub webhooks and helix
-	// topics. The topic's own (repo, events) config still applies
+	// Triggers. The Trigger's own (repo, events) config still applies
 	// so cross-repo or non-whitelisted-event deliveries drop with
 	// 204 (no GitHub retries).
-	publicGitHubWebhookForStream http.Handler
-	publicGitLabWebhookForTopic  http.Handler
+	publicGitHubWebhookForTrigger http.Handler
+	publicGitLabWebhookForTrigger http.Handler
 	// publicSlackEvents is the global inbound Slack Events API handler
 	// mounted on the INSECURE router at /api/v1/slack/events. Slack
 	// deliveries authenticate via the global app's signing-secret HMAC
@@ -112,7 +118,7 @@ type helixOrgHandlers struct {
 	// ctx, when the global app is configured for it. Started in a
 	// goroutine from the run loop, like streamCron.
 	slackSocketRun func(ctx context.Context)
-	// slackTopics auto-creates/removes the per-workspace Slack Topic when
+	// slackTopics auto-creates/removes the per-workspace Slack Trigger when
 	// a workspace is connected/disconnected. An org primitive owned by
 	// this subsystem, not the core server.
 	slackTopics *slackWorkspaceTopics
@@ -194,10 +200,96 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 		if sess, err := o.sessions.GetSession(ctx, s.SessionID); err == nil && sess != nil {
 			if sess.Metadata.ExternalAgentStatus == "running" {
 				info.AgentStatus = "running"
+				// RestartRequiredContainer is the container that was live
+				// when a restart-sensitive config change was saved. Docker
+				// never reuses an id, so a match means this very container
+				// is still up with the pre-edit config. Any recreate
+				// (stop/start, idle reap, crash reconcile, full restart)
+				// changes ContainerID and the flag self-clears — which is
+				// why nothing anywhere clears the stamp. An empty stamp
+				// means the sandbox was down at save time and must never
+				// match, including against an empty ContainerID.
+				info.RestartRequired = s.RestartRequiredContainer != "" &&
+					s.RestartRequiredContainer == sess.Metadata.ContainerID
 			}
 		}
 	}
 	return info, nil
+}
+
+// restartStampSessions is the narrow session read the restart-required
+// stamp needs.
+type restartStampSessions interface {
+	GetSession(ctx context.Context, id string) (*types.Session, error)
+}
+
+// stampRestartRequiredContainer records which sandbox container a
+// restart-sensitive config change made stale.
+//
+// A read error is NOT the same as "no sandbox". Overwriting the stamp with
+// "" on a transient failure would clear a banner that is legitimately
+// showing, so on error we log and leave the previous stamp alone. Genuine
+// absence — no session, or a stopped sandbox with no container — still
+// stamps "", which is the no-banner case and needs no is-it-running check.
+func stampRestartRequiredContainer(ctx context.Context, st *helixorgstore.Store, sessions restartStampSessions, orgID string, id orgchart.NodeID) {
+	ws, err := runtimehelix.LoadState(ctx, st, orgID, id)
+	if err != nil {
+		log.Warn().Err(err).Str("org_id", orgID).Str("bot", string(id)).
+			Msg("restart-required stamp: load worker state failed, leaving previous stamp")
+		return
+	}
+	containerID := ""
+	if ws.SessionID != "" {
+		sess, err := sessions.GetSession(ctx, ws.SessionID)
+		if err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Str("bot", string(id)).Str("session_id", ws.SessionID).
+				Msg("restart-required stamp: get session failed, leaving previous stamp")
+			return
+		}
+		if sess != nil {
+			containerID = sess.Metadata.ContainerID
+		}
+	}
+	if err := runtimehelix.SaveRestartRequiredContainer(ctx, st, orgID, id, containerID); err != nil {
+		log.Warn().Err(err).Str("org_id", orgID).Str("bot", string(id)).Msg("failed to stamp restart-required container")
+	}
+}
+
+// restartStampApps is the narrow App read the App→Node restart-required
+// resolution needs.
+type restartStampApps interface {
+	GetApp(ctx context.Context, id string) (*types.App, error)
+}
+
+// stampRestartRequiredForApp resolves the Bot (org Node) backed by the
+// given Helix App, if any, and stamps its restart-required container the
+// same way stampRestartRequiredContainer does for direct Node edits.
+//
+// A non-org App, or an org App that doesn't back any Bot, returns quietly
+// — most Apps are neither. A lookup failure is logged and swallowed
+// rather than propagated: this runs after the App save has already
+// committed, so there is nothing left to roll back.
+func stampRestartRequiredForApp(ctx context.Context, st *helixorgstore.Store, sessions restartStampSessions, apps restartStampApps, appID string) {
+	app, err := apps.GetApp(ctx, appID)
+	if err != nil {
+		log.Warn().Err(err).Str("app_id", appID).Msg("restart-required stamp: failed to load app")
+		return
+	}
+	if app == nil || app.OrganizationID == "" {
+		return
+	}
+	nodes, err := st.Nodes.List(ctx, app.OrganizationID)
+	if err != nil {
+		log.Warn().Err(err).Str("org_id", app.OrganizationID).Str("app_id", appID).
+			Msg("restart-required stamp: failed to list org nodes")
+		return
+	}
+	for _, node := range nodes {
+		if node.AgentID == appID {
+			stampRestartRequiredContainer(ctx, st, sessions, app.OrganizationID, node.ID)
+			return
+		}
+	}
 }
 
 // SessionID adapts orgWorkerRuntime to activations.SessionResolver so the
@@ -264,14 +356,14 @@ func (r botSessionResetter) ResetSession(ctx context.Context, orgID string, botI
 // the composition root — the "Module struct holds the assembled
 // services" shape from design §5.4.
 type orgServices struct {
-	Nodes         *nodes.Nodes
-	Topics        *topics.Topics
-	Messages      *messages.Messages
-	Subscriptions *subscriptions.Subscriptions
-	Publishing    *publishing.Publishing
-	Queries       *queries.Queries
-	Activations   *activations.Activations
-	Processors    *processors.Processors
+	Nodes       *nodes.Nodes
+	Triggers    *triggers.Service
+	Messages    *messages.Messages
+	Attachments *attachments.Service
+	Publishing  *publishing.Publishing
+	Queries     *queries.Queries
+	Activations *activations.Activations
+	Processors  *processors.Processors
 }
 
 // buildOrgServices constructs every org application service from the
@@ -279,24 +371,40 @@ type orgServices struct {
 // literal reads as a list of pre-built services, not seven inline
 // constructors. deps carries the clock / id-gen / topology / hire-hook
 // seams (a mcptools.Deps is already assembled by the caller).
-func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebus.Bus, dispatcher *dispatch.Dispatcher, provisioners map[transport.Kind]streaming.Inbound) orgServices {
-	botsSvc := nodes.New(nodes.Deps{Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: deps.Reconciler, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools, OnToolsChanged: deps.ToolChangeNotifier})
-	topicsSvc := topics.New(topics.Deps{Topics: st.Topics, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners})
+func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebus.Bus, dispatcher *dispatch.Dispatcher, provisioners map[transport.Kind]trigger.Inbound, knownTools func() map[tool.Name]bool) orgServices {
+	// KnownTools reads the registry lazily: the registry is built after
+	// these services, and Reconcile only runs per-org on the first
+	// request, by which time it is fully populated.
+	botsSvc := nodes.New(nodes.Deps{
+		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: deps.Reconciler,
+		Now: deps.Now, NewID: deps.NewID,
+		BaseTools: mcptools.BaseReadTools, KnownTools: knownTools,
+		OnToolsChanged:    deps.ToolChangeNotifier,
+		OnRestartRequired: deps.RestartRequiredNotifier,
+	})
 	svc := orgServices{
-		Nodes:    botsSvc,
-		Topics:   topicsSvc,
-		Messages: messages.New(messages.Deps{Topics: st.Topics, Events: st.Events, Notifier: bc}),
-		Processors: processors.New(processors.Deps{
-			Processors: st.Processors, Topics: topicsSvc, Now: deps.Now, NewID: deps.NewID,
+		Nodes: botsSvc,
+		Triggers: triggers.New(triggers.Deps{
+			Triggers: st.Triggers, Attachments: st.WorkerAttachments, Events: st.Events,
+			Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners,
 		}),
-		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Topics: st.Topics, Nodes: st.Nodes, Now: deps.Now}),
-		Publishing:    publishing.New(publishing.Deps{Topics: st.Topics, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
-		Queries:       queries.New(queries.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
+		Messages:    messages.New(messages.Deps{Triggers: st.Triggers, Events: st.Events, Notifier: bc}),
+		Attachments: attachments.New(attachments.Deps{Store: st, Now: deps.Now, NewID: deps.NewID}),
+		Processors: processors.New(processors.Deps{
+			Processors: st.Processors, Triggers: st.Triggers, Attachments: st.WorkerAttachments, Now: deps.Now, NewID: deps.NewID,
+		}),
+		Publishing: publishing.New(publishing.Deps{Triggers: st.Triggers, Events: st.Events, Hub: bc, Router: dispatcher, Now: deps.Now, NewID: deps.NewID}),
+		Queries: queries.New(queries.Deps{
+			Nodes: st.Nodes, ReportingLines: st.ReportingLines, Triggers: st.Triggers,
+			Attachments: st.WorkerAttachments, Processors: st.Processors, Events: st.Events, Activations: st.Activations,
+		}),
 		// Activations is built at the composition root (not here) because
 		// the Activate use case needs the project ensurer + dispatcher +
 		// session resolver, which aren't available in this builder.
 	}
 	deps.Publishing = svc.Publishing
+	deps.Triggers = svc.Triggers
+	deps.Attachments = svc.Attachments
 	return svc
 }
 
@@ -318,7 +426,7 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 		return nil
 	}
 	// Hold the subsystem handle (the Slack handlers reach the per-workspace
-	// Topic reconciler through it) and register the post-mutation hook so
+	// Trigger reconciler through it) and register the post-mutation hook so
 	// the generic service-connection handlers can stay helix-org-agnostic
 	// while a slack_app change still reconciles Socket Mode / cascades.
 	s.helixOrg = orgHandlers
@@ -355,20 +463,9 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 			Handle("/orgs/{org}/github/webhook", orgHandlers.publicGitHubWebhook).
 			Methods(http.MethodPost)
 	}
-	// Per-stream variant — operators paste this URL into a GitHub repo's
-	// webhook config when they want a 1:1 mapping between a GitHub webhook
-	// and a helix stream. Insecure mount: GitHub deliveries authenticate
-	// via HMAC over the body, not a helix session.
-	if orgHandlers.publicGitHubWebhookForStream != nil {
-		insecureRouter.
-			Handle("/orgs/{org}/topics/{topic_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
-			Methods(http.MethodPost)
-	}
-	if orgHandlers.publicGitLabWebhookForTopic != nil {
-		insecureRouter.
-			Handle("/orgs/{org}/topics/{topic_id}/gitlab/webhook", orgHandlers.publicGitLabWebhookForTopic).
-			Methods(http.MethodPost)
-	}
+	registerPublicTriggerWebhookRoutes(insecureRouter,
+		orgHandlers.publicGitHubWebhookForTrigger,
+		orgHandlers.publicGitLabWebhookForTrigger)
 	// GitHub App Manifest flow callbacks — top-level browser navigations
 	// from github.com (GET), so they must be on the insecure router (no
 	// session cookie / API key). The conversion callback authenticates
@@ -419,6 +516,8 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 	// the api_key via authRouter; the per-org backend layer resolves orgID
 	// from the request before dispatching to the handler.
 	s.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(s, orgHandlers))
+	// Spec tasks get their own project-scoped slice of the same tool registry.
+	s.mcpGateway.RegisterBackend("helix-tasks", NewSpecTaskMCPBackend(s, orgHandlers))
 	return nil
 }
 
@@ -467,6 +566,16 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
+	// Convert the retired Topic model into Triggers, Processor inputs and
+	// Worker attachments. Runs once per boot before anything reads the
+	// org graph, and is repeat-safe: on a converged deployment (or a
+	// clean install) it reads three empty tables and returns. A failure
+	// here is fatal — booting on half-converted data would route events
+	// to the wrong Workers.
+	if _, err := cutover.Convert(ctx, cutover.Deps{Store: st, Logger: logger}); err != nil {
+		return nil, fmt.Errorf("convert retired topic model: %w", err)
+	}
+
 	// Bootstrap is lazy: withHelixOrgScope calls
 	// helixOrgScope.ensureBootstrap(ctx, orgID) on first request for
 	// each org, materialising the owner Worker + structural grants
@@ -476,12 +585,11 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// Wake-only topic notifier. Backed by the host API server's
 	// pubsub.PubSub (the canonical Helix NATS instance) — the
 	// wakebus package is a thin facade preserving the typed
-	// streaming.TopicID API the helix-org call sites used when this was the
+	// streaming.StreamID API the helix-org call sites used when this was the
 	// in-process broadcast.Hub.
 	bc := wakebus.New(cfg.APIServer.pubsub)
 	deps := mcptools.DefaultDeps(st)
 	deps.Hub = bc
-	deps.RecordCredential = cfg.APIServer.recordCredential
 
 	// Operational config registry — chat backend creds, model
 	// selection, etc. Backed by the same Postgres rows so settings
@@ -510,6 +618,24 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	deps.AgentContentUpdater = inProcClient
 	deps.AgentProfileReader = inProcClient
 	deps.ToolChangeNotifier = cfg.APIServer.publishAgentToolChange
+	// Stamp which sandbox container a restart-sensitive config change made
+	// stale. Thin wrapper: the real logic lives in
+	// stampRestartRequiredContainer so it's reachable from a unit test.
+	//
+	// context.WithoutCancel: Nodes.Update has already committed by the
+	// time this fires, so a client disconnect here must not abort the
+	// stamp — doing so would silently drop the new staleness (the banner
+	// never appears) rather than merely delay it.
+	deps.RestartRequiredNotifier = func(ctx context.Context, orgID string, id orgchart.NodeID) {
+		stampRestartRequiredContainer(context.WithoutCancel(ctx), st, cfg.APIServer.Store, orgID, id)
+	}
+	// Mirror the notifier above for the App-side instructions edit path
+	// (Agent settings page): a saved system-prompt change is just as
+	// restart-sensitive as a Node.Content edit, but it lands on the App
+	// row, not the Node, so it needs its own App→Node resolution step.
+	cfg.APIServer.orgAgentInstructionsChanged = func(ctx context.Context, appID string) {
+		stampRestartRequiredForApp(context.WithoutCancel(ctx), st, cfg.APIServer.Store, cfg.APIServer.Store, appID)
+	}
 
 	// Wire the helix-runtime HireHook so hire_worker persists the
 	// hiring user's identifier onto the new Worker's runtime state.
@@ -598,17 +724,15 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// gitHubTokenResolver resolves a current GitHub OAuth access token
 	// for an org by walking the org's members + their oauth_connections
 	// (see helix_org_github.go). Drives the github topic transport's
-	// outbound `Token()` lookup; the worker-side mint path now flows
-	// through the mint_credential MCP tool + CredentialProvider, not a
-	// boot-time SecretInjector.
+	// outbound `Token()` lookup. Worker credentials resolve independently
+	// through explicit Worker secret bindings.
 	oauthResolver := helixorg.NewGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore)
 	// identityResolver prefers the installed Helix App bot over a borrowed
 	// member OAuth token: if the org has a github_app ServiceConnection it
 	// mints a short-lived installation token (decrypting the stored PEM with
 	// the server encryption key), else it falls back to oauthResolver.
 	// github.MintInstallationCredential is the production minter — it
-	// returns both the token and the server-reported expiry, which
-	// mint_credential surfaces to agents.
+	// returns both the token and the server-reported expiry.
 	identityResolver := helixorg.NewOrgGitHubIdentityResolver(
 		cfg.APIServer.getEncryptionKey,
 		helixStore,
@@ -626,8 +750,8 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// path. Returns the App installation token when one exists, else the
 	// legacy member OAuth token — so once an org installs the Helix App,
 	// its agents act as the bot rather than a human. (Worker shell-tool
-	// credentials no longer flow through this projection; they go through
-	// the per-org CredentialProvider wired into mint_credential below.)
+	// credentials no longer flow through this projection; they resolve from
+	// the explicitly bound Connected Account.)
 	gitHubTokenResolver := func(ctx context.Context, orgID string) (string, error) {
 		id, err := identityResolver(ctx, orgID)
 		if err != nil {
@@ -636,23 +760,6 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		return id.Token, nil
 	}
 
-	// credentialProviders backs the mint_credential MCP tool — the
-	// single surface every Worker uses to obtain an org-scoped
-	// external-provider credential on demand. Adding a new provider
-	// (Slack, …) is a new file under
-	// infrastructure/transports/<name>/credential_provider.go plus
-	// one entry here — no edits to mint_credential.go.
-	deps.CredentialProviders = map[string]credential.Provider{
-		"github": githubtransport.NewCredentialProvider(
-			func(ctx context.Context, orgID string) (githubtransport.Identity, error) {
-				id, err := identityResolver(ctx, orgID)
-				if err != nil {
-					return githubtransport.Identity{}, err
-				}
-				return githubtransport.Identity{Token: id.Token, ExpiresAt: id.ExpiresAt}, nil
-			},
-		),
-	}
 	// Transcript mirror — process-wide singleton shared by the spawner
 	// (Ensure), bootstrap (EnsureAll), and lifecycle.Fire (Stop).
 	mirror := runtimehelix.NewMirror(context.Background(), runtimehelix.MirrorConfig{
@@ -689,6 +796,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	})
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	var agentDelivery lifecycle.AgentDeliveryLifecycle
+	var activationCanceller activations.OutstandingCanceller
 	if provider, ok := cfg.APIServer.pubsub.(pubsub.DurablePubSub); ok {
 		durableQueue, err := agentdelivery.New(ctx, provider, activation.Spawn(spawnerFn), logger)
 		if err != nil {
@@ -699,43 +807,142 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		}
 		dispatcher.RegisterActivationQueue(durableQueue)
 		agentDelivery = durableQueue
+		activationCanceller = durableQueue
 	}
-	// Outbound webhook delivery is a transport concern, not the
-	// dispatcher's: register the webhook emitter so KindWebhook topics
-	// POST their events. Slack/email emitters register the same way.
-	dispatcher.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(logger))
-	// Slack has no asynchronous dispatcher emitter. Basic Topic text uses
-	// the synchronous Publishing deliverer registered below; rich actions
-	// still use the Slack Web API with the workspace token returned by
-	// mint_credential. slackWS resolves the encrypted workspace install for
-	// both paths.
+	// slackWS resolves the encrypted workspace install, both for inbound
+	// team-id resolution and for Worker secret bindings (a Worker replying
+	// to Slack fetches that token with get_secret and calls Slack's API
+	// itself).
 	slackWS := newSlackWorkspaces(helixStore, cfg.APIServer.getEncryptionKey)
-	// Auto-manage one Slack Topic per connected workspace.
-	slackTopics := &slackWorkspaceTopics{topics: st.Topics, logger: logger}
-	// mint_credential provider=slack hands a Worker the bot token for the
-	// workspace the message came from (resource = the event's
-	// extra.slack_team_id) so it can drive the Slack Web API directly —
-	// chat.postMessage, reactions.add, files.upload.
-	deps.CredentialProviders["slack"] = slacktransport.NewCredentialProvider(
-		func(ctx context.Context, orgID, teamID string) (slacktransport.Identity, error) {
-			ws, err := slackWS.resolveForOrg(ctx, orgID, teamID)
-			if err != nil {
-				return slacktransport.Identity{}, err
-			}
-			return slacktransport.Identity{Token: ws.BotToken}, nil
+	secretResolver := workersecrets.Resolver{
+		ValidateHelixSecret: func(ctx context.Context, b workersecret.Binding) error {
+			return projectConfig.ValidateWorkerProjectSecret(ctx, b.OrganizationID, b.WorkerID, b.SecretID)
 		},
-	)
+		HelixSecret: func(ctx context.Context, b workersecret.Binding) (workersecret.Resolved, error) {
+			value, err := projectConfig.ResolveWorkerProjectSecret(ctx, b.OrganizationID, b.WorkerID, b.SecretID)
+			return workersecret.Resolved{Descriptor: workersecret.Descriptor{Usage: b.Usage, ContentType: b.ContentType, SuggestedFilename: b.SuggestedFilename, Available: err == nil}, Value: value}, err
+		},
+		ValidateConnectedAccount: func(ctx context.Context, b workersecret.Binding) error {
+			conn, err := helixStore.GetServiceConnection(ctx, b.AccountID)
+			if errors.Is(err, helixstore.ErrNotFound) {
+				return fmt.Errorf("connected account is unavailable")
+			}
+			if err != nil {
+				return fmt.Errorf("load connected account: %w", err)
+			}
+			if conn.OrganizationID != b.OrganizationID {
+				return fmt.Errorf("connected account is unavailable")
+			}
+			switch b.ExportKey {
+			case "github_app/installation_token":
+				if conn.Type != types.ServiceConnectionTypeGitHubApp {
+					return fmt.Errorf("connected account export is unavailable")
+				}
+			case "slack_workspace/bot_token":
+				if conn.Type != types.ServiceConnectionTypeSlackWorkspace {
+					return fmt.Errorf("connected account export is unavailable")
+				}
+			default:
+				return fmt.Errorf("connected account export %q is not approved", b.ExportKey)
+			}
+			return nil
+		},
+		ConnectedAccount: func(ctx context.Context, b workersecret.Binding) (workersecret.Resolved, error) {
+			if b.ExportKey == "github_app/installation_token" {
+				conn, err := helixStore.GetServiceConnection(ctx, b.AccountID)
+				if errors.Is(err, helixstore.ErrNotFound) {
+					return workersecret.Resolved{}, fmt.Errorf("connected account is unavailable")
+				}
+				if err != nil {
+					return workersecret.Resolved{}, fmt.Errorf("load connected account: %w", err)
+				}
+				if conn.OrganizationID != b.OrganizationID || conn.Type != types.ServiceConnectionTypeGitHubApp {
+					return workersecret.Resolved{}, fmt.Errorf("connected account is unavailable")
+				}
+				key, err := cfg.APIServer.getEncryptionKey()
+				if err != nil {
+					return workersecret.Resolved{}, err
+				}
+				pem, err := crypto.DecryptAES256GCM(conn.GitHubPrivateKey, key)
+				if err != nil {
+					return workersecret.Resolved{}, fmt.Errorf("decrypt GitHub App credential: %w", err)
+				}
+				credential, err := githubskill.MintInstallationCredential(ctx, conn.GitHubAppID, conn.GitHubInstallationID, string(pem), conn.BaseURL)
+				if err != nil {
+					return workersecret.Resolved{}, fmt.Errorf("mint GitHub installation token: %w", err)
+				}
+				descriptor := workersecret.Descriptor{Available: true}
+				if !credential.ExpiresAt.IsZero() {
+					expiresAt := credential.ExpiresAt.UTC()
+					descriptor.ExpiresAt = &expiresAt
+				}
+				return workersecret.Resolved{
+					Descriptor: descriptor,
+					Value:      credential.Token,
+				}, nil
+			}
+			if b.ExportKey == "slack_workspace/bot_token" {
+				conn, err := helixStore.GetServiceConnection(ctx, b.AccountID)
+				if errors.Is(err, helixstore.ErrNotFound) {
+					return workersecret.Resolved{}, fmt.Errorf("connected account is unavailable")
+				}
+				if err != nil {
+					return workersecret.Resolved{}, fmt.Errorf("load connected account: %w", err)
+				}
+				if conn.OrganizationID != b.OrganizationID || conn.Type != types.ServiceConnectionTypeSlackWorkspace {
+					return workersecret.Resolved{}, fmt.Errorf("connected account is unavailable")
+				}
+				ws, err := slackWS.resolveForOrg(ctx, b.OrganizationID, conn.SlackTeamID)
+				if err != nil {
+					return workersecret.Resolved{}, err
+				}
+				if ws.BotToken == "" {
+					return workersecret.Resolved{}, fmt.Errorf("connected account is unavailable")
+				}
+				return workersecret.Resolved{Descriptor: workersecret.Descriptor{Usage: "use as a Slack Bearer token", Available: true, ResourceID: conn.SlackTeamID}, Value: ws.BotToken}, nil
+			}
+			return workersecret.Resolved{}, fmt.Errorf("connected account export %q is not approved", b.ExportKey)
+		},
+	}
+	catalog := func(ctx context.Context, orgID string, workerID orgchart.NodeID) ([]workersecret.AvailableSource, error) {
+		secrets, err := projectConfig.ListWorkerProjectSecretRecords(ctx, orgID, workerID)
+		if err != nil && !errors.Is(err, runtime.ErrProjectConfigUnsupported) {
+			return nil, err
+		}
+		out := make([]workersecret.AvailableSource, 0, len(secrets))
+		for _, secret := range secrets {
+			out = append(out, workersecret.AvailableSource{Group: "Helix Secrets", Label: secret.Name, SourceKind: workersecret.SourceHelixSecret, SecretID: secret.ID, ProposedName: secret.Name, Usage: "export " + secret.Name})
+		}
+		connections, err := helixStore.ListServiceConnections(ctx, orgID)
+		if err != nil {
+			return nil, err
+		}
+		for _, conn := range connections {
+			switch conn.Type {
+			case types.ServiceConnectionTypeGitHubApp:
+				out = append(out, workersecret.AvailableSource{Group: "Connected Accounts", Label: conn.Name, SourceKind: workersecret.SourceConnectedAccount, AccountID: conn.ID, ExportKey: "github_app/installation_token", ProposedName: "GH_TOKEN", Usage: "export GH_TOKEN"})
+			case types.ServiceConnectionTypeSlackWorkspace:
+				out = append(out, workersecret.AvailableSource{
+					Group: "Connected Accounts", Label: conn.SlackTeamName,
+					SourceKind: workersecret.SourceConnectedAccount, AccountID: conn.ID,
+					ExportKey: "slack_workspace/bot_token", ProposedName: "SLACK_BOT_TOKEN",
+					Usage: "use as a Slack Bearer token", ResourceID: conn.SlackTeamID,
+				})
+			}
+		}
+		return out, nil
+	}
+	workerSecrets, err := workersecrets.New(st.WorkerSecretBindings, st.Nodes, secretResolver, deps.Now, func(_ context.Context, orgID string, _ orgchart.NodeID, name, _ string, result workersecret.Resolved, err error) {
+		if err == nil {
+			cfg.APIServer.recordCredential(orgID, name, result.Value)
+		}
+	}, catalog)
+	if err != nil {
+		return nil, fmt.Errorf("init worker secrets: %w", err)
+	}
+	deps.WorkerSecrets = workerSecrets
 	deps.Dispatcher = dispatcher
 
-	// streamCron drives KindCron topics. Same call sequence as the
-	// publish MCP tool — Events.Append → Hub.Notify → Dispatcher.Dispatch
-	// — so cron-driven activations look identical to publish-driven
-	// activations downstream. Started in a goroutine from
-	// registerRoutes once we have the long-lived ctx.
-	streamCronScheduler, err := streamcron.New(st, bc, dispatcher, deps.NewID, deps.Now)
-	if err != nil {
-		return nil, fmt.Errorf("init streamcron scheduler: %w", err)
-	}
 	githubDeliveryReconciler := githubtransport.NewDeliveryReconciler(
 		st,
 		githubtransport.TokenResolver(gitHubTokenResolver),
@@ -792,15 +999,15 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	gitHubInt := helixorg.NewGitHubIntegration(helixStore, cfg.APIServer.getEncryptionKey, cfg.APIServer.Cfg.GitHub.AppSlug, cfg.APIServer.Cfg.GitHub.WebURL())
 
 	// Inbound-webhook provisioners, keyed by transport Kind. Each
-	// transport that needs external registration (github now, slack
-	// later) plugs in here; the topics service dispatches on the
-	// topic's Kind. The github API specifics live in the github
-	// transport infra package, not the application layer.
+	// transport that needs external registration plugs in here; the
+	// trigger service dispatches on the Trigger's Kind. The github API
+	// specifics live in the github transport infra package, not the
+	// application layer.
 	var gitLabWebhookManager gitlabtransport.WebhookManager
 	if manager, ok := cfg.APIServer.gitRepositoryService.(gitlabtransport.WebhookManager); ok {
 		gitLabWebhookManager = manager
 	}
-	inboundProvisioners := map[transport.Kind]streaming.Inbound{
+	inboundProvisioners := map[transport.Kind]trigger.Inbound{
 		transport.KindGitHub: githubtransport.NewWebhookProvisioner(
 			configReg,
 			githubtransport.TokenResolver(gitHubTokenResolver),
@@ -811,41 +1018,63 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 			gitLabWebhookManager,
 			cfg.APIServer.Cfg.WebServer.URL,
 		),
-		// Slack has no per-topic install: a Slack topic is workspace-scoped
-		// and receives every channel the bot is /invite'd into. The topic
-		// is auto-created with the workspace (slackWorkspaceTopicID), so
-		// there's no provisioner to register.
+		// Slack has no per-Trigger install: a Slack Trigger is
+		// workspace-scoped and receives every channel the bot is
+		// /invite'd into. It is auto-created with the workspace
+		// (slackWorkspaceTriggerID), so there's no provisioner to
+		// register.
 	}
 
 	// Application services shared by the REST adapter. Built once here
 	// (the composition root) from the store + collaborators; the api
 	// package holds these services, never the store (Phase-D seam).
-	svc := buildOrgServices(st, &deps, bc, dispatcher, inboundProvisioners)
-	svc.Publishing.RegisterDeliverer(transport.KindSlack, slackTopicDeliverer{workspaces: slackWS})
+	// The MCP registry is the authority on which tool names exist. It is
+	// built below (it needs the assembled services), so the catalogue is
+	// read through a closure — by the time any per-org reconcile runs,
+	// RegisterBuiltins has populated it.
+	reg := mcptools.NewRegistry()
+	knownTools := mcptools.Catalogue(reg)
+	// The MCP surface builds its own nodes service off this Config, so it
+	// needs the same catalogue — otherwise a tool name only the REST path
+	// rejects would still be writable over MCP.
+	deps.KnownTools = knownTools
+	svc := buildOrgServices(st, &deps, bc, dispatcher, inboundProvisioners, knownTools)
+
+	// Auto-manage one Slack Trigger per connected workspace.
+	slackTopics := &slackWorkspaceTopics{triggers: svc.Triggers, logger: logger}
+
+	// streamCron drives KindCron Triggers through the shared publish use
+	// case — append → notify → route — so cron-driven activations look
+	// identical to every other event downstream. Started in a goroutine
+	// from registerRoutes once we have the long-lived ctx.
+	streamCronScheduler, err := streamcron.New(st, svc.Publishing, deps.NewID, deps.Now)
+	if err != nil {
+		return nil, fmt.Errorf("init streamcron scheduler: %w", err)
+	}
 	// Create (the lifecycle's create half) delegates the bot-row creation to
 	// the bots service so the base-tool union + id minting are shared with
 	// the REST/MCP update path.
 	lifecycleSvc.Nodes = svc.Nodes
-	// Create subscribes the new bot to its initial topics via the shared
-	// subscription use case (same as the subscribe tool) — one implementation.
-	lifecycleSvc.Subscriber = svc.Subscriptions
+	// Create attaches the new bot to its initial sources via the shared
+	// attachment use case (same as attach_worker) — one implementation.
+	lifecycleSvc.Attacher = svc.Attachments
 
 	// The helixevents reconciler owns the org's single "Helix events"
-	// topic — created on org bootstrap and ensured defensively by the
+	// Trigger — created on org bootstrap and ensured defensively by the
 	// attention publisher for brand-new orgs. Shared by the publisher
 	// (below) and the bootstrap path (via the org scope) so both agree on
-	// the topic's identity.
+	// its identity.
 	helixEventsReconciler := helixevents.New(helixevents.Deps{
-		Topics: st.Topics,
-		Now:    deps.Now,
-		Logger: logger,
+		Triggers: st.Triggers,
+		Now:      deps.Now,
+		Logger:   logger,
 	})
 
 	// Wire the spec-task attention-event sink: each AttentionEvent the
 	// Helix UI shows is also published onto the org's single Helix events
-	// topic, so subscribed Workers are triggered via the normal dispatch
-	// path. Routing to individual bots is done by filter processors over
-	// that one topic (keyed on domain / event_type / project_id).
+	// Trigger, so attached Workers are started via the normal route path.
+	// Routing to individual bots is done by filter processors over that
+	// one Trigger (keyed on domain / event_type / project_id).
 	cfg.APIServer.attentionService.SetEventSink(&attentionTopicPublisher{
 		reconciler: helixEventsReconciler,
 		publisher:  svc.Publishing,
@@ -853,8 +1082,8 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 
 	// Slack inbound: one shared ingest serves both ingress sources. It
 	// resolves a delivery's team_id to the owning org (a slack_workspace
-	// ServiceConnection), then publishes onto matching KindSlack topics —
-	// the dispatcher + processor/filter layer route to Workers.
+	// ServiceConnection), then publishes onto matching KindSlack Triggers —
+	// the attachment + processor/filter layer routes to Workers.
 	slackIngest := slacktransport.NewIngest(slackWS, st, svc.Publishing, logger)
 	// REST Events API source — one global signed webhook for every org.
 	publicSlackEvents := slackcore.EventsAPIHandler(cfg.APIServer.slackSigningSecrets, slackIngest.OnEvent, logger)
@@ -889,11 +1118,11 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// router. Wired into hire/fire via the lifecycle service, and invoked on
 	// workspace-connect via slackAutoRouter below.
 	slackRouteReconciler := slackrouting.New(slackrouting.Deps{
-		Nodes:         st.Nodes,
-		Subscriptions: st.Subscriptions,
-		Processors:    svc.Processors,
-		Now:           deps.Now,
-		Logger:        logger,
+		Nodes:       st.Nodes,
+		Attachments: svc.Attachments,
+		Processors:  svc.Processors,
+		Now:         deps.Now,
+		Logger:      logger,
 	})
 	lifecycleSvc.OrgReconcilers = append(lifecycleSvc.OrgReconcilers, slackRouteReconciler)
 
@@ -927,6 +1156,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Sessions:   workerRuntime,
 		Stopper:    sessionResetter,
 		Resetter:   sessionResetter,
+		Canceller:  activationCanceller,
 	})
 	deps.Activations = svc.Activations
 	// Share the processors service with MCP tools so create_processor uses
@@ -947,9 +1177,10 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Encrypt: func(plaintext []byte) (string, error) {
 			return crypto.EncryptAES256GCM(plaintext, encryptionKey)
 		},
-		Now:            deps.Now,
-		NewID:          deps.NewID,
-		OnToolsChanged: deps.ToolChangeNotifier,
+		Now:               deps.Now,
+		NewID:             deps.NewID,
+		OnToolsChanged:    deps.ToolChangeNotifier,
+		OnRestartRequired: deps.RestartRequiredNotifier,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init assets service: %w", err)
@@ -990,7 +1221,6 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	deps.AssetSSHProxyAddress = cfg.APIServer.Cfg.WebServer.AssetSSHProxyAddress
 	deps.AssetHealth = assetSSH.Health
 
-	reg := mcptools.NewRegistry()
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		return nil, fmt.Errorf("register helix-org builtins: %w", err)
 	}
@@ -1001,15 +1231,16 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	slackAutoRouter := &slackAutoRouter{procs: svc.Processors, routes: slackRouteReconciler, logger: logger}
 	apiDeps := helixorgapi.Deps{
 		Assets:        assetsSvc,
-		Topics:        svc.Topics,
+		Triggers:      svc.Triggers,
 		Messages:      svc.Messages,
 		Nodes:         svc.Nodes,
-		Subscriptions: svc.Subscriptions,
+		Attachments:   svc.Attachments,
 		Publishing:    svc.Publishing,
 		Queries:       svc.Queries,
 		Activations:   svc.Activations,
 		Processors:    svc.Processors,
 		ChartLayout:   chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: deps.Now}),
+		WorkerSecrets: workerSecrets,
 		AuthorizeHumanContact: func(ctx context.Context, orgID, humanUserID string) error {
 			callerID := runtimehelix.UserIDFromContext(ctx)
 			if callerID == "" {
@@ -1032,7 +1263,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		// reads matching topics + appends events, so it holds the store
 		// here in the composition root rather than in the api adapter.
 		GitHubInbound: func(orgID string) http.Handler {
-			t := githubtransport.New(orgID, configReg, st, bc, dispatcher, logger)
+			t := githubtransport.New(orgID, configReg, st, svc.Publishing, logger)
 			if gitHubTokenResolver != nil {
 				t = t.WithTokenResolver(githubtransport.TokenResolver(gitHubTokenResolver))
 			}
@@ -1121,6 +1352,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// Reuse the bot-preferring projection so the public webhook's outbound
 	// actions act as the installed App when there is one.
 	tokenResolver := gitHubTokenResolver
+	publisher := svc.Publishing
 	publicGitHubWebhook := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		orgSlugOrID := mux.Vars(r)["org"]
 		if orgSlugOrID == "" {
@@ -1136,27 +1368,27 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 			http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		t := githubtransport.New(org.ID, configReg, st, bc, dispatcher, ghLogger)
+		t := githubtransport.New(org.ID, configReg, st, publisher, ghLogger)
 		if tokenResolver != nil {
 			t = t.WithTokenResolver(githubtransport.TokenResolver(tokenResolver))
 		}
 		t.HandleInbound().ServeHTTP(w, r)
 	})
 
-	// Per-topic public github webhook handler. Same auth model as
+	// Per-Trigger public github webhook handler. Same auth model as
 	// the org-level handler (HMAC over body); routes deliveries to
-	// the single topic named in the path so operators can hand
-	// GitHub a topic-specific URL.
-	publicGitHubWebhookForStream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// the single Trigger named in the path so operators can hand
+	// GitHub a Trigger-specific URL.
+	publicGitHubWebhookForTrigger := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		orgSlugOrID := vars["org"]
-		topicID := vars["topic_id"]
+		triggerID := vars["trigger_id"]
 		if orgSlugOrID == "" {
 			http.Error(w, "missing org", http.StatusBadRequest)
 			return
 		}
-		if topicID == "" {
-			http.Error(w, "missing topic_id", http.StatusBadRequest)
+		if triggerID == "" {
+			http.Error(w, "missing trigger_id", http.StatusBadRequest)
 			return
 		}
 		org, err := cfg.APIServer.lookupOrg(r.Context(), orgSlugOrID)
@@ -1168,19 +1400,19 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 			http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		t := githubtransport.New(org.ID, configReg, st, bc, dispatcher, ghLogger)
+		t := githubtransport.New(org.ID, configReg, st, publisher, ghLogger)
 		if tokenResolver != nil {
 			t = t.WithTokenResolver(githubtransport.TokenResolver(tokenResolver))
 		}
-		t.HandleInboundForTopic(streaming.TopicID(topicID)).ServeHTTP(w, r)
+		t.HandleInboundForTrigger(triggerID).ServeHTTP(w, r)
 	})
 
-	publicGitLabWebhookForTopic := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	publicGitLabWebhookForTrigger := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		orgSlugOrID := vars["org"]
-		topicID := vars["topic_id"]
-		if orgSlugOrID == "" || topicID == "" {
-			http.Error(w, "missing org or topic_id", http.StatusBadRequest)
+		triggerID := vars["trigger_id"]
+		if orgSlugOrID == "" || triggerID == "" {
+			http.Error(w, "missing org or trigger_id", http.StatusBadRequest)
 			return
 		}
 		org, err := cfg.APIServer.lookupOrg(r.Context(), orgSlugOrID)
@@ -1192,8 +1424,8 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 			http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		gitlabtransport.New(org.ID, configReg, st, bc, dispatcher, ghLogger).
-			HandleInboundForTopic(streaming.TopicID(topicID)).ServeHTTP(w, r)
+		gitlabtransport.New(org.ID, configReg, st, publisher, ghLogger).
+			HandleInboundForTrigger(triggerID).ServeHTTP(w, r)
 	})
 
 	// GitHub App Manifest flow callbacks. Insecure mounts (top-level
@@ -1228,22 +1460,23 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	}
 
 	return &helixOrgHandlers{
-		api:                          orgServer.Handler(extras...),
-		scope:                        scope,
-		store:                        st,
-		lifecycle:                    lifecycleSvc,
-		seeder:                       seeder,
-		streamCron:                   streamCronScheduler,
-		githubDeliveryRun:            githubDeliveryReconciler.Run,
-		publicGitHubWebhook:          publicGitHubWebhook,
-		publicGitHubWebhookForStream: publicGitHubWebhookForStream,
-		publicGitLabWebhookForTopic:  publicGitLabWebhookForTopic,
-		publicGitHubManifestCallback: publicGitHubManifestCallback,
-		publicSlackEvents:            publicSlackEvents,
-		slackSocketRun:               slackSocketRun,
-		slackTopics:                  slackTopics,
-		slackAutoRouter:              slackAutoRouter,
-		slackSocket:                  slackSocket,
+		api:                           orgServer.Handler(extras...),
+		mcpServer:                     orgServer,
+		scope:                         scope,
+		store:                         st,
+		lifecycle:                     lifecycleSvc,
+		seeder:                        seeder,
+		streamCron:                    streamCronScheduler,
+		githubDeliveryRun:             githubDeliveryReconciler.Run,
+		publicGitHubWebhook:           publicGitHubWebhook,
+		publicGitHubWebhookForTrigger: publicGitHubWebhookForTrigger,
+		publicGitLabWebhookForTrigger: publicGitLabWebhookForTrigger,
+		publicGitHubManifestCallback:  publicGitHubManifestCallback,
+		publicSlackEvents:             publicSlackEvents,
+		slackSocketRun:                slackSocketRun,
+		slackTopics:                   slackTopics,
+		slackAutoRouter:               slackAutoRouter,
+		slackSocket:                   slackSocket,
 		assetSSHProxyRun: func(ctx context.Context) error {
 			return assetSSHProxy.Serve(ctx, cfg.APIServer.Cfg.WebServer.AssetSSHProxyListen)
 		},
@@ -1566,4 +1799,44 @@ func openOrgStore(helixStore helixstore.Store) (*helixorgstore.Store, error) {
 		return nil, fmt.Errorf("open helix-org gorm: %w", err)
 	}
 	return st, nil
+}
+
+// publicTriggerWebhookPathPrefixes are the per-Trigger public webhook
+// path shapes, newest first.
+//
+// `triggers` is what the provisioner writes into a repo's webhook config
+// today. `topics` is the pre-#3087 shape: those URLs live in third-party
+// GitHub and GitLab configs we cannot rewrite, so the old prefix stays
+// mounted on the same handlers until every install has been migrated.
+//
+// Both declare the path variable as {trigger_id} because that is the name
+// the handlers read. gorilla/mux only populates variables named in the
+// pattern, so a pattern declaring {topic_id} silently hands the handler an
+// empty id — the #3087 regression that 400'd every delivery.
+var publicTriggerWebhookPathPrefixes = []string{
+	"/orgs/{org}/triggers/{trigger_id}",
+	"/orgs/{org}/topics/{trigger_id}",
+}
+
+// registerPublicTriggerWebhookRoutes mounts the per-Trigger GitHub and
+// GitLab webhook handlers on every supported path shape.
+//
+// INSECURE mount, deliberately: these carry an HMAC over the body
+// (X-Hub-Signature-256 / X-Gitlab-Token), verified inside the transport,
+// and no helix session cookie or API key. They must be registered BEFORE
+// authRouter's PathPrefix("/orgs/{org}/") or requireUser rejects every
+// delivery with 401 before the transport can check the signature.
+func registerPublicTriggerWebhookRoutes(insecureRouter *mux.Router, github, gitlab http.Handler) {
+	for _, prefix := range publicTriggerWebhookPathPrefixes {
+		if github != nil {
+			insecureRouter.
+				Handle(prefix+"/github/webhook", github).
+				Methods(http.MethodPost)
+		}
+		if gitlab != nil {
+			insecureRouter.
+				Handle(prefix+"/gitlab/webhook", gitlab).
+				Methods(http.MethodPost)
+		}
+	}
 }

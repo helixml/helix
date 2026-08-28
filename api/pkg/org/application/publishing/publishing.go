@@ -1,14 +1,16 @@
-// Package publishing is the application service that owns the publish
-// use case — the append→notify→dispatch trio that must stay atomic and
-// ordered. It was implemented twice (the MCP publish tool and the REST
-// publishToTopic handler), each doing the same three steps inline; the
-// service is now the single home so the ordering and the github-inbound
-// rejection cannot drift.
+// Package publishing owns the publish use case — the append→notify→route
+// trio that must stay atomic and ordered.
 //
-// Hub and Dispatcher are optional collaborators behind narrow
-// interfaces (a Notifier and a Dispatcher) so the service does not
-// depend on the concrete wakebus.Bus / tools.EventDispatcher and the
-// import edge stays one-way. CLAUDE.md §5.0.
+// Every event enters the org through exactly one terminal source: a
+// Trigger (an inbound transport, or a system-managed internal channel) or
+// one durable output branch of a Processor. Publish appends the event to
+// the stream that source owns, wakes long-poll observers on that stream,
+// then hands the event to the Router, which fans it out to the Workers
+// attached to the source and the Processors reading it.
+//
+// Notifier and Router are optional collaborators behind narrow interfaces
+// so the service does not depend on the concrete wakebus.Bus /
+// dispatch.Dispatcher and the import edge stays one-way. CLAUDE.md §5.0.
 package publishing
 
 import (
@@ -17,70 +19,53 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 )
 
-// ErrPublishToGitHub is returned when a caller tries to publish to a
-// github-transport Topic. GitHub topics are inbound-only — acting on
-// the repo is the Worker's job via `gh`. Adapters map it: the MCP tool
-// returns it verbatim, the REST handler maps it to 409 Conflict.
-var ErrPublishToGitHub = errors.New("publish is not supported on github transport topics; use `gh` from your environment to act on the repo")
-var ErrPublishToGitLab = errors.New("publish is not supported on gitlab transport topics; use the GitLab API from your environment to act on the repo")
-var ErrSlackChannelNotConfigured = errors.New("publish is not supported on slack transport topics without channel_id; configure channel_id for outbound delivery")
+// ErrNotAnInternalChannel is returned when a Worker tries to send to a
+// Trigger that is not an internal channel. Inbound Triggers (GitHub,
+// GitLab, Slack, email, webhook, cron) are read-only to Workers: acting
+// on the provider is the Worker's job via its own credentials and the
+// provider's native API. Adapters map it to 409 Conflict.
+var ErrNotAnInternalChannel = errors.New("this trigger is inbound-only; a Worker cannot send to it — use the provider's own API with get_secret")
 
-// Notifier wakes long-poll observers blocked on a topic. *wakebus.Bus
+// Notifier wakes long-poll observers blocked on a stream. *wakebus.Bus
 // satisfies it.
 type Notifier interface {
-	Notify(orgID string, topicID streaming.TopicID)
+	Notify(orgID string, streamID streaming.StreamID)
 }
 
-// Dispatcher fans a freshly-published Event out to subscribed AI
-// Workers. tools.EventDispatcher / api.Dispatcher satisfy it.
-type Dispatcher interface {
-	Dispatch(ctx context.Context, event streaming.Event)
-}
-
-type DeliveryReceipt struct {
-	Status      string `json:"status"`
-	Provider    string `json:"provider"`
-	Destination string `json:"destination"`
-	MessageID   string `json:"messageId"`
-	Error       string `json:"error,omitempty"`
-}
-
-type Deliverer interface {
-	Deliver(ctx context.Context, topic streaming.Topic, msg streaming.Message) (DeliveryReceipt, error)
-}
-
-type Result struct {
-	Event    streaming.Event
-	Delivery *DeliveryReceipt
+// Router fans a freshly-appended event out to the Workers attached to
+// its source and the Processors reading it. dispatch.Dispatcher
+// satisfies it.
+type Router interface {
+	Route(ctx context.Context, e eventsource.Event) error
 }
 
 // Publishing owns the publish use case.
 type Publishing struct {
-	topics     store.Topics
-	events     store.Events
-	hub        Notifier
-	dispatcher Dispatcher
-	deliverers map[transport.Kind]Deliverer
-	now        func() time.Time
-	newID      func() string
+	triggers store.Triggers
+	events   store.Events
+	hub      Notifier
+	router   Router
+	now      func() time.Time
+	newID    func() string
 }
 
 // Deps are the constructor-injected collaborators for New. Hub and
-// Dispatcher are optional — leave them nil and the corresponding step
-// is skipped (tests / runtimes without a hub or dispatcher).
+// Router are optional — leave them nil and the corresponding step is
+// skipped (tests / runtimes without a hub or router).
 type Deps struct {
-	Topics     store.Topics
-	Events     store.Events
-	Hub        Notifier
-	Dispatcher Dispatcher
-	Deliverers map[transport.Kind]Deliverer
-	Now        func() time.Time
-	NewID      func() string
+	Triggers store.Triggers
+	Events   store.Events
+	Hub      Notifier
+	Router   Router
+	Now      func() time.Time
+	NewID    func() string
 }
 
 // New constructs the Publishing service.
@@ -90,109 +75,111 @@ func New(deps Deps) *Publishing {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &Publishing{
-		topics:     deps.Topics,
-		events:     deps.Events,
-		hub:        deps.Hub,
-		dispatcher: deps.Dispatcher,
-		deliverers: deps.Deliverers,
-		now:        now,
-		newID:      deps.NewID,
+		triggers: deps.Triggers,
+		events:   deps.Events,
+		hub:      deps.Hub,
+		router:   deps.Router,
+		now:      now,
+		newID:    deps.NewID,
 	}
 }
 
-func (p *Publishing) RegisterDeliverer(kind transport.Kind, deliverer Deliverer) {
-	if p.deliverers == nil {
-		p.deliverers = map[transport.Kind]Deliverer{}
-	}
-	p.deliverers[kind] = deliverer
-}
-
-// Publish appends a Message Event to the Topic attributed to `from`,
-// then — in this order — notifies long-poll observers and dispatches to
-// subscribed AI Workers. msg.From is set to `from` so attribution stays
-// consistent regardless of what the caller passed. Returns the created
-// Event. Outbound delivery runs after append, notify, and dispatch, so a
-// delivery error can be returned after the internal audit event and subscriber
-// activations already exist. Rejects inbound-only repository Topics and Slack
-// Topics without channel_id before any write, and returns store.ErrNotFound
-// when the Topic is absent.
-func (p *Publishing) Publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error) {
-	result, err := p.publish(ctx, orgID, topicID, from, msg)
-	return result.Event, err
-}
-
-func (p *Publishing) PublishWithReceipt(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (Result, error) {
-	return p.publish(ctx, orgID, topicID, from, msg)
-}
-
-func (p *Publishing) PublishInbound(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error) {
-	result, err := p.publish(context.WithValue(ctx, inboundContextKey{}, true), orgID, topicID, from, msg)
-	return result.Event, err
-}
-
-type inboundContextKey struct{}
-
-func isInbound(ctx context.Context) bool {
-	inbound, _ := ctx.Value(inboundContextKey{}).(bool)
-	return inbound
-}
-
-func (p *Publishing) publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (Result, error) {
-	topic, err := p.topics.Get(ctx, orgID, topicID)
-	if err != nil {
-		return Result{}, fmt.Errorf("topic %q: %w", topicID, err)
-	}
-	if topic.Transport.Kind == transport.KindGitHub {
-		return Result{}, fmt.Errorf("topic %q: %w", topicID, ErrPublishToGitHub)
-	}
-	if topic.Transport.Kind == transport.KindGitLab {
-		return Result{}, fmt.Errorf("topic %q: %w", topicID, ErrPublishToGitLab)
-	}
-	if topic.Transport.Kind == transport.KindSlack && !isInbound(ctx) {
-		cfg, err := topic.Transport.SlackConfig()
-		if err != nil {
-			return Result{}, fmt.Errorf("topic %q: %w", topicID, err)
-		}
-		if cfg.ChannelID == "" {
-			return Result{}, fmt.Errorf("topic %q: %w", topicID, ErrSlackChannelNotConfigured)
-		}
-	}
+// Publish appends msg to the stream identified by streamID, attributed to
+// `from`, and routes the resulting event as coming from src. msg.From is
+// set to `from` so attribution stays consistent regardless of what the
+// caller passed.
+//
+// streamID is passed separately from src because a Processor branch's
+// stream is recorded on the branch, not derivable from its id — that is
+// what preserves a converted branch's pre-cutover history.
+func (p *Publishing) Publish(ctx context.Context, orgID string, src eventsource.SourceRef, streamID streaming.StreamID, from string, msg streaming.Message) (streaming.Event, error) {
+	// Attribution is the caller's, not the message's: a Worker cannot
+	// publish as somebody else by setting From itself.
 	msg.From = from
-	event, err := streaming.NewMessageEvent(
-		streaming.EventID("e-"+p.newID()),
-		topicID,
-		from,
-		msg,
-		p.now(),
-		orgID,
-	)
+	return p.append(ctx, orgID, src, streamID, streaming.EventID("e-"+p.newID()), from, msg)
+}
+
+// append is the shared write path. `source` is the event's originating
+// Worker — empty for anything the org did not author (an inbound
+// delivery, a cron tick, a Processor branch). msg is already final:
+// callers that own attribution set From before calling.
+func (p *Publishing) append(ctx context.Context, orgID string, src eventsource.SourceRef, streamID streaming.StreamID, eventID streaming.EventID, source string, msg streaming.Message) (streaming.Event, error) {
+	if err := src.Validate(); err != nil {
+		return streaming.Event{}, fmt.Errorf("publish: %w", err)
+	}
+	event, err := streaming.NewMessageEvent(eventID, streamID, source, msg, p.now(), orgID)
 	if err != nil {
-		return Result{}, err
+		return streaming.Event{}, err
 	}
 	if err := p.events.Append(ctx, event); err != nil {
-		return Result{}, err
+		return streaming.Event{}, err
 	}
 	if p.hub != nil {
-		p.hub.Notify(orgID, topicID)
+		p.hub.Notify(orgID, streamID)
 	}
-	if p.dispatcher != nil {
-		p.dispatcher.Dispatch(ctx, event)
+	if p.router == nil {
+		return event, nil
 	}
-	result := Result{Event: event}
-	if !isInbound(ctx) {
-		if deliverer := p.deliverers[topic.Transport.Kind]; deliverer != nil {
-			receipt, err := deliverer.Deliver(ctx, topic, msg)
-			if err != nil {
-				receipt.Status = "failed"
-				if receipt.Provider == "" {
-					receipt.Provider = string(topic.Transport.Kind)
-				}
-				receipt.Error = "do not retry publish: " + err.Error()
-				result.Delivery = &receipt
-				return result, fmt.Errorf("deliver topic %q: %w", topicID, err)
-			}
-			result.Delivery = &receipt
-		}
+	routed, err := eventsource.NewEvent(event.ID, orgID, src, msg, source, event.CreatedAt)
+	if err != nil {
+		return event, fmt.Errorf("publish: build routed event: %w", err)
 	}
-	return result, nil
+	if err := p.router.Route(ctx, routed); err != nil {
+		return event, fmt.Errorf("publish: route %s: %w", src.Key(), err)
+	}
+	return event, nil
+}
+
+// PublishToTrigger resolves the Trigger, then publishes onto the stream
+// it owns (a Trigger's stream is its own id). Returns store.ErrNotFound
+// when the Trigger is absent.
+func (p *Publishing) PublishToTrigger(ctx context.Context, orgID, triggerID, from string, msg streaming.Message) (streaming.Event, error) {
+	if _, err := p.trigger(ctx, orgID, triggerID); err != nil {
+		return streaming.Event{}, err
+	}
+	return p.Publish(ctx, orgID, eventsource.Trigger(triggerID), triggerID, from, msg)
+}
+
+// PublishDelivery appends one inbound provider delivery under a
+// caller-supplied deterministic event id, so a provider redelivery
+// collides on the events table's primary key instead of being processed
+// twice. Returns store.ErrConflict (wrapped) on a duplicate — ingress
+// handlers turn that into a 204.
+//
+// Unlike Publish it does NOT rewrite msg.From: the sender of an inbound
+// delivery is the external author the transport resolved (a GitHub
+// login, an email address), and there is no Helix caller whose identity
+// could be spoofed. The event's Source stays empty — nobody in the org
+// authored it.
+func (p *Publishing) PublishDelivery(ctx context.Context, orgID, triggerID string, eventID streaming.EventID, msg streaming.Message) (streaming.Event, error) {
+	if _, err := p.trigger(ctx, orgID, triggerID); err != nil {
+		return streaming.Event{}, err
+	}
+	return p.append(ctx, orgID, eventsource.Trigger(triggerID), triggerID, eventID, "", msg)
+}
+
+// SendToChannel is the Worker-authored path: it refuses anything that is
+// not an internal channel before appending, so a Worker can send into a
+// DM, a team chat or another local conversation but can never write back
+// out through an inbound transport.
+func (p *Publishing) SendToChannel(ctx context.Context, orgID, triggerID, from string, msg streaming.Message) (streaming.Event, error) {
+	t, err := p.trigger(ctx, orgID, triggerID)
+	if err != nil {
+		return streaming.Event{}, err
+	}
+	if t.Kind != transport.KindLocal {
+		return streaming.Event{}, fmt.Errorf("trigger %q (%s): %w", triggerID, t.Kind, ErrNotAnInternalChannel)
+	}
+	return p.Publish(ctx, orgID, eventsource.Trigger(triggerID), triggerID, from, msg)
+}
+
+func (p *Publishing) trigger(ctx context.Context, orgID, triggerID string) (trigger.Trigger, error) {
+	rows, err := p.triggers.Find(ctx, store.WithOrg(orgID), store.WithID(triggerID), store.WithLimit(1))
+	if err != nil {
+		return trigger.Trigger{}, fmt.Errorf("trigger %q: %w", triggerID, err)
+	}
+	if len(rows) == 0 {
+		return trigger.Trigger{}, fmt.Errorf("trigger %q: %w", triggerID, store.ErrNotFound)
+	}
+	return rows[0], nil
 }

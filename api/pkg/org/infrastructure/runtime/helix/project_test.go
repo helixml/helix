@@ -171,9 +171,6 @@ func (f *fakeProjectService) DeleteProjectSecret(_ context.Context, _, name stri
 	return nil
 }
 
-// ListProjectSecrets records the projectID it was asked for and returns
-// the scripted response, so a test can assert ListWorkerProjectSecrets
-// resolved the worker to the right project before reading.
 func (f *fakeProjectService) ListProjectSecrets(_ context.Context, projectID string) (map[string]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -186,6 +183,10 @@ func (f *fakeProjectService) ListProjectSecrets(_ context.Context, projectID str
 		out[k] = v
 	}
 	return out, nil
+}
+
+func (f *fakeProjectService) ListProjectSecretRecords(_ context.Context, _ string) ([]types.Secret, error) {
+	return nil, nil
 }
 
 func (f *fakeProjectService) CreateGitRepo(_ context.Context, req types.GitRepositoryCreateRequest) (types.GitRepository, error) {

@@ -18,12 +18,12 @@ func TestBaseReadToolsGolden(t *testing.T) {
 		ReportsName,
 		ListBotsName,
 		GetBotName,
-		ListTopicsName,
-		GetTopicName,
-		ListTopicEventsName,
+		ListTriggersName,
+		GetTriggerName,
+		ListTriggerEventsName,
 		ReadEventsName,
 		BotLogName,
-		MintCredentialName,
+		GetSecretName,
 		AskHumanName,
 		ListSecretsName,
 		ListProcessorsName,
@@ -48,20 +48,20 @@ func TestBaseReadToolsAllRegistered(t *testing.T) {
 	// added to BaseReadTools without a matching entry here, the test
 	// fails — same failure mode RegisterBuiltins would produce at boot.
 	baselineImpls := map[tool.Name]tool.Tool{
-		ManagersName:        &Managers{deps: deps},
-		ReportsName:         &Reports{deps: deps},
-		ListBotsName:        &ListBots{deps: deps},
-		GetBotName:          &GetBot{deps: deps},
-		ListTopicsName:      &ListTopics{deps: deps},
-		GetTopicName:        &GetTopic{deps: deps},
-		ListTopicEventsName: &ListTopicEvents{deps: deps},
-		ReadEventsName:      &ReadEvents{deps: deps},
-		BotLogName:          &BotLog{deps: deps},
-		MintCredentialName:  &MintCredential{deps: deps},
-		AskHumanName:        &AskHuman{deps: deps},
-		ListSecretsName:     &ListSecrets{deps: deps},
-		ListProcessorsName:  &ListProcessors{deps: deps},
-		GetProcessorName:    &GetProcessor{deps: deps},
+		ManagersName:          &Managers{deps: deps},
+		ReportsName:           &Reports{deps: deps},
+		ListBotsName:          &ListBots{deps: deps},
+		GetBotName:            &GetBot{deps: deps},
+		ListTriggersName:      &ListTriggers{deps: deps},
+		GetTriggerName:        &GetTrigger{deps: deps},
+		ListTriggerEventsName: &ListTriggerEvents{deps: deps},
+		ReadEventsName:        &ReadEvents{deps: deps},
+		BotLogName:            &BotLog{deps: deps},
+		GetSecretName:         &GetSecret{deps: deps},
+		AskHumanName:          &AskHuman{deps: deps},
+		ListSecretsName:       &ListSecrets{deps: deps},
+		ListProcessorsName:    &ListProcessors{deps: deps},
+		GetProcessorName:      &GetProcessor{deps: deps},
 	}
 	for _, name := range BaseReadTools {
 		impl, ok := baselineImpls[name]
@@ -91,24 +91,24 @@ func TestMergeBaseReadToolsPreservesCallerOrderAndDedups(t *testing.T) {
 	t.Parallel()
 	// Caller-supplied: includes one baseline name (managers) and one
 	// non-baseline mutation (publish), with a duplicate to verify dedup.
-	in := []tool.Name{PublishName, ManagersName, PublishName}
+	in := []tool.Name{ChatName, ManagersName, ChatName}
 	got := MergeBaseReadTools(in)
 
 	// Expected order: caller's deduped order first, then baseline
 	// names not yet present in baseline order (managers is skipped).
 	want := []tool.Name{
-		PublishName,
+		ChatName,
 		ManagersName,
 		// rest of baseline, in BaseReadTools order, minus managers:
 		ReportsName,
 		ListBotsName,
 		GetBotName,
-		ListTopicsName,
-		GetTopicName,
-		ListTopicEventsName,
+		ListTriggersName,
+		GetTriggerName,
+		ListTriggerEventsName,
 		ReadEventsName,
 		BotLogName,
-		MintCredentialName,
+		GetSecretName,
 		AskHumanName,
 		ListSecretsName,
 		ListProcessorsName,
@@ -125,7 +125,7 @@ func TestMergeBaseReadToolsPreservesCallerOrderAndDedups(t *testing.T) {
 // would rewrite every Bot on every run.
 func TestMergeBaseReadToolsIdempotent(t *testing.T) {
 	t.Parallel()
-	in := []tool.Name{PublishName, DMName}
+	in := []tool.Name{ChatName, DMName}
 	once := MergeBaseReadTools(in)
 	twice := MergeBaseReadTools(once)
 	if !reflect.DeepEqual(once, twice) {

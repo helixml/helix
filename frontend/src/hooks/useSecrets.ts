@@ -58,10 +58,11 @@ export const useSecrets = () => {
     }
   }, [api, loadData])
 
-  const deleteSecret = useCallback(async (id: string): Promise<boolean> => {
-    await api.delete(`/api/v1/secrets/${id}`, {}, {
-      snackbar: true,
-    })
+  // force skips the "granted to N agents" refusal and revokes those
+  // grants along with the secret. The generated client is used here so
+  // the 409 surfaces to the caller instead of becoming a snackbar.
+  const deleteSecret = useCallback(async (id: string, force?: boolean): Promise<boolean> => {
+    await api.getApiClient().v1SecretsDelete(id, force ? { force: true } : undefined)
     loadData()
     return true
   }, [api, loadData])

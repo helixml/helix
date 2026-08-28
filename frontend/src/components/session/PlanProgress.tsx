@@ -1,7 +1,9 @@
 import React, { FC, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
 import { useTheme } from "@mui/material/styles";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ListTodo, X } from "lucide-react";
 
 import { TypesChecklistProgress, TypesSession } from "../../api/api";
 import { useTaskProgress } from "../../services/specTaskService";
@@ -33,6 +35,11 @@ const parseJSON = (content: string): unknown => {
   const candidates = [content];
   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   if (fenced) candidates.push(fenced);
+  const arrayStart = content.indexOf("[");
+  const arrayEnd = content.lastIndexOf("]");
+  if (arrayStart >= 0 && arrayEnd > arrayStart) {
+    candidates.push(content.slice(arrayStart, arrayEnd + 1));
+  }
   const objectStart = content.indexOf("{");
   const objectEnd = content.lastIndexOf("}");
   if (objectStart >= 0 && objectEnd > objectStart) {
@@ -72,7 +79,9 @@ const stepsFromValue = (value: unknown): PlanStep[] => {
 
 const isPlanTool = (toolName: string) => {
   const normalized = toolName.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return normalized.includes("todowrite") || normalized.includes("updateplan");
+  return normalized.includes("todowrite")
+    || normalized.includes("updateplan")
+    || /^\d+todos?$/.test(normalized);
 };
 
 export const hasPlanSource = (entries?: ResponseEntry[]): boolean =>
@@ -84,14 +93,10 @@ export const planStepsFromResponseEntries = (entries?: ResponseEntry[]): PlanSte
 
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
-    if (entry.type !== "plan") continue;
-    return stepsFromValue(parseJSON(entry.content));
-  }
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-    if (entry.type !== "tool_call" || !isPlanTool(entry.tool_name || "")) continue;
-    const steps = stepsFromValue(parseJSON(entry.content));
-    if (steps.length > 0) return steps;
+    if (entry.type === "plan") return stepsFromValue(parseJSON(entry.content));
+    if (entry.type === "tool_call" && isPlanTool(entry.tool_name || "")) {
+      return stepsFromValue(parseJSON(entry.content));
+    }
   }
   return [];
 };
@@ -109,6 +114,135 @@ export const planStepsForResponse = (
   ? planStepsFromResponseEntries(entries)
   : planStepsFromChecklist(checklist);
 
+const PlanSegments: FC<{
+  steps: PlanStep[];
+  width?: number;
+}> = ({ steps, width = Math.min(80, steps.length * 12) }) => {
+  const theme = useTheme();
+  const gap = steps.length >= 40 ? 0 : steps.length >= 16 ? 1 : 2;
+  const density = gap === 0 ? "continuous" : gap === 1 ? "dense" : "regular";
+  const successColor = theme.palette.success.main;
+  const activeColor = theme.palette.primary.main;
+  const pendingColor = theme.palette.mode === "dark"
+    ? "rgba(255,255,255,0.25)"
+    : "rgba(0,0,0,0.22)";
+
+  if (steps.length <= 1) return null;
+
+  return (
+    <Box
+      component="span"
+      aria-hidden
+      data-plan-segments={density}
+      sx={{
+        display: "flex",
+        width,
+        minWidth: 0,
+        flexShrink: 0,
+        alignItems: "center",
+        gap: `${gap}px`,
+        overflow: "hidden",
+        borderRadius: 999,
+      }}
+    >
+      {steps.map((step, index) => (
+        <Box
+          component="span"
+          key={`${step.step}-${index}`}
+          sx={{
+            height: 3,
+            minWidth: 0,
+            flex: 1,
+            borderRadius: gap === 0 ? 0 : 999,
+            backgroundColor: step.status === "completed"
+              ? successColor
+              : step.status === "inProgress"
+                ? activeColor
+                : pendingColor,
+          }}
+        />
+      ))}
+    </Box>
+  );
+};
+
+const PlanChecklist: FC<{ steps: PlanStep[]; composer?: boolean }> = ({ steps, composer = false }) => {
+  const theme = useTheme();
+  const colors = getChatColors(theme);
+  const successColor = theme.palette.success.main;
+  const activeColor = theme.palette.primary.main;
+  const pendingColor = theme.palette.mode === "dark"
+    ? "rgba(255,255,255,0.25)"
+    : "rgba(0,0,0,0.22)";
+
+  return (
+    <Box
+      role="list"
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        ...(composer && {
+          maxHeight: "min(240px, 35vh)",
+          overflowY: "auto",
+          px: { xs: 1.5, sm: 2 },
+          pb: 1.5,
+        }),
+      }}
+    >
+      {steps.map((step, index) => {
+        const color = step.status === "completed"
+          ? successColor
+          : step.status === "inProgress"
+            ? activeColor
+            : pendingColor;
+        return (
+          <Box
+            role="listitem"
+            key={`${step.step}-${index}`}
+            sx={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 1,
+              fontFamily: APP_FONT_FAMILY,
+              fontSize: "12px",
+              lineHeight: "20px",
+            }}
+          >
+            <Box
+              component="span"
+              aria-hidden
+              sx={{
+                width: 12,
+                flexShrink: 0,
+                color,
+                fontFamily: APP_MONO_FONT_FAMILY,
+                fontSize: "10px",
+                textAlign: "center",
+              }}
+            >
+              {step.status === "completed" ? "✓" : step.status === "inProgress" ? "●" : "○"}
+            </Box>
+            <Box
+              component="span"
+              sx={{
+                minWidth: 0,
+                flex: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                color: step.status === "inProgress" ? colors.foreground : colors.subtle,
+                opacity: step.status === "completed" ? 0.55 : step.status === "pending" ? 0.7 : 0.9,
+              }}
+            >
+              {step.step}
+            </Box>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+};
+
 export const PlanProgress: FC<{ steps: PlanStep[] }> = ({ steps }) => {
   const theme = useTheme();
   const colors = getChatColors(theme);
@@ -119,12 +253,6 @@ export const PlanProgress: FC<{ steps: PlanStep[] }> = ({ steps }) => {
     || steps.find((step) => step.status === "pending")?.step
     || steps.at(-1)?.step
     || "Plan";
-  const successColor = theme.palette.success.main;
-  const activeColor = theme.palette.primary.main;
-  const pendingColor = theme.palette.mode === "dark"
-    ? "rgba(255,255,255,0.25)"
-    : "rgba(0,0,0,0.22)";
-
   if (steps.length === 0) return null;
 
   return (
@@ -168,13 +296,7 @@ export const PlanProgress: FC<{ steps: PlanStep[] }> = ({ steps }) => {
         <Box component="span" sx={{ display: "inline-flex", width: 14, height: 14, flexShrink: 0, alignItems: "center", justifyContent: "center", color: colors.subtle, opacity: 0.65 }}>
           {expanded ? <ChevronDown size={14} strokeWidth={1.8} /> : <ChevronRight size={14} strokeWidth={1.8} />}
         </Box>
-        {steps.length > 1 && (
-          <Box component="span" aria-hidden sx={{ display: "flex", flexShrink: 0, alignItems: "center", gap: "2px" }}>
-            {steps.map((step, index) => (
-              <Box component="span" key={`${step.step}-${index}`} sx={{ width: 10, height: 3, borderRadius: 999, backgroundColor: step.status === "completed" ? successColor : step.status === "inProgress" ? activeColor : pendingColor }} />
-            ))}
-          </Box>
-        )}
+        <PlanSegments steps={steps} />
         <Box component="span" sx={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: allDone ? colors.subtle : colors.foreground, opacity: allDone ? 0.65 : 0.85, fontWeight: allDone ? 400 : 500 }}>
           {label}
         </Box>
@@ -186,21 +308,199 @@ export const PlanProgress: FC<{ steps: PlanStep[] }> = ({ steps }) => {
       </Box>
       {expanded && (
         <Box sx={{ mt: 0.25, pl: 3, display: "flex", flexDirection: "column" }}>
-          {steps.map((step, index) => {
-            const color = step.status === "completed" ? successColor : step.status === "inProgress" ? activeColor : pendingColor;
-            return (
-              <Box key={`${step.step}-${index}`} sx={{ display: "flex", alignItems: "baseline", gap: 1, fontFamily: APP_FONT_FAMILY, fontSize: "12px", lineHeight: "20px" }}>
-                <Box component="span" aria-hidden sx={{ width: 12, flexShrink: 0, color, fontFamily: APP_MONO_FONT_FAMILY, fontSize: "10px", textAlign: "center" }}>
-                  {step.status === "completed" ? "✓" : step.status === "inProgress" ? "●" : "○"}
-                </Box>
-                <Box component="span" sx={{ minWidth: 0, color: step.status === "inProgress" ? colors.foreground : colors.subtle, opacity: step.status === "completed" ? 0.55 : step.status === "pending" ? 0.7 : 0.9 }}>
-                  {step.step}
-                </Box>
-              </Box>
-            );
-          })}
+          <PlanChecklist steps={steps} />
         </Box>
       )}
+    </Box>
+  );
+};
+
+export const ComposerPlanProgress: FC<{
+  steps: PlanStep[];
+  expanded: boolean;
+  onToggle: () => void;
+  onDismiss: () => void;
+}> = ({ steps, expanded, onToggle, onDismiss }) => {
+  const theme = useTheme();
+  const colors = getChatColors(theme);
+  const completedCount = steps.filter((step) => step.status === "completed").length;
+  const allDone = completedCount === steps.length;
+  const label = steps.find((step) => step.status === "inProgress")?.step
+    || steps.find((step) => step.status === "pending")?.step
+    || steps.at(-1)?.step
+    || "Plan";
+  const accessibleLabel = `Plan: ${completedCount} of ${steps.length} complete. Current step: ${label}`;
+
+  if (steps.length === 0) return null;
+
+  if (!expanded) {
+    return (
+      <Box
+        data-composer-plan-badge="true"
+        sx={{
+          position: "absolute",
+          zIndex: 0,
+          bottom: "calc(100% - 1px)",
+          left: { xs: 8, sm: 16 },
+          right: { xs: 8, sm: 16 },
+          height: 32,
+          display: "flex",
+          alignItems: "center",
+          gap: 0.5,
+          px: 1,
+          pb: 0.5,
+          border: "1px solid",
+          borderBottom: 0,
+          borderColor: colors.border,
+          borderRadius: "12px 12px 0 0",
+          backgroundColor: colors.composerSurface,
+          color: colors.subtle,
+          fontFamily: APP_FONT_FAMILY,
+          fontSize: "12px",
+          lineHeight: 1,
+          boxSizing: "border-box",
+        }}
+      >
+        <Box
+          component="button"
+          type="button"
+          aria-expanded={false}
+          aria-label={accessibleLabel}
+          onClick={onToggle}
+          sx={{
+            minWidth: 0,
+            flex: 1,
+            alignSelf: "stretch",
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            p: 0,
+            border: 0,
+            background: "transparent",
+            color: colors.subtle,
+            font: "inherit",
+            textAlign: "left",
+            cursor: "pointer",
+            "&:hover": { color: colors.foreground },
+            "&:focus-visible": {
+              outline: `2px solid ${theme.palette.primary.main}`,
+              outlineOffset: -2,
+            },
+          }}
+        >
+          <ListTodo aria-hidden size={14} style={{ flexShrink: 0 }} />
+          <Box component="span" sx={{ flexShrink: 0 }}>Plan</Box>
+          <Box
+            component="span"
+            sx={{
+              minWidth: 0,
+              flex: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              color: colors.foreground,
+              opacity: 0.8,
+              fontWeight: 500,
+            }}
+          >
+            {label}
+          </Box>
+          <Box
+            component="span"
+            sx={{
+              flexShrink: 0,
+              color: allDone ? "success.main" : colors.subtle,
+              fontWeight: 500,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {completedCount}/{steps.length}
+          </Box>
+          <PlanSegments steps={steps} width={80} />
+        </Box>
+        <Tooltip title="Dismiss plan for this turn">
+          <IconButton
+            size="small"
+            aria-label="Dismiss plan for this turn"
+            onClick={onDismiss}
+            sx={{
+              width: 24,
+              height: 24,
+              flexShrink: 0,
+              color: colors.subtle,
+              "&:hover": { color: colors.foreground },
+            }}
+          >
+            <X size={13} />
+          </IconButton>
+        </Tooltip>
+      </Box>
+    );
+  }
+
+  return (
+    <Box
+      data-composer-plan-drawer="true"
+      sx={{
+        position: "relative",
+        zIndex: 0,
+        border: "1px solid",
+        borderBottom: 0,
+        borderColor: colors.border,
+        borderRadius: "20px 20px 0 0",
+        backgroundColor: colors.composerSurface,
+        color: colors.subtle,
+      }}
+    >
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: { xs: 1.5, sm: 2 }, py: 0.75 }}>
+        <Box
+          component="button"
+          type="button"
+          aria-expanded={true}
+          aria-label={accessibleLabel}
+          onClick={onToggle}
+          sx={{
+            minWidth: 0,
+            flex: 1,
+            alignSelf: "stretch",
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            p: 0,
+            border: 0,
+            background: "transparent",
+            color: colors.subtle,
+            fontFamily: APP_FONT_FAMILY,
+            fontSize: "12px",
+            textAlign: "left",
+            cursor: "pointer",
+            "&:hover": { color: colors.foreground },
+          }}
+        >
+          <ListTodo aria-hidden size={14} style={{ flexShrink: 0 }} />
+          <Box component="span" sx={{ color: colors.foreground, fontWeight: 500 }}>Plan</Box>
+          <Box component="span" sx={{ fontVariantNumeric: "tabular-nums" }}>
+            {completedCount}/{steps.length}
+          </Box>
+        </Box>
+        <Tooltip title="Dismiss plan for this turn">
+          <IconButton
+            size="small"
+            aria-label="Dismiss plan for this turn"
+            onClick={onDismiss}
+            sx={{
+              width: 24,
+              height: 24,
+              flexShrink: 0,
+              color: colors.subtle,
+              "&:hover": { color: colors.foreground },
+            }}
+          >
+            <X size={13} />
+          </IconButton>
+        </Tooltip>
+      </Box>
+      <PlanChecklist steps={steps} composer />
     </Box>
   );
 };
