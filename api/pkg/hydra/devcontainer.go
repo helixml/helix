@@ -1048,6 +1048,8 @@ func removeEnvVar(env []string, key string) []string {
 	return filtered
 }
 
+const desktopShmSizeBytes = 1 << 30
+
 // buildHostConfig builds the host configuration for the container
 func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (*container.HostConfig, error) {
 	if req.RootlessContainerEngine && req.ContainerType != DevContainerTypeHeadless {
@@ -1088,8 +1090,11 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		Privileged:  req.Privileged,
 		Resources:   resources,
 	}
+	if req.ContainerType != DevContainerTypeHeadless {
+		hostConfig.IpcMode = "private"
+		hostConfig.ShmSize = desktopShmSizeBytes
+	}
 	if req.Privileged {
-		hostConfig.IpcMode = "host"
 		hostConfig.SecurityOpt = []string{"seccomp=unconfined", "apparmor=unconfined"}
 	} else {
 		hostConfig.CapDrop = []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}

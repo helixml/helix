@@ -110,6 +110,7 @@ func TestBuildHostConfigHeadlessUsesDockerSecurityDefaults(t *testing.T) {
 	require.Equal(t, []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}, []string(hostConfig.CapDrop))
 	require.Empty(t, hostConfig.SecurityOpt)
 	require.Empty(t, hostConfig.IpcMode)
+	require.Zero(t, hostConfig.ShmSize)
 	require.Empty(t, hostConfig.Resources.Devices)
 }
 
@@ -130,6 +131,7 @@ func TestBuildHostConfigRootlessContainerEngine(t *testing.T) {
 	require.NotNil(t, hostConfig.ReadonlyPaths)
 	require.Empty(t, hostConfig.ReadonlyPaths)
 	require.Empty(t, hostConfig.IpcMode)
+	require.Zero(t, hostConfig.ShmSize)
 	require.Len(t, hostConfig.Resources.Devices, 2)
 	require.Equal(t, "/dev/fuse", hostConfig.Resources.Devices[0].PathOnHost)
 	require.Equal(t, "/dev/fuse", hostConfig.Resources.Devices[0].PathInContainer)
@@ -204,7 +206,7 @@ func TestBuildMountsRootlessContainerEngineSkipsSharedBuildKitCache(t *testing.T
 	require.Equal(t, "/buildkit-cache", mounts[0].Target)
 }
 
-func TestBuildHostConfigPrivilegedPreservesDesktopSecurityOptions(t *testing.T) {
+func TestBuildHostConfigDesktopUsesPrivateIPC(t *testing.T) {
 	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
 
 	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
@@ -216,7 +218,8 @@ func TestBuildHostConfigPrivilegedPreservesDesktopSecurityOptions(t *testing.T) 
 	require.Empty(t, hostConfig.CapAdd)
 	require.Empty(t, hostConfig.CapDrop)
 	require.Equal(t, []string{"seccomp=unconfined", "apparmor=unconfined"}, hostConfig.SecurityOpt)
-	require.Equal(t, "host", string(hostConfig.IpcMode))
+	require.Equal(t, "private", string(hostConfig.IpcMode))
+	require.EqualValues(t, desktopShmSizeBytes, hostConfig.ShmSize)
 }
 
 func countEnvVar(env []string, key string) int {
