@@ -695,7 +695,7 @@ func TestBuildOpenCodeConfigUsesQwen38FlashNextCatalogueCapabilities(t *testing.
 	apiServer := &HelixAPIServer{modelInfoProvider: modelInfoProvider}
 	assistant := &types.AssistantConfig{
 		AgentType:               types.AgentTypeZedExternal,
-		GenerationModelProvider: "ds4-flash-node06",
+		GenerationModelProvider: "custom-provider",
 		GenerationModel:         "qwen3.8-flash-next",
 		CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
 	}

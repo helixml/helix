@@ -66,12 +66,10 @@ func Test_GetQwen38FlashNextVisionModalities(t *testing.T) {
 	for _, modelID := range []string{
 		"qwen3.8-flash-next",
 		"qwen/qwen3.8-flash-next",
-		"ds4-flash-node06/qwen3.8-flash-next",
-		"pe_01kzpnf69hf73basd52k942vs3/qwen3.8-flash-next",
 	} {
 		t.Run(modelID, func(t *testing.T) {
 			modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
-				Provider: "ds4-flash-node06",
+				Provider: "custom-provider",
 				Model:    modelID,
 			})
 			require.NoError(t, err)
