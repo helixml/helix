@@ -112,16 +112,15 @@ type Config struct {
 	// will docker-run. Last positional in the docker run args.
 	HelixImage string
 
-	// NeuronCompileCacheURL and RunnerReadinessTimeout are operator
-	// config (HELIX_NEURON_COMPILE_CACHE_URL / HELIX_RUNNER_READINESS_TIMEOUT)
-	// that compose-manager consumes INSIDE the sandbox container. They have
-	// to be forwarded explicitly: compose-manager's env on a YD runner is
-	// only what bash_script's `docker run -e` list injects, so a knob set on
-	// the control plane is otherwise dead on YD hosts (it only reaches
-	// install.sh runners). taskEnvironment puts them in the task env and
-	// bash_script forwards them with `-e`. Empty = not forwarded.
-	NeuronCompileCacheURL  string
-	RunnerReadinessTimeout string
+	// NeuronCompileCacheURL, RunnerReadinessTimeout, and
+	// SandboxEgressAllowCIDRs are operator
+	// config forwarded into the sandbox container. They have to be forwarded
+	// explicitly: a YD runner receives only what bash_script's `docker run -e`
+	// list injects. taskEnvironment puts them in the task env and bash_script
+	// forwards them with `-e`. Empty = not forwarded.
+	NeuronCompileCacheURL   string
+	RunnerReadinessTimeout  string
+	SandboxEgressAllowCIDRs string
 
 	// HTTPClient overrides the default *http.Client. Tests inject
 	// an httptest-backed client. Nil falls back to http.DefaultClient.
@@ -505,6 +504,9 @@ func (p *Provider) taskEnvironment(spec compute.Spec) map[string]string {
 	if p.cfg.RunnerReadinessTimeout != "" {
 		env["HELIX_RUNNER_READINESS_TIMEOUT"] = p.cfg.RunnerReadinessTimeout
 	}
+	if p.cfg.SandboxEgressAllowCIDRs != "" {
+		env["HELIX_SANDBOX_EGRESS_ALLOW_CIDRS"] = p.cfg.SandboxEgressAllowCIDRs
+	}
 	if len(env) == 0 {
 		return nil
 	}
@@ -653,4 +655,3 @@ func isoMinutes(d time.Duration) string {
 	}
 	return fmt.Sprintf("PT%dM", mins)
 }
-

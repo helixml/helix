@@ -214,7 +214,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	case "qwen_code":
 		// Qwen Code: Uses the qwen command as a custom agent_server.
 		// Rewrite localhost URLs for container networking (dev mode fix)
-		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+		baseURL := d.rewriteHelixAPIURL(d.codeAgentConfig.BaseURL)
 		env := map[string]interface{}{
 			"OPENAI_BASE_URL":               baseURL,
 			"QWEN_HOME":                     "/home/retro/work/.qwen-state",
@@ -291,7 +291,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 
 		if d.codeAgentConfig.BaseURL != "" {
 			// API key mode: route through Helix API proxy
-			baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+			baseURL := d.rewriteHelixAPIURL(d.codeAgentConfig.BaseURL)
 			env["ANTHROPIC_BASE_URL"] = baseURL
 			if d.userAPIKey != "" {
 				env["ANTHROPIC_API_KEY"] = d.userAPIKey
@@ -347,7 +347,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	case "codex_cli":
 		codexBaseURL := ""
 		if d.codeAgentConfig.BaseURL != "" {
-			codexBaseURL = d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+			codexBaseURL = d.rewriteHelixAPIURL(d.codeAgentConfig.BaseURL)
 		}
 		if err := ensureCodexConfig(CodexConfigPath, codexBaseURL, d.codeAgentConfig.Model); err != nil {
 			log.Printf("Failed to configure Codex: %v", err)
@@ -409,7 +409,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// goose's config file at startup.
 		// Phase 2 will add per-recipe agent_servers entries on top of this
 		// plain entry; for now we always emit one "goose" entry.
-		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+		baseURL := d.rewriteHelixAPIURL(d.codeAgentConfig.BaseURL)
 		env := map[string]interface{}{}
 
 		// Map Helix APIType → goose provider + env var names. Goose
@@ -490,7 +490,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// (OPENCODE_CONFIG_CONTENT) instead of a config file — opencode merges
 		// it over its own defaults, so there is nothing to write to disk and
 		// nothing to clean up between agent switches.
-		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+		baseURL := d.rewriteHelixAPIURL(d.codeAgentConfig.BaseURL)
 
 		// Resolve the binary first: with an admin-pinned version this may
 		// download and verify a release, and if that fails we must not emit an
@@ -540,7 +540,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// configuration lives in the cordis composition baked into the image
 		// (/opt/helix/dsh/cordis.yml); we only supply the values it resolves
 		// from the environment.
-		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+		baseURL := d.rewriteHelixAPIURL(d.codeAgentConfig.BaseURL)
 
 		env, err := buildDeepSeekHarnessEnv(baseURL, d.codeAgentConfig.Model, d.userAPIKey)
 		if err != nil {
@@ -806,35 +806,62 @@ func (d *SettingsDaemon) writeGooseConfig(xdgConfigHome string) error {
 	return nil
 }
 
-// rewriteLocalhostURL replaces localhost in a URL with our known-working API host.
-// This fixes the issue where the API server returns its SERVER_URL (localhost:8080 in dev),
-// which is unreachable from inside containers. We use HELIX_API_URL's host instead,
-// which we know works because the daemon connected with it.
-// Only rewrites if URL contains "localhost" - production URLs pass through unchanged.
-func (d *SettingsDaemon) rewriteLocalhostURL(originalURL string) string {
-	if !strings.Contains(originalURL, "localhost") {
-		return originalURL // Production URL, leave unchanged
+// rewriteHelixAPIURL routes a Helix-owned URL through the same endpoint the
+// daemon used to fetch its configuration. Session containers may not be able
+// to reach the control plane address embedded by the API server directly.
+func (d *SettingsDaemon) rewriteHelixAPIURL(originalURL string) string {
+	if originalURL == "" {
+		return originalURL
 	}
 
-	// Parse our known-working API URL to get the host
 	apiParsed, err := url.Parse(d.apiURL)
-	if err != nil {
-		log.Printf("Warning: failed to parse API URL")
+	if err != nil || apiParsed.Scheme == "" || apiParsed.Host == "" {
+		log.Printf("Warning: failed to parse sandbox API URL")
 		return originalURL
 	}
 
-	// Parse the original URL
 	origParsed, err := url.Parse(originalURL)
-	if err != nil {
-		log.Printf("Warning: failed to parse model endpoint URL")
+	if err != nil || origParsed.Scheme == "" || origParsed.Host == "" {
+		log.Printf("Warning: failed to parse Helix API URL")
 		return originalURL
 	}
 
-	// Replace the host with our working API host
+	origParsed.Scheme = apiParsed.Scheme
 	origParsed.Host = apiParsed.Host
-
-	log.Printf("Rewrote localhost URL for container networking")
+	origParsed.User = nil
 	return origParsed.String()
+}
+
+// rewriteHelixConfigURLs keeps all Helix-owned HTTP clients on the sandbox's
+// constrained API gateway. User-configured MCP servers are deliberately left
+// untouched because they may point at unrelated external services.
+func (d *SettingsDaemon) rewriteHelixConfigURLs(config *helixConfigResponse) {
+	if config.CodeAgentConfig != nil {
+		config.CodeAgentConfig.BaseURL = d.rewriteHelixAPIURL(config.CodeAgentConfig.BaseURL)
+	}
+
+	for _, rawProvider := range config.LanguageModels {
+		provider, ok := rawProvider.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if apiURL, ok := provider["api_url"].(string); ok {
+			provider["api_url"] = d.rewriteHelixAPIURL(apiURL)
+		}
+	}
+
+	for name, rawServer := range config.ContextServers {
+		if !HELIX_OWNED_CONTEXT_SERVERS[name] && name != "kodit" {
+			continue
+		}
+		server, ok := rawServer.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if serverURL, ok := server["url"].(string); ok {
+			server["url"] = d.rewriteHelixAPIURL(serverURL)
+		}
+	}
 }
 
 // injectAvailableModels adds the configured model to the provider's available_models list.
@@ -956,7 +983,7 @@ func (d *SettingsDaemon) injectKoditAuth() {
 	// Also rewrite localhost URLs for container networking
 	// Zed expects "url" field for HTTP context_servers
 	if serverURL, ok := koditServer["url"].(string); ok {
-		koditServer["url"] = d.rewriteLocalhostURL(serverURL)
+		koditServer["url"] = d.rewriteHelixAPIURL(serverURL)
 	}
 
 	log.Printf("Injected user API key into Kodit context_server Authorization header")
@@ -1466,6 +1493,7 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		return fmt.Errorf("failed to parse Helix config: %w", err)
 	}
+	d.rewriteHelixConfigURLs(&config)
 
 	// Store code agent config for generating agent_servers
 	d.codeAgentConfig = config.CodeAgentConfig
@@ -2413,6 +2441,7 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		return err
 	}
+	d.rewriteHelixConfigURLs(&config)
 
 	// Mirror GNOME on every poll — same call syncFromHelix makes. Idempotent
 	// (gsettings set to the existing value is a no-op) and load-bearing for

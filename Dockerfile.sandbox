@@ -6,7 +6,7 @@
 # ====================================================================
 
 # ====================================================================
-# Stage 1: Build Go binaries (hydra, sandbox-heartbeat)
+# Stage 1: Build Go binaries
 # Note: revdial-client is built into Hydra daemon
 # ====================================================================
 # Pin to specific digest for stable layer caching.
@@ -40,6 +40,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /inference-proxy ./api/cmd/inference-proxy
+# Build the narrow reverse proxy exposed to isolated session containers. The
+# proxy is the only sandbox-host listener their bridge can reach.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /sandbox-api-proxy ./api/cmd/sandbox-api-proxy
 # Build dns-proxy (forwards sandbox DNS to the outer Docker/host DNS). It is a
 # separate Go module (sandbox/dns-proxy). NOTE: this was accidentally dropped in
 # the docker-in-desktop refactor (099156501), silently removing sandbox DNS from
@@ -234,11 +239,13 @@ COPY --from=go-builder /hydra /usr/local/bin/hydra
 COPY --from=go-builder /sandbox-heartbeat /usr/local/bin/sandbox-heartbeat
 COPY --from=go-builder /compose-manager /usr/local/bin/compose-manager
 COPY --from=go-builder /inference-proxy /usr/local/bin/inference-proxy
+COPY --from=go-builder /sandbox-api-proxy /usr/local/bin/sandbox-api-proxy
 COPY --from=go-builder /dns-proxy /usr/local/bin/dns-proxy
 RUN chmod +x /usr/local/bin/hydra \
     /usr/local/bin/sandbox-heartbeat \
     /usr/local/bin/compose-manager \
     /usr/local/bin/inference-proxy \
+    /usr/local/bin/sandbox-api-proxy \
     /usr/local/bin/dns-proxy
 
 # Sandbox-absorbs-runner: directory for the active compose YAML that
@@ -257,6 +264,13 @@ RUN chmod +x /etc/cont-init.d/40-start-dockerd.sh
 # containers can resolve names. Re-added after it was dropped in 099156501.
 COPY sandbox/05-start-dns-proxy.sh /etc/cont-init.d/45-start-dns-proxy.sh
 RUN chmod +x /etc/cont-init.d/45-start-dns-proxy.sh
+
+# Create the isolated session bridge and install its host-enforced firewall
+# before exposing the control-plane proxy or starting Hydra.
+COPY sandbox/06-setup-network-policy.sh /etc/cont-init.d/46-setup-network-policy.sh
+RUN chmod +x /etc/cont-init.d/46-setup-network-policy.sh
+COPY sandbox/07-start-api-proxy.sh /etc/cont-init.d/47-start-api-proxy.sh
+RUN chmod +x /etc/cont-init.d/47-start-api-proxy.sh
 
 # Start sandbox heartbeat daemon
 # Note: RevDial client is built into Hydra daemon (see sandbox/10-start-hydra.sh)
@@ -297,6 +311,7 @@ ENV HELIX_API_URL="" \
     HYDRA_ENABLED="true" \
     HELIX_KEEP_DEAD_CONTAINERS="false" \
     HELIX_SANDBOX_REGISTRY="" \
+    HELIX_SANDBOX_EGRESS_ALLOW_CIDRS="" \
     HELIX_EXPERIMENTAL_DESKTOPS=""
 
 # XDG_RUNTIME_DIR (creates volume when starting container)

@@ -79,6 +79,10 @@ sandbox:
   # Maximum number of concurrent sessions (desktop containers)
   maxSandboxes: 10
 
+  # Comma-separated private CIDRs that session containers may reach. Empty
+  # keeps private, link-local, host, and control-plane networks blocked.
+  egressAllowCIDRs: ""
+
   # Helix hostname displayed in browser
   helixHostname: ""
 

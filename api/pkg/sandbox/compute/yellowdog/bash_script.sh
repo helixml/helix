@@ -168,9 +168,10 @@ fi
 # NOTHING. (GPU_VENDOR uses the value form for exactly this reason; the bare
 # form was an earlier bug that dropped these knobs on every YD runner.) Only
 # forward when set so an unconfigured knob leaves compose-manager on its default.
-EXTRA_ENV=""
-[ -n "${HELIX_NEURON_COMPILE_CACHE_URL:-}" ] && EXTRA_ENV="$EXTRA_ENV -e HELIX_NEURON_COMPILE_CACHE_URL=$HELIX_NEURON_COMPILE_CACHE_URL"
-[ -n "${HELIX_RUNNER_READINESS_TIMEOUT:-}" ] && EXTRA_ENV="$EXTRA_ENV -e HELIX_RUNNER_READINESS_TIMEOUT=$HELIX_RUNNER_READINESS_TIMEOUT"
+EXTRA_ENV=()
+[ -n "${HELIX_NEURON_COMPILE_CACHE_URL:-}" ] && EXTRA_ENV+=("-e" "HELIX_NEURON_COMPILE_CACHE_URL=$HELIX_NEURON_COMPILE_CACHE_URL")
+[ -n "${HELIX_RUNNER_READINESS_TIMEOUT:-}" ] && EXTRA_ENV+=("-e" "HELIX_RUNNER_READINESS_TIMEOUT=$HELIX_RUNNER_READINESS_TIMEOUT")
+[ -n "${HELIX_SANDBOX_EGRESS_ALLOW_CIDRS:-}" ] && EXTRA_ENV+=("-e" "HELIX_SANDBOX_EGRESS_ALLOW_CIDRS=$HELIX_SANDBOX_EGRESS_ALLOW_CIDRS")
 
 sudo docker run --rm --name "$CONTAINER_NAME" \
   --privileged $GPU_FLAGS $DEVICE_FLAGS \
@@ -180,7 +181,7 @@ sudo docker run --rm --name "$CONTAINER_NAME" \
   -e SANDBOX_INSTANCE_ID="$SANDBOX_ID" \
   -e GPU_VENDOR="$GPU_VENDOR" \
   -e MAX_SANDBOXES="$MAX_SANDBOXES" \
-  $EXTRA_ENV \
+  "${EXTRA_ENV[@]}" \
   "$IMG" &
 DOCKER_PID=$!
 wait "$DOCKER_PID"

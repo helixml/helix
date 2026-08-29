@@ -74,15 +74,16 @@ func (f *ydManagerFactory) NewPoolManager(p compute.DiscoveredPool) (compute.Poo
 		Namespace: f.cfg.Yellowdog.Namespace,
 		// Per-pool deployment tag isolates row ownership: Manager.ownedRows
 		// filters by provider.Name() = "yellowdog-"+DeploymentTag.
-		DeploymentTag:          poolDeploymentTag(f.deploymentTagBase, p.Key),
-		WorkerTag:              p.WorkerTag,
-		TaskTimeout:            f.cfg.Yellowdog.TaskTimeout,
-		MaxRetries:             f.cfg.Yellowdog.MaxRetries,
-		HelixURL:               f.serverURL,
-		RunnerToken:            f.runnerToken,
-		HelixImage:             f.sandboxImage,
-		NeuronCompileCacheURL:  f.cfg.NeuronCompileCacheURL,
-		RunnerReadinessTimeout: f.cfg.RunnerReadinessTimeout,
+		DeploymentTag:           poolDeploymentTag(f.deploymentTagBase, p.Key),
+		WorkerTag:               p.WorkerTag,
+		TaskTimeout:             f.cfg.Yellowdog.TaskTimeout,
+		MaxRetries:              f.cfg.Yellowdog.MaxRetries,
+		HelixURL:                f.serverURL,
+		RunnerToken:             f.runnerToken,
+		HelixImage:              f.sandboxImage,
+		NeuronCompileCacheURL:   f.cfg.NeuronCompileCacheURL,
+		RunnerReadinessTimeout:  f.cfg.RunnerReadinessTimeout,
+		SandboxEgressAllowCIDRs: f.cfg.SandboxEgressAllowCIDRs,
 	})
 	if err != nil {
 		return nil, err

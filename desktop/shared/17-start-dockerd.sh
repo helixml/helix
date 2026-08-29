@@ -283,42 +283,34 @@ EOF
         echo "[dockerd] Added retro user to docker group"
     fi
 
-    # Set up shared BuildKit builder - REQUIRED for cache sharing across sessions.
-    # The sandbox runs a shared BuildKit daemon that all desktop containers use.
-    if [ -z "${BUILDKIT_HOST:-}" ]; then
-        echo "[dockerd] FATAL: BUILDKIT_HOST not set"
-        echo "[dockerd] Hydra must set BUILDKIT_HOST to the shared BuildKit endpoint"
-        exit 1
-    fi
-
-    echo "[dockerd] Setting up shared BuildKit builder at $BUILDKIT_HOST"
-
-    # Create the helix-shared builder pointing to the sandbox's BuildKit
-    if ! docker buildx inspect helix-shared &>/dev/null; then
-        docker buildx create \
-            --name helix-shared \
-            --driver remote \
-            "$BUILDKIT_HOST"
-        echo "[dockerd] Created helix-shared builder"
+    # Isolated sandboxes build through their per-session inner daemon. A remote
+    # builder remains supported only when an operator explicitly supplies one
+    # on a trusted custom network.
+    BUILDER_NAME="default"
+    if [ -n "${BUILDKIT_HOST:-}" ]; then
+        echo "[dockerd] Setting up operator-provided BuildKit builder at $BUILDKIT_HOST"
+        BUILDER_NAME="helix-shared"
+        if ! docker buildx inspect "$BUILDER_NAME" &>/dev/null; then
+            docker buildx create \
+                --name "$BUILDER_NAME" \
+                --driver remote \
+                "$BUILDKIT_HOST"
+            echo "[dockerd] Created $BUILDER_NAME builder"
+        else
+            echo "[dockerd] $BUILDER_NAME builder already exists"
+        fi
+        docker buildx use "$BUILDER_NAME" --default
+        docker buildx rm default 2>/dev/null || true
     else
-        echo "[dockerd] helix-shared builder already exists"
+        docker buildx use default --default
+        echo "[dockerd] Using per-session Docker builder"
     fi
 
-    # Set it as the default builder and remove the local 'default' to avoid confusion
-    docker buildx use helix-shared --default
-    docker buildx rm default 2>/dev/null || true
-    echo "[dockerd] Set helix-shared as default builder (removed local default)"
-
-    # CRITICAL: Set BUILDX_BUILDER globally so ALL docker build commands
-    # (including plain 'docker build' and 'docker compose build') route
-    # through the shared BuildKit. Without this, 'docker build' falls back
-    # to the local Docker daemon's built-in BuildKit, which is per-container
-    # and NOT shared across spectask sessions.
-    echo "BUILDX_BUILDER=helix-shared" >> /etc/environment
-    cat > /etc/profile.d/helix-buildkit.sh << 'PROFILE_EOF'
-export BUILDX_BUILDER=helix-shared
+    echo "BUILDX_BUILDER=${BUILDER_NAME}" >> /etc/environment
+    cat > /etc/profile.d/helix-buildkit.sh << PROFILE_EOF
+export BUILDX_BUILDER=${BUILDER_NAME}
 PROFILE_EOF
-    echo "[dockerd] Set BUILDX_BUILDER=helix-shared globally (via /etc/environment and /etc/profile.d/)"
+    echo "[dockerd] Set BUILDX_BUILDER=${BUILDER_NAME} globally"
 
     # Export HELIX_REGISTRY globally so the docker wrapper can use push/pull
     # instead of tarball --load for layer-level image transfer
@@ -330,9 +322,8 @@ REGEOF
         echo "[dockerd] Set HELIX_REGISTRY=${HELIX_REGISTRY} globally"
     fi
 
-    # Install docker wrapper that transparently adds --load for remote builders.
-    # This makes user 'docker build -t foo .' work seamlessly — the image builds
-    # on the shared BuildKit and automatically loads into the local daemon.
+    # Install the docker wrapper. It is transparent for the local Docker driver
+    # and adds image-loading behavior only for an explicit remote builder.
     if [ -f /opt/helix/docker-wrapper ]; then
         cp /opt/helix/docker-wrapper /usr/local/bin/docker
         chmod +x /usr/local/bin/docker
@@ -340,9 +331,8 @@ REGEOF
     fi
 
     # Copy buildx builder config from root to retro user.
-    # Root created the helix-shared builder above, storing instance metadata
-    # in /root/.docker/buildx/. Retro needs the same metadata so that
-    # BUILDX_BUILDER=helix-shared resolves correctly. We also pre-create the
+    # Root selected the builder above, storing instance metadata in
+    # /root/.docker/buildx/. Retro needs the same metadata. We also pre-create the
     # activity directory so buildx doesn't create it as root later.
     if id -u retro >/dev/null 2>&1; then
         mkdir -p /home/retro/.docker/buildx/activity
@@ -355,7 +345,7 @@ REGEOF
         chown -R retro:retro /home/retro/.docker
         # Also add to retro's .bashrc so interactive shells pick it up immediately
         if ! grep -q 'BUILDX_BUILDER' /home/retro/.bashrc 2>/dev/null; then
-            echo 'export BUILDX_BUILDER=helix-shared' >> /home/retro/.bashrc
+            echo "export BUILDX_BUILDER=${BUILDER_NAME}" >> /home/retro/.bashrc
         fi
         echo "[dockerd] Copied buildx config to retro user and fixed ownership"
     fi

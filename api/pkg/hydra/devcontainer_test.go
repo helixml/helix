@@ -189,21 +189,45 @@ func TestBuildEnvRootlessContainerEngine(t *testing.T) {
 	require.Zero(t, countEnvVar(env, "HELIX_REGISTRY"))
 }
 
-func TestBuildMountsRootlessContainerEngineSkipsSharedBuildKitCache(t *testing.T) {
+func TestBuildEnvIsolatedNetworkUsesAPIProxyAndOmitsSharedBuildServices(t *testing.T) {
+	t.Setenv("HELIX_API_URL", "https://api.example.com")
+
+	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeUbuntu,
+		Network:       "bridge",
+		Env: []string{
+			"HELIX_API_URL=http://localhost:8080",
+			"HELIX_API_BASE_URL=http://localhost:8080",
+			"ANTHROPIC_BASE_URL=http://localhost:8080",
+			"OPENAI_BASE_URL=http://localhost:8080/v1",
+			"ZED_HELIX_URL=localhost:8080",
+			"ZED_HELIX_TLS=true",
+			"BUILDKIT_HOST=tcp://attacker:1234",
+			"HELIX_REGISTRY=attacker:5000",
+		},
+	})
+
+	proxyURL := "http://" + SandboxAPIProxyHostname + ":18080"
+	require.Contains(t, env, "HELIX_API_URL="+proxyURL)
+	require.Contains(t, env, "HELIX_API_BASE_URL="+proxyURL)
+	require.Contains(t, env, "ANTHROPIC_BASE_URL="+proxyURL)
+	require.Contains(t, env, "OPENAI_BASE_URL="+proxyURL+"/v1")
+	require.Contains(t, env, "ZED_HELIX_URL="+SandboxAPIProxyHostname+":18080")
+	require.Contains(t, env, "ZED_HELIX_TLS=false")
+	require.Zero(t, countEnvVar(env, "BUILDKIT_HOST"))
+	require.Zero(t, countEnvVar(env, "HELIX_REGISTRY"))
+}
+
+func TestBuildMountsOmitSharedBuildKitCache(t *testing.T) {
 	dataDir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dataDir, SharedBuildKitCacheDir), 0o755))
 	dm := &DevContainerManager{manager: &Manager{dataDir: dataDir}}
 
-	mounts, err := dm.buildMounts(&CreateDevContainerRequest{RootlessContainerEngine: true})
+	mounts, err := dm.buildMounts(&CreateDevContainerRequest{})
 	require.NoError(t, err)
 	for _, item := range mounts {
 		require.NotEqual(t, "/buildkit-cache", item.Target)
 	}
-
-	mounts, err = dm.buildMounts(&CreateDevContainerRequest{})
-	require.NoError(t, err)
-	require.Len(t, mounts, 1)
-	require.Equal(t, "/buildkit-cache", mounts[0].Target)
 }
 
 func TestBuildHostConfigDesktopUsesPrivateIPC(t *testing.T) {
@@ -220,6 +244,32 @@ func TestBuildHostConfigDesktopUsesPrivateIPC(t *testing.T) {
 	require.Equal(t, []string{"seccomp=unconfined", "apparmor=unconfined"}, hostConfig.SecurityOpt)
 	require.Equal(t, "private", string(hostConfig.IpcMode))
 	require.EqualValues(t, desktopShmSizeBytes, hostConfig.ShmSize)
+	require.Equal(t, SandboxNetworkName, string(hostConfig.NetworkMode))
+	require.Equal(t, []string{
+		SandboxAPIProxyHostname + ":192.0.2.1",
+		SandboxLegacyAPIProxyHostname + ":192.0.2.1",
+	}, hostConfig.ExtraHosts)
+}
+
+func TestSandboxNetworkMode(t *testing.T) {
+	for _, requested := range []string{"", "bridge", SandboxNetworkName} {
+		require.Equal(t, SandboxNetworkName, string(sandboxNetworkMode(requested)))
+	}
+}
+
+func TestBuildHostConfigRejectsCustomNetwork(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	_, err := dm.buildHostConfig(&CreateDevContainerRequest{Network: "host"})
+	require.EqualError(t, err, `unsupported sandbox network "host"`)
+}
+
+func TestSandboxNetworkGateway(t *testing.T) {
+	require.Equal(t, "192.0.2.1", sandboxNetworkGateway())
+}
+
+func TestShouldMigrateContainerNetwork(t *testing.T) {
+	require.True(t, shouldMigrateContainerNetwork("bridge", SandboxNetworkName))
+	require.False(t, shouldMigrateContainerNetwork(SandboxNetworkName, SandboxNetworkName))
 }
 
 func countEnvVar(env []string, key string) int {

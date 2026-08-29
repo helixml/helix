@@ -1510,9 +1510,6 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		}
 	}
 
-	// NOTE: BUILDKIT_HOST env var is injected by Hydra server side (devcontainer.go buildEnv)
-	// which runs inside the sandbox where it can query the helix-buildkit container IP.
-
 	// Forward desktop-bridge tunables from the controlplane env into dev
 	// containers. The desktop-bridge binary reads these inside the container,
 	// so without explicit forwarding here an operator setting them on
@@ -1634,10 +1631,6 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		Destination: "/opt/helix/agent-cache",
 		ReadOnly:    false,
 	})
-
-	// NOTE: Shared BuildKit cache mount (/buildkit-cache) and BUILDKIT_HOST env var
-	// are injected by the Hydra server side (devcontainer.go buildMounts/buildEnv)
-	// which runs inside the sandbox where it can access the correct paths.
 
 	// For Ubuntu/GNOME containers, create a per-session pipewire directory
 	// and mount it to /run/user/1000 where PipeWire daemon creates its socket
