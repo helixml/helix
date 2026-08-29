@@ -39,6 +39,76 @@ type Server struct {
 	listener            net.Listener
 	server              *http.Server
 	router              *mux.Router
+	apiProxyServer      *http.Server
+	apiProxyListener    net.Listener
+}
+
+// StartSandboxAPIProxy exposes the fixed Helix API upstream on the isolated
+// session bridge. It deliberately uses its own HTTP server and handler rather
+// than Hydra's control router, which must remain reachable only over its Unix
+// socket and RevDial transport.
+func (s *Server) StartSandboxAPIProxy(listenAddr, rawUpstream string) error {
+	if listenAddr == "" {
+		listenAddr = SandboxAPIProxyListenAddress
+	}
+	if s.apiProxyServer != nil {
+		return fmt.Errorf("sandbox API proxy already started")
+	}
+
+	handler, err := newSandboxAPIProxyHandler(rawUpstream)
+	if err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("listen for sandbox API proxy on %s: %w", listenAddr, err)
+	}
+
+	s.apiProxyListener = listener
+	s.apiProxyServer = &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       90 * time.Second,
+	}
+	go func() {
+		if err := s.apiProxyServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Msg("Sandbox API proxy server error")
+		}
+	}()
+
+	log.Info().Str("listen", listener.Addr().String()).Str("upstream", rawUpstream).
+		Msg("Sandbox API proxy started")
+	return nil
+}
+
+func newSandboxAPIProxyHandler(rawUpstream string) (http.Handler, error) {
+	if rawUpstream == "" {
+		return nil, fmt.Errorf("sandbox API proxy upstream URL is required")
+	}
+	target, err := url.Parse(rawUpstream)
+	if err != nil {
+		return nil, fmt.Errorf("parse sandbox API proxy upstream URL: %w", err)
+	}
+	if target.Scheme != "http" && target.Scheme != "https" {
+		return nil, fmt.Errorf("sandbox API proxy upstream scheme must be http or https")
+	}
+	if target.Host == "" {
+		return nil, fmt.Errorf("sandbox API proxy upstream host is required")
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	director := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		director(req)
+		req.Host = target.Host
+	}
+	proxy.FlushInterval = -1
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, proxyErr error) {
+		log.Warn().Err(proxyErr).Str("method", r.Method).Str("path", r.URL.Path).
+			Msg("Sandbox API proxy request failed")
+		http.Error(w, "Helix API unavailable", http.StatusBadGateway)
+	}
+	return proxy, nil
 }
 
 // NewServer creates a new Hydra server with an internally-allocated log
@@ -146,6 +216,15 @@ func (s *Server) Start(ctx context.Context) error {
 // Stop gracefully stops the server
 func (s *Server) Stop(ctx context.Context) error {
 	log.Info().Msg("Stopping Hydra server...")
+
+	if s.apiProxyServer != nil {
+		if err := s.apiProxyServer.Shutdown(ctx); err != nil {
+			log.Error().Err(err).Msg("Error shutting down sandbox API proxy")
+		}
+	}
+	if s.apiProxyListener != nil {
+		s.apiProxyListener.Close()
+	}
 
 	// Stop manager
 	if err := s.manager.Stop(ctx); err != nil {

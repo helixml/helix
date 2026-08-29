@@ -114,6 +114,19 @@ func run(cmd *cobra.Command, args []string) {
 	// in-flight log lines from the other services.
 	hydra.StartServiceLogTailers(ctx, logBuffer, "/var/log/helix-services")
 
+	// Resolve the shared control-plane endpoint before accepting lifecycle
+	// requests. Hydra owns the fixed session-facing listener and its RevDial
+	// client, but keeps their HTTP surfaces separate.
+	revDialAPIURL := apiURL
+	if revDialAPIURL == "" {
+		revDialAPIURL = os.Getenv("HELIX_API_URL")
+	}
+	if revDialAPIURL != "" {
+		if err := server.StartSandboxAPIProxy("", revDialAPIURL); err != nil {
+			log.Fatal().Err(err).Msg("Failed to start sandbox API proxy")
+		}
+	}
+
 	// Start server
 	if err := server.Start(ctx); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start Hydra server")
@@ -121,10 +134,6 @@ func run(cmd *cobra.Command, args []string) {
 
 	// Start RevDial client if configured
 	// Environment variables take precedence over flags
-	revDialAPIURL := apiURL
-	if revDialAPIURL == "" {
-		revDialAPIURL = os.Getenv("HELIX_API_URL")
-	}
 	revDialToken := runnerToken
 	if revDialToken == "" {
 		revDialToken = os.Getenv("RUNNER_TOKEN")
@@ -136,7 +145,6 @@ func run(cmd *cobra.Command, args []string) {
 	if revDialSandboxID == "" {
 		revDialSandboxID = "local"
 	}
-
 	var revDialClient *revdial.Client
 	if revDialAPIURL != "" && revDialToken != "" {
 		revDialClient = revdial.NewClient(&revdial.ClientConfig{

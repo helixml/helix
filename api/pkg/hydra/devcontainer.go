@@ -40,6 +40,7 @@ const (
 	SandboxAPIProxyHostname       = "helix-api.internal"
 	SandboxLegacyAPIProxyHostname = "outer-api"
 	SandboxAPIProxyPort           = 18080
+	SandboxAPIProxyListenAddress  = "192.0.2.1:18080"
 )
 
 // GoldenCopyProgress tracks the progress of a golden cache copy operation.

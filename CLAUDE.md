@@ -89,6 +89,7 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 
 ### Other
 - **NEVER** rename CWD, commit customer data, or restart hung processes (collect GDB traces first)
+- **NON-NEGOTIABLE: avoid new microservices, daemons, sidecars, and standalone supervisors.** Extend the existing component that already owns the lifecycle and trust boundary. A new service requires explicit user approval after documenting why no existing component can safely own the responsibility.
 
 ## Build Pipeline
 
