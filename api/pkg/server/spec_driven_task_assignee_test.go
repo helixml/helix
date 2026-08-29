@@ -167,3 +167,48 @@ func (s *SpecTaskAssigneeSuite) TestStartPlanning_AssignsStarter() {
 	s.Equal(starterID, task.AssigneeID)
 	s.Equal(starterID, task.PlanningStartedBy)
 }
+
+func (s *SpecTaskAssigneeSuite) TestStartPlanning_RetryReleasesFailedLaunchSession() {
+	const (
+		starterID = "user_starter"
+		projectID = "project1"
+		taskID    = "task1"
+		sessionID = "session_failed_launch"
+	)
+
+	task := &types.SpecTask{
+		ID:                taskID,
+		ProjectID:         projectID,
+		Status:            types.TaskStatusBacklog,
+		JustDoItMode:      true,
+		PlanningSessionID: sessionID,
+		ExternalAgentID:   "agent_failed_launch",
+		ZedInstanceID:     "zed_failed_launch",
+		Metadata: map[string]interface{}{
+			"error": "failed to sync base branch",
+		},
+	}
+	project := &types.Project{ID: projectID, UserID: starterID}
+
+	s.store.EXPECT().GetSpecTask(gomock.Any(), taskID).Return(task, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(project, nil).Times(3)
+	s.store.EXPECT().UpdateSpecTask(gomock.Any(), task).DoAndReturn(
+		func(_ context.Context, updated *types.SpecTask) error {
+			s.Equal(types.TaskStatusQueuedImplementation, updated.Status)
+			s.Empty(updated.PlanningSessionID)
+			s.Empty(updated.ExternalAgentID)
+			s.Empty(updated.ZedInstanceID)
+			return nil
+		},
+	)
+	s.store.EXPECT().DeleteSession(gomock.Any(), sessionID).Return(&types.Session{ID: sessionID}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/"+taskID+"/start-planning", nil)
+	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID}))
+	rr := httptest.NewRecorder()
+
+	s.server.startPlanning(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+}

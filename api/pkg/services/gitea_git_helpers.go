@@ -30,6 +30,7 @@ var gitErrorPatterns = struct {
 	AlreadyUpToDate     []string // Not really an error, just informational
 	EmptyRepository     []string // Remote has no refs (empty repo)
 	RemoteAlreadyExists []string
+	RetryableNetwork    []string // Transient transport failures worth retrying
 }{
 	AlreadyUpToDate: []string{
 		"Already up to date",
@@ -41,6 +42,16 @@ var gitErrorPatterns = struct {
 	},
 	RemoteAlreadyExists: []string{
 		"already exists",
+	},
+	RetryableNetwork: []string{
+		"could not resolve host",
+		"temporary failure in name resolution",
+		"name or service not known",
+		"failed to connect to",
+		"connection timed out",
+		"connection reset by peer",
+		"connection refused",
+		"network is unreachable",
 	},
 }
 
@@ -69,31 +80,8 @@ type FetchOptions struct {
 
 // Fetch fetches from a remote repository using native git
 func Fetch(ctx context.Context, repoPath string, opts FetchOptions) error {
-	cmd := gitcmd.NewCommand("fetch")
-
-	if opts.Force {
-		cmd.AddArguments("-f")
-	}
-	if opts.Prune {
-		cmd.AddArguments("--prune")
-	}
-	if opts.Depth > 0 {
-		cmd.AddArguments("--depth").AddDynamicArguments(fmt.Sprintf("%d", opts.Depth))
-	}
-
-	// Add remote name
 	if opts.Remote == "" {
 		opts.Remote = "origin"
-	}
-	cmd.AddDynamicArguments(opts.Remote)
-
-	// Add branch or refspecs
-	if len(opts.RefSpecs) > 0 {
-		for _, refspec := range opts.RefSpecs {
-			cmd.AddDynamicArguments(refspec)
-		}
-	} else if opts.Branch != "" {
-		cmd.AddDynamicArguments(opts.Branch)
 	}
 
 	timeout := opts.Timeout
@@ -101,11 +89,33 @@ func Fetch(ctx context.Context, repoPath string, opts FetchOptions) error {
 		timeout = 5 * time.Minute
 	}
 
-	_, stderr, err := cmd.RunStdString(ctx, &gitcmd.RunOpts{
-		Dir:     repoPath,
-		Env:     opts.Env,
-		Timeout: timeout,
-	})
+	stderr, err := runGitFetchWithRetry(ctx, repoPath, func() (string, error) {
+		cmd := gitcmd.NewCommand("fetch")
+		if opts.Force {
+			cmd.AddArguments("-f")
+		}
+		if opts.Prune {
+			cmd.AddArguments("--prune")
+		}
+		if opts.Depth > 0 {
+			cmd.AddArguments("--depth").AddDynamicArguments(fmt.Sprintf("%d", opts.Depth))
+		}
+		cmd.AddDynamicArguments(opts.Remote)
+		if len(opts.RefSpecs) > 0 {
+			for _, refspec := range opts.RefSpecs {
+				cmd.AddDynamicArguments(refspec)
+			}
+		} else if opts.Branch != "" {
+			cmd.AddDynamicArguments(opts.Branch)
+		}
+
+		_, stderr, err := cmd.RunStdString(ctx, &gitcmd.RunOpts{
+			Dir:     repoPath,
+			Env:     opts.Env,
+			Timeout: timeout,
+		})
+		return stderr, err
+	}, waitForGitFetchRetry)
 	if err != nil {
 		// Check for "already up to date" which isn't an error
 		if matchesAnyPattern(stderr, gitErrorPatterns.AlreadyUpToDate) {
@@ -123,6 +133,62 @@ func Fetch(ctx context.Context, repoPath string, opts FetchOptions) error {
 		return fmt.Errorf("fetch failed: %w - %s", err, stderr)
 	}
 	return nil
+}
+
+func runGitFetchWithRetry(
+	ctx context.Context,
+	repoPath string,
+	run func() (string, error),
+	wait func(context.Context, time.Duration) error,
+) (string, error) {
+	for attempt := 0; ; attempt++ {
+		stderr, err := run()
+		if err == nil || !matchesAnyPattern(stderr, gitErrorPatterns.RetryableNetwork) {
+			return stderr, err
+		}
+
+		delay, ok := gitFetchRetryDelay(attempt)
+		if !ok {
+			return stderr, err
+		}
+
+		log.Warn().
+			Err(err).
+			Str("repo_path", repoPath).
+			Int("attempt", attempt+1).
+			Int("next_attempt", attempt+2).
+			Dur("retry_in", delay).
+			Msg("Git fetch hit a transient network error; retrying")
+		if err := wait(ctx, delay); err != nil {
+			return stderr, err
+		}
+	}
+}
+
+func gitFetchRetryDelay(failedAttempt int) (time.Duration, bool) {
+	delays := [...]time.Duration{
+		1 * time.Second,
+		2 * time.Second,
+		4 * time.Second,
+		8 * time.Second,
+		16 * time.Second,
+	}
+	if failedAttempt < 0 || failedAttempt >= len(delays) {
+		return 0, false
+	}
+	return delays[failedAttempt], true
+}
+
+func waitForGitFetchRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // BuildAuthenticatedURL embeds credentials into a git URL for HTTP(S) remotes
