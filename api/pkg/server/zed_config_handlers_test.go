@@ -687,3 +687,30 @@ func TestBuildOpenCodeConfigUsesCatalogueVisionCapabilities(t *testing.T) {
 	}, got.InputModalities)
 	assert.Equal(t, []types.Modality{types.ModalityText}, got.OutputModalities)
 }
+
+func TestBuildOpenCodeConfigUsesQwen38FlashNextCatalogueCapabilities(t *testing.T) {
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	apiServer := &HelixAPIServer{modelInfoProvider: modelInfoProvider}
+	assistant := &types.AssistantConfig{
+		AgentType:               types.AgentTypeZedExternal,
+		GenerationModelProvider: "ds4-flash-node06",
+		GenerationModel:         "qwen3.8-flash-next",
+		CodeAgentRuntime:        types.CodeAgentRuntimeOpenCode,
+	}
+
+	got := apiServer.buildCodeAgentConfigFromAssistant(
+		context.Background(), assistant, "http://helix-api:8080", nil,
+	)
+
+	require.NotNil(t, got)
+	assert.Equal(t, 262_144, got.MaxTokens)
+	assert.Zero(t, got.MaxOutputTokens)
+	assert.Equal(t, []types.Modality{
+		types.ModalityText,
+		types.ModalityImage,
+		types.Modality("video"),
+	}, got.InputModalities)
+	assert.Equal(t, []types.Modality{types.ModalityText}, got.OutputModalities)
+}
