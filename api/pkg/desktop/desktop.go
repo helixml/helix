@@ -437,7 +437,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// 9. Start HTTP server
 
 	httpServer := &http.Server{
-		Addr:    ":" + s.config.HTTPPort,
+		Addr:    desktopHTTPAddress(s.config.HTTPPort),
 		Handler: s.httpHandler(),
 	}
 
@@ -492,7 +492,7 @@ func (s *Server) runWorkspaceServer(ctx context.Context) error {
 	defer s.running.Store(false)
 
 	httpServer := &http.Server{
-		Addr:    ":" + s.config.HTTPPort,
+		Addr:    desktopHTTPAddress(s.config.HTTPPort),
 		Handler: s.workspaceHTTPHandler(),
 	}
 	errCh := make(chan error, 1)
@@ -515,6 +515,10 @@ func (s *Server) runWorkspaceServer(ctx context.Context) error {
 		return fmt.Errorf("shutdown workspace server: %w", err)
 	}
 	return ctx.Err()
+}
+
+func desktopHTTPAddress(port string) string {
+	return net.JoinHostPort("127.0.0.1", port)
 }
 
 // httpHandler returns the HTTP handler with all routes.
@@ -554,7 +558,8 @@ func (s *Server) registerWorkspaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/file", s.handleFile)
 	// /exec is not desktop-specific either: git identity sync on spec approval
 	// and the Claude/Codex subscription login flows all target headless
-	// containers. Its own allowlist (see exec.go) is the security boundary.
+	// containers. The server is loopback-only and reached through authenticated
+	// RevDial API routes; the command allowlist is an additional boundary.
 	mux.HandleFunc("/exec", s.handleExec)
 	mux.HandleFunc("/workspaces", s.handleWorkspaces)
 	mux.HandleFunc("/workspace/review", s.handleWorkspaceReview)
