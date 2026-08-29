@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"sync"
@@ -86,16 +87,17 @@ func main() {
 	// Start RevDial client if enabled and configured
 	// This allows the API to reach this desktop container through NAT/firewalls
 	if revdialEnabled && apiURL != "" && runnerID != "" && runnerToken != "" {
+		localAddr := net.JoinHostPort("127.0.0.1", cfg.HTTPPort)
 		logger.Info("starting RevDial client",
 			"api_url", apiURL,
 			"runner_id", runnerID,
-			"local_addr", fmt.Sprintf("localhost:%s", cfg.HTTPPort))
+			"local_addr", localAddr)
 
 		revdialClient := revdial.NewClient(&revdial.ClientConfig{
 			ServerURL:          apiURL,
 			RunnerID:           runnerID,
 			RunnerToken:        runnerToken,
-			LocalAddr:          fmt.Sprintf("localhost:%s", cfg.HTTPPort),
+			LocalAddr:          localAddr,
 			InsecureSkipVerify: true, // TODO: make configurable for enterprise CAs
 		})
 

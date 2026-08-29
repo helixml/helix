@@ -16,7 +16,7 @@ var (
 	serverURL          = flag.String("server", "", "RevDial server URL (e.g., http://api:8080/api/v1/revdial)")
 	runnerID           = flag.String("runner-id", "", "Unique runner/sandbox ID")
 	runnerToken        = flag.String("token", "", "Runner authentication token")
-	localAddr          = flag.String("local", "localhost:9876", "Local address to proxy (e.g., localhost:9876 for TCP or unix:///path/to/socket for Unix socket)")
+	localAddr          = flag.String("local", "127.0.0.1:9876", "Local address to proxy (e.g., 127.0.0.1:9876 for TCP or unix:///path/to/socket for Unix socket)")
 	insecureSkipVerify = flag.Bool("insecure", false, "Skip TLS certificate verification (env: HELIX_INSECURE_TLS)")
 )
 

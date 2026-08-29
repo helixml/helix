@@ -28,8 +28,8 @@ type ExecResponse struct {
 	PID      int    `json:"pid,omitempty"` // Only set for background commands
 }
 
-// handleExec executes a command in the container
-// This is used for benchmarking (e.g., starting vkcube) and debugging
+// handleExec executes a restricted command in the container. The HTTP server
+// is loopback-only; authenticated API handlers reach it through RevDial.
 //
 // POST /exec
 // Request body: {"command": ["vkcube"], "background": true}
@@ -60,7 +60,6 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		"ls":                       true,
 		"echo":                     true,
 		"weston-simple-egl":        true,
-		"claude":                   true,
 		"cat":                      true,
 		"test":                     true,
 		"npm":                      true, // Codex login wrapper installs the Codex CLI
@@ -72,6 +71,11 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	if !allowedCommands[cmdName] {
 		s.logger.Warn("exec: blocked disallowed command", "command", cmdName)
 		http.Error(w, fmt.Sprintf("command not allowed: %s", cmdName), http.StatusForbidden)
+		return
+	}
+	if cmdName == "cat" && !catInvocationAllowed(req.Command) {
+		s.logger.Warn("exec: blocked cat outside subscription login files", "args", req.Command)
+		http.Error(w, "cat invocation not allowed", http.StatusForbidden)
 		return
 	}
 
@@ -147,6 +151,18 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+func catInvocationAllowed(cmd []string) bool {
+	if len(cmd) != 2 || cmd[0] != "cat" {
+		return false
+	}
+	switch cmd[1] {
+	case "/home/retro/.codex/auth.json", "/tmp/codex-auth-stdout.txt", "/tmp/codex-auth-error.txt":
+		return true
+	default:
+		return false
+	}
 }
 
 // gitInvocationAllowed restricts `git` invocations to the identity-writing
