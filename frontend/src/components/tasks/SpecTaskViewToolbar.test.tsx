@@ -41,7 +41,7 @@ describe("SpecTaskViewToolbar", () => {
     }
   });
 
-  it("folds the deliberate views into the menu on a phone", () => {
+  it("keeps Desktop next to Chat and folds only the deliberate views on a phone", () => {
     isPhone = true;
     const onViewChange = vi.fn();
     render(
@@ -53,11 +53,11 @@ describe("SpecTaskViewToolbar", () => {
       />,
     );
 
-    // Only the views you flick between stay inline.
-    for (const label of ["Chat", "Browser", "Diff"]) {
+    // Desktop is a full-desktop task's main view — it stays inline next to Chat.
+    for (const label of ["Chat", "Desktop", "Browser", "Diff"]) {
       expect(screen.getByRole("button", { name: `${label} view` })).toBeInTheDocument();
     }
-    for (const label of ["Desktop", "Files", "Details"]) {
+    for (const label of ["Files", "Details"]) {
       expect(screen.queryByRole("button", { name: `${label} view` })).not.toBeInTheDocument();
     }
 

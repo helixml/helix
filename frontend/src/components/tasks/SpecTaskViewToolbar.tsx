@@ -110,9 +110,9 @@ interface ViewTab {
   /** Chat is a tab only when chat has no panel of its own. */
   chatOnly?: boolean;
   /**
-   * Folded into the overflow menu on a phone. Six tabs plus the lifecycle
-   * controls do not fit across 390px, and these three are the ones you visit
-   * deliberately rather than flick between.
+   * Folded into the overflow menu on a phone. These are the ones you visit
+   * deliberately rather than flick between. Desktop stays visible alongside
+   * Chat — full-desktop tasks are watched there constantly.
    */
   foldOnPhone?: boolean;
 }
@@ -125,7 +125,7 @@ const VIEW_TABS: ViewTab[] = [
     sessionOnly: true,
     chatOnly: true,
   },
-  { value: "desktop", label: "Desktop", icon: MonitorPlay, sessionOnly: true, foldOnPhone: true },
+  { value: "desktop", label: "Desktop", icon: MonitorPlay, sessionOnly: true },
   { value: "browser", label: "Browser", icon: Globe2, sessionOnly: true },
   { value: "changes", label: "Diff", icon: GitCompare, sessionOnly: true },
   { value: "files", label: "Files", icon: Files, sessionOnly: true, foldOnPhone: true },
