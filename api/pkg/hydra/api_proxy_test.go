@@ -1,11 +1,15 @@
 package hydra
 
 import (
+	"bufio"
+	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -38,6 +42,67 @@ func TestSandboxAPIProxyForwardsRequest(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	require.Equal(t, "proxied", string(body))
+}
+
+func TestSandboxAPIProxyStreamsServerSentEvents(t *testing.T) {
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: ready\n\n")
+		w.(http.Flusher).Flush()
+		<-release
+	}))
+	defer upstream.Close()
+
+	handler, err := newSandboxAPIProxyHandler(upstream.URL)
+	require.NoError(t, err)
+	proxy := httptest.NewServer(handler)
+	defer proxy.Close()
+
+	resp, err := http.Get(proxy.URL)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	line := make(chan string, 1)
+	go func() {
+		read, _ := bufio.NewReader(resp.Body).ReadString('\n')
+		line <- read
+	}()
+	select {
+	case got := <-line:
+		require.Equal(t, "data: ready\n", got)
+	case <-time.After(time.Second):
+		t.Fatal("first event was buffered by the sandbox API proxy")
+	}
+	close(release)
+}
+
+func TestSandboxAPIProxyRetriesListenerUntilAddressIsAvailable(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	address := occupied.Addr().String()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	server := NewServer(NewManager(t.TempDir(), t.TempDir()), "")
+	require.NoError(t, server.StartSandboxAPIProxyWithRetry(ctx, address, upstream.URL, 10*time.Millisecond))
+	require.NoError(t, occupied.Close())
+
+	require.Eventually(t, func() bool {
+		resp, requestErr := http.Get("http://" + address)
+		if requestErr != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode == http.StatusNoContent
+	}, time.Second, 10*time.Millisecond)
+
+	cancel()
+	require.NoError(t, server.Stop(context.Background()))
 }
 
 func TestSandboxAPIProxyRejectsInvalidUpstream(t *testing.T) {

@@ -1454,9 +1454,8 @@ function build-sandbox() {
   done
   echo ""
   echo "Services managed by GOW-style init system:"
-  echo "  • 40-start-dockerd.sh - starts nested dockerd + loads desktop images"
+  echo "  • 40-start-dockerd.sh - starts Docker, loads images, and enforces session egress"
   echo "  • 45-start-dns-proxy.sh - starts the sandbox DNS proxy"
-  echo "  • 46-setup-network-policy.sh - isolates session network egress"
   echo "  • 55-start-sandbox-heartbeat.sh - starts disk monitoring"
   echo "  • 60-setup-telemetry-firewall.sh - blocks agent telemetry"
   echo "  • 70-start-hydra.sh - starts Hydra and its constrained API route"

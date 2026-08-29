@@ -214,6 +214,9 @@ func TestTaskBodyShape_BashInline(t *testing.T) {
 	if !strings.Contains(task.Arguments[1], "HELIX_URL=\"${1") {
 		t.Fatalf("embedded script body doesn't reference $1 as expected")
 	}
+	if !strings.Contains(task.Arguments[1], `${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}`) {
+		t.Fatal("embedded script does not use the Bash 4.3-safe optional array expansion")
+	}
 	if task.Arguments[2] != "yd-inline" {
 		t.Fatalf("Arguments[2] = %q, want yd-inline ($0)", task.Arguments[2])
 	}

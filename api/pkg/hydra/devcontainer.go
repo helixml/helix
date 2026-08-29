@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,7 +22,6 @@ import (
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-units"
@@ -39,8 +38,9 @@ const (
 	// session container. The host-side proxy forwards only to HELIX_API_URL.
 	SandboxAPIProxyHostname       = "helix-api.internal"
 	SandboxLegacyAPIProxyHostname = "outer-api"
+	SandboxNetworkGateway         = "192.0.2.1"
 	SandboxAPIProxyPort           = 18080
-	SandboxAPIProxyListenAddress  = "192.0.2.1:18080"
+	SandboxAPIProxyListenAddress  = SandboxNetworkGateway + ":18080"
 )
 
 // GoldenCopyProgress tracks the progress of a golden cache copy operation.
@@ -510,10 +510,6 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
 	}
 
-	// Network configuration is nil for host network mode
-	// (host network mode shares the sandbox's network namespace, so no separate network config needed)
-	var networkConfig *network.NetworkingConfig
-
 	// Ensure mount source directories exist before creating container
 	for _, m := range req.Mounts {
 		// Skip volume mounts (Docker creates named volumes automatically)
@@ -552,7 +548,15 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// 2. Previous start request failed after container creation but before DB update
 	existingContainer, err := dockerClient.ContainerInspect(dockerCtx, req.ContainerName)
 	existingContainerFound := err == nil
-	if existingContainerFound && shouldMigrateContainerNetwork(existingContainer.HostConfig.NetworkMode, hostConfig.NetworkMode) {
+	if existingContainerFound && shouldMigrateContainerNetwork(existingContainer.HostConfig.NetworkMode, hostConfig.NetworkMode) && existingContainer.State.Running {
+		log.Warn().
+			Str("container_id", existingContainer.ID).
+			Str("container_name", req.ContainerName).
+			Str("old_network", string(existingContainer.HostConfig.NetworkMode)).
+			Str("new_network", string(hostConfig.NetworkMode)).
+			Msg("Deferring network migration for running container until its next restart")
+	}
+	if existingContainerFound && shouldRecreateForNetworkMigration(existingContainer.HostConfig.NetworkMode, hostConfig.NetworkMode, existingContainer.State.Running) {
 		log.Info().
 			Str("container_id", existingContainer.ID).
 			Str("container_name", req.ContainerName).
@@ -707,14 +711,14 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 
 	// Create container
-	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, nil, nil, req.ContainerName)
 	if err != nil && strings.Contains(err.Error(), "No such image") {
 		// Image disappeared from Docker (possible containerd GC or Docker daemon issue).
 		// Try to recover by pulling from whatever registry source is available.
 		recovered := dm.tryRecoverImage(dockerCtx, dockerClient, resolvedImage, req.Image)
 		if recovered {
 			// Retry container creation with the recovered image
-			resp, err = dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+			resp, err = dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, nil, nil, req.ContainerName)
 		}
 	}
 	if err != nil {
@@ -871,15 +875,12 @@ func materializeWorkspaceFiles(mounts []MountConfig, files map[string][]byte) er
 func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string {
 	env := make([]string, len(req.Env))
 	copy(env, req.Env)
-	if usesIsolatedSandboxNetwork(req.Network) {
-		// Shared BuildKit and registry are infrastructure services, not tenant
-		// APIs. Isolated sessions build through their own container engine.
-		env = removeEnvVar(env, "BUILDKIT_HOST")
-		env = removeEnvVar(env, "HELIX_REGISTRY")
-	}
+	// Shared BuildKit and registry are infrastructure services, not tenant APIs.
+	// Every supported session network is isolated and builds through its own
+	// container engine.
+	env = removeEnvVar(env, "BUILDKIT_HOST")
+	env = removeEnvVar(env, "HELIX_REGISTRY")
 	if req.RootlessContainerEngine {
-		env = removeEnvVar(env, "BUILDKIT_HOST")
-		env = removeEnvVar(env, "HELIX_REGISTRY")
 		env = overrideEnvVar(env, "HELIX_ROOTLESS_CONTAINER_ENGINE", "1")
 		env = overrideEnvVar(env, "DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock")
 		env = overrideEnvVar(env, "CONTAINER_HOST", "unix:///run/user/1000/podman/podman.sock")
@@ -1015,10 +1016,7 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// need to reach the API via the sandbox's configured URL (set during install)
 	sandboxAPIURL := os.Getenv("HELIX_API_URL")
 	if sandboxAPIURL != "" {
-		containerAPIURL := sandboxAPIURL
-		if usesIsolatedSandboxNetwork(req.Network) {
-			containerAPIURL = fmt.Sprintf("http://%s:%d", SandboxAPIProxyHostname, SandboxAPIProxyPort)
-		}
+		containerAPIURL := fmt.Sprintf("http://%s:%d", SandboxAPIProxyHostname, SandboxAPIProxyPort)
 		log.Debug().
 			Str("upstream_api_url", sandboxAPIURL).
 			Str("container_api_url", containerAPIURL).
@@ -1026,8 +1024,8 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 
 		env = overrideEnvVar(env, "HELIX_API_URL", containerAPIURL)
 		env = overrideEnvVar(env, "HELIX_API_BASE_URL", containerAPIURL)
-		env = overrideEnvVar(env, "ANTHROPIC_BASE_URL", containerAPIURL)
-		env = overrideEnvVar(env, "OPENAI_BASE_URL", strings.TrimRight(containerAPIURL, "/")+"/v1")
+		env = rewriteHelixEndpointEnv(env, "ANTHROPIC_BASE_URL", sandboxAPIURL, containerAPIURL)
+		env = rewriteHelixEndpointEnv(env, "OPENAI_BASE_URL", sandboxAPIURL, strings.TrimRight(containerAPIURL, "/")+"/v1")
 
 		// ZED_HELIX_URL needs host:port without scheme
 		zedURL := strings.TrimPrefix(containerAPIURL, "https://")
@@ -1057,6 +1055,40 @@ func overrideEnvVar(env []string, key, value string) []string {
 	return append(env, prefix+value)
 }
 
+// rewriteHelixEndpointEnv rewrites an existing provider endpoint only when it
+// points at the Helix control plane. Sandboxes may deliberately supply an
+// external OpenAI-compatible endpoint; replacing that URL would send the
+// caller's provider credential to the wrong service.
+func rewriteHelixEndpointEnv(env []string, key, sandboxAPIURL, proxyURL string) []string {
+	prefix := key + "="
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		if isHelixEndpointURL(strings.TrimPrefix(entry, prefix), sandboxAPIURL) {
+			return overrideEnvVar(env, key, proxyURL)
+		}
+		return env
+	}
+	return env
+}
+
+func isHelixEndpointURL(rawEndpoint, sandboxAPIURL string) bool {
+	endpoint, err := url.Parse(rawEndpoint)
+	if err != nil || endpoint.Hostname() == "" {
+		return false
+	}
+	host := strings.ToLower(endpoint.Hostname())
+	switch host {
+	case "localhost", "127.0.0.1", "::1", "api", "outer-api", SandboxAPIProxyHostname:
+		return true
+	}
+
+	sandboxEndpoint, err := url.Parse(sandboxAPIURL)
+	return err == nil && sandboxEndpoint.Hostname() != "" &&
+		strings.EqualFold(endpoint.Hostname(), sandboxEndpoint.Hostname())
+}
+
 func removeEnvVar(env []string, key string) []string {
 	prefix := key + "="
 	filtered := env[:0]
@@ -1082,8 +1114,6 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		return nil, fmt.Errorf("unsupported sandbox network %q", req.Network)
 	}
 
-	networkMode := sandboxNetworkMode(req.Network)
-
 	resources := container.Resources{
 		Ulimits: []*units.Ulimit{
 			{Name: "nofile", Soft: 65536, Hard: 65536},
@@ -1102,9 +1132,10 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	resources.NanoCPUs, resources.Memory, resources.MemorySwap = sandboxResourceLimits(req.VCPUs, req.MemoryMB)
 
 	hostConfig := &container.HostConfig{
-		NetworkMode: networkMode,
+		NetworkMode: SandboxNetworkName,
 		Privileged:  req.Privileged,
 		Resources:   resources,
+		DNS:         []string{sandboxDNSGateway()},
 	}
 	if req.ContainerType != DevContainerTypeHeadless {
 		hostConfig.IpcMode = "private"
@@ -1140,18 +1171,9 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		hostConfig.RestartPolicy = container.RestartPolicy{Name: "unless-stopped"}
 	}
 
-	if networkMode == SandboxNetworkName {
-		gateway := sandboxNetworkGateway()
-		if gateway == "" {
-			return nil, fmt.Errorf("cannot derive isolated sandbox network gateway")
-		}
-		hostConfig.ExtraHosts = []string{
-			SandboxAPIProxyHostname + ":" + gateway,
-			SandboxLegacyAPIProxyHostname + ":" + gateway,
-		}
-	} else {
-		// Explicit custom and host networks retain the legacy API mapping.
-		hostConfig.ExtraHosts = dm.buildExtraHosts()
+	hostConfig.ExtraHosts = []string{
+		SandboxAPIProxyHostname + ":" + SandboxNetworkGateway,
+		SandboxLegacyAPIProxyHostname + ":" + SandboxNetworkGateway,
 	}
 
 	// Build mounts
@@ -1390,52 +1412,29 @@ func usesIsolatedSandboxNetwork(requested string) bool {
 	return requested == "" || requested == "bridge" || requested == SandboxNetworkName
 }
 
-func sandboxNetworkMode(requested string) container.NetworkMode {
-	return container.NetworkMode(SandboxNetworkName)
-}
-
-func sandboxNetworkGateway() string {
-	return "192.0.2.1"
-}
-
 func shouldMigrateContainerNetwork(existing, desired container.NetworkMode) bool {
 	return desired == SandboxNetworkName && existing != desired
 }
 
-// buildExtraHosts returns Docker ExtraHosts entries (format: "hostname:ip")
-// so the desktop container can reach services on the helix compose network.
-//
-// DEPRECATED for the default-bridge desktop path: this pins a concrete IP at
-// container-creation time, which goes stale on any API restart (#2641). The
-// bridge path now resolves "api"/"outer-api" dynamically via the dns-proxy
-// (see sandboxDNSGateway). Retained only for the non-bridge fallback.
-func (dm *DevContainerManager) buildExtraHosts() []string {
-	var extraHosts []string
+func shouldRecreateForNetworkMigration(existing, desired container.NetworkMode, running bool) bool {
+	return !running && shouldMigrateContainerNetwork(existing, desired)
+}
 
-	// Resolve "api" from the sandbox's perspective (via compose DNS).
-	ips, err := net.LookupHost("api")
-	if err == nil && len(ips) > 0 {
-		apiIP := ips[0]
-
-		// "api" hostname: direct access to the outer API.
-		extraHosts = append(extraHosts, "api:"+apiIP)
-		log.Debug().Str("api_ip", apiIP).Msg("Added API host entry for dev container")
-
-		// "outer-api" hostname: same IP, but survives inner compose DNS
-		// shadowing. In Helix-in-Helix, docker compose creates its own "api"
-		// service that shadows the /etc/hosts entry. "outer-api" always points
-		// to the real outer API because compose DNS doesn't override /etc/hosts.
-		//
-		// Note: We resolve the IP here rather than using "host-gateway" because
-		// host-gateway on the sandbox's inner dockerd resolves to the sandbox's
-		// bridge gateway, not the actual host — making it unreachable.
-		extraHosts = append(extraHosts, "outer-api:"+apiIP)
-		log.Debug().Str("outer_api_ip", apiIP).Msg("Added outer-api host entry (same as api, survives H-in-H DNS shadowing)")
-	} else {
-		log.Warn().Err(err).Msg("Could not resolve 'api' hostname, container may not connect to API")
+// sandboxDNSGateway is the default bridge gateway where the existing DNS proxy
+// listens. Session containers use it explicitly so DNS_UPSTREAM and enterprise
+// resolvers continue to work on the isolated user-defined network.
+func sandboxDNSGateway() string {
+	depth := 1
+	if depthStr := os.Getenv("HELIX_DOCKER_DEPTH"); depthStr != "" {
+		if parsed, err := strconv.Atoi(depthStr); err == nil && parsed >= 1 {
+			depth = parsed
+		}
 	}
-
-	return extraHosts
+	octet := 212 + depth
+	if octet > 255 {
+		octet = 255
+	}
+	return fmt.Sprintf("10.%d.0.1", octet)
 }
 
 // drmDevice describes one GPU's host DRM nodes. Pairing render nodes

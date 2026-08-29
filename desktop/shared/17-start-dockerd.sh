@@ -192,16 +192,6 @@ echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
     # NOTE: No explicit "dns" setting — Docker inherits DNS from the desktop
     # container's /etc/resolv.conf, which chains through the sandbox's dockerd
     # to the host's DNS. This preserves enterprise DNS resolution.
-    #
-    # insecure-registries: if HELIX_REGISTRY is set, trust it for push/pull
-    # (used by docker wrapper for layer-level --load instead of tarball transfer)
-    INSECURE_REG=""
-    if [ -n "${HELIX_REGISTRY:-}" ]; then
-        INSECURE_REG=",
-    \"insecure-registries\": [\"${HELIX_REGISTRY}\"]"
-        echo "[dockerd] Adding insecure registry: ${HELIX_REGISTRY}"
-    fi
-
     mkdir -p /etc/docker
     cat > /etc/docker/daemon.json <<EOF
 {
@@ -209,7 +199,7 @@ echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
     "log-level": "warn",
     "default-address-pools": [
         {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
-    ]${INSECURE_REG}
+    ]
 }
 EOF
 
@@ -228,7 +218,7 @@ EOF
             "path": "nvidia-container-runtime",
             "runtimeArgs": []
         }
-    }${INSECURE_REG}
+    }
 }
 EOF
     fi
@@ -283,28 +273,10 @@ EOF
         echo "[dockerd] Added retro user to docker group"
     fi
 
-    # Isolated sandboxes build through their per-session inner daemon. A remote
-    # builder remains supported only when an operator explicitly supplies one
-    # on a trusted custom network.
+    # Sandboxes build through their per-session inner daemon.
     BUILDER_NAME="default"
-    if [ -n "${BUILDKIT_HOST:-}" ]; then
-        echo "[dockerd] Setting up operator-provided BuildKit builder at $BUILDKIT_HOST"
-        BUILDER_NAME="helix-shared"
-        if ! docker buildx inspect "$BUILDER_NAME" &>/dev/null; then
-            docker buildx create \
-                --name "$BUILDER_NAME" \
-                --driver remote \
-                "$BUILDKIT_HOST"
-            echo "[dockerd] Created $BUILDER_NAME builder"
-        else
-            echo "[dockerd] $BUILDER_NAME builder already exists"
-        fi
-        docker buildx use "$BUILDER_NAME" --default
-        docker buildx rm default 2>/dev/null || true
-    else
-        docker buildx use default --default
-        echo "[dockerd] Using per-session Docker builder"
-    fi
+    docker buildx use default --default
+    echo "[dockerd] Using per-session Docker builder"
 
     echo "BUILDX_BUILDER=${BUILDER_NAME}" >> /etc/environment
     cat > /etc/profile.d/helix-buildkit.sh << PROFILE_EOF
@@ -312,18 +284,7 @@ export BUILDX_BUILDER=${BUILDER_NAME}
 PROFILE_EOF
     echo "[dockerd] Set BUILDX_BUILDER=${BUILDER_NAME} globally"
 
-    # Export HELIX_REGISTRY globally so the docker wrapper can use push/pull
-    # instead of tarball --load for layer-level image transfer
-    if [ -n "${HELIX_REGISTRY:-}" ]; then
-        echo "HELIX_REGISTRY=${HELIX_REGISTRY}" >> /etc/environment
-        cat > /etc/profile.d/helix-registry.sh << REGEOF
-export HELIX_REGISTRY=${HELIX_REGISTRY}
-REGEOF
-        echo "[dockerd] Set HELIX_REGISTRY=${HELIX_REGISTRY} globally"
-    fi
-
-    # Install the docker wrapper. It is transparent for the local Docker driver
-    # and adds image-loading behavior only for an explicit remote builder.
+    # Install the docker wrapper. It is transparent for the local Docker driver.
     if [ -f /opt/helix/docker-wrapper ]; then
         cp /opt/helix/docker-wrapper /usr/local/bin/docker
         chmod +x /usr/local/bin/docker

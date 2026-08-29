@@ -41,6 +41,8 @@ type Server struct {
 	router              *mux.Router
 	apiProxyServer      *http.Server
 	apiProxyListener    net.Listener
+	apiProxyRetryCancel context.CancelFunc
+	apiProxyRetryDone   sync.WaitGroup
 }
 
 // StartSandboxAPIProxy exposes the fixed Helix API upstream on the isolated
@@ -59,25 +61,74 @@ func (s *Server) StartSandboxAPIProxy(listenAddr, rawUpstream string) error {
 	if err != nil {
 		return err
 	}
+	return s.startSandboxAPIProxy(listenAddr, rawUpstream, handler)
+}
+
+func (s *Server) startSandboxAPIProxy(listenAddr, rawUpstream string, handler http.Handler) error {
+	if s.apiProxyServer != nil {
+		return fmt.Errorf("sandbox API proxy already started")
+	}
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return fmt.Errorf("listen for sandbox API proxy on %s: %w", listenAddr, err)
 	}
 
 	s.apiProxyListener = listener
-	s.apiProxyServer = &http.Server{
+	proxyServer := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 15 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
+	s.apiProxyServer = proxyServer
 	go func() {
-		if err := s.apiProxyServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+		if err := proxyServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Error().Err(err).Msg("Sandbox API proxy server error")
 		}
 	}()
 
 	log.Info().Str("listen", listener.Addr().String()).Str("upstream", rawUpstream).
 		Msg("Sandbox API proxy started")
+	return nil
+}
+
+// StartSandboxAPIProxyWithRetry validates the upstream synchronously, then
+// retries transient listener failures without taking Hydra's lifecycle API
+// down. This handles hot deployments where dockerd has not recreated the
+// sandbox bridge address yet.
+func (s *Server) StartSandboxAPIProxyWithRetry(ctx context.Context, listenAddr, rawUpstream string, retryInterval time.Duration) error {
+	if listenAddr == "" {
+		listenAddr = SandboxAPIProxyListenAddress
+	}
+	if retryInterval <= 0 {
+		retryInterval = 2 * time.Second
+	}
+	if s.apiProxyServer != nil || s.apiProxyRetryCancel != nil {
+		return fmt.Errorf("sandbox API proxy already started")
+	}
+	handler, err := newSandboxAPIProxyHandler(rawUpstream)
+	if err != nil {
+		return err
+	}
+	retryCtx, cancel := context.WithCancel(ctx)
+	s.apiProxyRetryCancel = cancel
+	s.apiProxyRetryDone.Add(1)
+	go func() {
+		defer s.apiProxyRetryDone.Done()
+		for {
+			if err := s.startSandboxAPIProxy(listenAddr, rawUpstream, handler); err == nil {
+				return
+			} else {
+				log.Warn().Err(err).Dur("retry_in", retryInterval).Msg("Sandbox API proxy listener unavailable")
+			}
+			timer := time.NewTimer(retryInterval)
+			select {
+			case <-retryCtx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+	}()
 	return nil
 }
 
@@ -102,7 +153,6 @@ func newSandboxAPIProxyHandler(rawUpstream string) (http.Handler, error) {
 		director(req)
 		req.Host = target.Host
 	}
-	proxy.FlushInterval = -1
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, proxyErr error) {
 		log.Warn().Err(proxyErr).Str("method", r.Method).Str("path", r.URL.Path).
 			Msg("Sandbox API proxy request failed")
@@ -216,6 +266,10 @@ func (s *Server) Start(ctx context.Context) error {
 // Stop gracefully stops the server
 func (s *Server) Stop(ctx context.Context) error {
 	log.Info().Msg("Stopping Hydra server...")
+	if s.apiProxyRetryCancel != nil {
+		s.apiProxyRetryCancel()
+		s.apiProxyRetryDone.Wait()
+	}
 
 	if s.apiProxyServer != nil {
 		if err := s.apiProxyServer.Shutdown(ctx); err != nil {

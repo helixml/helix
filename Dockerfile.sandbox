@@ -258,10 +258,10 @@ RUN chmod +x /etc/cont-init.d/40-start-dockerd.sh
 COPY sandbox/05-start-dns-proxy.sh /etc/cont-init.d/45-start-dns-proxy.sh
 RUN chmod +x /etc/cont-init.d/45-start-dns-proxy.sh
 
-# Create the isolated session bridge and install its host-enforced firewall
-# before starting Hydra, which owns the dedicated control-plane proxy listener.
-COPY sandbox/06-setup-network-policy.sh /etc/cont-init.d/46-setup-network-policy.sh
-RUN chmod +x /etc/cont-init.d/46-setup-network-policy.sh
+# The existing dockerd lifecycle owns the isolated bridge and firewall. It
+# sources this library before dockerd starts and after every daemon restart.
+COPY sandbox/06-setup-network-policy.sh /usr/local/lib/helix-sandbox-network-policy.sh
+RUN chmod 0644 /usr/local/lib/helix-sandbox-network-policy.sh
 
 # Start sandbox heartbeat daemon
 # Note: RevDial client is built into Hydra daemon (see sandbox/10-start-hydra.sh)

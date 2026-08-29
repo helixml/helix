@@ -122,7 +122,7 @@ func run(cmd *cobra.Command, args []string) {
 		revDialAPIURL = os.Getenv("HELIX_API_URL")
 	}
 	if revDialAPIURL != "" {
-		if err := server.StartSandboxAPIProxy("", revDialAPIURL); err != nil {
+		if err := server.StartSandboxAPIProxyWithRetry(ctx, "", revDialAPIURL, 2*time.Second); err != nil {
 			log.Fatal().Err(err).Msg("Failed to start sandbox API proxy")
 		}
 	}

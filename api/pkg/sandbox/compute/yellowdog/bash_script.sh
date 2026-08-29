@@ -181,7 +181,7 @@ sudo docker run --rm --name "$CONTAINER_NAME" \
   -e SANDBOX_INSTANCE_ID="$SANDBOX_ID" \
   -e GPU_VENDOR="$GPU_VENDOR" \
   -e MAX_SANDBOXES="$MAX_SANDBOXES" \
-  "${EXTRA_ENV[@]}" \
+  ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"} \
   "$IMG" &
 DOCKER_PID=$!
 wait "$DOCKER_PID"

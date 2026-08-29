@@ -832,9 +832,10 @@ func (d *SettingsDaemon) rewriteHelixAPIURL(originalURL string) string {
 	return origParsed.String()
 }
 
-// rewriteHelixConfigURLs keeps all Helix-owned HTTP clients on the sandbox's
-// constrained API gateway. User-configured MCP servers are deliberately left
-// untouched because they may point at unrelated external services.
+// rewriteHelixConfigURLs keeps all Helix API-backed HTTP clients on the
+// sandbox's constrained API gateway. MCP names are not an ownership boundary:
+// project and organization MCPs use user-selected names while their URLs still
+// point at the Helix MCP proxy.
 func (d *SettingsDaemon) rewriteHelixConfigURLs(config *helixConfigResponse) {
 	if config.CodeAgentConfig != nil {
 		config.CodeAgentConfig.BaseURL = d.rewriteHelixAPIURL(config.CodeAgentConfig.BaseURL)
@@ -850,18 +851,23 @@ func (d *SettingsDaemon) rewriteHelixConfigURLs(config *helixConfigResponse) {
 		}
 	}
 
-	for name, rawServer := range config.ContextServers {
-		if !HELIX_OWNED_CONTEXT_SERVERS[name] && name != "kodit" {
-			continue
-		}
+	for _, rawServer := range config.ContextServers {
 		server, ok := rawServer.(map[string]interface{})
 		if !ok {
 			continue
 		}
-		if serverURL, ok := server["url"].(string); ok {
+		if serverURL, ok := server["url"].(string); ok && isHelixMCPURL(serverURL) {
 			server["url"] = d.rewriteHelixAPIURL(serverURL)
 		}
 	}
+}
+
+func isHelixMCPURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	return parsed.Path == "/api/v1/mcp" || strings.HasPrefix(parsed.Path, "/api/v1/mcp/")
 }
 
 // injectAvailableModels adds the configured model to the provider's available_models list.
@@ -979,12 +985,6 @@ func (d *SettingsDaemon) injectKoditAuth() {
 		koditServer["headers"] = headers
 	}
 	headers["Authorization"] = "Bearer " + d.userAPIKey
-
-	// Also rewrite localhost URLs for container networking
-	// Zed expects "url" field for HTTP context_servers
-	if serverURL, ok := koditServer["url"].(string); ok {
-		koditServer["url"] = d.rewriteHelixAPIURL(serverURL)
-	}
 
 	log.Printf("Injected user API key into Kodit context_server Authorization header")
 }
