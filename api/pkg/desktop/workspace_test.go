@@ -79,6 +79,10 @@ func newDesktopTestServer(t *testing.T, workspaceDir string) *Server {
 	return &Server{}
 }
 
+func TestDesktopHTTPAddressUsesLoopback(t *testing.T) {
+	require.Equal(t, "127.0.0.1:9876", desktopHTTPAddress("9876"))
+}
+
 func TestHandleWorkspacesIncludesAgentPath(t *testing.T) {
 	workspaceDir, _, _ := setupTestRepoWithRemote(t, "testproj", false)
 	s := newDesktopTestServer(t, workspaceDir)

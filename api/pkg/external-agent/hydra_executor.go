@@ -446,41 +446,38 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	// Docker-in-desktop mode: the desktop container runs its own dockerd with a
-	// volume-backed /var/lib/docker. No per-session sibling dockerd or network
-	// bridging needed. This is simpler and supports arbitrary DinD nesting.
-	//
-	// The init script 17-start-dockerd.sh inside the desktop container detects
-	// the volume mount and starts dockerd automatically.
+	isolation := externalAgentIsolation(containerType)
 	log.Info().
 		Str("session_id", agent.SessionID).
-		Msg("Docker-in-desktop mode: desktop will run its own dockerd")
+		Bool("privileged", isolation.privileged).
+		Bool("rootless_container_engine", isolation.rootlessContainerEngine).
+		Msg("Configuring per-session container engine")
 
 	// Build mounts - includes Docker volume for /var/lib/docker
 	mounts := h.buildMounts(agent, workspaceDir, containerType)
 
 	// Create dev container request
 	// NOTE: GPUVendor is empty - Hydra reads it from its own GPU_VENDOR env var
-	// Privileged mode is required for the inner dockerd (overlay2 needs it)
 	req := &hydra.CreateDevContainerRequest{
-		SessionID:      agent.SessionID,
-		Image:          image,
-		ContainerName:  containerName,
-		Hostname:       containerName,
-		Env:            env,
-		Mounts:         mounts,
-		WorkspaceFiles: agent.WorkspaceFiles,
-		DisplayWidth:   agent.DisplayWidth,
-		DisplayHeight:  agent.DisplayHeight,
-		DisplayFPS:     agent.DisplayRefreshRate,
-		ContainerType:  hydra.DevContainerType(containerType),
-		UserID:         agent.UserID,
-		Network:        "bridge",
-		Privileged:     true, // Required for inner dockerd (docker-in-desktop mode)
-		ProjectID:      agent.ProjectID,
-		GoldenBuild:    agent.GoldenBuild,
-		VCPUs:          agent.VCPUs,
-		MemoryMB:       agent.MemoryMB,
+		SessionID:               agent.SessionID,
+		Image:                   image,
+		ContainerName:           containerName,
+		Hostname:                containerName,
+		Env:                     env,
+		Mounts:                  mounts,
+		WorkspaceFiles:          agent.WorkspaceFiles,
+		DisplayWidth:            agent.DisplayWidth,
+		DisplayHeight:           agent.DisplayHeight,
+		DisplayFPS:              agent.DisplayRefreshRate,
+		ContainerType:           hydra.DevContainerType(containerType),
+		UserID:                  agent.UserID,
+		Network:                 "bridge",
+		Privileged:              isolation.privileged,
+		RootlessContainerEngine: isolation.rootlessContainerEngine,
+		ProjectID:               agent.ProjectID,
+		GoldenBuild:             agent.GoldenBuild,
+		VCPUs:                   agent.VCPUs,
+		MemoryMB:                agent.MemoryMB,
 	}
 
 	// Create dev container via Hydra
@@ -1562,6 +1559,18 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	return env
 }
 
+type containerIsolation struct {
+	privileged              bool
+	rootlessContainerEngine bool
+}
+
+func externalAgentIsolation(containerType string) containerIsolation {
+	if containerType == "headless" {
+		return containerIsolation{rootlessContainerEngine: true}
+	}
+	return containerIsolation{privileged: true}
+}
+
 func setContainerEnv(env []string, key, value string) []string {
 	prefix := key + "="
 	for i, entry := range env {
@@ -1605,13 +1614,14 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		},
 	}
 
-	// Docker-in-desktop: mount a named volume for the inner dockerd's data.
-	// The desktop's 17-start-dockerd.sh init script detects this mountpoint
-	// and starts dockerd automatically. No docker.sock mount needed.
+	containerDataDestination := "/var/lib/docker"
+	if containerType == "headless" {
+		containerDataDestination = "/home/retro/.local/share/containers"
+	}
 	mounts = append(mounts, hydra.MountConfig{
 		Source:      fmt.Sprintf("docker-data-%s", agent.SessionID),
-		Destination: "/var/lib/docker",
-		Type:        "volume", // Docker named volume, backed by host ext4
+		Destination: containerDataDestination,
+		Type:        "volume",
 	})
 
 	// Shared cache for admin-pinned agent binaries (currently opencode).

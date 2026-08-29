@@ -107,6 +107,12 @@ type CreateDevContainerRequest struct {
 	// Privileged mode (required for docker-in-desktop: inner dockerd needs it)
 	Privileged bool `json:"privileged,omitempty"`
 
+	// RootlessContainerEngine enables the rootless Podman service used by
+	// unprivileged headless agents. Hydra supplies only the user-namespace
+	// devices and environment required by that service; desktop dockerd keeps
+	// using Privileged instead.
+	RootlessContainerEngine bool `json:"rootless_container_engine,omitempty"`
+
 	// ProjectID for golden Docker cache lookup (per-project overlayfs)
 	ProjectID string `json:"project_id,omitempty"`
 

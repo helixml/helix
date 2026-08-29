@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	dockertypes "github.com/docker/docker/api/types"
+	"github.com/stretchr/testify/require"
 )
 
 func TestImageTag(t *testing.T) {
@@ -94,6 +95,141 @@ func TestBuildEnvHeadlessOmitsDisplayAndGPU(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestBuildHostConfigHeadlessUsesDockerSecurityDefaults(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeHeadless,
+		Privileged:    false,
+	})
+	require.NoError(t, err)
+	require.False(t, hostConfig.Privileged)
+	require.Empty(t, hostConfig.CapAdd)
+	require.Equal(t, []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}, []string(hostConfig.CapDrop))
+	require.Empty(t, hostConfig.SecurityOpt)
+	require.Empty(t, hostConfig.IpcMode)
+	require.Zero(t, hostConfig.ShmSize)
+	require.Empty(t, hostConfig.Resources.Devices)
+}
+
+func TestBuildHostConfigRootlessContainerEngine(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:           DevContainerTypeHeadless,
+		RootlessContainerEngine: true,
+	})
+	require.NoError(t, err)
+	require.False(t, hostConfig.Privileged)
+	require.Equal(t, []string{"SYS_ADMIN"}, []string(hostConfig.CapAdd))
+	require.Equal(t, []string{"SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}, []string(hostConfig.CapDrop))
+	require.Equal(t, []string{"seccomp=unconfined"}, hostConfig.SecurityOpt)
+	require.NotNil(t, hostConfig.MaskedPaths)
+	require.Empty(t, hostConfig.MaskedPaths)
+	require.NotNil(t, hostConfig.ReadonlyPaths)
+	require.Empty(t, hostConfig.ReadonlyPaths)
+	require.Empty(t, hostConfig.IpcMode)
+	require.Zero(t, hostConfig.ShmSize)
+	require.Len(t, hostConfig.Resources.Devices, 2)
+	require.Equal(t, "/dev/fuse", hostConfig.Resources.Devices[0].PathOnHost)
+	require.Equal(t, "/dev/fuse", hostConfig.Resources.Devices[0].PathInContainer)
+	require.Equal(t, "rwm", hostConfig.Resources.Devices[0].CgroupPermissions)
+	require.Equal(t, "/dev/net/tun", hostConfig.Resources.Devices[1].PathOnHost)
+	require.Equal(t, "/dev/net/tun", hostConfig.Resources.Devices[1].PathInContainer)
+	require.Equal(t, "rwm", hostConfig.Resources.Devices[1].CgroupPermissions)
+}
+
+func TestBuildHostConfigRejectsInvalidRootlessContainerEngineModes(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	_, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:           DevContainerTypeUbuntu,
+		RootlessContainerEngine: true,
+	})
+	require.EqualError(t, err, "rootless container engine requires a headless container")
+
+	_, err = dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType:           DevContainerTypeHeadless,
+		Privileged:              true,
+		RootlessContainerEngine: true,
+	})
+	require.EqualError(t, err, "rootless container engine cannot run in privileged mode")
+}
+
+func TestBuildEnvRootlessContainerEngine(t *testing.T) {
+	t.Setenv("BUILDKIT_HOST", "tcp://buildkit:1234")
+	t.Setenv("HELIX_REGISTRY", "registry:5000")
+
+	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
+		ContainerType:           DevContainerTypeHeadless,
+		RootlessContainerEngine: true,
+		Env: []string{
+			"DOCKER_HOST=tcp://attacker:2375",
+			"CONTAINER_HOST=tcp://attacker:2375",
+			"DOCKER_BUILDKIT=1",
+			"BUILDX_BUILDER=attacker",
+			"BUILDKIT_HOST=tcp://attacker:1234",
+			"HELIX_REGISTRY=attacker:5000",
+		},
+	})
+
+	require.Equal(t, 1, countEnvVar(env, "HELIX_ROOTLESS_CONTAINER_ENGINE"))
+	require.Contains(t, env, "HELIX_ROOTLESS_CONTAINER_ENGINE=1")
+	require.Equal(t, 1, countEnvVar(env, "DOCKER_HOST"))
+	require.Contains(t, env, "DOCKER_HOST=unix:///run/user/1000/podman/podman.sock")
+	require.Equal(t, 1, countEnvVar(env, "CONTAINER_HOST"))
+	require.Contains(t, env, "CONTAINER_HOST=unix:///run/user/1000/podman/podman.sock")
+	require.Equal(t, 1, countEnvVar(env, "DOCKER_BUILDKIT"))
+	require.Contains(t, env, "DOCKER_BUILDKIT=0")
+	require.Equal(t, 1, countEnvVar(env, "BUILDX_BUILDER"))
+	require.Contains(t, env, "BUILDX_BUILDER=helix-rootless")
+	require.Zero(t, countEnvVar(env, "BUILDKIT_HOST"))
+	require.Zero(t, countEnvVar(env, "HELIX_REGISTRY"))
+}
+
+func TestBuildMountsRootlessContainerEngineSkipsSharedBuildKitCache(t *testing.T) {
+	dataDir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dataDir, SharedBuildKitCacheDir), 0o755))
+	dm := &DevContainerManager{manager: &Manager{dataDir: dataDir}}
+
+	mounts, err := dm.buildMounts(&CreateDevContainerRequest{RootlessContainerEngine: true})
+	require.NoError(t, err)
+	for _, item := range mounts {
+		require.NotEqual(t, "/buildkit-cache", item.Target)
+	}
+
+	mounts, err = dm.buildMounts(&CreateDevContainerRequest{})
+	require.NoError(t, err)
+	require.Len(t, mounts, 1)
+	require.Equal(t, "/buildkit-cache", mounts[0].Target)
+}
+
+func TestBuildHostConfigDesktopUsesPrivateIPC(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeUbuntu,
+		Privileged:    true,
+	})
+	require.NoError(t, err)
+	require.True(t, hostConfig.Privileged)
+	require.Empty(t, hostConfig.CapAdd)
+	require.Empty(t, hostConfig.CapDrop)
+	require.Equal(t, []string{"seccomp=unconfined", "apparmor=unconfined"}, hostConfig.SecurityOpt)
+	require.Equal(t, "private", string(hostConfig.IpcMode))
+	require.EqualValues(t, desktopShmSizeBytes, hostConfig.ShmSize)
+}
+
+func countEnvVar(env []string, key string) int {
+	count := 0
+	for _, entry := range env {
+		if strings.HasPrefix(entry, key+"=") {
+			count++
+		}
+	}
+	return count
 }
 
 func TestResolveRegistryImage(t *testing.T) {
