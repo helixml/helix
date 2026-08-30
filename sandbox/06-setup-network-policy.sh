@@ -136,8 +136,14 @@ helix_apply_sandbox_network_policy() {
         -p tcp --dport 53 -j RETURN
 
     # macOS/UTM exposes only the VideoToolbox frame-export listener through
-    # QEMU's SLiRP gateway. Do not allow the rest of 10.0.2.2.
-    if [ -n "${HELIX_FRAME_EXPORT_PORT:-}" ]; then
+    # QEMU's SLiRP gateway. The installer exports the port on every platform,
+    # so require the virtio runtime before opening this exception. Do not allow
+    # the rest of 10.0.2.2.
+    if [ "${GPU_VENDOR:-}" = "virtio" ]; then
+        if [ -z "${HELIX_FRAME_EXPORT_PORT:-}" ]; then
+            echo "❌ HELIX_FRAME_EXPORT_PORT is required for virtio frame export"
+            return 1
+        fi
         case "$HELIX_FRAME_EXPORT_PORT" in
             ''|*[!0-9]*) echo "❌ Invalid HELIX_FRAME_EXPORT_PORT"; return 1 ;;
         esac

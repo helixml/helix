@@ -41,8 +41,9 @@ skipped when the kernel has IPv6 disabled.
   user-selected MCP name. Direct third-party MCP URLs are unchanged.
 - Provider base URLs are rewritten only when they already target Helix; direct
   external OpenAI-compatible and Anthropic endpoints are preserved.
-- macOS permits only the configured frame-export TCP port on `10.0.2.2`, not the
-  surrounding private range.
+- macOS permits only the configured frame-export TCP port on `10.0.2.2` when
+  the sandbox runtime is explicitly `GPU_VENDOR=virtio`, not the surrounding
+  private range. Linux ignores the installer's frame-port environment value.
 - A running pre-upgrade session is not killed during reconciliation. It keeps
   its current network until its next normal restart; a stopped legacy container
   is recreated on the isolated bridge.
