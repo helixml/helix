@@ -690,7 +690,7 @@ export default function SpecTaskActionButtons({
     );
   }
 
-  // Implementation phase: Reject + Open PR + View Spec buttons
+  // Implementation phase: Open PR + View Spec buttons
   if (task.status === "implementation") {
     const hasDesignDocs = !!task.design_docs_pushed_at;
 
@@ -740,25 +740,6 @@ export default function SpecTaskActionButtons({
     if (isInline) {
       return (
         <Box sx={inlineRowSx}>
-          <CompactActionButton
-            density={density}
-            tooltip={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""}
-            variant="outlined"
-            color="error"
-            disabled={isArchived || isArchiving || !hasPushed}
-            icon={
-              isArchiving ? (
-                <CircularProgress size={16} color="inherit" />
-              ) : (
-                <CloseIcon size={18} />
-              )
-            }
-            label={isArchiving ? "Rejecting..." : "Reject"}
-            onClick={(e) => {
-              e.stopPropagation();
-              onReject?.(e.shiftKey);
-            }}
-          />
           <CompactActionButton
             density={density}
             tooltip={openPRTooltip}

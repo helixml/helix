@@ -1375,13 +1375,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         variant={variant}
         onStartPlanning={handleStartPlanning}
         onReviewSpec={handleReviewSpec}
-        onReject={(shiftKey) => {
-          if (shiftKey) {
-            performArchive();
-          } else {
-            setArchiveConfirmOpen(true);
-          }
-        }}
         hasExternalRepo={projectRepositories.some(
           (repository) =>
             repository.is_external ||
@@ -1392,7 +1385,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           (repository) => repository.external_type,
         )?.external_type}
         isStartingPlanning={isStartingPlanning}
-        isArchiving={isArchiving}
       />
     );
   };
