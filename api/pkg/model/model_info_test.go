@@ -59,6 +59,37 @@ func Test_GetQwen38VisionModalities(t *testing.T) {
 	}
 }
 
+func Test_GetQwen38FlashNextVisionModalities(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	for _, modelID := range []string{
+		"qwen3.8-flash-next",
+		"qwen/qwen3.8-flash-next",
+	} {
+		t.Run(modelID, func(t *testing.T) {
+			modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+				Provider: "custom-provider",
+				Model:    modelID,
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, "qwen3.8-flash-next", modelInfo.ProviderModelID)
+			assert.Equal(t, "qwen/qwen3.8-flash-next", modelInfo.Slug)
+			assert.Equal(t, []types.Modality{
+				types.ModalityText,
+				types.ModalityImage,
+				types.Modality("video"),
+			}, modelInfo.InputModalities)
+			assert.Equal(t, []types.Modality{types.ModalityText}, modelInfo.OutputModalities)
+			assert.Equal(t, 262_144, modelInfo.ContextLength)
+			assert.Zero(t, modelInfo.MaxCompletionTokens)
+			assert.Empty(t, modelInfo.Pricing.Prompt)
+			assert.Empty(t, modelInfo.Pricing.Completion)
+		})
+	}
+}
+
 func Test_GetHaiku35(t *testing.T) {
 	b, err := NewBaseModelInfoProvider()
 	assert.NoError(t, err)
