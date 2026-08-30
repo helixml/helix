@@ -161,7 +161,7 @@ export interface SpecTaskViewToolbarProps {
   showChatTab?: boolean;
   /** Headless tasks have no stream and cannot be converted to a desktop. */
   showDesktop?: boolean;
-  /** Status-specific action buttons (Reject / Open PR / …). */
+  /** Status-specific action buttons (Open PR / …). */
   renderActions?: (density: ToolbarDensity) => ReactNode;
 
   onToggleTerminal?: () => void;
