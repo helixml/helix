@@ -141,3 +141,29 @@ session key 403s at `/mcp/helix-org`, 200 + tool list at `/mcp/helix-tasks`.
 No row-visible capability state; no push to running desktops
 (refresh-at-restart/resume on rev); no bound-agent lookup cache (orgs small;
 memoize per request only); no UI; no values in rows/env.
+
+## Implementation Notes (as built)
+
+- `SubjectForCaller` lives in `api/pkg/org/interfaces/mcptools/subject.go`
+  rather than `domain/tool`: the domain layer must not import
+  `infrastructure/runtime` (where the ctx carriers live), and mcptools is
+  the single package every classified tool implementation already shares.
+- The "same code path" rule is enforced structurally:
+  `(*HelixAPIServer).specTaskToolSurface` in `mcp_backend_spectask.go` is
+  the only composer. `specTaskAgentTools` (rev/REST view) and the MCP
+  backend's serve decision both call it; the backend additionally stashes
+  the bond via `runtime.WithBoundWorker` before `ServeMCPForCaller`.
+- Class-(c) enforcement = served-list exclusion (`mcptools.
+  SpecTaskBlockedTools`). Org MCP dispatch authorizes solely by tool
+  presence in the per-caller served registry, so unserved names are
+  uncallable by construction (zero DB writes), and tools/list can never
+  drift from reality. Bot surfaces are untouched.
+- Judgment calls recorded with the data: `create_trigger`, processors,
+  sandbox admin, `sandbox_ssh_access` → (c); `server_ssh_access` → (a)
+  (same capability class as `server_run_command`); `get_bot_project` →
+  (b); membership-gated service reads (`list_projects`, sandboxes) stay
+  (b) and fail closed for tasks until their services learn the principal.
+- `bot_log` attaches the subject's transcript but stamps
+  `created_by = inv.Caller.ID()` (the task) — audit vs subject rule.
+- Live e2e record incl. env caveats is in tasks.md item 12; the
+  reviewer-facing summary + tool table is in `pull_request_helix.md`.
