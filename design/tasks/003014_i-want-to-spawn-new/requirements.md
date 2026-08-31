@@ -130,14 +130,14 @@ Identity and revocation model (unchanged since the design converged):
 
 ## Open Questions
 
-1. **Spawned-vs-UI invisibility (accepted consequence):** with no stamp, the
-   task row no longer shows org capability at all — it's visible only in the
-   runtime tool list and audit trail, and UI-created tasks in owned projects
-   are silently entitled (round-3 semantics). This is exactly the
-   "just pass the MCP" simplicity you asked for; if you ever want row-visible
-   capability back, say so and the round-6/7 wildcard-stamp design returns.
+None — all resolved.
 
 ## Resolved questions
+
+- **Spawned-vs-UI invisibility (final round)** — accepted by review ("that's
+  absolutely fine"): org capability is runtime-visible (tool list) and
+  audit-visible only; UI-created tasks in owned projects are silently entitled.
+  No stamp, no row-visible capability, no creator column.
 
 - **Terminology/machinery (round 7)** — no "armed" concept; server-side
   derivation decides the surface; URL mount happens iff entitled. Supersedes
