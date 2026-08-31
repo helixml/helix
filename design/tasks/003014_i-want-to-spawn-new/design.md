@@ -1,134 +1,162 @@
-# Design: Grant Worker Secrets to Spawned Spec Tasks
+# Design: Give Spawned Spec Tasks Their Agent's Tool Access
 
-## Two layers, per review
+## Product rule (confirmed by review, final)
 
-- **Grant layer — explicit, at creation.** `create_spectask` puts the pair
-  `list_secrets`/`get_secret` onto the created task's EXISTING `agent_tools`
-  list (jsonb `[]string`, already round-tripped through API/UI/sanitizer). No
-  schema, no tool argument: the platform records the grant. Visible in
-  `GET task`, the REST agent-tools view, tools/list. Un-armed tasks — including
-  in Agent-owned projects — see nothing: no passive detection of who gets
-  tools.
-- **Authority layer — derivation at read time.** *Whose* bindings a call
-  returns = the single Agent whose runtime home project is the task's project
-  (fail-closed). Hidden magic is limited here, and it ends in loud errors.
+An armed task sees **its Agent's live tool set** — the whole org MCP surface
+the bound Agent holds (which normally includes `list_secrets`/`get_secret`,
+`chat`, events, etc.) on top of the task's own spec-task tools. Supersedes the
+earlier secrets-pair scoping. Blast radius = the Agent's own surface by
+construction (task lives in the Agent's project, acts with the Agent's grants);
+the delta vs the Agent's desktop is strictly positive: calls are attributed to
+the specific task (`ActorSpecTask`), never hidden inside the Bot.
 
 ## Current state (verified in code, `api/pkg/`)
 
-- `workersecret.Binding` (org, worker, name) + `workersecrets.Service`:
-  `Descriptors` (metadata only) / `Get` (fresh resolve, `Recorder` audit).
-- Bot baseline carries the pair via `mcptools.BaseReadTools`; per-call value
-  resolution; no env fallback by design.
-- `mcptools.SpecTaskAgentTools` = spec-task tool catalogue;
-  `server/mcp_backend_spectask.go` serves it at `/api/v1/mcp/helix-tasks`
-  (caller `specTaskCaller{ID: taskID}`, `ActorSpecTask`, `ProjectPrincipal`
-  with ProjectID on ctx; visible = `(project.AgentTools ∪ task.AgentTools) ∩
-  catalogue`). `sanitizeAgentTools` (`agent_tools_handlers.go:34`) filters by
-  the SAME catalogue predicate, and `specTaskAgentTools(ctx, session)` feeds
-  the zed-config `AgentToolsRev` mount check (`zed_config_handlers.go:193/538`)
-  and the REST view. **Adding the pair to the catalogue makes all of these flow
-  off the stored grant with zero new logic.**
-- Org MCP server audits every invocation: `newMCPAuditEntry(caller, toolName,
-  args)` + success/failure (`org/interfaces/server/mcp.go:168+`) — creator
-  provenance for "who armed this task" already exists as an audit fact
-  (Bot actor on `create_spectask`); `workersecrets.Service` recorder covers the
-  reads.
-- Bot→own-project: bot nodes `orgStore.Nodes.List(orgID)` +
-  `LoadState(b).ProjectID`; `Bot.ProjectIDs` is a *managed* allowlist — never
-  ownership.
-- SpecTask creation for org: `infrastructure/runtime/helix.SpecTasks.Create`
-  (all MCP `create_spectask` callers pass through it — Bot or task-principal).
-
-## Rejected (accumulated; full prose in requirements.md)
-
-- **Silently surfacing tools for any task in an Agent-owned project** —
-  round-5 rejection: hidden functionality; grants must be carried state.
-- **New provenance column** — round-3 rejection (creator already in audit;
-  grant fits an existing column). If display of the creator name on the row is
-  ever wanted, that is exactly one column — kept out until requested.
-- **Worker `helix-org` key/URL handed to the task** — full impersonation
-  (`mcp_backend_helix_org.go:50` authorizes on the key session's
-  `OrgWorkerID`).
-- **`secret_grants` arg / boot env / copied bindings** — earlier rounds.
+- **Surface mechanics are already catalogue/string driven.**
+  `server/mcp_backend_spectask.go` serves `/api/v1/mcp/helix-tasks` for task
+  keys (`specTaskCaller{ID: taskID}`, `ActorSpecTask`, `ProjectPrincipal` on
+  ctx) with tools = `(project.AgentTools ∪ task.AgentTools) ∩
+  mcptools.SpecTaskAgentTools`; `types.EffectiveAgentTools` unions;
+  `sanitizeAgentTools` (`agent_tools_handlers.go:34`) filters names through
+  `IsSpecTaskAgentTool`. `specTaskAgentTools(ctx, session)`
+  (`agent_tools_handlers.go:54`, session→task→project, nil for non-org) feeds
+  BOTH `GenerateZedMCPConfig` zed-config sites (`zed_config_handlers.go:193/538`
+  → `ContextServers["helix-tasks"]` mounted when `len(specTaskTools) > 0`, URL
+  cache-busted via `AgentToolsRev`) and the REST view (`:71`). Planning prompt
+  section: `services.BuildAgentToolsSection(project.AgentTools,
+  task.AgentTools)` (`spec_driven_task_service.go:409`,
+  `agent_instruction_service.go:646`).
+- **Agent tool state is live and queryable**: `Bot.Tools` is the Bot's live MCP
+  surface (reconciler prunes unknown names); org bots list via
+  `orgStore.Nodes.List(orgID)`; bot home project via `LoadState(b).ProjectID`
+  (`infrastructure/runtime/helix`, state.go); `Bot.ProjectIDs` is a managed
+  allowlist — never ownership.
+- **Every org MCP invocation is audited** with caller + args
+  (`org/interfaces/server/mcp.go:168+`), so the whole "who did what as which
+  task" trail exists for free once tasks call the same in-process registry.
+- Spec-task callers ALREADY execute org tools through this registry today
+  (the spec-task set) — the machinery for a project-principal `tool.Caller`
+  exists; what changes is which set is served and how "acts-as-caller" tools
+  interpret a delegated caller.
 
 ## Design
 
-### 1. Catalogue membership (`mcptools/defaults.go`)
+### 1. Arm marker: `"*"` in the existing `agent_tools` (no schema)
 
-Add `GetSecretName`, `ListSecretsName` to `SpecTaskAgentTools`. Every existing
-mechanism keys off catalogue membership: sanitize keeps the names,
-`EffectiveAgentTools`+backend intersect let them through ONLY where present in
-project/task lists, `len(specTaskTools) > 0` mounts `helix-tasks` for an
-armed task with nothing else, `AgentToolsRev` flips on task change. No
-special-case unions anywhere.
+`create_spectask` → `helix.SpecTasks.Create` (the one port funnel for every org
+spawn path, Bot or task principal) appends `"*"` to the new task's
+`AgentTools` if absent. `"*"` is not a registry name, so existing
+sanitize/intersect logic naturally drops it from *tool resolution*; the two
+surface choke points special-case it in the raw list before sanitizing.
+Admin can add/remove `"*"` via `agent_tools` REST update (same field the UI
+already edits). This is the round-5 "intentional, recorded at creation,
+visible on the task" requirement, generalized: the row literally says the task
+runs with all of its agent's tools.
 
-### 2. Grant at creation (`infrastructure/runtime/helix/spectasks.go` `Create`)
+### 2. Two org helpers (new, `infrastructure/runtime/helix`)
 
-Append `runtime.SecretToolNames = []string{string(mcptools.GetSecretName),
-string(mcptools.ListSecretsName)}`-equivalent literals (use the tool constants
-where imports allow) to the new task's `AgentTools`, deduped, for **every**
-port-level Create (Bot-spawned and task-spawned sub-tasks — both intentionally
-armed), before persisting. REST/UI creation never stamps. This is the whole
-"intentional" mechanism: one append in one funnel + a description note on
-`create_spectask` ("grants this task `list_secrets`/`get_secret`, scoped to
-your credentials at time of use").
+```go
+// single Agent whose LoadState home project == projectID; typed ErrNoBoundAgent
+// at 0 or ambiguous (>1, WARN). Ownership only — never Bot.ProjectIDs.
+func BoundAgentForProject(ctx, st *store.Store, orgID, projectID string) (orgchart.NodeID, error)
+// live tool names of an Agent node (Nodes.Get → Node.Tools), nil-safe.
+func AgentToolNames(ctx, st *store.Store, orgID string, nodeID orgchart.NodeID) ([]tool.Name, error)
+```
 
-### 3. Authority at invocation (`mcptools/get_secret.go`, `list_secrets.go`)
+Wired as small closures where needed (composition root `server/helix_org.go`
+pattern) so `mcptools` stays store-free.
 
-When `ProjectPrincipalFromContext(ctx)` is set (always for task callers, never
-Bots): require the project principal's `ProjectID`; resolve the owning Agent via
-a new `BoundAgentForProject(ctx, orgStore, orgID, projectID) (NodeID, error)`
-in `infrastructure/runtime/helix` (`Nodes.List`→Bot filter→`LoadState` match on
-home project; typed errors: none / ambiguous-with-WARN, both fail closed;
-ownership only, never `ProjectIDs`); pass that id + `inv.Caller.OrganizationID()`
-into the existing `workersecrets.Service`; audit `Recorder` still logs
-`inv.Caller.ID()` (task) as actor. Surface grant check for cheap defense:
-confirm the tool called is in the task's `AgentTools` (stale cache defense;
-tools/list already governs). Unbound/no-tool → distinct clean errors; never
-fall back to Bot semantics. Bot callers: unchanged code path.
-(Deps seam: one `func(ctx, orgID, projectID) (NodeID, error)` closure wired in
-`server/helix_org.go` keeps the interface package store-free, per its existing
-pattern.)
+### 3. Surface = own tools ∪ armed(live agent tools)
 
-### 4. Prompt (`services/spec_task_prompts.go` + `BuildAgentToolsSection` callers)
+At the choke points (keep ONE formula, implement identically):
 
-`BuildAgentToolsSection(projectTools, taskTools)` already receives the lists
-that now may contain the pair. Filter `list_secrets`/`get_secret` from the
-DELEGATION enumeration (so an armed-without-delegation task is never told it
-can spawn), and append the dedicated hint section when those names are
-present: "Your agent armed this task with credential tools — `list_secrets`
-for names/usage, `get_secret` immediately before an authenticated operation."
-Both services call sites (409, 646) get it automatically; no org-store access
-needed in services. `types.EffectiveAgentTools` unchanged.
+```
+own   = EffectiveAgentTools(project.AgentTools, task.AgentTools \ {"*"}) ∩ SpecTaskAgentTools
+armed = task.AgentTools contains "*": AgentToolNames(BoundAgentForProject(project)) else ∅
+surface = union(own, armed)   // deduped, order-stable for rev stability
+```
 
-### 5. Guardrails & invariants
+- `server/agent_tools_handlers.go::specTaskAgentTools` — add the armed branch
+  (org handles reachable from the server via the org-handler composition). This
+  single change flows to mount + `AgentToolsRev` (so an Agent tool edit flips
+  the task's rev at the task's next zed-config fetch = next start/resume, the
+  normal context-server refresh point) and to the REST view; sanitization of
+  `own` is unchanged, `armed` names are already reconciled-live registry names.
+- `server/mcp_backend_spectask.go::eligibleSpecTaskTools` — same formula so
+  served tools/list == rev input == view. Served via the existing
+  `ServeMCPForCaller(w, r, caller, tools)` — registry owns handlers; every
+  `agent_tools` name is a registered tool by construction (reconciler pruned).
+- Unarmed ⇒ formula = today exactly (no passive surfacing; the Agent-owned
+  project without a stamp sees nothing).
 
-- Never write `Metadata.OrgWorkerID` on spec-task sessions; a test asserts the
-  helix-org backend still 403s task keys while helix-tasks serves armed tasks.
-- Manual REST edits of `agent_tools` can intentionally remove/re-add the pair;
-  resolution stays project-owner-scoped, so a manual add is equivalent to the
-  Bot stamp (project's own Agent secrets only).
-- Armed-but-broken (agent fired / project unbound / secret revoked) fails at
-  call with clear errors; stamp remains visible — loud, not silent.
-- Sub-tasks get armed by stamping too; a sub-task in a project owned by agent P
-  resolves to P (never the parent-task spawner's set) — credentials don't drift
-  across projects.
+### 4. Delegation identity: on-behalf-of bound Agent (the risky part — audit per tool)
 
-### 6. Tests
+Backend stashes the resolved `NodeID` on ctx
+(`runtime.WithBoundWorker` + `BoundWorkerFromContext`, sibling of
+`ProjectPrincipal` in `infrastructure/runtime/principal.go`). Add one helper
+used by tools: `tool.SubjectForCaller(ctx, caller) NodeID` = bound worker for
+ProjectPrincipal callers, else `caller.ID()` (Bots unchanged). Tools resolve
+their subject through it for anything keyed on caller identity — streams
+`chat` posts as the Agent, `managers`/`reports` walk the Agent's line,
+`ask_human`/`dm` originate from the Agent, secret reads resolve the Agent's
+bindings (same helper — replaces the round-4 secrets-only branch).
+Mandate: **every** tool reachable via `Bot.Tools` is classified + tested as:
+(1) on-behalf-of (subject → bound Agent), (2) task-scoped (the spec-task set —
+keys to `caller.ID()` = task id), or (3) unsupported-for-delegated-callers —
+must return a clean error with zero side effects (e.g. anything requiring the
+caller to be a live desktop node if no sensible bound-Subject behavior exists;
+`bot_log` of "me" = the bound Agent's log). Fail closed, never half-work:
+implementation PR must enumerate the catalogue and mark each tool (table in the
+PR description), with at least the representative tests below.
 
-- `helix/spectasks_test.go`: stamp on Bot + principal creates (dedup, order),
-  absent for other writers; description/contract unchanged.
-- mcptools: principal+bound → source resolution + audit actor=task; principal
-  unbound → error; tool-on-unarmed-task defended; Bot path unchanged.
-- `BoundAgentForProject`: 1/0/2, allowlist-only, human-node cases.
-- server: `specTaskAgentTools` + helix-tasks mount/rev for armed-only tasks;
-  REST view shows pair iff armed; sanitize keeps names (catalogue edit).
-- services: delegation enumeration excludes pair; hint presence ≡ armed;
-  unchanged for un-armed.
-- Guardrail test (OrgWorkerID prohibition).
+Audit stays honest regardless: org audit actor = task id (`specTaskCaller`),
+`Bot.Tools`-scoped set = live Agent grants, worker-secret recorder still logs
+task-actor reads. Cross-org is enforced upstream (project's org).
 
-### 7. Out of scope
+### 5. Prompt (services, no org-store access)
 
-No schema/contract changes; no creator-name column (until asked); no cache of
-`BoundAgentForProject` (orgs small; revisit only if measured); no UI; no
-non-pair org tool exposure; no values in rows/env/prompts.
+`BuildAgentToolsSection`: strip `"*"` and non-delegation names from the
+delegation enumeration (as designed in round 4); append a distinct section when
+raw `task.AgentTools` contains `"*"`: "This task runs with the tools granted to
+its agent through the Helix MCP channel (see the tool list); credentials:
+`list_secrets` → names, `get_secret` → value." Both existing services call
+sites pick it up via the shared builder; tools/list is the live enumeration.
+
+### 6. Edge semantics
+
+- Bound Agent fired/unhomed: armed branch → ∅ + task keeps its own set; org
+  calls via stale cached list return clean unbound errors; task fully usable.
+- Agent gains/loses tools: new names ride live; rev flips ⇒ agent restarts the
+  context server on next desktop start/resume; mid-session Zed keeps its cached
+  list until then (documented tool-caching semantics, same as all MCP).
+- Sub-task spawn by a task principal: child is `"*"`-armed by the same funnel;
+  child surface = child project's owner (never the parent's Agent set when
+  projects differ — credentials/tools don't smuggle sideways).
+- Manual `"*"` admin edit = same semantics; removal disarms on next refresh.
+
+### 7. Guardrail
+
+Never `Metadata.OrgWorkerID` on spec-task sessions (tests both backends).
+
+## Tests (minimum)
+
+- `helix`: stamp "*" on every port Create (Bot + principal), dedupe against
+  existing entries, REST writers unaffected; `BoundAgentForProject` 0/1/2/
+  allowlist-only/human; `AgentToolNames` nil-safe.
+- server: surface formula — unarmed ≡ today; armed+bound = own ∪ live, nothing
+  else; armed+unbound = own only; rev flips on simulated Agent tool-set change;
+  REST view ≡ tools/list ≡ rev input; `"*"` never passes sanitization.
+- mcptools: `SubjectForCaller` (Bot → itself; principal+bound → Agent;
+  principal unbound → error); `get_secret`/`list_secrets` on-behalf read +
+  audit actor = task; representatives of each identity class (e.g. `chat`
+  as Agent, `managers` Agent line, one unsupported-class tool errors loudly
+  with zero DB writes).
+- services: section gates & enumerations (armed no-delegation → identity hint
+  only, never delegation text; "*" excluded).
+- integration (inner Helix, in tasks.md).
+
+## Out of scope
+
+No schema/contract changes; no creator-name column (offer stands); no live
+push to running sessions (rev-at-refresh only); no UI; no values in rows/env;
+no caching of bound-agent lookups until measured.

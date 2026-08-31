@@ -1,135 +1,142 @@
-# Requirements: Grant Worker Secrets to Spawned Spec Tasks
+# Requirements: Give Spawned Spec Tasks Their Agent's Tool Access
 
 ## Background
 
 A helix-org Worker (Bot) spawns spec tasks into its Helix project via the
-`create_spectask` MCP tool. Worker credentials are granted as secret *bindings*
-(org + worker + name → a Helix secret or connected-account value), readable by
-that Worker through `list_secrets` (metadata only) and `get_secret` (value at
-call time). A task spawned by the Worker has no way to reach those bindings, so
-it cannot do credentialed work (push with the Worker's git token, call a deploy
-API…). Different Workers hold different secrets, so task access must
-always be worker-specific, never global.
+`create_spectask` MCP tool. Product rule confirmed on review: **a spawned task
+should operate with the same tool surface as the Agent that spawned it** — the
+worker's live MCP tool set, including `list_secrets`/`get_secret` — because
+that is the intuitive contract ("it's implied tasks have the same level of
+access as the agent") and it compounds: org tooling keeps working in tasks with
+no per-feature re-granting. The task's coding agent already reaches the org
+tool registry through its session-scoped MCP channel (`SpecTaskMCPBackend`,
+`/api/v1/mcp/helix-tasks`); this feature widens the tool set that channel
+serves to an armed task.
 
-Two independent facts exist today in code: the task's coding agent has a scoped
-MCP channel into the org tool registry (`SpecTaskMCPBackend`,
-`/api/v1/mcp/helix-tasks`, session-scoped key, task-as-actor identity), and the
-org runtime knows which Agent owns which project (each Bot's runtime state
-names its project). The design splits into the two layers review asked for:
+Two layers, both explicit (per earlier review rounds):
 
-- **Grant — intentional, recorded at creation.** `create_spectask` grants the
-  pair `list_secrets` + `get_secret` to the task by **adding them to the task's
-  existing `agent_tools` grant list**. This is deliberate, visible state on the
-  task itself: the API response, the REST agent-tools view, and `GET task` all
-  show the task was armed with credential tools at spawn time. The exact
-  spawning Agent on the actor recorded in the org audit log (every
-  `create_spectask` is audited with the Bot as actor), so creation provenance
-  is already an explicit, queried fact — no schema change, no hidden "project
-  detection" deciding who gets tools.
-- **Authority — fail-closed at value-read time.** When a task calls the tools,
-  *whose* credential set applies is derived: the Agent whose runtime home is
-  the task's project, exactly one, or no access. Derivation here is deliberate
-  and unhidden (it is an error-message'd lookup), and it is the only place the
-  passive-mapping mechanism touches behavior.
+- **Armed = recorded at creation.** `create_spectask` stamps a wildcard entry
+  (`"*"`) into the created task's existing `agent_tools` list: "this task runs
+  with its Agent's tools." Visible on the task, intentional, no schema change,
+  no hidden detection deciding eligibility. UI-created tasks are not armed;
+  an admin can arm or disarm a task through the same `agent_tools` field.
+- **Which Agent, which tools = live, at session time.** The bound Agent is the
+  one whose runtime home project **is** the task's project; the tool set is
+  that Agent's **current** tool list, resolved fresh whenever the task's MCP
+  session (re)initializes. Granting the Agent a tool later (`attach_tool`)
+  reaches its tasks; removing one or firing the Agent removes it from them on
+  the next refresh. A task can never supply a worker id; the set cannot drift
+  from the live org because nothing is snapshotted onto the task.
+
+Attribution model: the task calls as itself (`ActorSpecTask`, audit actor =
+task id) but tools whose semantics are "as the caller Agent" resolve their
+subject to the bound Agent (on-behalf-of). Blast radius equals the Agent's
+existing one — the task lives in the Agent's project and uses the Agent's
+grants; what changes is that every org action is attributable to the specific
+task, which the Agent's own desktop calls are not.
 
 **Rejected alternatives, recorded deliberately:**
 
-- *Silently surfacing the tools for every task in an Agent-owned project* —
-  rejected on review (round 5): hidden functionality; a task must *carry* its
-  capability as an intentional grant, not be detected.
-- *A new provenance column on the task* — rejected on review (round 3): the
-  creator is already recorded (org audit) and the capability can live in the
-  existing grant list; no schema change.
-- *Attaching the Worker's own `helix-org` MCP key/URL to the task* — full
-  impersonation (that backend authorizes on the key's session's `OrgWorkerID`);
-  entire bot surface, audit-as-Bot, no fine revocation.
-- *`secret_grants` argument; boot-env injection; copying bindings per-task* —
-  ceremony / stale values / drift; all rejected in earlier rounds.
+- *Secrets pair only* — superseded by product decision above.
+- *Snapshot-copy the Agent's tool names onto the task* — drifts; revocations
+  wouldn't propagate (rejected in earlier rounds for the same reason as
+  copying bindings).
+- *Hand the task the Worker's own `helix-org` key/URL* — impersonates the Bot
+  itself (that backend authorizes on the key session's `OrgWorkerID`): no task
+  attribution, no finer revocation, wrong audit trail.
+- *Passive project-membership auto-surfacing, new provenance column, per-task
+  grant lists, boot env vars, copying bindings* — rejected in earlier rounds;
+  see Resolved questions.
 
 ## User Stories
 
-1. As a Worker, when I spawn a task, I want it to arrive already armed with
-   `list_secrets`/`get_secret` — recorded on the task at creation, visible in
-   the task data — so the intent "this task runs with my credentials" is
-   explicit rather than inferred.
-2. As an org owner, I want a credential read to only ever return bindings of
-   the Agent that actually owns the task's project (exactly one home; a task
-   can never supply a worker id), so no Agent's secrets can reach a project it
-   doesn't own.
-3. As a task agent, I want secrets resolved at use time (never copied into my
-   prompt, task row, or container env), so rotation/revocation lands on my next
-   `get_secret` call.
-4. As a task agent, I want `list_secrets` first (names + usage metadata, never
-   values or backend details), including an empty list when my project's Agent
-   holds nothing yet.
-5. As a task agent, I want tasks I spawn to inherit the same explicit grant,
-   with credentials still scoped to each task's own project, so credential
-   sets never smuggle sideways across projects.
-6. As an auditor, I want every credential read logged with task id as actor
-   and the source Agent + secret as subject, and `create_spectask` itself
-   already logged with the spawning Bot as actor — together giving the full
-   "who armed this task" trail with no new state.
-7. As the project's human owner, I want every spec task — armed or not — to be
-   a first-class, independently usable task; an armed task that loses its
-   Agent must fail loudly on credential calls, not degrade silently.
+1. As a Worker, every task I spawn can do everything I can do — reply on
+   streams, read events, fetch my granted credentials, manage sub-tasks and
+   sub-agents — with no per-work grant fiddling, because tasks are how I
+   delegate.
+2. As an org owner, I want the live set to come only from the Agent that
+   actually **owns** the task's project (exactly one home; managed/allowlisted
+   projects never count; no id may be supplied in arguments), so a task can
+   never borrow tools or secrets from an Agent unrelated to its project.
+3. As a task agent, I want org tools that act "as the caller" to behave on
+   behalf of my project's Agent consistently, and every tool that fundamentally
+   cannot serve a delegated caller to fail with a clear, actionable error —
+   never a half-effect, never a silent success.
+4. As an org owner, I want revocations to be real: remove a tool from the
+   Agent (or fire it) and tasks lose it at their next session refresh; ungrant
+   a secret and the next `get_secret` fails.
+5. As an auditor, I want org audit to show the task id as actor on every
+   org-tool call, with the bound Agent as the acting-for subject, plus the
+   existing worker-secret read audit — so task actions are traceable to the
+   task, unlike calling directly as the Agent.
+6. As the project's human owner, I want armed/unarmed to be visible on the
+   task and fully intentional, and task lifecycle (plan, implement, approve,
+   PR, chat, restart) to remain independent of the org channel: a broken,
+   unbound, or unarmed task is still a perfectly usable normal task.
 
 ## Acceptance Criteria
 
-- [ ] Schema and create contract unchanged: no new DB column, no new
-      `create_spectask` argument. Spawning via `create_spectask` (Worker or
-      task-principal caller) records `list_secrets` and `get_secret` in the
-      created task's `agent_tools` list (deduped); REST/UI-created tasks carry
-      no such entry.
-- [ ] The grant is **visible**: `GET /spec-tasks/{id}`, the REST agent-tools
-      view, and the task's tool list in the MCP session all show the pair for
-      armed tasks; un-armed tasks (including ones inside an Agent-owned
-      project) are byte-identical to today — no tool appears without the
-      intentional grant.
-- [ ] Surface requires no special-case logic: the pair joins the spec-task tool
-      catalogue, and existing grant-list mechanics (catalogue sanitation,
-      rev cache-bust, `helix-tasks` mount when armed, REST view) carry it; an
-      armed-but-otherwise-plain task gets the channel mounted by the stamp
-      alone.
-- [ ] At call time, `list_secrets`/`get_secret` from a task resolve exactly the
-      bindings of the single Agent whose runtime home project **is** the task's
-      project (ownership only — never a managed/allowlisted project); zero
-      owners or ambiguous ones yield a clean, actionable error and no values.
-      Tool arguments never accept worker or task ids.
-- [ ] Values resolve per call: rotation/new grants land on the next call;
-      revoking/ungranting, firing the Agent, or un-homing the project turns
-      subsequent calls into clean errors — the stamp (grant) remains visible,
-      the task itself stays fully usable, and re-binding a project restores
-      access with no task edit.
-- [ ] Admins can intentionally revoke or (re-)arm via the existing
-      `agent_tools` update path; manual addition of the pair to a REST-created
-      task is valid and yields the same project-owner-scoped access.
-- [ ] Prompt: an armed task sees a dedicated "credentials granted by the
-      spawning agent — use `list_secrets`/`get_secret`" section; the existing
-      "Delegating to other spec tasks" section enumerates delegation/lifecycle
-      tools only (armed tasks are never told they can spawn sub-tasks from the
-      secret pair). Un-armed prompt unchanged.
-- [ ] Reads are audited as today's workers-secret trail: task id as actor,
-      resolved Agent + secret as subject, success and failure records included.
-- [ ] Guardrail: a spec-task session never receives `Metadata.OrgWorkerID`
-      (that flag authorizes the full bot backend; its absence keeps the task on
-      the task-scoped channel).
-- [ ] No secret values in the task row, prompts, logs, or container env;
-      lifecycle (planning→implementation→PR, approvals, labels, UI, start/stop)
-      is completely independent of being armed, proven e2e both ways.
+- [ ] Schema and `create_spectask` contract unchanged (no arguments, no new
+      columns): any `create_spectask` call on the org MCP path (Bot or task
+      principal) records a `"*"` wildcard entry in the created task's existing
+      `agent_tools` list; REST/UI-created tasks carry none.
+- [ ] Armed tasks' tool surface = their Helix spec-task tools (existing
+      project∪task grants, unchanged semantics) **plus** the bound Agent's
+      live tool set, at every surface: tools/list, the `helix-tasks` mount
+      flag and cache-bust `rev`, the REST agent-tools view, and the planning
+      prompt. Unarmed tasks are byte-identical to today, including inside an
+      Agent-owned project.
+- [ ] Tool set is live: `attach_tool`/`detach_tool` on the Agent flips the
+      task's rev at the task's next config refresh (`rev` changes ⇒ agent
+      restarts the cached context server); firing/unhoming the Agent leaves the
+      armed task with only its own spec-task tools and clean errors on org
+      calls, task fully usable throughout; re-binding restores.
+- [ ] `get_secret`/`list_secrets` (when in the Agent's set) resolve the bound
+      Agent's bindings with values at call time, per existing worker-secret
+      semantics (no values in rows/env, audit actor = task).
+- [ ] Delegation identity model: for an armed caller, tools that act "as / on
+      behalf of the calling Agent" resolve their subject to the bound Agent
+      (streams messages posted as the Agent, reporting-line reads of the
+      Agent, `ask_human` from the Agent, etc.); the caller identity is never
+      accepted from arguments. Tools whose semantics are natively the task's
+      own (the spec-task set) stay keyed to the task.
+- [ ] Every org tool reachable to an armed task is explicitly classified and
+      tested as one of: acts-as/for-the-Agent (resolves to bound Agent),
+      task-scoped (keys to task identity), or unsupported-for-delegation (loud
+      clean error, zero side effects). The classification lives with the tool
+      implementations (their principal handling), and the spec-task tool tests
+      cover every category with at least one representative (e.g. `chat`,
+      `managers`, `list_secrets`, `create_spectask` self, `delete_bot`/graph
+      mutation path, `create_bot`).
+- [ ] Org-graph mutations from an armed task are permitted exactly to the
+      degree the Agent itself holds the tool (same catalog the Agent has —
+      `Bot.Tools` is the live surface), with audit actor = task; no tool ever
+      widens beyond the bound Agent's current grant state.
+- [ ] The prompt gains an explicit section for armed tasks: "This task runs
+      with the tools granted to its spawning agent via the Helix MCP channel;
+      use `list_secrets`/`get_secret` for credentials" (no enumeration;
+      tools/list is the enumeration), while the delegation section stays CRUD-
+      tools-only (`"*"` / secret names never enumerated there).
+- [ ] Admin intentionally arming/disarming via `agent_tools` REST update works
+      and yields identical live semantics.
+- [ ] Guardrail: spec-task sessions never carry `Metadata.OrgWorkerID`; the
+      `helix-org` backend still 403s task keys; everything runs on
+      `helix-tasks` as `ActorSpecTask`.
+- [ ] Full lifecycle (planning→implementation→approval→PR, start/stop/restart,
+      human UI) independent of armed/Agent state, verified e2e both with and
+      without a bound Agent.
 
 ## Open Questions
 
-1. **Creator name on the task row:** the capability (armed) lives on the task;
-   the exact creator identity lives in the org audit log (Bot actor on
-   `create_spectask`). If the product wants the creator's *name* displayed on
-   the task itself (UI/row), that is exactly one new column — deliberately not
-   included per the "no new fields" ruling; say the word and it lands.
+1. **Creator name on the task row:** capability is stamped on the task, actor
+   provenance is the org audit (`create_spectask` records the Bot actor); a
+   *visible creator name* on the task row/UI would be one new column — held
+   off pending the "no new fields" ruling; one word and it lands.
 
 ## Resolved questions
 
-- **Intentional vs passive (round 5)** — grant is now an explicit record made
-  by `create_spectask` on the existing `agent_tools` list; derivation remains
-  only at reads, as the scoped security authority with loud errors.
-- **No new DB fields (round 3)**, **no project toggle (round 2)**, **whole-set
-  inheritance / no inheritable flag (round 2)**, **no UI changes**, **no env
-  vars — `get_secret` + shell per call**, all confirmed.
+- **Pair vs all agent tools (this round)** — all of the Agent's live tools.
+- **Intentional vs passive** — armed stamp (`"*"`) at creation; live sets may
+  still be derived (they're the Agent's own live state, not detection).
+- **No new DB fields; no project toggle; whole-set inheritance incl. secrets
+  (no inheritable flags); no UI changes; `get_secret` + shell, no env vars.**
