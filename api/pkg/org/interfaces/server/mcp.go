@@ -14,6 +14,7 @@ import (
 	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	orgruntime "github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 )
 
@@ -206,11 +207,20 @@ type mcpAuditArgs struct {
 	AssetID   string `json:"asset_id"`
 }
 
+func auditActorID(caller tool.Caller) string {
+	if self, ok := caller.(orgaudit.SelfDescribingActorID); ok {
+		if id := self.AuditActorID(); id != "" {
+			return id
+		}
+	}
+	return caller.ID()
+}
+
 func (s *Server) newMCPAuditEntry(ctx context.Context, caller tool.Caller, action string, args json.RawMessage) orgaudit.Entry {
 	entry := orgaudit.Entry{
 		OrganizationID: caller.OrganizationID(),
 		UserID:         runtimehelix.UserIDFromContext(ctx),
-		ActorID:        caller.ID(),
+		ActorID:        auditActorID(caller),
 		ActorType:      actorTypeFor(caller),
 		EventType:      orgaudit.EventMCPCall,
 		Action:         action,
@@ -225,6 +235,11 @@ func (s *Server) newMCPAuditEntry(ctx context.Context, caller tool.Caller, actio
 		entry.Metadata.AssetRef = parsed.Asset
 		if entry.Metadata.AssetRef == "" {
 			entry.Metadata.AssetRef = parsed.AssetID
+		}
+	}
+	if entry.ProjectID == "" {
+		if p, ok := orgruntime.ProjectPrincipalFromContext(ctx); ok {
+			entry.ProjectID = p.ProjectID
 		}
 	}
 	if entry.ProjectID == "" && s.projects != nil {

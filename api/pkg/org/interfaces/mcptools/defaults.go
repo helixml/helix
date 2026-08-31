@@ -161,3 +161,28 @@ func IsSpecTaskAgentTool(name tool.Name) bool {
 	}
 	return false
 }
+
+// SpecTaskBlockedTools are org-graph and grant-admin tools, excluded from
+// every spec-task surface (rationale: spec task 003014 design doc).
+var SpecTaskBlockedTools = []tool.Name{
+	CreateBotName, DeleteBotName, SetBotContentName,
+	AttachToolName, DetachToolName,
+	StartBotName, StopBotName, RestartBotName,
+	AttachWorkerName, DetachWorkerName, CreateTriggerName,
+	CreateProcessorName, UpdateProcessorName, DeleteProcessorName,
+	SetHumanContactName, ConfigureBotProjectName,
+	AttachRepositoryName, DetachRepositoryName,
+	CreateServerAssetName, UpdateServerAssetName, DeleteAssetName,
+	LinkAssetName, UnlinkAssetName,
+	CreateSandboxName, UpdateSandboxName, DeleteSandboxName,
+	SandboxSSHAccessName,
+}
+
+func IsSpecTaskBlockedTool(name tool.Name) bool {
+	for _, n := range SpecTaskBlockedTools {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}

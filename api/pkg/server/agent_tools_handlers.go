@@ -47,10 +47,8 @@ func sanitizeAgentTools(names []string) []string {
 	return out
 }
 
-// specTaskAgentTools resolves the Helix MCP tools a session's coding agent
-// should get: the project's allowlist plus the task's extras, filtered to the
-// eligible catalogue. Returns nil for anything that is not an org spec-task
-// session, which is what keeps the context server out of those sandboxes.
+// specTaskAgentTools is the task's org tool surface as strings; nil for
+// non-org spec-task sessions keeps the context server out of those sandboxes.
 func (s *HelixAPIServer) specTaskAgentTools(ctx context.Context, session *types.Session) []string {
 	if session == nil || session.Metadata.SpecTaskID == "" {
 		return nil
@@ -68,5 +66,10 @@ func (s *HelixAPIServer) specTaskAgentTools(ctx context.Context, session *types.
 	if project.OrganizationID == "" {
 		return nil
 	}
-	return sanitizeAgentTools(types.EffectiveAgentTools(project.AgentTools, task.AgentTools))
+	own, _ := s.specTaskToolSurface(ctx, project, task)
+	out := make([]string, 0, len(own))
+	for _, name := range own {
+		out = append(out, string(name))
+	}
+	return out
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
 
@@ -46,4 +47,25 @@ func TestNewMCPAuditEntryResolvesAssetAndRedactsSecrets(t *testing.T) {
 	require.Equal(t, "production", entry.Metadata.AssetRef)
 	require.Equal(t, "project-1", entry.ProjectID)
 	require.JSONEq(t, `{"asset":"production","project_id":"project-1","password":"[REDACTED]"}`, string(entry.Metadata.Arguments))
+}
+
+type wrappedDelegatedCaller struct{}
+
+func (wrappedDelegatedCaller) ID() string             { return "b-owner" }
+func (wrappedDelegatedCaller) OrganizationID() string { return "org-1" }
+func (wrappedDelegatedCaller) AuditActorType() orgaudit.ActorType {
+	return orgaudit.ActorSpecTask
+}
+func (wrappedDelegatedCaller) AuditActorID() string { return "spt-1" }
+
+func TestNewMCPAuditEntryAuditsDelegatedCallerUnderTaskID(t *testing.T) {
+	server := &Server{}
+	entry := server.newMCPAuditEntry(
+		context.Background(),
+		wrappedDelegatedCaller{},
+		"get_secret",
+		json.RawMessage(`{}`),
+	)
+	require.Equal(t, "spt-1", entry.ActorID)
+	require.Equal(t, orgaudit.ActorSpecTask, entry.ActorType)
 }

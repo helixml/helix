@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -8,8 +9,10 @@ import (
 	"github.com/rs/zerolog/log"
 
 	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/types"
@@ -87,7 +90,7 @@ func (b *SpecTaskMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 
-	tools := eligibleSpecTaskTools(project, task)
+	tools, bound := b.apiServer.specTaskToolSurface(ctx, project, task)
 	if len(tools) == 0 {
 		http.Error(w, "no Helix tools are enabled for this task", http.StatusForbidden)
 		return
@@ -111,13 +114,53 @@ func (b *SpecTaskMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		ProjectID:    project.ID,
 		ActingUserID: task.UserID,
 	})
-	caller := specTaskCaller{id: task.ID, orgID: project.OrganizationID}
+	caller := tool.Caller(specTaskCaller{id: task.ID, orgID: project.OrganizationID})
+	if bound != "" {
+		caller = mcptools.DelegatedCaller{Inner: caller, Agent: string(bound), AuditTaskID: task.ID}
+	}
 	b.mcpServer.ServeMCPForCaller(w, r.WithContext(ctx), caller, tools)
 }
 
-// eligibleSpecTaskTools is the effective surface: project allowlist ∪ task
-// extras, intersected with the spec-task-eligible catalogue so a stale or
-// hand-crafted name can never widen it.
+// specTaskToolSurface is the single composition point for a task's org tool
+// surface: own grants UNION the bound agent's live tools. Callers also get
+// wrapped so tools see the bound agent as identity.
+func (s *HelixAPIServer) specTaskToolSurface(ctx context.Context, project *types.Project, task *types.SpecTask) ([]tool.Name, orgchart.NodeID) {
+	own := eligibleSpecTaskTools(project, task)
+	filtered := own[:0:0]
+	for _, name := range own {
+		if mcptools.IsSpecTaskBlockedTool(name) {
+			log.Warn().Str("tool", string(name)).Str("spec_task_id", task.ID).
+				Msg("spec-task tools: blocked org-admin name dropped from surface")
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	own = filtered
+	if s.helixOrg == nil || s.helixOrg.store == nil || project.OrganizationID == "" {
+		return own, ""
+	}
+	bound, err := runtimehelix.BoundAgentForProject(ctx, s.helixOrg.store, project.OrganizationID, project.ID)
+	if err != nil {
+		return own, ""
+	}
+	seen := make(map[string]struct{}, len(own))
+	for _, name := range own {
+		seen[string(name)] = struct{}{}
+	}
+	merged := own
+	for _, name := range runtimehelix.AgentToolNames(ctx, s.helixOrg.store, project.OrganizationID, bound) {
+		if mcptools.IsSpecTaskBlockedTool(name) {
+			continue
+		}
+		if _, dup := seen[string(name)]; dup {
+			continue
+		}
+		seen[string(name)] = struct{}{}
+		merged = append(merged, name)
+	}
+	return merged, bound
+}
+
 func eligibleSpecTaskTools(project *types.Project, task *types.SpecTask) []tool.Name {
 	var out []tool.Name
 	for _, name := range types.EffectiveAgentTools(project.AgentTools, task.AgentTools) {

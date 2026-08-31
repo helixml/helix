@@ -29,6 +29,13 @@ type SelfDescribingActor interface {
 	AuditActorType() ActorType
 }
 
+// SelfDescribingActorID lets a caller whose acting identity differs from
+// its audit identity report the latter. Callers without it are audited
+// under their own ID.
+type SelfDescribingActorID interface {
+	AuditActorID() string
+}
+
 type ActorType string
 
 const (
