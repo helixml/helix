@@ -116,16 +116,19 @@ surface is intersected with a catalogue that contains only spec-task CRUD tools.
 
 ## Open Questions
 
-1. **Project-level gate:** Is Worker-side spawning plus provenance-scoped
-   resolution enough, or do project admins also need a hard "spec tasks may use
-   worker secrets" project toggle (more UI/Config work; the org philosophy
-   prefers trusting the Worker + enforcing at the secret boundary)?
-2. **Per-binding hiding:** Later, should a Worker be able to exempt a specific
+1. **Per-binding hiding:** Later, should a Worker be able to exempt a specific
    binding from tasks it spawns (e.g. an "inheritable" flag on the grant)
    without un-granting it for itself? Assumed no for v1.
-3. **UI surfacing:** Should the spec-task detail page show "credentials
+2. **UI surfacing:** Should the spec-task detail page show "credentials
    inherited from agent X"? Assumed no for v1 (MCP-only path).
-4. **Shell ergonomics:** Task agents will fetch the value via `get_secret` and
+3. **Shell ergonomics:** Task agents will fetch the value via `get_secret` and
    then use it with shell tools (same pattern Workers use — never via boot env
    vars). Confirm no task needs the values pre-materialized as env vars in the
    container.
+
+## Resolved questions
+
+- **Project-level gate — resolved by review: no toggle.** Trust the Worker's
+  decision to spawn; the task already runs inside the Worker's own project, so
+  a second "may use worker secrets" project switch enforces nothing that the
+  project-scoped provenance isn't already enforcing.

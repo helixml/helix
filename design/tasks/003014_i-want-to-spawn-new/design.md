@@ -63,6 +63,11 @@ No `create_spectask` contract change, no per-task grant list.
 - **Per-task `secret_grants` argument** — rejected on review: ceremony without
   material gain (the Worker is the already-trusted grant holder and can paste
   values into a description today). Whole-set inheritance instead.
+- **A "spec tasks may use worker secrets" project toggle** — rejected on
+  review: no second gate. The task runs in the spawning Worker's own project,
+  and provenance-scoped resolution already enforces the only real boundary
+  (which Worker's bindings, cross-org); the Worker's decision to spawn is the
+  authorization. Trust it.
 - **Env-var injection at boot** and **copying bindings per task** — rejected
   first round: stale-on-rotation, values on disk/container env, drift and
   orphaned rows, and they contradict the "no boot env fallback, get_secret is
