@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -8,7 +9,9 @@ import (
 	"github.com/rs/zerolog/log"
 
 	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
@@ -87,7 +90,7 @@ func (b *SpecTaskMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 
-	tools := eligibleSpecTaskTools(project, task)
+	tools, bound := b.apiServer.specTaskToolSurface(ctx, project, task)
 	if len(tools) == 0 {
 		http.Error(w, "no Helix tools are enabled for this task", http.StatusForbidden)
 		return
@@ -111,8 +114,46 @@ func (b *SpecTaskMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		ProjectID:    project.ID,
 		ActingUserID: task.UserID,
 	})
+	// The Agent whose project the task lives in (if any) rides the context:
+	// tools act on behalf of it (see mcptools.SubjectForCaller) while audit
+	// attribution stays on the task caller.
+	if bound != "" {
+		ctx = runtime.WithBoundWorker(ctx, bound)
+	}
 	caller := specTaskCaller{id: task.ID, orgID: project.OrganizationID}
 	b.mcpServer.ServeMCPForCaller(w, r.WithContext(ctx), caller, tools)
+}
+
+// specTaskToolSurface composes the full org tool surface a task receives:
+// its catalogued own grants (project allowlist ∪ task extras) UNION the live
+// tool surface of the Agent whose runtime home project is the task's project
+// (empty + zero bond when none — today's behaviour exactly). Both the MCP
+// gate here and the sandbox-config rev (specTaskAgentTools) must call this
+// ONE function: tools/list, the rev cache-bust, and the REST view can only
+// agree if they share one code path. The returned bond is what the backend
+// stashes for SubjectForCaller.
+func (s *HelixAPIServer) specTaskToolSurface(ctx context.Context, project *types.Project, task *types.SpecTask) ([]tool.Name, orgchart.NodeID) {
+	own := eligibleSpecTaskTools(project, task)
+	if s.helixOrg == nil || s.helixOrg.store == nil || project.OrganizationID == "" {
+		return own, ""
+	}
+	bound, err := runtimehelix.BoundAgentForProject(ctx, s.helixOrg.store, project.OrganizationID, project.ID)
+	if err != nil {
+		return own, ""
+	}
+	seen := make(map[string]struct{}, len(own))
+	for _, name := range own {
+		seen[string(name)] = struct{}{}
+	}
+	merged := own
+	for _, name := range runtimehelix.AgentToolNames(ctx, s.helixOrg.store, project.OrganizationID, bound) {
+		if _, dup := seen[string(name)]; dup {
+			continue
+		}
+		seen[string(name)] = struct{}{}
+		merged = append(merged, name)
+	}
+	return merged, bound
 }
 
 // eligibleSpecTaskTools is the effective surface: project allowlist ∪ task
