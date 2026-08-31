@@ -46,7 +46,6 @@ type HydraExecutor struct {
 	mutex    sync.RWMutex
 
 	// API configuration
-	helixAPIURL   string
 	helixAPIToken string
 
 	// Workspace path configuration
@@ -110,7 +109,6 @@ type connmanInterface interface {
 type HydraExecutorConfig struct {
 	Store                         store.Store
 	QuotaManager                  QuotaManager
-	HelixAPIURL                   string
 	HelixAPIToken                 string
 	WorkspaceBasePathForContainer string
 	WorkspaceBasePathForCloning   string
@@ -126,7 +124,6 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 		store:                         cfg.Store,
 		quotaManager:                  cfg.QuotaManager,
 		sessions:                      make(map[string]*ZedSession),
-		helixAPIURL:                   cfg.HelixAPIURL,
 		helixAPIToken:                 cfg.HelixAPIToken,
 		workspaceBasePathForContainer: cfg.WorkspaceBasePathForContainer,
 		workspaceBasePathForCloning:   cfg.WorkspaceBasePathForCloning,
@@ -1367,14 +1364,22 @@ func (h *HydraExecutor) getContainerImage(ctx context.Context, containerType str
 
 // buildEnvVars builds environment variables for the container
 func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, workspaceDir string) []string {
+	// Every session container reaches the Helix API through the canonical,
+	// deployment-independent sandbox proxy URL. Emitting it here (rather than the
+	// deployment-specific control-plane address) is what lets hydra and the
+	// settings daemon skip all downstream address rewriting. The isolated bridge
+	// rejects any other route to the control plane, so this is the ONLY reachable
+	// Helix API address from inside the sandbox.
+	sandboxAPIURL := hydra.SandboxAPIProxyURL
+
 	// Determine Helix URL for Zed's WebSocket connection
-	zedHelixURL := strings.TrimPrefix(h.helixAPIURL, "https://")
+	zedHelixURL := strings.TrimPrefix(sandboxAPIURL, "https://")
 	zedHelixURL = strings.TrimPrefix(zedHelixURL, "http://")
-	zedHelixTLS := strings.HasPrefix(h.helixAPIURL, "https://")
+	zedHelixTLS := strings.HasPrefix(sandboxAPIURL, "https://")
 
 	env := []string{
 		// Core Helix env vars
-		fmt.Sprintf("HELIX_API_URL=%s", h.helixAPIURL),
+		fmt.Sprintf("HELIX_API_URL=%s", sandboxAPIURL),
 		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
 		fmt.Sprintf("HELIX_WORKSPACE_DIR=%s", h.workspaceBasePathForContainer),
 		// WORKSPACE_DIR is the actual sandbox path (e.g., /data/workspaces/spec-tasks/spt_xxx)
@@ -1387,13 +1392,15 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		// Override default UMASK=000 which causes permission issues
 		"UMASK=022",
 		// RevDial connection - startup-app.sh expects these specific names
-		fmt.Sprintf("HELIX_API_BASE_URL=%s", h.helixAPIURL),
+		fmt.Sprintf("HELIX_API_BASE_URL=%s", sandboxAPIURL),
 
 		// LLM proxy configuration for Zed's built-in agents
 		// SECURITY: ANTHROPIC_API_KEY, OPENAI_API_KEY are set via agent.Env with session-scoped token
 		// (see addUserAPITokenToAgent). Only set the base URLs here - NOT the runner token.
-		fmt.Sprintf("ANTHROPIC_BASE_URL=%s", h.helixAPIURL),
-		fmt.Sprintf("OPENAI_BASE_URL=%s/v1", h.helixAPIURL),
+		// claude_code subscription mode overrides ANTHROPIC_BASE_URL to api.anthropic.com
+		// later (external_agent_handlers.go); that external egress is allowed.
+		fmt.Sprintf("ANTHROPIC_BASE_URL=%s", sandboxAPIURL),
+		fmt.Sprintf("OPENAI_BASE_URL=%s/v1", sandboxAPIURL),
 
 		// Zed sync configuration
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
@@ -1509,9 +1516,6 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 			env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
 		}
 	}
-
-	// NOTE: BUILDKIT_HOST env var is injected by Hydra server side (devcontainer.go buildEnv)
-	// which runs inside the sandbox where it can query the helix-buildkit container IP.
 
 	// Forward desktop-bridge tunables from the controlplane env into dev
 	// containers. The desktop-bridge binary reads these inside the container,
@@ -1634,10 +1638,6 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		Destination: "/opt/helix/agent-cache",
 		ReadOnly:    false,
 	})
-
-	// NOTE: Shared BuildKit cache mount (/buildkit-cache) and BUILDKIT_HOST env var
-	// are injected by the Hydra server side (devcontainer.go buildMounts/buildEnv)
-	// which runs inside the sandbox where it can access the correct paths.
 
 	// For Ubuntu/GNOME containers, create a per-session pipewire directory
 	// and mount it to /run/user/1000 where PipeWire daemon creates its socket

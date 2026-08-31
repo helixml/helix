@@ -19,6 +19,12 @@ fi
 export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
 echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
 
+# The dockerd lifecycle owns the sandbox network boundary. Loading the policy
+# here lets the restart loop install a fail-closed guard before dockerd restores
+# persistent containers, then replace it with the full policy once ready.
+# shellcheck source=/usr/local/lib/helix-sandbox-network-policy.sh
+source /usr/local/lib/helix-sandbox-network-policy.sh
+
 # ================================================================================
 # Configure dockerd with DNS and optional NVIDIA runtime
 # With docker-in-desktop mode, per-session dockerds no longer run in the sandbox.
@@ -141,12 +147,53 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
     # (same class of bug that took a runner offline via hydra — see 10-start-hydra).
     set +e
     while true; do
+        rm -f "$HELIX_NETWORK_READY_FILE"
+
         # Clean up stale PID files before each restart attempt
         rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
 
+        if ! helix_install_sandbox_bootstrap_guard; then
+            echo "[$(date -Iseconds)] ❌ Failed to install sandbox bootstrap firewall; retrying in 2s..."
+            sleep 2
+            continue
+        fi
+
         echo "[$(date -Iseconds)] Starting dockerd..."
         dockerd --config-file /etc/docker/daemon.json \
-            --host=unix:///var/run/docker.sock
+            --host=unix:///var/run/docker.sock &
+        DOCKERD_PID=$!
+
+        DOCKERD_READY=false
+        for _ in $(seq 1 30); do
+            if docker info >/dev/null 2>&1; then
+                DOCKERD_READY=true
+                break
+            fi
+            if ! kill -0 "$DOCKERD_PID" 2>/dev/null; then
+                break
+            fi
+            sleep 1
+        done
+
+        if [ "$DOCKERD_READY" != "true" ]; then
+            echo "[$(date -Iseconds)] ❌ dockerd did not become ready; restarting in 2s..."
+            kill -TERM "$DOCKERD_PID" 2>/dev/null || true
+            wait "$DOCKERD_PID" 2>/dev/null
+            sleep 2
+            continue
+        fi
+
+        # Docker's forwarding default is too restrictive for nested session
+        # containers. The sandbox-specific chains remain fail-closed.
+        if ! iptables -w 10 -P FORWARD ACCEPT || ! helix_apply_sandbox_network_policy; then
+            echo "[$(date -Iseconds)] ❌ Failed to install sandbox network policy; restarting dockerd in 2s..."
+            kill -TERM "$DOCKERD_PID" 2>/dev/null || true
+            wait "$DOCKERD_PID" 2>/dev/null
+            sleep 2
+            continue
+        fi
+
+        wait "$DOCKERD_PID"
         EXIT_CODE=$?
         echo "[$(date -Iseconds)] ⚠️  dockerd exited with code $EXIT_CODE, restarting in 2s..."
         sleep 2
@@ -156,10 +203,10 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
 DOCKERD_WRAPPER_PID=$!
 echo "Started dockerd with auto-restart (wrapper PID: $DOCKERD_WRAPPER_PID)"
 
-# Wait for dockerd to be ready (initial startup)
-TIMEOUT=30
+# Wait for dockerd and its fail-closed network policy to be ready.
+TIMEOUT=60
 ELAPSED=0
-until docker info >/dev/null 2>&1; do
+until docker info >/dev/null 2>&1 && [ -f "$HELIX_NETWORK_READY_FILE" ]; do
     if [ $ELAPSED -ge $TIMEOUT ]; then
         echo "❌ ERROR: dockerd failed to start within $TIMEOUT seconds"
         echo "Check dockerd logs above for details"
@@ -176,10 +223,6 @@ docker info 2>&1 | head -5
 # Create /tmp/sockets for runc console sockets (required for docker exec -ti)
 mkdir -p /tmp/sockets
 echo "✅ Created /tmp/sockets for docker exec -ti support"
-
-# Enable forwarding for nested containers
-iptables -P FORWARD ACCEPT
-echo "✅ iptables FORWARD policy set to ACCEPT"
 
 # Function to ensure a desktop image is available in sandbox's dockerd
 # Supports two sources:
@@ -462,31 +505,18 @@ fi
 echo "✅ Desktop image cleanup complete"
 
 # ================================================================================
-# Clean up dangling images and build cache
-# This removes:
-# - Dangling images (untagged <none> images from failed builds)
-# - Build cache (accumulated from docker build operations)
-# - Unused networks (orphaned from stopped containers)
-# NOTE: We do NOT prune volumes - those contain user data
+# Clean up only dangling images. Broad system pruning also removes an empty
+# session bridge after the firewall creates it but before Hydra binds its API
+# listener, and can discard valuable build cache.
 # ================================================================================
 echo ""
-echo "🧹 Pruning dangling images and build cache..."
+echo "🧹 Pruning dangling images..."
 
 # Remove dangling images first (faster, targeted cleanup)
 DANGLING_COUNT=$(docker images -f "dangling=true" -q 2>/dev/null | wc -l)
 if [ "$DANGLING_COUNT" -gt 0 ]; then
     echo "   Removing $DANGLING_COUNT dangling image(s)..."
     docker image prune -f >/dev/null 2>&1 || true
-fi
-
-# Run system prune to clean build cache and unused networks
-# This does NOT remove volumes (no --volumes flag)
-PRUNE_OUTPUT=$(docker system prune -f 2>&1) || true
-if echo "$PRUNE_OUTPUT" | grep -q "reclaimed"; then
-    RECLAIMED=$(echo "$PRUNE_OUTPUT" | grep "reclaimed" | tail -1)
-    echo "   $RECLAIMED"
-else
-    echo "   No additional space to reclaim"
 fi
 
 echo "✅ Docker cleanup complete"

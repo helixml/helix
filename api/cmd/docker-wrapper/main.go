@@ -1,10 +1,11 @@
-// docker-wrapper intercepts docker build/compose build commands and routes them
-// through the shared BuildKit builder with smart --load (skips image export when
-// unchanged). Installed at /usr/local/bin/docker ahead of /usr/bin/docker in PATH.
+// docker-wrapper intercepts docker build/compose build commands. It is
+// transparent for the per-session Docker builder and provides smart image
+// loading when an operator explicitly configures a remote builder. Installed at
+// /usr/local/bin/docker ahead of /usr/bin/docker in PATH.
 //
 // Modes:
 //  1. docker compose ... build → decompose into individual buildx build calls
-//  2. docker build ...        → rewrite to docker buildx build (shared BuildKit)
+//  2. docker build ...        → rewrite to docker buildx build
 //  3. docker buildx build ... → smart --load with digest comparison
 //  4. anything else           → exec /usr/bin/docker (transparent passthrough)
 package main

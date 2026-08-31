@@ -153,3 +153,53 @@ func TestSpecDrivenTaskService_StartSpecGeneration_NoDoubleStartDesktopOnConcurr
 		"StartDesktop must fire exactly once per task even when two StartSpecGeneration goroutines race; got %d calls",
 		atomic.LoadInt32(&startDesktopCount))
 }
+
+func TestSpecDrivenTaskService_StartJustDoItMode_LosingClaimDeletesOrphan(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockExecutor := external_agent.NewMockExecutor(ctrl)
+	project := &types.Project{
+		ID:              "project-jdi-race",
+		OrganizationID:  "org-1",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+	}
+	task := &types.SpecTask{
+		ID:              "task-jdi-race",
+		ProjectID:       project.ID,
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+		Status:          types.TaskStatusQueuedImplementation,
+		CreatedBy:       "user-1",
+		BranchMode:      types.BranchModeExisting,
+		BranchName:      "feature/existing",
+		Name:            "racing Just Do It task",
+	}
+
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	mockStore.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).Return(nil)
+	mockStore.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, session types.Session) (*types.Session, error) {
+			return &session, nil
+		})
+	mockStore.EXPECT().SetPlanningSessionIDIfEmpty(gomock.Any(), task.ID, gomock.Any()).Return(false, nil)
+	mockStore.EXPECT().DeleteSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil)
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+		nil,
+		mockExecutor,
+		nil,
+		nil,
+		NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+
+	service.StartJustDoItMode(context.Background(), task)
+
+	assert.Empty(t, task.PlanningSessionID)
+}

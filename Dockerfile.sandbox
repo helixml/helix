@@ -6,7 +6,7 @@
 # ====================================================================
 
 # ====================================================================
-# Stage 1: Build Go binaries (hydra, sandbox-heartbeat)
+# Stage 1: Build Go binaries
 # Note: revdial-client is built into Hydra daemon
 # ====================================================================
 # Pin to specific digest for stable layer caching.
@@ -258,6 +258,11 @@ RUN chmod +x /etc/cont-init.d/40-start-dockerd.sh
 COPY sandbox/05-start-dns-proxy.sh /etc/cont-init.d/45-start-dns-proxy.sh
 RUN chmod +x /etc/cont-init.d/45-start-dns-proxy.sh
 
+# The existing dockerd lifecycle owns the isolated bridge and firewall. It
+# sources this library before dockerd starts and after every daemon restart.
+COPY sandbox/06-setup-network-policy.sh /usr/local/lib/helix-sandbox-network-policy.sh
+RUN chmod 0644 /usr/local/lib/helix-sandbox-network-policy.sh
+
 # Start sandbox heartbeat daemon
 # Note: RevDial client is built into Hydra daemon (see sandbox/10-start-hydra.sh)
 COPY sandbox/08-start-sandbox-heartbeat.sh /etc/cont-init.d/55-start-sandbox-heartbeat.sh
@@ -297,6 +302,7 @@ ENV HELIX_API_URL="" \
     HYDRA_ENABLED="true" \
     HELIX_KEEP_DEAD_CONTAINERS="false" \
     HELIX_SANDBOX_REGISTRY="" \
+    HELIX_SANDBOX_EGRESS_ALLOW_CIDRS="" \
     HELIX_EXPERIMENTAL_DESKTOPS=""
 
 # XDG_RUNTIME_DIR (creates volume when starting container)

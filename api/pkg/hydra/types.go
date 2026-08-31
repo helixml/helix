@@ -101,7 +101,8 @@ type CreateDevContainerRequest struct {
 	// User ID for SSH key mounting and ownership
 	UserID string `json:"user_id,omitempty"`
 
-	// Network to attach to (defaults to bridge)
+	// Network to attach to. Empty, "bridge", or "helix-sandboxes" maps to the
+	// host-enforced isolated sandbox network. Other networks are rejected.
 	Network string `json:"network,omitempty"`
 
 	// Privileged mode (required for docker-in-desktop: inner dockerd needs it)

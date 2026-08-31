@@ -1078,12 +1078,33 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	// pre-start assignment.
 	task.AssigneeID = user.ID
 
+	// A launch can fail after its session row was claimed but before a sandbox
+	// exists. An explicit retry must release that stale claim or the next launch
+	// will correctly lose the atomic session race and stop before StartDesktop.
+	stalePlanningSessionID := ""
+	if task.PlanningSessionID != "" && task.Metadata != nil {
+		if errorMessage, ok := task.Metadata["error"].(string); ok && strings.TrimSpace(errorMessage) != "" {
+			stalePlanningSessionID = task.PlanningSessionID
+			task.PlanningSessionID = ""
+			task.ExternalAgentID = ""
+			task.ZedInstanceID = ""
+		}
+	}
+
 	// Save the task with queued status first (so response reflects immediate status)
 	err = s.Store.UpdateSpecTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update SpecTask to queued status")
 		http.Error(w, fmt.Sprintf("failed to update SpecTask: %v", err), http.StatusInternalServerError)
 		return
+	}
+	if stalePlanningSessionID != "" {
+		if _, err := s.Store.DeleteSession(ctx, stalePlanningSessionID); err != nil {
+			log.Warn().Err(err).
+				Str("task_id", task.ID).
+				Str("session_id", stalePlanningSessionID).
+				Msg("Failed to delete stale session while retrying task launch")
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -189,21 +189,58 @@ func TestBuildEnvRootlessContainerEngine(t *testing.T) {
 	require.Zero(t, countEnvVar(env, "HELIX_REGISTRY"))
 }
 
-func TestBuildMountsRootlessContainerEngineSkipsSharedBuildKitCache(t *testing.T) {
+// The control plane emits canonical helix-api.internal:18080 URLs directly (see
+// external-agent buildEnvVars and hydra.SandboxAPIProxyURL), so hydra's buildEnv
+// no longer rewrites control-plane addresses. It passes the API URL env through
+// untouched and only strips the shared build-service vars.
+func TestBuildEnvOmitsSharedBuildServicesAndPassesURLsThrough(t *testing.T) {
+	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeUbuntu,
+		Network:       "bridge",
+		Env: []string{
+			"HELIX_API_URL=" + SandboxAPIProxyURL,
+			"HELIX_API_BASE_URL=" + SandboxAPIProxyURL,
+			"ANTHROPIC_BASE_URL=" + SandboxAPIProxyURL,
+			"OPENAI_BASE_URL=" + SandboxAPIProxyURL + "/v1",
+			"BUILDKIT_HOST=tcp://attacker:1234",
+			"HELIX_REGISTRY=attacker:5000",
+		},
+	})
+
+	require.Contains(t, env, "HELIX_API_URL="+SandboxAPIProxyURL)
+	require.Contains(t, env, "HELIX_API_BASE_URL="+SandboxAPIProxyURL)
+	require.Contains(t, env, "ANTHROPIC_BASE_URL="+SandboxAPIProxyURL)
+	require.Contains(t, env, "OPENAI_BASE_URL="+SandboxAPIProxyURL+"/v1")
+	require.Zero(t, countEnvVar(env, "BUILDKIT_HOST"))
+	require.Zero(t, countEnvVar(env, "HELIX_REGISTRY"))
+}
+
+// Subscription-mode / BYO external endpoints are set by the control plane and
+// must survive untouched — hydra no longer inspects or rewrites them.
+func TestBuildEnvPreservesExternalProviderEndpoints(t *testing.T) {
+	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeHeadless,
+		Network:       "bridge",
+		Env: []string{
+			"OPENAI_BASE_URL=https://llm.internal.example/v1",
+			"ANTHROPIC_BASE_URL=https://api.anthropic.com",
+		},
+	})
+
+	require.Contains(t, env, "OPENAI_BASE_URL=https://llm.internal.example/v1")
+	require.Contains(t, env, "ANTHROPIC_BASE_URL=https://api.anthropic.com")
+}
+
+func TestBuildMountsOmitSharedBuildKitCache(t *testing.T) {
 	dataDir := t.TempDir()
-	require.NoError(t, os.Mkdir(filepath.Join(dataDir, SharedBuildKitCacheDir), 0o755))
+	require.NoError(t, os.Mkdir(filepath.Join(dataDir, "buildkit-cache"), 0o755))
 	dm := &DevContainerManager{manager: &Manager{dataDir: dataDir}}
 
-	mounts, err := dm.buildMounts(&CreateDevContainerRequest{RootlessContainerEngine: true})
+	mounts, err := dm.buildMounts(&CreateDevContainerRequest{})
 	require.NoError(t, err)
 	for _, item := range mounts {
 		require.NotEqual(t, "/buildkit-cache", item.Target)
 	}
-
-	mounts, err = dm.buildMounts(&CreateDevContainerRequest{})
-	require.NoError(t, err)
-	require.Len(t, mounts, 1)
-	require.Equal(t, "/buildkit-cache", mounts[0].Target)
 }
 
 func TestBuildHostConfigDesktopUsesPrivateIPC(t *testing.T) {
@@ -220,6 +257,33 @@ func TestBuildHostConfigDesktopUsesPrivateIPC(t *testing.T) {
 	require.Equal(t, []string{"seccomp=unconfined", "apparmor=unconfined"}, hostConfig.SecurityOpt)
 	require.Equal(t, "private", string(hostConfig.IpcMode))
 	require.EqualValues(t, desktopShmSizeBytes, hostConfig.ShmSize)
+	require.Equal(t, SandboxNetworkName, string(hostConfig.NetworkMode))
+	require.Equal(t, []string{"10.213.0.1"}, hostConfig.DNS)
+	require.Equal(t, []string{
+		SandboxAPIProxyHostname + ":" + SandboxNetworkGateway,
+		SandboxLegacyAPIProxyHostname + ":" + SandboxNetworkGateway,
+	}, hostConfig.ExtraHosts)
+}
+
+func TestBuildHostConfigUsesDepthAwareDNSProxy(t *testing.T) {
+	t.Setenv("HELIX_DOCKER_DEPTH", "2")
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	hostConfig, err := dm.buildHostConfig(&CreateDevContainerRequest{Network: "bridge"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"10.214.0.1"}, hostConfig.DNS)
+}
+
+func TestBuildHostConfigRejectsCustomNetwork(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	_, err := dm.buildHostConfig(&CreateDevContainerRequest{Network: "host"})
+	require.EqualError(t, err, `unsupported sandbox network "host"`)
+}
+
+func TestShouldMigrateContainerNetwork(t *testing.T) {
+	require.True(t, shouldMigrateContainerNetwork("bridge", SandboxNetworkName))
+	require.False(t, shouldMigrateContainerNetwork(SandboxNetworkName, SandboxNetworkName))
+	require.False(t, shouldRecreateForNetworkMigration("bridge", SandboxNetworkName, true))
+	require.True(t, shouldRecreateForNetworkMigration("bridge", SandboxNetworkName, false))
 }
 
 func countEnvVar(env []string, key string) int {

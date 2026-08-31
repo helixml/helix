@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"sort"
 	"strings"
@@ -868,101 +867,6 @@ func mapHelixToZedProviderToken(providerName, routingToken, model string) (zedPr
 		// Model is prefixed with provider name so Helix can route to the correct backend.
 		return "openai", fmt.Sprintf("%s/%s", routingToken, model)
 	}
-}
-
-// GetZedConfigForSession retrieves Zed MCP config for a session
-func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string) (*ZedMCPConfig, error) {
-	session, err := s.GetSession(ctx, sessionID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session: %w", err)
-	}
-
-	app, err := s.GetApp(ctx, session.ParentApp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get app: %w", err)
-	}
-
-	// Get project if session has one (for project-level skill overlays)
-	var projectSkills *types.AssistantSkills
-	if session.ProjectID != "" {
-		project, err := s.GetProject(ctx, session.ProjectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get project %s for skills config: %w", session.ProjectID, err)
-		}
-		projectSkills = project.Skills
-	}
-
-	// Get Helix API URL from environment
-	// For production, use SANDBOX_API_URL if set, else SERVER_URL, else fallback
-	helixAPIURL := os.Getenv("SANDBOX_API_URL")
-	if helixAPIURL == "" {
-		helixAPIURL = os.Getenv("SERVER_URL")
-	}
-	if helixAPIURL == "" {
-		helixAPIURL = os.Getenv("HELIX_API_URL")
-	}
-	if helixAPIURL == "" {
-		helixAPIURL = "http://api:8080"
-	}
-	// Use "outer-api" instead of "api" for the Zed inference URL. Both resolve
-	// to the same IP in the desktop's /etc/hosts, but "outer-api" survives
-	// Helix-in-Helix scenarios where an inner compose stack shadows "api".
-	if strings.Contains(helixAPIURL, "://api:") {
-		if _, err := net.LookupHost("outer-api"); err == nil {
-			helixAPIURL = strings.Replace(helixAPIURL, "://api:", "://outer-api:", 1)
-			log.Info().Str("url", helixAPIURL).Msg("Rewrote API URL to outer-api for Zed config")
-		}
-	}
-
-	// Generate runner token for this session
-	helixToken := os.Getenv("RUNNER_TOKEN")
-	if helixToken == "" {
-		log.Warn().Msg("RUNNER_TOKEN not set, Zed MCP tools may not work")
-	}
-
-	// Check if Kodit is enabled (defaults to false)
-	koditEnabled := os.Getenv("KODIT_ENABLED") == "true"
-
-	// Create OAuth token getter that looks up tokens from the store
-	oauthTokenGetter := func(ctx context.Context, userID, providerName string) (string, error) {
-		// First find the provider by name
-		providers, err := s.ListOAuthProviders(ctx, &store.ListOAuthProvidersQuery{})
-		if err != nil {
-			return "", fmt.Errorf("failed to list OAuth providers: %w", err)
-		}
-
-		var providerID string
-		for _, p := range providers {
-			if strings.EqualFold(p.Name, providerName) || strings.EqualFold(string(p.Type), providerName) {
-				providerID = p.ID
-				break
-			}
-		}
-		if providerID == "" {
-			return "", nil // No provider found, not an error
-		}
-
-		// Get the user's connection to this provider
-		conn, err := s.GetOAuthConnectionByUserAndProvider(ctx, userID, providerID)
-		if err != nil {
-			if err == store.ErrNotFound {
-				return "", nil // No connection, not an error
-			}
-			return "", fmt.Errorf("failed to get OAuth connection: %w", err)
-		}
-
-		return conn.AccessToken, nil
-	}
-
-	// Runner-side path has no provider-manager handle, so we skip provider
-	// validation here. The handler-side callers (getZedConfig,
-	// getMergedZedSettings) do pass the live provider list.
-	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, nil, session.Metadata.OrgWorkerID, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate Zed config: %w", err)
-	}
-
-	return config, nil
 }
 
 // MergeContextServers returns the union of helix-managed MCP context servers

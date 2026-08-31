@@ -830,15 +830,6 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		OwnerType:      types.OwnerTypeUser,
 	}
 
-	// Guard against duplicate session creation (issue #10 from ZFS deployment).
-	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.PlanningSessionID != "" {
-		log.Info().
-			Str("task_id", task.ID).
-			Str("existing_session_id", freshTask.PlanningSessionID).
-			Msg("Planning session already created by concurrent request — skipping duplicate Just Do It creation")
-		return
-	}
-
 	session, err = s.store.CreateSession(ctx, *session)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create Just Do It session")
@@ -846,14 +837,26 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		return
 	}
 
-	// Update task with session ID (use PlanningSessionID since it's the primary session)
-	task.PlanningSessionID = session.ID
-	err = s.store.UpdateSpecTask(ctx, task)
+	claimed, err := s.store.SetPlanningSessionIDIfEmpty(ctx, task.ID, session.ID)
 	if err != nil {
-		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with session ID")
-		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to update task with session ID: %v", err))
+		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to claim planning_session_id; rolling back Just Do It session")
+		if _, delErr := s.store.DeleteSession(ctx, session.ID); delErr != nil {
+			log.Warn().Err(delErr).Str("session_id", session.ID).Msg("Failed to delete orphan Just Do It session after claim error")
+		}
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to claim planning_session_id: %v", err))
 		return
 	}
+	if !claimed {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("orphan_session_id", session.ID).
+			Msg("Lost race to claim planning_session_id; deleting orphan Just Do It session")
+		if _, delErr := s.store.DeleteSession(ctx, session.ID); delErr != nil {
+			log.Warn().Err(delErr).Str("session_id", session.ID).Msg("Failed to delete orphan Just Do It session after losing claim")
+		}
+		return
+	}
+	task.PlanningSessionID = session.ID
 
 	// Just-Do-It skips the spec phase but still pushes commits to a feature
 	// branch, so the git identity must match the user who started the task.

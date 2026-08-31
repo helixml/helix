@@ -3,6 +3,7 @@ package hydra
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,6 +40,150 @@ type Server struct {
 	listener            net.Listener
 	server              *http.Server
 	router              *mux.Router
+	apiProxyServer      *http.Server
+	apiProxyListener    net.Listener
+	apiProxyRetryCancel context.CancelFunc
+	apiProxyRetryDone   sync.WaitGroup
+}
+
+// StartSandboxAPIProxy exposes the fixed Helix API upstream on the isolated
+// session bridge. It deliberately uses its own HTTP server and handler rather
+// than Hydra's control router, which must remain reachable only over its Unix
+// socket and RevDial transport.
+func (s *Server) StartSandboxAPIProxy(listenAddr, rawUpstream string) error {
+	if listenAddr == "" {
+		listenAddr = SandboxAPIProxyListenAddress
+	}
+	if s.apiProxyServer != nil {
+		return fmt.Errorf("sandbox API proxy already started")
+	}
+
+	handler, err := newSandboxAPIProxyHandler(rawUpstream)
+	if err != nil {
+		return err
+	}
+	return s.startSandboxAPIProxy(listenAddr, rawUpstream, handler)
+}
+
+func (s *Server) startSandboxAPIProxy(listenAddr, rawUpstream string, handler http.Handler) error {
+	if s.apiProxyServer != nil {
+		return fmt.Errorf("sandbox API proxy already started")
+	}
+	listener, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("listen for sandbox API proxy on %s: %w", listenAddr, err)
+	}
+
+	s.apiProxyListener = listener
+	proxyServer := &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       90 * time.Second,
+	}
+	s.apiProxyServer = proxyServer
+	go func() {
+		if err := proxyServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Msg("Sandbox API proxy server error")
+		}
+	}()
+
+	log.Info().Str("listen", listener.Addr().String()).Str("upstream", rawUpstream).
+		Msg("Sandbox API proxy started")
+	return nil
+}
+
+// StartSandboxAPIProxyWithRetry validates the upstream synchronously, then
+// retries transient listener failures without taking Hydra's lifecycle API
+// down. This handles hot deployments where dockerd has not recreated the
+// sandbox bridge address yet.
+func (s *Server) StartSandboxAPIProxyWithRetry(ctx context.Context, listenAddr, rawUpstream string, retryInterval time.Duration) error {
+	if listenAddr == "" {
+		listenAddr = SandboxAPIProxyListenAddress
+	}
+	if retryInterval <= 0 {
+		retryInterval = 2 * time.Second
+	}
+	if s.apiProxyServer != nil || s.apiProxyRetryCancel != nil {
+		return fmt.Errorf("sandbox API proxy already started")
+	}
+	handler, err := newSandboxAPIProxyHandler(rawUpstream)
+	if err != nil {
+		return err
+	}
+	retryCtx, cancel := context.WithCancel(ctx)
+	s.apiProxyRetryCancel = cancel
+	s.apiProxyRetryDone.Add(1)
+	go func() {
+		defer s.apiProxyRetryDone.Done()
+		for {
+			if err := s.startSandboxAPIProxy(listenAddr, rawUpstream, handler); err == nil {
+				return
+			} else {
+				log.Warn().Err(err).Dur("retry_in", retryInterval).Msg("Sandbox API proxy listener unavailable")
+			}
+			timer := time.NewTimer(retryInterval)
+			select {
+			case <-retryCtx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+	}()
+	return nil
+}
+
+func newSandboxAPIProxyHandler(rawUpstream string) (http.Handler, error) {
+	if rawUpstream == "" {
+		return nil, fmt.Errorf("sandbox API proxy upstream URL is required")
+	}
+	// Tolerate a scheme-less HELIX_API_URL (e.g. "api:8080"): coerce to http
+	// rather than rejecting, which previously log.Fatal'd hydra into a boot
+	// crash-loop and took the whole sandbox host offline.
+	if !strings.Contains(rawUpstream, "://") {
+		rawUpstream = "http://" + rawUpstream
+	}
+	target, err := url.Parse(rawUpstream)
+	if err != nil {
+		return nil, fmt.Errorf("parse sandbox API proxy upstream URL: %w", err)
+	}
+	if target.Scheme != "http" && target.Scheme != "https" {
+		return nil, fmt.Errorf("sandbox API proxy upstream scheme must be http or https")
+	}
+	if target.Host == "" {
+		return nil, fmt.Errorf("sandbox API proxy upstream host is required")
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	// Match every sibling sandbox→API client (RevDial, heartbeat, settings
+	// daemon), which skip verification so private-CA enterprise installs work.
+	// Without this the proxy 502s all in-session traffic against a private CA
+	// while the sandbox still registers healthy over RevDial.
+	proxy.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // TODO: trust the deployment CA instead
+	}
+	director := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		director(req)
+		req.Host = target.Host
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, proxyErr error) {
+		log.Warn().Err(proxyErr).Str("method", r.Method).Str("path", r.URL.Path).
+			Msg("Sandbox API proxy request failed")
+		http.Error(w, "Helix API unavailable", http.StatusBadGateway)
+	}
+
+	// Defense in depth: the session bridge must not reach diagnostic surfaces
+	// even though the API happens to serve them. /debug/pprof through the
+	// isolated route re-exposed goroutine/heap dumps unauth (infra#70 N2).
+	// Sandboxes only ever need /api/v1/* and /v1/*.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/debug" || strings.HasPrefix(r.URL.Path, "/debug/") {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		proxy.ServeHTTP(w, r)
+	}), nil
 }
 
 // NewServer creates a new Hydra server with an internally-allocated log
@@ -146,6 +291,19 @@ func (s *Server) Start(ctx context.Context) error {
 // Stop gracefully stops the server
 func (s *Server) Stop(ctx context.Context) error {
 	log.Info().Msg("Stopping Hydra server...")
+	if s.apiProxyRetryCancel != nil {
+		s.apiProxyRetryCancel()
+		s.apiProxyRetryDone.Wait()
+	}
+
+	if s.apiProxyServer != nil {
+		if err := s.apiProxyServer.Shutdown(ctx); err != nil {
+			log.Error().Err(err).Msg("Error shutting down sandbox API proxy")
+		}
+	}
+	if s.apiProxyListener != nil {
+		s.apiProxyListener.Close()
+	}
 
 	// Stop manager
 	if err := s.manager.Stop(ctx); err != nil {

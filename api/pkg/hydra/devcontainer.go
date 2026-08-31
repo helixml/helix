@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,11 +21,32 @@ import (
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-units"
 	"github.com/rs/zerolog/log"
+)
+
+const (
+	// SandboxNetworkName is the dedicated dockerd bridge used by untrusted
+	// session containers. sandbox/06-setup-network-policy.sh creates the bridge
+	// and enforces its egress policy before Hydra starts.
+	SandboxNetworkName = "helix-sandboxes"
+
+	// SandboxAPIProxyHostname is pinned to the isolated bridge gateway in each
+	// session container. The host-side proxy forwards only to HELIX_API_URL.
+	SandboxAPIProxyHostname       = "helix-api.internal"
+	SandboxLegacyAPIProxyHostname = "outer-api"
+	SandboxNetworkGateway         = "192.0.2.1"
+	SandboxAPIProxyPort           = 18080
+	SandboxAPIProxyListenAddress  = SandboxNetworkGateway + ":18080"
+
+	// SandboxAPIProxyURL is the canonical, deployment-independent URL every
+	// session container uses to reach the Helix API: the Hydra-owned proxy on the
+	// isolated bridge (helix-api.internal → gateway, port 18080), which forwards
+	// to the real control plane. The API emits this at config-generation time so
+	// no component downstream has to rewrite control-plane addresses.
+	SandboxAPIProxyURL = "http://" + SandboxAPIProxyHostname + ":18080"
 )
 
 // GoldenCopyProgress tracks the progress of a golden cache copy operation.
@@ -496,10 +516,6 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
 	}
 
-	// Network configuration is nil for host network mode
-	// (host network mode shares the sandbox's network namespace, so no separate network config needed)
-	var networkConfig *network.NetworkingConfig
-
 	// Ensure mount source directories exist before creating container
 	for _, m := range req.Mounts {
 		// Skip volume mounts (Docker creates named volumes automatically)
@@ -537,7 +553,28 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// 1. API restarted but container is still running
 	// 2. Previous start request failed after container creation but before DB update
 	existingContainer, err := dockerClient.ContainerInspect(dockerCtx, req.ContainerName)
-	if err == nil {
+	existingContainerFound := err == nil
+	if existingContainerFound && shouldMigrateContainerNetwork(existingContainer.HostConfig.NetworkMode, hostConfig.NetworkMode) && existingContainer.State.Running {
+		log.Warn().
+			Str("container_id", existingContainer.ID).
+			Str("container_name", req.ContainerName).
+			Str("old_network", string(existingContainer.HostConfig.NetworkMode)).
+			Str("new_network", string(hostConfig.NetworkMode)).
+			Msg("Deferring network migration for running container until its next restart")
+	}
+	if existingContainerFound && shouldRecreateForNetworkMigration(existingContainer.HostConfig.NetworkMode, hostConfig.NetworkMode, existingContainer.State.Running) {
+		log.Info().
+			Str("container_id", existingContainer.ID).
+			Str("container_name", req.ContainerName).
+			Str("old_network", string(existingContainer.HostConfig.NetworkMode)).
+			Str("new_network", string(hostConfig.NetworkMode)).
+			Msg("Recreating container on isolated sandbox network")
+		if err := dockerClient.ContainerRemove(dockerCtx, existingContainer.ID, container.RemoveOptions{Force: true}); err != nil {
+			return nil, fmt.Errorf("remove container for network migration: %w", err)
+		}
+		existingContainerFound = false
+	}
+	if existingContainerFound {
 		// Container exists - check its state
 		if existingContainer.State.Running {
 			// Container is already running - return success
@@ -680,14 +717,14 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 
 	// Create container
-	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, nil, nil, req.ContainerName)
 	if err != nil && strings.Contains(err.Error(), "No such image") {
 		// Image disappeared from Docker (possible containerd GC or Docker daemon issue).
 		// Try to recover by pulling from whatever registry source is available.
 		recovered := dm.tryRecoverImage(dockerCtx, dockerClient, resolvedImage, req.Image)
 		if recovered {
 			// Retry container creation with the recovered image
-			resp, err = dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+			resp, err = dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, nil, nil, req.ContainerName)
 		}
 	}
 	if err != nil {
@@ -844,9 +881,12 @@ func materializeWorkspaceFiles(mounts []MountConfig, files map[string][]byte) er
 func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string {
 	env := make([]string, len(req.Env))
 	copy(env, req.Env)
+	// Shared BuildKit and registry are infrastructure services, not tenant APIs.
+	// Every supported session network is isolated and builds through its own
+	// container engine.
+	env = removeEnvVar(env, "BUILDKIT_HOST")
+	env = removeEnvVar(env, "HELIX_REGISTRY")
 	if req.RootlessContainerEngine {
-		env = removeEnvVar(env, "BUILDKIT_HOST")
-		env = removeEnvVar(env, "HELIX_REGISTRY")
 		env = overrideEnvVar(env, "HELIX_ROOTLESS_CONTAINER_ENGINE", "1")
 		env = overrideEnvVar(env, "DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock")
 		env = overrideEnvVar(env, "CONTAINER_HOST", "unix:///run/user/1000/podman/podman.sock")
@@ -977,50 +1017,11 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	}
 	env = append(env, fmt.Sprintf("HELIX_DOCKER_DEPTH=%d", currentDepth+1))
 
-	// Add BUILDKIT_HOST for shared BuildKit cache support
-	// Dev containers mount their per-session Docker socket, but helix-buildkit runs
-	// on the sandbox's main dockerd. Pass the BuildKit endpoint directly so the
-	// 17-start-dockerd.sh init script can create the helix-shared buildx builder.
-	if !req.RootlessContainerEngine {
-		if buildkitHost := GetBuildKitHost(); buildkitHost != "" {
-			env = append(env, fmt.Sprintf("BUILDKIT_HOST=%s", buildkitHost))
-			log.Debug().Str("buildkit_host", buildkitHost).Msg("Added BUILDKIT_HOST to dev container env")
-		}
-
-		// Add HELIX_REGISTRY for registry-based image loading (push/pull instead of tarball --load).
-		// When a build changes only one layer in a 7.73GB image, --load transfers the entire tarball
-		// (~9.5s). Registry push/pull transfers only changed layers (~0.6s) — a 16x improvement.
-		if registryHost := GetRegistryHost(); registryHost != "" {
-			env = append(env, fmt.Sprintf("HELIX_REGISTRY=%s", registryHost))
-			log.Debug().Str("registry_host", registryHost).Msg("Added HELIX_REGISTRY to dev container env")
-		}
-	}
-
-	// Override API URLs with sandbox's own HELIX_API_URL
-	// The API server sends localhost URLs, but desktop containers inside DinD
-	// need to reach the API via the sandbox's configured URL (set during install)
-	sandboxAPIURL := os.Getenv("HELIX_API_URL")
-	if sandboxAPIURL != "" {
-		log.Debug().
-			Str("sandbox_api_url", sandboxAPIURL).
-			Msg("Overriding API URLs in desktop container env with sandbox's HELIX_API_URL")
-
-		env = overrideEnvVar(env, "HELIX_API_URL", sandboxAPIURL)
-		env = overrideEnvVar(env, "HELIX_API_BASE_URL", sandboxAPIURL)
-		env = overrideEnvVar(env, "ANTHROPIC_BASE_URL", sandboxAPIURL)
-
-		// ZED_HELIX_URL needs host:port without scheme
-		zedURL := strings.TrimPrefix(sandboxAPIURL, "https://")
-		zedURL = strings.TrimPrefix(zedURL, "http://")
-		env = overrideEnvVar(env, "ZED_HELIX_URL", zedURL)
-
-		// Also set TLS flag based on scheme
-		if strings.HasPrefix(sandboxAPIURL, "https://") {
-			env = overrideEnvVar(env, "ZED_HELIX_TLS", "true")
-		} else {
-			env = overrideEnvVar(env, "ZED_HELIX_TLS", "false")
-		}
-	}
+	// The control plane emits canonical helix-api.internal:18080 URLs directly
+	// (see hydra.SandboxAPIProxyURL and its use in buildEnvVars / zed-config), so
+	// hydra no longer rewrites control-plane addresses in the container env. The
+	// isolated bridge pins helix-api.internal to the gateway (see ExtraHosts) and
+	// the proxy forwards to the real upstream.
 
 	return env
 }
@@ -1058,14 +1059,8 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.RootlessContainerEngine && req.Privileged {
 		return nil, fmt.Errorf("rootless container engine cannot run in privileged mode")
 	}
-
-	// Use the network from the request if specified, otherwise default to bridge.
-	// Previously we used host network mode which caused port conflicts when running
-	// multiple desktop containers (they all shared ports 9876/9877).
-	// With bridge network, each container gets its own IP and can use the same ports.
-	networkMode := container.NetworkMode(req.Network)
-	if networkMode == "" {
-		networkMode = "bridge"
+	if !usesIsolatedSandboxNetwork(req.Network) {
+		return nil, fmt.Errorf("unsupported sandbox network %q", req.Network)
 	}
 
 	resources := container.Resources{
@@ -1086,9 +1081,10 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	resources.NanoCPUs, resources.Memory, resources.MemorySwap = sandboxResourceLimits(req.VCPUs, req.MemoryMB)
 
 	hostConfig := &container.HostConfig{
-		NetworkMode: networkMode,
+		NetworkMode: SandboxNetworkName,
 		Privileged:  req.Privileged,
 		Resources:   resources,
+		DNS:         []string{sandboxDNSGateway()},
 	}
 	if req.ContainerType != DevContainerTypeHeadless {
 		hostConfig.IpcMode = "private"
@@ -1124,25 +1120,9 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		hostConfig.RestartPolicy = container.RestartPolicy{Name: "unless-stopped"}
 	}
 
-	// Resolve "api"/"outer-api" via the sandbox dns-proxy instead of pinning a
-	// concrete IP into /etc/hosts. The proxy (sandbox/dns-proxy, bound on the
-	// bridge gateway) forwards to the outer Docker DNS and re-resolves on every
-	// query, so a recreated `api` container is picked up automatically. The old
-	// ExtraHosts pin baked the IP at creation time and went stale on any API
-	// restart, stranding surviving desktops forever (#2641). /etc/hosts entries
-	// take precedence over DNS, so the pin also *shadowed* this dynamic path —
-	// hence we drop it entirely and point the resolver at the proxy.
-	//
-	// Only do this on the default bridge (the standard desktop path). Host
-	// networking shares the sandbox's resolver already, and an explicit custom
-	// network is the caller's responsibility.
-	if networkMode == "bridge" {
-		if gw := dm.sandboxDNSGateway(); gw != "" {
-			hostConfig.DNS = []string{gw}
-		}
-	} else {
-		// Non-bridge (e.g. host) keeps the legacy behaviour for now.
-		hostConfig.ExtraHosts = dm.buildExtraHosts()
+	hostConfig.ExtraHosts = []string{
+		SandboxAPIProxyHostname + ":" + SandboxNetworkGateway,
+		SandboxLegacyAPIProxyHostname + ":" + SandboxNetworkGateway,
 	}
 
 	// Build mounts
@@ -1374,82 +1354,58 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mo
 		})
 	}
 
-	// Add shared BuildKit cache mount if available
-	// This allows docker build cache to be shared across all sessions
-	// BuildKit uses content-addressed storage, so concurrent access is safe
-	buildkitCacheDir := filepath.Join(dm.manager.dataDir, SharedBuildKitCacheDir)
-	if !req.RootlessContainerEngine {
-		if _, err := os.Stat(buildkitCacheDir); err == nil {
-			mounts = append(mounts, mount.Mount{
-				Type:   mount.TypeBind,
-				Source: buildkitCacheDir,
-				Target: "/buildkit-cache",
-			})
-			log.Debug().Str("source", buildkitCacheDir).Msg("Added shared BuildKit cache mount")
-		}
-	}
-
 	return mounts, nil
 }
 
-// sandboxDNSGateway returns the address of the sandbox dns-proxy that desktop
-// containers should use as their resolver: the gateway of this dockerd's default
-// bridge. The sandbox's dockerd uses pool 10.(212+depth).0.0/16 (see
-// sandbox/04-start-dockerd.sh) and the dns-proxy binds the .0.1 gateway of the
-// first /24 (see sandbox/05-start-dns-proxy.sh), so the address is
-// 10.(212+depth).0.1. Returns "" if the depth is implausible.
-//
-// NOTE: the dns-proxy startup script currently hard-codes 10.213.0.1 (depth 1),
-// so resolution via the proxy is only wired for the standard (non-nested) sandbox
-// today; deeper nesting needs the proxy bind made depth-aware to match.
-func (dm *DevContainerManager) sandboxDNSGateway() string {
+func usesIsolatedSandboxNetwork(requested string) bool {
+	return requested == "" || requested == "bridge" || requested == SandboxNetworkName
+}
+
+func shouldMigrateContainerNetwork(existing, desired container.NetworkMode) bool {
+	return desired == SandboxNetworkName && existing != desired
+}
+
+func shouldRecreateForNetworkMigration(existing, desired container.NetworkMode, running bool) bool {
+	return !running && shouldMigrateContainerNetwork(existing, desired)
+}
+
+// migrateContainerToIsolatedNetwork live-migrates a running container onto the
+// isolated sandbox network without recreating it (preserving the writable
+// layer): connect to the isolated bridge, then disconnect every legacy network
+// so the container's egress is subject to the isolated bridge's policy. Used on
+// recovery to close the pre-upgrade bypass for persistent web-service containers
+// that dockerd restores on the legacy bridge.
+func (dm *DevContainerManager) migrateContainerToIsolatedNetwork(ctx context.Context, dockerClient *client.Client, containerID string, legacyNetworks []string) error {
+	if err := dockerClient.NetworkConnect(ctx, SandboxNetworkName, containerID, nil); err != nil &&
+		!strings.Contains(err.Error(), "already exists") {
+		return fmt.Errorf("connect %s to %s: %w", containerID, SandboxNetworkName, err)
+	}
+	for _, netName := range legacyNetworks {
+		if netName == SandboxNetworkName {
+			continue
+		}
+		if err := dockerClient.NetworkDisconnect(ctx, netName, containerID, true); err != nil {
+			return fmt.Errorf("disconnect %s from %s: %w", containerID, netName, err)
+		}
+	}
+	return nil
+}
+
+// sandboxDNSGateway is the default bridge gateway where the existing DNS proxy
+// listens. Session containers use it explicitly so DNS_UPSTREAM and enterprise
+// resolvers continue to work on the isolated user-defined network.
+func sandboxDNSGateway() string {
 	depth := 1
 	if depthStr := os.Getenv("HELIX_DOCKER_DEPTH"); depthStr != "" {
-		if d, err := strconv.Atoi(depthStr); err == nil && d >= 1 {
-			depth = d
+		if parsed, err := strconv.Atoi(depthStr); err == nil && parsed >= 1 {
+			depth = parsed
 		}
 	}
 	octet := 212 + depth
 	if octet > 255 {
-		return ""
+		octet = 255
 	}
 	return fmt.Sprintf("10.%d.0.1", octet)
-}
-
-// buildExtraHosts returns Docker ExtraHosts entries (format: "hostname:ip")
-// so the desktop container can reach services on the helix compose network.
-//
-// DEPRECATED for the default-bridge desktop path: this pins a concrete IP at
-// container-creation time, which goes stale on any API restart (#2641). The
-// bridge path now resolves "api"/"outer-api" dynamically via the dns-proxy
-// (see sandboxDNSGateway). Retained only for the non-bridge fallback.
-func (dm *DevContainerManager) buildExtraHosts() []string {
-	var extraHosts []string
-
-	// Resolve "api" from the sandbox's perspective (via compose DNS).
-	ips, err := net.LookupHost("api")
-	if err == nil && len(ips) > 0 {
-		apiIP := ips[0]
-
-		// "api" hostname: direct access to the outer API.
-		extraHosts = append(extraHosts, "api:"+apiIP)
-		log.Debug().Str("api_ip", apiIP).Msg("Added API host entry for dev container")
-
-		// "outer-api" hostname: same IP, but survives inner compose DNS
-		// shadowing. In Helix-in-Helix, docker compose creates its own "api"
-		// service that shadows the /etc/hosts entry. "outer-api" always points
-		// to the real outer API because compose DNS doesn't override /etc/hosts.
-		//
-		// Note: We resolve the IP here rather than using "host-gateway" because
-		// host-gateway on the sandbox's inner dockerd resolves to the sandbox's
-		// bridge gateway, not the actual host — making it unreachable.
-		extraHosts = append(extraHosts, "outer-api:"+apiIP)
-		log.Debug().Str("outer_api_ip", apiIP).Msg("Added outer-api host entry (same as api, survives H-in-H DNS shadowing)")
-	} else {
-		log.Warn().Err(err).Msg("Could not resolve 'api' hostname, container may not connect to API")
-	}
-
-	return extraHosts
 }
 
 // drmDevice describes one GPU's host DRM nodes. Pairing render nodes
@@ -2432,9 +2388,45 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 			continue // not a Helix dev container
 		}
 
+		// Close the pre-upgrade egress bypass. Persistent web-service containers
+		// carry RestartPolicy=unless-stopped, so dockerd restores them RUNNING on
+		// the legacy bridge after any restart — a lifecycle event that never
+		// calls CreateDevContainer, so the network migration there never fires and
+		// they keep unrestricted egress to Postgres/control-plane forever. Migrate
+		// them here, live and non-destructively (connect+disconnect preserves the
+		// writable layer, unlike force-recreate). Only persistent containers are
+		// auto-restored like this; transient desktop sessions are left untouched
+		// to avoid disrupting a live stream. Failures are non-fatal.
+		migrated := false
+		if _, onIsolated := c.NetworkSettings.Networks[SandboxNetworkName]; !onIsolated && c.Labels[containerPersistentLabel] == "true" {
+			var legacyNets []string
+			for netName := range c.NetworkSettings.Networks {
+				legacyNets = append(legacyNets, netName)
+			}
+			if err := dm.migrateContainerToIsolatedNetwork(ctx, dockerClient, c.ID, legacyNets); err != nil {
+				log.Warn().Err(err).
+					Str("session_id", sessionID).
+					Str("container_id", c.ID[:12]).
+					Msg("Failed to migrate legacy persistent container onto isolated network; left on legacy bridge")
+			} else {
+				migrated = true
+				log.Info().
+					Str("session_id", sessionID).
+					Str("container_id", c.ID[:12]).
+					Msg("Migrated legacy persistent container onto isolated sandbox network")
+			}
+		}
+
 		// Get container IP (fresh from this list — survives container restarts).
+		// After a migration the summary's networks are stale, so re-inspect.
 		ipAddress := ""
-		for _, net := range c.NetworkSettings.Networks {
+		networks := c.NetworkSettings.Networks
+		if migrated {
+			if inspected, ierr := dockerClient.ContainerInspect(ctx, c.ID); ierr == nil {
+				networks = inspected.NetworkSettings.Networks
+			}
+		}
+		for _, net := range networks {
 			ipAddress = net.IPAddress
 			break
 		}
@@ -2592,34 +2584,9 @@ func (dm *DevContainerManager) streamContainerLogs(ctx context.Context, containe
 	log.Debug().Str("container", containerName).Msg("Stopped streaming container logs")
 }
 
-// GetBuildKitHost returns the BuildKit endpoint URL (e.g., "tcp://172.17.0.5:1234")
-// by querying the helix-buildkit container's IP address on the sandbox's main dockerd.
-// Returns empty string if BuildKit is not available.
-func GetBuildKitHost() string {
-	// Query helix-buildkit container IP using the sandbox's main Docker socket
-	// (not the per-session socket that dev containers use)
-	cmd := exec.Command("docker", "-H", "unix:///var/run/docker.sock",
-		"inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-		SharedBuildKitContainerName)
-	output, err := cmd.Output()
-	if err != nil {
-		log.Debug().Err(err).Msg("BuildKit container not found or not running")
-		return ""
-	}
-
-	ip := strings.TrimSpace(string(output))
-	if ip == "" {
-		log.Debug().Msg("BuildKit container has no IP address")
-		return ""
-	}
-
-	// BuildKit listens on TCP port 1234 (configured in setupSharedBuildKit)
-	return fmt.Sprintf("tcp://%s:1234", ip)
-}
-
-// GetRegistryHost returns the shared registry address (e.g., "10.213.0.5:5000")
-// by querying the helix-registry container's IP address on the sandbox's main dockerd.
-// Returns empty string if the registry is not available.
+// GetRegistryHost returns the shared registry address used by Hydra itself to
+// recover a missing desktop image. The address is deliberately not exposed to
+// session containers.
 func GetRegistryHost() string {
 	cmd := exec.Command("docker", "-H", "unix:///var/run/docker.sock",
 		"inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",

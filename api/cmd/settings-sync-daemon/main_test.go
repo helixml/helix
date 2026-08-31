@@ -469,6 +469,12 @@ func TestInjectAgentPermissions(t *testing.T) {
 	assert.Equal(t, map[string]interface{}{"default": "allow"}, agent["tool_permissions"])
 }
 
+// The daemon no longer rewrites Helix API URLs — the control plane emits the
+// canonical helix-api.internal:18080 proxy URL directly in the zed-config
+// response (see hydra.SandboxAPIProxyURL and the emit sites in
+// api/pkg/server/zed_config_handlers.go). The former TestRewriteHelixConfigURLs
+// / TestIsHelixMCPURL heuristics were removed with the rewrite layer.
+
 // TestExtractUserOverrides_AgentDiffSkipsManagedFields verifies that the daemon
 // does not upload changes to helix-managed agent fields.
 func TestExtractUserOverrides_AgentDiffSkipsManagedFields(t *testing.T) {

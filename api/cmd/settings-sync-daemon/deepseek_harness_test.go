@@ -68,13 +68,15 @@ func TestDeepSeekHarnessDefersWithoutCredentials(t *testing.T) {
 	}
 }
 
-// The API and the agent are in different network namespaces, so a base URL
-// naming localhost would resolve to the desktop container itself.
-func TestDeepSeekHarnessRewritesLocalhostBaseURL(t *testing.T) {
+// The control plane now emits the canonical sandbox proxy URL in the
+// zed-config response, so the daemon uses CodeAgentConfig.BaseURL verbatim (no
+// rewriting). The dsh harness must pass it through to HELIX_BASE_URL unchanged.
+func TestDeepSeekHarnessUsesConfiguredBaseURL(t *testing.T) {
 	d := &SettingsDaemon{
+		apiURL: "http://helix-api.internal:18080",
 		codeAgentConfig: &CodeAgentConfig{
 			Runtime: "deepseek_harness",
-			BaseURL: "http://localhost:8080/v1",
+			BaseURL: "http://helix-api.internal:18080/v1",
 			Model:   "openai/gpt-5",
 		},
 		userAPIKey: "hl-test-key",
@@ -83,8 +85,7 @@ func TestDeepSeekHarnessRewritesLocalhostBaseURL(t *testing.T) {
 	dsh, ok := d.generateAgentServerConfig()["dsh"].(map[string]interface{})
 	assert.True(t, ok)
 	env := dsh["env"].(map[string]interface{})
-	assert.NotContains(t, env["HELIX_BASE_URL"], "localhost",
-		"a localhost base URL must be rewritten to a host the container can reach")
+	assert.Equal(t, "http://helix-api.internal:18080/v1", env["HELIX_BASE_URL"])
 }
 
 // Zed forwards context_servers into ACP session/new, and dsh rejects a
