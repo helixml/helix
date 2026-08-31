@@ -92,4 +92,28 @@ describe('NewChatProjectDialog', () => {
 
     expect(onSelect).not.toHaveBeenCalled()
   })
+
+  it('shows the keyboard legend and closes with Backspace from an empty search', () => {
+    const { onClose } = renderDialog()
+    const search = screen.getByLabelText('Search projects')
+
+    expect(screen.getByText('Navigate')).toBeInTheDocument()
+    expect(screen.getByText('Select')).toBeInTheDocument()
+    expect(screen.getByText('Back')).toBeInTheDocument()
+    expect(screen.getByText('Close')).toBeInTheDocument()
+
+    fireEvent.keyDown(search, { key: 'Backspace' })
+
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('keeps Backspace available for editing a non-empty search', () => {
+    const { onClose } = renderDialog()
+    const search = screen.getByLabelText('Search projects')
+
+    fireEvent.change(search, { target: { value: 'webhook' } })
+    fireEvent.keyDown(search, { key: 'Backspace' })
+
+    expect(onClose).not.toHaveBeenCalled()
+  })
 })

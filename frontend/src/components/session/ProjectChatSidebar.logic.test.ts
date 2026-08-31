@@ -10,6 +10,7 @@ import {
   compactRelativeTime,
   DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES,
   filterProjectChatGroups,
+  filterSidebarProjectsWithActivity,
   filterSidebarMembers,
   getSidebarPullRequestIcon,
   getSidebarMemberResults,
@@ -66,7 +67,7 @@ describe('ProjectChatSidebar logic', () => {
     }, true, true)).toBe(4)
   })
 
-  it('groups tasks and project-linked chats by project, and puts direct chats in None', () => {
+  it('groups tasks and project-linked chats by project, and puts direct chats in No project', () => {
     const tasks: SpecTask[] = [{
       id: 'task-one',
       project_id: 'project-one',
@@ -107,7 +108,7 @@ describe('ProjectChatSidebar logic', () => {
 
     const groups = buildProjectChatGroups(projects, tasks, sessions)
 
-    expect(groups.map((group) => group.name)).toEqual(['None', 'Project One', 'Project Two'])
+    expect(groups.map((group) => group.name)).toEqual(['No project', 'Project One', 'Project Two'])
     expect(groups[0]?.items.map((item) => item.id)).toEqual(['direct-session'])
     expect(groups[1]?.items.map((item) => item.id)).toEqual(['task-one', 'worker-session'])
     expect(groups[1]?.items[0]?.session).toEqual(expect.objectContaining({
@@ -297,6 +298,16 @@ describe('ProjectChatSidebar logic', () => {
     }).map((project) => project.id)).toEqual(['project-two', 'project-one'])
     expect(reorderProjectIds(['project-one', 'project-two'], 'project-one', 'project-two'))
       .toEqual(['project-two', 'project-one'])
+  })
+
+  it('removes projects without chat activity from the active sidebar', () => {
+    const projectsWithEmpty: TypesProject[] = [
+      { id: 'project-active', name: 'Active', last_activity_at: '2026-08-31T10:00:00Z' },
+      { id: 'project-empty', name: 'Empty' },
+    ]
+
+    expect(filterSidebarProjectsWithActivity(projectsWithEmpty).map((project) => project.id))
+      .toEqual(['project-active'])
   })
 
   it('uses AND matching across multiple search tokens', () => {

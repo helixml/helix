@@ -121,7 +121,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const visibleCount = visibleThreadCount + additionalVisibleCount
   const projectId = project?.id
   const groupId = projectId || 'default'
-  const groupName = project?.name || 'None'
+  const groupName = project?.name || 'No project'
   const requestCount = visibleCount + 1
   // A collapsed group renders nothing, so it must not fetch — and above all must
   // not keep polling. One sidebar renders a group per project, so leaving these
