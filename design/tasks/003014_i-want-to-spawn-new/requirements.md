@@ -17,78 +17,93 @@ tool registry (`SpecTaskMCPBackend`, `/api/v1/mcp/helix-tasks`, authenticated by
 its session-scoped API key, with a `ProjectPrincipal` identity). Today that
 surface is intersected with a catalogue that contains only spec-task CRUD tools.
 
+**Two rejected alternatives, recorded deliberately:**
+
+- *Attach the Worker's own `helix-org` MCP URL/key to the task.* The
+  `helix-org` backend resolves the Worker only from `OrgWorkerID` on the key's
+  session; a spec-task session has none. Making it work means either handing the
+  task the Worker's own desktop API key (full impersonation: `chat`,
+  `create_bot`, org mutations, sandbox controls — not just secrets, audit logs
+  show the Worker, and revoking the task can never revoke less than the whole
+  Worker) or pushing task→worker impersonation into that shared backend, which
+  is the same provenance mechanism done below the abstraction boundary and with
+  a much larger tool surface than the need.
+- *A per-task `secret_grants` argument.* Rejected on review: Workers spawn work
+  frequently and hold their grants as a trusted set; pasting values into task
+  descriptions is already possible today, so per-task name selection adds
+  ceremony without a real security gain. Inheritance is whole-set and automatic.
+
 ## User Stories
 
-1. As a Worker with a granted secret (e.g. `SLACK_TOKEN`), I want to spawn a
-   spec task and let it read that credential with `list_secrets`/`get_secret`,
-   so the task can complete the credentialed part of the job without me pasting
-   values into the task description.
-2. As an org owner, I want the task to see **only** the secrets I granted the
-   spawning Worker — and only the names the Worker chose to pass at creation —
-   so a spawned task can never widen its credential access or borrow another
-   Worker's secrets.
+1. As a Worker with granted secrets, I want every spec task I spawn to be able
+   to discover and read my credentials with `list_secrets`/`get_secret`, so the
+   task can complete the credentialed part of the job without me pasting values
+   into the task description and without naming grants at creation time.
+2. As an org owner, I want a spawned task to see **exactly and only** the
+   secrets bound to its spawning Worker — never another Worker's — so access
+   remains agent-specific.
 3. As a task agent, I want secrets resolved at use time (not copied into my
    prompt, DB row, or container env), so that rotating or revoking a Worker
    secret takes effect on my next `get_secret` call.
-4. As a task agent that was spawned with credentials available, I want to
-   discover them (`list_secrets` → names + usage metadata, values never
-   exposed) before fetching, exactly like the Worker did.
-5. As a task agent, I want to spawn my own sub-tasks with at most the grants I
-   myself hold, so delegation cannot escalate credentials down the task tree.
+4. As a task agent, I want to discover what I can use first (`list_secrets` →
+   names + usage metadata, values and backend source details never exposed),
+   exactly like the Worker does — including an empty list when my Worker holds
+   nothing yet.
+5. As a task agent, I want tasks I spawn myself to inherit the same
+   credentials, so delegation keeps working down the task tree without
+   escalating to other Workers' secrets.
 6. As an auditor, I want every credential read by a task logged with the task
    as actor and the source Worker + secret as subject, matching the audit trail
    Bots already produce.
 
 ## Acceptance Criteria
 
-- [ ] `create_spectask` accepts an optional `secret_grants` list of secret names;
-      names not bound to the calling Worker are rejected at creation time with a
-      clear error.
-- [ ] The created task stores the spawning Worker id and the granted names;
-      tasks created via REST/UI (no Worker) store neither and are unaffected.
-- [ ] A task with grants receives `list_secrets` and `get_secret` on its
-      `helix-tasks` MCP surface without requiring the project allowlist to name
-      those tools; `list_secrets` returns exactly the granted names with the
-      Worker binding's metadata and never values or backend source details.
+- [ ] `create_spectask`'s contract is unchanged: no secret-related argument. When
+      called by a Worker session, the spawned task stores provenance (the
+      spawning Worker); tasks created via REST/UI store none and are unaffected.
+- [ ] A task spawned by a Worker sees `list_secrets` and `get_secret` on its
+      `helix-tasks` MCP surface — mirroring the Worker baseline where the pair
+      is in `BaseReadTools` regardless of current bindings — without requiring
+      the project allowlist to name those tools.
+- [ ] `list_secrets` from a task returns exactly the spawning Worker's current
+      bindings (names + metadata), never values or backend source details; an
+      empty list when the Worker holds none.
 - [ ] `get_secret` from a task returns the same freshly-resolved value the
-      Worker would get; resolving a name outside its grants returns an error.
-- [ ] Tasks with no grants see neither tool.
-- [ ] A secret revoked/ungaranted on the Worker causes the next `get_secret`
-      from the task to fail immediately; already-running shell work is
-      unaffected (per-call resolution).
-- [ ] A sub-task created by a task agent inherits the parent's source Worker and
-      may only request grants that are a subset of the parent's grants; a
-      non-subset request is rejected.
-- [ ] A task cannot address another task's or Worker's secrets: tool arguments
-      accept no worker/task id for secret resolution; provenance comes only from
-      the stored task row behind the authenticated session.
+      Worker would get, scoped to the Worker's bindings.
+- [ ] A task with no Worker provenance (REST/UI-created) sees neither tool.
+- [ ] A secret rotated or ungranted on the Worker takes effect on the task's
+      next `get_secret` immediately; already-running shell work is unaffected
+      (per-call resolution).
+- [ ] A sub-task created by a task agent's `create_spectask` inherits the
+      parent task's provenance; a task can never name another Worker or task to
+      borrow its secrets — tool arguments accept no worker/task id, and
+      provenance comes only from stored rows behind the authenticated session.
 - [ ] Every successful and failed `get_secret` call from a task is recorded by
       the existing worker-secret audit recorder, attributed to the task id as
       actor and the source Worker/secret as subject.
 - [ ] When Zed/agents cache the tool list, the cache-busting rev for the
-      `helix-tasks` server changes when a task's grants are added, so a running
-      session's tool surface updates like other AgentTools edits.
-- [ ] The task's planning prompt gains a short "credentials available" hint
-      (names + usage only) when grants exist, mirroring the existing
-      `BuildAgentToolsSection` delegation hint.
+      `helix-tasks` server changes when hidden-to-visible flips for a
+      provenance-bearing task, so a running session's tool surface updates like
+      other AgentTools edits.
+- [ ] The task's planning prompt gains a short "credentials inherited from the
+      spawning agent — use list_secrets/get_secret" hint when the task has
+      provenance, mirroring the existing delegation prompt section. No credential
+      values in prompts.
 - [ ] No secret values are written to the SpecTask row, the create call's
-      logged args, or the sandbox environment.
+      logged args, or the sandbox environment anywhere in this design.
 
 ## Open Questions
 
-1. **Grant default:** Should omitting `secret_grants` on `create_spectask` pass
-   no secrets (my assumption — explicit opt-in) or inherit all of the Worker's
-   bindings? Inheriting-all is more convenient but silently ships every Worker
-   credential into every spawned sandbox.
-2. **Project-level gate:** Is Worker-side choice plus tool-level scoping enough,
-   or do project admins also need a hard "spec tasks may borrow worker secrets"
-   project toggle (more UI/Config work; the org philosophy prefers trusting the
-   Worker + enforcing at the secret boundary)?
-3. **Post-creation grants:** Should `update_spectask` allow adding/removing
-   grants after creation? Assumed no for v1 (recreate the task instead).
-4. **UI surfacing:** Should the spec-task detail page show "credentials
-   inherited from worker X" in the UI? Assumed no for v1 (MCP-only path).
-5. **Shell ergonomics:** Task agents will still fetch the value via `get_secret`
-   and then use it with shell tools (same pattern Workers use — never via boot
-   env vars). Confirm no task needs the values pre-materialized as env vars in
-   the container.
+1. **Project-level gate:** Is Worker-side spawning plus provenance-scoped
+   resolution enough, or do project admins also need a hard "spec tasks may use
+   worker secrets" project toggle (more UI/Config work; the org philosophy
+   prefers trusting the Worker + enforcing at the secret boundary)?
+2. **Per-binding hiding:** Later, should a Worker be able to exempt a specific
+   binding from tasks it spawns (e.g. an "inheritable" flag on the grant)
+   without un-granting it for itself? Assumed no for v1.
+3. **UI surfacing:** Should the spec-task detail page show "credentials
+   inherited from agent X"? Assumed no for v1 (MCP-only path).
+4. **Shell ergonomics:** Task agents will fetch the value via `get_secret` and
+   then use it with shell tools (same pattern Workers use — never via boot env
+   vars). Confirm no task needs the values pre-materialized as env vars in the
+   container.
