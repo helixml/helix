@@ -56,10 +56,7 @@ func (t *Managers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	if orgID == "" {
 		return nil, fmt.Errorf("managers: caller has no OrgID")
 	}
-	caller, err := SubjectForCaller(ctx, inv.Caller)
-	if err != nil {
-		return nil, fmt.Errorf("managers: %w", err)
-	}
+	caller := orgchart.NodeID(inv.Caller.ID())
 	if !t.deps.Queries.ReportingLinesWired() {
 		return json.Marshal(managersResult{Managers: []managerView{}})
 	}

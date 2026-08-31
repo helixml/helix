@@ -7,13 +7,14 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/workersecret"
 )
 
-// ListSecrets returns metadata for credentials bound to the calling
-// subject: the Bot itself, or for a spec task its project's bound Agent
-// (SubjectForCaller). Values and backing source details are never returned.
+// ListSecrets returns metadata for credentials explicitly bound to the
+// calling Worker. Values and backing source details are never returned.
+// Organization and Worker identity come only from inv.Caller.
 type ListSecrets struct {
 	deps Deps
 }
@@ -41,14 +42,14 @@ func (t *ListSecrets) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	if err != nil {
 		return nil, err
 	}
-	subject, err := SubjectForCaller(ctx, inv.Caller)
-	if err != nil {
-		return nil, fmt.Errorf("list_secrets: %w", err)
+	botID := inv.Caller.ID()
+	if botID == "" {
+		return nil, fmt.Errorf("caller has no bot id")
 	}
 	if t.deps.WorkerSecrets == nil {
 		return nil, fmt.Errorf("worker secrets are not configured")
 	}
-	secrets, err := t.deps.WorkerSecrets.Descriptors(ctx, orgID, subject)
+	secrets, err := t.deps.WorkerSecrets.Descriptors(ctx, orgID, orgchart.NodeID(botID))
 	if err != nil {
 		return nil, fmt.Errorf("list secrets: %w", err)
 	}

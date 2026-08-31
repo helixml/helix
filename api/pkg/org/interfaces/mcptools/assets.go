@@ -80,21 +80,11 @@ func viewAsset(a asset.Asset) assetView {
 	return view
 }
 
-// assetCaller resolves the acting agent for every asset/server tool: the
-// caller's org plus the subject behind the call (the Bot itself, or the
-// bound Agent for a delegated spec task — see SubjectForCaller). The
-// issuer/link checks downstream re-validate that agent's grants, so the
-// task can reach nothing the Agent itself could not reach with them.
-func assetCaller(ctx context.Context, inv tool.Invocation, operation string) (orgID, agentID string, err error) {
+func assetCaller(inv tool.Invocation, operation string) (orgID, agentID string, err error) {
 	if inv.Caller == nil {
 		return "", "", fmt.Errorf("%s: caller is missing", operation)
 	}
-	orgID = inv.Caller.OrganizationID()
-	subject, err := SubjectForCaller(ctx, inv.Caller)
-	if err != nil {
-		return "", "", fmt.Errorf("%s: %w", operation, err)
-	}
-	agentID = string(subject)
+	orgID, agentID = inv.Caller.OrganizationID(), inv.Caller.ID()
 	if orgID == "" || agentID == "" {
 		return "", "", fmt.Errorf("%s: caller has no organization or agent ID", operation)
 	}
@@ -111,7 +101,7 @@ func (t *ListAssets) Description() string {
 	return "List server assets linked to this agent, including enabled or disabled status, connection coordinates, operator notes, command/file capabilities, and SSH proxy guidance."
 }
 func (t *ListAssets) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
-	orgID, agentID, err := assetCaller(ctx, inv, ListAssetsName)
+	orgID, agentID, err := assetCaller(inv, ListAssetsName)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +137,7 @@ func (t *GetAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	orgID, agentID, err := assetCaller(ctx, inv, GetAssetName)
+	orgID, agentID, err := assetCaller(inv, GetAssetName)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +176,7 @@ func (t *ServerRunCommand) Invoke(ctx context.Context, inv tool.Invocation) (jso
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	orgID, agentID, err := assetCaller(ctx, inv, ServerRunCommandName)
+	orgID, agentID, err := assetCaller(inv, ServerRunCommandName)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +211,7 @@ func (t *ServerListCommands) Invoke(ctx context.Context, inv tool.Invocation) (j
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	orgID, agentID, err := assetCaller(ctx, inv, ServerListCommandsName)
+	orgID, agentID, err := assetCaller(inv, ServerListCommandsName)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +244,7 @@ func (t *ServerGetCommand) Invoke(ctx context.Context, inv tool.Invocation) (jso
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	orgID, agentID, err := assetCaller(ctx, inv, ServerGetCommandName)
+	orgID, agentID, err := assetCaller(inv, ServerGetCommandName)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +278,7 @@ func (t *ServerKillCommand) Invoke(ctx context.Context, inv tool.Invocation) (js
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	orgID, agentID, err := assetCaller(ctx, inv, ServerKillCommandName)
+	orgID, agentID, err := assetCaller(inv, ServerKillCommandName)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +312,7 @@ func (t *ServerListFiles) Invoke(ctx context.Context, inv tool.Invocation) (json
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	orgID, agentID, err := assetCaller(ctx, inv, ServerListFilesName)
+	orgID, agentID, err := assetCaller(inv, ServerListFilesName)
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +347,7 @@ func (t *ServerReadFile) Invoke(ctx context.Context, inv tool.Invocation) (json.
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	orgID, agentID, err := assetCaller(ctx, inv, ServerReadFileName)
+	orgID, agentID, err := assetCaller(inv, ServerReadFileName)
 	if err != nil {
 		return nil, err
 	}
@@ -417,7 +407,7 @@ func (t *ServerSSHAccess) Invoke(ctx context.Context, inv tool.Invocation) (json
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	orgID, agentID, err := assetCaller(ctx, inv, ServerSSHAccessName)
+	orgID, agentID, err := assetCaller(inv, ServerSSHAccessName)
 	if err != nil {
 		return nil, err
 	}
@@ -457,7 +447,7 @@ func (t *ServerWriteFile) Invoke(ctx context.Context, inv tool.Invocation) (json
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	orgID, agentID, err := assetCaller(ctx, inv, ServerWriteFileName)
+	orgID, agentID, err := assetCaller(inv, ServerWriteFileName)
 	if err != nil {
 		return nil, err
 	}

@@ -131,13 +131,8 @@ func (t *BotLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 	// Attach the caller via the attachments service (validates the caller
 	// and the source exist, idempotent). After this, plain read_events
 	// also includes this Bot's transcript.
-	// The transcript is attached to the Agent behind the call, but the
-	// attachment records WHO asked: the task id stays the createdBy.
-	caller, err := SubjectForCaller(ctx, inv.Caller)
-	if err != nil {
-		return nil, fmt.Errorf("bot_log: %w", err)
-	}
-	if err := t.deps.Attachments.AttachAll(ctx, orgID, caller, []eventsource.SourceRef{eventsource.Trigger(transcriptID)}, inv.Caller.ID()); err != nil {
+	caller := inv.Caller.ID()
+	if err := t.deps.Attachments.AttachAll(ctx, orgID, caller, []eventsource.SourceRef{eventsource.Trigger(transcriptID)}, string(caller)); err != nil {
 		return nil, fmt.Errorf("attach bot %q to %q: %w", caller, transcriptID, err)
 	}
 

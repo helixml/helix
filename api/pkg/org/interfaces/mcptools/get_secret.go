@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
@@ -33,20 +34,13 @@ func (t *GetSecret) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if args.Name == "" {
 		return nil, fmt.Errorf("get_secret: name is required")
 	}
-	if inv.Caller == nil || inv.Caller.OrganizationID() == "" {
+	if inv.Caller == nil || inv.Caller.OrganizationID() == "" || inv.Caller.ID() == "" {
 		return nil, fmt.Errorf("get_secret: caller identity is incomplete")
-	}
-	// The credential belongs to the Agent behind the call: a Bot reads its
-	// own grants; a spec task reads the grants of the Agent its project is
-	// bound to. Audit (the workersecrets Recorder) still sees the caller.
-	subject, err := SubjectForCaller(ctx, inv.Caller)
-	if err != nil {
-		return nil, fmt.Errorf("get_secret: %w", err)
 	}
 	if t.deps.WorkerSecrets == nil {
 		return nil, fmt.Errorf("worker secrets are not configured")
 	}
-	res, err := t.deps.WorkerSecrets.Get(ctx, inv.Caller.OrganizationID(), subject, args.Name)
+	res, err := t.deps.WorkerSecrets.Get(ctx, inv.Caller.OrganizationID(), orgchart.NodeID(inv.Caller.ID()), args.Name)
 	if err != nil {
 		return nil, err
 	}

@@ -75,12 +75,8 @@ func (t *Chat) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage
 	if orgID == "" {
 		return nil, fmt.Errorf("chat: caller has no OrgID")
 	}
-	sender, err := SubjectForCaller(ctx, inv.Caller)
-	if err != nil {
-		return nil, fmt.Errorf("chat: %w", err)
-	}
 	msg := streaming.Message{
-		From:            string(sender),
+		From:            string(inv.Caller.ID()),
 		To:              args.To,
 		Subject:         args.Subject,
 		Body:            args.Body,
@@ -92,7 +88,7 @@ func (t *Chat) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage
 	}
 	// The service owns append, notify, and route, and rejects a send to
 	// anything that is not an internal channel before appending.
-	event, err := t.deps.Publishing.SendToChannel(ctx, orgID, args.TriggerID, string(sender), msg)
+	event, err := t.deps.Publishing.SendToChannel(ctx, orgID, args.TriggerID, string(inv.Caller.ID()), msg)
 	if err != nil {
 		return nil, err
 	}

@@ -64,10 +64,7 @@ func (t *Reports) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 	if orgID == "" {
 		return nil, fmt.Errorf("reports: caller has no OrgID")
 	}
-	caller, err := SubjectForCaller(ctx, inv.Caller)
-	if err != nil {
-		return nil, fmt.Errorf("reports: %w", err)
-	}
+	caller := orgchart.NodeID(inv.Caller.ID())
 	result := reportsResult{Reports: []reportView{}}
 	if !t.deps.Queries.ReportingLinesWired() {
 		return json.Marshal(result)
