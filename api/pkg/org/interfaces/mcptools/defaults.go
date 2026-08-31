@@ -166,8 +166,8 @@ func IsSpecTaskAgentTool(name tool.Name) bool {
 // they hire/fire Workers, rewrite prompts or subscriptions, hand out tool
 // grants, SSH certificates, inbound endpoints, or compute. They are exactly
 // the tools a caller is trusted with because it IS a Worker in the graph —
-// a spec task is not, and delegation (see SubjectForCaller) must not make
-// it one. A task therefore must never see these names: specTaskToolSurface
+// a spec task is not, and delegation (the ingress DelegatedCaller) must
+// not make it one. A task therefore must never see these names: specTaskToolSurface
 // filters them out of the bound Agent half of the surface, which removes
 // them from tools/list AND from the callable registry (dispatch authorizes
 // by served-list membership), so a call fails as unknown-tool with zero

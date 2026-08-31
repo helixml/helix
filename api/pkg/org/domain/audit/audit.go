@@ -29,6 +29,16 @@ type SelfDescribingActor interface {
 	AuditActorType() ActorType
 }
 
+// SelfDescribingActorID lets a caller whose ACTING identity differs from
+// its AUDIT identity report the latter. A delegated spec-task caller acts
+// as the Agent bound to its project (so every tool sees one identity with
+// one meaning), but the audit log must still say which task pulled the
+// trigger. Callers that do not implement it are audited under their own
+// ID — every historical caller.
+type SelfDescribingActorID interface {
+	AuditActorID() string
+}
+
 type ActorType string
 
 const (
