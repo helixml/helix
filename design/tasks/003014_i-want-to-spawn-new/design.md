@@ -70,6 +70,17 @@ No `create_spectask` contract change, no per-task grant list.
 
 ## Design
 
+**Governing principle — standalone task, additive tools.** A spawned task is a
+normal, independently usable spec task that happens to carry two extra org MCP
+tools. Provenance never gates the task lifecycle (planning, approval,
+implementation, PRs, labels, human UI): outside the secret pair, code paths must
+not branch on `SecretsWorkerID` at all. Every tool-surface change is a strict
+**union addition** of `list_secrets`/`get_secret` for provenance-bearing tasks;
+nothing existing is removed or reinterpreted, and the credential hint is its own
+prompt section rather than feeding the delegation section (whose current
+`len(tools) == 0` gate would otherwise falsely tell a secrets-only task that it
+can create sub-tasks).
+
 ### 1. Provenance on the task (`types/simple_spec_task.go`)
 
 ```go
@@ -122,6 +133,13 @@ Security invariants: org comes from the backend's project/org check; task id
 from the authenticated caller; no new id-shaped tool arguments anywhere;
 cross-tenant already blocked upstream.
 
+**Spawner may vanish — task stays usable.** `workersecrets.Service` already
+starts with `s.nodes.Get(ctx, orgID, workerID)`, so a fired/deleted Worker
+surfaces as a normal error out of both tools; nothing hangs or breaks the
+session. The seam likewise must return a recoverable error (task has
+provenance but worker row is gone → error), never a panic. The task remains a
+fully functional standalone spec task; every non-secret path is untouched.
+
 ### 4. Effective tool surface = grant-aware union
 
 `mcp_backend_spectask.go`: after the existing `(project ∪ task) ∩
@@ -131,21 +149,30 @@ project allowlist, because provenance, not the allowlist, is the gate. Add the
 two names to the `SpecTaskAgentTools` catalogue (the intersection then makes
 stale AgentTools entries harmless for provenance-less tasks).
 
-The rev computation and prompt surface must agree or Zed's cached tools/list
-and the planning prompt lie about the task: pass a shared
+The rev computation and REST view must agree with the served tools/list or
+Zed's cache and the UI lie about the task. Add
 `types.EffectiveSpecTaskAgentTools(projectTools, taskTools []string,
-hasSecretProvenance bool)` helper (new, mirrors `EffectiveAgentTools` in
-`types/agent_tools.go`) at all three call sites: `external-agent/zed_config.go`
-(`specTaskTools`/`AgentToolsRev`), `services/spec_task_prompts.go`
-(`BuildAgentToolsSection`), `server/agent_tools_handlers.go`.
+hasSecretProvenance bool)` (mirrors `EffectiveAgentTools`) and use it at the two
+*MCP/REST surface* call sites: `external-agent/zed_config.go`
+(`specTaskTools`/`AgentToolsRev`) and `server/agent_tools_handlers.go`. The
+helper appends the pair after the existing intersect; it only ever adds.
 
-### 5. Prompt text (data over code)
+The planning-prompt site keeps `EffectiveAgentTools` (CRUD tools only) for its
+delegation enumeration + `len == 0` gate — otherwise a provenance-only task
+would get told it can create and steer other tasks, which it cannot: the
+provenance union never includes `create_spectask` or any lifecycle tool.
+`BuildAgentToolsSection` gains a sibling secret-hint input, see §5.
 
-In the existing agent-section builder: when the task has provenance, add one
-line — "This task inherited credentials from the agent that spawned it. Call
-`list_secrets` for names/usage, `get_secret` immediately before an
-authenticated operation." No enumeration (the prompt builder has no org-store
-access; `list_secrets` is the enumeration).
+### 5. Prompt text (data over code) — own section, own gate
+
+A second, independent fragment in the planning prompt built off the provenance
+flag alone, **never** off the delegation tools list: "This task inherited
+credentials from the agent that spawned it. Call `list_secrets` for
+names/usage, `get_secret` immediately before an authenticated operation." The
+existing delegation section is untouched — same tools-derived gate and
+enumeration — so a task whose only Helix MCP tools are the secret pair sees the
+credential hint and nothing about delegation. No values, no enumeration (the
+prompt builder has no org-store access; `list_secrets` is the enumeration).
 
 ### 6. Tests
 
@@ -155,10 +182,17 @@ Follow existing patterns:
   resolve a task fails closed without provenance.
 - `mcptools` — spec-task-caller branch tests in get_secret/list_secrets over a
   fake seam (patterns: `worker_secrets_test.go`, `spec_tasks_test.go`); audit
-  attribution stays on the task id.
-- `server/mcp_backend_spectask*` — provenance flips tools/list both ways;
-  provenance-less task sees neither tool even if the catalog lists them.
-- types: `EffectiveSpecTaskAgentTools` union/intersect truth table.
+  attribution stays on the task id; seam error for a gone worker returns a
+  clean error, not a crash.
+- `server/mcp_backend_spectask*` — provenance flips tools/list both ways and
+  the added set is exactly the existing surface ∪ the pair (assert nothing
+  existing is removed); provenance-less task sees neither tool even if the
+  catalog lists them.
+- types: `EffectiveSpecTaskAgentTools` union/intersect truth table, with a
+  property test that output ⊇ input list (additivity).
+- prompt builder: provenance-with-no-delegation-tools renders the credential
+  hint but NOT the delegation section; delegation rendering is unchanged for
+  every combination of project/task tools.
 
 ### 7. Out of scope / deliberately not done
 
@@ -166,5 +200,7 @@ Follow existing patterns:
   bot-only).
 - No values in task rows, logs, prompts, or container env.
 - No "inheritable per binding" flag, no UI, no post-hoc grant editing.
+- No lifecycle coupling: no spec-task state machine, status, or UI flow reads
+  `SecretsWorkerID`; a spawned task is usable with zero org context.
 - No revocation propagation to already-running shell commands (inherent to
   per-call resolution; same semantics Workers already have).

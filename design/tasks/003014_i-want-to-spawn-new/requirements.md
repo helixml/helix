@@ -55,12 +55,32 @@ surface is intersected with a catalogue that contains only spec-task CRUD tools.
 6. As an auditor, I want every credential read by a task logged with the task
    as actor and the source Worker + secret as subject, matching the audit trail
    Bots already produce.
+7. As the human owner of a project, I want a Worker-spawned task to remain a
+   first-class, **independently usable** spec task — a spawned task is a normal
+   task that happens to carry extra MCP tools. It must behave identically to a
+   UI-created task everywhere outside the secret pair, including after the
+   spawning Worker is renamed, stopped, or fired.
 
 ## Acceptance Criteria
 
 - [ ] `create_spectask`'s contract is unchanged: no secret-related argument. When
       called by a Worker session, the spawned task stores provenance (the
       spawning Worker); tasks created via REST/UI store none and are unaffected.
+- [ ] The secret pair is **strictly additive**: at every surface that computes a
+      task's tool set (MCP tools/list, the `helix-tasks` cache-bust rev, the REST
+      agent-tools view, the planning prompt), a provenance-bearing task shows
+      its pre-change surface **plus** exactly `list_secrets` + `get_secret`. No
+      existing tool is removed, hidden, or given new behaviour, and a
+      provenance-less task's surfaces are unchanged from today.
+- [ ] Everything outside the secret pair treats a spawned task exactly like a
+      UI-created task: planning, revision, approval, implementation, agent
+      start/stop/restart, PRs, labels, and the human UI work identically with or
+      without provenance; an end-to-end run of a Worker-spawned task through the
+      normal UI (no org session involved) completes a full planning →
+      implementation → PR cycle.
+- [ ] If the spawning Worker is fired/deleted, the task remains fully usable:
+      every non-secret capability is unaffected, and `list_secrets`/`get_secret`
+      calls return a clear error rather than hanging or breaking the session.
 - [ ] A task spawned by a Worker sees `list_secrets` and `get_secret` on its
       `helix-tasks` MCP surface — mirroring the Worker baseline where the pair
       is in `BaseReadTools` regardless of current bindings — without requiring
@@ -87,8 +107,10 @@ surface is intersected with a catalogue that contains only spec-task CRUD tools.
       other AgentTools edits.
 - [ ] The task's planning prompt gains a short "credentials inherited from the
       spawning agent — use list_secrets/get_secret" hint when the task has
-      provenance, mirroring the existing delegation prompt section. No credential
-      values in prompts.
+      provenance. The hint is its own section: the existing "Delegating to other
+      spec tasks" section still renders from delegation/lifecycle tools only, so
+      a task granted just the secret pair is never told it can create or steer
+      other tasks. No credential values in prompts.
 - [ ] No secret values are written to the SpecTask row, the create call's
       logged args, or the sandbox environment anywhere in this design.
 
