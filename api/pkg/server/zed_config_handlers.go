@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/goose"
+	"github.com/helixml/helix/api/pkg/hydra"
 	modelPkg "github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
@@ -118,23 +119,11 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		}
 	}
 
-	// Generate Zed MCP config
-	// Use SERVER_URL for external-facing URLs (browser access)
-	helixAPIURL := apiServer.Cfg.WebServer.URL
-	if helixAPIURL == "" {
-		helixAPIURL = "http://api:8080"
-	}
-
-	// Use SANDBOX_API_URL for sandbox containers
-	// This is the URL that Zed inside the sandbox uses to call the Helix API
-	// If not explicitly set, use the external-facing URL (SERVER_URL) so that
-	// remote sandboxes can reach the API. Only use http://api:8080 in
-	// development where sandboxes run in the same Docker network.
-	sandboxAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
-	if sandboxAPIURL == "" {
-		// Default to external URL so remote sandboxes work out of the box
-		sandboxAPIURL = helixAPIURL
-	}
+	// Every URL in the Zed config (MCP endpoints, language-model api_urls, the
+	// code-agent BaseURL, the WebSocket sync URL) is Helix-owned and must be
+	// reachable from inside the egress-isolated sandbox. Emit the canonical
+	// sandbox proxy URL so the settings daemon never has to rewrite addresses.
+	sandboxAPIURL := hydra.SandboxAPIProxyURL
 
 	// Get API key for MCP and LLM authentication
 	helixToken, err := apiServer.getAPIKeyForSession(ctx, session)
@@ -502,13 +491,7 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		app = &types.App{ID: "default-agent", Config: types.AppConfig{}}
 	}
 
-	helixAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
-	if helixAPIURL == "" {
-		helixAPIURL = apiServer.Cfg.WebServer.URL
-		if helixAPIURL == "" {
-			helixAPIURL = "http://api:8080"
-		}
-	}
+	helixAPIURL := hydra.SandboxAPIProxyURL
 
 	helixToken, err := apiServer.getAPIKeyForSession(ctx, session)
 	if err != nil {
@@ -607,17 +590,7 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 		return agentName
 	}
 
-	// Use SANDBOX_API_URL for sandbox containers
-	// If not explicitly set, default to external-facing URL (SERVER_URL)
-	sandboxAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
-	if sandboxAPIURL == "" {
-		sandboxAPIURL = apiServer.Cfg.WebServer.URL
-		if sandboxAPIURL == "" {
-			sandboxAPIURL = "http://api:8080"
-		}
-	}
-
-	codeAgentConfig := apiServer.buildCodeAgentConfig(ctx, runtimeApp, sandboxAPIURL, "")
+	codeAgentConfig := apiServer.buildCodeAgentConfig(ctx, runtimeApp, hydra.SandboxAPIProxyURL, "")
 	if codeAgentConfig != nil {
 		agentName = codeAgentConfig.AgentName
 		log.Info().

@@ -214,7 +214,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	case "qwen_code":
 		// Qwen Code: Uses the qwen command as a custom agent_server.
 		// Rewrite localhost URLs for container networking (dev mode fix)
-		baseURL := d.rewriteHelixAPIURL(d.codeAgentConfig.BaseURL)
+		baseURL := d.codeAgentConfig.BaseURL
 		env := map[string]interface{}{
 			"OPENAI_BASE_URL":               baseURL,
 			"QWEN_HOME":                     "/home/retro/work/.qwen-state",
@@ -291,7 +291,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 
 		if d.codeAgentConfig.BaseURL != "" {
 			// API key mode: route through Helix API proxy
-			baseURL := d.rewriteHelixAPIURL(d.codeAgentConfig.BaseURL)
+			baseURL := d.codeAgentConfig.BaseURL
 			env["ANTHROPIC_BASE_URL"] = baseURL
 			if d.userAPIKey != "" {
 				env["ANTHROPIC_API_KEY"] = d.userAPIKey
@@ -347,7 +347,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	case "codex_cli":
 		codexBaseURL := ""
 		if d.codeAgentConfig.BaseURL != "" {
-			codexBaseURL = d.rewriteHelixAPIURL(d.codeAgentConfig.BaseURL)
+			codexBaseURL = d.codeAgentConfig.BaseURL
 		}
 		if err := ensureCodexConfig(CodexConfigPath, codexBaseURL, d.codeAgentConfig.Model); err != nil {
 			log.Printf("Failed to configure Codex: %v", err)
@@ -409,7 +409,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// goose's config file at startup.
 		// Phase 2 will add per-recipe agent_servers entries on top of this
 		// plain entry; for now we always emit one "goose" entry.
-		baseURL := d.rewriteHelixAPIURL(d.codeAgentConfig.BaseURL)
+		baseURL := d.codeAgentConfig.BaseURL
 		env := map[string]interface{}{}
 
 		// Map Helix APIType → goose provider + env var names. Goose
@@ -490,7 +490,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// (OPENCODE_CONFIG_CONTENT) instead of a config file — opencode merges
 		// it over its own defaults, so there is nothing to write to disk and
 		// nothing to clean up between agent switches.
-		baseURL := d.rewriteHelixAPIURL(d.codeAgentConfig.BaseURL)
+		baseURL := d.codeAgentConfig.BaseURL
 
 		// Resolve the binary first: with an admin-pinned version this may
 		// download and verify a release, and if that fails we must not emit an
@@ -540,7 +540,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// configuration lives in the cordis composition baked into the image
 		// (/opt/helix/dsh/cordis.yml); we only supply the values it resolves
 		// from the environment.
-		baseURL := d.rewriteHelixAPIURL(d.codeAgentConfig.BaseURL)
+		baseURL := d.codeAgentConfig.BaseURL
 
 		env, err := buildDeepSeekHarnessEnv(baseURL, d.codeAgentConfig.Model, d.userAPIKey)
 		if err != nil {
@@ -806,69 +806,10 @@ func (d *SettingsDaemon) writeGooseConfig(xdgConfigHome string) error {
 	return nil
 }
 
-// rewriteHelixAPIURL routes a Helix-owned URL through the same endpoint the
-// daemon used to fetch its configuration. Session containers may not be able
-// to reach the control plane address embedded by the API server directly.
-func (d *SettingsDaemon) rewriteHelixAPIURL(originalURL string) string {
-	if originalURL == "" {
-		return originalURL
-	}
-
-	apiParsed, err := url.Parse(d.apiURL)
-	if err != nil || apiParsed.Scheme == "" || apiParsed.Host == "" {
-		log.Printf("Warning: failed to parse sandbox API URL")
-		return originalURL
-	}
-
-	origParsed, err := url.Parse(originalURL)
-	if err != nil || origParsed.Scheme == "" || origParsed.Host == "" {
-		log.Printf("Warning: failed to parse Helix API URL")
-		return originalURL
-	}
-
-	origParsed.Scheme = apiParsed.Scheme
-	origParsed.Host = apiParsed.Host
-	origParsed.User = nil
-	return origParsed.String()
-}
-
-// rewriteHelixConfigURLs keeps all Helix API-backed HTTP clients on the
-// sandbox's constrained API gateway. MCP names are not an ownership boundary:
-// project and organization MCPs use user-selected names while their URLs still
-// point at the Helix MCP proxy.
-func (d *SettingsDaemon) rewriteHelixConfigURLs(config *helixConfigResponse) {
-	if config.CodeAgentConfig != nil {
-		config.CodeAgentConfig.BaseURL = d.rewriteHelixAPIURL(config.CodeAgentConfig.BaseURL)
-	}
-
-	for _, rawProvider := range config.LanguageModels {
-		provider, ok := rawProvider.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if apiURL, ok := provider["api_url"].(string); ok {
-			provider["api_url"] = d.rewriteHelixAPIURL(apiURL)
-		}
-	}
-
-	for _, rawServer := range config.ContextServers {
-		server, ok := rawServer.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if serverURL, ok := server["url"].(string); ok && isHelixMCPURL(serverURL) {
-			server["url"] = d.rewriteHelixAPIURL(serverURL)
-		}
-	}
-}
-
-func isHelixMCPURL(rawURL string) bool {
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return false
-	}
-	return parsed.Path == "/api/v1/mcp" || strings.HasPrefix(parsed.Path, "/api/v1/mcp/")
-}
+// The control plane now emits canonical helix-api.internal:18080 URLs in the
+// zed-config response (see hydra.SandboxAPIProxyURL), so the daemon no longer
+// rewrites Helix API addresses: BaseURL, language-model api_urls, and MCP URLs
+// all arrive already pointing at the reachable sandbox proxy.
 
 // injectAvailableModels adds the configured model to the provider's available_models list.
 // Zed only recognizes models that are either built-in (gpt-4, claude-3, etc.) or listed
@@ -1460,8 +1401,14 @@ func main() {
 	http.HandleFunc("/settings", daemon.getSettings)
 	http.HandleFunc("/reload", daemon.forceReload)
 
-	log.Printf("Settings sync daemon listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	// SECURITY: bind loopback only. This endpoint exposes GET/PUT /settings and
+	// /reload for the in-container agent + desktop-bridge, which reach it over
+	// localhost. A wildcard bind let any peer on the shared sandbox bridge read
+	// or inject another tenant's model-provider config (infra#70 N1). Same fix
+	// PR 3147 applied to the desktop-bridge on :9876.
+	listenAddr := "127.0.0.1:" + port
+	log.Printf("Settings sync daemon listening on %s", listenAddr)
+	log.Fatal(http.ListenAndServe(listenAddr, nil))
 }
 
 // syncFromHelix fetches Helix-managed settings and merges with user overrides
@@ -1493,7 +1440,6 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		return fmt.Errorf("failed to parse Helix config: %w", err)
 	}
-	d.rewriteHelixConfigURLs(&config)
 
 	// Store code agent config for generating agent_servers
 	d.codeAgentConfig = config.CodeAgentConfig
@@ -2441,7 +2387,6 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		return err
 	}
-	d.rewriteHelixConfigURLs(&config)
 
 	// Mirror GNOME on every poll — same call syncFromHelix makes. Idempotent
 	// (gsettings set to the existing value is a no-op) and load-bearing for

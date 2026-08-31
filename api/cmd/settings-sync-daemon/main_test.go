@@ -469,58 +469,11 @@ func TestInjectAgentPermissions(t *testing.T) {
 	assert.Equal(t, map[string]interface{}{"default": "allow"}, agent["tool_permissions"])
 }
 
-func TestRewriteHelixConfigURLs(t *testing.T) {
-	d := &SettingsDaemon{apiURL: "http://helix-api.internal:18080"}
-	config := &helixConfigResponse{
-		CodeAgentConfig: &CodeAgentConfig{BaseURL: "http://api:8080/v1"},
-		LanguageModels: map[string]interface{}{
-			"openai":    map[string]interface{}{"api_url": "http://api:8080/v1"},
-			"anthropic": map[string]interface{}{"api_url": "https://control.example.test"},
-		},
-		ContextServers: map[string]interface{}{
-			"helix-session": map[string]interface{}{
-				"url": "http://api:8080/api/v1/mcp/session?session_id=ses_test",
-			},
-			"helix-native": map[string]interface{}{
-				"url": "http://api:8080/api/v1/mcp",
-			},
-			"organization-tools": map[string]interface{}{
-				"url": "https://control.example.test/api/v1/mcp/external/org-tools/sse",
-			},
-			"user-tools": map[string]interface{}{
-				"url": "https://control.example.test/api/v1/mcp/external/user-tools/sse",
-			},
-			"custom": map[string]interface{}{
-				"url": "https://mcp.example.test/sse",
-			},
-		},
-	}
-
-	d.rewriteHelixConfigURLs(config)
-
-	assert.Equal(t, "http://helix-api.internal:18080/v1", config.CodeAgentConfig.BaseURL)
-	assert.Equal(t, "http://helix-api.internal:18080/v1",
-		config.LanguageModels["openai"].(map[string]interface{})["api_url"])
-	assert.Equal(t, "http://helix-api.internal:18080",
-		config.LanguageModels["anthropic"].(map[string]interface{})["api_url"])
-	assert.Equal(t, "http://helix-api.internal:18080/api/v1/mcp/session?session_id=ses_test",
-		config.ContextServers["helix-session"].(map[string]interface{})["url"])
-	assert.Equal(t, "http://helix-api.internal:18080/api/v1/mcp",
-		config.ContextServers["helix-native"].(map[string]interface{})["url"])
-	assert.Equal(t, "http://helix-api.internal:18080/api/v1/mcp/external/org-tools/sse",
-		config.ContextServers["organization-tools"].(map[string]interface{})["url"])
-	assert.Equal(t, "http://helix-api.internal:18080/api/v1/mcp/external/user-tools/sse",
-		config.ContextServers["user-tools"].(map[string]interface{})["url"])
-	assert.Equal(t, "https://mcp.example.test/sse",
-		config.ContextServers["custom"].(map[string]interface{})["url"])
-}
-
-func TestIsHelixMCPURL(t *testing.T) {
-	assert.True(t, isHelixMCPURL("http://api:8080/api/v1/mcp"))
-	assert.True(t, isHelixMCPURL("https://example.test/api/v1/mcp/external/user-server/sse"))
-	assert.False(t, isHelixMCPURL("https://example.test/mcp"))
-	assert.False(t, isHelixMCPURL("not a url"))
-}
+// The daemon no longer rewrites Helix API URLs — the control plane emits the
+// canonical helix-api.internal:18080 proxy URL directly in the zed-config
+// response (see hydra.SandboxAPIProxyURL and the emit sites in
+// api/pkg/server/zed_config_handlers.go). The former TestRewriteHelixConfigURLs
+// / TestIsHelixMCPURL heuristics were removed with the rewrite layer.
 
 // TestExtractUserOverrides_AgentDiffSkipsManagedFields verifies that the daemon
 // does not upload changes to helix-managed agent fields.

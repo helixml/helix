@@ -44,6 +44,35 @@ func TestSandboxAPIProxyForwardsRequest(t *testing.T) {
 	require.Equal(t, "proxied", string(body))
 }
 
+func TestSandboxAPIProxyBlocksDebugEndpoints(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "SHOULD-NOT-REACH-UPSTREAM")
+	}))
+	defer upstream.Close()
+
+	handler, err := newSandboxAPIProxyHandler(upstream.URL)
+	require.NoError(t, err)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// /debug/pprof must never reach the upstream API through the isolated route.
+	for _, path := range []string{"/debug/pprof/", "/debug/pprof/goroutine", "/debug"} {
+		resp, err := http.Get(server.URL + path)
+		require.NoError(t, err, path)
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		require.Equal(t, http.StatusNotFound, resp.StatusCode, path)
+		require.NotContains(t, string(body), "SHOULD-NOT-REACH-UPSTREAM", path)
+	}
+
+	// A normal API path still forwards.
+	resp, err := http.Get(server.URL + "/api/v1/config")
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
 func TestSandboxAPIProxyStreamsServerSentEvents(t *testing.T) {
 	release := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -106,8 +135,17 @@ func TestSandboxAPIProxyRetriesListenerUntilAddressIsAvailable(t *testing.T) {
 }
 
 func TestSandboxAPIProxyRejectsInvalidUpstream(t *testing.T) {
-	for _, upstream := range []string{"", "api:8080", "ftp://api.example.com"} {
+	for _, upstream := range []string{"", "ftp://api.example.com"} {
 		_, err := newSandboxAPIProxyHandler(upstream)
 		require.Error(t, err, upstream)
 	}
+}
+
+// A scheme-less HELIX_API_URL (host:port) must be tolerated by coercing it to
+// http, not rejected — rejecting it previously log.Fatal'd hydra into a boot
+// crash-loop that took the whole sandbox host offline.
+func TestSandboxAPIProxyCoercesSchemelessUpstream(t *testing.T) {
+	handler, err := newSandboxAPIProxyHandler("api:8080")
+	require.NoError(t, err)
+	require.NotNil(t, handler)
 }

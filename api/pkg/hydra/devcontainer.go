@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,6 +40,13 @@ const (
 	SandboxNetworkGateway         = "192.0.2.1"
 	SandboxAPIProxyPort           = 18080
 	SandboxAPIProxyListenAddress  = SandboxNetworkGateway + ":18080"
+
+	// SandboxAPIProxyURL is the canonical, deployment-independent URL every
+	// session container uses to reach the Helix API: the Hydra-owned proxy on the
+	// isolated bridge (helix-api.internal → gateway, port 18080), which forwards
+	// to the real control plane. The API emits this at config-generation time so
+	// no component downstream has to rewrite control-plane addresses.
+	SandboxAPIProxyURL = "http://" + SandboxAPIProxyHostname + ":18080"
 )
 
 // GoldenCopyProgress tracks the progress of a golden cache copy operation.
@@ -1011,34 +1017,11 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	}
 	env = append(env, fmt.Sprintf("HELIX_DOCKER_DEPTH=%d", currentDepth+1))
 
-	// Override API URLs with sandbox's own HELIX_API_URL
-	// The API server sends localhost URLs, but desktop containers inside DinD
-	// need to reach the API via the sandbox's configured URL (set during install)
-	sandboxAPIURL := os.Getenv("HELIX_API_URL")
-	if sandboxAPIURL != "" {
-		containerAPIURL := fmt.Sprintf("http://%s:%d", SandboxAPIProxyHostname, SandboxAPIProxyPort)
-		log.Debug().
-			Str("upstream_api_url", sandboxAPIURL).
-			Str("container_api_url", containerAPIURL).
-			Msg("Overriding API URLs in dev container environment")
-
-		env = overrideEnvVar(env, "HELIX_API_URL", containerAPIURL)
-		env = overrideEnvVar(env, "HELIX_API_BASE_URL", containerAPIURL)
-		env = rewriteHelixEndpointEnv(env, "ANTHROPIC_BASE_URL", sandboxAPIURL, containerAPIURL)
-		env = rewriteHelixEndpointEnv(env, "OPENAI_BASE_URL", sandboxAPIURL, strings.TrimRight(containerAPIURL, "/")+"/v1")
-
-		// ZED_HELIX_URL needs host:port without scheme
-		zedURL := strings.TrimPrefix(containerAPIURL, "https://")
-		zedURL = strings.TrimPrefix(zedURL, "http://")
-		env = overrideEnvVar(env, "ZED_HELIX_URL", zedURL)
-
-		// Also set TLS flag based on scheme
-		if strings.HasPrefix(containerAPIURL, "https://") {
-			env = overrideEnvVar(env, "ZED_HELIX_TLS", "true")
-		} else {
-			env = overrideEnvVar(env, "ZED_HELIX_TLS", "false")
-		}
-	}
+	// The control plane emits canonical helix-api.internal:18080 URLs directly
+	// (see hydra.SandboxAPIProxyURL and its use in buildEnvVars / zed-config), so
+	// hydra no longer rewrites control-plane addresses in the container env. The
+	// isolated bridge pins helix-api.internal to the gateway (see ExtraHosts) and
+	// the proxy forwards to the real upstream.
 
 	return env
 }
@@ -1053,40 +1036,6 @@ func overrideEnvVar(env []string, key, value string) []string {
 		}
 	}
 	return append(env, prefix+value)
-}
-
-// rewriteHelixEndpointEnv rewrites an existing provider endpoint only when it
-// points at the Helix control plane. Sandboxes may deliberately supply an
-// external OpenAI-compatible endpoint; replacing that URL would send the
-// caller's provider credential to the wrong service.
-func rewriteHelixEndpointEnv(env []string, key, sandboxAPIURL, proxyURL string) []string {
-	prefix := key + "="
-	for _, entry := range env {
-		if !strings.HasPrefix(entry, prefix) {
-			continue
-		}
-		if isHelixEndpointURL(strings.TrimPrefix(entry, prefix), sandboxAPIURL) {
-			return overrideEnvVar(env, key, proxyURL)
-		}
-		return env
-	}
-	return env
-}
-
-func isHelixEndpointURL(rawEndpoint, sandboxAPIURL string) bool {
-	endpoint, err := url.Parse(rawEndpoint)
-	if err != nil || endpoint.Hostname() == "" {
-		return false
-	}
-	host := strings.ToLower(endpoint.Hostname())
-	switch host {
-	case "localhost", "127.0.0.1", "::1", "api", "outer-api", SandboxAPIProxyHostname:
-		return true
-	}
-
-	sandboxEndpoint, err := url.Parse(sandboxAPIURL)
-	return err == nil && sandboxEndpoint.Hostname() != "" &&
-		strings.EqualFold(endpoint.Hostname(), sandboxEndpoint.Hostname())
 }
 
 func removeEnvVar(env []string, key string) []string {
@@ -1418,6 +1367,28 @@ func shouldMigrateContainerNetwork(existing, desired container.NetworkMode) bool
 
 func shouldRecreateForNetworkMigration(existing, desired container.NetworkMode, running bool) bool {
 	return !running && shouldMigrateContainerNetwork(existing, desired)
+}
+
+// migrateContainerToIsolatedNetwork live-migrates a running container onto the
+// isolated sandbox network without recreating it (preserving the writable
+// layer): connect to the isolated bridge, then disconnect every legacy network
+// so the container's egress is subject to the isolated bridge's policy. Used on
+// recovery to close the pre-upgrade bypass for persistent web-service containers
+// that dockerd restores on the legacy bridge.
+func (dm *DevContainerManager) migrateContainerToIsolatedNetwork(ctx context.Context, dockerClient *client.Client, containerID string, legacyNetworks []string) error {
+	if err := dockerClient.NetworkConnect(ctx, SandboxNetworkName, containerID, nil); err != nil &&
+		!strings.Contains(err.Error(), "already exists") {
+		return fmt.Errorf("connect %s to %s: %w", containerID, SandboxNetworkName, err)
+	}
+	for _, netName := range legacyNetworks {
+		if netName == SandboxNetworkName {
+			continue
+		}
+		if err := dockerClient.NetworkDisconnect(ctx, netName, containerID, true); err != nil {
+			return fmt.Errorf("disconnect %s from %s: %w", containerID, netName, err)
+		}
+	}
+	return nil
 }
 
 // sandboxDNSGateway is the default bridge gateway where the existing DNS proxy
@@ -2417,9 +2388,45 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 			continue // not a Helix dev container
 		}
 
+		// Close the pre-upgrade egress bypass. Persistent web-service containers
+		// carry RestartPolicy=unless-stopped, so dockerd restores them RUNNING on
+		// the legacy bridge after any restart — a lifecycle event that never
+		// calls CreateDevContainer, so the network migration there never fires and
+		// they keep unrestricted egress to Postgres/control-plane forever. Migrate
+		// them here, live and non-destructively (connect+disconnect preserves the
+		// writable layer, unlike force-recreate). Only persistent containers are
+		// auto-restored like this; transient desktop sessions are left untouched
+		// to avoid disrupting a live stream. Failures are non-fatal.
+		migrated := false
+		if _, onIsolated := c.NetworkSettings.Networks[SandboxNetworkName]; !onIsolated && c.Labels[containerPersistentLabel] == "true" {
+			var legacyNets []string
+			for netName := range c.NetworkSettings.Networks {
+				legacyNets = append(legacyNets, netName)
+			}
+			if err := dm.migrateContainerToIsolatedNetwork(ctx, dockerClient, c.ID, legacyNets); err != nil {
+				log.Warn().Err(err).
+					Str("session_id", sessionID).
+					Str("container_id", c.ID[:12]).
+					Msg("Failed to migrate legacy persistent container onto isolated network; left on legacy bridge")
+			} else {
+				migrated = true
+				log.Info().
+					Str("session_id", sessionID).
+					Str("container_id", c.ID[:12]).
+					Msg("Migrated legacy persistent container onto isolated sandbox network")
+			}
+		}
+
 		// Get container IP (fresh from this list — survives container restarts).
+		// After a migration the summary's networks are stale, so re-inspect.
 		ipAddress := ""
-		for _, net := range c.NetworkSettings.Networks {
+		networks := c.NetworkSettings.Networks
+		if migrated {
+			if inspected, ierr := dockerClient.ContainerInspect(ctx, c.ID); ierr == nil {
+				networks = inspected.NetworkSettings.Networks
+			}
+		}
+		for _, net := range networks {
 			ipAddress = net.IPAddress
 			break
 		}

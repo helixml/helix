@@ -126,6 +126,22 @@ func TestBuildEnvVarsForcesHeadlessStartup(t *testing.T) {
 	}
 }
 
+// The control plane is the single author of the sandbox-facing Helix API URL:
+// buildEnvVars must emit the canonical hydra.SandboxAPIProxyURL for every API/LLM
+// env var, so hydra and the settings daemon never rewrite addresses.
+func TestBuildEnvVarsEmitsCanonicalSandboxAPIURL(t *testing.T) {
+	executor := newTestExecutor(nil)
+	env := executor.buildEnvVars(&types.DesktopAgent{SessionID: "ses_1"}, "ubuntu", "/workspace")
+
+	proxy := hydra.SandboxAPIProxyURL
+	require.Contains(t, env, "HELIX_API_URL="+proxy)
+	require.Contains(t, env, "HELIX_API_BASE_URL="+proxy)
+	require.Contains(t, env, "ANTHROPIC_BASE_URL="+proxy)
+	require.Contains(t, env, "OPENAI_BASE_URL="+proxy+"/v1")
+	require.Contains(t, env, "ZED_HELIX_URL="+hydra.SandboxAPIProxyHostname+":18080")
+	require.Contains(t, env, "ZED_HELIX_TLS=false")
+}
+
 func TestExternalAgentIsolation(t *testing.T) {
 	require.Equal(t, containerIsolation{rootlessContainerEngine: true}, externalAgentIsolation("headless"))
 	for _, containerType := range []string{"ubuntu", "sway", "zorin", "xfce", "kde"} {

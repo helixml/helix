@@ -120,7 +120,10 @@ helix_configure_ipv6_policy() {
 }
 
 helix_apply_sandbox_network_policy() {
-    helix_ensure_sandbox_network
+    # Fail closed: if the isolated bridge can't be created/verified we must NOT
+    # proceed to remove the bootstrap guard or publish the ready marker, or
+    # sessions run with no egress policy. The dockerd restart loop retries.
+    helix_ensure_sandbox_network || return 1
 
     local dns_gateway
     dns_gateway="$(helix_sandbox_dns_gateway)"
@@ -204,7 +207,9 @@ helix_apply_sandbox_network_policy() {
     helix_remove_all_iptables_rules nat PREROUTING -i "$HELIX_NETWORK_BRIDGE" -j "$HELIX_NAT_CHAIN"
     helix_iptables -t nat -I PREROUTING 1 -i "$HELIX_NETWORK_BRIDGE" -j "$HELIX_NAT_CHAIN"
 
-    helix_configure_ipv6_policy
+    # Fail closed on IPv6 too: an enabled-but-unfilterable IPv6 stack must abort
+    # before the guard is removed, else sessions get unrestricted IPv6 egress.
+    helix_configure_ipv6_policy || return 1
 
     # The full hooks are installed. Removing the guard last prevents an egress
     # gap even when policy reconciliation follows a dockerd restart.

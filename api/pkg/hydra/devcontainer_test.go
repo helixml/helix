@@ -189,38 +189,35 @@ func TestBuildEnvRootlessContainerEngine(t *testing.T) {
 	require.Zero(t, countEnvVar(env, "HELIX_REGISTRY"))
 }
 
-func TestBuildEnvIsolatedNetworkUsesAPIProxyAndOmitsSharedBuildServices(t *testing.T) {
-	t.Setenv("HELIX_API_URL", "https://api.example.com")
-
+// The control plane emits canonical helix-api.internal:18080 URLs directly (see
+// external-agent buildEnvVars and hydra.SandboxAPIProxyURL), so hydra's buildEnv
+// no longer rewrites control-plane addresses. It passes the API URL env through
+// untouched and only strips the shared build-service vars.
+func TestBuildEnvOmitsSharedBuildServicesAndPassesURLsThrough(t *testing.T) {
 	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
 		ContainerType: DevContainerTypeUbuntu,
 		Network:       "bridge",
 		Env: []string{
-			"HELIX_API_URL=http://localhost:8080",
-			"HELIX_API_BASE_URL=http://localhost:8080",
-			"ANTHROPIC_BASE_URL=http://localhost:8080",
-			"OPENAI_BASE_URL=http://localhost:8080/v1",
-			"ZED_HELIX_URL=localhost:8080",
-			"ZED_HELIX_TLS=true",
+			"HELIX_API_URL=" + SandboxAPIProxyURL,
+			"HELIX_API_BASE_URL=" + SandboxAPIProxyURL,
+			"ANTHROPIC_BASE_URL=" + SandboxAPIProxyURL,
+			"OPENAI_BASE_URL=" + SandboxAPIProxyURL + "/v1",
 			"BUILDKIT_HOST=tcp://attacker:1234",
 			"HELIX_REGISTRY=attacker:5000",
 		},
 	})
 
-	proxyURL := "http://" + SandboxAPIProxyHostname + ":18080"
-	require.Contains(t, env, "HELIX_API_URL="+proxyURL)
-	require.Contains(t, env, "HELIX_API_BASE_URL="+proxyURL)
-	require.Contains(t, env, "ANTHROPIC_BASE_URL="+proxyURL)
-	require.Contains(t, env, "OPENAI_BASE_URL="+proxyURL+"/v1")
-	require.Contains(t, env, "ZED_HELIX_URL="+SandboxAPIProxyHostname+":18080")
-	require.Contains(t, env, "ZED_HELIX_TLS=false")
+	require.Contains(t, env, "HELIX_API_URL="+SandboxAPIProxyURL)
+	require.Contains(t, env, "HELIX_API_BASE_URL="+SandboxAPIProxyURL)
+	require.Contains(t, env, "ANTHROPIC_BASE_URL="+SandboxAPIProxyURL)
+	require.Contains(t, env, "OPENAI_BASE_URL="+SandboxAPIProxyURL+"/v1")
 	require.Zero(t, countEnvVar(env, "BUILDKIT_HOST"))
 	require.Zero(t, countEnvVar(env, "HELIX_REGISTRY"))
 }
 
+// Subscription-mode / BYO external endpoints are set by the control plane and
+// must survive untouched — hydra no longer inspects or rewrites them.
 func TestBuildEnvPreservesExternalProviderEndpoints(t *testing.T) {
-	t.Setenv("HELIX_API_URL", "https://api.helix.example")
-
 	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
 		ContainerType: DevContainerTypeHeadless,
 		Network:       "bridge",

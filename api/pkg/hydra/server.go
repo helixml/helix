@@ -3,6 +3,7 @@ package hydra
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -136,6 +137,12 @@ func newSandboxAPIProxyHandler(rawUpstream string) (http.Handler, error) {
 	if rawUpstream == "" {
 		return nil, fmt.Errorf("sandbox API proxy upstream URL is required")
 	}
+	// Tolerate a scheme-less HELIX_API_URL (e.g. "api:8080"): coerce to http
+	// rather than rejecting, which previously log.Fatal'd hydra into a boot
+	// crash-loop and took the whole sandbox host offline.
+	if !strings.Contains(rawUpstream, "://") {
+		rawUpstream = "http://" + rawUpstream
+	}
 	target, err := url.Parse(rawUpstream)
 	if err != nil {
 		return nil, fmt.Errorf("parse sandbox API proxy upstream URL: %w", err)
@@ -148,6 +155,13 @@ func newSandboxAPIProxyHandler(rawUpstream string) (http.Handler, error) {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	// Match every sibling sandbox→API client (RevDial, heartbeat, settings
+	// daemon), which skip verification so private-CA enterprise installs work.
+	// Without this the proxy 502s all in-session traffic against a private CA
+	// while the sandbox still registers healthy over RevDial.
+	proxy.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // TODO: trust the deployment CA instead
+	}
 	director := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		director(req)
@@ -158,7 +172,18 @@ func newSandboxAPIProxyHandler(rawUpstream string) (http.Handler, error) {
 			Msg("Sandbox API proxy request failed")
 		http.Error(w, "Helix API unavailable", http.StatusBadGateway)
 	}
-	return proxy, nil
+
+	// Defense in depth: the session bridge must not reach diagnostic surfaces
+	// even though the API happens to serve them. /debug/pprof through the
+	// isolated route re-exposed goroutine/heap dumps unauth (infra#70 N2).
+	// Sandboxes only ever need /api/v1/* and /v1/*.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/debug" || strings.HasPrefix(r.URL.Path, "/debug/") {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		proxy.ServeHTTP(w, r)
+	}), nil
 }
 
 // NewServer creates a new Hydra server with an internally-allocated log

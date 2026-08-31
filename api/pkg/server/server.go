@@ -345,7 +345,6 @@ func NewServer(
 	log.Info().Msg("Initializing Hydra executor for container management")
 	externalAgentExecutor := external_agent.NewHydraExecutor(external_agent.HydraExecutorConfig{
 		Store:                         store,
-		HelixAPIURL:                   sandboxAPIURL,
 		HelixAPIToken:                 cfg.WebServer.RunnerToken,
 		WorkspaceBasePathForContainer: "/workspace",       // Path inside dev container
 		WorkspaceBasePathForCloning:   "/data/workspaces", // Path on sandbox filesystem (not API - Hydra creates dirs)

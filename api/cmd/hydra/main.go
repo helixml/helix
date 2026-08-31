@@ -122,9 +122,16 @@ func run(cmd *cobra.Command, args []string) {
 		revDialAPIURL = os.Getenv("HELIX_API_URL")
 	}
 	if revDialAPIURL != "" {
+		// Do NOT log.Fatal on a bad upstream URL: that crash-loops the whole
+		// sandbox host at boot over a misconfigured env var. Log loudly and keep
+		// hydra's lifecycle API up so the host stays diagnosable; sessions that
+		// need the API path will surface the misconfig, not the whole runner.
 		if err := server.StartSandboxAPIProxyWithRetry(ctx, "", revDialAPIURL, 2*time.Second); err != nil {
-			log.Fatal().Err(err).Msg("Failed to start sandbox API proxy")
+			log.Error().Err(err).Str("upstream", revDialAPIURL).
+				Msg("Sandbox API proxy not started (bad HELIX_API_URL); session API path unavailable")
 		}
+	} else {
+		log.Error().Msg("HELIX_API_URL is empty; sandbox API proxy not started, sessions cannot reach the Helix API")
 	}
 
 	// Start server
