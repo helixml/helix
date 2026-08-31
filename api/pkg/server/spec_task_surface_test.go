@@ -5,6 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/mock/gomock"
+
+	helixstore "github.com/helixml/helix/api/pkg/store"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -77,4 +81,37 @@ func TestSpecTaskToolSurfaceAmbiguousOwnershipFailsClosed(t *testing.T) {
 	tools, bound := s.specTaskToolSurface(context.Background(), surfaceProject(), &types.SpecTask{})
 	require.Empty(t, bound)
 	require.Equal(t, []tool.Name{"create_spectask"}, tools)
+}
+
+// Spec-task sessions are the only consumers; the REST view, the sandbox
+// mount decision, and the MCP registry all read this one method.
+func TestSpecTaskAgentToolsTable(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	boundStore := boundAgentStore(t, "b-1", "org-1", "prj-1", []tool.Name{"get_secret", "chat"})
+
+	task := &types.SpecTask{ID: "spt-1", ProjectID: "prj-1", UserID: "u-1"}
+	orgProject := &types.Project{ID: "prj-1", OrganizationID: "org-1", AgentTools: []string{"create_spectask"}}
+	unboundTask := &types.SpecTask{ID: "spt-2", ProjectID: "prj-none", UserID: "u-1"}
+	unboundProject := &types.Project{ID: "prj-none", OrganizationID: "org-1", AgentTools: []string{"get_spectask"}}
+
+	mockStore := helixstore.NewMockStore(ctrl)
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt-1").Return(task, nil).AnyTimes()
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt-2").Return(unboundTask, nil).AnyTimes()
+	mockStore.EXPECT().GetProject(gomock.Any(), "prj-1").Return(orgProject, nil).AnyTimes()
+	mockStore.EXPECT().GetProject(gomock.Any(), "prj-none").Return(unboundProject, nil).AnyTimes()
+
+	server := &HelixAPIServer{Store: mockStore, helixOrg: &helixOrgHandlers{store: boundStore}}
+
+	nonTask := &types.Session{ID: "ses-1"}
+	require.Nil(t, server.specTaskAgentTools(context.Background(), nonTask))
+	require.Nil(t, server.specTaskAgentTools(context.Background(), nil))
+
+	orgSession := &types.Session{ID: "ses-2", Metadata: types.SessionMetadata{SpecTaskID: "spt-1"}}
+	got := server.specTaskAgentTools(context.Background(), orgSession)
+	require.ElementsMatch(t, []string{"create_spectask", "get_secret", "chat"}, got)
+
+	unboundSession := &types.Session{ID: "ses-3", Metadata: types.SessionMetadata{SpecTaskID: "spt-2"}}
+	require.Equal(t, []string{"get_spectask"}, server.specTaskAgentTools(context.Background(), unboundSession))
 }
