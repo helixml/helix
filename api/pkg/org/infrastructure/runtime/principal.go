@@ -1,6 +1,10 @@
 package runtime
 
-import "context"
+import (
+	"context"
+
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+)
 
 // ProjectPrincipal is a non-Bot caller that already knows which project it
 // acts in: a spec task's own coding agent, authenticated by its session-scoped
@@ -31,4 +35,29 @@ func WithProjectPrincipal(ctx context.Context, p ProjectPrincipal) context.Conte
 func ProjectPrincipalFromContext(ctx context.Context) (ProjectPrincipal, bool) {
 	p, ok := ctx.Value(projectPrincipalKey{}).(ProjectPrincipal)
 	return p, ok
+}
+
+// boundWorkerKey carries the org Agent the calling principal's project is
+// bound to — the live bond between a Helix project and the Agent whose
+// runtime state names it as home project. The spec-task MCP backend
+// resolves it once per request. Tools whose semantics are "as the calling
+// Agent" (who posts to streams, whose reporting line reads managers, whose
+// granted secrets get_secret returns) consult it instead of reading caller
+// identity, while audit attribution deliberately stays on the caller (the
+// task).
+type boundWorkerKey struct{}
+
+// WithBoundWorker stashes the bond on ctx. An empty id is a no-op so
+// un-bonded requests stay indistinguishable from Bot requests.
+func WithBoundWorker(ctx context.Context, nodeID orgchart.NodeID) context.Context {
+	if nodeID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, boundWorkerKey{}, nodeID)
+}
+
+// BoundWorkerFromContext returns the bound Agent, if the request carries one.
+func BoundWorkerFromContext(ctx context.Context) (orgchart.NodeID, bool) {
+	id, ok := ctx.Value(boundWorkerKey{}).(orgchart.NodeID)
+	return id, ok && id != ""
 }
