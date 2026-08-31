@@ -429,7 +429,7 @@ const Home: FC = () => {
   if (projectsLoading) {
     return (
       <Page
-        breadcrumbs={[{ title: 'None' }]}
+        breadcrumbs={[{ title: 'No project' }]}
         breadcrumbTitle="New thread"
         breadcrumbShowHome={false}
         disableContentScroll
@@ -510,7 +510,7 @@ const Home: FC = () => {
 
   return (
     <Page
-      breadcrumbs={[{ title: selectedProject?.name || 'None' }]}
+      breadcrumbs={[{ title: selectedProject?.name || 'No project' }]}
       breadcrumbTitle={isProjectContext ? 'New Task' : 'New thread'}
       breadcrumbShowHome={false}
       disableContentScroll
@@ -589,7 +589,7 @@ const Home: FC = () => {
               onClick={(event) => setProjectMenuAnchor(event.currentTarget)}
               sx={{ ...selectorButtonSx, fontSize: isPhone ? '0.8rem' : '0.7rem' }}
             >
-              {selectedProject?.name || 'None'}
+              {selectedProject?.name || 'No project'}
             </Button>
             <Menu
               anchorEl={projectMenuAnchor}

@@ -6,7 +6,7 @@ import Typography from '@mui/material/Typography'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { useTheme } from '@mui/material/styles'
 
-import { ArrowLeft, Folder, MessagesSquare } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Folder, MessagesSquare } from 'lucide-react'
 
 import type { TypesProject } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -115,6 +115,11 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
       choose(rows[selectedIndex])
       return
     }
+    if (event.key === 'Backspace' && query === '') {
+      event.preventDefault()
+      onClose()
+      return
+    }
     // ⌘1…⌘9 jumps straight to a row, matching the hints in the list.
     const modifier = isMacPlatform() ? event.metaKey : event.ctrlKey
     if (modifier && /^[1-9]$/.test(event.key)) {
@@ -124,7 +129,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
         choose(rows[index])
       }
     }
-  }, [choose, rows, selectedIndex])
+  }, [choose, onClose, query, rows, selectedIndex])
 
   const shortcutLabel = isMacPlatform() ? '⌘' : 'Ctrl+'
   const mutedColor = lightTheme.isLight ? 'rgba(113,113,122,0.9)' : 'rgba(163,163,163,0.75)'
@@ -133,8 +138,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
     <Dialog
       open={open}
       onClose={onClose}
-      fullWidth
-      maxWidth="sm"
+      maxWidth={false}
       fullScreen={isNarrow}
       onKeyDown={handleKeyDown}
       TransitionProps={{ onEntered: () => inputRef.current?.focus() }}
@@ -151,8 +155,12 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
               }
             : {
                 position: 'fixed',
-                top: '12%',
+                top: '10vh',
                 m: 0,
+                width: 576,
+                maxWidth: 'calc(100vw - 32px)',
+                height: 420,
+                maxHeight: 'calc(100vh - 32px)',
                 borderRadius: '14px',
               }),
           display: 'flex',
@@ -302,9 +310,10 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
           sx={{
             display: 'flex',
             alignItems: 'center',
-            gap: 2,
+            gap: 1.5,
             px: 2,
-            py: 1,
+            py: 0.75,
+            minHeight: 40,
             borderTop: '1px solid',
             borderColor: 'divider',
             fontSize: '11px',
@@ -312,9 +321,44 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
             flexShrink: 0,
           }}
         >
-          <span>↑↓ Navigate</span>
-          <span>Enter Select</span>
-          <span>Esc Close</span>
+          {[
+            {
+              keys: [<ArrowUp key="up" size={11} />, <ArrowDown key="down" size={11} />],
+              label: 'Navigate',
+            },
+            { keys: ['Enter'], label: 'Select' },
+            { keys: ['Backspace'], label: 'Back' },
+            { keys: ['Esc'], label: 'Close' },
+          ].map((hint) => (
+            <Box key={hint.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                {hint.keys.map((key, index) => (
+                  <Box
+                    component="kbd"
+                    key={`${hint.label}-${index}`}
+                    sx={{
+                      minWidth: 20,
+                      height: 20,
+                      px: 0.5,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: '4px',
+                      backgroundColor: lightTheme.isLight
+                        ? 'rgba(39,39,42,0.08)'
+                        : 'rgba(241,243,247,0.12)',
+                      color: 'text.primary',
+                      font: 'inherit',
+                      lineHeight: 1,
+                    }}
+                  >
+                    {key}
+                  </Box>
+                ))}
+              </Box>
+              <span>{hint.label}</span>
+            </Box>
+          ))}
         </Box>
       )}
     </Dialog>

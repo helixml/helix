@@ -37,6 +37,7 @@ import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import {
   ALL_PROJECTS_FILTER,
   collapsedGroupsStorageKey,
+  filterSidebarProjectsWithActivity,
   getChatShortcutNumber,
   isChatShortcutModifier,
   isNewThreadShortcut,
@@ -161,12 +162,16 @@ const ProjectChatSidebar: FC<{
     setVisibleThreadCount,
     setManualProjectOrder,
   } = useProjectChatSidebarPreferences(preferencesStorageKey, projects)
+  const activeProjects = filterSidebarProjectsWithActivity(projects)
+  const sidebarProjects = showArchived ? projects : activeProjects
   const focusedProject = projectFilter === ALL_PROJECTS_FILTER
     ? undefined
-    : projects.find((project) => project.id === projectFilter)
-  const resolvedProjectFilter = resolveSidebarProjectFilter(projectFilter, projects)
+    : sidebarProjects.find((project) => project.id === projectFilter)
+  const resolvedProjectFilter = resolveSidebarProjectFilter(projectFilter, sidebarProjects)
   const focusMode = projectFilter !== ALL_PROJECTS_FILTER && !!focusedProject
-  const displayedProjects = focusMode && focusedProject ? [focusedProject] : sortedProjects
+  const displayedProjects = focusMode && focusedProject
+    ? [focusedProject]
+    : sortedProjects.filter((project) => showArchived || !!project.last_activity_at)
 
   useEffect(() => {
     if (projectsLoading || resolvedProjectFilter === projectFilter) return
@@ -496,7 +501,7 @@ const ProjectChatSidebar: FC<{
   const filterControls = (
     <>
         <ProjectChatSidebarProjectFilter
-          projects={projects}
+          projects={sidebarProjects}
           selectedProjectId={projectFilter}
           archived={showArchived}
           onChange={selectProjectFilter}
@@ -641,7 +646,7 @@ const ProjectChatSidebar: FC<{
         </Box>
         <Box sx={{ pl: 0.75, pr: 0.75, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center' }}>
           <ProjectChatSidebarProjectFilter
-            projects={projects}
+            projects={sidebarProjects}
             selectedProjectId={projectFilter}
             archived={showArchived}
             onChange={selectProjectFilter}

@@ -78,6 +78,10 @@ export const resolveSidebarProjectFilter = (
     : ALL_PROJECTS_FILTER
 )
 
+export const filterSidebarProjectsWithActivity = (
+  projects: TypesProject[],
+): TypesProject[] => projects.filter((project) => !!project.last_activity_at)
+
 export const parseSidebarParticipantIds = (storedValue: string | null): string[] | null => {
   if (storedValue === null) return null
   try {
@@ -450,7 +454,7 @@ export const buildProjectChatGroups = (
   sortOrder: SidebarThreadSortOrder = 'updated_at',
   pinnedAtByItemKey: ReadonlyMap<string, string> = new Map(),
 ): SidebarGroup[] => {
-  const defaultGroup: SidebarGroup = { id: 'default', name: 'None', items: [] }
+  const defaultGroup: SidebarGroup = { id: 'default', name: 'No project', items: [] }
   const groupsByProjectId = new Map<string, SidebarGroup>()
   projects.forEach((project) => {
     if (!project.id) return
