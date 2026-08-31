@@ -1,4 +1,4 @@
-import { FC, MouseEvent, MutableRefObject, ReactElement, useState } from 'react'
+import { FC, MouseEvent, MutableRefObject, ReactElement, useEffect, useState } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -44,6 +44,8 @@ import { GitBranch } from 'lucide-react'
 import { getProjectChatItemDetails, resolveProjectChatItemBranch } from './projectChatItemDetails'
 
 const SHOW_MORE_COUNT = 20
+
+type GroupVisibility = 'unknown' | 'visible' | 'empty'
 
 const activeStatusDotPulse = keyframes`
   0%, 100% {
@@ -118,16 +120,16 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   // row itself. That makes the row two lines, and taller.
   const isPhone = useIsPhone()
   const [additionalVisibleCount, setAdditionalVisibleCount] = useState(0)
+  const [visibility, setVisibility] = useState<GroupVisibility>('unknown')
   const visibleCount = visibleThreadCount + additionalVisibleCount
   const projectId = project?.id
   const groupId = projectId || 'default'
   const groupName = project?.name || 'No project'
   const requestCount = visibleCount + 1
-  // A collapsed group renders nothing, so it must not fetch — and above all must
-  // not keep polling. One sidebar renders a group per project, so leaving these
-  // enabled costs a task request per project every refetch interval, for rows
-  // the user cannot see.
-  const queriesEnabled = enabled && !collapsed
+  // A collapsed group probes once to determine whether the current participant
+  // filter can see anything. Visible collapsed groups then stop querying; empty
+  // ones keep watching so a newly assigned task can make the project reappear.
+  const queriesEnabled = enabled && (!collapsed || visibility !== 'visible')
 
   const sessionsQuery = useListSessions(
     orgId,
@@ -214,7 +216,11 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const tasksMayHaveMore = !!projectId && tasks.length === requestCount
   const hasMore = filteredItems.length > visibleCount || sessionsHaveMore || tasksMayHaveMore
   const canShowLess = additionalVisibleCount > 0
-  const isLoading = queriesEnabled && (sessionsQuery.isLoading || (!!projectId && tasksQuery.isLoading))
+  const isLoading = queriesEnabled && (
+    sessionsQuery.isLoading
+    || (!!projectId && tasksQuery.isLoading)
+    || pinnedQueries.some((pinnedQuery) => pinnedQuery.isLoading)
+  )
   const isFetchingMore = sessionsQuery.isFetching || tasksQuery.isFetching
   const hasError = sessionsQuery.isError || tasksQuery.isError
   const archiveVerb = archived ? 'Unarchive' : 'Archive'
@@ -234,6 +240,21 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
       color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
       backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
     },
+  }
+
+  const participantScope = participantIds.join('\u0000')
+  useEffect(() => {
+    setVisibility('unknown')
+  }, [archived, participantScope])
+
+  const hasVisibleItems = items.length > 0 || hasMore
+  useEffect(() => {
+    if (!projectId || isLoading || hasError) return
+    setVisibility(hasVisibleItems ? 'visible' : 'empty')
+  }, [hasError, hasVisibleItems, isLoading, projectId])
+
+  if (projectId && !isLoading && !hasError && !hasVisibleItems) {
+    return null
   }
 
   if (query && !isLoading && !hasError && !hasMore && filteredItems.length === 0) {
@@ -405,22 +426,6 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
           {hasError && (
             <Typography color="error" sx={{ px: 1, py: 0.75, fontSize: '0.7rem' }}>
               Failed to load chats
-            </Typography>
-          )}
-          {!isLoading && !hasError && renderedItems.length === 0 && !!projectId && (
-            <Typography
-              sx={{
-                height: 28,
-                px: 1,
-                display: 'flex',
-                alignItems: 'center',
-                color: lightTheme.isLight
-                  ? 'rgba(113,113,122,0.65)'
-                  : 'rgba(163,163,163,0.55)',
-                fontSize: '11px',
-              }}
-            >
-              {archived ? 'Nothing archived' : 'No tasks yet'}
             </Typography>
           )}
           {renderedItems.map((item) => {

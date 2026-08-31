@@ -85,29 +85,31 @@ const renderEmptyProject = (collapsed = false) => render(
 )
 
 describe('ProjectChatGroup', () => {
-  it('renders an expanded project with no tasks', () => {
+  it('hides an expanded project with no visible sessions or tasks', async () => {
     mocks.emptySessions = true
     renderEmptyProject()
 
-    expect(screen.getByText('Empty project')).toBeInTheDocument()
-    expect(screen.getByText('No tasks yet')).toBeInTheDocument()
-  })
-
-  it('keeps an empty collapsed project visible without the empty-state row', () => {
-    mocks.emptySessions = true
-    renderEmptyProject(true)
-
-    expect(screen.getByText('Empty project')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Empty project')).not.toBeInTheDocument())
     expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
   })
 
-  // One group renders per project, so leaving collapsed groups enabled costs a
-  // task request per project on every poll for rows nobody can see.
-  it('does not query or poll while collapsed', () => {
+  it('hides a collapsed project after probing its visible items', async () => {
+    mocks.emptySessions = true
     renderEmptyProject(true)
 
-    expect(mocks.sessionOptions.every((options) => options.enabled === false)).toBe(true)
-    expect(mocks.taskOptions.every((options) => options.enabled === false)).toBe(true)
+    await waitFor(() => expect(screen.queryByText('Empty project')).not.toBeInTheDocument())
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
+    expect(mocks.sessionOptions.at(-1)?.enabled).toBe(true)
+    expect(mocks.taskOptions.at(-1)?.enabled).toBe(true)
+  })
+
+  it('stops querying after a collapsed group proves it has visible items', async () => {
+    renderEmptyProject(true)
+
+    expect(mocks.sessionOptions.some((options) => options.enabled === true)).toBe(true)
+    expect(mocks.taskOptions.some((options) => options.enabled === true)).toBe(true)
+    await waitFor(() => expect(mocks.sessionOptions.at(-1)?.enabled).toBe(false))
+    expect(mocks.taskOptions.at(-1)?.enabled).toBe(false)
   })
 
   it('queries once expanded', () => {
