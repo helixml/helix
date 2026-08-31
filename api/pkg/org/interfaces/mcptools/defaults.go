@@ -161,3 +161,44 @@ func IsSpecTaskAgentTool(name tool.Name) bool {
 	}
 	return false
 }
+
+// SpecTaskBlockedTools are the org-graph and grant-management mutations:
+// they hire/fire Workers, rewrite prompts or subscriptions, hand out tool
+// grants, SSH certificates, inbound endpoints, or compute. They are exactly
+// the tools a caller is trusted with because it IS a Worker in the graph —
+// a spec task is not, and delegation (see SubjectForCaller) must not make
+// it one. A task therefore must never see these names: specTaskToolSurface
+// filters them out of the bound Agent half of the surface, which removes
+// them from tools/list AND from the callable registry (dispatch authorizes
+// by served-list membership), so a call fails as unknown-tool with zero
+// side effects. This is policy data, not code behavior: the tools themselves
+// stay generic so Bots keep using them.
+var SpecTaskBlockedTools = []tool.Name{
+	// Org graph: hire/fire, prompt rewrite, tool grants, desktop lifecycle.
+	CreateBotName, DeleteBotName, SetBotContentName,
+	AttachToolName, DetachToolName,
+	StartBotName, StopBotName, RestartBotName,
+	// Subscription edges and inbound endpoints.
+	AttachWorkerName, DetachWorkerName, CreateTriggerName,
+	CreateProcessorName, UpdateProcessorName, DeleteProcessorName,
+	// People and project wiring of OTHER bots.
+	SetHumanContactName, ConfigureBotProjectName,
+	AttachRepositoryName, DetachRepositoryName,
+	// Org asset inventory and the asset→agent grant edge.
+	CreateServerAssetName, UpdateServerAssetName, DeleteAssetName,
+	LinkAssetName, UnlinkAssetName,
+	// Org compute admin; its SSH issuance keys on the caller's bot state.
+	CreateSandboxName, UpdateSandboxName, DeleteSandboxName,
+	SandboxSSHAccessName,
+}
+
+// IsSpecTaskBlockedTool reports whether name is a delegation-incompatible
+// org-admin tool excluded from every spec-task surface.
+func IsSpecTaskBlockedTool(name tool.Name) bool {
+	for _, n := range SpecTaskBlockedTools {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}

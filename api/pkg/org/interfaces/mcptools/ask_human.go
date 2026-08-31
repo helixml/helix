@@ -73,12 +73,16 @@ func (t *AskHuman) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	}
 	// Prefer the sending bot's display name for the notification title (e.g.
 	// "Chief of Staff", not "chief-of-staff"); fall back to its id.
-	fromBotName := inv.Caller.ID()
-	if caller, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.NodeID(inv.Caller.ID())); err == nil && caller.Name != "" {
+	subject, err := SubjectForCaller(ctx, inv.Caller)
+	if err != nil {
+		return nil, fmt.Errorf("ask_human: %w", err)
+	}
+	fromBotName := string(subject)
+	if caller, err := t.deps.Queries.GetBot(ctx, orgID, subject); err == nil && caller.Name != "" {
 		fromBotName = caller.Name
 	}
 	expectsReply := args.ExpectsReply == nil || *args.ExpectsReply
-	delivered, err := t.deps.HumanDelivery.Deliver(ctx, orgID, person, inv.Caller.ID(), fromBotName, args.Message, expectsReply)
+	delivered, err := t.deps.HumanDelivery.Deliver(ctx, orgID, person, string(subject), fromBotName, args.Message, expectsReply)
 	if err != nil {
 		return nil, fmt.Errorf("deliver to %q: %w", args.PersonID, err)
 	}

@@ -146,7 +146,10 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 		wait = readEventsMaxWaitSecs
 	}
 	since := streaming.EventID(args.Since)
-	botID := inv.Caller.ID()
+	botID, err := SubjectForCaller(ctx, inv.Caller)
+	if err != nil {
+		return nil, fmt.Errorf("read_events: %w", err)
+	}
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
 		return nil, fmt.Errorf("read_events: caller has no OrgID")

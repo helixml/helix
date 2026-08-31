@@ -134,6 +134,20 @@ func (b *SpecTaskMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 // stashes for SubjectForCaller.
 func (s *HelixAPIServer) specTaskToolSurface(ctx context.Context, project *types.Project, task *types.SpecTask) ([]tool.Name, orgchart.NodeID) {
 	own := eligibleSpecTaskTools(project, task)
+	// Org-graph and grant-admin tools (mcptools.SpecTaskBlockedTools) leave
+	// the surface entirely for task callers: absent from the list means
+	// absent from tools/list AND from the callable registry at dispatch
+	// (authorization is list membership), so a call cannot write anything.
+	filtered := own[:0:0]
+	for _, name := range own {
+		if mcptools.IsSpecTaskBlockedTool(name) {
+			log.Warn().Str("tool", string(name)).Str("spec_task_id", task.ID).
+				Msg("spec-task tools: blocked org-admin name dropped from surface")
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	own = filtered
 	if s.helixOrg == nil || s.helixOrg.store == nil || project.OrganizationID == "" {
 		return own, ""
 	}
@@ -147,6 +161,9 @@ func (s *HelixAPIServer) specTaskToolSurface(ctx context.Context, project *types
 	}
 	merged := own
 	for _, name := range runtimehelix.AgentToolNames(ctx, s.helixOrg.store, project.OrganizationID, bound) {
+		if mcptools.IsSpecTaskBlockedTool(name) {
+			continue
+		}
 		if _, dup := seen[string(name)]; dup {
 			continue
 		}

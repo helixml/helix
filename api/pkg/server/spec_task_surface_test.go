@@ -54,6 +54,19 @@ func TestSpecTaskToolSurfaceNilOrgKeepsOwnGrantsOnly(t *testing.T) {
 	require.Equal(t, []tool.Name{"create_spectask"}, tools)
 }
 
+func TestSpecTaskToolSurfaceDropsBlockedAdminTools(t *testing.T) {
+	s := &HelixAPIServer{helixOrg: &helixOrgHandlers{store: boundAgentStore(t, "b-1", "org-1", "prj-1",
+		[]tool.Name{"get_secret", "attach_tool", "create_bot", "delete_bot", "chat"})}}
+	tools, bound := s.specTaskToolSurface(context.Background(), surfaceProject(), &types.SpecTask{})
+	require.Equal(t, orgchart.NodeID("b-1"), bound)
+	require.ElementsMatch(t, []tool.Name{"create_spectask", "get_secret", "chat"}, tools)
+	for _, banned := range []string{"attach_tool", "create_bot", "delete_bot"} {
+		for _, name := range tools {
+			require.NotEqual(t, tool.Name(banned), name)
+		}
+	}
+}
+
 func TestSpecTaskToolSurfaceAmbiguousOwnershipFailsClosed(t *testing.T) {
 	st := boundAgentStore(t, "b-1", "org-1", "prj-1", []tool.Name{"get_secret"})
 	node, err := orgchart.NewNode("b-2", "# dup", []tool.Name{"publish"}, time.Now().UTC(), "org-1")

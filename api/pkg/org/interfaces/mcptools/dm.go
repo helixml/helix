@@ -70,7 +70,10 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 	if orgID == "" {
 		return nil, fmt.Errorf("dm: caller has no OrgID")
 	}
-	sender := inv.Caller.ID()
+	sender, err := SubjectForCaller(ctx, inv.Caller)
+	if err != nil {
+		return nil, fmt.Errorf("dm: %w", err)
+	}
 	recipient := orgchart.NodeID(args.ToBotID)
 	if sender == recipient {
 		return nil, fmt.Errorf("cannot DM yourself")
