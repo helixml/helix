@@ -82,6 +82,12 @@ func AgentToolNames(ctx, st, orgID, nodeID) ([]tool.Name, error) // Node.Tools, 
 
 ### 3. Subject resolution + per-tool classification (the risk; do it in one PR)
 
+> Superseded during implementation: the (a)/(b)/(c) classification stands, but
+> (a) is applied by the single `mcptools.DelegatedCaller` ingress wrapper
+> rather than per-tool `SubjectForCaller` conversions — see Implementation
+> Notes (as built). The per-tool conversion form described below was built,
+> shipped in the first pass, then replaced at review.
+
 `runtime/principal.go`: `WithBoundWorker`/`BoundWorkerFromContext` (sibling of
 `ProjectPrincipal`). New rule + helper
 `tool.SubjectForCaller(ctx, caller) orgchart.NodeID`:
@@ -144,15 +150,25 @@ memoize per request only); no UI; no values in rows/env.
 
 ## Implementation Notes (as built)
 
-- `SubjectForCaller` lives in `api/pkg/org/interfaces/mcptools/subject.go`
-  rather than `domain/tool`: the domain layer must not import
-  `infrastructure/runtime` (where the ctx carriers live), and mcptools is
-  the single package every classified tool implementation already shares.
+- Delegation is resolved once at the trust boundary, not per tool: the MCP
+  backend wraps a bonded task's caller in `mcptools.DelegatedCaller`
+  (`api/pkg/org/interfaces/mcptools/delegated_caller.go`) before
+  `ServeMCPForCaller`, so every class-(a) tool sees exactly one identity
+  (`caller.ID()` = bound agent) with zero tool-side changes. An unbound
+  task caller is never wrapped — it only ever receives the task-keyed
+  CRUD catalogue. The bound subject is not stashed in ctx; tools need no
+  knowledge of delegation at all.
+- Audit identity deliberately diverges from acting identity at the same
+  boundary: `DelegatedCaller` implements `orgaudit.SelfDescribingActorID`
+  so the entry's `ActorType=spec_task` and `ActorID=spt…` even though
+  `ID()` is the agent; project attribution comes from the project
+  principal already on ctx. The spectasks service principal branch ignores
+  worker identity, so the swap is inert there.
 - The "same code path" rule is enforced structurally:
   `(*HelixAPIServer).specTaskToolSurface` in `mcp_backend_spectask.go` is
   the only composer. `specTaskAgentTools` (rev/REST view) and the MCP
-  backend's serve decision both call it; the backend additionally stashes
-  the bond via `runtime.WithBoundWorker` before `ServeMCPForCaller`.
+  backend's serve decision both call it; the backend wraps the caller in
+  `DelegatedCaller` iff it returns a bound agent.
 - Class-(c) enforcement = served-list exclusion (`mcptools.
   SpecTaskBlockedTools`). Org MCP dispatch authorizes solely by tool
   presence in the per-caller served registry, so unserved names are
@@ -163,7 +179,8 @@ memoize per request only); no UI; no values in rows/env.
   (same capability class as `server_run_command`); `get_bot_project` →
   (b); membership-gated service reads (`list_projects`, sandboxes) stay
   (b) and fail closed for tasks until their services learn the principal.
-- `bot_log` attaches the subject's transcript but stamps
-  `created_by = inv.Caller.ID()` (the task) — audit vs subject rule.
+- `bot_log` attaches the (agent's) transcript while service-side audit
+  attribution stays the task via `SelfDescribingActorID` — audit vs
+  subject rule.
 - Live e2e record incl. env caveats is in tasks.md item 12; the
   reviewer-facing summary + tool table is in `pull_request_helix.md`.
