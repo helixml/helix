@@ -116,15 +116,17 @@ surface is intersected with a catalogue that contains only spec-task CRUD tools.
 
 ## Open Questions
 
-1. **UI surfacing:** Should the spec-task detail page show "credentials
-   inherited from agent X"? Assumed no for v1 (MCP-only path).
-2. **Shell ergonomics:** Task agents will fetch the value via `get_secret` and
+1. **Shell ergonomics:** Task agents will fetch the value via `get_secret` and
    then use it with shell tools (same pattern Workers use — never via boot env
    vars). Confirm no task needs the values pre-materialized as env vars in the
    container.
 
 ## Resolved questions
 
+- **UI surfacing — resolved by review: no.** No spec-task detail-page display
+  of inherited credentials; the task's own `list_secrets` call is the surface.
+  Provenance stays a server-side fact. (Also satisfies the standalone-task
+  principle: the UI needs no org-specific state.)
 - **Per-binding hiding — resolved by review: no.** No "inheritable" flag on
   bindings, now or later. Whole-set inheritance is the invariant; a Worker
   that must not leak a credential to its tasks doesn't get it bound.
