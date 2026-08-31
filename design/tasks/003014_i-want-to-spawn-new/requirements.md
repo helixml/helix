@@ -116,18 +116,18 @@ surface is intersected with a catalogue that contains only spec-task CRUD tools.
 
 ## Open Questions
 
-1. **Per-binding hiding:** Later, should a Worker be able to exempt a specific
-   binding from tasks it spawns (e.g. an "inheritable" flag on the grant)
-   without un-granting it for itself? Assumed no for v1.
-2. **UI surfacing:** Should the spec-task detail page show "credentials
+1. **UI surfacing:** Should the spec-task detail page show "credentials
    inherited from agent X"? Assumed no for v1 (MCP-only path).
-3. **Shell ergonomics:** Task agents will fetch the value via `get_secret` and
+2. **Shell ergonomics:** Task agents will fetch the value via `get_secret` and
    then use it with shell tools (same pattern Workers use — never via boot env
    vars). Confirm no task needs the values pre-materialized as env vars in the
    container.
 
 ## Resolved questions
 
+- **Per-binding hiding — resolved by review: no.** No "inheritable" flag on
+  bindings, now or later. Whole-set inheritance is the invariant; a Worker
+  that must not leak a credential to its tasks doesn't get it bound.
 - **Project-level gate — resolved by review: no toggle.** Trust the Worker's
   decision to spawn; the task already runs inside the Worker's own project, so
   a second "may use worker secrets" project switch enforces nothing that the

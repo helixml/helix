@@ -204,7 +204,9 @@ Follow existing patterns:
 - No exposure of any non-secret org tool to tasks (full registry stays
   bot-only).
 - No values in task rows, logs, prompts, or container env.
-- No "inheritable per binding" flag, no UI, no post-hoc grant editing.
+- No "inheritable per binding" flag — rejected on review as a future feature
+  too; whole-set inheritance is the invariant. No UI, no post-hoc grant
+  editing.
 - No lifecycle coupling: no spec-task state machine, status, or UI flow reads
   `SecretsWorkerID`; a spawned task is usable with zero org context.
 - No revocation propagation to already-running shell commands (inherent to
