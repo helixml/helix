@@ -1361,13 +1361,19 @@ func (apiServer *HelixAPIServer) deleteAPIKey(_ http.ResponseWriter, req *http.R
 }
 
 // TODO: verify if this is actually used
-func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Request) (*types.ApiKey, error) {
+func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Request) (*types.ApiKey, *system.HTTPError) {
 	ctx := req.Context()
 
 	apiKey := req.URL.Query().Get("key")
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, system.NewHTTPError400("key or owner not specified")
+	}
 	key, err := apiServer.Controller.CheckAPIKey(ctx, apiKey)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
 	}
 	return key, nil
 }
