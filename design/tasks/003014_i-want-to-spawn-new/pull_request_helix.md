@@ -1,99 +1,29 @@
-# PR: Give Spawned Spec Tasks Their Agent's Tool Access
+# Give spawned spec tasks their agent's tool access
 
-Repo: helixml/helix — branch `feature/003014-give-spawned-spec-tasks`
+## Summary
 
-Spec: helixml/helix-specs `design/tasks/003014_i-want-to-spawn-new/`
-(requirements.md / design.md / tasks.md). No schema changes, no new
-config, no DTO changes (no openapi regen needed).
+A spec task's coding agent now operates with the Helix-org tools of the Agent whose runtime home project is the task's project, instead of only the small hand-picked per-project allowlist. Spec: helix-specs `design/tasks/003014_i-want-to-spawn-new/`. No schema changes, no new config, no DTO changes (no openapi regen).
 
-## What this does
+The task's org tool surface is `own allowlisted grants ∪ live Node.Tools of the bound Agent − delegation-blocked admin names`. "Bound" means exactly one non-human org Node whose `helix` runtime state names the task's project as home; zero or ambiguous owners fail closed (WARN on ambiguity), and the managed `ProjectIDs` allowlist never counts as ownership. Nothing is persisted onto the task: `attach_tool`/`detach_tool` on the Agent, or firing/re-homing it, change the next resolution live.
 
-A spec task's coding agent now operates with the tools of the helix-org
-Agent whose runtime home project is the task's project. The task's org
-tool surface, computed identically at both server choke points, is:
+One shared function, `(*HelixAPIServer).specTaskToolSurface`, composes the surface for all consumers, so tools/list, the Zed context-server mount/revision (`AgentToolsRev`, via the existing `len(specTaskTools) > 0` rule — external-agent untouched), and the REST view can never drift. `chat`, `dm`, `managers`, `reports`, `read_events`, `bot_log`, `ask_human`, all asset/server tools, `get_secret`, and `list_secrets` act on behalf of the bound Agent via the new `mcptools.SubjectForCaller` (Bot callers are byte-identical; task callers with no bond get a loud clean error, e.g. `chat` can no longer post as a phantom `spt-…` sender). Audit attribution deliberately stays with the task, not the subject.
 
-    (task's own allowlisted catalogue grants)  ∪  (live Node.Tools of the
-    Agent bound to the task's project)  −  (delegation-blocked admin tools)
+Org-admin/delegation-incompatible tools (`SpecTaskBlockedTools`: hire/fire, prompt rewrites, tool grants, repos into other bots' projects, asset grants, sandbox admin, etc. — full table below) are filtered out of the surface at the choke point: absent from tools/list and from the callable registry, since dispatch authorizes by served-list membership, so a task cannot invoke them at all (zero DB writes). This closes the escalation vector where a task could `attach_tool` more tools onto its own Agent. Guardrail unchanged: task sessions never carry `Metadata.OrgWorkerID`, so task keys still 403 on `/api/v1/mcp/helix-org`.
 
-- "Bound" = exactly one non-human org Node whose `helix` runtime state
-  names the task's project as home (`BoundAgentForProject`). Zero or two
-  such Agents → no bond, fail closed, WARN on ambiguity. Managed
-  `ProjectIDs` allowlist membership never counts.
-- Live means live: attach_tool/detach_tool on the Agent, or removing the
-  bond (fire/re-home), change what the next surface resolution shows —
-  nothing about the grant is persisted on the task.
-- The existing mount rule (`len(specTaskTools) > 0` in
-  external-agent GenerateZedMCPConfig, rev = `AgentToolsRev`) decides the
-  `helix-tasks` context-server mount/revision for free; no external-agent
-  changes.
-- On-behalf-of tools (chat, dm, managers, reports, read_events, bot_log,
-  ask_human, all asset/server tools, get_secret, list_secrets) act AS the
-  bound Agent via `mcptools.SubjectForCaller`; audit attribution stays
-  with the task (verified live: `org_audit_logs.actor = spt id,
-  actor_type = spec_task, action = get_secret, succeeded` — the bot's
-  project secret read via the task's own key on
-  `/api/v1/mcp/helix-tasks`).
-- Delegation-incompatible org-admin tools are filtered out of the surface
-  at the shared choke point, so they are absent from tools/list AND from
-  the callable registry (dispatch authorizes by served-list membership):
-  a task calling one gets an unknown-tool error with zero side effects.
-- Guardrail intact: task sessions never carry `Metadata.OrgWorkerID`, so
-  task keys still 403 on `/api/v1/mcp/helix-org` (live-verified).
+Tool identity classification (every registered org MCP tool):
 
-## Tool identity classification (merge-blocking deliverable)
-
-(a) on-behalf-of — converted to `SubjectForCaller`; (b) task/resource-
-keyed — correct for tasks as-is; (c) blocked for task callers
-(`mcptools.SpecTaskBlockedTools`).
-
-| Class | Tools | Notes |
-|---|---|---|
-| (a) converted | `chat`, `dm`, `managers`, `reports`, `read_events`, `bot_log`, `ask_human`, `list_assets`, `get_asset`, `server_run_command`, `server_list_commands`, `server_get_command`, `server_kill_command`, `server_list_files`, `server_read_file`, `server_write_file`, `server_ssh_access`, `get_secret`*, `list_secrets`* | *done pre-sweep. `bot_log` attaches the transcript to the Agent but records `created_by` = the task id. `server_ssh_access` kept delegable: its 1h cert is the same capability class as `server_run_command`, which a bound Agent already grants. |
-| (b) as-is | `list_bots`, `get_bot`, `list_triggers`, `get_trigger`, `list_trigger_events`, `trigger_members`, `list_processors`, `get_processor`, `list_projects`, `get_project`, `list_sandboxes`, `get_sandbox`, `list_sandbox_runtimes`, `list_org_assets`, `get_org_asset`, `list_asset_links`, `get_asset_health`, `list_repositories`, `list_bot_repositories`, `get_bot_project`, all 14 `*_spectask*` tools | Reads keyed on org + args. The service-gated ones (projects/sandboxes/spectask membership) fail closed with clear errors for unbound callers — strictly narrower than the bound Agent's reach, never wider. Spec-task CRUD already had the ProjectPrincipal branch. |
-| (c) blocked | `create_bot`, `delete_bot`, `set_bot_content`, `attach_tool`, `detach_tool`, `start_bot`, `stop_bot`, `restart_bot`, `attach_worker`, `detach_worker`, `create_trigger`, `create_processor`, `update_processor`, `delete_processor`, `set_human_contact`, `configure_bot_project`, `attach_repository`, `detach_repository`, `create_server_asset`, `update_server_asset`, `delete_asset`, `link_asset`, `unlink_asset`, `create_sandbox`, `update_sandbox`, `delete_sandbox`, `sandbox_ssh_access` | Org-graph mutations, tool/grant edges, inbound endpoints, org compute admin. `attach_tool` on the task's own Agent was the escalation vector this list closes. |
-
-Silent-wrong-answer fixes that fall out of the (a) conversions: `chat`
-previously posted as `spt-…`, `managers`/`reports`/`list_assets`
-returned empty, `read_events` returned empty — all now resolve the
-subject or fail loudly with zero events (unit-tested:
-`TestChatFailsClosedWhenUnbound`, `TestManagersDelegatedWalksAgentLine`).
-
-## Key code
-
-| File | Change |
+| Class | Tools |
 |---|---|
-| `api/pkg/org/infrastructure/runtime/helix/agent_binding.go` | `BoundAgentForProject`, `AgentToolNames`, `ErrNoBoundAgent` (fail closed on 0/>1 owners; never keyed on `ProjectIDs`) + tests |
-| `api/pkg/org/infrastructure/runtime/principal.go` | `WithBoundWorker`/`BoundWorkerFromContext` (ctx bond, mirrors `WithProjectPrincipal`) |
-| `api/pkg/org/interfaces/mcptools/subject.go` | `SubjectForCaller` + `ErrNoBoundWorker` with the (a)/(b)/(c) contract documented (helper lives in mcptools, the layer both tool impls and the org server dispatch already share) |
-| `api/pkg/org/interfaces/mcptools/defaults.go` | `SpecTaskBlockedTools` / `IsSpecTaskBlockedTool` (policy data beside the existing `SpecTaskAgentTools` catalogue) |
-| `api/pkg/server/mcp_backend_spectask.go` | `specTaskToolSurface` — ONE function the mount/rev view and the MCP backend share; drops blocked names; stashes the bond on ctx |
-| `api/pkg/server/agent_tools_handlers.go` | `specTaskAgentTools` = surface as `[]string` (REST view ≡ rev ≡ tools/list by construction) |
-| `api/pkg/org/interfaces/mcptools/{chat,dm,managers,reports,read_events,bot_log,ask_human,assets,get_secret,list_secrets}.go` | class-(a) conversions |
+| (a) on-behalf-of — converted to SubjectForCaller | `chat`, `dm`, `managers`, `reports`, `read_events`, `bot_log` (attaches the Agent's transcript, stamps `created_by` = task id), `ask_human`, `list_assets`, `get_asset`, `server_run_command`, `server_list_commands`, `server_get_command`, `server_kill_command`, `server_list_files`, `server_read_file`, `server_write_file`, `server_ssh_access`, `get_secret`, `list_secrets` |
+| (b) resource/org-keyed — correct as-is | `list_bots`, `get_bot`, `list_triggers`, `get_trigger`, `list_trigger_events`, `trigger_members`, `list_processors`, `get_processor`, `list_projects`, `get_project`, `list_sandboxes`, `get_sandbox`, `list_sandbox_runtimes`, `list_org_assets`, `get_org_asset`, `list_asset_links`, `get_asset_health`, `list_repositories`, `list_bot_repositories`, `get_bot_project`, and all 14 `*_spectask*` tools |
+| (c) blocked for task callers | `create_bot`, `delete_bot`, `set_bot_content`, `attach_tool`, `detach_tool`, `start_bot`, `stop_bot`, `restart_bot`, `attach_worker`, `detach_worker`, `create_trigger`, `create_processor`, `update_processor`, `delete_processor`, `set_human_contact`, `configure_bot_project`, `attach_repository`, `detach_repository`, `create_server_asset`, `update_server_asset`, `delete_asset`, `link_asset`, `unlink_asset`, `create_sandbox`, `update_sandbox`, `delete_sandbox`, `sandbox_ssh_access` |
 
-Tests: helpers/bonding (0/1/2/human/managed-list), surface (unbound ≡
-today, union, ambiguity fail-closed, blocked-name exclusion),
-specTaskAgentTools table incl. non-task nil, secret-tool subject cases
-(never falls back to task-id bindings), delegation representatives,
-helix-org backend 403 suite, plus the existing prompt golden (untouched)
-and external-agent mount/rev suites.
+Judgment calls are recorded with the data in `mcptools/defaults.go`: `server_ssh_access` stays delegable (same capability class as the already-delegated `server_run_command`); `create_trigger`, processors, and sandbox admin are class (c). New consequence to be aware of: a task in an Agent-owned project is silently entitled; the capability is visible only through tools/list and audit, not on the task row.
 
-## Verification
+Key files: `org/infrastructure/runtime/helix/agent_binding.go` (new), `org/infrastructure/runtime/principal.go` (`WithBoundWorker`), `org/interfaces/mcptools/subject.go` (new), `org/interfaces/mcptools/defaults.go` (`SpecTaskBlockedTools`), `server/mcp_backend_spectask.go` (`specTaskToolSurface` + bond stash), `server/agent_tools_handlers.go`, and the class-(a) tool conversions.
 
-- `CGO_ENABLED=1 go test ./pkg/org/... ./pkg/server/ ./pkg/services/`
-  plus `./pkg/external-agent` — all green.
-- Live inner-Helix e2e (see tasks.md item 12 for the full record):
-  real Bot hire → real project bond → real task + task api key;
-  tools/list = Agent surface with own grants empty; `get_secret` read the
-  Agent's secret; audit rows attributed to the task id; block-listed
-  names never served even while the Agent held them; live attach/detach
-  propagation; unbundle → 403 "no Helix tools are enabled for this
-  task"; `/mcp/helix-org` stays 403 for task keys.
+## Testing
 
-## Consequences reviewers should know
-
-- A task in an Agent-owned project is silently entitled; capability is
-  discoverable through tools/list and audit, not through the task row.
-- `create_trigger`, processors, and sandbox admin are class (c) (judgment
-  calls recorded in `SpecTaskBlockedTools` doc).
-- Known env issue surfaced during e2e (pre-existing, not this PR): bot
-  DELETE on a stale dev DB errors on missing `org_subscriptions`.
+- `CGO_ENABLED=1 go test ./pkg/org/... ./pkg/server/ ./pkg/services/` and `go test ./pkg/external-agent` — all pass. `BuildAgentToolsSection` golden test untouched and green (prompts deliberately unchanged).
+- New unit tests: agent-bonding resolution (0/1/2 owners, human nodes, managed-allowlist non-ownership), surface composition table (unbound ≡ today's behavior, bound ⇒ union, ambiguous fails closed, blocked names excluded from both agents' names and own allowlists), `specTaskAgentTools` (nil for non-task sessions, union for bound), secret tools acting on the bound Agent's bindings, never the task id's (and loud on a stale bond), delegation representatives (`chat` posts as the agent with one event; unbound fails with zero events; `managers` walks the agent's reporting line, loud error unbound), helix-org MCP backend 403 suite for task keys.
+- Live inner-Helix e2e against this branch (real hire flow, real task, real api keys, no seeded rows): a task created in the bound Agent's project gets tools/list = Agent set ∪ read baseline with empty own grants (mount happens purely from the bond); `get_secret` via the task key returned the Agent's granted secret and `org_audit_logs` recorded `actor_type=spec_task, actor=spt_…, action=get_secret, succeeded`; `/mcp/helix-org` 403s the task key; `attach_tool`/`create_trigger` never appeared even while the Agent held them; editing the Agent's tools propagated live (removed read tools vanished, a later-added `dm` appeared); removing the runtime-state bond turned `/mcp/helix-tasks` into 403 "no Helix tools are enabled for this task"; the task row persisted no new agent_tools. Full record in tasks.md item 12.
