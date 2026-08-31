@@ -116,13 +116,14 @@ surface is intersected with a catalogue that contains only spec-task CRUD tools.
 
 ## Open Questions
 
-1. **Shell ergonomics:** Task agents will fetch the value via `get_secret` and
-   then use it with shell tools (same pattern Workers use — never via boot env
-   vars). Confirm no task needs the values pre-materialized as env vars in the
-   container.
+None — all resolved (below).
 
 ## Resolved questions
 
+- **Shell ergonomics — confirmed by review.** No pre-materialized env vars;
+  task agents fetch values via `get_secret` and use them with shell tools, the
+  same pattern Workers use. Per-call resolution is the product, not a
+  workaround.
 - **UI surfacing — resolved by review: no.** No spec-task detail-page display
   of inherited credentials; the task's own `list_secrets` call is the surface.
   Provenance stays a server-side fact. (Also satisfies the standalone-task
