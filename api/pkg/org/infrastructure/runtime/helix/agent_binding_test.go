@@ -34,8 +34,7 @@ func TestBoundAgentForProject(t *testing.T) {
 
 	bindAgentNode(t, st, "w-owner", "org-1", "prj-home")
 	bindAgentNode(t, st, "w-other", "org-1", "prj-somewhere-else")
-	// Managed allowlist membership must NOT count as ownership: a manager bot
-	// supervising prj-home gets nothing on prj-home.
+	// Managed allowlist membership is not ownership.
 	managed, err := orgchart.NewNode("w-manager", "w-manager", []tool.Name{"chat"}, time.Now(), "org-1")
 	if err != nil {
 		t.Fatal(err)

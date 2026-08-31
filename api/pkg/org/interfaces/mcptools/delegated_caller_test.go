@@ -17,9 +17,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
 
-// The delegation contract lives in ONE place now: the ingress wrapper.
-// Tools are untouched — they see exactly one identity with one meaning.
-
 type rawTaskCaller struct{}
 
 func (rawTaskCaller) ID() string             { return "spt-deleg" }
@@ -112,10 +109,7 @@ func TestDelegatedCallerPresentsAgentToSecretTools(t *testing.T) {
 	if !containsRawSecret(got) {
 		t.Fatalf("delegated get_secret did not read the agent's binding: %s", got)
 	}
-	// An unwrapped task caller stays exactly as safe as before: the task
-	// node has no bindings and no node row, so lookups fail with zero side
-	// effects (it is never served these tools in practice — see the
-	// surface tests in api/pkg/server).
+	// An unwrapped task caller resolves no binding.
 	inv.Caller = org1TaskCaller{}
 	if _, err := (&GetSecret{deps: deps}).Invoke(context.Background(), inv); err == nil {
 		t.Fatal("unwrapped task caller must not resolve any binding")

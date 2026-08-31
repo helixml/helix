@@ -207,9 +207,6 @@ type mcpAuditArgs struct {
 	AssetID   string `json:"asset_id"`
 }
 
-// auditActorID answers "who pulled the trigger", which can differ from the
-// identity a caller acts as: a delegated spec-task caller acts as its
-// project's bound Agent but is audited under its own task id.
 func auditActorID(caller tool.Caller) string {
 	if self, ok := caller.(orgaudit.SelfDescribingActorID); ok {
 		if id := self.AuditActorID(); id != "" {
@@ -241,8 +238,6 @@ func (s *Server) newMCPAuditEntry(ctx context.Context, caller tool.Caller, actio
 		}
 	}
 	if entry.ProjectID == "" {
-		// A project principal carries its project directly; the Bot
-		// resolver keys on worker state and would only mis-attribute.
 		if p, ok := orgruntime.ProjectPrincipalFromContext(ctx); ok {
 			entry.ProjectID = p.ProjectID
 		}

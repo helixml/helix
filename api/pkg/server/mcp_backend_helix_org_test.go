@@ -14,11 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// HelixOrgMCPBackendSuite pins the guardrail the spec-task tool grant
-// depends on: /mcp/helix-org (the org-graph surface acting AS a worker) is
-// reachable only by sessions whose metadata names an org worker. Task
-// planning sessions never carry OrgWorkerID, so their session-scoped keys
-// stay 403 there while the same keys act through /mcp/helix-tasks.
+// /mcp/helix-org is reachable only by worker-bearing sessions; task keys stay 403.
 type HelixOrgMCPBackendSuite struct {
 	suite.Suite
 	ctrl      *gomock.Controller
@@ -68,8 +64,7 @@ func (s *HelixOrgMCPBackendSuite) TestTaskSessionIsForbidden() {
 		Created:        time.Now(),
 	}
 	taskSession.Metadata.SpecTaskID = "spt-1"
-	// Metadata.OrgWorkerID deliberately NOT set: spec-task sessions must
-	// never carry an org worker identity (guardrail invariant).
+	// OrgWorkerID deliberately unset (guardrail invariant).
 	s.mockStore.EXPECT().GetSession(gomock.Any(), "ses-task").Return(taskSession, nil)
 	w := s.serve(apiKeyUser("ses-task"))
 	s.Equal(http.StatusForbidden, w.Code)

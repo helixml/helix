@@ -66,8 +66,6 @@ func TestNewMCPAuditEntryAuditsDelegatedCallerUnderTaskID(t *testing.T) {
 		"get_secret",
 		json.RawMessage(`{}`),
 	)
-	// The acting identity is the bound Agent; the audit identity stays
-	// the task that pulled the trigger.
 	require.Equal(t, "spt-1", entry.ActorID)
 	require.Equal(t, orgaudit.ActorSpecTask, entry.ActorType)
 }

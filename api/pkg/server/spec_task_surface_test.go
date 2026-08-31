@@ -83,8 +83,6 @@ func TestSpecTaskToolSurfaceAmbiguousOwnershipFailsClosed(t *testing.T) {
 	require.Equal(t, []tool.Name{"create_spectask"}, tools)
 }
 
-// Spec-task sessions are the only consumers; the REST view, the sandbox
-// mount decision, and the MCP registry all read this one method.
 func TestSpecTaskAgentToolsTable(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
