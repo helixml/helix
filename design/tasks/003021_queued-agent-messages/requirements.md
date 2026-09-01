@@ -36,8 +36,7 @@ Acceptance criteria:
       agent receives is byte-for-byte unchanged.
 - [ ] A session with **no** owning spec task (plain org-chat session) still enqueues and
       dispatches successfully, with `spec_task_id` left empty. No error, no behaviour change.
-- [ ] `ListPromptHistory`'s `spec_task_id` filter is NOT widened (no `OR spec_task_id = ''`)
-      and its `user_id` scoping is NOT removed.
+- [ ] `ListPromptHistory`'s `spec_task_id` filter is NOT widened (no `OR spec_task_id = ''`).
 
 ### US-2: Existing invisible queue rows become visible
 **As** Luke, with 53 already-queued approvals stuck invisible,
@@ -78,7 +77,39 @@ Acceptance criteria:
       `websocket_external_agent_sync.go:3745-3800`.
 - [ ] Exactly ONE of the two candidate fixes is implemented, not both.
 
-### US-5: Verified live, not just compiled
+### US-5: The queue shows everything queued for the agent, whoever queued it
+**As** anyone viewing a spec task,
+**I want** the prompt queue to show every message waiting for that agent, not just the
+ones I personally sent,
+**so that** the queue reflects the agent's actual state — and I can see who queued what.
+
+The queue is a property of the agent, not of a person. Today `ListPromptHistory` scopes
+by `user_id`, so a teammate's (or a bot's, under a different account) queued messages are
+invisible to me even though the agent will run them. That is misleading in exactly the way
+the primary bug is.
+
+Acceptance criteria:
+- [ ] With a spec task whose queue contains prompts from two different users, both users
+      see **all** pending prompts on the spec-task page, in dispatch order.
+- [ ] Each entry carries an identity indicator (avatar/initials + name on hover) showing
+      who queued it. The indicator is shown when the queue contains more than one distinct
+      owner, and suppressed in the common single-owner case to avoid noise.
+- [ ] Removing `user_id` scoping does NOT create a read hole: the list endpoint gains a
+      real authorization check — the caller must be authorized on the spec task's project
+      (or on the session, for session-scoped queues) before any rows are returned.
+- [ ] A user with no access to the project still gets 403/empty for that `spec_task_id`,
+      verified explicitly with a second account.
+- [ ] The list endpoint still refuses a request carrying neither `spec_task_id` nor
+      `session_id` — the query can never run unscoped.
+- [ ] The sync endpoint's returned entry set is scoped the same way as the list, so the
+      two never disagree (a mismatch makes the frontend mark live prompts as failed).
+- [ ] A viewer's client cannot modify or delete another user's queued prompt: sync
+      updates to rows owned by someone else are ignored server-side, and the delete
+      affordance is not offered for entries the viewer does not own.
+- [ ] Nothing regresses for the single-user case: one user's own queue looks and behaves
+      exactly as it does today.
+
+### US-6: Verified live, not just compiled
 **As** a reviewer,
 **I want** browser evidence,
 **so that** I know the visible-queue outcome actually works end-to-end.
@@ -88,17 +119,22 @@ Acceptance criteria:
       (`config->>'zed_thread_id'` is a non-empty UUID).
 - [ ] A screenshot of the spec-task prompt queue containing the API-sent message is
       attached to the task's `screenshots/` folder. This is the deliverable.
-- [ ] Go unit tests cover session→spec-task resolution (found and not-found cases) and
-      the busy-defer retry-count behaviour.
+- [ ] Two accounts queue prompts on the same spec task; a screenshot shows both, with
+      identity indicators, from each account's browser session.
+- [ ] A third account with no project access is confirmed to get 403/empty for the same
+      `spec_task_id`.
+- [ ] Go unit tests cover session→spec-task resolution (found and not-found cases), the
+      busy-defer retry-count behaviour, and the new list authorization (authorized user
+      sees all owners' rows; unauthorized user sees none).
 
 ## Out of Scope
 
-- The known hazard that a queue owned by one user is invisible to another viewer of the
-  same project (the `user_id` scoping on `ListPromptHistory`). Not this bug — on the live
-  session the prompt owner and viewer are the same account. Leave it alone.
 - Surfacing retry-cap exhaustion to the user in the UI.
-- Any change to the frontend queue rendering — it is correct today, it was only ever
-  being handed an empty result set.
+- Reordering, editing, or deleting another user's queued prompt. The queue becomes
+  readable by all task viewers; write operations stay owner-only (see Open Question 5).
+- Any restructuring of the frontend's localStorage-first queue model. US-5 adds an owner
+  field and an indicator to the existing rendering; it does not change how the local
+  cache works.
 
 ## Open Questions
 
@@ -123,3 +159,18 @@ Acceptance criteria:
    untouched. Assumed correct — a defer should neither charge nor forgive the budget.
    Alternative would be zeroing `retry_count` on a clean defer; not chosen because it
    would let a genuinely failing prompt launder its history through one defer.
+5. **Write permissions on someone else's queued prompt (US-5).** The design keeps the
+   existing owner-only rule for delete (`deletePromptHistoryEntry` already 403s on
+   `prompt.UserID != user.ID`) and simply hides the affordance for foreign entries, so
+   the authorization model is unchanged. The arguable alternative — since the queue is
+   the agent's, any project member with write access should be able to remove a stuck
+   entry — is a real policy change and is currently NOT in scope. Say if you want it.
+6. **Identity indicator for non-human senders.** HelixOS approvals are queued under a
+   real user account, so they render as that person. Prompts from org bots or the
+   design-review path may carry a service account; there is no existing "bot" badge in
+   `OrganizationUserAvatar`. Assumed acceptable to render them as whatever account owns
+   the row, with no special bot styling.
+7. **Session-scoped queues and multi-user visibility.** The same de-scoping is applied to
+   session-scoped queues (`session_id` given, no spec task), authorized via the existing
+   `authorizeUserToSession`. Assumed desirable for consistency; the alternative is to
+   widen only the spec-task path and leave org-chat queues owner-scoped.

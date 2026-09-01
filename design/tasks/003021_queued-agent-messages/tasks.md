@@ -23,6 +23,24 @@
 - [ ] Confirm option (a) (a busy pre-check in `processAnyPendingPrompt`) is NOT also implemented — one path only
 - [ ] Add unit tests: busy-defer leaves `retry_count` unchanged and status `pending`; a genuine dispatch error still increments `retry_count` and sets backoff; the cap at 20 still applies to genuine failures
 
+## Show the whole agent queue, not just the viewer's own prompts
+
+- [ ] Add `UserID` to `types.PromptHistoryListRequest` (server-set only, json `-`) and change the store signature to `ListPromptHistory(ctx, req)`, applying the user filter only when non-empty
+- [ ] Add a store guard: error out if `SpecTaskID`, `SessionID` and `UserID` are all empty, so the query can never run unscoped
+- [ ] Update the `Store` interface (`store.go:877`), regenerate `store_mocks.go`, and update `memorystore`
+- [ ] In the `listPromptHistory` handler, authorize before querying: `spec_task_id` → GetSpecTask → GetProject → `authorizeUserToProject(…, types.ActionGet)`; `session_id` → GetSession → `authorizeUserToSession(…, types.ActionGet)`; then query with no user filter
+- [ ] Make the failure path narrow: if the task/project/session lookup fails, fall back to owner-scoped results, never to a wider set
+- [ ] Apply the same authz check to the `syncPromptHistory` handler
+- [ ] Drop `user_id` from `SyncPromptHistory`'s trailing "return all entries" query so list and sync are scoped identically (leave the create branch stamping `UserID: userID`)
+- [ ] Add the foreign-row guard to `SyncPromptHistory`'s update branch: skip when `existingEntry.UserID != userID`
+- [ ] Leave `deletePromptHistoryEntry`'s owner-only 403 unchanged
+- [ ] Add `userId` to the frontend `PromptHistoryEntry` type and map it in `backendToLocal`
+- [ ] Exclude foreign-owned entries from the sync push payload in `usePromptHistory`
+- [ ] In `SessionPromptQueue.tsx`, render `OrganizationUserAvatar` per entry when the queue has more than one distinct owner (suppressed for the single-owner case), with the display name on hover
+- [ ] Hide the delete affordance on entries the current user does not own
+- [ ] Add Go tests: authorized user sees all owners' rows for a spec task; unauthorized user gets 403; a request with neither `spec_task_id` nor `session_id` is refused; sync update to a foreign-owned row is a no-op
+- [ ] Add/extend `SessionPromptQueue.test.tsx`: indicator appears with two owners, absent with one, delete hidden on foreign entries
+
 ## Backfill
 
 - [ ] Add `api/pkg/store/migrations/0010_backfill_prompt_history_spec_task_id.up.sql` with the idempotent `UPDATE … FROM spec_tasks` joining `session_id = planning_session_id`, guarded by `(spec_task_id IS NULL OR spec_task_id = '') AND deleted_at IS NULL`
@@ -39,6 +57,10 @@
 - [ ] With the agent mid-turn, trigger the cancel-ack path repeatedly and assert `retry_count` on the queued prompt does not climb
 - [ ] Confirm a plain session with no spec task still enqueues and dispatches
 - [ ] Confirm soft-deleting a queued prompt removes it from the UI and it does not reappear
+- [ ] Create a second account in the same org/project, queue a prompt from it on the same spec task, and confirm both accounts see both prompts with identity indicators — screenshot from each
+- [ ] Confirm the single-owner case shows no avatars (no noise regression)
+- [ ] With a third account that has no access to the project, confirm `GET /api/v1/prompt-history?spec_task_id=…` returns 403/empty — this is the read-hole gate
+- [ ] Confirm the second account's client does not clobber or delete the first account's queued prompt (no delete button; sync round trip leaves the row unchanged)
 
 ## Wrap-up
 

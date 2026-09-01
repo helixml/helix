@@ -41,9 +41,29 @@ Everything below was read in `/home/retro/work/helix/` at the time of writing.
 - **Retry cap** `defaultMaxPromptQueueRetries = 20` (`store_prompt_history.go:24`),
   overridable via `HELIX_MAX_PROMPT_QUEUE_RETRIES`. The selectors apply
   `retry_count < ?`, so hitting the cap makes the row permanently unselectable.
-- **Frontend is correct and needs no change.** `usePromptHistory.ts:260` calls
-  `listPromptHistory(apiClient, specTaskId, { projectId })`; it was only ever being
-  handed an empty result set.
+- **The frontend queue is localStorage-first.** `usePromptHistory.ts` keeps a local
+  history keyed by spec task (`helix_prompt_history`, cap 100) and *merges* backend rows
+  into it; `refreshStatusesFromBackend` (:255) pulls backend-owned status. There is a
+  reconcile rule: a locally-known entry with `syncedToBackend` that is **absent** from the
+  authoritative list is surfaced as `failed`. Consequence for Decision 5: the list and the
+  sync response must be scoped identically, or widening one alone makes live prompts flap
+  to failed.
+- **Authorization on the prompt-history endpoints is `user_id` scoping and nothing else.**
+  `listPromptHistory` (`prompt_history_handlers.go:752`) does no spec-task or project
+  authz — it just passes `user.ID` to the store. So `user_id` cannot simply be dropped;
+  it has to be *replaced* by a real check. `deletePromptHistoryEntry` (:824) does have an
+  explicit `prompt.UserID != user.ID → 403`.
+- **The project authz helper** is `authorizeUserToProject(ctx, user, project, action)`
+  (`api/pkg/server/authz.go:181`); the spec-task pattern is GetSpecTask → GetProject →
+  authorize (see `spec_task_workflow_handlers.go:43-58`). For sessions there is
+  `authorizeUserToSession` (used at `session_handlers.go:2556`).
+- **`PromptHistoryEntry.UserID` is already serialised as `user_id`** in JSON
+  (`api/pkg/types/prompt_history.go:14`), so the identity indicator needs no API shape
+  change — only a frontend mapping.
+- **`OrganizationUserAvatar`** (`frontend/src/components/widgets/OrganizationUserAvatar.tsx`)
+  is the existing avatar widget; `frontend/src/utils/user.ts` has display-name helpers.
+  The queue renders in `frontend/src/components/session/SessionPromptQueue.tsx` (which
+  has a test file alongside it).
 
 ## Decision 1 — Stamp `spec_task_id` at write time, inside `persistQueuedPrompt`
 
@@ -165,16 +185,88 @@ cancel-ack) plus the existing idle poller — nothing spins on a `pending` row, 
 implementation that `GetNextPendingPrompt`'s selector treats a `pending` row with
 `next_retry_at IS NULL` as immediately eligible (it should — that is the fresh-enqueue case).
 
+## Decision 5 — Scope the queue by task/session and authorize properly, not by `user_id`
+
+The queue belongs to the agent, so it must show every prompt waiting for that agent. The
+`user_id` predicate is removed from the *read* path — but only together with a real
+authorization check, because today that predicate **is** the authorization.
+
+**Store.** Change the signature to drop the out-of-band user argument and make user
+filtering an explicit, optional part of the request:
+
+```go
+ListPromptHistory(ctx context.Context, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
+```
+
+with `UserID string` added to `PromptHistoryListRequest` (json `-`; server-set only, never
+parsed from the query string). Applied only when non-empty. There is exactly one non-test
+caller, so the churn is the signature, the interface entry, and the mocks.
+
+**Refuse to run unscoped.** Add a store-level guard: if `SpecTaskID`, `SessionID` and
+`UserID` are all empty, return an error rather than every row in the table. The handler
+already requires `spec_task_id` or `session_id` (:765); this is defence in depth for
+future callers.
+
+**Handler.** `listPromptHistory` gains the authz the `user_id` predicate was implicitly
+providing:
+
+- `spec_task_id` given → `GetSpecTask` → `GetProject(specTask.ProjectID)` →
+  `authorizeUserToProject(ctx, user, project, types.ActionGet)`. 403 on failure. Then call
+  the store with **no** `UserID` filter.
+- `session_id` given (no spec task) → `GetSession` → `authorizeUserToSession(ctx, user,
+  session, types.ActionGet)`, then likewise no `UserID` filter.
+- Belt-and-braces: if the task/session lookup fails or returns nothing, fall back to the
+  old owner-scoped behaviour rather than returning a wider set. Failure must never widen.
+
+**Sync response must match the list.** `SyncPromptHistory`'s trailing "return all entries"
+query (`store_prompt_history.go:~104`) is also `user_id`-scoped. Drop `user_id` from *that
+query only*, keeping the task/session predicate, so list and sync agree — otherwise the
+`syncedToBackend && !inBackendList → failed` rule in `refreshStatusesFromBackend` flips
+other people's live prompts to failed in the local cache. The sync handler needs the same
+authz check as the list handler, for the same reason.
+
+**Writes stay owner-attributed.** Two guards, because the frontend merges foreign entries
+into its localStorage cache and would otherwise push them back on the next sync:
+
+1. Backend (load-bearing): in `SyncPromptHistory`'s "entry exists" branch, skip the update
+   when `existingEntry.UserID != userID`. Foreign rows become read-only to other clients.
+   The create branch already stamps `UserID: userID`, and the update branch never touches
+   `user_id` — keep both properties.
+2. Frontend: exclude entries whose owner is not the current user from the sync push
+   payload, so the no-op round trips don't happen at all.
+
+`deletePromptHistoryEntry`'s existing owner-only 403 is left exactly as is.
+
+## Decision 6 — Identity indicator on queue entries
+
+`user_id` is already on the wire. Add `userId?: string` to the frontend
+`PromptHistoryEntry` interface and map it in `backendToLocal`
+(`frontend/src/services/promptHistoryService.ts`).
+
+In `SessionPromptQueue.tsx`, render `OrganizationUserAvatar` beside an entry when the
+queue contains **more than one distinct owner**. Rationale: the single-user case is by far
+the most common and an avatar on every row there is pure noise; the moment a second
+participant appears, attribution becomes load-bearing and every row gets a marker
+(including your own, so the set reads consistently). Name on hover via the existing
+`utils/user.ts` display-name helper.
+
+Entries not owned by the current user render without the delete affordance — the backend
+would 403 anyway, so offering it would only produce a dead button.
+
 ## Files touched
 
 | File | Change |
 |---|---|
 | `api/pkg/server/prompt_history_handlers.go` | `resolveSpecTaskIDForSession` helper; call it from `persistQueuedPrompt` when `specTaskID == ""` |
-| `api/pkg/store/store_prompt_history.go` | `deleted_at IS NULL` on `ListPromptHistory`; new `RevertPromptToPending` |
-| `api/pkg/store/store.go` (or the store interface file) | Add `RevertPromptToPending` to the `Store` interface + regenerate mocks |
+| `api/pkg/store/store_prompt_history.go` | `deleted_at IS NULL` on `ListPromptHistory`; drop `user_id` from the read path + unscoped-query guard; drop `user_id` from `SyncPromptHistory`'s return query; skip-foreign-row guard in its update branch; new `RevertPromptToPending` |
+| `api/pkg/store/store.go` (:877, :919) | New `ListPromptHistory` signature + `RevertPromptToPending`; regenerate `store_mocks.go` and update `memorystore` |
+| `api/pkg/types/prompt_history.go` | `UserID` on `PromptHistoryListRequest` (server-set, json `-`) |
+| `api/pkg/server/prompt_history_handlers.go` | `resolveSpecTaskIDForSession`; project/session authz on the list **and** sync handlers |
 | `api/pkg/server/websocket_external_agent_sync.go` | `errPromptBusyDeferred` sentinel; wrap the two busy returns; branch in the three drain callers |
 | `api/pkg/store/migrations/0010_backfill_prompt_history_spec_task_id.{up,down}.sql` | Idempotent backfill |
-| Frontend | **None** |
+| `frontend/src/services/promptHistoryService.ts` | `userId` on the entry type + `backendToLocal` mapping |
+| `frontend/src/hooks/usePromptHistory.ts` | Exclude foreign-owned entries from the sync push payload |
+| `frontend/src/components/session/SessionPromptQueue.tsx` (+ `.test.tsx`) | Owner avatar when the queue has >1 distinct owner; hide delete on foreign entries |
 
 ## Risks
 
@@ -185,3 +277,13 @@ implementation that `GetNextPendingPrompt`'s selector treats a `pending` row wit
 - **Backfill scope on meta.** The UPDATE touches every historical row with an empty
   `spec_task_id` that has a matching planning session, not just Luke's 53. That is the
   intent (those rows were all mis-stamped by the same bug), but count them first.
+- **Read hole (Decision 5) — the highest-risk item in this task.** Dropping `user_id`
+  without landing the authz check in the same commit exposes any queue to anyone who
+  knows a `spec_task_id`. Do the two changes together, and make the fallback on a failed
+  task/project lookup *narrow* (owner-scoped), never wide. The two-account browser check
+  (authorized sees all, unauthorized sees none) is the acceptance gate.
+- **List/sync scoping drift.** Widening the list but not the sync response makes the
+  frontend mark other users' live prompts as `failed` via the
+  `syncedToBackend && !inBackendList` rule. Change both or neither.
+- **`ListPromptHistory` signature change** ripples through the `Store` interface, the
+  gomock mocks, and `memorystore`.
