@@ -330,8 +330,9 @@ func TestProbeRequestsTheConfiguredURL(t *testing.T) {
 	got := make(chan seen, 4)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got <- seen{r.Method, r.URL.Path, r.URL.RawQuery, r.Header.Get("Authorization")}
-		// Mirrors production: HEAD on a correct MCP URL 404s, because the
-		// router has no HEAD route. That must still count as reachable.
+		// Mirrors production: OPTIONS on a correct MCP URL returns 404
+		// (helix-desktop, helix-session, kodit) or 400 (helix-tasks). That
+		// must still count as reachable.
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer srv.Close()
@@ -348,8 +349,9 @@ func TestProbeRequestsTheConfiguredURL(t *testing.T) {
 
 	select {
 	case s := <-got:
-		if s.method != http.MethodHead {
-			t.Errorf("method = %s, want HEAD (POST allocates MCP session state, GET opens an SSE stream)", s.method)
+		if s.method != http.MethodOptions {
+			t.Errorf("method = %s, want OPTIONS: POST allocates MCP session state, GET opens an SSE stream, "+
+				"and HEAD is not a registered route so it never reaches the auth middleware", s.method)
 		}
 		if s.path != "/api/v1/mcp/helix-tasks" {
 			t.Errorf("path = %q, want the configured MCP path", s.path)
@@ -369,6 +371,8 @@ func TestProbeRequestsTheConfiguredURL(t *testing.T) {
 // ErrorHandler answers every MCP URL with 502 "Helix API unavailable".
 // Measured, not assumed: stopping helix-api-1 turned all four context servers
 // into 502s. Treating any HTTP response as success would call that ready.
+//
+//nolint:dupl // deliberately parallel to TestProbeRejectsRejectedCredentials
 func TestProbeRejectsProxyUpstreamFailure(t *testing.T) {
 	for _, status := range []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusInternalServerError} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -385,13 +389,14 @@ func TestProbeRejectsProxyUpstreamFailure(t *testing.T) {
 	}
 }
 
-// Status below 5xx is success on purpose. Through the sandbox proxy, HEAD on a
-// correct MCP URL returns 404 while HEAD on a deliberately wrong path returns
-// 200 from the frontend catch-all — status is anti-correlated with routing
-// correctness, so anything stricter would reject the endpoints that work.
+// Status below 5xx, other than 401/403, is success on purpose. Through the
+// sandbox proxy, OPTIONS on a correct MCP URL returns 404 or 400 while OPTIONS
+// on a deliberately wrong path returns 204 from the frontend catch-all —
+// status is anti-correlated with routing correctness, so anything stricter
+// would reject the endpoints that work.
 func TestProbeAcceptsNonServerErrorStatuses(t *testing.T) {
 	for _, status := range []int{http.StatusOK, http.StatusNoContent, http.StatusBadRequest,
-		http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusMethodNotAllowed} {
+		http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusConflict} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(status)
 		}))
@@ -429,5 +434,54 @@ func TestProbeReportsEveryFailingServer(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "kodit") {
 		t.Errorf("error should not blame the healthy server: %v", err)
+	}
+}
+
+// A token the endpoint refuses is a permanent failure for the agent: it sends
+// the same Authorization header, so its one-shot MCP registration dies the same
+// way. Measured against a live session, an invalid token turns OPTIONS on every
+// Helix MCP endpoint from 404/400 into 401.
+//
+// This is also why the probe uses OPTIONS rather than HEAD. HEAD is not a
+// registered method on the MCP gateway routes, so gorilla/mux never matches and
+// the auth middleware never runs: HEAD returned 404 for a valid token, an
+// invalid token and no token alike. Rejecting 401/403 under HEAD would have
+// been unreachable code.
+func TestProbeRejectsRejectedCredentials(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "Bearer hl-good" {
+				w.WriteHeader(status)
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+
+		bad := writeSettingsFile(t, map[string]interface{}{
+			"helix-tasks": map[string]interface{}{
+				"url":     srv.URL + "/api/v1/mcp/helix-tasks",
+				"headers": map[string]interface{}{"Authorization": "Bearer hl-expired"},
+			},
+		})
+		err := newReadinessDaemon().probeMCPEndpoints(context.Background(), bad)
+		if err == nil {
+			t.Fatalf("status %d must not read as ready", status)
+		}
+		if !strings.Contains(err.Error(), "Authorization") {
+			t.Errorf("error should explain the credential problem: %v", err)
+		}
+
+		// The same endpoint with the header it accepts is reachable, proving
+		// the rejection is about credentials and not the endpoint itself.
+		good := writeSettingsFile(t, map[string]interface{}{
+			"helix-tasks": map[string]interface{}{
+				"url":     srv.URL + "/api/v1/mcp/helix-tasks",
+				"headers": map[string]interface{}{"Authorization": "Bearer hl-good"},
+			},
+		})
+		if err := newReadinessDaemon().probeMCPEndpoints(context.Background(), good); err != nil {
+			t.Fatalf("valid credentials must read as ready: %v", err)
+		}
+		srv.Close()
 	}
 }

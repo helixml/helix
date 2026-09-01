@@ -118,23 +118,35 @@ bug straight back in on the first restart.
    (`SETTINGS_SYNC_PORT`, default 9877): 200 means safe to launch, 503 carries
    the reason.
 
-   **Method: HEAD**, the only method that is uniformly side-effect free and
-   prompt. POST (a real MCP `initialize`) allocates server-side session state —
-   kodit creates a per-session handler — and GET is the Streamable HTTP
-   notification stream: measured against a live session, GET hangs until
-   timeout on `helix-desktop` and returns an open SSE stream on `helix-session`
-   and `kodit`.
+   **Method: OPTIONS.** The MCP gateway routes register GET, POST and OPTIONS,
+   and the choice among them is forced. POST is the real MCP `initialize` and
+   allocates server-side session state (kodit creates a per-session handler).
+   GET is the Streamable HTTP notification stream: measured against a live
+   session it hangs until timeout on `helix-desktop` and returns an open SSE
+   stream on `helix-session` and `kodit`. HEAD is not a registered method, so
+   gorilla/mux never matches the route and the request never reaches the auth
+   middleware — measured, HEAD returns 404 for a valid token, an invalid token
+   and no token alike. OPTIONS is the only method that is prompt (0.00s on all
+   four servers), allocates nothing (24 probes produced no additional kodit
+   handler creations), and actually traverses authentication.
 
-   **Failure is a transport error or a 5xx; every other status is success.**
-   That is measured, not lazy. Through the sandbox API proxy against a healthy
-   session, HEAD on each *correct* MCP URL returns 404 (the mux router has no
-   HEAD route) while HEAD on a deliberately *wrong* path returns 200 from the
-   frontend catch-all — status is anti-correlated with routing correctness, so
-   anything stricter than "not 5xx" would reject exactly the endpoints that
-   work. 5xx is the exception worth catching: with `helix-api-1` stopped but the
-   sandbox proxy up, all four context servers answered 502 "Helix API
-   unavailable" from the proxy's `ErrorHandler`. Treating any response as
-   success would have called that ready.
+   **Failure is a transport error, a 5xx, or a 401/403.** Each corresponds to a
+   way the agent's one-shot registration dies:
+
+   | class | how it happens | measured |
+   |---|---|---|
+   | transport | address does not resolve / refuses | the original reproduction |
+   | 5xx | Helix API down, sandbox proxy up — its `ErrorHandler` returns 502 "Helix API unavailable" | stopping `helix-api-1` turned all four into 502 |
+   | 401/403 | the session token in the header is expired or wrong; the agent sends the same header | an invalid token turns every endpoint from 404/400 into 401 |
+
+   **Every other status is success**, and that is measured rather than lazy:
+   with a valid token, OPTIONS on the correct MCP URLs returns 404
+   (`helix-desktop`, `helix-session`, `kodit`) or 400 (`helix-tasks`), while
+   OPTIONS on a deliberately wrong path returns 204 from the frontend catch-all.
+   Status is anti-correlated with routing correctness, so anything stricter
+   would reject exactly the endpoints that work. **This probe therefore does not
+   detect path-level misrouting**; it detects transport, upstream health and
+   authentication.
 
    Reading the URLs from the file rather than `d.helixSettings` is deliberate on
    two counts. It is the exact set Zed loads and forwards to the agent, user
@@ -164,8 +176,15 @@ bug straight back in on the first restart.
 2. `desktop/shared/start-zed-core.sh` — `wait_for_mcp_endpoints` polls
    `/mcp-readiness` and is called **inside `run_zed_restart_loop`, before every
    launch**. On a 503 it keeps waiting (a mid-session blip should ride out); if
-   the origin is still dead after 180s it prints the returned reason and exits
-   rather than starting a tool-less agent.
+   the endpoints are still bad at the deadline it prints the returned reason and
+   exits rather than starting a tool-less agent.
+
+   The bound is a **wall-clock deadline**, not an attempt count. Counting
+   attempts made the documented 180s a lie: each iteration can spend up to the
+   curl timeout plus the sleep, so 180 attempts was really ~33 minutes of held
+   launch. Verified with an endpoint that stalls past the curl timeout on every
+   request: a 20s budget returned at 22s (one in-flight iteration overruns,
+   bounded), where the attempt-count version would have taken 220s.
 
 ### Verified
 

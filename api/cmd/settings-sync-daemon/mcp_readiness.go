@@ -42,7 +42,8 @@ import (
 
 const (
 	// mcpProbeTimeout bounds one endpoint probe. Endpoints are probed
-	// concurrently, so this is also roughly the bound on a whole pass.
+	// concurrently, so this is also roughly the bound on a whole pass, which is
+	// what keeps /mcp-readiness prompt enough for the shell gate to poll it.
 	mcpProbeTimeout = 5 * time.Second
 )
 
@@ -103,30 +104,50 @@ func (d *SettingsDaemon) probeMCPEndpoints(ctx context.Context, settingsPath str
 // misrouting /api/v1/mcp/..., and a user-configured third-party MCP server
 // need not serve Helix's config endpoint at all.
 //
-// HEAD, because it is the only method that is uniformly side-effect free and
-// prompt. A real MCP initialize (POST) allocates server-side session state —
-// kodit creates a per-session handler — and GET is the Streamable HTTP
-// notification stream: measured against a live session, GET hangs until
-// timeout on helix-desktop and returns an open SSE stream on helix-session and
-// kodit.
+// Method: OPTIONS. The MCP gateway routes register GET, POST and OPTIONS
+// (api/pkg/server/server.go), and the choice among them is forced:
 //
-// Only two things count as failure: a transport error (DNS failure, connection
-// refused, timeout) and a 5xx. Every other status is success, and that is not
-// laziness — status here is anti-correlated with routing correctness. Measured
-// through the sandbox API proxy against a healthy session, HEAD on each correct
-// MCP URL returns 404 (the router has no HEAD route), while HEAD on a
-// deliberately wrong path returns 200 from the frontend catch-all. So a status
-// policy stricter than "not 5xx" would reject exactly the endpoints that work.
+//   - POST is the real MCP initialize and allocates server-side session state.
+//   - GET is the Streamable HTTP notification stream. Measured against a live
+//     session it hangs until timeout on helix-desktop and returns an open SSE
+//     stream on helix-session and kodit.
+//   - HEAD is not a registered method, so gorilla/mux never matches the route
+//     and the request never reaches the auth middleware. Measured, HEAD
+//     returns 404 for a valid token, an invalid token and no token alike — it
+//     cannot see authentication at all.
 //
-// 5xx is the exception worth catching: when the Helix API is down but the
-// sandbox proxy is up, the proxy's ErrorHandler answers every MCP URL with
-// 502 "Helix API unavailable". Treating any response as success would call
-// that ready, which is precisely the state this gate exists to refuse.
+// OPTIONS is the one method that is prompt (0.00s on all four servers),
+// allocates nothing (24 probes produced no additional kodit handler
+// creations), and actually traverses authentication.
+//
+// Failure is a transport error, a 5xx, or a 401/403. Every other status is
+// success, and that is measured rather than lazy: with a valid token, OPTIONS
+// on the correct MCP URLs returns 404 (helix-desktop, helix-session, kodit) or
+// 400 (helix-tasks), while OPTIONS on a deliberately wrong path returns 204
+// from the frontend catch-all. Status is anti-correlated with routing
+// correctness, so anything stricter would reject exactly the endpoints that
+// work. This probe therefore cannot detect path-level misrouting; it detects
+// transport, upstream health and authentication.
+//
+// The three failure classes each correspond to a way the agent's one-shot
+// registration dies:
+//
+//   - transport error: the address does not resolve or refuses connections.
+//   - 5xx: with the Helix API down but the sandbox proxy up, the proxy's
+//     ErrorHandler answers every MCP URL with 502 "Helix API unavailable".
+//   - 401/403: the session token in the header is expired or wrong. Measured,
+//     an invalid token turns every one of these endpoints from 404/400 into
+//     401, and the agent sending that same header would fail identically.
+//
+// A third-party MCP server that rejects even an authenticated OPTIONS would be
+// a false negative here. That is the right way to be wrong: a false negative
+// is a loud error naming the URL and status, while a false positive is the
+// silent session-long tool outage this gate exists to prevent.
 func (d *SettingsDaemon) probeContextServer(ctx context.Context, ep contextServerEndpoint) error {
 	probeCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodHead, ep.url, nil)
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodOptions, ep.url, nil)
 	if err != nil {
 		return fmt.Errorf("probe %s (%s): %w", ep.name, ep.url, err)
 	}
@@ -138,8 +159,14 @@ func (d *SettingsDaemon) probeContextServer(ctx context.Context, ep contextServe
 		return fmt.Errorf("probe %s (%s): %w", ep.name, ep.url, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 500 {
-		return fmt.Errorf("probe %s (%s): %s", ep.name, ep.url, resp.Status)
+	switch {
+	case resp.StatusCode >= 500:
+		return fmt.Errorf("probe %s (%s): %s (the Helix API behind the sandbox proxy is unavailable)",
+			ep.name, ep.url, resp.Status)
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return fmt.Errorf("probe %s (%s): %s (the configured Authorization header is not accepted; "+
+			"the agent sends the same header and its MCP registration would fail)",
+			ep.name, ep.url, resp.Status)
 	}
 	return nil
 }
