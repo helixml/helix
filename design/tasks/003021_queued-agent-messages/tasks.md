@@ -2,10 +2,10 @@
 
 ## Primary fix — stamp `spec_task_id`
 
-- [ ] Add `resolveSpecTaskIDForSession(ctx, sessionID) string` to `api/pkg/server/prompt_history_handlers.go`, using `Store.ListSpecTasks` with `PlanningSessionID` filter, `Limit: 2`, `IncludeArchived: true`; return `""` on zero results or on error (log, never fail the enqueue); `log.Warn()` if more than one match
-- [ ] In `persistQueuedPrompt`, call the helper only when the passed `specTaskID` is empty, so the two existing callers keep their explicit `task.ID`
-- [ ] Confirm `session_handlers.go:2571` now produces a stamped row without changing its call signature
-- [ ] Add Go unit tests: session owned by a spec task → id stamped; plain session with no spec task → empty `spec_task_id` and no error; store lookup error → empty `spec_task_id` and enqueue still succeeds
+- [~] Add `resolveSpecTaskIDForSession(ctx, sessionID) string` to `api/pkg/server/prompt_history_handlers.go`, using `Store.ListSpecTasks` with `PlanningSessionID` filter, `Limit: 2`, `IncludeArchived: true`; return `""` on zero results or on error (log, never fail the enqueue); `log.Warn()` if more than one match
+- [~] In `persistQueuedPrompt`, call the helper only when the passed `specTaskID` is empty, so the two existing callers keep their explicit `task.ID`
+- [~] Confirm `session_handlers.go:2571` now produces a stamped row without changing its call signature
+- [~] Add Go unit tests: session owned by a spec task → id stamped; plain session with no spec task → empty `spec_task_id` and no error; store lookup error → empty `spec_task_id` and enqueue still succeeds
 
 ## Secondary bug 1 — soft-deletes
 
