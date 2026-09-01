@@ -80,7 +80,7 @@ func (s *HelixAPIServer) listProjectArtifacts(w http.ResponseWriter, r *http.Req
 
 // createProjectArtifact godoc
 // @Summary Create a project artifact
-// @Description Upload one HTML, PDF, or image file, or a ZIP containing a compiled static SPA.
+// @Description Upload one HTML, Markdown, PDF, or image file, or a ZIP containing a compiled static SPA.
 // @Tags Artifacts
 // @Accept multipart/form-data
 // @Produce json
@@ -90,7 +90,7 @@ func (s *HelixAPIServer) listProjectArtifacts(w http.ResponseWriter, r *http.Req
 // @Param entrypoint formData string false "HTML entrypoint (default index.html)"
 // @Param visibility formData string false "project or public"
 // @Param with_subdomain formData bool false "Deprecated: public artifacts always receive a share subdomain"
-// @Param artifact formData file true "HTML, PDF, image, or ZIP bundle"
+// @Param artifact formData file true "HTML, Markdown, PDF, image, or ZIP bundle"
 // @Success 201 {object} types.Artifact
 // @Router /api/v1/projects/{id}/artifacts [post]
 // @Security BearerAuth
@@ -259,7 +259,7 @@ func (s *HelixAPIServer) getArtifactViewer(w http.ResponseWriter, r *http.Reques
 
 // updateArtifact godoc
 // @Summary Update an artifact
-// @Description Patch metadata and optionally upload replacement HTML, PDF, image, or ZIP content as a new version.
+// @Description Patch metadata and optionally upload replacement HTML, Markdown, PDF, or ZIP content as a new version.
 // @Tags Artifacts
 // @Accept multipart/form-data
 // @Produce json
@@ -269,7 +269,7 @@ func (s *HelixAPIServer) getArtifactViewer(w http.ResponseWriter, r *http.Reques
 // @Param entrypoint formData string false "HTML entrypoint"
 // @Param visibility formData string false "project or public"
 // @Param with_subdomain formData bool false "Allocate or retain a public default subdomain"
-// @Param artifact formData file false "Replacement HTML, PDF, image, or ZIP content"
+// @Param artifact formData file false "Replacement HTML, Markdown, PDF, or ZIP content"
 // @Success 200 {object} types.Artifact
 // @Router /api/v1/artifacts/{artifact_id} [put]
 // @Security BearerAuth
@@ -673,7 +673,7 @@ func validateArtifactEntrypoint(files []types.ArtifactFile, requested string) (s
 	}
 	if len(files) == 1 {
 		switch artifactKindFromFiles(files) {
-		case types.ArtifactKindPDF, types.ArtifactKindImage:
+		case types.ArtifactKindPDF, types.ArtifactKindImage, types.ArtifactKindMarkdown:
 			return entrypoint, nil
 		case types.ArtifactKindSingleFile:
 			if artifactFileIsHTML(*entrypointFile) {
@@ -681,7 +681,7 @@ func validateArtifactEntrypoint(files []types.ArtifactFile, requested string) (s
 			}
 			fallthrough
 		default:
-			return "", errors.New("single-file artifact must be HTML, PDF, or an image")
+			return "", errors.New("single-file artifact must be HTML, Markdown, PDF, or an image")
 		}
 	}
 	if !artifactFileIsHTML(*entrypointFile) {
@@ -719,6 +719,8 @@ func artifactKindFromFiles(files []types.ArtifactFile) types.ArtifactKind {
 		return types.ArtifactKindPDF
 	case strings.HasPrefix(contentType, "image/"):
 		return types.ArtifactKindImage
+	case artifactFileIsMarkdown(files[0]):
+		return types.ArtifactKindMarkdown
 	default:
 		return types.ArtifactKindSingleFile
 	}
@@ -727,6 +729,15 @@ func artifactKindFromFiles(files []types.ArtifactFile) types.ArtifactKind {
 func artifactFileIsHTML(file types.ArtifactFile) bool {
 	contentType := strings.ToLower(strings.TrimSpace(strings.SplitN(file.ContentType, ";", 2)[0]))
 	return contentType == "text/html" && (strings.EqualFold(path.Ext(file.Path), ".html") || strings.EqualFold(path.Ext(file.Path), ".htm"))
+}
+
+func artifactFileIsMarkdown(file types.ArtifactFile) bool {
+	if strings.EqualFold(path.Ext(file.Path), ".html") || strings.EqualFold(path.Ext(file.Path), ".htm") {
+		return false
+	}
+	contentType := strings.ToLower(strings.TrimSpace(strings.SplitN(file.ContentType, ";", 2)[0]))
+	return contentType == "text/markdown" || contentType == "text/x-markdown" ||
+		strings.EqualFold(path.Ext(file.Path), ".md") || strings.EqualFold(path.Ext(file.Path), ".markdown")
 }
 
 func artifactVersionFromUpload(r *http.Request, artifactID, versionID, storagePrefix string, versionNumber int, userID string, upload *artifactUpload) *types.ArtifactVersion {
@@ -1021,11 +1032,12 @@ func activePrivateArtifactRouteUser(route *types.VHostRoute, now time.Time) (str
 // serveArtifactDocument delivers non-HTML documents on the trusted viewer
 // origin. Chrome blocks its extension-backed PDF viewer inside a cross-origin
 // iframe, so PDFs use this permission-checked, MIME-locked route instead of an
-// artifact vhost.
+// artifact vhost. Markdown artifacts use the same route so the viewer can
+// fetch the raw source same-origin.
 func (s *HelixAPIServer) serveArtifactDocument(w http.ResponseWriter, r *http.Request) {
 	artifactID := mux.Vars(r)["artifact_id"]
 	artifact, err := s.Store.GetArtifact(r.Context(), artifactID)
-	if err != nil || artifact.Kind != types.ArtifactKindPDF {
+	if err != nil || (artifact.Kind != types.ArtifactKindPDF && artifact.Kind != types.ArtifactKindMarkdown) {
 		http.NotFound(w, r)
 		return
 	}

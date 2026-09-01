@@ -754,6 +754,27 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 	return &gitRepo, nil
 }
 
+// GetRepositoryMetadata reads repository metadata from the store without
+// touching git on disk. Unlike GetRepository it never clones or syncs, so a
+// broken external clone (e.g. failed authentication) cannot block
+// metadata-level operations such as updating credentials or deleting the
+// repository.
+func (s *GitRepositoryService) GetRepositoryMetadata(ctx context.Context, repoID string) (*types.GitRepository, error) {
+	storedRepo, err := s.store.GetGitRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository %s not found: %w", repoID, err)
+	}
+
+	// Make a defensive copy to avoid race conditions with callers mutating fields.
+	gitRepo := *storedRepo
+	if storedRepo.Branches != nil {
+		gitRepo.Branches = make([]string, len(storedRepo.Branches))
+		copy(gitRepo.Branches, storedRepo.Branches)
+	}
+
+	return &gitRepo, nil
+}
+
 // GetExternalRepoStatus returns the status of the local repo compared to the external remote.
 // Uses gitea/git module for native git operations.
 func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID string, branchName string) (*types.ExternalStatus, error) {
@@ -850,8 +871,9 @@ func (s *GitRepositoryService) UpdateRepository(
 		}
 	}
 
-	// Get existing repository
-	existing, err := s.GetRepository(ctx, repoID)
+	// Get existing repository metadata (no git sync — a broken external clone
+	// must not block metadata updates such as fixing credentials)
+	existing, err := s.GetRepositoryMetadata(ctx, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("repository not found: %w", err)
 	}
@@ -903,6 +925,19 @@ func (s *GitRepositoryService) UpdateRepository(
 		existing.KoditIndexing = *request.KoditIndexing
 	}
 
+	// Kodit clones through Helix's git server, so the repository must exist on
+	// disk before registration. Sync now (with any credentials just applied) so
+	// a failure aborts the whole update instead of persisting a half-enabled
+	// Kodit state.
+	if shouldRegisterKodit {
+		if koditAPIKey == "" {
+			return nil, fmt.Errorf("cannot register repository with Kodit without API key")
+		}
+		if err := s.updateRepositoryFromGit(ctx, existing); err != nil {
+			return nil, fmt.Errorf("failed to sync repository before Kodit registration: %w", err)
+		}
+	}
+
 	existing.UpdatedAt = time.Now()
 
 	// Update in store
@@ -913,11 +948,6 @@ func (s *GitRepositoryService) UpdateRepository(
 
 	// Register with Kodit if indexing was just enabled
 	if shouldRegisterKodit {
-		// Always use the internal URL - Kodit clones through Helix's git server
-		// GetRepository was called earlier, so external repos are already cloned to disk
-		if koditAPIKey == "" {
-			return nil, fmt.Errorf("cannot register repository with Kodit without API key")
-		}
 		koditCloneURL := s.BuildAuthenticatedCloneURL(repoID, koditAPIKey)
 
 		koditRepoID, _, err := s.koditService.RegisterRepository(ctx, &RegisterRepositoryParams{

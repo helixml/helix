@@ -3593,23 +3593,23 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - webhook
-    - gitlab
     - slack
-    - email
-    - local
-    - helix_events
     - cron
+    - gitlab
+    - local
+    - email
+    - webhook
+    - helix_events
     - github
     type: string
     x-enum-varnames:
-    - KindWebhook
-    - KindGitLab
     - KindSlack
-    - KindEmail
-    - KindLocal
-    - KindHelixEvents
     - KindCron
+    - KindGitLab
+    - KindLocal
+    - KindEmail
+    - KindWebhook
+    - KindHelixEvents
     - KindGitHub
   transport.ResolvedActivation:
     properties:
@@ -4041,12 +4041,14 @@ definitions:
     - spa
     - pdf
     - image
+    - markdown
     type: string
     x-enum-varnames:
     - ArtifactKindSingleFile
     - ArtifactKindSPA
     - ArtifactKindPDF
     - ArtifactKindImage
+    - ArtifactKindMarkdown
   types.ArtifactVersion:
     properties:
       artifact_id:
@@ -15712,8 +15714,8 @@ paths:
     put:
       consumes:
       - multipart/form-data
-      description: Patch metadata and optionally upload replacement HTML, PDF, image,
-        or ZIP content as a new version.
+      description: Patch metadata and optionally upload replacement HTML, Markdown,
+        PDF, or ZIP content as a new version.
       parameters:
       - description: Artifact ID
         in: path
@@ -15740,7 +15742,7 @@ paths:
         in: formData
         name: with_subdomain
         type: boolean
-      - description: Replacement HTML, PDF, image, or ZIP content
+      - description: Replacement HTML, Markdown, PDF, or ZIP content
         in: formData
         name: artifact
         type: file
@@ -22406,8 +22408,8 @@ paths:
     post:
       consumes:
       - multipart/form-data
-      description: Upload one HTML, PDF, or image file, or a ZIP containing a compiled
-        static SPA.
+      description: Upload one HTML, Markdown, PDF, or image file, or a ZIP containing
+        a compiled static SPA.
       parameters:
       - description: Project ID
         in: path
@@ -22435,7 +22437,7 @@ paths:
         in: formData
         name: with_subdomain
         type: boolean
-      - description: HTML, PDF, image, or ZIP bundle
+      - description: HTML, Markdown, PDF, image, or ZIP bundle
         in: formData
         name: artifact
         required: true

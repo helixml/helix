@@ -17,6 +17,7 @@ type gitRepositoryServicer interface {
 	ValidateUserOAuth(ctx context.Context, repo *types.GitRepository, userID string) error
 	CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error)
 	GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error)
+	GetRepositoryMetadata(ctx context.Context, repoID string) (*types.GitRepository, error)
 	UpdateRepository(ctx context.Context, repoID string, request *types.GitRepositoryUpdateRequest, koditAPIKey string) (*types.GitRepository, error)
 	DeleteRepository(ctx context.Context, repoID string) error
 	CreateSampleRepository(ctx context.Context, request *types.CreateSampleRepositoryRequest) (*types.GitRepository, error)

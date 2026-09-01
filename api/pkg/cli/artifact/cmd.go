@@ -43,7 +43,7 @@ func newCreateCommand() *cobra.Command {
 	flags := uploadFlags{}
 	cmd := &cobra.Command{
 		Use:   "create <file-or-directory>",
-		Short: "Create an artifact from HTML, a compiled SPA, PDF, or image",
+		Short: "Create an artifact from HTML, Markdown, a compiled SPA, PDF, or image",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectID := firstNonEmpty(flags.projectID, os.Getenv("HELIX_PROJECT_ID"))

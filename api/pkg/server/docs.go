@@ -2767,7 +2767,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Patch metadata and optionally upload replacement HTML, PDF, image, or ZIP content as a new version.",
+                "description": "Patch metadata and optionally upload replacement HTML, Markdown, PDF, or ZIP content as a new version.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -2818,7 +2818,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "file",
-                        "description": "Replacement HTML, PDF, image, or ZIP content",
+                        "description": "Replacement HTML, Markdown, PDF, or ZIP content",
                         "name": "artifact",
                         "in": "formData"
                     }
@@ -13338,7 +13338,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Upload one HTML, PDF, or image file, or a ZIP containing a compiled static SPA.",
+                "description": "Upload one HTML, Markdown, PDF, or image file, or a ZIP containing a compiled static SPA.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -13390,7 +13390,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "file",
-                        "description": "HTML, PDF, image, or ZIP bundle",
+                        "description": "HTML, Markdown, PDF, image, or ZIP bundle",
                         "name": "artifact",
                         "in": "formData",
                         "required": true
@@ -28504,23 +28504,23 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "webhook",
-                "gitlab",
                 "slack",
-                "email",
-                "local",
-                "helix_events",
                 "cron",
+                "gitlab",
+                "local",
+                "email",
+                "webhook",
+                "helix_events",
                 "github"
             ],
             "x-enum-varnames": [
-                "KindWebhook",
-                "KindGitLab",
                 "KindSlack",
-                "KindEmail",
-                "KindLocal",
-                "KindHelixEvents",
                 "KindCron",
+                "KindGitLab",
+                "KindLocal",
+                "KindEmail",
+                "KindWebhook",
+                "KindHelixEvents",
                 "KindGitHub"
             ]
         },
@@ -29147,13 +29147,15 @@ const docTemplate = `{
                 "single_file",
                 "spa",
                 "pdf",
-                "image"
+                "image",
+                "markdown"
             ],
             "x-enum-varnames": [
                 "ArtifactKindSingleFile",
                 "ArtifactKindSPA",
                 "ArtifactKindPDF",
-                "ArtifactKindImage"
+                "ArtifactKindImage",
+                "ArtifactKindMarkdown"
             ]
         },
         "types.ArtifactVersion": {

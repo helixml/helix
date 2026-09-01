@@ -37,6 +37,7 @@ const GeneralSettings: FC<GeneralSettingsProps> = ({ onOpenPasswordDialog }) => 
   const updateAccount = useUpdateAccount()
 
   const savedFullName = currentUser?.name || account.user?.name || ''
+  const email = currentUser?.email || account.user?.email || ''
 
   const [fullName, setFullName] = useState<string>(savedFullName)
 
@@ -82,6 +83,23 @@ const GeneralSettings: FC<GeneralSettingsProps> = ({ onOpenPasswordDialog }) => 
             display: 'flex',
             // Side by side there is no room for a usable text field on a
             // phone, so the label and input stack instead.
+            flexDirection: { xs: 'column', sm: 'row' },
+            justifyContent: 'space-between',
+            alignItems: { xs: 'stretch', sm: 'center' },
+            gap: { xs: 1, sm: 2 },
+          }}
+        >
+          <Typography variant="h6">Email</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
+            {email}
+          </Typography>
+        </Box>
+      </SettingsPanel>
+
+      <SettingsPanel>
+        <Box
+          sx={{
+            display: 'flex',
             flexDirection: { xs: 'column', sm: 'row' },
             justifyContent: 'space-between',
             alignItems: { xs: 'stretch', sm: 'center' },

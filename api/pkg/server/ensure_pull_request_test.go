@@ -85,6 +85,9 @@ func (f *fakeGitRepoService) CreateRepository(_ context.Context, _ *types.GitRep
 func (f *fakeGitRepoService) GetRepository(_ context.Context, _ string) (*types.GitRepository, error) {
 	panic("GetRepository unexpected")
 }
+func (f *fakeGitRepoService) GetRepositoryMetadata(_ context.Context, _ string) (*types.GitRepository, error) {
+	panic("GetRepositoryMetadata unexpected")
+}
 func (f *fakeGitRepoService) UpdateRepository(_ context.Context, _ string, _ *types.GitRepositoryUpdateRequest, _ string) (*types.GitRepository, error) {
 	panic("UpdateRepository unexpected")
 }

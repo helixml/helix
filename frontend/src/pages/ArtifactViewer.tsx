@@ -1,22 +1,26 @@
-import { FC, MouseEvent, useState } from 'react'
+import { FC, MouseEvent, useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import { Copy, ExternalLink, Globe2, LockKeyhole } from 'lucide-react'
+import { CodeXml, Copy, ExternalLink, Eye, Globe2, LockKeyhole } from 'lucide-react'
 
 import { TypesArtifactKind } from '../api/api'
 import ArtifactVisibilityBadge from '../components/artifacts/ArtifactVisibilityBadge'
+import Markdown from '../components/session/Markdown'
+import MarkdownCodeBlock from '../components/session/MarkdownCodeBlock'
 import Page from '../components/system/Page'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
-import { useGetArtifactViewer, useSetArtifactVisibility } from '../services/artifactService'
+import { useGetArtifactMarkdownSource, useGetArtifactViewer, useSetArtifactVisibility } from '../services/artifactService'
 import { copyTextToClipboard } from '../utils/clipboard'
 
 const ArtifactViewer: FC = () => {
@@ -27,6 +31,7 @@ const ArtifactViewer: FC = () => {
   const { data: artifact, isLoading, error } = useGetArtifactViewer(artifactId)
   const visibilityMutation = useSetArtifactVisibility(artifactId)
   const [shareAnchor, setShareAnchor] = useState<HTMLElement | null>(null)
+  const [showRawMarkdown, setShowRawMarkdown] = useState(false)
 
   const organizationSlug = artifact?.organization_name || artifact?.organization_id || ''
   const organizationTitle = artifact?.organization_name || 'Organization'
@@ -34,11 +39,19 @@ const ArtifactViewer: FC = () => {
   const isPublic = artifact?.visibility === 'public'
   const isImage = artifact?.kind === TypesArtifactKind.ArtifactKindImage
   const isPDF = artifact?.kind === TypesArtifactKind.ArtifactKindPDF
-  const frameURL = isPDF
-    ? `/artifacts/${artifact.id}/document`
-    : isPublic
-      ? artifact?.subdomain_url
-      : artifact ? `/artifacts/${artifact.id}/embed` : undefined
+  const isMarkdown = artifact?.kind === TypesArtifactKind.ArtifactKindMarkdown
+  const markdownSource = useGetArtifactMarkdownSource(artifactId, isMarkdown)
+  const frameURL = isMarkdown
+    ? undefined
+    : isPDF
+      ? `/artifacts/${artifact.id}/document`
+      : isPublic
+        ? artifact?.subdomain_url
+        : artifact ? `/artifacts/${artifact.id}/embed` : undefined
+
+  useEffect(() => {
+    setShowRawMarkdown(false)
+  }, [artifactId])
 
   const setVisibility = async (visibility: 'project' | 'public') => {
     try {
@@ -113,6 +126,18 @@ const ArtifactViewer: FC = () => {
       topbarContent={(
         <Stack direction="row" spacing={1} alignItems="center">
           <ArtifactVisibilityBadge visibility={artifact.visibility} privateLabel="Private" />
+          {isMarkdown && (
+            <Tooltip title={showRawMarkdown ? 'View rendered markdown' : 'View and copy raw markdown'}>
+              <IconButton
+                aria-label={showRawMarkdown ? 'View rendered markdown' : 'View raw markdown'}
+                size="small"
+                color={showRawMarkdown ? 'primary' : 'default'}
+                onClick={() => setShowRawMarkdown((current) => !current)}
+              >
+                {showRawMarkdown ? <Eye size={18} /> : <CodeXml size={18} />}
+              </IconButton>
+            </Tooltip>
+          )}
           {account.initialized && !account.user ? (
             <Button size="small" onClick={login} sx={{ textTransform: 'none', fontWeight: 500, minWidth: 'auto' }}>
               Login
@@ -131,7 +156,25 @@ const ArtifactViewer: FC = () => {
       )}
     >
       <Box sx={{ flex: 1, minHeight: 0, p: 1, bgcolor: 'background.default' }}>
-        {frameURL && isImage ? (
+        {isMarkdown ? (
+          markdownSource.isLoading ? (
+            <Box sx={{ height: '100%', display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>
+          ) : markdownSource.isError || markdownSource.data === undefined ? (
+            <Box sx={{ height: '100%', display: 'grid', placeItems: 'center' }}>
+              <Typography color="text.secondary">The markdown source is unavailable.</Typography>
+            </Box>
+          ) : showRawMarkdown ? (
+            <Box sx={{ height: '100%', overflow: 'auto', p: 1 }}>
+              <MarkdownCodeBlock language="markdown" defaultWrapped>{markdownSource.data}</MarkdownCodeBlock>
+            </Box>
+          ) : (
+            <Box sx={{ height: '100%', overflow: 'auto' }}>
+              <Box sx={{ maxWidth: 900, mx: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
+                <Markdown text={markdownSource.data} session={null} renderThinkingWidget={false} />
+              </Box>
+            </Box>
+          )
+        ) : frameURL && isImage ? (
           <Box sx={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', overflow: 'auto' }}>
             <Box
               component="img"

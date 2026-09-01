@@ -68,6 +68,8 @@ func New() *cobra.Command {
 	cmd.AddCommand(newLatencyCommand())
 	cmd.AddCommand(newExecCommand())
 	cmd.AddCommand(newCopyCommand())
+	cmd.AddCommand(newFilesCommand())
+	cmd.AddCommand(newDownloadCommand())
 
 	return cmd
 }

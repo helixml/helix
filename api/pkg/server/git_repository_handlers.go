@@ -230,8 +230,9 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Get existing one
-	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	// Get existing metadata only — a failed external clone (e.g. bad
+	// credentials) must not block fixing those credentials via this endpoint.
+	existing, err := s.gitRepositoryService.GetRepositoryMetadata(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
 		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)
@@ -292,8 +293,9 @@ func (s *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *http.Requ
 
 	user := getRequestUser(r)
 
-	// Get existing one
-	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	// Metadata only — deletion must work even when the external clone failed
+	// (e.g. authentication error), otherwise the repository is undeletable.
+	existing, err := s.gitRepositoryService.GetRepositoryMetadata(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
 		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)

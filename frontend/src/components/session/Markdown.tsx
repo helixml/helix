@@ -478,98 +478,7 @@ export class MessageProcessor {
   }
 
   private sanitizeHtml(message: string): string {
-    // Temporarily replace code blocks to protect them from sanitization
-    const codeBlocks: string[] = [];
-    let processedMessage = message.replace(
-      /```(?:[\w]*)\n([\s\S]*?)```/g,
-      (match, codeContent) => {
-        codeBlocks.push(match);
-        return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
-      },
-    );
-
-    // Also protect inline code spans
-    const inlineCode: string[] = [];
-    processedMessage = processedMessage.replace(/`([^`]+)`/g, (match) => {
-      inlineCode.push(match);
-      return `__INLINE_CODE_${inlineCode.length - 1}__`;
-    });
-
-    // Escape HTML-like tags that aren't in our allowlist BEFORE DOMPurify
-    // This prevents malformed tags like <svg xmlns="... from breaking rendering
-    const ALLOWED_TAG_NAMES = [
-      "a",
-      "p",
-      "br",
-      "strong",
-      "em",
-      "div",
-      "span",
-      "h1",
-      "h2",
-      "h3",
-      "h4",
-      "h5",
-      "h6",
-      "ul",
-      "ol",
-      "li",
-      "code",
-      "pre",
-      "blockquote",
-      "details",
-      "summary",
-      "table",
-      "thead",
-      "tbody",
-      "tr",
-      "th",
-      "td",
-    ];
-    processedMessage = processedMessage.replace(
-      /<(\/?)([\w-]+)/g,
-      (match, slash, tagName) => {
-        if (ALLOWED_TAG_NAMES.includes(tagName.toLowerCase())) {
-          return match; // Keep allowed tags
-        }
-        return `&lt;${slash}${tagName}`; // Escape disallowed tags
-      },
-    );
-
-    // Use DOMPurify to sanitize HTML while preserving safe tags and attributes
-    processedMessage = DOMPurify.sanitize(processedMessage, {
-      ALLOWED_TAGS: ALLOWED_TAG_NAMES,
-      ALLOWED_ATTR: [
-        "href",
-        "target",
-        "class",
-        "style",
-        "title",
-        "id",
-        "aria-hidden",
-        "aria-label",
-        "role",
-      ],
-      ADD_ATTR: ["target"],
-    });
-
-    // Restore inline code
-    inlineCode.forEach((code, index) => {
-      processedMessage = processedMessage.replace(
-        `__INLINE_CODE_${index}__`,
-        code,
-      );
-    });
-
-    // Restore code blocks
-    codeBlocks.forEach((codeBlock, index) => {
-      processedMessage = processedMessage.replace(
-        `__CODE_BLOCK_${index}__`,
-        codeBlock,
-      );
-    });
-
-    return processedMessage;
+    return sanitizeChatMarkdown(message);
   }
 
   private addCitationData(message: string): string {
@@ -754,10 +663,10 @@ export class MessageProcessor {
 
 export interface InteractionMarkdownProps {
   text: string;
-  session: TypesSession;
-  getFileURL: (filename: string) => string;
+  session?: TypesSession | null;
+  getFileURL?: (filename: string) => string;
   showBlinker?: boolean;
-  isStreaming: boolean;
+  isStreaming?: boolean;
   onFilterDocument?: (docId: string) => void;
   compactThinking?: boolean;
   renderThinkingWidget?: boolean;
@@ -1267,9 +1176,106 @@ const WorkspaceFileReference: FC<{ path: string; label: string }> = ({ path, lab
   );
 };
 
+// Shared HTML sanitization for chat markdown. Applied both by the
+// MessageProcessor (session messages) and the no-session rendering path used
+// by standalone surfaces such as markdown artifacts.
+export function sanitizeChatMarkdown(message: string): string {
+  // Temporarily replace code blocks to protect them from sanitization
+  const codeBlocks: string[] = [];
+  let processedMessage = message.replace(
+    /```(?:[\w]*)\n([\s\S]*?)```/g,
+    (match, codeContent) => {
+      codeBlocks.push(match);
+      return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+    },
+  );
+
+  // Also protect inline code spans
+  const inlineCode: string[] = [];
+  processedMessage = processedMessage.replace(/`([^`]+)`/g, (match) => {
+    inlineCode.push(match);
+    return `__INLINE_CODE_${inlineCode.length - 1}__`;
+  });
+
+  // Escape HTML-like tags that aren't in our allowlist BEFORE DOMPurify
+  // This prevents malformed tags like <svg xmlns="... from breaking rendering
+  const ALLOWED_TAG_NAMES = [
+    "a",
+    "p",
+    "br",
+    "strong",
+    "em",
+    "div",
+    "span",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "ul",
+    "ol",
+    "li",
+    "code",
+    "pre",
+    "blockquote",
+    "details",
+    "summary",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+  ];
+  processedMessage = processedMessage.replace(
+    /<(\/?)([\w-]+)/g,
+    (match, slash, tagName) => {
+      if (ALLOWED_TAG_NAMES.includes(tagName.toLowerCase())) {
+        return match; // Keep allowed tags
+      }
+      return `&lt;${slash}${tagName}`; // Escape disallowed tags
+    },
+  );
+
+  // Use DOMPurify to sanitize HTML while preserving safe tags and attributes
+  processedMessage = DOMPurify.sanitize(processedMessage, {
+    ALLOWED_TAGS: ALLOWED_TAG_NAMES,
+    ALLOWED_ATTR: [
+      "href",
+      "target",
+      "class",
+      "style",
+      "title",
+      "id",
+      "aria-hidden",
+      "aria-label",
+      "role",
+    ],
+    ADD_ATTR: ["target"],
+  });
+
+  // Restore inline code
+  inlineCode.forEach((code, index) => {
+    processedMessage = processedMessage.replace(
+      `__INLINE_CODE_${index}__`,
+      code,
+    );
+  });
+
+  // Restore code blocks
+  codeBlocks.forEach((codeBlock, index) => {
+    processedMessage = processedMessage.replace(
+      `__CODE_BLOCK_${index}__`,
+      codeBlock,
+    );
+  });
+
+  return processedMessage;
+}
+
 function processBasicContent(text: string): string {
-  // Implement basic processing logic here
-  return text;
+  return sanitizeChatMarkdown(text);
 }
 
 // Export with React.memo to prevent unnecessary re-renders

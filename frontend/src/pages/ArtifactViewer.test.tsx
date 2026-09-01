@@ -51,6 +51,19 @@ vi.mock('../services/artifactService', () => ({
     mutateAsync: mocks.mutateAsync,
     isPending: false,
   }),
+  useGetArtifactMarkdownSource: (_artifactId: string, enabled: boolean) => ({
+    data: enabled ? '# Hello artifact' : undefined,
+    isLoading: false,
+    isError: false,
+  }),
+}))
+
+vi.mock('../components/session/Markdown', () => ({
+  default: ({ text }: { text: string }) => <div data-testid="markdown-rendered">{text}</div>,
+}))
+
+vi.mock('../components/session/MarkdownCodeBlock', () => ({
+  default: ({ children }: { children: string }) => <div data-testid="markdown-raw">{children}</div>,
 }))
 
 vi.mock('../components/system/Page', () => ({
@@ -114,6 +127,20 @@ describe('ArtifactViewer', () => {
 
     expect(screen.getByRole('img', { name: 'Public artifact' })).toHaveAttribute('src', 'http://artifact.example.test/')
     expect(screen.queryByTitle('Public artifact')).not.toBeInTheDocument()
+  })
+
+  it('renders markdown artifacts without an iframe and toggles to raw source', () => {
+    mocks.artifactKind = 'markdown'
+    render(<ArtifactViewer />)
+
+    expect(screen.getByTestId('markdown-rendered')).toHaveTextContent('# Hello artifact')
+    expect(screen.queryByTitle('Public artifact')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'View raw markdown' }))
+    expect(screen.getByTestId('markdown-raw')).toHaveTextContent('# Hello artifact')
+
+    fireEvent.click(screen.getByRole('button', { name: 'View rendered markdown' }))
+    expect(screen.getByTestId('markdown-rendered')).toHaveTextContent('# Hello artifact')
   })
 
   it('renders PDF artifacts in the browser frame', () => {

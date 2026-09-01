@@ -2318,13 +2318,13 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindWebhook = "webhook",
-  KindGitLab = "gitlab",
   KindSlack = "slack",
-  KindEmail = "email",
-  KindLocal = "local",
-  KindHelixEvents = "helix_events",
   KindCron = "cron",
+  KindGitLab = "gitlab",
+  KindLocal = "local",
+  KindEmail = "email",
+  KindWebhook = "webhook",
+  KindHelixEvents = "helix_events",
   KindGitHub = "github",
 }
 
@@ -2585,6 +2585,7 @@ export enum TypesArtifactKind {
   ArtifactKindSPA = "spa",
   ArtifactKindPDF = "pdf",
   ArtifactKindImage = "image",
+  ArtifactKindMarkdown = "markdown",
 }
 
 export interface TypesArtifactVersion {
@@ -10200,7 +10201,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Patch metadata and optionally upload replacement HTML, PDF, image, or ZIP content as a new version.
+     * @description Patch metadata and optionally upload replacement HTML, Markdown, PDF, or ZIP content as a new version.
      *
      * @tags Artifacts
      * @name V1ArtifactsUpdate
@@ -10221,7 +10222,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         visibility?: string;
         /** Allocate or retain a public default subdomain */
         with_subdomain?: boolean;
-        /** Replacement HTML, PDF, image, or ZIP content */
+        /** Replacement HTML, Markdown, PDF, or ZIP content */
         artifact?: File;
       },
       params: RequestParams = {},
@@ -15356,7 +15357,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Upload one HTML, PDF, or image file, or a ZIP containing a compiled static SPA.
+     * @description Upload one HTML, Markdown, PDF, or image file, or a ZIP containing a compiled static SPA.
      *
      * @tags Artifacts
      * @name V1ProjectsArtifactsCreate
@@ -15377,7 +15378,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         visibility?: string;
         /** Deprecated: public artifacts always receive a share subdomain */
         with_subdomain?: boolean;
-        /** HTML, PDF, image, or ZIP bundle */
+        /** HTML, Markdown, PDF, image, or ZIP bundle */
         artifact: File;
       },
       params: RequestParams = {},
