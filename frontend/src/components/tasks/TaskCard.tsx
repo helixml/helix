@@ -54,6 +54,7 @@ import {
 } from "../../services/specTaskService";
 import {
   ServerTaskProgressResponse,
+  TypesSandboxRuntime,
   TypesSpecTaskStatus,
   ServerBatchTaskUsageMetric,
 } from "../../api/api";
@@ -155,6 +156,7 @@ export interface SpecTaskWithExtras {
   // Sandbox state — populated by the listTasks backend handler, avoids per-card session polling
   sandbox_state?: string; // "absent" | "running" | "starting"
   sandbox_status_message?: string; // Transient startup message
+  sandbox_runtime?: TypesSandboxRuntime; // "ubuntu-desktop" (default) | "headless-ubuntu" — headless has no desktop to screenshot
   queue_reason?: string; // Why a queued task hasn't started yet (WIP/dependency); recomputed each read
   // Status tracking
   status_updated_at?: string;
@@ -597,6 +599,13 @@ function TaskCardInner({
   const orgMembers = account.organizationTools.organization?.memberships || [];
 
   const assignedUser = resolveOrganizationUser(task.assignee_id, orgMembers, account.user)
+
+  // Headless sandbox tasks run the agent without a compositor or video
+  // encoder, so a desktop screenshot can never load. Skip the viewer (and its
+  // per-card poll loop) entirely instead of showing a stuck "Loading
+  // desktop..." panel.
+  const isHeadlessSandbox =
+    task.sandbox_runtime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu;
 
   // Handle assignee change
   const handleAssigneeChange = (userId: string | null) => {
@@ -1190,23 +1199,25 @@ function TaskCardInner({
                 px: 0.5,
               }}
             >
-              <CircularProgress size={10} thickness={5} />
-              <Typography
-                variant="caption"
-                sx={{ color: "text.secondary", fontSize: "0.7rem" }}
-              >
-                Starting desktop...
-              </Typography>
+                <CircularProgress size={10} thickness={5} />
+                <Typography
+                  variant="caption"
+                  sx={{ color: "text.secondary", fontSize: "0.7rem" }}
+                >
+                  {isHeadlessSandbox ? "Starting sandbox..." : "Starting desktop..."}
+                </Typography>
             </Box>
           )
         )}
 
         {/* Live screenshot for active sessions - click opens desktop viewer.
-            Only render when the sandbox is actually live ("running"/"starting").
-            Polling absent sandboxes burns API requests and dumps a fleet of
-            503s in the logs every time the page loads, since each card spins
-            up its own poll loop until it hits one. */}
-        {task.planning_session_id &&
+            Only render when the sandbox is actually live ("running"/"starting")
+            and the task runs a desktop sandbox - headless tasks have no
+            compositor to capture. Polling absent sandboxes burns API requests
+            and dumps a fleet of 503s in the logs every time the page loads,
+            since each card spins up its own poll loop until it hits one. */}
+        {!isHeadlessSandbox &&
+          task.planning_session_id &&
           task.phase !== "completed" &&
           !task.merged_to_main &&
           !taskError &&
