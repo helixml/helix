@@ -874,7 +874,7 @@ type Store interface {
 	// Prompt history methods (for cross-device sync)
 	CreatePromptHistoryEntry(ctx context.Context, entry *types.PromptHistoryEntry) error
 	SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
-	ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
+	ListPromptHistory(ctx context.Context, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
 	GetPromptHistoryEntry(ctx context.Context, id string) (*types.PromptHistoryEntry, error)
 	GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
 	GetAnyPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
@@ -882,6 +882,9 @@ type Store interface {
 	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
 	ListPromptHistoryBySession(ctx context.Context, sessionID string) ([]*types.PromptHistoryEntry, error)
 	MarkPromptAsPending(ctx context.Context, promptID string) error
+	// RevertPromptToPending returns a claimed prompt to the queue after a
+	// busy-defer, without charging the retry budget. See the implementation.
+	RevertPromptToPending(ctx context.Context, promptID string) error
 	MarkPromptAsSent(ctx context.Context, promptID string) error
 	// MarkPromptAsFailed records the failure reason and bumps retry_count + next_retry_at
 	// for exponential backoff. errorMsg is shown to the user in the UI; pass err.Error()

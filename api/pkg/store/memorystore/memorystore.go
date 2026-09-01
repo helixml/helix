@@ -598,6 +598,13 @@ func (m *MemoryStore) MarkPromptAsPending(_ context.Context, id string) error {
 	m.setPromptStatus(id, "pending")
 	return nil
 }
+
+// RevertPromptToPending mirrors the Postgres store: back to pending, and
+// crucially without touching RetryCount (a busy-defer is not a failure).
+func (m *MemoryStore) RevertPromptToPending(_ context.Context, id string) error {
+	m.setPromptStatus(id, "pending")
+	return nil
+}
 func (m *MemoryStore) MarkPromptAsSent(_ context.Context, id string) error {
 	m.setPromptStatus(id, "sent")
 	return nil
