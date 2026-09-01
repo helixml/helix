@@ -25,27 +25,11 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
 type MockStoreMockRecorder struct {
 	mock *MockStore
-}
-
-// ClaimSessionAutoRestart mocks base method.
-func (m *MockStore) ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClaimSessionAutoRestart", ctx, sessionID, restartedAt, before)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ClaimSessionAutoRestart indicates an expected call of ClaimSessionAutoRestart.
-func (mr *MockStoreMockRecorder) ClaimSessionAutoRestart(ctx, sessionID, restartedAt, before any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimSessionAutoRestart", reflect.TypeOf((*MockStore)(nil).ClaimSessionAutoRestart), ctx, sessionID, restartedAt, before)
 }
 
 // NewMockStore creates a new mock instance.
@@ -146,6 +130,21 @@ func (m *MockStore) ClaimPromptForSending(ctx context.Context, promptID string) 
 func (mr *MockStoreMockRecorder) ClaimPromptForSending(ctx, promptID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimPromptForSending", reflect.TypeOf((*MockStore)(nil).ClaimPromptForSending), ctx, promptID)
+}
+
+// ClaimSessionAutoRestart mocks base method.
+func (m *MockStore) ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimSessionAutoRestart", ctx, sessionID, restartedAt, before)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimSessionAutoRestart indicates an expected call of ClaimSessionAutoRestart.
+func (mr *MockStoreMockRecorder) ClaimSessionAutoRestart(ctx, sessionID, restartedAt, before any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimSessionAutoRestart", reflect.TypeOf((*MockStore)(nil).ClaimSessionAutoRestart), ctx, sessionID, restartedAt, before)
 }
 
 // ClaimWebhookDeliveries mocks base method.
@@ -5252,18 +5251,18 @@ func (mr *MockStoreMockRecorder) ListProjectsWithActiveGoldenBuild(ctx any) *gom
 }
 
 // ListPromptHistory mocks base method.
-func (m *MockStore) ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error) {
+func (m *MockStore) ListPromptHistory(ctx context.Context, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListPromptHistory", ctx, userID, req)
+	ret := m.ctrl.Call(m, "ListPromptHistory", ctx, req)
 	ret0, _ := ret[0].(*types.PromptHistoryListResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListPromptHistory indicates an expected call of ListPromptHistory.
-func (mr *MockStoreMockRecorder) ListPromptHistory(ctx, userID, req any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ListPromptHistory(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPromptHistory", reflect.TypeOf((*MockStore)(nil).ListPromptHistory), ctx, userID, req)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPromptHistory", reflect.TypeOf((*MockStore)(nil).ListPromptHistory), ctx, req)
 }
 
 // ListPromptHistoryBySession mocks base method.
@@ -6364,6 +6363,20 @@ func (m *MockStore) ResourceSearch(ctx context.Context, req *types.ResourceSearc
 func (mr *MockStoreMockRecorder) ResourceSearch(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceSearch", reflect.TypeOf((*MockStore)(nil).ResourceSearch), ctx, req)
+}
+
+// RevertPromptToPending mocks base method.
+func (m *MockStore) RevertPromptToPending(ctx context.Context, promptID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevertPromptToPending", ctx, promptID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevertPromptToPending indicates an expected call of RevertPromptToPending.
+func (mr *MockStoreMockRecorder) RevertPromptToPending(ctx, promptID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevertPromptToPending", reflect.TypeOf((*MockStore)(nil).RevertPromptToPending), ctx, promptID)
 }
 
 // RevokeSecretIntake mocks base method.
@@ -7861,7 +7874,6 @@ func (mr *MockStoreMockRecorder) UpsertZedSettingsOverride(ctx, override any) *g
 type MockSecretIntakeStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockSecretIntakeStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockSecretIntakeStoreMockRecorder is the mock recorder for MockSecretIntakeStore.
