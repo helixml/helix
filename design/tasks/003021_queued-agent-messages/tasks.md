@@ -10,7 +10,7 @@
 ## Secondary bug 1 — soft-deletes
 
 - [x] Add `deleted_at IS NULL` to the base query in `ListPromptHistory` (`api/pkg/store/store_prompt_history.go:509`), before the `Count` so `total` is also correct
-- [ ] Add a unit test asserting a soft-deleted entry is excluded from both `Entries` and `Total`
+- [ ] NOT DONE — unit test for soft-delete exclusion. Skipped per user direction
 
 ## Secondary bug 2 — busy-defer must not burn the retry budget
 
@@ -19,9 +19,9 @@
 - [x] Add `RevertPromptToPending(ctx, promptID)` to the store: sets `status='pending'`, `next_retry_at=NULL`, `error_message=''`, leaves `retry_count` untouched
 - [x] Add `RevertPromptToPending` to the `Store` interface and regenerate the gomock mocks
 - [x] Branch on `errors.Is(err, errPromptBusyDeferred)` in `processPromptQueue`, `processInterruptPrompt`, and `processAnyPendingPrompt` — call `RevertPromptToPending` and log at Info instead of `MarkPromptAsFailed`
-- [ ] Verify `GetNextPendingPrompt` / `GetAnyPendingPrompt` re-select a `pending` row with `next_retry_at IS NULL` immediately
+- [x] Verify `GetNextPendingPrompt` / `GetAnyPendingPrompt` re-select a `pending` row with `next_retry_at IS NULL` immediately
 - [x] Confirm option (a) (a busy pre-check in `processAnyPendingPrompt`) is NOT also implemented — one path only
-- [ ] Add unit tests: busy-defer leaves `retry_count` unchanged and status `pending`; a genuine dispatch error still increments `retry_count` and sets backoff; the cap at 20 still applies to genuine failures
+- [ ] NOT DONE — unit tests for busy-defer retry-count behaviour. Skipped per user direction
 
 ## Show the whole agent queue, not just the viewer's own prompts
 
@@ -34,20 +34,25 @@
 - [x] Drop `user_id` from `SyncPromptHistory`'s trailing "return all entries" query so list and sync are scoped identically (leave the create branch stamping `UserID: userID`)
 - [x] Add the foreign-row guard to `SyncPromptHistory`'s update branch: skip when `existingEntry.UserID != userID`
 - [x] Leave `deletePromptHistoryEntry`'s owner-only 403 unchanged
-- [ ] Add `userId` to the frontend `PromptHistoryEntry` type and map it in `backendToLocal`
-- [ ] Exclude foreign-owned entries from the sync push payload in `usePromptHistory`
-- [ ] In `SessionPromptQueue.tsx`, render `OrganizationUserAvatar` per entry when the queue has more than one distinct owner (suppressed for the single-owner case), with the display name on hover
-- [ ] Hide the delete affordance on entries the current user does not own
-- [ ] Add Go tests: authorized user sees all owners' rows for a spec task; unauthorized user gets 403; a request with neither `spec_task_id` nor `session_id` is refused; sync update to a foreign-owned row is a no-op
-- [ ] Add/extend `SessionPromptQueue.test.tsx`: indicator appears with two owners, absent with one, delete hidden on foreign entries
+- [x] Add `userId` to the frontend `PromptHistoryEntry` type and map it in `backendToLocal`
+- [x] ~~Exclude foreign-owned entries from the sync push payload~~ — **not needed**: backend entries are already marked `syncedToBackend: true` and the push filters on `!syncedToBackend`. The one leak (interrupt toggle) is closed by hiding the affordance. See design.md note 4
+- [x] Render `OrganizationUserAvatar` per entry when the queue has more than one distinct owner (suppressed for the single-owner case), with the display name on hover — **in `RobustPromptInput.tsx`/`SortableQueueItem`, NOT `SessionPromptQueue.tsx`** (that one is for sessions with no spec task; see design.md note 1)
+- [x] Hide the delete affordance on entries the current user does not own
+- [ ] NOT DONE — Go tests for the new authz + de-scoped read. Skipped per user direction. **This is the highest-value gap: the read-hole check is untested**
+- [ ] NOT DONE — frontend test for the owner indicator. Skipped per user direction
 
 ## Backfill
 
 - [x] Add `api/pkg/store/migrations/0010_backfill_prompt_history_spec_task_id.up.sql` with the idempotent `UPDATE … FROM spec_tasks` joining `session_id = planning_session_id`, guarded by `(spec_task_id IS NULL OR spec_task_id = '') AND deleted_at IS NULL`
 - [x] Add the matching `.down.sql` as a documented no-op
-- [ ] Count affected rows before and after on the target DB; state in the PR whether the backfill ran and how many rows it touched
+- [x] Stated in the PR: the migration is committed and will run on deploy; it has NOT been run against any live DB from here (no stack), so no row count is claimed
 
-## Live verification in the inner Helix (the deliverable)
+## Live verification in the inner Helix — NOT DONE (stack unavailable, then descoped by user)
+
+The session startup script failed: the Zed build was OOM-killed, so no containers came
+up. `postgres`/`api`/`frontend` were started by hand but a LIVE Zed session was not
+reachable. The user then directed merging without testing. See design.md.
+
 
 - [ ] Bring up `localhost:8080`, register/log in as `test@helix.ml` / `helixtest`, complete onboarding, create a spec task, and wait for a LIVE Zed session (`config->>'zed_thread_id'` is a non-empty UUID)
 - [ ] With the agent MID-TURN, `POST /api/v1/sessions/{session_id}/messages` with `interrupt: false` — the exact call HelixOS makes
@@ -64,5 +69,5 @@
 
 ## Wrap-up
 
-- [ ] Run `go build ./...`, `go vet ./...`, and the affected package tests
-- [ ] Write the PR description: which of the two option (a)/(b) fixes was chosen and why, and whether the backfill ran
+- [x] `go build ./...` passes (exit 0). Frontend `tsc --noEmit` passes (exit 0, zero diagnostics). Package tests NOT run
+- [x] Write the PR description: which of the two option (a)/(b) fixes was chosen and why, and whether the backfill ran

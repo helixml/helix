@@ -268,6 +268,60 @@ would 403 anyway, so offering it would only produce a dead button.
 | `frontend/src/hooks/usePromptHistory.ts` | Exclude foreign-owned entries from the sync push payload |
 | `frontend/src/components/session/SessionPromptQueue.tsx` (+ `.test.tsx`) | Owner avatar when the queue has >1 distinct owner; hide delete on foreign entries |
 
+## Implementation notes (written during implementation — read these first)
+
+Things that turned out differently from the plan. Future agents: these are the
+discoveries that cost time.
+
+1. **The spec-task queue is NOT `SessionPromptQueue.tsx`.** The design named the wrong
+   component. `SessionPromptQueue.tsx` renders the queue for sessions with **no** spec
+   task (org-chat / bot sessions). The spec-task page's queue is rendered by
+   `RobustPromptInput.tsx` (1900 lines) via its `SortableQueueItem` subcomponent, fed by
+   `usePromptHistory`. All the owner-attribution work landed there. Its file header says
+   so explicitly — read it before assuming.
+2. **There is only ONE busy-defer return site**, not two as the design claimed:
+   `websocket_external_agent_sync.go`, inside `sendQueuedPromptToSession`. The other
+   `MarkPromptAsFailed` calls nearby are genuine failures (paused-session drop, real
+   dispatch failure) and were correctly left alone.
+3. **The three drain callers now share one classifier**, `requeueUndispatchedPrompt`,
+   rather than each doing its own `errors.Is` branch. This was not in the design but is
+   strictly better: the defer-vs-failure decision cannot drift between the three paths.
+   Note `processInterruptPrompt` lives in `prompt_history_handlers.go:555`, not in
+   `websocket_external_agent_sync.go` — easy to miss.
+4. **The planned "exclude foreign entries from the sync push payload" is unnecessary.**
+   `mergeWithBackend` already stamps backend-originating entries with
+   `syncedToBackend: true`, and `syncToBackend` only pushes `!h.syncedToBackend` entries,
+   so foreign rows are never in the payload. The one path that could push one was the
+   interrupt-toggle at `usePromptHistory.ts:659` — closed by hiding that affordance on
+   foreign entries. The backend `existingEntry.UserID != userID` guard remains the
+   load-bearing protection; the frontend just doesn't offer the action.
+5. **Fail-fast over silent fallback, per CLAUDE.md.** Both the design's "degrade to empty
+   spec_task_id on lookup error" and its "fall back to owner-scoped on authz lookup
+   failure" were dropped. `resolveSpecTaskIDForSession` propagates store errors, and
+   `authorizeUserToPromptQueue` returns 404/403. CLAUDE.md's "NO FALLBACKS — one
+   approach, fix properly, no dead code paths" applies, and a spec-task query failing
+   while the very next statement writes to the same DB is not a case worth papering over.
+6. **`resolveOrganizationUser` already exists** in `OrganizationUserAvatar.tsx` and is
+   exported — use it for the hover label rather than re-resolving members by hand.
+7. **Frontend deps are not installed on this box** (`frontend/node_modules` absent) and
+   `npm` fails on a root-owned cache. Typecheck by mounting the source into the
+   `helix-frontend` image, which carries its own `node_modules` with `tsc`:
+   `docker run --rm -v "$PWD":/src -w /src --entrypoint sh helix-frontend -c 'ln -sfn /app/node_modules /src/node_modules; ./node_modules/.bin/tsc --noEmit -p tsconfig.json'`
+   **Delete the `node_modules` symlink afterwards** — the bind mount writes it to the host.
+
+## Environment blocker (2026-09-01)
+
+The live browser verification in `tasks.md` was **not performed**. The session's startup
+script failed before the stack came up: it builds Zed from source and `rustc` was
+OOM-killed (`signal: 9, SIGKILL`) compiling the `project` crate, so the script exited 1
+(`❌ Error: Failed to build Zed IDE`) and no containers were started.
+
+`postgres`, `api` and `frontend` were subsequently brought up by hand, but a LIVE Zed
+session — which the test plan requires, and which needs the desktop image that depends on
+that Zed binary — was not reachable. The user then directed that the change be merged
+without testing. Everything unverified is listed explicitly in `pull_request_helix.md`;
+nothing has been reported as verified that was not.
+
 ## Risks
 
 - **Mock regeneration.** Adding a `Store` interface method requires regenerating gomock
