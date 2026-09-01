@@ -78,9 +78,20 @@ exited 1 with `❌ Error: Failed to build Zed IDE` and started no containers. I 
 on that Zed binary. The task was then explicitly descoped to "get it merged, don't worry
 about testing".
 
+The first push went red in CI: `persistQueuedPrompt` now calls `ListSpecTasks`, and the
+existing gomock suite in `session_messages_handler_test.go` had no expectation for it, so
+`TestEnqueuesOntoQueue` and `TestNotifyUserIDCarriedOnRow` aborted. `go build ./...` does
+not compile test files, so the green build had said nothing about them. Fixed, and the
+regression tests that should have been there from the start were added at the same time.
+
 What was actually run:
 
-- `go build ./...` — passes, exit 0.
+- `CGO_ENABLED=0 go build ./...` — passes, exit 0.
+- `go test ./pkg/server/ ./pkg/types/ ./pkg/store/memorystore/` — all pass. Includes three
+  new tests: `TestStampsSpecTaskIDFromPlanningSession` (row carries the owning task; the
+  filter uses `PlanningSessionID` and `IncludeArchived`), `TestEnqueuesOntoQueue` (no spec
+  task → empty `spec_task_id`, still enqueues), and `TestSpecTaskLookupErrorFailsEnqueue`
+  (lookup error → 500, nothing written).
 - Frontend `tsc --noEmit -p tsconfig.json` (TypeScript 5.9.3) — passes, exit 0, zero
   diagnostics. Run by mounting the source into the `helix-frontend` image, since
   `frontend/node_modules` is not installed on this machine.
@@ -95,6 +106,6 @@ What was **not** run, and should be before this is trusted in production:
 - **The read-hole check** — that an unauthorized account gets 403 for another project's
   `spec_task_id`. This is the highest-risk gap: de-scoping the read and adding the authz
   check landed in the same commit, but only the code was reviewed, not its behaviour.
-- Go unit tests for the session→spec-task resolution, the soft-delete exclusion, the
-  retry-count behaviour, and the new authorization; and a frontend test for the owner
-  indicator. None were written.
+- Unit tests for the soft-delete exclusion, the busy-defer retry-count behaviour, and the
+  new authorization; and a frontend test for the owner indicator. Not written. (The
+  session→spec-task resolution *is* now covered — see above.)
