@@ -3,24 +3,33 @@
 ## Approach
 
 Add one first-class boolean to `SpecTask` — `PerpetualRun` — set by the API caller at
-creation time, and guard every *automatic* transition to a terminal status with it.
-Nothing else changes: PR state, CI polling, notifications, and golden builds all
-still run. Only the flip to `done` is suppressed.
+creation time, and apply a single rule everywhere the task lifecycle advances:
 
-This is deliberately the smallest honest model. HelixOS already knows a bot run is
-perpetual when it dispatches it; it just has no way to say so. An explicit flag says
-it. The rejected alternatives:
+> **A perpetual run stays in `implementation`. Nothing else about a merge changes.**
 
-- **Sniffing `type = 'bot_run'`** — explicitly out of bounds. `type` is a free-form
-  string owned by the API caller (`bot_run`, `hypothesis`, `findai_jim`,
-  `candidate_search`, `social_pulse`…). No Helix Go code reads its values today and
-  starting now would bake a HelixOS convention into the Helix product.
-- **Inferring liveness from session activity** — fragile and racy. A bot idle for an
-  hour is still perpetual; a finished task with a warm desktop is still finished.
-  Liveness is the wrong signal for "does this task have an end".
-- **Fixing it in HelixOS** — impossible. The remote status *is* `done`; HelixOS's
-  existing `MergedToMain && !workInProgress(status)` guard has nothing left to
-  disagree with.
+PRs are still created, tracked, CI-polled, notified on, and displayed. Merges still
+warm the golden cache and still dismiss attention events. Only the *status
+transitions* are suppressed — both the advance out of `implementation` and the flip
+to `done`.
+
+The addendum evidence is why the rule has to cover both. Guarding only the completion
+path leaves the task parked in `pull_request`, which is still wrong (the bot is
+implementing, not awaiting a merge) and still exposed: `pull_request` is one poll
+cycle away from `done`, and `implementation_review` is directly selected by the
+main-branch-push sweep. The observed reopen survived four minutes precisely because
+the *advancing* path fired first.
+
+Rejected alternatives:
+
+- **Sniffing `type = 'bot_run'`** — out of bounds. `type` is a free-form string owned
+  by API callers. No Helix Go code reads its values and starting now would bake a
+  HelixOS convention into the Helix product.
+- **Inferring from session liveness** — fragile and racy. A bot idle for an hour is
+  still perpetual; a finished task with a warm desktop is still finished.
+- **Fixing it in HelixOS** — impossible. The remote status *is* `done`; the existing
+  `MergedToMain && !workInProgress(status)` guard has nothing left to disagree with.
+- **A "reopen the task" tool** — explicitly ruled out. The bug recurs on every PR the
+  bot opens; a reopen buys minutes.
 
 ## Data Model
 
@@ -28,152 +37,180 @@ it. The rejected alternatives:
 
 ```go
 // PerpetualRun marks a task with no natural completion point — a long-lived
-// agent session (e.g. a HelixOS bot) that lands branches as ordinary mid-session
-// work. Automatic terminal transitions (all-PRs-merged, branch-merged-to-main)
-// are suppressed for these; only archiving or an explicit user status change
-// ends them.
+// agent session (e.g. a HelixOS bot) that opens and lands branches as ordinary
+// mid-session work. Such a task stays in `implementation` for its whole life:
+// PRs are tracked and merges recorded, but no automatic transition may advance
+// it to pull_request/implementation_review or complete it. Only archiving or an
+// explicit user status change ends it.
 PerpetualRun bool `json:"perpetual_run" gorm:"column:perpetual_run;default:false"`
 ```
 
-The column is created by GORM `AutoMigrate` (`api/pkg/store/postgres.go:170`), the
-same way `KeepAlive` and every other spec-task boolean was added. **No SQL migration
-file, and specifically no backfill** — see US-6.
+Column created by GORM `AutoMigrate` (`api/pkg/store/postgres.go:170`), same as
+`KeepAlive`. **No SQL migration file and no backfill** (US-7).
 
-Request plumbing, mirroring `KeepAlive` exactly:
+Request plumbing mirrors `KeepAlive` exactly:
+- `CreateTaskRequest.PerpetualRun bool`
+- `SpecTaskUpdateRequest.PerpetualRun *bool` (pointer so `false` can be sent)
 
-- `CreateTaskRequest.PerpetualRun bool` — `json:"perpetual_run"`.
-- `SpecTaskUpdateRequest.PerpetualRun *bool` — pointer so `false` can be sent
-  explicitly, letting a user demote a perpetual run to a normal task.
-
-A single grep-able predicate keeps the guard consistent and gives one place to change
-the rule later:
+Two grep-able predicates keep the rule in one place and name the two halves:
 
 ```go
-// SuppressesAutoCompletion reports whether automatic terminal transitions must
+// HoldsLifecycleInImplementation reports whether workflow transitions that would
+// advance this task out of implementation must be skipped.
+func (t *SpecTask) HoldsLifecycleInImplementation() bool { return t.PerpetualRun }
+
+// SuppressesAutoCompletion reports whether transitions to a terminal status must
 // be skipped for this task.
 func (t *SpecTask) SuppressesAutoCompletion() bool { return t.PerpetualRun }
 ```
 
-## The Four Guarded Sites
+They return the same thing today. They are separate because the two halves are
+conceptually distinct and a future rule may want to split them; a reader at a call
+site should see which half they are in.
 
-All four currently write the same shape: `Status = Done; MergedToMain = true;
+## Site Census
+
+Ten paths move a task through its lifecycle. Every one is guarded. Two of the
+terminal ones were **not** in the original brief and were found by auditing
+`grep -n "TaskStatusDone" api/pkg/services/git_http_server.go
+api/pkg/server/spec_task_workflow_handlers.go`.
+
+### Group A — advancing out of `implementation`
+
+| # | Site | Today | Perpetual behaviour |
+|---|------|-------|---------------------|
+| A1 | `spec_task_workflow_handlers.go:167` — `approveImplementation`, external repo | records approval, `Status = pull_request` | Record `ImplementationApprovedBy`/`At`, create the PRs, send the push instruction, sync PR descriptions. **Leave `Status = implementation`.** *The observed trigger.* |
+| A2 | `spec_task_orchestrator.go:1548` — `checkTaskForExternalPRActivity`, externally-opened PR | appends `RepoPR`, `Status = pull_request` | Append the `RepoPR`, emit the `pr_ready` attention event. Leave status. |
+| A3 | `spec_driven_task_service.go:1865` — PR created via push detection | appends `RepoPR`, `Status = pull_request` | Append the `RepoPR`. Leave status. |
+| A4 | `spec_task_workflow_handlers.go:214` (nothing pushed yet) and `:281` (rebase required) — internal repo | `Status = implementation_review` + `RebaseRequestedAt` | Still stamp `RebaseRequestedAt` and `ImplementationApprovedBy`, still send the push/rebase instruction. Leave status. |
+
+A4 matters more than it looks: `implementation_review` is the exact status the
+`handleMainBranchPush` sweep (B4) selects on, so parking there is a live route to a
+false `done` even with the PR path guarded.
+
+### Group B — transitions to `done`
+
+All six write the same shape today: `Status = Done; MergedToMain = true;
 MergedAt = &now; CompletedAt = &now`. Each keeps everything except that shape.
 
-| # | Site | Current terminal write | Perpetual behaviour |
-|---|------|------------------------|---------------------|
-| 1 | `spec_task_orchestrator.go` ~1172 — `allMerged && len(RepoPullRequests) > 0` | Done + MergedToMain | Persist updated PR states, trigger golden build, dismiss attention events, set `Status = implementation`. No merge/completion timestamps. |
-| 2 | `spec_task_orchestrator.go` ~1235 — `!anyOpen && BranchName != ""` branch-merge fallback | Done + MergedToMain | Log the detected merge, dismiss attention events, set `Status = implementation`. No merge/completion timestamps. |
-| 3 | `spec_task_orchestrator.go` ~1596 — `checkTaskForExternalPRActivity` merged-PR branch | Appends `RepoPR`, then Done + MergedToMain | Still append the `RepoPR` (the merge is recorded), dismiss attention events, leave `Status` where it is — this path only fires for tasks already in `spec_review`/`implementation`. |
-| 4 | `git_http_server.go` ~1382 — `handleMainBranchPush` merged-branch sweep | Done + MergedToMain + MergeCommitHash | Set `Status = implementation` (this path only selects tasks in `implementation_review`), record nothing terminal. |
+| # | Site | Perpetual behaviour |
+|---|------|---------------------|
+| B1 | `spec_task_orchestrator.go` ~1172 — `allMerged && len(RepoPullRequests) > 0` | Persist updated PR states, trigger the golden build, dismiss attention events. No status/merge/completion writes. |
+| B2 | `spec_task_orchestrator.go` ~1235 — branch-merge fallback `!anyOpen && BranchName != ""` | Log the detected merge, dismiss attention events. No terminal writes. |
+| B3 | `spec_task_orchestrator.go` ~1596 — `checkTaskForExternalPRActivity` merged PR | Still append the `RepoPR` (the merge is recorded), dismiss attention events. No terminal writes. |
+| B4 | `git_http_server.go` ~1382 — `handleMainBranchPush` sweep | Skip. Selects `status == implementation_review`, which A4 now prevents a perpetual task from reaching — guarded anyway, belt and braces, since a task could have been marked perpetual while already parked there. |
+| B5 | `git_http_server.go` ~1235 — **`tryAutoMergeAfterRebase`** *(not in the brief)* | Fires automatically when the agent's rebase push lands and FF succeeds. Perform the merge and the upstream push as normal; skip the terminal writes and `DismissTaskAttentionEvents` stays. |
+| B6 | `spec_task_workflow_handlers.go` ~360 — **`approveImplementation` internal-repo server-side merge success** *(not in the brief)* | Perform the merge and upstream push, record `ImplementationApprovedBy`/`At`, dismiss attention events, trigger the golden build. Skip the terminal writes. For a perpetual run "Accept" means "land this branch", not "kill my bot". |
 
-Site 4 note: it selects `task.Status == types.TaskStatusImplementationReview`. A
-perpetual run reaching `implementation_review` and having its branch land is the
-"human approved my branch, it merged" case — for a bot that is mid-session work, so
-dropping it back to `implementation` is the right resting state, same as sites 1 and 2.
+B6 is user-initiated, which is worth being explicit about: the deliberate-termination
+routes stay archive and an explicit `PUT status: done` (US-6). Approve-implementation
+is not one of them — the evidence shows it running against the live bot at 02:49:14
+and being the first domino.
 
-### Why `implementation` and not "stay put"
+### Group C — keeping PR data fresh
 
-Leaving a perpetual task in `pull_request` after its PRs merge would leave
-`pollPullRequests` (which selects exactly `status = pull_request`) hitting GitHub for
-already-merged PRs on every cycle, forever, once per perpetual bot. Moving to
-`implementation` stops that, and it is the state the operator hand-repaired the live
-task to — verified stable because:
+A perpetual task now never enters `pull_request`, but `pollPullRequests`
+(`spec_task_orchestrator.go:1297`) selects exactly `status = pull_request`, and
+`RefreshPullRequestStatus` (`:1338`) gates on the same. Left alone, a perpetual run's
+PR state and CI status would freeze at creation — which contradicts "PRs must keep
+being tracked and displayed".
 
-- `pollPullRequests` only lists `pull_request` status → the task is no longer polled.
-- `detectExternalPRActivity` filters `BranchName != "" && !task.HasAnyPR()` → the
-  task is excluded because `repo_pull_requests` is populated.
+So both are widened to also admit `perpetual_run = true` tasks that hold at least one
+PR and are in a work-in-progress status.
 
-**Do not widen either selector.** Doing so reintroduces the completion loop this fix
-exists to break. If a future change needs perpetual tasks re-polled, it needs a
-different mechanism, not a looser filter.
+**Sequencing is load-bearing.** This change lands *only after* every guard in Group B
+is in place and tested. Widening the selector first re-creates the exact
+poll → `allMerged` → `done` loop this work exists to break — that pairing is why the
+brief warns about these two filters. Implement B first, get its unit tests green,
+then C.
 
-`implementation` is also a work-in-progress status on the HelixOS side, so the
-existing `MergedToMain && !workInProgress(status)` guard in `bridge.go:766-786` stays
-satisfied even if `merged_to_main` were ever set by another path.
+`detectExternalPRActivity`'s `BranchName != "" && !task.HasAnyPR()` filter is **not**
+touched. It is the other half of what makes a hand-reopened task stable, and the
+limitation it imposes on perpetual runs (a second *externally*-created PR is never
+auto-detected) is pre-existing and flagged as Open Question 3.
 
-### What is explicitly NOT suppressed
+## Termination Routes
 
-- CI status polling (`pollCIStatusForPR`) and its transition notifications.
-- `RepoPullRequests[i].PRState` updates and persistence.
-- `DismissTaskAttentionEvents` — the PR-ready nudge is stale once the PR merged.
-- The golden Docker cache build. It is keyed on a merge to main, not on task
-  completion, so a perpetual run's merge should still warm the cache.
-
-## Termination Routes for a Perpetual Run
-
-A perpetual run keeps exactly two ways to end, both already implemented and
-unchanged by this work:
+Two, both already implemented and unchanged by this work:
 
 1. **Archive** — `PATCH /api/v1/spec-tasks/{taskId}/archive`
-   (`spec_driven_task_handlers.go:1401`). It stops the planning session's desktop and
-   any running `SpecTaskExternalAgent`, then sets `archived = true`. This is the
-   mechanism HelixOS's `archiveBotSpecTasks` already uses to terminate a bot. The
-   guard added here touches only the orchestrator and the git HTTP server, so this
-   path is untouched — but it must be re-verified live (US-5).
+   (`spec_driven_task_handlers.go:1401`) stops the planning session's desktop and any
+   running `SpecTaskExternalAgent`, then sets `archived = true`. This is what
+   HelixOS's `archiveBotSpecTasks` already calls. No guard touches it — but it must be
+   re-verified live (US-6).
 2. **Explicit user status change** — `PUT /api/v1/spec-tasks/{id}` with
-   `status: done`. Suppression applies to automatic transitions only; a human saying
-   "this is finished" is authoritative.
+   `status: done`. A human saying "this is finished" is authoritative.
 
-Clearing `perpetual_run` via the update endpoint restores normal auto-completion for
-the next poll cycle.
+Clearing `perpetual_run` restores normal lifecycle behaviour from the next transition.
 
 ## Testing Strategy
 
-### Go unit tests (`api/pkg/services/`)
+### Go unit tests
 
-Table-driven, one pair (perpetual / normal) per guarded site, against the existing
-orchestrator test harness with a mocked store and git service:
+Table-driven, one perpetual/normal pair per site, ten pairs total, against the
+existing orchestrator and git-http-server test harnesses (see
+`api/pkg/services/git_http_server_auto_merge_test.go` for the B5 harness):
 
-- All PRs merged → normal goes `done` + `merged_to_main` + `completed_at`; perpetual
-  goes `implementation` with all three unset and `RepoPullRequests[*].PRState ==
-  "merged"`.
-- Branch-merge fallback, external-PR-detection, and main-branch-push sweep: same
-  pairing.
+- Group A: normal advances to `pull_request` / `implementation_review`; perpetual
+  stays `implementation` **and** still has the `RepoPR` appended /
+  `ImplementationApprovedBy` recorded.
+- Group B: normal reaches `done` + `merged_to_main` + `completed_at`; perpetual has
+  all three unset, with `RepoPullRequests[*].PRState == "merged"` still updated.
+- Group C: a perpetual task in `implementation` holding a PR is selected by the
+  poller; a non-perpetual task in `implementation` is not.
 
 ### Live E2E on `localhost:8080` (the part that makes this done)
 
 Per `CLAUDE.md`, use `http://localhost:8080` — never `api:8080`, which is the outer
 stack running this agent.
 
-1. Create a project + task via the API with `perpetual_run: true` and
-   `just_do_it_mode: true`; start it so a real session exists with a non-empty
-   `config->>'zed_thread_id'`.
-2. Put it in the all-PRs-merged state — either by opening and merging a real PR, or
-   by writing `repo_pull_requests` with `PRState: merged` directly through the store
-   — then trigger the orchestrator poll.
-3. Assert via SQL/API: `status != 'done'`, `merged_to_main = false`,
-   `completed_at IS NULL`, and the PR row shows `merged`. Then **send the session a
-   new message and confirm it answers.** The next operation working is the evidence;
-   a status assertion on its own is not.
-4. Repeat step 2 on a task with `perpetual_run: false` and confirm it reaches `done`
-   with `merged_to_main = true` and `completed_at` set — the regression that would
-   hurt most.
-5. Archive the perpetual task and confirm the desktop container stops and the task
-   leaves the default board.
+1. Create a project + task with `perpetual_run: true, just_do_it_mode: true`; start
+   it so a real session exists with a non-empty `config->>'zed_thread_id'`.
+2. Reproduce the four-minute sequence deliberately: call approve-implementation so a
+   PR opens, merge the PR, then run the orchestrator poll. Assert at each step that
+   `status` is still `implementation`, `merged_to_main = false`,
+   `completed_at IS NULL`, and the tracked PR reads `merged`.
+3. **Send the session a new message and confirm it answers.** The next operation
+   working is the evidence; a status assertion alone is not.
+4. **Do it a second time** — open and merge another PR on the same task. The bug
+   recurs per-PR, so surviving one merge proves nothing about the third.
+5. Regression: same flow on a `perpetual_run: false` task — must reach `done` with
+   `merged_to_main = true` and `completed_at` set.
+6. Archive the perpetual task; confirm the desktop container stops and it leaves the
+   default board.
 
-Record the commands and outputs in `design/2026-09-01-perpetual-run-e2e.md` in the
-helix repo, per the CLAUDE.md debugging-notes rule.
+Record commands and outputs in `design/2026-09-01-perpetual-run-e2e.md` in the helix
+repo, per the CLAUDE.md debugging-notes rule.
 
-## HelixOS Wiring
+## HelixOS Interaction
 
-Setting `perpetual_run: true` from HelixOS's dispatcher (`api/internal/bridge/`) is a
-separate PR on `helixml/helixos`, not part of the Helix PR. **The helixos repo is not
-checked out on this machine** (local repos are `kodit`, `helix-next`, `docs`,
-`qwen-code`, `zed`, `helix`; `helix-next` is a different codebase with no
-`api/internal/bridge`). The Helix PR description must therefore state plainly that
-the HelixOS side was **not** wired, and that until it is, the new field is inert for
-bot runs — the Helix-side fix is a no-op in production until HelixOS starts sending
-the flag.
+Two things to state in the Helix PR description:
+
+1. **The whipper connection.** HelixOS's whipper (`api/internal/whipper/`, helixos PR
+   #161) is the keep-alive meant to stop this class of run dying, and its epoch ends
+   when "the run reached a terminal status" (`WhipStopped` doc comment in
+   `api/internal/types/whip.go`). So the false `done` was also silently killing
+   keep-alive — a second, independent reason this fix matters. Say so explicitly or
+   the connection is lost.
+2. **Whether HelixOS was wired.** Setting `perpetual_run: true` from HelixOS's
+   dispatcher (`api/internal/bridge/`) is a separate PR on `helixml/helixos`. **That
+   repo is not checked out on this machine** (local repos are `kodit`, `helix-next`,
+   `docs`, `qwen-code`, `zed`, `helix`; `helix-next` is a different codebase with no
+   `api/internal/bridge`). So the Helix PR must state plainly that the HelixOS side
+   was **not** wired and that the field is inert for bot runs until it is.
 
 ## Notes for Future Agents
 
-- Spec-task columns in this repo are added by GORM `AutoMigrate`, not by files in
-  `api/pkg/store/migrations/`. Those SQL migrations are reserved for renames, drops,
-  and data fixes.
+- Spec-task columns here are added by GORM `AutoMigrate`, not by files in
+  `api/pkg/store/migrations/` — those are reserved for renames, drops, and data fixes.
 - `JustDoItMode` persists to the column `yolo_mode`. JSON name ≠ column name is
-  normal here; pin the column name explicitly in the tag when adding a field.
-- The pattern for "optional boolean the user can turn off" is `bool` on the model,
-  `bool` on the create request, `*bool` on the update request. See `KeepAlive` and
+  normal in this file; pin the column name explicitly when adding a field.
+- Pattern for "optional boolean the user can turn off": `bool` on the model, `bool` on
+  the create request, `*bool` on the update request. See `KeepAlive`,
   `PublicDesignDocs`.
-- Four separate code paths can auto-complete a task. If you add a fifth, it needs the
-  same guard.
+- The lifecycle is spread across four files —
+  `services/spec_task_orchestrator.go`, `services/git_http_server.go`,
+  `services/spec_driven_task_service.go`, `server/spec_task_workflow_handlers.go`.
+  `grep -n "TaskStatusDone\|TaskStatusPullRequest\|TaskStatusImplementationReview"`
+  across those four is the way to find every transition; the census above was built
+  that way and found two sites a careful hand-written brief had missed.
