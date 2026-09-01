@@ -102,8 +102,7 @@ wait_for_zed_config() {
     exit 1
 }
 
-# Prove the Helix MCP context servers are reachable before Zed launches the
-# coding agent.
+# Prove the Helix MCP context servers are reachable before EVERY Zed launch.
 #
 # Zed hands the agent its MCP servers exactly once, on the ACP session/new
 # request, and the agent (opencode, qwen, ...) connects to each one exactly
@@ -113,30 +112,36 @@ wait_for_zed_config() {
 # unavailable tool". Inference keeps working because it retries per turn, so
 # the session looks healthy while the agent is silently tool-less.
 #
-# The settings-sync-daemon probes the origins it wrote into settings.json and
-# writes one of these markers. See
+# This runs per launch, not once at boot, because run_zed_restart_loop respawns
+# Zed for the life of the container and the settings-sync-daemon's restartZed()
+# deliberately uses that path to give the agent a fresh ACP session on an agent
+# switch. Every one of those launches is another one-shot registration.
+#
+# The verdict is measured fresh by the daemon each time we ask. See
 # design/2026-09-01-opencode-mcp-tools-unavailable.md.
 wait_for_mcp_endpoints() {
-    local READY_MARKER="/tmp/helix-mcp-endpoints-ready"
-    local UNREACHABLE_MARKER="/tmp/helix-mcp-endpoints-unreachable"
+    local PORT="${SETTINGS_SYNC_PORT:-9877}"
+    local URL="http://127.0.0.1:${PORT}/mcp-readiness"
     local WAIT_COUNT=0
-    # The daemon's own probe budget is 60s; allow a little more so we report
-    # its verdict rather than racing it.
-    local MAX_WAIT=90
+    # Generous: covers a cold boot (the daemon's listener comes up after the
+    # first sync) and rides out a transient blip on a mid-session restart.
+    # Bounded, because a session that cannot reach its own API is not going to
+    # fix itself and the operator needs the error rather than a silent hang.
+    local MAX_WAIT=180
+    local RESPONSE=""
+    local STATUS=""
+    local BODY=""
 
-    echo "Waiting for Helix MCP context servers to be reachable..."
+    echo "Checking Helix MCP context servers are reachable..."
     while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-        if [ -f "$READY_MARKER" ]; then
+        # Not curl -f: a 503 carries the reason in its body and that is exactly
+        # what we want to print. Status and body are captured together.
+        RESPONSE=$(curl -sS --max-time 10 -w '\n%{http_code}' "$URL" 2>&1)
+        STATUS=$(printf '%s' "$RESPONSE" | tail -n 1)
+        BODY=$(printf '%s' "$RESPONSE" | sed '$d')
+        if [ "$STATUS" = "200" ]; then
             echo "Helix MCP context servers reachable"
             return 0
-        fi
-        if [ -f "$UNREACHABLE_MARKER" ]; then
-            echo "FATAL: Helix MCP context servers are not reachable from this container."
-            cat "$UNREACHABLE_MARKER"
-            echo "Starting the agent now would give it no Helix tools for the entire session."
-            echo "Check: HELIX_API_URL=${HELIX_API_URL:-UNSET}; the context_server urls in"
-            echo "  $HOME/.config/zed/settings.json must resolve and connect from inside this container."
-            exit 1
         fi
         sleep 1
         WAIT_COUNT=$((WAIT_COUNT + 1))
@@ -145,8 +150,12 @@ wait_for_mcp_endpoints() {
         fi
     done
 
-    echo "FATAL: settings-sync-daemon never reported on MCP context server reachability after ${MAX_WAIT}s."
-    echo "Check: journalctl -u settings-sync-daemon --no-pager -n 50"
+    echo "FATAL: Helix MCP context servers are not reachable from this container."
+    echo "Last verdict from ${URL}:"
+    echo "  ${BODY}"
+    echo "Starting the agent now would give it no Helix tools for the entire session."
+    echo "Check: HELIX_API_URL=${HELIX_API_URL:-UNSET}; the context_server urls in"
+    echo "  $HOME/.config/zed/settings.json must resolve and connect from inside this container."
     exit 1
 }
 
@@ -234,6 +243,9 @@ run_zed_restart_loop() {
     trap 'echo "Caught signal, continuing restart loop..."' 15 2 1
 
     while true; do
+        # Every launch is a fresh ACP session and therefore a fresh one-shot
+        # MCP registration by the agent. Re-verify before each one.
+        wait_for_mcp_endpoints
         echo "Launching Zed..."
         # ZED_EXTRA_FILES can be set by desktop-specific script (e.g., user guide)
         if [ "${HELIX_HEADLESS}" = "1" ]; then
@@ -342,11 +354,6 @@ start_zed_helix() {
     # Step 2: Wait for Zed configuration
     # =========================================
     wait_for_zed_config
-
-    # =========================================
-    # Step 2a: Wait for the MCP context servers to be reachable
-    # =========================================
-    wait_for_mcp_endpoints
 
     # =========================================
     # Step 2b: Wait for Claude credentials (if using Claude Code)

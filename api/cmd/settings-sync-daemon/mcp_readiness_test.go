@@ -2,36 +2,69 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestRemoteContextServerOrigins(t *testing.T) {
+// writeSettingsFile renders a settings.json containing contextServers and
+// returns its path.
+func writeSettingsFile(t *testing.T, contextServers interface{}) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	settings := map[string]interface{}{}
+	if contextServers != nil {
+		settings["context_servers"] = contextServers
+	}
+	raw, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func newReadinessDaemon() *SettingsDaemon {
+	return &SettingsDaemon{httpClient: &http.Client{Timeout: 5 * time.Second}}
+}
+
+// deadOrigin returns an http:// origin nothing is listening on.
+func deadOrigin(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	url := srv.URL
+	srv.Close()
+	return url
+}
+
+func TestContextServerOrigins(t *testing.T) {
 	t.Run("dedupes origins and ignores stdio servers", func(t *testing.T) {
-		settings := map[string]interface{}{
-			"context_servers": map[string]interface{}{
-				// stdio: runs in-container, cannot fail the way this check catches
-				"chrome-devtools": map[string]interface{}{
-					"command": "/usr/bin/chrome-devtools-mcp",
-					"args":    []interface{}{"--viewport", "1280x800"},
-				},
-				"helix-tasks": map[string]interface{}{
-					"url": "http://helix-api.internal:18080/api/v1/mcp/helix-tasks?rev=842d852b",
-				},
-				"kodit": map[string]interface{}{
-					"url": "http://helix-api.internal:18080/api/v1/mcp/kodit?session_id=ses_1",
-				},
-				"partner": map[string]interface{}{
-					"url": "https://mcp.example.com/sse",
-				},
+		path := writeSettingsFile(t, map[string]interface{}{
+			// stdio: runs in-container, cannot fail the way this check catches
+			"chrome-devtools": map[string]interface{}{
+				"command": "/usr/bin/chrome-devtools-mcp",
+				"args":    []interface{}{"--viewport", "1280x800"},
 			},
+			"helix-tasks": map[string]interface{}{
+				"url": "http://helix-api.internal:18080/api/v1/mcp/helix-tasks?rev=842d852b",
+			},
+			"kodit": map[string]interface{}{
+				"url": "http://helix-api.internal:18080/api/v1/mcp/kodit?session_id=ses_1",
+			},
+			"partner": map[string]interface{}{"url": "https://mcp.example.com/sse"},
+		})
+		got, err := contextServerOrigins(path)
+		if err != nil {
+			t.Fatalf("contextServerOrigins: %v", err)
 		}
-		got := remoteContextServerOrigins(settings)
 		want := []string{"http://helix-api.internal:18080", "https://mcp.example.com"}
 		if len(got) != len(want) {
 			t.Fatalf("origins = %v, want %v", got, want)
@@ -43,96 +76,95 @@ func TestRemoteContextServerOrigins(t *testing.T) {
 		}
 	})
 
-	t.Run("no context servers yields none", func(t *testing.T) {
-		if got := remoteContextServerOrigins(map[string]interface{}{}); len(got) != 0 {
+	t.Run("no context_servers key yields none", func(t *testing.T) {
+		got, err := contextServerOrigins(writeSettingsFile(t, nil))
+		if err != nil {
+			t.Fatalf("contextServerOrigins: %v", err)
+		}
+		if len(got) != 0 {
 			t.Fatalf("origins = %v, want none", got)
 		}
 	})
 
-	t.Run("unparseable url is skipped, not fatal", func(t *testing.T) {
-		settings := map[string]interface{}{
-			"context_servers": map[string]interface{}{
-				"broken": map[string]interface{}{"url": "://nope"},
-				"good":   map[string]interface{}{"url": "http://api:8080/api/v1/mcp/session"},
-			},
+	t.Run("missing settings file is an error", func(t *testing.T) {
+		if _, err := contextServerOrigins(filepath.Join(t.TempDir(), "absent.json")); err == nil {
+			t.Fatal("a missing settings.json must not read as ready")
 		}
-		got := remoteContextServerOrigins(settings)
-		if len(got) != 1 || got[0] != "http://api:8080" {
-			t.Fatalf("origins = %v, want [http://api:8080]", got)
+	})
+
+	t.Run("unparseable settings file is an error", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "settings.json")
+		if err := os.WriteFile(path, []byte("{not json"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := contextServerOrigins(path); err == nil {
+			t.Fatal("a corrupt settings.json must not read as ready")
 		}
 	})
 }
 
-// newReadinessDaemon builds the minimal daemon the readiness check needs, with
-// markers redirected into a tempdir so tests never touch /tmp state shared with
-// a real container.
-func newReadinessDaemon(t *testing.T, settings map[string]interface{}) (*SettingsDaemon, string, string) {
-	t.Helper()
-	dir := t.TempDir()
-	ready := filepath.Join(dir, "ready")
-	unreachable := filepath.Join(dir, "unreachable")
+// A declared-but-broken url is a config error: Zed forwards it to the agent
+// regardless, and the agent's one-shot registration against it fails
+// permanently. Skipping it is how an all-malformed config reported "ready".
+func TestContextServerOriginsRejectsUnusableURLs(t *testing.T) {
+	cases := map[string]interface{}{
+		"unparseable":  "://nope",
+		"empty":        "",
+		"whitespace":   "   ",
+		"no host":      "http://",
+		"scheme-less":  "helix-api.internal:18080/api/v1/mcp/x",
+		"wrong scheme": "ftp://helix-api.internal/mcp",
+		"not a string": 42,
+	}
+	for name, badURL := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := writeSettingsFile(t, map[string]interface{}{
+				"broken": map[string]interface{}{"url": badURL},
+			})
+			origins, err := contextServerOrigins(path)
+			if err == nil {
+				t.Fatalf("origins = %v, want an error for url %v", origins, badURL)
+			}
+			if !strings.Contains(err.Error(), "broken") {
+				t.Fatalf("error should name the offending server: %v", err)
+			}
+		})
+	}
 
-	origReady, origUnreachable := mcpEndpointsReadyMarker, mcpEndpointsUnreachableMarker
-	mcpEndpointsReadyMarker, mcpEndpointsUnreachableMarker = ready, unreachable
-	t.Cleanup(func() {
-		mcpEndpointsReadyMarker, mcpEndpointsUnreachableMarker = origReady, origUnreachable
+	t.Run("one broken url fails even alongside a good one", func(t *testing.T) {
+		path := writeSettingsFile(t, map[string]interface{}{
+			"good":   map[string]interface{}{"url": "http://api:8080/api/v1/mcp/session"},
+			"broken": map[string]interface{}{"url": "://nope"},
+		})
+		if _, err := contextServerOrigins(path); err == nil {
+			t.Fatal("a broken url must fail readiness even when another server is fine")
+		}
 	})
-
-	return &SettingsDaemon{
-		helixSettings: settings,
-		httpClient:    &http.Client{Timeout: 5 * time.Second},
-	}, ready, unreachable
 }
 
-func TestVerifyMCPEndpoints(t *testing.T) {
-	t.Run("reachable origin marks ready", func(t *testing.T) {
-		// 404 is a perfectly good answer: it proves the transport works, which
-		// is the only thing that can break the agent's MCP registration.
+func TestProbeMCPEndpoints(t *testing.T) {
+	t.Run("reachable origin is ready", func(t *testing.T) {
+		// 404 is a fine answer: it proves the transport works, which is the
+		// only thing that can break the agent's MCP registration.
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 		}))
 		defer srv.Close()
 
-		d, ready, unreachable := newReadinessDaemon(t, map[string]interface{}{
-			"context_servers": map[string]interface{}{
-				"helix-tasks": map[string]interface{}{"url": srv.URL + "/api/v1/mcp/helix-tasks"},
-			},
+		path := writeSettingsFile(t, map[string]interface{}{
+			"helix-tasks": map[string]interface{}{"url": srv.URL + "/api/v1/mcp/helix-tasks"},
 		})
-		if err := d.verifyMCPEndpoints(context.Background(), 5*time.Second, 100*time.Millisecond); err != nil {
-			t.Fatalf("verifyMCPEndpoints: %v", err)
-		}
-		if _, err := os.Stat(ready); err != nil {
-			t.Fatalf("ready marker not written: %v", err)
-		}
-		if _, err := os.Stat(unreachable); !os.IsNotExist(err) {
-			t.Fatalf("unreachable marker should not exist: %v", err)
+		if err := newReadinessDaemon().probeMCPEndpoints(context.Background(), path); err != nil {
+			t.Fatalf("probeMCPEndpoints: %v", err)
 		}
 	})
 
-	t.Run("unreachable origin fails and records why", func(t *testing.T) {
-		// Bind then immediately close so the port is closed but well-formed.
-		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		deadURL := srv.URL
-		srv.Close()
-
-		d, ready, unreachable := newReadinessDaemon(t, map[string]interface{}{
-			"context_servers": map[string]interface{}{
-				"helix-tasks": map[string]interface{}{"url": deadURL + "/api/v1/mcp/helix-tasks"},
-			},
+	t.Run("unreachable origin is not ready", func(t *testing.T) {
+		path := writeSettingsFile(t, map[string]interface{}{
+			"helix-tasks": map[string]interface{}{"url": deadOrigin(t) + "/api/v1/mcp/helix-tasks"},
 		})
-		err := d.verifyMCPEndpoints(context.Background(), 500*time.Millisecond, 100*time.Millisecond)
-		if err == nil {
-			t.Fatal("verifyMCPEndpoints succeeded against a closed port")
-		}
-		if _, statErr := os.Stat(ready); !os.IsNotExist(statErr) {
-			t.Fatalf("ready marker must not be written on failure: %v", statErr)
-		}
-		body, readErr := os.ReadFile(unreachable)
-		if readErr != nil {
-			t.Fatalf("unreachable marker not written: %v", readErr)
-		}
-		if len(body) == 0 {
-			t.Fatal("unreachable marker is empty; the operator needs the failing url")
+		if err := newReadinessDaemon().probeMCPEndpoints(context.Background(), path); err == nil {
+			t.Fatal("probeMCPEndpoints succeeded against a closed port")
 		}
 	})
 
@@ -141,125 +173,135 @@ func TestVerifyMCPEndpoints(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer live.Close()
-		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		deadURL := dead.URL
-		dead.Close()
 
-		d, ready, _ := newReadinessDaemon(t, map[string]interface{}{
-			"context_servers": map[string]interface{}{
-				"kodit":       map[string]interface{}{"url": live.URL + "/api/v1/mcp/kodit"},
-				"helix-tasks": map[string]interface{}{"url": deadURL + "/api/v1/mcp/helix-tasks"},
-			},
+		path := writeSettingsFile(t, map[string]interface{}{
+			"kodit":       map[string]interface{}{"url": live.URL + "/api/v1/mcp/kodit"},
+			"helix-tasks": map[string]interface{}{"url": deadOrigin(t) + "/api/v1/mcp/helix-tasks"},
 		})
-		if err := d.verifyMCPEndpoints(context.Background(), 500*time.Millisecond, 100*time.Millisecond); err == nil {
-			t.Fatal("verifyMCPEndpoints succeeded with one unreachable origin")
-		}
-		if _, err := os.Stat(ready); !os.IsNotExist(err) {
-			t.Fatalf("ready marker must not be written: %v", err)
+		if err := newReadinessDaemon().probeMCPEndpoints(context.Background(), path); err == nil {
+			t.Fatal("probeMCPEndpoints succeeded with one unreachable origin")
 		}
 	})
 
-	t.Run("recovers when the origin comes back", func(t *testing.T) {
-		// Grab a port, hold it closed so the first probes are refused, then
-		// bind a real server on the same address mid-flight. This is the
-		// actual transient the gate exists to ride out: the API proxy is not
-		// listening yet when the container boots.
-		probe, err := net.Listen("tcp", "127.0.0.1:0")
+	t.Run("stdio-only agent is ready", func(t *testing.T) {
+		path := writeSettingsFile(t, map[string]interface{}{
+			"chrome-devtools": map[string]interface{}{"command": "/usr/bin/chrome-devtools-mcp"},
+		})
+		if err := newReadinessDaemon().probeMCPEndpoints(context.Background(), path); err != nil {
+			t.Fatalf("probeMCPEndpoints: %v", err)
+		}
+	})
+
+	t.Run("settings never written is not ready", func(t *testing.T) {
+		// syncFromHelix writes settings.json only after a successful fetch, so
+		// a failed initial sync leaves no file. Reporting ready would let Zed
+		// start against an agent config that does not exist.
+		absent := filepath.Join(t.TempDir(), "settings.json")
+		if err := newReadinessDaemon().probeMCPEndpoints(context.Background(), absent); err == nil {
+			t.Fatal("probeMCPEndpoints declared readiness with no settings file")
+		}
+	})
+}
+
+func TestWaitForMCPEndpointsRecoversWhenOriginComesBack(t *testing.T) {
+	// Grab a port, hold it closed so the first probes are refused, then bind a
+	// real server on the same address mid-flight. This is the transient the
+	// gate exists to ride out: the API proxy is not listening yet.
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := probe.Addr().String()
+	if err := probe.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	path := writeSettingsFile(t, map[string]interface{}{
+		"helix-tasks": map[string]interface{}{"url": "http://" + addr + "/api/v1/mcp/helix-tasks"},
+	})
+
+	bound := make(chan *httptest.Server, 1)
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		ln, lnErr := net.Listen("tcp", addr)
+		if lnErr != nil {
+			bound <- nil
+			return
+		}
+		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		srv.Listener.Close()
+		srv.Listener = ln
+		srv.Start()
+		bound <- srv
+	}()
+
+	waitErr := newReadinessDaemon().waitForMCPEndpoints(context.Background(), path, 10*time.Second, 100*time.Millisecond)
+	srv := <-bound
+	if srv == nil {
+		t.Skip("could not rebind the probe port; another process took it")
+	}
+	defer srv.Close()
+	if waitErr != nil {
+		t.Fatalf("waitForMCPEndpoints never recovered: %v", waitErr)
+	}
+}
+
+// The gate polls this before every Zed launch, so its verdict must track the
+// current state of the world rather than a boot-time snapshot.
+func TestMCPReadinessHandlerReflectsCurrentState(t *testing.T) {
+	origSettingsPath := SettingsPath
+	t.Cleanup(func() { SettingsPath = origSettingsPath })
+
+	live := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer live.Close()
+
+	d := newReadinessDaemon()
+	gate := httptest.NewServer(http.HandlerFunc(d.mcpReadinessHandler))
+	defer gate.Close()
+
+	ask := func() (int, string) {
+		t.Helper()
+		resp, err := http.Get(gate.URL)
 		if err != nil {
 			t.Fatal(err)
 		}
-		addr := probe.Addr().String()
-		if err := probe.Close(); err != nil {
-			t.Fatal(err)
-		}
+		defer resp.Body.Close()
+		body := make([]byte, 2048)
+		n, _ := resp.Body.Read(body)
+		return resp.StatusCode, string(body[:n])
+	}
 
-		d, ready, _ := newReadinessDaemon(t, map[string]interface{}{
-			"context_servers": map[string]interface{}{
-				"helix-tasks": map[string]interface{}{"url": "http://" + addr + "/api/v1/mcp/helix-tasks"},
-			},
-		})
-
-		bound := make(chan *httptest.Server, 1)
-		go func() {
-			time.Sleep(300 * time.Millisecond)
-			ln, lnErr := net.Listen("tcp", addr)
-			if lnErr != nil {
-				bound <- nil
-				return
-			}
-			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusOK)
-			}))
-			srv.Listener.Close()
-			srv.Listener = ln
-			srv.Start()
-			bound <- srv
-		}()
-
-		verifyErr := d.verifyMCPEndpoints(context.Background(), 10*time.Second, 100*time.Millisecond)
-		srv := <-bound
-		if srv == nil {
-			t.Skip("could not rebind the probe port; another process took it")
-		}
-		defer srv.Close()
-
-		if verifyErr != nil {
-			t.Fatalf("verifyMCPEndpoints never recovered: %v", verifyErr)
-		}
-		if _, statErr := os.Stat(ready); statErr != nil {
-			t.Fatalf("ready marker not written after recovery: %v", statErr)
-		}
+	// Healthy: ready.
+	SettingsPath = writeSettingsFile(t, map[string]interface{}{
+		"helix-tasks": map[string]interface{}{"url": live.URL + "/api/v1/mcp/helix-tasks"},
 	})
+	if status, body := ask(); status != http.StatusOK {
+		t.Fatalf("status = %d (%s), want 200", status, body)
+	}
 
-	t.Run("unsynced settings never mark ready", func(t *testing.T) {
-		// syncFromHelix only assigns helixSettings after a successful fetch, so
-		// a failed initial sync leaves it nil. Marking ready here would let Zed
-		// start against an agent config that was never written.
-		d, ready, unreachable := newReadinessDaemon(t, nil)
-		if err := d.verifyMCPEndpoints(context.Background(), time.Second, 100*time.Millisecond); err == nil {
-			t.Fatal("verifyMCPEndpoints declared readiness with no synced settings")
-		}
-		if _, err := os.Stat(ready); !os.IsNotExist(err) {
-			t.Fatalf("ready marker must not be written: %v", err)
-		}
-		if _, err := os.Stat(unreachable); err != nil {
-			t.Fatalf("unreachable marker not written: %v", err)
-		}
+	// The world changes under a running container — an agent switch rewrites
+	// settings.json and restartZed() relaunches Zed. The next launch must get
+	// the new verdict, not the old one.
+	SettingsPath = writeSettingsFile(t, map[string]interface{}{
+		"helix-tasks": map[string]interface{}{"url": deadOrigin(t) + "/api/v1/mcp/helix-tasks"},
 	})
+	status, body := ask()
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d (%s), want 503 after the origin died", status, body)
+	}
+	if !strings.Contains(body, "probe ") {
+		t.Fatalf("503 body must carry the reason for the gate to print: %q", body)
+	}
 
-	t.Run("no remote context servers is ready, not an error", func(t *testing.T) {
-		d, ready, _ := newReadinessDaemon(t, map[string]interface{}{
-			"context_servers": map[string]interface{}{
-				"chrome-devtools": map[string]interface{}{"command": "/usr/bin/chrome-devtools-mcp"},
-			},
-		})
-		if err := d.verifyMCPEndpoints(context.Background(), time.Second, 100*time.Millisecond); err != nil {
-			t.Fatalf("verifyMCPEndpoints: %v", err)
-		}
-		if _, err := os.Stat(ready); err != nil {
-			t.Fatalf("ready marker not written: %v", err)
-		}
+	// And back again, so a transient failure does not latch.
+	SettingsPath = writeSettingsFile(t, map[string]interface{}{
+		"helix-tasks": map[string]interface{}{"url": live.URL + "/api/v1/mcp/helix-tasks"},
 	})
-
-	t.Run("stale unreachable marker is cleared on success", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer srv.Close()
-
-		d, _, unreachable := newReadinessDaemon(t, map[string]interface{}{
-			"context_servers": map[string]interface{}{
-				"helix-tasks": map[string]interface{}{"url": srv.URL + "/api/v1/mcp/helix-tasks"},
-			},
-		})
-		if err := os.WriteFile(unreachable, []byte("stale\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
-		if err := d.verifyMCPEndpoints(context.Background(), time.Second, 100*time.Millisecond); err != nil {
-			t.Fatalf("verifyMCPEndpoints: %v", err)
-		}
-		if _, err := os.Stat(unreachable); !os.IsNotExist(err) {
-			t.Fatal("stale unreachable marker survived a successful probe")
-		}
-	})
+	if status, body := ask(); status != http.StatusOK {
+		t.Fatalf("status = %d (%s), want 200 after recovery", status, body)
+	}
 }

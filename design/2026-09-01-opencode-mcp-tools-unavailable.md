@@ -98,61 +98,81 @@ failure had a different trigger — but the same permanent-failure mechanism.
 
 ## Fix
 
-The agent's MCP registration is one-shot, so the addresses we write into
-`settings.json` must be proven reachable *before* Zed launches the agent.
-Nothing checked this: `start-zed-core.sh` gated only on `settings.json`
-existing, so a container whose context-server origin did not resolve booted
-happily into a tool-less session.
+The agent's MCP registration is one-shot, so the addresses in `settings.json`
+must be proven reachable *before every Zed launch*. Nothing checked this:
+`start-zed-core.sh` gated only on `settings.json` existing, so a container whose
+context-server origin did not resolve booted straight into a tool-less session.
 
-1. `api/cmd/settings-sync-daemon/mcp_readiness.go` — after the initial sync,
-   the daemon extracts the distinct `scheme://host:port` of every
-   URL-addressed `context_server` **from the settings it just merged** and
-   probes each one (unauthenticated `GET /api/v1/config`, no side effects),
-   retrying for 60s. Any HTTP status counts: only a transport error is a
-   failure, because that is the only thing that breaks MCP registration.
-   Success writes `/tmp/helix-mcp-endpoints-ready`; failure writes
-   `/tmp/helix-mcp-endpoints-unreachable` with the failing URL and calls the
-   existing `reportAgentStartupError`, so it surfaces in the session UI.
+**Per launch, not per boot.** `run_zed_restart_loop` respawns Zed for the life
+of the container, and the daemon's `restartZed()` deliberately uses that path to
+give the agent a fresh ACP session on an agent switch. Every one of those
+launches is another one-shot MCP registration, so every one needs its own
+freshly measured verdict — a boot-lifetime "ready" marker would let the original
+bug straight back in on the first restart.
 
-   It reads the URLs back out of the settings rather than trusting
-   `HELIX_API_URL` on purpose: those two can disagree (a control plane that has
-   rolled forward to `helix-api.internal:18080` against an older sandbox host
-   that still sets `HELIX_API_URL=http://api:8080` and never pins the proxy
-   hostname). In that state Zed's websocket and inference both work over the
-   env address and *only* the MCP servers are dead — the exact failure being
-   fixed, and one a `HELIX_API_URL` probe would miss.
+1. `api/cmd/settings-sync-daemon/mcp_readiness.go` — `probeMCPEndpoints` reads
+   the distinct `scheme://host:port` of every URL-addressed `context_server`
+   **out of `settings.json` on disk** and probes each (unauthenticated
+   `GET /api/v1/config`, no side effects). Any HTTP status counts; only a
+   transport error is a failure, because that is the only thing that breaks MCP
+   registration. It is served at `/mcp-readiness` on the daemon's existing
+   loopback port (`SETTINGS_SYNC_PORT`, default 9877): 200 means safe to launch,
+   503 carries the reason.
 
-2. `desktop/shared/start-zed-core.sh` — new `wait_for_mcp_endpoints` step
-   between `wait_for_zed_config` and the Zed launch. Waits for the ready
-   marker; on the unreachable marker it prints the recorded reason and exits,
-   matching the existing `wait_for_zed_config` fatal behaviour.
+   Reading the file rather than `d.helixSettings` is deliberate on two counts.
+   It is the exact set Zed loads and forwards to the agent, user overrides
+   included; and the file is written atomically (tempfile + rename), so the HTTP
+   handler can read it while the poll loop rewrites it without sharing mutable
+   state with the rest of the daemon.
+
+   It reads those URLs rather than trusting `HELIX_API_URL` for a third reason:
+   the two can diverge (a control plane emitting `helix-api.internal:18080`
+   against an older sandbox host that still sets `HELIX_API_URL=http://api:8080`
+   and never pins the proxy hostname). In that state Zed's websocket and
+   inference both work and *only* the MCP servers are dead — the exact failure
+   being fixed, and one a `HELIX_API_URL` probe would miss.
+
+   A context server with no `url` is a stdio server and is ignored. A context
+   server that declares a `url` which cannot be turned into an origin — empty,
+   unparseable, no host, non-HTTP scheme, not a string — **fails** readiness.
+   Zed forwards that broken URL to the agent regardless and the registration
+   against it fails permanently, so skipping it is how an all-malformed config
+   would otherwise report "ready".
+
+   On the boot path the daemon additionally runs `waitForMCPEndpoints` (in a
+   goroutine, so it cannot delay the listener the gate polls) and reports a
+   failure through the existing `reportAgentStartupError`, so the operator is
+   told in the session UI rather than having to read container logs.
+
+2. `desktop/shared/start-zed-core.sh` — `wait_for_mcp_endpoints` polls
+   `/mcp-readiness` and is called **inside `run_zed_restart_loop`, before every
+   launch**. On a 503 it keeps waiting (a mid-session blip should ride out); if
+   the origin is still dead after 180s it prints the returned reason and exits
+   rather than starting a tool-less agent.
 
 ### Verified
 
-* Healthy container (`ubuntu-external-01m1e14w0ffjmqbx8v62y37dkk`, image
-  `bb8589`): daemon logs `MCP readiness: all 1 context server origin(s)
-  reachable`, `wait_for_mcp_endpoints` proceeds, Zed starts, and opencode logs
-  no `server unavailable` — the MCP servers connect.
-* Same container, `helix-api.internal` pointed at a dead port while the daemon
-  syncs over the gateway IP — i.e. the exact skew that produced the original
-  failure: the probe fails, the reason (with the failing URL) is recorded, and
-  the gate exits 1 instead of starting a tool-less agent.
-* Same container with the API unreachable entirely: the initial sync fails,
-  `helixSettings` is nil, and the gate refuses to declare readiness rather than
-  passing vacuously (regression test:
-  `TestVerifyMCPEndpoints/unsynced_settings_never_mark_ready`).
-* `go test ./cmd/settings-sync-daemon/` green.
+* Healthy container: daemon logs `MCP readiness: context servers reachable`,
+  the gate proceeds, Zed starts, and opencode logs no `server unavailable`.
+* Divergent dead origin (`helix-api.internal` pointed at a dead port while the
+  daemon syncs over the gateway IP — the exact skew that produced the original
+  failure): the probe fails, the reason names the failing URL, and the gate
+  refuses to launch.
+* Zed restart with the origin dead: the gate re-checks and holds the relaunch
+  instead of handing the agent a dead MCP surface.
+* `go test ./cmd/settings-sync-daemon/` green, including under `-race`.
 
 ### What this does and does not cover
 
-Covers: the agent never starts into a session whose MCP origins are
-unreachable, and if they are, the operator gets the failing URL immediately
-instead of a silent 20-minute tool outage.
+Covers: the agent never starts — on any launch, boot or restart — into a session
+whose MCP origins are unreachable or whose context-server URLs are unusable, and
+when that happens the operator gets the failing URL immediately instead of a
+silent tool outage.
 
 Does not cover: an MCP server that fails to register even though its origin
 answered (e.g. the API dies in the few seconds between the probe and
-`session/new`). Repairing that requires either a retry inside the agent or
-Zed re-pushing `mcpServers` to a live ACP session
+`session/new`). Repairing that requires either a retry inside the agent or Zed
+re-pushing `mcpServers` to a live ACP session
 (`crates/agent_servers/src/acp.rs::mcp_servers_for_project` is only called from
 `session/new|load|resume`). Both are outside this repo.
 
@@ -161,5 +181,5 @@ Zed re-pushing `mcpServers` to a live ACP session
 `opencode` fails its plugin bootstrap on every start with
 `EACCES: permission denied, open '/home/retro/.npm/_cacache/...'` while
 fetching `@opencode-ai/plugin` (46 occurrences across the historical session
-logs on this host). Unrelated to the MCP surface, but it is a real permissions
+logs on this host). Unrelated to the MCP surface, but a real permissions
 defect in the desktop image.

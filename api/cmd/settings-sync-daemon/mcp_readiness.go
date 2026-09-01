@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -29,27 +30,14 @@ import (
 // session in this state burns its whole budget calling tools that were never
 // registered.
 //
-// So the address we just wrote into settings.json has to be proven reachable
-// BEFORE Zed launches the agent. If it is not, the session is not degraded —
-// it is broken, because the same origin serves inference — and it must say so.
+// So the addresses in settings.json have to be proven reachable before EVERY
+// Zed launch, not once at boot: run_zed_restart_loop respawns Zed for the life
+// of the container, and restartZed() deliberately uses that path to give the
+// agent a fresh ACP session on an agent switch. Each of those launches is
+// another one-shot MCP registration, so each one needs its own verdict.
+// start-zed-core.sh asks /mcp-readiness for a fresh one before every launch.
 //
 // See design/2026-09-01-opencode-mcp-tools-unavailable.md.
-
-// Marker paths. Vars, not consts, so tests can redirect them at a tempdir
-// instead of writing the real container paths. The same literals appear in
-// desktop/shared/start-zed-core.sh, which is the reader.
-var (
-	// mcpEndpointsReadyMarker is written once every remote context_server
-	// origin has answered. start-zed-core.sh waits for it before launching
-	// Zed, so the agent's one-shot MCP registration happens in a window where
-	// the endpoints are known good.
-	mcpEndpointsReadyMarker = "/tmp/helix-mcp-endpoints-ready"
-
-	// mcpEndpointsUnreachableMarker records why the check failed.
-	// start-zed-core.sh prints its contents in the fatal message so an
-	// operator sees the actual URL rather than "Zed never connected".
-	mcpEndpointsUnreachableMarker = "/tmp/helix-mcp-endpoints-unreachable"
-)
 
 const (
 	// mcpProbePath is an unauthenticated endpoint on the Helix API. Probing it
@@ -62,51 +50,38 @@ const (
 	mcpProbeTimeout = 5 * time.Second
 )
 
-// verifyMCPEndpoints proves every distinct origin behind a remote
-// context_server answers, retrying until timeout elapses. It writes the ready
-// marker on success and the unreachable marker on failure.
-//
-// It deliberately reads the URLs back out of the settings we just merged rather
-// than trusting HELIX_API_URL. Those two can disagree: a control plane that has
-// rolled forward to the sandbox API proxy address emits helix-api.internal:18080
-// into context_servers while an older sandbox host still hands the container
-// HELIX_API_URL=http://api:8080 and never pins the proxy hostname. Zed's
-// websocket then works over the env address, inference works, and only the MCP
-// servers are dead — which is exactly the failure this check exists to catch,
-// and exactly the one probing HELIX_API_URL would miss.
-func (d *SettingsDaemon) verifyMCPEndpoints(ctx context.Context, timeout, retryDelay time.Duration) error {
-	if d.helixSettings == nil {
-		// The initial sync never completed, so there is no agent config at all
-		// — nothing was written for us to verify. Declaring readiness here
-		// would be a lie that lets Zed start against a config that does not
-		// exist, which is the failure this gate exists to prevent.
-		return d.failMCPEndpoints(fmt.Errorf("settings were never synced from Helix, so no agent config was written"))
+// probeMCPEndpoints makes one pass over the context server origins and returns
+// nil when the agent can safely be started. It is the whole readiness verdict:
+// callers decide whether to retry.
+func (d *SettingsDaemon) probeMCPEndpoints(ctx context.Context, settingsPath string) error {
+	origins, err := contextServerOrigins(settingsPath)
+	if err != nil {
+		return err
 	}
-
-	origins := remoteContextServerOrigins(d.helixSettings)
 	if len(origins) == 0 {
-		// Settings synced, but this agent has no URL-addressed context servers
+		// Settings parsed, but this agent has no URL-addressed context servers
 		// (a stdio-only agent, or one with no MCP at all). Nothing to prove.
-		log.Printf("MCP readiness: no remote context servers configured; nothing to verify")
-		return d.markMCPEndpointsReady()
+		return nil
 	}
+	for _, origin := range origins {
+		if err := d.probeOrigin(ctx, origin); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	log.Printf("MCP readiness: verifying %d context server origin(s): %s",
-		len(origins), strings.Join(origins, ", "))
-
+// waitForMCPEndpoints retries probeMCPEndpoints until timeout elapses. Used on
+// the boot path, where a failure is reported to the API so the operator sees it
+// in the session rather than having to read container logs.
+func (d *SettingsDaemon) waitForMCPEndpoints(ctx context.Context, settingsPath string, timeout, retryDelay time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for {
-		lastErr = nil
-		for _, origin := range origins {
-			if err := d.probeOrigin(ctx, origin); err != nil {
-				lastErr = err
-				break
-			}
-		}
+		lastErr = d.probeMCPEndpoints(ctx, settingsPath)
 		if lastErr == nil {
-			log.Printf("MCP readiness: all %d context server origin(s) reachable", len(origins))
-			return d.markMCPEndpointsReady()
+			log.Printf("MCP readiness: context servers reachable")
+			return nil
 		}
 		if time.Now().After(deadline) || ctx.Err() != nil {
 			break
@@ -117,20 +92,29 @@ func (d *SettingsDaemon) verifyMCPEndpoints(ctx context.Context, timeout, retryD
 		case <-time.After(retryDelay):
 		}
 	}
-
-	return d.failMCPEndpoints(fmt.Errorf("unreachable after %s: %w", timeout, lastErr))
+	return fmt.Errorf("Helix MCP context servers are not usable from this container "+
+		"(unreachable after %s: %w). The coding agent connects to them exactly once when it "+
+		"starts and never retries, so it would run with no Helix tools for the whole session",
+		timeout, lastErr)
 }
 
-// failMCPEndpoints records why the agent must not be started and returns the
-// error main() reports to the API.
-func (d *SettingsDaemon) failMCPEndpoints(cause error) error {
-	err := fmt.Errorf("Helix MCP context servers are not usable from this container (%w). "+
-		"The coding agent connects to them exactly once when it starts and never retries, "+
-		"so it would run with no Helix tools for the whole session", cause)
-	if writeErr := os.WriteFile(mcpEndpointsUnreachableMarker, []byte(err.Error()+"\n"), 0644); writeErr != nil {
-		log.Printf("MCP readiness: failed to write %s: %v", mcpEndpointsUnreachableMarker, writeErr)
+// mcpReadinessHandler answers the per-launch gate in start-zed-core.sh with a
+// freshly measured verdict. 200 means "safe to launch Zed"; 503 carries the
+// reason, which the gate prints.
+//
+// It is deliberately a single pass with no internal retry: the waiting policy
+// lives in the shell loop that polls this, so there is exactly one place that
+// decides how long a launch may be held back.
+func (d *SettingsDaemon) mcpReadinessHandler(w http.ResponseWriter, r *http.Request) {
+	if err := d.probeMCPEndpoints(r.Context(), SettingsPath); err != nil {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintln(w, err.Error())
+		return
 	}
-	return err
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, "ready")
 }
 
 // probeOrigin reports whether origin is reachable. Any HTTP response counts: a
@@ -153,50 +137,75 @@ func (d *SettingsDaemon) probeOrigin(ctx context.Context, origin string) error {
 	return nil
 }
 
-// markMCPEndpointsReady clears any stale unreachable marker and writes the
-// ready marker start-zed-core.sh gates on.
-func (d *SettingsDaemon) markMCPEndpointsReady() error {
-	if err := os.Remove(mcpEndpointsUnreachableMarker); err != nil && !os.IsNotExist(err) {
-		log.Printf("MCP readiness: failed to clear %s: %v", mcpEndpointsUnreachableMarker, err)
-	}
-	if err := os.WriteFile(mcpEndpointsReadyMarker, []byte("ready\n"), 0644); err != nil {
-		return fmt.Errorf("write %s: %w", mcpEndpointsReadyMarker, err)
-	}
-	return nil
-}
-
-// remoteContextServerOrigins returns the distinct scheme://host[:port] of every
-// context_server addressed by URL. Stdio servers (chrome-devtools and any
-// user-configured command) have no URL and cannot fail this way — they run
-// inside the container.
+// contextServerOrigins returns the distinct scheme://host[:port] of every
+// context_server addressed by URL, read from the settings file on disk.
 //
-// Sorted so the log line and the probe order are stable.
-func remoteContextServerOrigins(settings map[string]interface{}) []string {
+// Reading the file rather than d.helixSettings is deliberate on two counts.
+// It is the exact set Zed loads and forwards to the agent, including any user
+// overrides merged in; and the file is written atomically (tempfile + rename),
+// so the HTTP handler can read it concurrently with the poll loop rewriting it
+// without sharing mutable state with the rest of the daemon.
+//
+// A context server with no "url" is a stdio server: it runs inside the
+// container and cannot fail this way, so it is ignored. A context server that
+// declares a "url" we cannot turn into an origin is a configuration error and
+// fails readiness — Zed will hand that broken URL to the agent regardless, and
+// the agent's one-shot registration against it will fail permanently. Silently
+// skipping it is how an all-malformed config would otherwise report "ready".
+//
+// Origins are sorted so the log line and the probe order are stable.
+func contextServerOrigins(settingsPath string) ([]string, error) {
+	raw, err := os.ReadFile(settingsPath)
+	if err != nil {
+		// No settings file means the initial sync never completed and no agent
+		// config was written. Reporting readiness here would let Zed start
+		// against a config that does not exist.
+		return nil, fmt.Errorf("read %s: %w", settingsPath, err)
+	}
+	var settings map[string]interface{}
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", settingsPath, err)
+	}
+
 	contextServers, ok := settings["context_servers"].(map[string]interface{})
 	if !ok {
-		return nil
+		return nil, nil
 	}
+
 	seen := map[string]struct{}{}
-	for name, raw := range contextServers {
-		server, ok := raw.(map[string]interface{})
+	var invalid []string
+	for name, entry := range contextServers {
+		server, ok := entry.(map[string]interface{})
 		if !ok {
+			invalid = append(invalid, fmt.Sprintf("%s (not an object)", name))
 			continue
 		}
-		rawURL, ok := server["url"].(string)
-		if !ok || rawURL == "" {
+		value, present := server["url"]
+		if !present {
+			// stdio server (command/args) — nothing to reach over the network.
+			continue
+		}
+		rawURL, ok := value.(string)
+		if !ok || strings.TrimSpace(rawURL) == "" {
+			invalid = append(invalid, fmt.Sprintf("%s (empty url)", name))
 			continue
 		}
 		parsed, err := url.Parse(rawURL)
-		if err != nil || parsed.Host == "" {
-			log.Printf("MCP readiness: skipping context server %q with unparseable url %q", name, rawURL)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			invalid = append(invalid, fmt.Sprintf("%s (unusable url %q)", name, rawURL))
 			continue
 		}
 		seen[parsed.Scheme+"://"+parsed.Host] = struct{}{}
 	}
+	if len(invalid) > 0 {
+		sort.Strings(invalid)
+		return nil, fmt.Errorf("context servers with unusable urls: %s", strings.Join(invalid, ", "))
+	}
+
 	origins := make([]string, 0, len(seen))
 	for origin := range seen {
 		origins = append(origins, origin)
 	}
 	sort.Strings(origins)
-	return origins
+	return origins, nil
 }
