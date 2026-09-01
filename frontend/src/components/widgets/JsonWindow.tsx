@@ -12,6 +12,7 @@ import useTheme from '@mui/material/styles/useTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 interface JsonWindowProps {
   data: any,
@@ -35,7 +36,7 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
 
   const handleCopy = () => {
     const textToCopy = typeof(data) === 'string' ? data : JSON.stringify(data, null, 4)
-    navigator.clipboard.writeText(textToCopy)
+    copyTextToClipboard(textToCopy)
       .then(() => {
         snackbar.success('Copied to clipboard')
       })
@@ -139,4 +140,3 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
 }
 
 export default JsonWindow
-

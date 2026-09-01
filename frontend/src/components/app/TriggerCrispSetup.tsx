@@ -22,6 +22,7 @@ import InputAdornment from '@mui/material/InputAdornment'
 import { CrispLogo } from '../icons/ProviderIcons'
 import DarkDialog from '../dialog/DarkDialog'
 import { IAppFlatState } from '../../types'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 import crispMarketplace from '../../../assets/img/crisp/marketplace.png'
 import crispProductionToken from '../../../assets/img/crisp/production_token.png'
@@ -97,7 +98,7 @@ const TriggerCrispSetup: FC<TriggerCrispSetupProps> = ({
   const handleCopyScopes = async () => {
     const scopesText = requiredScopes.join(', ')
     try {
-      await navigator.clipboard.writeText(scopesText)
+      await copyTextToClipboard(scopesText)
     } catch (err) {
       console.error('Failed to copy scopes:', err)
     }

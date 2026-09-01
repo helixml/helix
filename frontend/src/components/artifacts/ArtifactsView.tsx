@@ -33,6 +33,7 @@ const artifactKindLabel = (artifact: TypesArtifact) => {
     case TypesArtifactKind.ArtifactKindSPA: return 'Static SPA'
     case TypesArtifactKind.ArtifactKindPDF: return 'PDF document'
     case TypesArtifactKind.ArtifactKindImage: return 'Image'
+    case TypesArtifactKind.ArtifactKindMarkdown: return 'Markdown document'
     default: return 'HTML page'
   }
 }

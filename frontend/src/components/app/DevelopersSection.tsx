@@ -12,6 +12,7 @@ import MonacoEditor from '../widgets/MonacoEditor';
 import { generateYamlFilename } from '../../utils/format';
 import useSnackbar from '../../hooks/useSnackbar';
 import { useSettingsDialog } from '../../contexts/settingsDialog';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface DevelopersSectionProps {
   schema: string;
@@ -47,7 +48,7 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
   };
 
   const handleCopyCommand = (command: string, setCopied: (value: boolean) => void) => {
-    navigator.clipboard.writeText(command)
+    copyTextToClipboard(command)
       .then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);

@@ -208,6 +208,11 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [startupScript, setStartupScript] = useState("");
   const [guidelines, setGuidelines] = useState("");
   const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false);
+  const [autoArchiveCompletedTasks, setAutoArchiveCompletedTasks] =
+    useState(false);
+  const [archiveStaleTasksEnabled, setArchiveStaleTasksEnabled] =
+    useState(false);
+  const [archiveStaleTasksDays, setArchiveStaleTasksDays] = useState(6);
   const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] =
     useState(false);
   const [koditEnabled, setKoditEnabled] = useState(true);
@@ -625,6 +630,9 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       setStartupScript(project.startup_script || "");
       setGuidelines(project.guidelines || "");
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false);
+      setAutoArchiveCompletedTasks(project.auto_archive_completed_tasks || false);
+      setArchiveStaleTasksEnabled(project.archive_stale_tasks_enabled || false);
+      setArchiveStaleTasksDays(project.archive_stale_tasks_days || 6);
       setPullRequestReviewsEnabled(
         project.pull_request_reviews_enabled || false,
       );
@@ -669,6 +677,12 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         startup_script: startupScript,
         guidelines,
         auto_start_backlog_tasks: autoStartBacklogTasks,
+        auto_archive_completed_tasks: autoArchiveCompletedTasks,
+        archive_stale_tasks_enabled: archiveStaleTasksEnabled,
+        archive_stale_tasks_days: Math.min(
+          365,
+          Math.max(1, archiveStaleTasksDays || 6),
+        ),
         pull_request_reviews_enabled: pullRequestReviewsEnabled,
         metadata: {
           board_settings: {
@@ -1539,10 +1553,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const renderBoardTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      {/* Kanban Board Settings */}
+      {/* Board Automation */}
       <Box>
         <Typography variant="h6" gutterBottom>
-          Kanban Board Settings
+          Board Automation
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Configure work-in-progress (WIP) limits for the Kanban board
@@ -1634,6 +1648,95 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                 });
               }}
             />
+          </Box>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Box sx={{ flex: 1, mr: 2 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                Automatically archive completed tasks
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Archive tasks immediately when they enter Done.
+              </Typography>
+            </Box>
+            <Switch
+              checked={autoArchiveCompletedTasks}
+              onChange={(e) => {
+                const newValue = e.target.checked;
+                setAutoArchiveCompletedTasks(newValue);
+                updateProjectMutation.mutate({
+                  auto_archive_completed_tasks: newValue,
+                });
+              }}
+            />
+          </Box>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Box sx={{ flex: 1, mr: 2 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                Archive stale tasks
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Archive tasks with no new messages or activity for a number of
+                days.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                flexShrink: 0,
+              }}
+            >
+              {archiveStaleTasksEnabled && (
+                <TextField
+                  label="Days"
+                  value={archiveStaleTasksDays}
+                  onChange={(e) => {
+                    const parsed = parseInt(e.target.value, 10);
+                    setArchiveStaleTasksDays(
+                      Number.isNaN(parsed) ? 0 : parsed,
+                    );
+                  }}
+                  onBlur={() => {
+                    const clamped = Math.min(
+                      365,
+                      Math.max(1, archiveStaleTasksDays || 6),
+                    );
+                    setArchiveStaleTasksDays(clamped);
+                    updateProjectMutation.mutate({
+                      archive_stale_tasks_days: clamped,
+                    });
+                  }}
+                  size="small"
+                  sx={{ width: 110 }}
+                />
+              )}
+              <Switch
+                checked={archiveStaleTasksEnabled}
+                onChange={(e) => {
+                  const newValue = e.target.checked;
+                  setArchiveStaleTasksEnabled(newValue);
+                  updateProjectMutation.mutate({
+                    archive_stale_tasks_enabled: newValue,
+                    ...(newValue && archiveStaleTasksDays < 1
+                      ? { archive_stale_tasks_days: 6 }
+                      : {}),
+                  });
+                }}
+              />
+            </Box>
           </Box>
           <Box
             sx={{

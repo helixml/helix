@@ -51,9 +51,14 @@ const ArtifactDialog: FC<Props> = ({ open, artifact, projectName, saving, error,
   const selectedDocument = !!file && (
     file.type === 'application/pdf' ||
     file.type.startsWith('image/') ||
-    ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].includes(fileExtension ?? '')
+    file.type === 'text/markdown' ||
+    file.type === 'text/x-markdown' ||
+    ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].includes(fileExtension ?? '') ||
+    ['md', 'markdown'].includes(fileExtension ?? '')
   )
-  const documentArtifact = artifact?.kind === TypesArtifactKind.ArtifactKindPDF || artifact?.kind === TypesArtifactKind.ArtifactKindImage
+  const documentArtifact = artifact?.kind === TypesArtifactKind.ArtifactKindPDF ||
+    artifact?.kind === TypesArtifactKind.ArtifactKindImage ||
+    artifact?.kind === TypesArtifactKind.ArtifactKindMarkdown
   const showEntrypoint = file ? !selectedDocument : !documentArtifact
   const agentPrompt = projectName
     ? `Create and upload an artifact to the Helix project "${projectName}".`
@@ -76,7 +81,7 @@ const ArtifactDialog: FC<Props> = ({ open, artifact, projectName, saving, error,
               <Box>
                 <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Upload manually</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Upload HTML, a compiled app ZIP, a PDF, or an image.
+                  Upload HTML, Markdown, a compiled app ZIP, a PDF, or an image.
                 </Typography>
               </Box>
             )}
@@ -104,7 +109,7 @@ const ArtifactDialog: FC<Props> = ({ open, artifact, projectName, saving, error,
             )}
             <Button component="label" variant="outlined" startIcon={<Upload size={18} />} sx={{ alignSelf: 'flex-start' }}>
               {artifact ? 'Publish new version' : 'Choose artifact file'}
-              <input hidden type="file" accept=".html,.htm,.zip,.pdf,image/*,text/html,application/zip,application/pdf" onChange={handleFile} />
+              <input hidden type="file" accept=".html,.htm,.md,.markdown,.zip,.pdf,image/*,text/html,text/markdown,application/zip,application/pdf" onChange={handleFile} />
             </Button>
             <Typography variant="body2" color="text.secondary">
               {file?.name ?? (artifact ? 'Keep the current content version' : 'No file selected')}

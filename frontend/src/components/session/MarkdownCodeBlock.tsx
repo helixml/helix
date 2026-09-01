@@ -8,6 +8,7 @@ import { Prism as SyntaxHighlighterTS } from "react-syntax-highlighter";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 import { APP_MONO_FONT_FAMILY, TYPOGRAPHY } from "../../styles/typography";
+import { copyTextToClipboard } from "../../utils/clipboard";
 import { getChatColors } from "./chatStyles";
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any;
@@ -30,7 +31,7 @@ const MarkdownCodeBlock: FC<MarkdownCodeBlockProps> = React.memo(
 
     const handleCopy = useCallback(async () => {
       try {
-        await navigator.clipboard.writeText(code);
+        await copyTextToClipboard(code);
         if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
         setCopied(true);
         copiedTimerRef.current = setTimeout(() => {

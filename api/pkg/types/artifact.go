@@ -13,6 +13,7 @@ const (
 	ArtifactKindSPA        ArtifactKind = "spa"
 	ArtifactKindPDF        ArtifactKind = "pdf"
 	ArtifactKindImage      ArtifactKind = "image"
+	ArtifactKindMarkdown   ArtifactKind = "markdown"
 )
 
 type ArtifactVisibility string

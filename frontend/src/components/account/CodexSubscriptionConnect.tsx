@@ -288,7 +288,11 @@ export default function CodexSubscriptionConnect({ orgId, enableForOrgId }: Prop
                       <IconButton
                         size="small"
                         aria-label="Copy device code"
-                        onClick={() => copyTextToClipboard(deviceCode)}
+                        onClick={() => {
+                          void copyTextToClipboard(deviceCode).catch((error) => {
+                            console.error('Failed to copy device code', error)
+                          })
+                        }}
                       >
                         <Copy size={14} />
                       </IconButton>

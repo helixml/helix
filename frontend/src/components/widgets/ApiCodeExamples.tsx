@@ -9,6 +9,7 @@ import { API_CODE_EXAMPLES } from '../../data/apiCodeExamples';
 import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface ApiCodeExamplesProps {
   apiKey: string;
@@ -40,7 +41,7 @@ const ApiCodeExamples: FC<ApiCodeExamplesProps> = ({ apiKey, model }) => {
 
   const handleCopyCode = async () => {
     try {
-      await navigator.clipboard.writeText(API_CODE_EXAMPLES[selectedTab].code(url, apiKey, effectiveModel));
+      await copyTextToClipboard(API_CODE_EXAMPLES[selectedTab].code(url, apiKey, effectiveModel));
     } catch (err) {
       console.error('Failed to copy code:', err);
     }

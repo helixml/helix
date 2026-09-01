@@ -25,6 +25,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
+import { copyTextToClipboard } from '../../utils/clipboard'
 import {
   ServerProjectWebServiceResponse,
   ServerProjectWebServiceLogsResponse,
@@ -263,8 +264,9 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
               cnameTarget={cnameTarget}
               onDelete={(id) => deleteDomainMutation.mutate(id)}
               onCopy={(text, label) => {
-                navigator.clipboard.writeText(text)
-                snackbar.success(`${label} copied`)
+                void copyTextToClipboard(text)
+                  .then(() => snackbar.success(`${label} copied`))
+                  .catch(() => snackbar.error(`Failed to copy ${label.toLowerCase()}`))
               }}
             />
 
@@ -324,8 +326,9 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
                     <IconButton
                       size="small"
                       onClick={() => {
-                        navigator.clipboard.writeText(cnameTarget)
-                        snackbar.success('CNAME target copied')
+                        void copyTextToClipboard(cnameTarget)
+                          .then(() => snackbar.success('CNAME target copied'))
+                          .catch(() => snackbar.error('Failed to copy CNAME target'))
                       }}
                     >
                       <ContentCopyIcon fontSize="small" />
@@ -366,8 +369,9 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
                         <IconButton
                           size="small"
                           onClick={() => {
-                            navigator.clipboard.writeText('_acme-challenge.app.yourcompany.com')
-                            snackbar.success('Record name copied')
+                            void copyTextToClipboard('_acme-challenge.app.yourcompany.com')
+                              .then(() => snackbar.success('Record name copied'))
+                              .catch(() => snackbar.error('Failed to copy record name'))
                           }}
                         >
                           <ContentCopyIcon fontSize="small" />
@@ -381,8 +385,9 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
                         <IconButton
                           size="small"
                           onClick={() => {
-                            navigator.clipboard.writeText(acmeChallengeTarget)
-                            snackbar.success('ACME challenge target copied')
+                            void copyTextToClipboard(acmeChallengeTarget)
+                              .then(() => snackbar.success('ACME challenge target copied'))
+                              .catch(() => snackbar.error('Failed to copy ACME challenge target'))
                           }}
                         >
                           <ContentCopyIcon fontSize="small" />

@@ -13,6 +13,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Box, Typography, IconButton, Tooltip } from '@mui/material';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 // Stats data structure
 export interface ChatStats {
@@ -326,10 +327,10 @@ Streaming:
   Throttle: ${stats.throttleMs}ms
 `;
 
-    navigator.clipboard.writeText(statsText).then(() => {
+    copyTextToClipboard(statsText).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    }).catch((error) => console.error('Failed to copy chat stats', error));
   }, [stats]);
 
   return (

@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -1284,6 +1283,16 @@ func containsType(keyType string, typesParam string) bool {
 	return false
 }
 
+func isPersonalAPIKey(key *types.ApiKey) bool {
+	if key == nil || key.Type != types.APIkeytypeAPI {
+		return false
+	}
+	if key.AppID != nil && key.AppID.Valid && key.AppID.String != "" {
+		return false
+	}
+	return key.OrganizationID == "" && key.ProjectID == "" && key.SpecTaskID == "" && key.SessionID == ""
+}
+
 // getAPIKeys godoc
 // @Summary Get API keys
 // @Description Get API keys
@@ -1304,6 +1313,26 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 
 	typesParam := req.URL.Query().Get("types")
 	appIDParam := req.URL.Query().Get("app_id")
+	if typesParam == "" && appIDParam == "" {
+		var latest *types.ApiKey
+		for _, key := range apiKeys {
+			if isPersonalAPIKey(key) && (latest == nil || key.Created.After(latest.Created)) {
+				latest = key
+			}
+		}
+		if latest != nil {
+			return []*types.ApiKey{latest}, nil
+		}
+
+		createdKey, err := apiServer.Controller.CreateAPIKey(ctx, user, &types.ApiKey{
+			Name: "API Key",
+			Type: types.APIkeytypeAPI,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return []*types.ApiKey{createdKey}, nil
+	}
 
 	includeAllTypes := false
 	if typesParam == "all" {
@@ -1321,22 +1350,6 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 		filteredAPIKeys = append(filteredAPIKeys, key)
 	}
 	apiKeys = filteredAPIKeys
-
-	// If filter is missing, we are getting user keys. If we haven't got any. create a new one.
-	if typesParam == "" && appIDParam == "" && len(apiKeys) == 0 {
-		createdKey, err := apiServer.Controller.CreateAPIKey(ctx, user, &types.ApiKey{
-			Created: time.Now(),
-			Key:     uuid.New().String(),
-			Name:    "API Key",
-			Type:    types.APIkeytypeAPI,
-			Owner:   user.ID,
-		})
-		if err != nil {
-			return nil, err
-		}
-		apiKeys = append(apiKeys, createdKey)
-		return apiKeys, nil
-	}
 
 	return apiKeys, nil
 }

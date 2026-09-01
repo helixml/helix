@@ -19,6 +19,7 @@ import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
 
 import { AssetAuthType, AssetKind } from '../../api/api'
 import useSnackbar from '../../hooks/useSnackbar'
+import { copyTextToClipboard } from '../../utils/clipboard'
 import {
   AssetDTO,
   AssetHealthDTO,
@@ -175,8 +176,12 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
 
   const copyPublicKey = async () => {
     if (!currentPublicKey) return
-    await navigator.clipboard.writeText(currentPublicKey)
-    snackbar.success('Public key copied')
+    try {
+      await copyTextToClipboard(currentPublicKey)
+      snackbar.success('Public key copied')
+    } catch {
+      snackbar.error('Failed to copy public key')
+    }
   }
 
   const toggleEnabled = async (nextEnabled: boolean) => {

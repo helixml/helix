@@ -6,6 +6,7 @@ import MenuItem from "@mui/material/MenuItem";
 import Tooltip from "@mui/material/Tooltip";
 import { useTheme } from "@mui/material/styles";
 import { Check, Copy, Maximize2, Minimize2 } from "lucide-react";
+import { copyTextToClipboard } from "../../utils/clipboard";
 
 function wrapInlineCode(code: string): string {
   const longestRun = [...(code.match(/`+/g) ?? [])].reduce(
@@ -124,14 +125,14 @@ export default function MarkdownTable({
   const copyTable = async (format: "markdown" | "csv") => {
     setMenuAnchor(null);
     const table = tableRef.current;
-    if (!table || !navigator.clipboard) return;
+    if (!table) return;
 
     const text =
       format === "markdown"
         ? serializeTableToMarkdown(table)
         : serializeTableToCsv(table);
     try {
-      await navigator.clipboard.writeText(text);
+      await copyTextToClipboard(text);
       setCopied(true);
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
       copiedTimerRef.current = setTimeout(() => setCopied(false), 1200);

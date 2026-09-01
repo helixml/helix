@@ -56,6 +56,13 @@ const (
 	recentPRPollingInterval = 30 * time.Second
 	stalePRPollingInterval  = 5 * time.Minute
 	oldPRPollingInterval    = time.Hour
+
+	// staleArchiveSweepInterval controls how often inactive tasks are evaluated.
+	// Completed-task archiving is event-driven in handleDone instead.
+	staleArchiveSweepInterval = time.Hour
+	// defaultArchiveStaleTasksDays is used when a project enabled stale
+	// archiving without a configured day count.
+	defaultArchiveStaleTasksDays = 6
 )
 
 // ContainerExecutor defines the interface for container lifecycle management
@@ -138,6 +145,10 @@ func (o *SpecTaskOrchestrator) Start(ctx context.Context) error {
 	o.wg.Add(1)
 	go o.prPollLoop(ctx)
 
+	// Start the hourly reconciler for stale-task archive automation.
+	o.wg.Add(1)
+	go o.staleArchiveLoop(ctx)
+
 	return nil
 }
 
@@ -164,7 +175,7 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 			types.TaskStatusBacklog,
 			types.TaskStatusQueuedSpecGeneration,
 			types.TaskStatusQueuedImplementation,
-			types.TaskStatusDone, // For shutdown
+			types.TaskStatusDone, // For shutdown and immediate auto-archive
 		},
 	}, func(task *types.SpecTask) error {
 		taskCh <- task
@@ -1690,24 +1701,225 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 }
 
 func (o *SpecTaskOrchestrator) handleDone(ctx context.Context, task *types.SpecTask) error {
+	if task.Archived {
+		return nil
+	}
+
+	var stopErr error
 	if task.KeepAlive {
 		log.Info().
 			Str("task_id", task.ID).
 			Msg("Task in done status but keep_alive is set - leaving desktop running")
-		return nil
+	} else if task.PlanningSessionID != "" {
+		if err := o.containerExecutor.StopDesktop(ctx, task.PlanningSessionID); err != nil {
+			stopErr = fmt.Errorf("failed to stop desktop: %w", err)
+		} else {
+			log.Info().
+				Str("task_id", task.ID).
+				Msg("Task in done status - stopping desktop")
+		}
 	}
-	if task.PlanningSessionID == "" {
+
+	if err := o.archiveCompletedTask(ctx, task); err != nil {
+		return err
+	}
+	return stopErr
+}
+
+func (o *SpecTaskOrchestrator) archiveCompletedTask(ctx context.Context, task *types.SpecTask) error {
+	if task.ProjectID == "" {
 		return nil
 	}
 
-	err := o.containerExecutor.StopDesktop(ctx, task.PlanningSessionID)
+	project, err := o.store.GetProject(ctx, task.ProjectID)
 	if err != nil {
-		return fmt.Errorf("failed to stop desktop: %w", err)
+		return fmt.Errorf("failed to get project for completed-task archive automation: %w", err)
+	}
+	if !project.AutoArchiveCompletedTasks {
+		return nil
+	}
+
+	latest, err := o.store.GetSpecTask(ctx, task.ID)
+	if err != nil {
+		return fmt.Errorf("failed to reload completed task for archive automation: %w", err)
+	}
+	if latest.Archived || latest.Status != types.TaskStatusDone {
+		return nil
+	}
+
+	latest.Archived = true
+	if err := o.store.UpdateSpecTask(ctx, latest); err != nil {
+		return fmt.Errorf("failed to auto-archive completed task: %w", err)
 	}
 
 	log.Info().
-		Str("task_id", task.ID).
-		Msg("Task in done status - stopping desktop")
-
+		Str("task_id", latest.ID).
+		Str("project_id", latest.ProjectID).
+		Msg("Auto-archived completed task")
 	return nil
+}
+
+// staleArchiveLoop reconciles stale-task automation once per hour.
+func (o *SpecTaskOrchestrator) staleArchiveLoop(ctx context.Context) {
+	defer o.wg.Done()
+
+	ticker := time.NewTicker(staleArchiveSweepInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-o.stopChan:
+			return
+		case <-ticker.C:
+			o.staleArchiveSweep(ctx)
+		}
+	}
+}
+
+// staleArchiveSweep evaluates non-archived tasks against their project's
+// inactivity policy and archives the ones that qualify.
+func (o *SpecTaskOrchestrator) staleArchiveSweep(ctx context.Context) {
+	// SortBy "last_message" makes the store compute LastMessageAt per task
+	// (COALESCE'd to created_at when the task has no session interactions) —
+	// exactly the idle signal the stale check needs. Default filtering
+	// excludes already-archived tasks.
+	tasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		SortBy: "last_message",
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list tasks for archive sweep")
+		return
+	}
+	if len(tasks) == 0 {
+		return
+	}
+
+	now := time.Now()
+	projectCache := make(map[string]*types.Project)
+
+	for _, task := range tasks {
+		project, cached := projectCache[task.ProjectID]
+		if !cached {
+			project, err = o.store.GetProject(ctx, task.ProjectID)
+			if err != nil {
+				if !isDeletedProjectError(err) {
+					log.Warn().Err(err).
+						Str("task_id", task.ID).
+						Str("project_id", task.ProjectID).
+						Msg("Failed to load project during archive sweep")
+				}
+				projectCache[task.ProjectID] = nil
+				continue
+			}
+			projectCache[task.ProjectID] = project
+		}
+		if project == nil {
+			continue
+		}
+
+		if !shouldArchiveStaleTask(project, task, now) {
+			continue
+		}
+
+		// Reload the task so a concurrent status change or manual archive
+		// between list and write is never clobbered.
+		latest, err := o.store.GetSpecTask(ctx, task.ID)
+		if err != nil {
+			log.Warn().Err(err).
+				Str("task_id", task.ID).
+				Msg("Failed to reload task during archive sweep")
+			continue
+		}
+		if latest.Archived {
+			continue
+		}
+
+		o.stopTaskAgentsBeforeArchive(ctx, latest)
+
+		latest.Archived = true
+		if err := o.store.UpdateSpecTask(ctx, latest); err != nil {
+			log.Warn().Err(err).
+				Str("task_id", task.ID).
+				Msg("Failed to archive task during archive sweep")
+			continue
+		}
+
+		log.Info().
+			Str("task_id", task.ID).
+			Str("project_id", task.ProjectID).
+			Str("status", latest.Status.String()).
+			Msg("Auto-archived stale task")
+	}
+}
+
+// shouldArchiveStaleTask reports whether an inactive task is old enough to be
+// archived by the hourly stale-task cleanup.
+func shouldArchiveStaleTask(project *types.Project, task *types.SpecTask, now time.Time) bool {
+	if !project.ArchiveStaleTasksEnabled {
+		return false
+	}
+
+	// Never archive tasks with agent work in flight or an open PR awaiting
+	// merge — those are waiting on agents/CI, not abandoned by people.
+	switch task.Status {
+	case types.TaskStatusSpecGeneration,
+		types.TaskStatusImplementationQueued,
+		types.TaskStatusImplementation,
+		types.TaskStatusPullRequest,
+		types.TaskStatusDone:
+		return false
+	}
+
+	staleDays := project.ArchiveStaleTasksDays
+	if staleDays < 1 {
+		staleDays = defaultArchiveStaleTasksDays
+	}
+	idleSince := now.Add(-time.Duration(staleDays) * 24 * time.Hour)
+
+	lastActivity := task.CreatedAt
+	if task.LastMessageAt != nil && task.LastMessageAt.After(lastActivity) {
+		lastActivity = *task.LastMessageAt
+	}
+	if task.StatusUpdatedAt != nil && task.StatusUpdatedAt.After(lastActivity) {
+		lastActivity = *task.StatusUpdatedAt
+	}
+	if lastActivity.Before(idleSince) {
+		return true
+	}
+	return false
+}
+
+// stopTaskAgentsBeforeArchive mirrors the manual archive handler: any running
+// agent for the task is stopped before the task disappears from the board.
+func (o *SpecTaskOrchestrator) stopTaskAgentsBeforeArchive(ctx context.Context, task *types.SpecTask) {
+	if o.containerExecutor == nil {
+		return
+	}
+
+	if task.PlanningSessionID != "" {
+		session, err := o.store.GetSession(ctx, task.PlanningSessionID)
+		if err == nil && session.Metadata.AgentType == "zed_external" {
+			if err := o.containerExecutor.StopDesktop(ctx, task.PlanningSessionID); err != nil {
+				log.Warn().Err(err).
+					Str("task_id", task.ID).
+					Str("session_id", task.PlanningSessionID).
+					Msg("Failed to stop agent session when auto-archiving (continuing anyway)")
+			}
+		}
+	}
+
+	externalAgent, err := o.store.GetSpecTaskExternalAgent(ctx, task.ID)
+	if err == nil && externalAgent != nil && externalAgent.Status == "running" {
+		if err := o.containerExecutor.StopDesktop(ctx, externalAgent.ID); err != nil {
+			log.Warn().Err(err).
+				Str("task_id", task.ID).
+				Str("agent_id", externalAgent.ID).
+				Msg("Failed to stop external agent when auto-archiving (continuing anyway)")
+		} else {
+			externalAgent.Status = "stopped"
+			_ = o.store.UpdateSpecTaskExternalAgent(ctx, externalAgent)
+		}
+	}
 }

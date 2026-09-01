@@ -11,6 +11,7 @@ import {
   IApiKey,
 } from '../../types'
 import useSnackbar from '../../hooks/useSnackbar'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 const AppAPIKeysDataGrid: FC<React.PropsWithChildren<{
   data: IApiKey[],
@@ -22,7 +23,7 @@ const AppAPIKeysDataGrid: FC<React.PropsWithChildren<{
   const snackbar = useSnackbar()
 
   const handleCopy = useCallback((text: string, successMessage: string) => {
-    navigator.clipboard.writeText(text)
+    copyTextToClipboard(text)
       .then(() => {
         snackbar.success(successMessage)
       })

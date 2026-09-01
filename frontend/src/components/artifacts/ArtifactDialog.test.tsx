@@ -39,11 +39,30 @@ describe('ArtifactDialog', () => {
     const input = document.querySelector('input[type="file"]') as HTMLInputElement
     expect(input.accept).toContain('.pdf')
     expect(input.accept).toContain('image/*')
+    expect(input.accept).toContain('.md')
     expect(screen.getByLabelText('Entrypoint')).toBeInTheDocument()
 
     fireEvent.change(input, { target: { files: [new File(['pdf'], 'report.pdf', { type: 'application/pdf' })] } })
 
     expect(screen.getByText('report.pdf')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Entrypoint')).not.toBeInTheDocument()
+  })
+
+  it('accepts markdown uploads without asking for an entrypoint', () => {
+    render(
+      <ArtifactDialog
+        open
+        projectName="Example project"
+        saving={false}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    )
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['# hi'], 'notes.md', { type: 'text/markdown' })] } })
+
+    expect(screen.getByText('notes.md')).toBeInTheDocument()
     expect(screen.queryByLabelText('Entrypoint')).not.toBeInTheDocument()
   })
 })

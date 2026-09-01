@@ -2318,14 +2318,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindGitLab = "gitlab",
-  KindGitHub = "github",
-  KindLocal = "local",
   KindSlack = "slack",
-  KindHelixEvents = "helix_events",
-  KindWebhook = "webhook",
   KindCron = "cron",
+  KindGitLab = "gitlab",
+  KindLocal = "local",
   KindEmail = "email",
+  KindWebhook = "webhook",
+  KindHelixEvents = "helix_events",
+  KindGitHub = "github",
 }
 
 export interface TransportResolvedActivation {
@@ -2585,6 +2585,7 @@ export enum TypesArtifactKind {
   ArtifactKindSPA = "spa",
   ArtifactKindPDF = "pdf",
   ArtifactKindImage = "image",
+  ArtifactKindMarkdown = "markdown",
 }
 
 export interface TypesArtifactVersion {
@@ -5300,6 +5301,12 @@ export interface TypesProject {
    * project inherits. Empty means no Helix MCP surface at all.
    */
   agent_tools?: string[];
+  /** Idle days before a stale task is archived */
+  archive_stale_tasks_days?: number;
+  /** Archive tasks idle for ArchiveStaleTasksDays */
+  archive_stale_tasks_enabled?: boolean;
+  /** Archive automation, reconciled by the spec task orchestrator */
+  auto_archive_completed_tasks?: boolean;
   /** Automation settings */
   auto_start_backlog_tasks?: boolean;
   /** CodeAgentConfig is the project default copied into each new SpecTask. */
@@ -5555,6 +5562,12 @@ export interface TypesProjectTaskSpec {
 export interface TypesProjectUpdateRequest {
   /** Helix MCP tools granted to every spec task */
   agent_tools?: string[];
+  /** Idle days before a stale task is archived (1-365) */
+  archive_stale_tasks_days?: number;
+  /** Archive tasks idle for ArchiveStaleTasksDays */
+  archive_stale_tasks_enabled?: boolean;
+  /** Archive tasks immediately when they enter Done */
+  auto_archive_completed_tasks?: boolean;
   auto_start_backlog_tasks?: boolean;
   code_agent_config?: TypesCodeAgentExecutionConfig;
   default_branch?: string;
@@ -10188,7 +10201,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Patch metadata and optionally upload replacement HTML, PDF, image, or ZIP content as a new version.
+     * @description Patch metadata and optionally upload replacement HTML, Markdown, PDF, or ZIP content as a new version.
      *
      * @tags Artifacts
      * @name V1ArtifactsUpdate
@@ -10209,7 +10222,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         visibility?: string;
         /** Allocate or retain a public default subdomain */
         with_subdomain?: boolean;
-        /** Replacement HTML, PDF, image, or ZIP content */
+        /** Replacement HTML, Markdown, PDF, or ZIP content */
         artifact?: File;
       },
       params: RequestParams = {},
@@ -15344,7 +15357,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Upload one HTML, PDF, or image file, or a ZIP containing a compiled static SPA.
+     * @description Upload one HTML, Markdown, PDF, or image file, or a ZIP containing a compiled static SPA.
      *
      * @tags Artifacts
      * @name V1ProjectsArtifactsCreate
@@ -15365,7 +15378,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         visibility?: string;
         /** Deprecated: public artifacts always receive a share subdomain */
         with_subdomain?: boolean;
-        /** HTML, PDF, image, or ZIP bundle */
+        /** HTML, Markdown, PDF, image, or ZIP bundle */
         artifact: File;
       },
       params: RequestParams = {},
@@ -16185,6 +16198,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         with_models?: boolean;
         /** Organization ID */
         org_id?: string;
+        /** Filter by organization code-agent harness policy */
+        code_agent_runtime?: string;
         /** Include all endpoints (system admin only) */
         all?: boolean;
       },

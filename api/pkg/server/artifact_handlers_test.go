@@ -102,6 +102,8 @@ func TestValidateArtifactEntrypointSupportsDocuments(t *testing.T) {
 		{name: "PDF", file: types.ArtifactFile{Path: "report.pdf", ContentType: "application/pdf"}, expectedKind: types.ArtifactKindPDF},
 		{name: "image", file: types.ArtifactFile{Path: "diagram.png", ContentType: "image/png"}, expectedKind: types.ArtifactKindImage},
 		{name: "HTML", file: types.ArtifactFile{Path: "page.html", ContentType: "text/html; charset=utf-8"}, expectedKind: types.ArtifactKindSingleFile},
+		{name: "markdown extension", file: types.ArtifactFile{Path: "notes.md", ContentType: "text/plain; charset=utf-8"}, expectedKind: types.ArtifactKindMarkdown},
+		{name: "markdown content type", file: types.ArtifactFile{Path: "notes.txt", ContentType: "text/markdown; charset=utf-8"}, expectedKind: types.ArtifactKindMarkdown},
 	}
 
 	for _, test := range tests {
@@ -116,7 +118,7 @@ func TestValidateArtifactEntrypointSupportsDocuments(t *testing.T) {
 
 func TestValidateArtifactEntrypointRejectsUnsupportedSingleFile(t *testing.T) {
 	_, err := validateArtifactEntrypoint([]types.ArtifactFile{{Path: "script.js", ContentType: "text/javascript"}}, "script.js")
-	require.ErrorContains(t, err, "must be HTML, PDF, or an image")
+	require.ErrorContains(t, err, "must be HTML, Markdown, PDF, or an image")
 }
 
 func TestValidateArtifactEntrypointRequiresHTMLForBundle(t *testing.T) {

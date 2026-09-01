@@ -6,6 +6,7 @@ import App from './App'
 import ErrorBoundary from './components/system/ErrorBoundary'
 import { isMobileOrTablet } from './utils/isMobileOrTablet'
 import { logErrorToSession, getRecentErrors, clearErrorLog } from './utils/errorSessionLog'
+import { copyTextToClipboard } from './utils/clipboard'
 
 const win = (window as any)
 win.setUserFunctions = []
@@ -99,7 +100,7 @@ if (isMobileOrTablet()) {
         previousErrors.forEach(e => { text += `[${e.timestamp}] ${e.message}\n` })
       }
       text += `\nURL: ${window.location.href}\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}`
-      navigator.clipboard.writeText(text).catch(() => {})
+      copyTextToClipboard(text).catch(() => {})
     })
   }
 

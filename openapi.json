@@ -3287,7 +3287,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Patch metadata and optionally upload replacement HTML, PDF, image, or ZIP content as a new version.",
+                "description": "Patch metadata and optionally upload replacement HTML, Markdown, PDF, or ZIP content as a new version.",
                 "tags": [
                     "Artifacts"
                 ],
@@ -3330,7 +3330,7 @@
                                         "type": "boolean"
                                     },
                                     "artifact": {
-                                        "description": "Replacement HTML, PDF, image, or ZIP content",
+                                        "description": "Replacement HTML, Markdown, PDF, or ZIP content",
                                         "type": "string",
                                         "format": "binary"
                                     }
@@ -15809,7 +15809,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Upload one HTML, PDF, or image file, or a ZIP containing a compiled static SPA.",
+                "description": "Upload one HTML, Markdown, PDF, or image file, or a ZIP containing a compiled static SPA.",
                 "tags": [
                     "Artifacts"
                 ],
@@ -15852,7 +15852,7 @@
                                         "type": "boolean"
                                     },
                                     "artifact": {
-                                        "description": "HTML, PDF, image, or ZIP bundle",
+                                        "description": "HTML, Markdown, PDF, image, or ZIP bundle",
                                         "type": "string",
                                         "format": "binary"
                                     }
@@ -18325,6 +18325,14 @@
                     {
                         "description": "Organization ID",
                         "name": "org_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Filter by organization code-agent harness policy",
+                        "name": "code_agent_runtime",
                         "in": "query",
                         "schema": {
                             "type": "string"
@@ -33086,24 +33094,24 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
-                    "gitlab",
-                    "github",
-                    "local",
                     "slack",
-                    "helix_events",
-                    "webhook",
                     "cron",
-                    "email"
+                    "gitlab",
+                    "local",
+                    "email",
+                    "webhook",
+                    "helix_events",
+                    "github"
                 ],
                 "x-enum-varnames": [
-                    "KindGitLab",
-                    "KindGitHub",
-                    "KindLocal",
                     "KindSlack",
-                    "KindHelixEvents",
-                    "KindWebhook",
                     "KindCron",
-                    "KindEmail"
+                    "KindGitLab",
+                    "KindLocal",
+                    "KindEmail",
+                    "KindWebhook",
+                    "KindHelixEvents",
+                    "KindGitHub"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -33729,13 +33737,15 @@
                     "single_file",
                     "spa",
                     "pdf",
-                    "image"
+                    "image",
+                    "markdown"
                 ],
                 "x-enum-varnames": [
                     "ArtifactKindSingleFile",
                     "ArtifactKindSPA",
                     "ArtifactKindPDF",
-                    "ArtifactKindImage"
+                    "ArtifactKindImage",
+                    "ArtifactKindMarkdown"
                 ]
             },
             "types.ArtifactVersion": {
@@ -39648,6 +39658,18 @@
                             "type": "string"
                         }
                     },
+                    "archive_stale_tasks_days": {
+                        "description": "Idle days before a stale task is archived",
+                        "type": "integer"
+                    },
+                    "archive_stale_tasks_enabled": {
+                        "description": "Archive tasks idle for ArchiveStaleTasksDays",
+                        "type": "boolean"
+                    },
+                    "auto_archive_completed_tasks": {
+                        "description": "Archive automation, reconciled by the spec task orchestrator",
+                        "type": "boolean"
+                    },
                     "auto_start_backlog_tasks": {
                         "description": "Automation settings",
                         "type": "boolean"
@@ -40221,6 +40243,18 @@
                         "items": {
                             "type": "string"
                         }
+                    },
+                    "archive_stale_tasks_days": {
+                        "description": "Idle days before a stale task is archived (1-365)",
+                        "type": "integer"
+                    },
+                    "archive_stale_tasks_enabled": {
+                        "description": "Archive tasks idle for ArchiveStaleTasksDays",
+                        "type": "boolean"
+                    },
+                    "auto_archive_completed_tasks": {
+                        "description": "Archive tasks immediately when they enter Done",
+                        "type": "boolean"
                     },
                     "auto_start_backlog_tasks": {
                         "type": "boolean"

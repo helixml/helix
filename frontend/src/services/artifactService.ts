@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { TypesArtifact } from '../api/api'
@@ -14,6 +15,7 @@ export type ArtifactForm = {
 export const projectArtifactsQueryKey = (projectId: string) => ['project-artifacts', projectId]
 export const artifactQueryKey = (artifactId: string) => ['artifact', artifactId]
 export const artifactViewerQueryKey = (artifactId: string) => ['artifact-viewer', artifactId]
+export const artifactMarkdownSourceQueryKey = (artifactId: string) => ['artifact-markdown-source', artifactId]
 
 export const artifactMutationData = (form: ArtifactForm) => ({
   name: form.name,
@@ -46,6 +48,20 @@ export const useGetArtifactViewer = (artifactId: string) => {
       return response.data
     },
     enabled: !!artifactId,
+  })
+}
+
+export const useGetArtifactMarkdownSource = (artifactId: string, enabled: boolean) => {
+  return useQuery<string>({
+    queryKey: artifactMarkdownSourceQueryKey(artifactId),
+    queryFn: async () => {
+      const response = await axios.get<string>(`/artifacts/${artifactId}/document`, {
+        responseType: 'text',
+        transformResponse: [(data) => data],
+      })
+      return response.data
+    },
+    enabled: !!artifactId && enabled,
   })
 }
 
@@ -87,7 +103,7 @@ export const useCreateArtifact = (projectId: string) => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (form: ArtifactForm) => {
-      if (!form.artifact) throw new Error('Choose an HTML, ZIP, PDF, or image file')
+      if (!form.artifact) throw new Error('Choose an HTML, Markdown, ZIP, PDF, or image file')
       const response = await apiClient.v1ProjectsArtifactsCreate(projectId, {
         ...artifactMutationData(form),
         artifact: form.artifact,

@@ -16,6 +16,7 @@ import { Copy, Eye, EyeOff, RefreshCcw } from 'lucide-react'
 import MarkdownCodeBlock from '../session/MarkdownCodeBlock'
 import SettingsPanel from './SettingsPanel'
 import useSnackbar from '../../hooks/useSnackbar'
+import { copyTextToClipboard } from '../../utils/clipboard'
 import {
   useGetUserAPIKeys,
   useRegenerateUserAPIKey,
@@ -32,7 +33,7 @@ const ApiKeysSettings: FC = () => {
   const [keyToRegenerate, setKeyToRegenerate] = useState<string>('')
 
   const handleCopy = useCallback((text: string) => {
-    navigator.clipboard.writeText(text)
+    copyTextToClipboard(text)
       .then(() => {
         snackbar.success('Copied to clipboard')
       })
