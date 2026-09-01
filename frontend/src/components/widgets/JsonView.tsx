@@ -3,6 +3,7 @@ import { Box, Typography, Switch, FormControlLabel, IconButton, Tooltip } from '
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import useSnackbar from '../../hooks/useSnackbar'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 interface JsonViewProps {
   data: any,
@@ -81,7 +82,7 @@ const JsonView: FC<React.PropsWithChildren<JsonViewProps>> = ({
 
   const handleCopy = () => {
     const textToCopy = typeof(data) === 'string' ? data : JSON.stringify(data, null, 2);
-    navigator.clipboard.writeText(textToCopy)
+    copyTextToClipboard(textToCopy)
       .then(() => {
         setShowCopied(true);
         setTimeout(() => setShowCopied(false), 2000);

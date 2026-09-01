@@ -15,6 +15,7 @@ import { useListLLMCalls } from '../../services/llmCallsService';
 import SimpleTable from '../widgets/SimpleTable';
 import LLMCallDrawer, { formatTokenCount } from './LLMCallDrawer';
 import useSnackbar from '../../hooks/useSnackbar';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface LLMCallsTableProps {
   sessionFilter: string;
@@ -42,8 +43,9 @@ const IdCell: FC<{ id?: string, label: string }> = ({ id, label }) => {
           sx={{ p: 0.25 }}
           onClick={(e) => {
             e.stopPropagation();
-            navigator.clipboard.writeText(id);
-            snackbar.success('Copied to clipboard');
+            void copyTextToClipboard(id)
+              .then(() => snackbar.success('Copied to clipboard'))
+              .catch(() => snackbar.error('Failed to copy'));
           }}
         >
           <Copy size={12} />

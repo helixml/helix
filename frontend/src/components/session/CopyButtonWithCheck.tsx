@@ -3,6 +3,7 @@ import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 const CopyButtonWithCheck: FC<{ text: string, alwaysVisible?: boolean }> = ({ text }) => {
   const [copied, setCopied] = useState(false)
@@ -12,28 +13,10 @@ const CopyButtonWithCheck: FC<{ text: string, alwaysVisible?: boolean }> = ({ te
     
     const textToCopy = sanitizeTextForCopy(text)
 
-    // Fallback method for older browsers or when navigator.clipboard is not available/permission denied
-    const fallbackCopy = () => {
-      const textArea = document.createElement('textarea')
-      textArea.value = textToCopy
-      textArea.style.position = 'fixed'
-      textArea.style.left = '-9999px'
-      document.body.appendChild(textArea)
-      textArea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textArea)
+    copyTextToClipboard(textToCopy).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    }
-
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(textToCopy).then(() => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-      }).catch(fallbackCopy)
-    } else {
-      fallbackCopy()
-    }
+    }).catch((error) => console.error('Failed to copy text', error))
   }
   return (
     <Tooltip title={copied ? 'Copied!' : 'Copy'} placement="bottom">

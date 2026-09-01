@@ -22,6 +22,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
 import DarkDialog from '../dialog/DarkDialog'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 // SetupStep is one numbered instruction. `image` is a screenshot shown
 // under the step (click to enlarge); `below` is any other indented
@@ -69,7 +70,7 @@ export const StepNumber: FC<{ n: number }> = ({ n }) => (
 function useCopied(): [boolean, (text: string) => void] {
   const [copied, setCopied] = useState(false)
   const copy = (text: string) => {
-    navigator.clipboard.writeText(text).then(
+    copyTextToClipboard(text).then(
       () => { setCopied(true); setTimeout(() => setCopied(false), 1500) },
       () => { /* ignore */ },
     )

@@ -13,6 +13,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import useSnackbar from '../../hooks/useSnackbar';
 import useAccount from '../../hooks/useAccount'
 import { useGetUserAPIKeys } from '../../services/userService'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 interface IdeIntegrationSectionProps {
   appId: string;
@@ -24,7 +25,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
   const account = useAccount()
 
   const [selectedIde, setSelectedIde] = useState<string>('cline');
-  const { success: snackbarSuccess } = useSnackbar();
+  const { success: snackbarSuccess, error: snackbarError } = useSnackbar();
 
   const { data: apiKeys, isLoading: isLoadingApiKeys } = useGetUserAPIKeys()
 
@@ -78,8 +79,9 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
             size="small"
             startIcon={<ContentCopyIcon />}
             onClick={() => {
-              navigator.clipboard.writeText("curl -Ls -O https://get.helixml.tech/install.sh && bash install.sh --cli");
-              snackbarSuccess('Command copied to clipboard');
+              void copyTextToClipboard("curl -Ls -O https://get.helixml.tech/install.sh && bash install.sh --cli")
+                .then(() => snackbarSuccess('Command copied to clipboard'))
+                .catch(() => snackbarError('Failed to copy command'));
             }}
             sx={{ textTransform: 'none', flexShrink: 0 }}
           >
@@ -117,8 +119,9 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
                 size="small"
                 startIcon={<ContentCopyIcon />}
                 onClick={() => {
-                  navigator.clipboard.writeText(getGenericMCPConfig());
-                  snackbarSuccess('Configuration copied to clipboard');
+                  void copyTextToClipboard(getGenericMCPConfig())
+                    .then(() => snackbarSuccess('Configuration copied to clipboard'))
+                    .catch(() => snackbarError('Failed to copy configuration'));
                 }}
                 sx={{ textTransform: 'none' }}
               >
@@ -161,8 +164,9 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
                 size="small"
                 startIcon={<ContentCopyIcon />}
                 onClick={() => {
-                  navigator.clipboard.writeText(getGenericMCPConfig());
-                  snackbarSuccess('Configuration copied to clipboard');
+                  void copyTextToClipboard(getGenericMCPConfig())
+                    .then(() => snackbarSuccess('Configuration copied to clipboard'))
+                    .catch(() => snackbarError('Failed to copy configuration'));
                 }}
                 sx={{ textTransform: 'none' }}
               >
@@ -200,8 +204,9 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
                 size="small"
                 startIcon={<ContentCopyIcon />}
                 onClick={() => {
-                  navigator.clipboard.writeText(getGenericMCPConfig());
-                  snackbarSuccess('Configuration copied to clipboard');
+                  void copyTextToClipboard(getGenericMCPConfig())
+                    .then(() => snackbarSuccess('Configuration copied to clipboard'))
+                    .catch(() => snackbarError('Failed to copy configuration'));
                 }}
                 sx={{ textTransform: 'none' }}
               >

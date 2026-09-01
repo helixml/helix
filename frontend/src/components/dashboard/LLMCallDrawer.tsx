@@ -19,6 +19,7 @@ import { X, Copy } from 'lucide-react'
 import { TypesLLMCall } from '../../api/api'
 import JsonView from '../widgets/JsonView'
 import useSnackbar from '../../hooks/useSnackbar'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 export const formatTokenCount = (n?: number): string => {
   if (n === undefined || n === null) return '-'
@@ -121,8 +122,9 @@ const MetaRow: FC<{ label: string, value?: React.ReactNode, copyValue?: string }
             aria-label={`Copy ${label}`}
             sx={{ p: 0.25 }}
             onClick={() => {
-              navigator.clipboard.writeText(copyValue)
-              snackbar.success('Copied to clipboard')
+              void copyTextToClipboard(copyValue)
+                .then(() => snackbar.success('Copied to clipboard'))
+                .catch(() => snackbar.error('Failed to copy'))
             }}
           >
             <Copy size={13} />

@@ -1,11 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createTheme, ThemeProvider } from "@mui/material/styles";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import MarkdownCodeBlock from "./MarkdownCodeBlock";
 
 const theme = createTheme({ palette: { mode: "dark" } });
 const writeText = vi.fn().mockResolvedValue(undefined);
+const originalSecureContext = Object.getOwnPropertyDescriptor(window, "isSecureContext");
 
 function renderCodeBlock() {
   return render(
@@ -18,6 +19,10 @@ function renderCodeBlock() {
 describe("MarkdownCodeBlock", () => {
   beforeEach(() => {
     writeText.mockClear();
+    Object.defineProperty(window, "isSecureContext", {
+      configurable: true,
+      value: true,
+    });
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText },
@@ -68,4 +73,30 @@ describe("MarkdownCodeBlock", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('fmt.Println("hello")'));
     expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
+
+  it("copies through the HTTP fallback when the Clipboard API is unavailable", async () => {
+    const execCommand = vi.fn().mockReturnValue(true);
+    Object.defineProperty(window, "isSecureContext", {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+
+    renderCodeBlock();
+    fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
+
+    await waitFor(() => expect(execCommand).toHaveBeenCalledWith("copy"));
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+});
+
+afterAll(() => {
+  if (originalSecureContext) {
+    Object.defineProperty(window, "isSecureContext", originalSecureContext);
+  } else {
+    Reflect.deleteProperty(window, "isSecureContext");
+  }
 });

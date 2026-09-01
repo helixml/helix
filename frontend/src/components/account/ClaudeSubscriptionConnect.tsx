@@ -33,6 +33,7 @@ import ClaudeConnectMethodPicker, { ClaudeConnectMethod } from './ClaudeConnectM
 import { SELECT_MENU_PROPS } from '../../contexts/theme'
 import useAccount from '../../hooks/useAccount'
 import { formatClaudeAccountDetail, formatClaudeOrganizationRef } from './claudeSubscriptionUtils'
+import { copyTextToClipboard } from '../../utils/clipboard'
 import SubscriptionIdentity from './SubscriptionIdentity'
 import { matchesAllTokens } from '../../utils/searchUtils'
 import { APP_MONO_FONT_FAMILY } from '../../styles/typography'
@@ -567,8 +568,9 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   }
 
   const handleCopyCommand = () => {
-    navigator.clipboard.writeText(SETUP_TOKEN_COMMAND)
-    snackbar.success('Command copied to clipboard')
+    void copyTextToClipboard(SETUP_TOKEN_COMMAND)
+      .then(() => snackbar.success('Command copied to clipboard'))
+      .catch(() => snackbar.error('Failed to copy command'))
   }
 
   const handleDeleteClick = (id: string) => {
@@ -824,8 +826,9 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                   <IconButton
                     size="small"
                     onClick={() => {
-                      navigator.clipboard.writeText(CREDENTIALS_FILE_COMMAND)
-                      snackbar.success('Command copied')
+                      void copyTextToClipboard(CREDENTIALS_FILE_COMMAND)
+                        .then(() => snackbar.success('Command copied'))
+                        .catch(() => snackbar.error('Failed to copy command'))
                     }}
                     aria-label="Copy command"
                   >

@@ -10,6 +10,7 @@ import {
   TypesSession,
 } from "../../api/api";
 import { useStreaming } from "../../contexts/streaming";
+import { copyTextToClipboard } from "../../utils/clipboard";
 import { buildInteractionDebugContext } from "./interactionDebugContext";
 
 interface InteractionDebugCopyButtonProps {
@@ -18,17 +19,6 @@ interface InteractionDebugCopyButtonProps {
   sessionSteps: unknown[];
   serverConfig: TypesServerConfigForFrontend;
 }
-
-const fallbackCopy = (text: string) => {
-  const textArea = document.createElement("textarea");
-  textArea.value = text;
-  textArea.style.position = "fixed";
-  textArea.style.left = "-9999px";
-  document.body.appendChild(textArea);
-  textArea.select();
-  document.execCommand("copy");
-  document.body.removeChild(textArea);
-};
 
 const InteractionDebugCopyButton: FC<InteractionDebugCopyButtonProps> = ({
   interaction,
@@ -67,12 +57,7 @@ const InteractionDebugCopyButton: FC<InteractionDebugCopyButtonProps> = ({
       },
     );
 
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
-      await navigator.clipboard.writeText(context);
-    } catch {
-      fallbackCopy(context);
-    }
+    await copyTextToClipboard(context);
 
     setCopied(true);
     window.setTimeout(() => setCopied(false), 2000);

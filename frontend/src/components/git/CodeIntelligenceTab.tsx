@@ -70,6 +70,7 @@ import {
 import useDebounce from '../../hooks/useDebounce'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useGetUserAPIKeys } from '../../services/userService'
+import { copyTextToClipboard } from '../../utils/clipboard'
 import KoditStatusPill from './KoditStatusPill'
 
 interface CodeIntelligenceTabProps {
@@ -1235,8 +1236,9 @@ const ConnectSubTab: FC = () => {
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
 
   const handleCopy = (text: string, label: string) => {
-    navigator.clipboard.writeText(text)
-    snackbar.success(`${label} copied to clipboard`)
+    void copyTextToClipboard(text)
+      .then(() => snackbar.success(`${label} copied to clipboard`))
+      .catch(() => snackbar.error(`Failed to copy ${label.toLowerCase()}`))
   }
 
   return (

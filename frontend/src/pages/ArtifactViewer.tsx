@@ -17,6 +17,7 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import { useGetArtifactViewer, useSetArtifactVisibility } from '../services/artifactService'
+import { copyTextToClipboard } from '../utils/clipboard'
 
 const ArtifactViewer: FC = () => {
   const account = useAccount()
@@ -51,9 +52,13 @@ const ArtifactViewer: FC = () => {
 
   const copyShareLink = async () => {
     if (!artifact?.subdomain_url) return
-    await navigator.clipboard.writeText(artifact.subdomain_url)
-    snackbar.success('Public link copied')
-    setShareAnchor(null)
+    try {
+      await copyTextToClipboard(artifact.subdomain_url)
+      snackbar.success('Public link copied')
+      setShareAnchor(null)
+    } catch {
+      snackbar.error('Failed to copy public link')
+    }
   }
 
   const openShareMenu = (event: MouseEvent<HTMLElement>) => setShareAnchor(event.currentTarget)

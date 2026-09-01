@@ -27,9 +27,11 @@ import { Copy, Check, Trash2, Plus } from 'lucide-react'
 
 import Page from '../components/system/Page'
 import ApiCodeExamples from '../components/widgets/ApiCodeExamples'
+import CreatedOrgApiKeyDialog from '../components/orgs/CreatedOrgApiKeyDialog'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import { useListOrgApiKeys, useCreateOrgApiKey, useDeleteOrgApiKey } from '../services/orgApiKeyService'
+import { copyTextToClipboard } from '../utils/clipboard'
 
 function maskKey(key: string): string {
   if (key.length <= 8) return key
@@ -41,7 +43,7 @@ const CopyKeyButton: FC<{ apiKey: string }> = ({ apiKey }) => {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(apiKey)
+      await copyTextToClipboard(apiKey)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
@@ -51,7 +53,7 @@ const CopyKeyButton: FC<{ apiKey: string }> = ({ apiKey }) => {
 
   return (
     <Tooltip title={copied ? 'Copied!' : 'Copy API key'}>
-      <IconButton size="small" onClick={handleCopy}>
+      <IconButton size="small" onClick={handleCopy} aria-label="Copy API key">
         {copied ? <Check size={16} /> : <Copy size={16} />}
       </IconButton>
     </Tooltip>
@@ -69,6 +71,7 @@ const OrgApiKeys: FC = () => {
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
   const [menuKeyId, setMenuKeyId] = useState<string | null>(null)
   const [examplesDialogKey, setExamplesDialogKey] = useState<string | null>(null)
+  const [createdKey, setCreatedKey] = useState<string | null>(null)
 
   const organization = account.organizationTools.organization
   const orgId = organization?.id || ''
@@ -84,10 +87,14 @@ const OrgApiKeys: FC = () => {
       return
     }
     try {
-      await createMutation.mutateAsync(newKeyName.trim())
+      const created = await createMutation.mutateAsync(newKeyName.trim())
+      if (!created.key) {
+        throw new Error('Create API key response did not include the key')
+      }
       snackbar.success('API key created')
       setCreateDialogOpen(false)
       setNewKeyName('')
+      setCreatedKey(created.key)
     } catch {
       snackbar.error('Failed to create API key')
     }
@@ -296,6 +303,12 @@ const OrgApiKeys: FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <CreatedOrgApiKeyDialog
+        apiKey={createdKey || ''}
+        open={Boolean(createdKey)}
+        onClose={() => setCreatedKey(null)}
+      />
 
       {/* Delete Confirmation Dialog */}
       <Dialog

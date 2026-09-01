@@ -145,9 +145,13 @@ export function useRegenerateUserAPIKey() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (keyToRegenerate: string) => {
-      // Delete the existing key - backend will auto-create a new one when none exist
       await apiClient.v1ApiKeysDelete({ key: keyToRegenerate })
-      return keyToRegenerate
+      const response = await apiClient.v1ApiKeysCreate({
+        name: 'API Key',
+        type: 'api',
+        app_id: '',
+      })
+      return response.data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: userQueryKey("api-keys") })

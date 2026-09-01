@@ -38,6 +38,7 @@ import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAge
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
+import { copyTextToClipboard } from '../utils/clipboard'
 import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
 import {
@@ -286,8 +287,9 @@ const ApiCallBlock: FC<ApiCallBlockProps> = ({ label, curl }) => {
             size="small"
             onClick={(e) => {
               e.stopPropagation()
-              navigator.clipboard.writeText(curl)
-              snackbar.success('Copied')
+              void copyTextToClipboard(curl)
+                .then(() => snackbar.success('Copied'))
+                .catch(() => snackbar.error('Failed to copy'))
             }}
           >
             <CopyIcon sx={{ fontSize: 14 }} />

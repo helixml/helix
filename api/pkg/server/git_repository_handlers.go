@@ -1730,9 +1730,10 @@ func (s *HelixAPIServer) getOrCreateUserAPIKey(ctx context.Context, user *types.
 		return "", fmt.Errorf("failed to get API keys: %w", err)
 	}
 
-	// Filter for personal API keys (not app-scoped)
+	// Filter for a user-level key rather than an app, organization, project,
+	// spec-task, or session-scoped key.
 	for _, key := range apiKeys {
-		if key.AppID == nil || !key.AppID.Valid || key.AppID.String == "" {
+		if isPersonalAPIKey(key) {
 			return key.Key, nil
 		}
 	}
