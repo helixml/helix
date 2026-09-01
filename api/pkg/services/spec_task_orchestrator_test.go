@@ -79,6 +79,86 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_EmptyPlanningSessionSkips
 	s.Require().NoError(err)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_AutoArchivesImmediately() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-completed",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusDone,
+	}
+	latest := *task
+
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(&types.Project{
+		ID:                        task.ProjectID,
+		AutoArchiveCompletedTasks: true,
+	}, nil)
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(&latest, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.SpecTask) error {
+			s.True(updated.Archived)
+			return nil
+		},
+	)
+
+	err := s.orchestrator.processTask(ctx, task)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_LeavesTaskVisibleWhenAutoArchiveDisabled() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-completed",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusDone,
+	}
+
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(&types.Project{
+		ID:                        task.ProjectID,
+		AutoArchiveCompletedTasks: false,
+	}, nil)
+
+	err := s.orchestrator.processTask(ctx, task)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestStaleArchiveSweepArchivesOnlyInactiveTasks() {
+	ctx := context.Background()
+	now := time.Now()
+	staleTask := &types.SpecTask{
+		ID:        "task-stale",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+		CreatedAt: now.Add(-10 * 24 * time.Hour),
+	}
+	doneTask := &types.SpecTask{
+		ID:        "task-done",
+		ProjectID: staleTask.ProjectID,
+		Status:    types.TaskStatusDone,
+		CreatedAt: now.Add(-10 * 24 * time.Hour),
+	}
+	latest := *staleTask
+	s.orchestrator.containerExecutor = nil
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		SortBy: "last_message",
+	}).Return([]*types.SpecTask{staleTask, doneTask}, nil)
+	s.store.EXPECT().GetProject(ctx, staleTask.ProjectID).Return(&types.Project{
+		ID:                       staleTask.ProjectID,
+		ArchiveStaleTasksEnabled: true,
+		ArchiveStaleTasksDays:    6,
+	}, nil)
+	s.store.EXPECT().GetSpecTask(ctx, staleTask.ID).Return(&latest, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.SpecTask) error {
+			s.Equal(staleTask.ID, updated.ID)
+			s.True(updated.Archived)
+			return nil
+		},
+	)
+
+	s.orchestrator.staleArchiveSweep(ctx)
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_SkipsWhenStaleEvent() {
 	ctx := context.Background()
 	eventTask := &types.SpecTask{
@@ -1245,4 +1325,106 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_Mer
 	assert.Equal(s.T(), types.TaskStatusPullRequest, task.Status,
 		"task must stay in pull_request when at least one PR errors")
 	assert.False(s.T(), task.MergedToMain)
+}
+
+func TestShouldArchiveStaleTask(t *testing.T) {
+	assert.Equal(t, time.Hour, staleArchiveSweepInterval)
+
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	ago := func(d time.Duration) *time.Time {
+		t := now.Add(-d)
+		return &t
+	}
+	proj := func(enabled bool, staleDays int) *types.Project {
+		return &types.Project{
+			ArchiveStaleTasksEnabled: enabled,
+			ArchiveStaleTasksDays:    staleDays,
+		}
+	}
+
+	tests := []struct {
+		name string
+		proj *types.Project
+		task *types.SpecTask
+		want bool
+	}{
+		{
+			name: "stale archiving disabled leaves idle backlog",
+			proj: proj(false, 6),
+			task: &types.SpecTask{Status: types.TaskStatusBacklog, CreatedAt: now.Add(-30 * 24 * time.Hour)},
+			want: false,
+		},
+		{
+			name: "idle backlog past stale window archives",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusBacklog, CreatedAt: now.Add(-10 * 24 * time.Hour)},
+			want: true,
+		},
+		{
+			name: "recent backlog stays",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusBacklog, CreatedAt: now.Add(-3 * 24 * time.Hour)},
+			want: false,
+		},
+		{
+			name: "recent message resets stale clock",
+			proj: proj(true, 6),
+			task: &types.SpecTask{
+				Status:        types.TaskStatusSpecReview,
+				CreatedAt:     now.Add(-30 * 24 * time.Hour),
+				LastMessageAt: ago(24 * time.Hour),
+			},
+			want: false,
+		},
+		{
+			name: "status update resets stale clock",
+			proj: proj(true, 6),
+			task: &types.SpecTask{
+				Status:          types.TaskStatusSpecReview,
+				CreatedAt:       now.Add(-30 * 24 * time.Hour),
+				StatusUpdatedAt: ago(2 * 24 * time.Hour),
+			},
+			want: false,
+		},
+		{
+			name: "active agent work never stale",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusImplementation, CreatedAt: now.Add(-30 * 24 * time.Hour)},
+			want: false,
+		},
+		{
+			name: "open pull request never stale",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusPullRequest, CreatedAt: now.Add(-30 * 24 * time.Hour)},
+			want: false,
+		},
+		{
+			name: "completed task is handled by event automation",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusDone, CreatedAt: now.Add(-30 * 24 * time.Hour)},
+			want: false,
+		},
+		{
+			name: "zero day count falls back to default of six",
+			proj: proj(true, 0),
+			task: &types.SpecTask{Status: types.TaskStatusBacklog, CreatedAt: now.Add(-8 * 24 * time.Hour)},
+			want: true,
+		},
+		{
+			name: "zero day count default does not archive seven-day-old idle with recent message",
+			proj: proj(true, 0),
+			task: &types.SpecTask{
+				Status:        types.TaskStatusBacklog,
+				CreatedAt:     now.Add(-8 * 24 * time.Hour),
+				LastMessageAt: ago(5 * 24 * time.Hour),
+			},
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, shouldArchiveStaleTask(tc.proj, tc.task, now))
+		})
+	}
 }

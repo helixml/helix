@@ -228,6 +228,10 @@ type Project struct {
 
 	// Automation settings
 	AutoStartBacklogTasks bool `json:"auto_start_backlog_tasks"` // Automatically move backlog tasks to planning when capacity available
+	// Archive automation, reconciled by the spec task orchestrator
+	AutoArchiveCompletedTasks bool `json:"auto_archive_completed_tasks" gorm:"default:false"` // Archive tasks immediately when they enter Done
+	ArchiveStaleTasksEnabled  bool `json:"archive_stale_tasks_enabled" gorm:"default:false"`  // Archive tasks idle for ArchiveStaleTasksDays
+	ArchiveStaleTasksDays     int  `json:"archive_stale_tasks_days" gorm:"default:6"`         // Idle days before a stale task is archived
 
 	// StartupScriptFromYAML indicates the startup script was set via project YAML
 	// When true, the UI should show the script as read-only
@@ -404,7 +408,10 @@ type ProjectUpdateRequest struct {
 	DefaultRepoID                   *string                   `json:"default_repo_id,omitempty"`
 	StartupScript                   *string                   `json:"startup_script,omitempty"`
 	AutoStartBacklogTasks           *bool                     `json:"auto_start_backlog_tasks,omitempty"`
-	DefaultHelixAppID               *string                   `json:"default_helix_app_id,omitempty"` // Org-agent identity only; coding projects use CodeAgentConfig
+	AutoArchiveCompletedTasks       *bool                     `json:"auto_archive_completed_tasks,omitempty"` // Archive tasks immediately when they enter Done
+	ArchiveStaleTasksEnabled        *bool                     `json:"archive_stale_tasks_enabled,omitempty"`  // Archive tasks idle for ArchiveStaleTasksDays
+	ArchiveStaleTasksDays           *int                      `json:"archive_stale_tasks_days,omitempty"`     // Idle days before a stale task is archived (1-365)
+	DefaultHelixAppID               *string                   `json:"default_helix_app_id,omitempty"`         // Org-agent identity only; coding projects use CodeAgentConfig
 	CodeAgentConfig                 *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
 	DefaultSandboxRuntime           *SandboxRuntime           `json:"default_sandbox_runtime,omitempty"`            // Default sandbox environment for spec tasks
 	DefaultSandboxResourceOverrides *SandboxResourceOverrides `json:"default_sandbox_resource_overrides,omitempty"` // Default sandbox resources for spec tasks

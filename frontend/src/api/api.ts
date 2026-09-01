@@ -2318,14 +2318,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindGitLab = "gitlab",
-  KindGitHub = "github",
-  KindLocal = "local",
-  KindSlack = "slack",
-  KindHelixEvents = "helix_events",
   KindWebhook = "webhook",
-  KindCron = "cron",
+  KindGitLab = "gitlab",
+  KindSlack = "slack",
   KindEmail = "email",
+  KindLocal = "local",
+  KindHelixEvents = "helix_events",
+  KindCron = "cron",
+  KindGitHub = "github",
 }
 
 export interface TransportResolvedActivation {
@@ -5300,6 +5300,12 @@ export interface TypesProject {
    * project inherits. Empty means no Helix MCP surface at all.
    */
   agent_tools?: string[];
+  /** Idle days before a stale task is archived */
+  archive_stale_tasks_days?: number;
+  /** Archive tasks idle for ArchiveStaleTasksDays */
+  archive_stale_tasks_enabled?: boolean;
+  /** Archive automation, reconciled by the spec task orchestrator */
+  auto_archive_completed_tasks?: boolean;
   /** Automation settings */
   auto_start_backlog_tasks?: boolean;
   /** CodeAgentConfig is the project default copied into each new SpecTask. */
@@ -5555,6 +5561,12 @@ export interface TypesProjectTaskSpec {
 export interface TypesProjectUpdateRequest {
   /** Helix MCP tools granted to every spec task */
   agent_tools?: string[];
+  /** Idle days before a stale task is archived (1-365) */
+  archive_stale_tasks_days?: number;
+  /** Archive tasks idle for ArchiveStaleTasksDays */
+  archive_stale_tasks_enabled?: boolean;
+  /** Archive tasks immediately when they enter Done */
+  auto_archive_completed_tasks?: boolean;
   auto_start_backlog_tasks?: boolean;
   code_agent_config?: TypesCodeAgentExecutionConfig;
   default_branch?: string;
@@ -16185,6 +16197,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         with_models?: boolean;
         /** Organization ID */
         org_id?: string;
+        /** Filter by organization code-agent harness policy */
+        code_agent_runtime?: string;
         /** Include all endpoints (system admin only) */
         all?: boolean;
       },

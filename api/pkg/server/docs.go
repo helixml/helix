@@ -15436,6 +15436,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "Filter by organization code-agent harness policy",
+                        "name": "code_agent_runtime",
+                        "in": "query"
+                    },
+                    {
                         "type": "boolean",
                         "description": "Include all endpoints (system admin only)",
                         "name": "all",
@@ -28498,24 +28504,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "gitlab",
-                "github",
-                "local",
-                "slack",
-                "helix_events",
                 "webhook",
+                "gitlab",
+                "slack",
+                "email",
+                "local",
+                "helix_events",
                 "cron",
-                "email"
+                "github"
             ],
             "x-enum-varnames": [
-                "KindGitLab",
-                "KindGitHub",
-                "KindLocal",
-                "KindSlack",
-                "KindHelixEvents",
                 "KindWebhook",
+                "KindGitLab",
+                "KindSlack",
+                "KindEmail",
+                "KindLocal",
+                "KindHelixEvents",
                 "KindCron",
-                "KindEmail"
+                "KindGitHub"
             ]
         },
         "transport.ResolvedActivation": {
@@ -35060,6 +35066,18 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "archive_stale_tasks_days": {
+                    "description": "Idle days before a stale task is archived",
+                    "type": "integer"
+                },
+                "archive_stale_tasks_enabled": {
+                    "description": "Archive tasks idle for ArchiveStaleTasksDays",
+                    "type": "boolean"
+                },
+                "auto_archive_completed_tasks": {
+                    "description": "Archive automation, reconciled by the spec task orchestrator",
+                    "type": "boolean"
+                },
                 "auto_start_backlog_tasks": {
                     "description": "Automation settings",
                     "type": "boolean"
@@ -35633,6 +35651,18 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "archive_stale_tasks_days": {
+                    "description": "Idle days before a stale task is archived (1-365)",
+                    "type": "integer"
+                },
+                "archive_stale_tasks_enabled": {
+                    "description": "Archive tasks idle for ArchiveStaleTasksDays",
+                    "type": "boolean"
+                },
+                "auto_archive_completed_tasks": {
+                    "description": "Archive tasks immediately when they enter Done",
+                    "type": "boolean"
                 },
                 "auto_start_backlog_tasks": {
                     "type": "boolean"

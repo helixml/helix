@@ -736,6 +736,18 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.AutoStartBacklogTasks != nil {
 		project.AutoStartBacklogTasks = *req.AutoStartBacklogTasks
 	}
+	if req.AutoArchiveCompletedTasks != nil {
+		project.AutoArchiveCompletedTasks = *req.AutoArchiveCompletedTasks
+	}
+	if req.ArchiveStaleTasksEnabled != nil {
+		project.ArchiveStaleTasksEnabled = *req.ArchiveStaleTasksEnabled
+	}
+	if req.ArchiveStaleTasksDays != nil {
+		if *req.ArchiveStaleTasksDays < 1 || *req.ArchiveStaleTasksDays > 365 {
+			return nil, system.NewHTTPError400("archive_stale_tasks_days must be between 1 and 365")
+		}
+		project.ArchiveStaleTasksDays = *req.ArchiveStaleTasksDays
+	}
 	if req.AgentTools != nil {
 		project.AgentTools = sanitizeAgentTools(*req.AgentTools)
 	}
@@ -913,6 +925,15 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		}
 		if req.AutoStartBacklogTasks != nil {
 			changedFields = append(changedFields, "auto_start_backlog_tasks")
+		}
+		if req.AutoArchiveCompletedTasks != nil {
+			changedFields = append(changedFields, "auto_archive_completed_tasks")
+		}
+		if req.ArchiveStaleTasksEnabled != nil {
+			changedFields = append(changedFields, "archive_stale_tasks_enabled")
+		}
+		if req.ArchiveStaleTasksDays != nil {
+			changedFields = append(changedFields, "archive_stale_tasks_days")
 		}
 		if req.DefaultHelixAppID != nil {
 			changedFields = append(changedFields, "default_helix_app_id")
