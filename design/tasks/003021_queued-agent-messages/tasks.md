@@ -69,5 +69,5 @@ reachable. The user then directed merging without testing. See design.md.
 
 ## Wrap-up
 
-- [x] `go build ./...` passes (exit 0). Frontend `tsc --noEmit` passes (exit 0, zero diagnostics). Package tests NOT run
+- [x] `CGO_ENABLED=0 go build ./...` exit 0; frontend `tsc --noEmit` exit 0, zero diagnostics; `go test ./pkg/server/ ./pkg/types/ ./pkg/store/memorystore/` all pass. (`gcc`+`libc6-dev` must be installed for the CGo/tree-sitter test build; with CGo on, `go build ./...` then needs `pkg-config` for the GStreamer bindings — pre-existing, unrelated)
 - [x] Write the PR description: which of the two option (a)/(b) fixes was chosen and why, and whether the backfill ran

@@ -309,6 +309,27 @@ discoveries that cost time.
    `docker run --rm -v "$PWD":/src -w /src --entrypoint sh helix-frontend -c 'ln -sfn /app/node_modules /src/node_modules; ./node_modules/.bin/tsc --noEmit -p tsconfig.json'`
    **Delete the `node_modules` symlink afterwards** — the bind mount writes it to the host.
 
+## CI failure and fix (2026-09-01)
+
+The first push went red. Cause: `persistQueuedPrompt` now calls `ListSpecTasks`, and the
+existing gomock tests in `session_messages_handler_test.go` had no expectation for it —
+`TestEnqueuesOntoQueue` and `TestNotifyUserIDCarriedOnRow` aborted with
+"there are no expected calls of the method \"ListSpecTasks\"".
+
+**This was avoidable and is the direct cost of pushing without running the tests.**
+`go build ./...` does not compile test files, so a green build said nothing about them.
+Lesson for anyone extending an existing handler with a new store call: every gomock suite
+that exercises that handler needs the new `EXPECT()`, and only `go test` reveals it.
+
+Running the suite locally needs `sudo apt-get install -y gcc libc6-dev` (tree-sitter needs
+CGo). Note that once gcc is present, plain `go build ./...` starts failing on the go-gst
+GStreamer bindings for want of `pkg-config` — that is environmental, not a code problem;
+build with `CGO_ENABLED=0`.
+
+The fix also added the regression tests that should have been there from the start:
+`TestStampsSpecTaskIDFromPlanningSession`, and `TestSpecTaskLookupErrorFailsEnqueue`
+pinning the fail-fast decision from note 5.
+
 ## Environment blocker (2026-09-01)
 
 The live browser verification in `tasks.md` was **not performed**. The session's startup
