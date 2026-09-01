@@ -108,6 +108,9 @@ func (s *SessionMessagesHandlerSuite) TestEnqueuesOntoQueue() {
 			return nil
 		},
 	)
+	// This is a plain session (org chat / bot), so the spec-task reverse lookup
+	// finds nothing and an empty spec_task_id is the correct outcome.
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	// The background nudge lists the session's prompts; return none so the
 	// poller bails immediately and the test stays deterministic.
 	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
@@ -124,10 +127,74 @@ func (s *SessionMessagesHandlerSuite) TestEnqueuesOntoQueue() {
 	s.Equal("hello", captured.Content)
 	s.Equal("pending", captured.Status)
 	s.False(captured.Interrupt)
+	s.Empty(captured.SpecTaskID, "a session with no spec task must still enqueue, unstamped")
 
 	// Let the background nudge run its single (AnyTimes) list call and exit
 	// before the controller is finished.
 	time.Sleep(100 * time.Millisecond)
+}
+
+// TestStampsSpecTaskIDFromPlanningSession is the regression test for the bug
+// this endpoint had: it passed an empty specTaskID, the row was written with an
+// empty spec_task_id, and the prompt-queue UI — which queries BY spec_task_id —
+// filtered it out. The message was queued and would be delivered, but was
+// invisible. 53 approvals vanished this way.
+func (s *SessionMessagesHandlerSuite) TestStampsSpecTaskIDFromPlanningSession() {
+	user := &types.User{ID: "user-1"}
+	sessionID := "ses_planning"
+
+	session := &types.Session{ID: sessionID, Owner: user.ID}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
+
+	// The reverse lookup must go through planning_session_id, and must include
+	// archived tasks — an archived task's queue still has to render.
+	var filters *types.SpecTaskFilters
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, f *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+			filters = f
+			return []*types.SpecTask{{ID: "spt_owner", PlanningSessionID: sessionID}}, nil
+		},
+	).AnyTimes()
+
+	var captured *types.PromptHistoryEntry
+	s.store.EXPECT().CreatePromptHistoryEntry(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, e *types.PromptHistoryEntry) error {
+			captured = e
+			return nil
+		},
+	)
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
+
+	rr := s.callHandler(sessionID, SessionMessageRequest{Content: "approve card"}, user)
+	s.Require().Equal(http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+
+	s.Require().NotNil(captured)
+	s.Equal("spt_owner", captured.SpecTaskID, "the queued row must carry the owning spec task or the queue UI cannot see it")
+
+	s.Require().NotNil(filters)
+	s.Equal(sessionID, filters.PlanningSessionID)
+	s.True(filters.IncludeArchived)
+
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestSpecTaskLookupErrorFailsEnqueue verifies we do not silently write an
+// unstamped (invisible) row when the reverse lookup errors. Failing loudly is
+// the house rule; a caller retry is better than a message the user cannot see.
+func (s *SessionMessagesHandlerSuite) TestSpecTaskLookupErrorFailsEnqueue() {
+	user := &types.User{ID: "user-1"}
+	sessionID := "ses_lookup_err"
+
+	session := &types.Session{ID: sessionID, Owner: user.ID}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("db exploded")).AnyTimes()
+	// Nothing may be written when the lookup fails.
+	s.store.EXPECT().CreatePromptHistoryEntry(gomock.Any(), gomock.Any()).Times(0)
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
+
+	rr := s.callHandler(sessionID, SessionMessageRequest{Content: "hello"}, user)
+	s.Equal(http.StatusInternalServerError, rr.Code)
 }
 
 // TestRejectsCrossUser verifies authorizeUserToSession blocks a different
@@ -168,6 +235,7 @@ func (s *SessionMessagesHandlerSuite) TestNotifyUserIDCarriedOnRow() {
 			return nil
 		},
 	)
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
 
 	rr := s.callHandler(sessionID, SessionMessageRequest{Content: "x", NotifyUserID: "commenter-9"}, user)
