@@ -45,7 +45,7 @@ func deadOrigin(t *testing.T) string {
 	return url
 }
 
-func TestContextServerOrigins(t *testing.T) {
+func TestContextServerEndpoints(t *testing.T) {
 	t.Run("dedupes origins and ignores stdio servers", func(t *testing.T) {
 		path := writeSettingsFile(t, map[string]interface{}{
 			// stdio: runs in-container, cannot fail the way this check catches
@@ -54,40 +54,50 @@ func TestContextServerOrigins(t *testing.T) {
 				"args":    []interface{}{"--viewport", "1280x800"},
 			},
 			"helix-tasks": map[string]interface{}{
-				"url": "http://helix-api.internal:18080/api/v1/mcp/helix-tasks?rev=842d852b",
+				"url":     "http://helix-api.internal:18080/api/v1/mcp/helix-tasks?rev=842d852b",
+				"headers": map[string]interface{}{"Authorization": "Bearer hl-test"},
 			},
 			"kodit": map[string]interface{}{
 				"url": "http://helix-api.internal:18080/api/v1/mcp/kodit?session_id=ses_1",
 			},
 			"partner": map[string]interface{}{"url": "https://mcp.example.com/sse"},
 		})
-		got, err := contextServerOrigins(path)
+		got, err := contextServerEndpoints(path)
 		if err != nil {
-			t.Fatalf("contextServerOrigins: %v", err)
+			t.Fatalf("contextServerEndpoints: %v", err)
 		}
-		want := []string{"http://helix-api.internal:18080", "https://mcp.example.com"}
+		// Sorted by name; stdio chrome-devtools excluded. Each URL is kept
+		// verbatim — path and query included — because that is what gets probed.
+		want := []contextServerEndpoint{
+			{name: "helix-tasks", url: "http://helix-api.internal:18080/api/v1/mcp/helix-tasks?rev=842d852b"},
+			{name: "kodit", url: "http://helix-api.internal:18080/api/v1/mcp/kodit?session_id=ses_1"},
+			{name: "partner", url: "https://mcp.example.com/sse"},
+		}
 		if len(got) != len(want) {
-			t.Fatalf("origins = %v, want %v", got, want)
+			t.Fatalf("endpoints = %+v, want %+v", got, want)
 		}
 		for i := range want {
-			if got[i] != want[i] {
-				t.Fatalf("origins = %v, want %v", got, want)
+			if got[i].name != want[i].name || got[i].url != want[i].url {
+				t.Fatalf("endpoints = %+v, want %+v", got, want)
 			}
+		}
+		if got[0].headers["Authorization"] != "Bearer hl-test" {
+			t.Fatalf("configured headers must be carried to the probe: %+v", got[0].headers)
 		}
 	})
 
 	t.Run("no context_servers key yields none", func(t *testing.T) {
-		got, err := contextServerOrigins(writeSettingsFile(t, nil))
+		got, err := contextServerEndpoints(writeSettingsFile(t, nil))
 		if err != nil {
-			t.Fatalf("contextServerOrigins: %v", err)
+			t.Fatalf("contextServerEndpoints: %v", err)
 		}
 		if len(got) != 0 {
-			t.Fatalf("origins = %v, want none", got)
+			t.Fatalf("endpoints = %+v, want none", got)
 		}
 	})
 
 	t.Run("missing settings file is an error", func(t *testing.T) {
-		if _, err := contextServerOrigins(filepath.Join(t.TempDir(), "absent.json")); err == nil {
+		if _, err := contextServerEndpoints(filepath.Join(t.TempDir(), "absent.json")); err == nil {
 			t.Fatal("a missing settings.json must not read as ready")
 		}
 	})
@@ -97,7 +107,7 @@ func TestContextServerOrigins(t *testing.T) {
 		if err := os.WriteFile(path, []byte("{not json"), 0644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := contextServerOrigins(path); err == nil {
+		if _, err := contextServerEndpoints(path); err == nil {
 			t.Fatal("a corrupt settings.json must not read as ready")
 		}
 	})
@@ -106,7 +116,7 @@ func TestContextServerOrigins(t *testing.T) {
 // A declared-but-broken url is a config error: Zed forwards it to the agent
 // regardless, and the agent's one-shot registration against it fails
 // permanently. Skipping it is how an all-malformed config reported "ready".
-func TestContextServerOriginsRejectsUnusableURLs(t *testing.T) {
+func TestContextServerEndpointsRejectUnusableURLs(t *testing.T) {
 	cases := map[string]interface{}{
 		"unparseable":  "://nope",
 		"empty":        "",
@@ -121,9 +131,9 @@ func TestContextServerOriginsRejectsUnusableURLs(t *testing.T) {
 			path := writeSettingsFile(t, map[string]interface{}{
 				"broken": map[string]interface{}{"url": badURL},
 			})
-			origins, err := contextServerOrigins(path)
+			endpoints, err := contextServerEndpoints(path)
 			if err == nil {
-				t.Fatalf("origins = %v, want an error for url %v", origins, badURL)
+				t.Fatalf("endpoints = %+v, want an error for url %v", endpoints, badURL)
 			}
 			if !strings.Contains(err.Error(), "broken") {
 				t.Fatalf("error should name the offending server: %v", err)
@@ -136,7 +146,7 @@ func TestContextServerOriginsRejectsUnusableURLs(t *testing.T) {
 			"good":   map[string]interface{}{"url": "http://api:8080/api/v1/mcp/session"},
 			"broken": map[string]interface{}{"url": "://nope"},
 		})
-		if _, err := contextServerOrigins(path); err == nil {
+		if _, err := contextServerEndpoints(path); err == nil {
 			t.Fatal("a broken url must fail readiness even when another server is fine")
 		}
 	})
@@ -303,5 +313,121 @@ func TestMCPReadinessHandlerReflectsCurrentState(t *testing.T) {
 	})
 	if status, body := ask(); status != http.StatusOK {
 		t.Fatalf("status = %d (%s), want 200 after recovery", status, body)
+	}
+}
+
+// The probe must request the configured MCP URL itself. An earlier version
+// asked a synthetic `origin + "/api/v1/config"`, which asserts the readiness of
+// a different route: a reverse proxy can serve that while misrouting
+// /api/v1/mcp/..., and a third-party MCP server need not serve it at all.
+func TestProbeRequestsTheConfiguredURL(t *testing.T) {
+	type seen struct {
+		method string
+		path   string
+		query  string
+		auth   string
+	}
+	got := make(chan seen, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- seen{r.Method, r.URL.Path, r.URL.RawQuery, r.Header.Get("Authorization")}
+		// Mirrors production: HEAD on a correct MCP URL 404s, because the
+		// router has no HEAD route. That must still count as reachable.
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	path := writeSettingsFile(t, map[string]interface{}{
+		"helix-tasks": map[string]interface{}{
+			"url":     srv.URL + "/api/v1/mcp/helix-tasks?rev=842d852b",
+			"headers": map[string]interface{}{"Authorization": "Bearer hl-session-scoped"},
+		},
+	})
+	if err := newReadinessDaemon().probeMCPEndpoints(context.Background(), path); err != nil {
+		t.Fatalf("probeMCPEndpoints: %v", err)
+	}
+
+	select {
+	case s := <-got:
+		if s.method != http.MethodHead {
+			t.Errorf("method = %s, want HEAD (POST allocates MCP session state, GET opens an SSE stream)", s.method)
+		}
+		if s.path != "/api/v1/mcp/helix-tasks" {
+			t.Errorf("path = %q, want the configured MCP path", s.path)
+		}
+		if s.query != "rev=842d852b" {
+			t.Errorf("query = %q, want the configured query preserved", s.query)
+		}
+		if s.auth != "Bearer hl-session-scoped" {
+			t.Errorf("Authorization = %q, want the configured header so the probe crosses the same auth edge", s.auth)
+		}
+	default:
+		t.Fatal("probe never reached the configured URL")
+	}
+}
+
+// When the Helix API is down but the sandbox proxy is up, the proxy's
+// ErrorHandler answers every MCP URL with 502 "Helix API unavailable".
+// Measured, not assumed: stopping helix-api-1 turned all four context servers
+// into 502s. Treating any HTTP response as success would call that ready.
+func TestProbeRejectsProxyUpstreamFailure(t *testing.T) {
+	for _, status := range []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusInternalServerError} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "Helix API unavailable", status)
+		}))
+		path := writeSettingsFile(t, map[string]interface{}{
+			"helix-tasks": map[string]interface{}{"url": srv.URL + "/api/v1/mcp/helix-tasks"},
+		})
+		err := newReadinessDaemon().probeMCPEndpoints(context.Background(), path)
+		srv.Close()
+		if err == nil {
+			t.Fatalf("status %d must not read as ready", status)
+		}
+	}
+}
+
+// Status below 5xx is success on purpose. Through the sandbox proxy, HEAD on a
+// correct MCP URL returns 404 while HEAD on a deliberately wrong path returns
+// 200 from the frontend catch-all — status is anti-correlated with routing
+// correctness, so anything stricter would reject the endpoints that work.
+func TestProbeAcceptsNonServerErrorStatuses(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusNoContent, http.StatusBadRequest,
+		http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusMethodNotAllowed} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+		}))
+		path := writeSettingsFile(t, map[string]interface{}{
+			"helix-tasks": map[string]interface{}{"url": srv.URL + "/api/v1/mcp/helix-tasks"},
+		})
+		err := newReadinessDaemon().probeMCPEndpoints(context.Background(), path)
+		srv.Close()
+		if err != nil {
+			t.Fatalf("status %d must read as reachable: %v", status, err)
+		}
+	}
+}
+
+// Every configured server is probed, and the failure names the one at fault.
+func TestProbeReportsEveryFailingServer(t *testing.T) {
+	live := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer live.Close()
+
+	path := writeSettingsFile(t, map[string]interface{}{
+		"kodit":         map[string]interface{}{"url": live.URL + "/api/v1/mcp/kodit"},
+		"helix-tasks":   map[string]interface{}{"url": deadOrigin(t) + "/api/v1/mcp/helix-tasks"},
+		"helix-session": map[string]interface{}{"url": deadOrigin(t) + "/api/v1/mcp/session"},
+	})
+	err := newReadinessDaemon().probeMCPEndpoints(context.Background(), path)
+	if err == nil {
+		t.Fatal("probeMCPEndpoints succeeded with two unreachable servers")
+	}
+	for _, name := range []string{"helix-tasks", "helix-session"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("error must name %s so the operator knows which server failed: %v", name, err)
+		}
+	}
+	if strings.Contains(err.Error(), "kodit") {
+		t.Errorf("error should not blame the healthy server: %v", err)
 	}
 }

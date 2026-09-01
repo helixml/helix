@@ -111,19 +111,36 @@ freshly measured verdict — a boot-lifetime "ready" marker would let the origin
 bug straight back in on the first restart.
 
 1. `api/cmd/settings-sync-daemon/mcp_readiness.go` — `probeMCPEndpoints` reads
-   the distinct `scheme://host:port` of every URL-addressed `context_server`
-   **out of `settings.json` on disk** and probes each (unauthenticated
-   `GET /api/v1/config`, no side effects). Any HTTP status counts; only a
-   transport error is a failure, because that is the only thing that breaks MCP
-   registration. It is served at `/mcp-readiness` on the daemon's existing
-   loopback port (`SETTINGS_SYNC_PORT`, default 9877): 200 means safe to launch,
-   503 carries the reason.
+   every URL-addressed `context_server` out of `settings.json` on disk and
+   probes **each configured URL verbatim** — path, query and headers — because
+   that is the only thing whose reachability we are entitled to assert. It is
+   served at `/mcp-readiness` on the daemon's existing loopback port
+   (`SETTINGS_SYNC_PORT`, default 9877): 200 means safe to launch, 503 carries
+   the reason.
 
-   Reading the file rather than `d.helixSettings` is deliberate on two counts.
-   It is the exact set Zed loads and forwards to the agent, user overrides
-   included; and the file is written atomically (tempfile + rename), so the HTTP
-   handler can read it while the poll loop rewrites it without sharing mutable
-   state with the rest of the daemon.
+   **Method: HEAD**, the only method that is uniformly side-effect free and
+   prompt. POST (a real MCP `initialize`) allocates server-side session state —
+   kodit creates a per-session handler — and GET is the Streamable HTTP
+   notification stream: measured against a live session, GET hangs until
+   timeout on `helix-desktop` and returns an open SSE stream on `helix-session`
+   and `kodit`.
+
+   **Failure is a transport error or a 5xx; every other status is success.**
+   That is measured, not lazy. Through the sandbox API proxy against a healthy
+   session, HEAD on each *correct* MCP URL returns 404 (the mux router has no
+   HEAD route) while HEAD on a deliberately *wrong* path returns 200 from the
+   frontend catch-all — status is anti-correlated with routing correctness, so
+   anything stricter than "not 5xx" would reject exactly the endpoints that
+   work. 5xx is the exception worth catching: with `helix-api-1` stopped but the
+   sandbox proxy up, all four context servers answered 502 "Helix API
+   unavailable" from the proxy's `ErrorHandler`. Treating any response as
+   success would have called that ready.
+
+   Reading the URLs from the file rather than `d.helixSettings` is deliberate on
+   two counts. It is the exact set Zed loads and forwards to the agent, user
+   overrides included; and the file is written atomically (tempfile + rename),
+   so the HTTP handler can read it while the poll loop rewrites it without
+   sharing mutable state with the rest of the daemon.
 
    It reads those URLs rather than trusting `HELIX_API_URL` for a third reason:
    the two can diverge (a control plane emitting `helix-api.internal:18080`
@@ -133,11 +150,11 @@ bug straight back in on the first restart.
    being fixed, and one a `HELIX_API_URL` probe would miss.
 
    A context server with no `url` is a stdio server and is ignored. A context
-   server that declares a `url` which cannot be turned into an origin — empty,
-   unparseable, no host, non-HTTP scheme, not a string — **fails** readiness.
-   Zed forwards that broken URL to the agent regardless and the registration
-   against it fails permanently, so skipping it is how an all-malformed config
-   would otherwise report "ready".
+   server that declares a `url` which cannot be used — empty, unparseable, no
+   host, non-HTTP scheme, not a string — **fails** readiness. Zed forwards that
+   broken URL to the agent regardless and the registration against it fails
+   permanently, so skipping it is how an all-malformed config would otherwise
+   report "ready".
 
    On the boot path the daemon additionally runs `waitForMCPEndpoints` (in a
    goroutine, so it cannot delay the listener the gate polls) and reports a
@@ -158,6 +175,10 @@ bug straight back in on the first restart.
   daemon syncs over the gateway IP — the exact skew that produced the original
   failure): the probe fails, the reason names the failing URL, and the gate
   refuses to launch.
+* Helix API stopped with the sandbox proxy still up: every MCP URL answers 502
+  and the gate refuses to launch. An earlier revision probed a synthetic
+  `origin + /api/v1/config` and treated any status as success, so it called
+  this state ready.
 * Zed restart with the origin dead: the gate re-checks and holds the relaunch
   instead of handing the agent a dead MCP surface.
 * `go test ./cmd/settings-sync-daemon/` green, including under `-race`.

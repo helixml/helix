@@ -10,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,43 +31,115 @@ import (
 // session in this state burns its whole budget calling tools that were never
 // registered.
 //
-// So the addresses in settings.json have to be proven reachable before EVERY
-// Zed launch, not once at boot: run_zed_restart_loop respawns Zed for the life
-// of the container, and restartZed() deliberately uses that path to give the
-// agent a fresh ACP session on an agent switch. Each of those launches is
-// another one-shot MCP registration, so each one needs its own verdict.
+// So the context servers have to be proven reachable before EVERY Zed launch,
+// not once at boot: run_zed_restart_loop respawns Zed for the life of the
+// container, and restartZed() deliberately uses that path to give the agent a
+// fresh ACP session on an agent switch. Each of those launches is another
+// one-shot MCP registration, so each one needs its own verdict.
 // start-zed-core.sh asks /mcp-readiness for a fresh one before every launch.
 //
 // See design/2026-09-01-opencode-mcp-tools-unavailable.md.
 
 const (
-	// mcpProbePath is an unauthenticated endpoint on the Helix API. Probing it
-	// rather than the MCP paths themselves keeps the check free of side
-	// effects: a real MCP initialize would create server-side session state
-	// (kodit allocates a per-session handler), and a GET on an MCP endpoint
-	// either 405s or opens an SSE stream we would have to tear down.
-	mcpProbePath = "/api/v1/config"
-
+	// mcpProbeTimeout bounds one endpoint probe. Endpoints are probed
+	// concurrently, so this is also roughly the bound on a whole pass.
 	mcpProbeTimeout = 5 * time.Second
 )
 
-// probeMCPEndpoints makes one pass over the context server origins and returns
-// nil when the agent can safely be started. It is the whole readiness verdict:
-// callers decide whether to retry.
+// contextServerEndpoint is one URL-addressed MCP server exactly as Zed will
+// hand it to the agent.
+type contextServerEndpoint struct {
+	name    string
+	url     string
+	headers map[string]string
+}
+
+// probeMCPEndpoints makes one pass over the configured context servers and
+// returns nil when the agent can safely be started. It is the whole readiness
+// verdict: callers decide whether to retry.
 func (d *SettingsDaemon) probeMCPEndpoints(ctx context.Context, settingsPath string) error {
-	origins, err := contextServerOrigins(settingsPath)
+	endpoints, err := contextServerEndpoints(settingsPath)
 	if err != nil {
 		return err
 	}
-	if len(origins) == 0 {
+	if len(endpoints) == 0 {
 		// Settings parsed, but this agent has no URL-addressed context servers
 		// (a stdio-only agent, or one with no MCP at all). Nothing to prove.
 		return nil
 	}
-	for _, origin := range origins {
-		if err := d.probeOrigin(ctx, origin); err != nil {
-			return err
+
+	failures := make([]string, len(endpoints))
+	var wg sync.WaitGroup
+	for i, ep := range endpoints {
+		wg.Add(1)
+		go func(i int, ep contextServerEndpoint) {
+			defer wg.Done()
+			if err := d.probeContextServer(ctx, ep); err != nil {
+				failures[i] = err.Error()
+			}
+		}(i, ep)
+	}
+	wg.Wait()
+
+	var reasons []string
+	for _, f := range failures {
+		if f != "" {
+			reasons = append(reasons, f)
 		}
+	}
+	if len(reasons) > 0 {
+		return fmt.Errorf("%s", strings.Join(reasons, "; "))
+	}
+	return nil
+}
+
+// probeContextServer reports whether the agent will be able to reach this
+// context server.
+//
+// It requests the configured URL verbatim — path, query and headers — because
+// that is the only thing whose reachability we are entitled to assert. An
+// earlier version probed a synthetic `origin + "/api/v1/config"`, which is a
+// different route: a reverse proxy can serve that while rejecting or
+// misrouting /api/v1/mcp/..., and a user-configured third-party MCP server
+// need not serve Helix's config endpoint at all.
+//
+// HEAD, because it is the only method that is uniformly side-effect free and
+// prompt. A real MCP initialize (POST) allocates server-side session state —
+// kodit creates a per-session handler — and GET is the Streamable HTTP
+// notification stream: measured against a live session, GET hangs until
+// timeout on helix-desktop and returns an open SSE stream on helix-session and
+// kodit.
+//
+// Only two things count as failure: a transport error (DNS failure, connection
+// refused, timeout) and a 5xx. Every other status is success, and that is not
+// laziness — status here is anti-correlated with routing correctness. Measured
+// through the sandbox API proxy against a healthy session, HEAD on each correct
+// MCP URL returns 404 (the router has no HEAD route), while HEAD on a
+// deliberately wrong path returns 200 from the frontend catch-all. So a status
+// policy stricter than "not 5xx" would reject exactly the endpoints that work.
+//
+// 5xx is the exception worth catching: when the Helix API is down but the
+// sandbox proxy is up, the proxy's ErrorHandler answers every MCP URL with
+// 502 "Helix API unavailable". Treating any response as success would call
+// that ready, which is precisely the state this gate exists to refuse.
+func (d *SettingsDaemon) probeContextServer(ctx context.Context, ep contextServerEndpoint) error {
+	probeCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodHead, ep.url, nil)
+	if err != nil {
+		return fmt.Errorf("probe %s (%s): %w", ep.name, ep.url, err)
+	}
+	for k, v := range ep.headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("probe %s (%s): %w", ep.name, ep.url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("probe %s (%s): %s", ep.name, ep.url, resp.Status)
 	}
 	return nil
 }
@@ -106,39 +179,19 @@ func (d *SettingsDaemon) waitForMCPEndpoints(ctx context.Context, settingsPath s
 // lives in the shell loop that polls this, so there is exactly one place that
 // decides how long a launch may be held back.
 func (d *SettingsDaemon) mcpReadinessHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	if err := d.probeMCPEndpoints(r.Context(), SettingsPath); err != nil {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		fmt.Fprintln(w, err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintln(w, "ready")
 }
 
-// probeOrigin reports whether origin is reachable. Any HTTP response counts: a
-// 401/404/405 proves the transport works, which is the only thing that can
-// break the agent's MCP registration. Only a transport error (DNS failure,
-// connection refused, timeout) is a failure.
-func (d *SettingsDaemon) probeOrigin(ctx context.Context, origin string) error {
-	probeCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, origin+mcpProbePath, nil)
-	if err != nil {
-		return fmt.Errorf("probe %s: %w", origin, err)
-	}
-	resp, err := d.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("probe %s: %w", origin, err)
-	}
-	defer resp.Body.Close()
-	return nil
-}
-
-// contextServerOrigins returns the distinct scheme://host[:port] of every
-// context_server addressed by URL, read from the settings file on disk.
+// contextServerEndpoints reads the settings file on disk and returns every
+// URL-addressed context server, sorted by name so logs and probe order are
+// stable.
 //
 // Reading the file rather than d.helixSettings is deliberate on two counts.
 // It is the exact set Zed loads and forwards to the agent, including any user
@@ -148,13 +201,11 @@ func (d *SettingsDaemon) probeOrigin(ctx context.Context, origin string) error {
 //
 // A context server with no "url" is a stdio server: it runs inside the
 // container and cannot fail this way, so it is ignored. A context server that
-// declares a "url" we cannot turn into an origin is a configuration error and
-// fails readiness — Zed will hand that broken URL to the agent regardless, and
-// the agent's one-shot registration against it will fail permanently. Silently
-// skipping it is how an all-malformed config would otherwise report "ready".
-//
-// Origins are sorted so the log line and the probe order are stable.
-func contextServerOrigins(settingsPath string) ([]string, error) {
+// declares a "url" we cannot use is a configuration error and fails readiness —
+// Zed will hand that broken URL to the agent regardless, and the agent's
+// one-shot registration against it will fail permanently. Silently skipping it
+// is how an all-malformed config would otherwise report "ready".
+func contextServerEndpoints(settingsPath string) ([]contextServerEndpoint, error) {
 	raw, err := os.ReadFile(settingsPath)
 	if err != nil {
 		// No settings file means the initial sync never completed and no agent
@@ -172,7 +223,7 @@ func contextServerOrigins(settingsPath string) ([]string, error) {
 		return nil, nil
 	}
 
-	seen := map[string]struct{}{}
+	var endpoints []contextServerEndpoint
 	var invalid []string
 	for name, entry := range contextServers {
 		server, ok := entry.(map[string]interface{})
@@ -195,17 +246,34 @@ func contextServerOrigins(settingsPath string) ([]string, error) {
 			invalid = append(invalid, fmt.Sprintf("%s (unusable url %q)", name, rawURL))
 			continue
 		}
-		seen[parsed.Scheme+"://"+parsed.Host] = struct{}{}
+		endpoints = append(endpoints, contextServerEndpoint{
+			name:    name,
+			url:     rawURL,
+			headers: stringHeaders(server["headers"]),
+		})
 	}
 	if len(invalid) > 0 {
 		sort.Strings(invalid)
 		return nil, fmt.Errorf("context servers with unusable urls: %s", strings.Join(invalid, ", "))
 	}
 
-	origins := make([]string, 0, len(seen))
-	for origin := range seen {
-		origins = append(origins, origin)
+	sort.Slice(endpoints, func(i, j int) bool { return endpoints[i].name < endpoints[j].name })
+	return endpoints, nil
+}
+
+// stringHeaders pulls the string-valued headers out of a context server entry.
+// They are sent with the probe so it traverses the same auth edge the agent
+// will.
+func stringHeaders(raw interface{}) map[string]string {
+	entries, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil
 	}
-	sort.Strings(origins)
-	return origins, nil
+	headers := make(map[string]string, len(entries))
+	for k, v := range entries {
+		if s, ok := v.(string); ok {
+			headers[k] = s
+		}
+	}
+	return headers
 }
