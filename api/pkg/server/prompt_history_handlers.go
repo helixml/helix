@@ -596,16 +596,13 @@ func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, ses
 	}
 
 	// Send the prompt to the session (creates interaction and sends to agent)
+	//
+	// Interrupts are exempt from the busy check, so a defer here means the
+	// BOOT-RACE exception fired (ZedThreadID not yet set). That is also not a
+	// failure — the interrupt is redelivered into the same thread once the thread
+	// exists — so it must not burn the retry budget either.
 	if err := apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt); err != nil {
-		// Interaction creation failed - revert to 'failed' so it can be retried
-		log.Error().
-			Err(err).
-			Str("session_id", sessionID).
-			Str("prompt_id", nextPrompt.ID).
-			Msg("Failed to create interaction for interrupt prompt - reverting to failed")
-		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID, err.Error()); markErr != nil {
-			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed after interaction creation error")
-		}
+		apiServer.requeueUndispatchedPrompt(ctx, sessionID, nextPrompt, err)
 		return
 	}
 

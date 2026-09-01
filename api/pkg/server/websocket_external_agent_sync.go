@@ -30,6 +30,22 @@ import (
 // Callers distinguish this from real send failures using errors.Is.
 var ErrNoExternalAgentWS = errors.New("no external agent WebSocket connection")
 
+// ErrPromptBusyDeferred is returned by sendQueuedPromptToSession when the
+// session turned out to be mid-turn and the claimed prompt was therefore NOT
+// dispatched. This is the queue working as designed, not a failure: the prompt
+// is untouched and will be redelivered on the next drain.
+//
+// It exists so callers can tell a defer apart from a real dispatch error and put
+// the prompt back with RevertPromptToPending instead of MarkPromptAsFailed.
+// MarkPromptAsFailed increments retry_count, which is a bounded budget
+// (defaultMaxPromptQueueRetries) for GENUINE failures — once it is exhausted the
+// GetNext*Prompt selectors stop matching the row and the message is silently
+// dropped forever. processAnyPendingPrompt runs on every acknowledged
+// cancellation, i.e. every time the user interrupts the agent, so charging the
+// budget for defers burnt ~11 retries in 16 minutes on a live session.
+// See design/tasks/003021_queued-agent-messages.
+var ErrPromptBusyDeferred = errors.New("prompt dispatch deferred: session busy")
+
 // agentCrashErrorMarkers identify thread_load_error events that originate from
 // the Claude Agent ACP wrapper inside Zed having exited. Once the wrapper
 // process is gone, every subsequent follow-up the user sends bounces with
@@ -3556,6 +3572,38 @@ func (apiServer *HelixAPIServer) lockPromptDrain(sessionID string) func() {
 	return mu.Unlock
 }
 
+// requeueUndispatchedPrompt records the outcome of a failed dispatch attempt for
+// a prompt that was already claimed (status='sending'), and is the ONLY place the
+// three drain paths decide between "put it back" and "count it as a failure".
+//
+// A busy-defer means the prompt was never sent and nothing is wrong, so it goes
+// straight back to pending with its retry budget intact. Anything else is a real
+// failure and is recorded with backoff so the UI can show "Failed - retrying".
+func (apiServer *HelixAPIServer) requeueUndispatchedPrompt(ctx context.Context, sessionID string, prompt *types.PromptHistoryEntry, dispatchErr error) {
+	if errors.Is(dispatchErr, ErrPromptBusyDeferred) {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("prompt_id", prompt.ID).
+			Int("retry_count", prompt.RetryCount).
+			Msg("⏸️  [QUEUE] Session busy — returning prompt to queue without charging the retry budget")
+		if revertErr := apiServer.Store.RevertPromptToPending(ctx, prompt.ID); revertErr != nil {
+			log.Error().Err(revertErr).Str("prompt_id", prompt.ID).Msg("Failed to revert deferred prompt to pending")
+		}
+		return
+	}
+
+	log.Error().
+		Err(dispatchErr).
+		Str("session_id", sessionID).
+		Str("prompt_id", prompt.ID).
+		Msg("Failed to dispatch queued prompt to session")
+
+	// Mark as failed (records error so the UI can show it under "Failed - retrying")
+	if markErr := apiServer.Store.MarkPromptAsFailed(ctx, prompt.ID, dispatchErr.Error()); markErr != nil {
+		log.Error().Err(markErr).Str("prompt_id", prompt.ID).Msg("Failed to mark prompt as failed")
+	}
+}
+
 // processPromptQueue checks for pending non-interrupt prompts and sends the next one
 // This is called after a message is completed to process queued non-interrupt messages
 func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, sessionID string) {
@@ -3622,16 +3670,7 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 	// Send it to the session.
 	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("session_id", sessionID).
-			Str("prompt_id", nextPrompt.ID).
-			Msg("Failed to send queued prompt to session")
-
-		// Mark as failed (records error so the UI can show it under "Failed - retrying")
-		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID, err.Error()); markErr != nil {
-			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed")
-		}
+		apiServer.requeueUndispatchedPrompt(ctx, sessionID, nextPrompt, err)
 		return
 	}
 
@@ -3680,16 +3719,10 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 	// the status is already 'sending', causing every queued prompt to be silently dropped.
 
 	// Send the prompt to the session (creates interaction and sends to agent)
+	// This drain runs on every acknowledged cancellation, so a busy-defer here is
+	// routine — requeueUndispatchedPrompt keeps it off the retry budget.
 	if err := apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt); err != nil {
-		// Interaction creation failed - revert to 'failed' so it can be retried
-		log.Error().
-			Err(err).
-			Str("session_id", sessionID).
-			Str("prompt_id", nextPrompt.ID).
-			Msg("Failed to create interaction for pending prompt - reverting to failed")
-		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID, err.Error()); markErr != nil {
-			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed after interaction creation error")
-		}
+		apiServer.requeueUndispatchedPrompt(ctx, sessionID, nextPrompt, err)
 		return
 	}
 
@@ -3794,7 +3827,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 					Msg("✅ [QUEUE] Prompt is already in flight via existing Waiting interaction — skipping duplicate dispatch")
 				return nil
 			}
-			return fmt.Errorf("session %s became busy (interaction %s is Waiting), deferring queue prompt", sessionID, latestInteractions[0].ID)
+			return fmt.Errorf("session %s became busy (interaction %s is Waiting), deferring queue prompt: %w", sessionID, latestInteractions[0].ID, ErrPromptBusyDeferred)
 		}
 	}
 
