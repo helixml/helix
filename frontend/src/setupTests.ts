@@ -36,6 +36,16 @@ vi.mock('dompurify', () => {
 // Stub global window objects used in components
 global.window.scrollTo = vi.fn();
 
+// jsdom never implements window.isSecureContext, so it reads as undefined and
+// every component using the shared clipboard helper silently takes the
+// insecure-context (execCommand) path, which jsdom also lacks. Helix is served
+// over HTTPS/localhost in practice, so default the flag to true like real
+// deployments. Tests that exercise the insecure fallback redefine it per case.
+Object.defineProperty(window, 'isSecureContext', {
+  configurable: true,
+  value: true,
+});
+
 // Stub localStorage if not fully provided by jsdom
 if (!global.localStorage || typeof global.localStorage.clear !== 'function') {
   const store: Record<string, string> = {};
