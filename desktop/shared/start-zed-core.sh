@@ -102,6 +102,54 @@ wait_for_zed_config() {
     exit 1
 }
 
+# Prove the Helix MCP context servers are reachable before Zed launches the
+# coding agent.
+#
+# Zed hands the agent its MCP servers exactly once, on the ACP session/new
+# request, and the agent (opencode, qwen, ...) connects to each one exactly
+# once. There is no retry on either side: a server that fails to connect in
+# that window stays "failed" for the whole session, its tools never enter the
+# model's tool map, and every call the model makes returns "Model tried to call
+# unavailable tool". Inference keeps working because it retries per turn, so
+# the session looks healthy while the agent is silently tool-less.
+#
+# The settings-sync-daemon probes the origins it wrote into settings.json and
+# writes one of these markers. See
+# design/2026-09-01-opencode-mcp-tools-unavailable.md.
+wait_for_mcp_endpoints() {
+    local READY_MARKER="/tmp/helix-mcp-endpoints-ready"
+    local UNREACHABLE_MARKER="/tmp/helix-mcp-endpoints-unreachable"
+    local WAIT_COUNT=0
+    # The daemon's own probe budget is 60s; allow a little more so we report
+    # its verdict rather than racing it.
+    local MAX_WAIT=90
+
+    echo "Waiting for Helix MCP context servers to be reachable..."
+    while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+        if [ -f "$READY_MARKER" ]; then
+            echo "Helix MCP context servers reachable"
+            return 0
+        fi
+        if [ -f "$UNREACHABLE_MARKER" ]; then
+            echo "FATAL: Helix MCP context servers are not reachable from this container."
+            cat "$UNREACHABLE_MARKER"
+            echo "Starting the agent now would give it no Helix tools for the entire session."
+            echo "Check: HELIX_API_URL=${HELIX_API_URL:-UNSET}; the context_server urls in"
+            echo "  $HOME/.config/zed/settings.json must resolve and connect from inside this container."
+            exit 1
+        fi
+        sleep 1
+        WAIT_COUNT=$((WAIT_COUNT + 1))
+        if [ $((WAIT_COUNT % 10)) -eq 0 ]; then
+            echo "Still waiting for MCP context servers... ($WAIT_COUNT seconds)"
+        fi
+    done
+
+    echo "FATAL: settings-sync-daemon never reported on MCP context server reachability after ${MAX_WAIT}s."
+    echo "Check: journalctl -u settings-sync-daemon --no-pager -n 50"
+    exit 1
+}
+
 wait_for_claude_credentials() {
     # In Claude Code subscription mode, wait for the credentials file before
     # starting Zed. Claude Code's credential reader is memoized — if it starts
@@ -294,6 +342,11 @@ start_zed_helix() {
     # Step 2: Wait for Zed configuration
     # =========================================
     wait_for_zed_config
+
+    # =========================================
+    # Step 2a: Wait for the MCP context servers to be reachable
+    # =========================================
+    wait_for_mcp_endpoints
 
     # =========================================
     # Step 2b: Wait for Claude credentials (if using Claude Code)

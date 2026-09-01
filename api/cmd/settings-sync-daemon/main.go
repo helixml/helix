@@ -32,7 +32,15 @@ var (
 )
 
 const (
-	PollInterval              = 30 * time.Second
+	PollInterval = 30 * time.Second
+
+	// mcpReadinessTimeout bounds the wait for the remote context_server
+	// origins to answer. It is generous because a cold sandbox host brings the
+	// API proxy, dockerd, the workspace clone and four MCP servers up at once;
+	// it is bounded because a session that cannot reach the Helix API is not
+	// going to fix itself and the operator needs the error, not a hang.
+	mcpReadinessTimeout       = 60 * time.Second
+	mcpReadinessRetryDelay    = 2 * time.Second
 	DebounceTime              = 500 * time.Millisecond
 	maxAgentStartupErrorBytes = 4096
 )
@@ -1381,6 +1389,19 @@ func main() {
 	const maxRetries = 5
 	if err := daemon.syncInitialConfig(maxRetries, 2*time.Second); err != nil {
 		log.Printf("Warning: Initial sync failed: %v", err)
+	}
+
+	// Prove the remote context_servers we just wrote are actually reachable
+	// from this container before Zed launches the coding agent. The agent
+	// registers them exactly once and never retries, so an address that does
+	// not answer in this window silently costs the session every Helix tool
+	// for its entire life. Gating here - and reporting when it fails - is what
+	// stops that from looking like a healthy session with a mute agent.
+	if err := daemon.verifyMCPEndpoints(context.Background(), mcpReadinessTimeout, mcpReadinessRetryDelay); err != nil {
+		log.Printf("FATAL for the agent: %v", err)
+		if reportErr := daemon.reportAgentStartupError(err); reportErr != nil {
+			log.Printf("Failed to report unreachable MCP context servers: %v", reportErr)
+		}
 	}
 
 	// Start file watcher for Zed changes
