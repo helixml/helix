@@ -31,6 +31,77 @@ Rejected alternatives:
 - **A "reopen the task" tool** — explicitly ruled out. The bug recurs on every PR the
   bot opens; a reopen buys minutes.
 
+## Decision: a new field, not `keep_alive`
+
+**Decision: add `perpetual_run`. Do not overload `keep_alive`.** This was a close
+call and the reasoning belongs in the PR description.
+
+The operator had `keep_alive = true` on the affected task and expected it to mean
+"this run does not end" ("I toggled keep-alive on. It should last forever, right?").
+Helix read it as "keep the box". The box did stay up — `Up 7 hours`, a turn completed
+at 03:03:15, 111 queued approvals delivered through it. Only the status disagreed,
+and HelixOS renders liveness from the status.
+
+What `keep_alive` gates today is only ever the container, never the workflow:
+
+- `spec_task_orchestrator.go:1693` (`handleDone`) — "Task in done status but
+  keep_alive is set - leaving desktop running".
+- `external-agent/gc_reaper.go:152` — don't GC the workspace. Its doc comment
+  reasons explicitly and at length about workspace retention, and deliberately
+  refuses to time-bound it.
+- `spec_driven_task_handlers.go:1291-1307` — turning it *off* on an already-`Done`
+  task stops the desktop then.
+
+So `done + keep_alive = true` is a state the current design deliberately supports:
+the task finishes, the box stays up for someone to poke at. Coherent for a feature
+task. Incoherent for a bot.
+
+### Why not reuse it
+
+The case for reuse is real: it is already the operator's "don't stop this"
+declaration, already coupled to done-handling, needs no new column, no new API
+surface, and — the strongest point — **no HelixOS change to set it**, so it would fix
+production immediately, whereas a new field is inert until HelixOS is wired.
+
+It loses on three grounds:
+
+1. **The regression lands on the core path.** Someone sets `keep_alive` on an
+   ordinary feature task purely to keep the desktop for debugging after it lands.
+   Under reuse that task never completes — it sits in `implementation` forever,
+   never shows done, never clears from the board. The original brief is explicit
+   that not regressing normal tasks is "the behaviour that matters most in the
+   product". Compare the failure modes: with a separate field the worst case is the
+   fix stays inert until someone sets the flag — a known, visible, fixable gap. With
+   reuse the worst case is silent, hits a different user, and hits the common case.
+2. **It is a casual, transient toggle.** `showKeepAlive={isDesktopRunning}`
+   (`SpecTaskDetailContent.tsx:2668`) — the button only appears while the desktop is
+   up, one click in the session toolbar next to Restart. Attaching permanent
+   workflow semantics to a button people press to stop a box sleeping is exactly the
+   "toggle silently changed what it means" failure the addendum warns about.
+3. **It is one-way.** Conflating them is easy; separating them later breaks whoever
+   came to depend on the conflated meaning.
+
+### But the operator's reading was reasonable, so fix what caused it
+
+Deciding against reuse does not mean the misreading was the operator's fault. Two
+consequences, both in scope:
+
+- **`perpetual_run` gets a UI toggle too**, not just an API field. That gives the
+  operator a working lever today instead of waiting on the HelixOS PR, which is the
+  reuse camp's best argument and the main thing a separate field otherwise gives up.
+- **Narrow the `keep_alive` labels.** "Keep Alive ON — won't auto-sleep"
+  (`SpecTaskViewToolbar.tsx:314-317`) and "Keep Alive enabled — container won't
+  auto-sleep" (`SpecTaskDetailContent.tsx:1036`) never say *what* won't auto-sleep,
+  which is how it got read as "the run". They should name the desktop and say the
+  task still completes normally. `keep_alive`'s behaviour does not change — only its
+  labelling, which was under-specified before this bug and is what made the two
+  concepts look like one.
+
+Related: a perpetual run's workspace must not be reaped either, so
+`gc_reaper.go:152` treats `perpetual_run` as live alongside `keep_alive`. Note that
+`handleDone`'s keep-alive branch is unreachable for a perpetual run — it never
+reaches `done` — so no change is needed there.
+
 ## Data Model
 
 `api/pkg/types/simple_spec_task.go`, on `SpecTask`, next to `KeepAlive`:
@@ -42,11 +113,15 @@ Rejected alternatives:
 // PRs are tracked and merges recorded, but no automatic transition may advance
 // it to pull_request/implementation_review or complete it. Only archiving or an
 // explicit user status change ends it.
+//
+// Distinct from KeepAlive, which is purely about the container: KeepAlive says
+// "don't stop the desktop when this task finishes", and `done + keep_alive` is
+// a supported state. PerpetualRun says "this task does not finish".
 PerpetualRun bool `json:"perpetual_run" gorm:"column:perpetual_run;default:false"`
 ```
 
 Column created by GORM `AutoMigrate` (`api/pkg/store/postgres.go:170`), same as
-`KeepAlive`. **No SQL migration file and no backfill** (US-7).
+`KeepAlive`. **No SQL migration file and no backfill** (US-8).
 
 Request plumbing mirrors `KeepAlive` exactly:
 - `CreateTaskRequest.PerpetualRun bool`
@@ -103,7 +178,7 @@ MergedAt = &now; CompletedAt = &now`. Each keeps everything except that shape.
 | B6 | `spec_task_workflow_handlers.go` ~360 — **`approveImplementation` internal-repo server-side merge success** *(not in the brief)* | Perform the merge and upstream push, record `ImplementationApprovedBy`/`At`, dismiss attention events, trigger the golden build. Skip the terminal writes. For a perpetual run "Accept" means "land this branch", not "kill my bot". |
 
 B6 is user-initiated, which is worth being explicit about: the deliberate-termination
-routes stay archive and an explicit `PUT status: done` (US-6). Approve-implementation
+routes stay archive and an explicit `PUT status: done` (US-7). Approve-implementation
 is not one of them — the evidence shows it running against the live bot at 02:49:14
 and being the first domino.
 
@@ -137,7 +212,7 @@ Two, both already implemented and unchanged by this work:
    (`spec_driven_task_handlers.go:1401`) stops the planning session's desktop and any
    running `SpecTaskExternalAgent`, then sets `archived = true`. This is what
    HelixOS's `archiveBotSpecTasks` already calls. No guard touches it — but it must be
-   re-verified live (US-6).
+   re-verified live (US-7).
 2. **Explicit user status change** — `PUT /api/v1/spec-tasks/{id}` with
    `status: done`. A human saying "this is finished" is authoritative.
 

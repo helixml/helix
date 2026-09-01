@@ -55,9 +55,12 @@ keep-alive. This connection must be stated in the PR description so it is not lo
 ## User Stories
 
 ### US-1: Mark a spec task as a perpetual run
-**As** an orchestrator (HelixOS) creating a long-lived bot session,
-**I want** to declare at creation time that a spec task is a perpetual run,
+**As** an orchestrator (HelixOS) or an operator running a long-lived bot session,
+**I want** to declare that a spec task is a perpetual run,
 **So that** Helix knows the task has no natural completion point.
+
+The marker is a **new field, not a reuse of `keep_alive`**. See US-2 for the
+reasoning; the decision must be restated in the PR description.
 
 Acceptance criteria:
 - [ ] `SpecTask` has a new persisted boolean, `perpetual_run`, defaulting to `false`.
@@ -66,12 +69,47 @@ Acceptance criteria:
       so it can be explicitly set to `false`, demoting a perpetual run to a normal task.
 - [ ] The field is returned on every spec task read path and appears in the generated
       OpenAPI/TypeScript types.
+- [ ] A UI toggle sets it, so an operator has a working lever without waiting for
+      HelixOS to be wired. This matters: a new field is otherwise inert in production
+      until the HelixOS PR lands.
+- [ ] `gc_reaper.go:152` treats a perpetual run's workspace as live, alongside
+      `keep_alive`.
 - [ ] The marker is **not** derived from `type = 'bot_run'` or any other sniffing.
       `type` is a free-form string owned by API callers (`bot_run`, `hypothesis`,
       `findai_jim`, `candidate_search`, `social_pulse` are all in use); no Helix Go
       code reads its values today and none should start.
 
-### US-2: Opening a PR does not move a perpetual run out of `implementation`
+### US-2: `keep_alive` keeps meaning "keep the container", and says so
+**As** a developer who set `keep_alive` to debug a desktop after my feature task landed,
+**I want** my task to still show as done,
+**So that** the toggle doesn't silently change what it means.
+
+The operator on the affected task had `keep_alive = true` and expected "this run does
+not end" — *"I toggled keep-alive on. It should last forever, right?"* Helix read it
+as "keep the box", and the box was indeed fine (`Up 7 hours`, a turn completed at
+03:03:15, 111 queued approvals delivered). Only the status disagreed.
+
+Reusing `keep_alive` to also suppress completion was weighed and **rejected**: it
+would mean an ordinary feature task with `keep_alive` set for debugging never reaches
+`done` — a silent regression on the path the brief calls "the behaviour that matters
+most in the product", caused by a transient one-click toggle that only appears while
+the desktop is running (`showKeepAlive={isDesktopRunning}`). A separate field's worst
+case is a visible inert flag; reuse's worst case is a silent break for a different
+user. But the operator's reading was reasonable, and the labels are why.
+
+Acceptance criteria:
+- [ ] `keep_alive`'s behaviour is unchanged: it still gates `handleDone`'s desktop
+      stop, GC, and the turn-it-off-while-done path. `done + keep_alive = true`
+      remains a supported state.
+- [ ] The labels are narrowed to name the desktop and to say the task still completes
+      normally. Currently neither says *what* won't auto-sleep:
+      `SpecTaskViewToolbar.tsx:314-317` ("Keep Alive ON — won't auto-sleep") and
+      `SpecTaskDetailContent.tsx:1036` ("Keep Alive enabled — container won't
+      auto-sleep").
+- [ ] The new perpetual toggle sits alongside it with a label that cannot be confused
+      with it.
+
+### US-3: Opening a PR does not move a perpetual run out of `implementation`
 **As** a bot doing ordinary work,
 **I want** opening a PR to be recorded without advancing my task's lifecycle,
 **So that** the poller never gets the chance to finish me off.
@@ -96,7 +134,7 @@ Acceptance criteria — a perpetual task must stay in `implementation` when:
       `handleMainBranchPush` sweep selects on, so parking there is a live route to a
       false `done`. The rebase instruction to the agent is still sent.
 
-### US-3: A perpetual run is never auto-completed
+### US-4: A perpetual run is never auto-completed
 **As** a bot whose session runs indefinitely,
 **I want** merges to be recorded but never to end my run,
 **So that** my session stays live and my owner's UI keeps showing me as running.
@@ -120,7 +158,7 @@ Acceptance criteria — none of these may set `Status = done`, `merged_to_main`,
       events are still dismissed, and the golden Docker cache build still triggers.
 - [ ] Polling is not short-circuited — the guard sits on the transition, not the poll.
 
-### US-4: PR state stays fresh for a perpetual run
+### US-5: PR state stays fresh for a perpetual run
 **As** a bot owner,
 **I want** my bot's PRs to keep showing accurate state and CI status,
 **So that** "never leaves `implementation`" doesn't mean "PR data goes stale".
@@ -130,12 +168,12 @@ Acceptance criteria:
       status, so `PRState` and CI status keep refreshing. Both
       `pollPullRequests` (`spec_task_orchestrator.go:1297`) and the
       `RefreshPullRequestStatus` gate (`:1338`) need widening.
-- [ ] This widening lands **only after** every terminal guard in US-3 is in place.
+- [ ] This widening lands **only after** every terminal guard in US-4 is in place.
       Widening the selector first re-creates the exact loop this fix exists to break.
 - [ ] `detectExternalPRActivity`'s `!task.HasAnyPR()` filter is left alone (see Open
       Question 3).
 
-### US-5: Normal tasks are unchanged
+### US-6: Normal tasks are unchanged
 **As** a user of the core product,
 **I want** one-shot feature tasks to behave exactly as they do today,
 **So that** the fix costs nothing in the common case.
@@ -148,7 +186,7 @@ Acceptance criteria:
 - [ ] No behaviour change of any kind for `perpetual_run = false`, which is every
       existing task.
 
-### US-6: A perpetual run can be ended deliberately
+### US-7: A perpetual run can be ended deliberately
 **As** a bot owner,
 **I want** an explicit way to terminate a perpetual run,
 **So that** "never auto-completes" does not mean "can never be stopped".
@@ -161,7 +199,7 @@ Acceptance criteria:
       workflow-implied transitions are suppressed.
 - [ ] Clearing `perpetual_run` restores normal lifecycle behaviour.
 
-### US-7: No bulk repair
+### US-8: No bulk repair
 - [ ] No backfill migration is written. Of 132 `bot_run` tasks on meta, the 9 in
       `done` and 17 in `pull_request` have no session activity in the last 24h, and
       the single affected task was already repaired by hand. There is nothing to
@@ -186,7 +224,7 @@ Per `CLAUDE.md`, tested end-to-end against the inner Helix at `localhost:8080`.
       `merged_to_main = true` and `completed_at` set.
 - [ ] **Live E2E**: archiving a perpetual run still terminates it.
 - [ ] **Go unit tests** covering perpetual and normal cases at all four status-advancing
-      sites (US-2) and all six terminal sites (US-3).
+      sites (US-3) and all six terminal sites (US-4).
 
 ## Constraints and Gotchas Discovered
 
@@ -207,27 +245,35 @@ Per `CLAUDE.md`, tested end-to-end against the inner Helix at `localhost:8080`.
 
 ## Open Questions
 
-1. **Is `implementation` the right permanent resting state?** The design keeps a
+1. **The `keep_alive` decision is made, not deferred — but it is the one most worth
+   overruling.** I chose a separate `perpetual_run` field (US-1, US-2). The case for
+   reuse that I found hardest to dismiss is that it needs no HelixOS change, so it
+   would fix production the day it merges, whereas `perpetual_run` is inert until
+   either the HelixOS PR lands or someone flips the new UI toggle. I mitigated that
+   with the toggle rather than by reusing the flag. If you would rather take the
+   silent-regression risk on debug-keep-alive tasks in exchange for an immediate
+   production fix, say so and it is a small change to the spec.
+2. **Is `implementation` the right permanent resting state?** The design keeps a
    perpetual run in `implementation` forever — it never enters `pull_request` or
    `implementation_review`. That is the simplest rule and matches "the bot is
    implementing, not awaiting a merge". The cost is that the board shows no visual
    difference between a bot mid-PR and a bot mid-edit. Acceptable, or is a
    perpetual-specific display state wanted?
-2. **`merged_to_main` on a perpetual run.** Suppressed entirely here, on the grounds
+3. **`merged_to_main` on a perpetual run.** Suppressed entirely here, on the grounds
    that it means "this task's work landed and it is over". HelixOS's
    `MergedToMain && !workInProgress(status)` guard would tolerate it being set, but
    suppressing is more honest. Confirm nothing in HelixOS reads it as a plain "did a
    merge happen" signal.
-3. **Second external PR on a perpetual run.** `detectExternalPRActivity` filters
+4. **Second external PR on a perpetual run.** `detectExternalPRActivity` filters
    `!task.HasAnyPR()`, so once a perpetual task holds any PR, a later
    externally-created PR is never auto-detected. Pre-existing and deliberately left
    alone here (touching it is how you reintroduce the loop). Follow-up?
-4. **HelixOS is not checked out on this machine.** The brief says it is, but the local
+5. **HelixOS is not checked out on this machine.** The brief says it is, but the local
    repos are `kodit`, `helix-next`, `docs`, `qwen-code`, `zed`, `helix` — and
    `helix-next` is a different codebase (no `api/internal/bridge`, no
    `mapRemoteWorkflowStatus`, no `internal/whipper`). So the HelixOS PR that *sets*
    `perpetual_run` cannot be written here, and the whipper interaction can only be
    described, not verified. Until that PR lands the Helix-side fix is inert in
    production. Can the repo be made available?
-5. **UI surfacing.** Assumed API-only plus generated types, no new UI controls.
+6. **UI surfacing.** Assumed API-only plus generated types, no new UI controls.
    Should the board show a "perpetual" badge?
