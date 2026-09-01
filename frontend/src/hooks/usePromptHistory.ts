@@ -31,6 +31,11 @@ export interface PromptHistoryEntry {
   content: string
   timestamp: number
   sessionId?: string
+  // Who queued this entry. The queue is the AGENT's, so it also carries prompts
+  // queued by teammates and by bots via the session-messages API; those are
+  // displayed with an owner indicator and are read-only to everyone else.
+  // Undefined on a local entry that has not round-tripped through the backend yet.
+  userId?: string
   // 'pending'  → in queue, not yet dispatched to Zed
   // 'sending'  → backend has dispatched to Zed but Zed hasn't started streaming yet
   //              (the queue UI keeps these visible — that's the user-visible "in flight" state)
