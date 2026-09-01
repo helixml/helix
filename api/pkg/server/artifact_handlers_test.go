@@ -174,3 +174,12 @@ func artifactTestZIP(t *testing.T, files map[string]string) []byte {
 	require.NoError(t, writer.Close())
 	return buffer.Bytes()
 }
+
+func TestArtifactDownloadFilename(t *testing.T) {
+	require.Equal(t, "Q3 report.pdf", artifactDownloadFilename(&types.Artifact{Name: "Q3 report", Entrypoint: "document.pdf"}, ".pdf"))
+	require.Equal(t, "notes.md", artifactDownloadFilename(&types.Artifact{Name: "notes.md", Entrypoint: "notes.md"}, ".md"))
+	require.Equal(t, "dashboard.zip", artifactDownloadFilename(&types.Artifact{Name: "dashboard", Entrypoint: "index.html"}, ".zip"))
+	require.Equal(t, "etcpasswd.html", artifactDownloadFilename(&types.Artifact{Name: "../../etc/passwd", Entrypoint: "index.html"}, ".html"))
+	require.Equal(t, "index.html", artifactDownloadFilename(&types.Artifact{Name: "  ", Entrypoint: "index.html"}, ".html"))
+	require.Equal(t, "artifact.zip", artifactDownloadFilename(&types.Artifact{Name: "...", Entrypoint: "index.html"}, ".zip"))
+}
