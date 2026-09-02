@@ -24,6 +24,8 @@ echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
 # persistent containers, then replace it with the full policy once ready.
 # shellcheck source=/usr/local/lib/helix-sandbox-network-policy.sh
 source /usr/local/lib/helix-sandbox-network-policy.sh
+# shellcheck source=/usr/local/lib/helix-desktop-image-gc.sh
+source /usr/local/lib/helix-desktop-image-gc.sh
 
 # ================================================================================
 # Configure dockerd with DNS and optional NVIDIA runtime
@@ -346,6 +348,12 @@ load_desktop_image() {
     return 0
 }
 
+# Reclaim obsolete, unreferenced versions before pulling. This is what lets a
+# nearly-full deployment upgrade into the release containing the GC fix. The
+# current configured version, :latest, one previous version by default, and
+# every image referenced by a container remain protected.
+cleanup_desktop_images "pre-pull"
+
 # Load desktop images.
 #
 # Production desktops are pulled on every startup. Experimental desktops are
@@ -392,8 +400,8 @@ done
 #
 # Cleanup logic:
 # - Read expected version from .version files
-# - Read registry refs from .runtime-ref files (written by load_desktop_image)
-# - Keep images matching expected version, :latest, or registry refs
+# - Read registry refs from .runtime-ref files for operator-visible diagnostics
+# - Keep tags matching the expected version or :latest
 # - Remove all other versions (old image hashes)
 # ================================================================================
 echo ""
@@ -421,88 +429,7 @@ if [ -n "$STOPPED_TO_REMOVE" ]; then
     docker rm -f $STOPPED_TO_REMOVE >/dev/null 2>&1 || true
 fi
 
-# Build a list of expected versions and registry refs
-declare -A EXPECTED_VERSIONS
-declare -A REGISTRY_REFS
-DESKTOP_NAMES=""
-for version_file in /opt/images/helix-*.version; do
-    if [ -f "$version_file" ]; then
-        IMAGE_NAME=$(basename "$version_file" .version)
-        EXPECTED_VERSIONS[$IMAGE_NAME]=$(cat "$version_file")
-        echo "   Expected version for $IMAGE_NAME: ${EXPECTED_VERSIONS[$IMAGE_NAME]}"
-
-        # Check for registry ref (written during registry pull)
-        REF_FILE="/opt/images/${IMAGE_NAME}.runtime-ref"
-        if [ -f "$REF_FILE" ]; then
-            REGISTRY_REFS[$IMAGE_NAME]=$(cat "$REF_FILE")
-            echo "   Registry ref for $IMAGE_NAME: ${REGISTRY_REFS[$IMAGE_NAME]}"
-        fi
-
-        DESKTOP_NAME="${IMAGE_NAME#helix-}"
-        if [ -z "$DESKTOP_NAMES" ]; then
-            DESKTOP_NAMES="$DESKTOP_NAME"
-        else
-            DESKTOP_NAMES="$DESKTOP_NAMES|$DESKTOP_NAME"
-        fi
-    fi
-done
-
-# Skip cleanup if no version files found (nothing to clean)
-if [ -z "$DESKTOP_NAMES" ]; then
-    echo "   No desktop version files found - skipping cleanup"
-else
-    # Get all helix-* desktop images matching known desktop types
-    # Pattern is built dynamically from .version files (e.g., "sway|ubuntu|kde")
-    ALL_DESKTOP_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E "^helix-($DESKTOP_NAMES):" | sort -u)
-
-    REMOVED_COUNT=0
-    KEPT_COUNT=0
-
-    for image in $ALL_DESKTOP_IMAGES; do
-        # Skip images with <none> tags
-        if [[ "$image" == *":<none>"* ]]; then
-            continue
-        fi
-
-        # Parse image name and tag
-        IMAGE_NAME=$(echo "$image" | cut -d: -f1)
-        IMAGE_TAG=$(echo "$image" | cut -d: -f2)
-
-        # Get expected version for this desktop type
-        EXPECTED_VERSION="${EXPECTED_VERSIONS[$IMAGE_NAME]:-}"
-
-        # Safety: skip if we don't know the expected version for this desktop
-        if [ -z "$EXPECTED_VERSION" ]; then
-            KEPT_COUNT=$((KEPT_COUNT + 1))
-            continue
-        fi
-
-        # Keep images matching the expected version from .version file OR tagged as :latest
-        # Remove everything else (old versions)
-        if [ "$IMAGE_TAG" = "$EXPECTED_VERSION" ] || [ "$IMAGE_TAG" = "latest" ]; then
-            KEPT_COUNT=$((KEPT_COUNT + 1))
-        else
-            echo "   Removing old image: $image (expected version: $EXPECTED_VERSION)"
-            if docker rmi "$image" 2>/dev/null; then
-                REMOVED_COUNT=$((REMOVED_COUNT + 1))
-            else
-                echo "   ⚠️  Failed to remove $image (may still be in use)"
-            fi
-        fi
-    done
-
-    if [ "$REMOVED_COUNT" -gt 0 ]; then
-        echo "✅ Cleaned up $REMOVED_COUNT old desktop image(s), kept $KEPT_COUNT current image(s)"
-    else
-        if [ "$KEPT_COUNT" -gt 0 ]; then
-            echo "   No old desktop images to clean up (all $KEPT_COUNT images are current)"
-        else
-            echo "   No desktop images found to clean up"
-        fi
-    fi
-fi
-
-echo "✅ Desktop image cleanup complete"
+cleanup_desktop_images "post-pull"
 
 # ================================================================================
 # Clean up only dangling images. Broad system pruning also removes an empty

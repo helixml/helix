@@ -251,6 +251,7 @@ RUN mkdir -p /etc/helix
 
 # Start dockerd script
 COPY sandbox/04-start-dockerd.sh /etc/cont-init.d/40-start-dockerd.sh
+COPY sandbox/desktop-image-gc.sh /usr/local/lib/helix-desktop-image-gc.sh
 RUN chmod +x /etc/cont-init.d/40-start-dockerd.sh
 
 # Start (and supervise) the sandbox DNS proxy AFTER dockerd so nested
