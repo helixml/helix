@@ -24,6 +24,7 @@ import type { TypesGitRepository, TypesAzureDevOps } from '../../api/api'
 import { useCreateProject, useListProjects } from '../../services'
 import useAccount from '../../hooks/useAccount'
 import useSnackbar from '../../hooks/useSnackbar'
+import { extractErrorMessage } from '../../hooks/useErrorCallback'
 import { CodeAgentRuntime } from '../../contexts/apps'
 import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
 import CodingAgentForm from '../agent/CodingAgentForm'
@@ -302,7 +303,10 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
         }
       }
     } catch (err) {
-      snackbar.error('Failed to create project')
+      const errorMessage = extractErrorMessage(err) || 'Failed to create project'
+      setRepoError(errorMessage.includes('subscription credentials are not enabled for coding-agent harness')
+        ? `${getAgentHarnessLabel(codeAgentConfig?.runtime)} subscription access is not enabled for this organization. Ask an organization administrator to enable it in Settings > Providers, or select another coding agent.`
+        : errorMessage)
     }
   }
 
