@@ -11,7 +11,6 @@ import {
   ArchiveRestore,
   ChevronDown,
   ChevronRight,
-  Folder,
   GitPullRequest,
   Pin,
   Plus,
@@ -40,6 +39,7 @@ import type { SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
 import type { SortableProjectHandleProps } from './SortableProject'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
 import AgentHarness from '../agent/AgentHarness'
+import ProjectIcon from '../icons/ProjectIcon'
 import { GitBranch } from 'lucide-react'
 import { getProjectChatItemDetails, resolveProjectChatItemBranch } from './projectChatItemDetails'
 
@@ -358,7 +358,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
         >
           {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
         </Box>
-        <Folder size={14} style={{ opacity: 0.72 }} />
+        <ProjectIcon size={14} style={{ opacity: 0.72 }} />
         <Typography
           component="span"
           sx={{

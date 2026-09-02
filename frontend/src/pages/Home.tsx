@@ -10,7 +10,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import { ChevronDown, Folder, FolderPlus, Hammer, ListTodo, MessageCircle } from 'lucide-react'
+import { ChevronDown, FolderPlus, Hammer, ListTodo, MessageCircle } from 'lucide-react'
 
 import {
   TypesCodeAgentExecutionConfig,
@@ -23,6 +23,7 @@ import CodeAgentExecutionControls from '../components/agent/CodeAgentExecutionCo
 import { useSeedProjectCodeAgentConfig } from '../hooks/useSeedProjectCodeAgentConfig'
 import { CodeAgentConfigChangeSource } from '../utils/codeAgentExecutionConfig'
 import ManagedCreateProjectDialog from '../components/project/ManagedCreateProjectDialog'
+import ProjectIcon from '../components/icons/ProjectIcon'
 import Page from '../components/system/Page'
 import { useAccount } from '../contexts/account'
 import { useStreaming } from '../contexts/streaming'
@@ -584,7 +585,7 @@ const Home: FC = () => {
 
           <Box sx={isPhone ? { order: -1, mb: 0.5, flexShrink: 0 } : { mt: 1, px: 2 }}>
             <Button
-              startIcon={isProjectContext ? <Folder size={14} /> : <MessageCircle size={14} />}
+              startIcon={isProjectContext ? <ProjectIcon size={14} /> : <MessageCircle size={14} />}
               endIcon={<ChevronDown size={12} />}
               onClick={(event) => setProjectMenuAnchor(event.currentTarget)}
               sx={{ ...selectorButtonSx, fontSize: isPhone ? '0.8rem' : '0.7rem' }}
@@ -606,7 +607,7 @@ const Home: FC = () => {
                   selected={project.id === selectedProjectId}
                   onClick={() => openProject(project.id)}
                 >
-                  <ListItemIcon><Folder size={16} /></ListItemIcon>
+                  <ListItemIcon><ProjectIcon size={16} /></ListItemIcon>
                   <ListItemText primary={project.name || 'Untitled project'} />
                 </MenuItem>
               ))}

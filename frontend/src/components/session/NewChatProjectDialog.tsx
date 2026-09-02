@@ -6,11 +6,12 @@ import Typography from '@mui/material/Typography'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { useTheme } from '@mui/material/styles'
 
-import { ArrowDown, ArrowLeft, ArrowUp, Folder, MessagesSquare } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, MessagesSquare } from 'lucide-react'
 
 import type { TypesProject } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
 import { matchesAllTokens } from '../../utils/searchUtils'
+import ProjectIcon from '../icons/ProjectIcon'
 
 export type NewChatTarget = { projectId?: string }
 
@@ -271,7 +272,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
             }}
           >
             <Box sx={{ display: 'inline-flex', flexShrink: 0, color: mutedColor }}>
-              {row.standalone ? <MessagesSquare size={16} /> : <Folder size={16} />}
+              {row.standalone ? <MessagesSquare size={16} /> : <ProjectIcon size={16} />}
             </Box>
             <Box sx={{ minWidth: 0, flex: 1 }}>
               <Typography

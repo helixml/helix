@@ -7,7 +7,8 @@ import {
   InputBase,
   Chip,
 } from '@mui/material'
-import { Search, X, FolderKanban, Bot, MessageSquare, FileText, BookOpen, GitBranch, ListTodo } from 'lucide-react'
+import { Search, X, Bot, MessageSquare, FileText, BookOpen, GitBranch, ListTodo } from 'lucide-react'
+import ProjectIcon from '../icons/ProjectIcon'
 import useLightTheme from '../../hooks/useLightTheme'
 import useResourceSearch from '../../hooks/useResourceSearch'
 import useAccount from '../../hooks/useAccount'
@@ -21,7 +22,7 @@ interface GlobalSearchDialogProps {
 }
 
 const SEARCHABLE_RESOURCE_TYPES: { type: TypesResource; label: string; icon: React.ReactNode }[] = [
-  { type: TypesResource.ResourceProject, label: 'Projects', icon: <FolderKanban size={14} /> },
+  { type: TypesResource.ResourceProject, label: 'Projects', icon: <ProjectIcon size={14} /> },
   { type: TypesResource.ResourceApplication, label: 'Agents', icon: <Bot size={14} /> },
   { type: TypesResource.ResourceSession, label: 'Sessions', icon: <MessageSquare size={14} /> },
   { type: TypesResource.ResourceKnowledge, label: 'Knowledge', icon: <BookOpen size={14} /> },
