@@ -53,8 +53,8 @@ func Test_GetQwen38VisionModalities(t *testing.T) {
 			assert.Equal(t, []types.Modality{types.ModalityText}, modelInfo.OutputModalities)
 			assert.Equal(t, 1_000_000, modelInfo.ContextLength)
 			assert.Equal(t, 131_072, modelInfo.MaxCompletionTokens)
-			assert.Equal(t, "0.0000004", modelInfo.Pricing.Prompt)
-			assert.Equal(t, "0.000003", modelInfo.Pricing.Completion)
+			assert.Equal(t, "0.000000425", modelInfo.Pricing.Prompt)
+			assert.Equal(t, "0.00000255", modelInfo.Pricing.Completion)
 		})
 	}
 }
@@ -84,8 +84,10 @@ func Test_GetQwen38FlashNextVisionModalities(t *testing.T) {
 			assert.Equal(t, []types.Modality{types.ModalityText}, modelInfo.OutputModalities)
 			assert.Equal(t, 262_144, modelInfo.ContextLength)
 			assert.Zero(t, modelInfo.MaxCompletionTokens)
-			assert.Empty(t, modelInfo.Pricing.Prompt)
-			assert.Empty(t, modelInfo.Pricing.Completion)
+			assert.Equal(t, "0.00000015", modelInfo.Pricing.Prompt)
+			assert.Equal(t, "0.00000047", modelInfo.Pricing.Completion)
+			assert.Equal(t, "0.000000016", modelInfo.Pricing.InputCacheRead)
+			assert.Equal(t, "0.0000002", modelInfo.Pricing.InputCacheWrite)
 		})
 	}
 }
