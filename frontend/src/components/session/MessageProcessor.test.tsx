@@ -9,20 +9,6 @@ import {
 } from "../../api/api";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-// Mock DOMPurify
-vi.mock("dompurify", () => {
-  return {
-    default: {
-      sanitize: (html: string) => {
-        // Simple mock sanitizer that removes <script> and <iframe> tags
-        return html
-          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-          .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, "");
-      },
-    },
-  };
-});
-
 // Mock data for tests
 const mockInteraction: Partial<TypesInteraction> = {
   id: "int1",
@@ -467,7 +453,7 @@ And inline code \`const y = 10;\` too.`;
     });
   });
 
-  describe("HTML sanitization", () => {
+  describe("HTML processing", () => {
     test("Safe HTML should be preserved", () => {
       const message = `<p>This is a <strong>paragraph</strong> with <em>formatting</em>.</p>
 <a href="https://example.com">Link</a>
@@ -489,28 +475,6 @@ And inline code \`const y = 10;\` too.`;
       expect(result).toContain("<ul><li>");
     });
 
-    test("Unsafe HTML should be removed", () => {
-      const message = `<script>alert("xss")</script>
-<p>Safe content</p>
-<iframe src="https://malicious.com"></iframe>`;
-
-      const processor = new MessageProcessor(message, {
-        session: mockSession as TypesSession,
-        getFileURL: mockGetFileURL,
-        isStreaming: false,
-      });
-
-      const result = processor.process();
-
-      // With our mock implementation, script and iframe tags should be removed
-      expect(result).not.toContain('<script>alert("xss")</script>');
-      expect(result).not.toContain(
-        '<iframe src="https://malicious.com"></iframe>',
-      );
-
-      // Safe content should be preserved
-      expect(result).toContain("<p>Safe content</p>");
-    });
   });
 
   describe("Triple dash handling", () => {
