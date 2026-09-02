@@ -92,6 +92,7 @@ interface DevContainerWithClients {
   gpu_vendor?: string
   render_node?: string
   sandbox_id: string
+  purpose?: string
   clients?: ClientInfo[]
   video_stats?: VideoStreamingStats
   session_name?: string
@@ -540,7 +541,7 @@ interface DevContainerCardProps {
   isStopping: boolean
 }
 
-const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStopping }) => {
+export const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStopping }) => {
   const clients = container.clients || []
   const account = useAccount()
 
@@ -571,19 +572,22 @@ const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStop
           size="small"
           color={getStatusColor(container.status)}
         />
-        <Tooltip title="Stop container" arrow>
-          <IconButton
-            size="small"
-            onClick={() => onStop(container.session_id)}
-            disabled={isStopping}
-            sx={{
-              color: 'error.main',
-              '&:hover': { backgroundColor: 'rgba(244, 67, 54, 0.1)' },
-            }}
-          >
-            {isStopping ? <CircularProgress size={16} /> : <CloseIcon fontSize="small" />}
-          </IconButton>
-        </Tooltip>
+        {container.purpose !== 'web-service' && (
+          <Tooltip title="Stop container" arrow>
+            <IconButton
+              aria-label="Stop container"
+              size="small"
+              onClick={() => onStop(container.session_id)}
+              disabled={isStopping}
+              sx={{
+                color: 'error.main',
+                '&:hover': { backgroundColor: 'rgba(244, 67, 54, 0.1)' },
+              }}
+            >
+              {isStopping ? <CircularProgress size={16} /> : <CloseIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        )}
       </Box>
 
       {/* Task/session title */}

@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -33,8 +34,16 @@ type fakeHydra struct {
 
 	createResp *hydra.DevContainerResponse
 	createErr  error
+	listResp   *hydra.ListDevContainersResponse
+	listErr    error
 	deleteErr  error
 	forgetErr  error
+}
+
+func (f *fakeHydra) ListDevContainers(_ context.Context) (*hydra.ListDevContainersResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.listResp, f.listErr
 }
 
 func (f *fakeHydra) CreateDevContainer(_ context.Context, req *hydra.CreateDevContainerRequest) (*hydra.DevContainerResponse, error) {
@@ -597,6 +606,104 @@ func (s *ProvisionSuite) TestDeleteSkipsHydraWhenSandboxHasNoHost() {
 	s.Require().Empty(s.hydra.deleteCalls, "Delete must not contact hydra for sandboxes without a host")
 }
 
+func (s *ProvisionSuite) TestReconcileWebServiceContainersDeletesSupersededContainer() {
+	deletedAt := time.Now()
+	old := &types.Sandbox{
+		ID: "sbx_old", ProjectID: "prj_1", HostDeviceID: "host-a",
+		Purpose: types.SandboxPurposeWebService, DeletedAt: &deletedAt,
+	}
+	s.store.EXPECT().ListSandboxes(gomock.Any(), &store.ListSandboxesQuery{IncludeDeleted: true}).Return([]*types.Sandbox{old}, nil)
+	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{{ID: "host-a", Status: "online"}}, nil)
+	s.store.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_1").Return(&types.ProjectWebServiceState{
+		ProjectID: "prj_1", ActiveSandboxID: "sbx_current",
+	}, nil)
+	s.store.EXPECT().DecrementSandboxContainerCount(gomock.Any(), "host-a").Return(errors.New("count failed"))
+	s.hydra.listResp = &hydra.ListDevContainersResponse{Containers: []hydra.DevContainerResponse{{SessionID: old.ID}}}
+	s.hydra.forgetErr = errors.New("forget failed")
+
+	s.Require().NoError(s.controller.ReconcileWebServiceContainers(s.ctx))
+	s.Require().Equal([]string{old.ID}, s.hydra.deletes())
+	s.Require().Equal([]string{old.ID}, s.hydra.forgetCalls)
+}
+
+func TestReconcileWebServiceContainersRetainsWithoutCompleteSupersessionEvidence(t *testing.T) {
+	deletedAt := time.Now()
+	tests := []struct {
+		name          string
+		row           *types.Sandbox
+		hostDeviceID  string
+		hostStatus    string
+		listErr       error
+		state         *types.ProjectWebServiceState
+		stateErr      error
+		deleteErr     error
+		expectState   bool
+		expectAttempt bool
+		expectError   bool
+	}{
+		{name: "missing row"},
+		{name: "non-deleted row", row: &types.Sandbox{ID: "sbx_old", ProjectID: "prj_1", Purpose: types.SandboxPurposeWebService}},
+		{name: "non-webservice row", row: &types.Sandbox{ID: "sbx_old", ProjectID: "prj_1", Purpose: "", DeletedAt: &deletedAt}},
+		{name: "missing project", row: &types.Sandbox{ID: "sbx_old", Purpose: types.SandboxPurposeWebService, DeletedAt: &deletedAt}},
+		{name: "host mismatch", row: &types.Sandbox{ID: "sbx_old", ProjectID: "prj_1", Purpose: types.SandboxPurposeWebService, DeletedAt: &deletedAt}, hostDeviceID: "host-b"},
+		{name: "offline host", row: &types.Sandbox{ID: "sbx_old", ProjectID: "prj_1", Purpose: types.SandboxPurposeWebService, DeletedAt: &deletedAt}, hostStatus: "offline"},
+		{name: "hydra list error", row: &types.Sandbox{ID: "sbx_old", ProjectID: "prj_1", Purpose: types.SandboxPurposeWebService, DeletedAt: &deletedAt}, listErr: errors.New("list failed"), expectError: true},
+		{name: "state error", row: &types.Sandbox{ID: "sbx_old", ProjectID: "prj_1", Purpose: types.SandboxPurposeWebService, DeletedAt: &deletedAt}, stateErr: errors.New("state failed"), expectState: true, expectError: true},
+		{name: "nil state", row: &types.Sandbox{ID: "sbx_old", ProjectID: "prj_1", Purpose: types.SandboxPurposeWebService, DeletedAt: &deletedAt}, expectState: true},
+		{name: "empty active sandbox", row: &types.Sandbox{ID: "sbx_old", ProjectID: "prj_1", Purpose: types.SandboxPurposeWebService, DeletedAt: &deletedAt}, state: &types.ProjectWebServiceState{ProjectID: "prj_1"}, expectState: true},
+		{name: "still active", row: &types.Sandbox{ID: "sbx_old", ProjectID: "prj_1", Purpose: types.SandboxPurposeWebService, DeletedAt: &deletedAt}, state: &types.ProjectWebServiceState{ProjectID: "prj_1", ActiveSandboxID: "sbx_old"}, expectState: true},
+		{name: "hydra delete error", row: &types.Sandbox{ID: "sbx_old", ProjectID: "prj_1", Purpose: types.SandboxPurposeWebService, DeletedAt: &deletedAt}, state: &types.ProjectWebServiceState{ProjectID: "prj_1", ActiveSandboxID: "sbx_current"}, deleteErr: errors.New("delete failed"), expectState: true, expectAttempt: true, expectError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			runtimes, err := NewRuntimeRegistry(config.Sandboxes{Runtimes: "headless-ubuntu=ubuntu:22.04|sleep infinity", DefaultRuntime: "headless-ubuntu"})
+			require.NoError(t, err)
+			controller := New(mockStore, nil, runtimes, "https://api.example.com", "/sandbox-host")
+			fake := &fakeHydra{
+				listResp:  &hydra.ListDevContainersResponse{Containers: []hydra.DevContainerResponse{{SessionID: "sbx_old"}}},
+				listErr:   tt.listErr,
+				deleteErr: tt.deleteErr,
+			}
+			controller.newHydraClient = func(string) hydraProvisionClient { return fake }
+
+			rows := []*types.Sandbox{}
+			if tt.row != nil {
+				if tt.hostDeviceID == "" {
+					tt.row.HostDeviceID = "host-a"
+				} else {
+					tt.row.HostDeviceID = tt.hostDeviceID
+				}
+				rows = append(rows, tt.row)
+			}
+			mockStore.EXPECT().ListSandboxes(gomock.Any(), &store.ListSandboxesQuery{IncludeDeleted: true}).Return(rows, nil)
+			hostStatus := tt.hostStatus
+			if hostStatus == "" {
+				hostStatus = "online"
+			}
+			mockStore.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{{ID: "host-a", Status: hostStatus}}, nil)
+			if tt.expectState {
+				mockStore.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_1").Return(tt.state, tt.stateErr)
+			}
+
+			err = controller.ReconcileWebServiceContainers(context.Background())
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			if tt.expectAttempt {
+				require.Equal(t, []string{"sbx_old"}, fake.deletes())
+			} else {
+				require.Empty(t, fake.deletes())
+			}
+			require.Empty(t, fake.forgetCalls)
+		})
+	}
+}
+
 // TestStartReaperRunsThenStopsOnContextCancel: the reaper goroutine must
 // shut down cleanly when its context is cancelled. We validate by giving
 // it a tight tick interval so at least one iteration runs, then cancel.
@@ -607,6 +714,8 @@ func (s *ProvisionSuite) TestStartReaperRunsThenStopsOnContextCancel() {
 	// tick to complete before the context is cancelled — match each call
 	// AnyTimes to tolerate the inherent race with the cancel.
 	s.store.EXPECT().ListExpiredSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().ListSandboxes(gomock.Any(), &store.ListSandboxesQuery{IncludeDeleted: true}).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return(nil, nil).AnyTimes()
 	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 	s.store.EXPECT().ListStoppedNonPersistentSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 

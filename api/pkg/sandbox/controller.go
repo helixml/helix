@@ -377,6 +377,9 @@ func (c *Controller) StartReaper(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if err := c.ReconcileWebServiceContainers(ctx); err != nil {
+				log.Warn().Err(err).Msg("web service container reconciliation failed")
+			}
 			if err := c.ReapExpired(ctx); err != nil {
 				log.Warn().Err(err).Msg("sandbox reaper iteration failed")
 			}

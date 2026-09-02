@@ -21,6 +21,7 @@ import (
 // in a fake without standing up a RevDial connection.
 type hydraProvisionClient interface {
 	CreateDevContainer(ctx context.Context, req *hydra.CreateDevContainerRequest) (*hydra.DevContainerResponse, error)
+	ListDevContainers(ctx context.Context) (*hydra.ListDevContainersResponse, error)
 	DeleteDevContainer(ctx context.Context, sessionID string) (*hydra.DevContainerResponse, error)
 	ForgetSandboxOps(ctx context.Context, sessionID string) error
 }

@@ -26340,6 +26340,9 @@ const docTemplate = `{
                 "project_name": {
                     "type": "string"
                 },
+                "purpose": {
+                    "type": "string"
+                },
                 "render_node": {
                     "description": "/dev/dri/renderD128 or SOFTWARE",
                     "type": "string"
