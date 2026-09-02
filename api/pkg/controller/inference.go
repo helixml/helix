@@ -443,8 +443,11 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 }
 
 func (c *Controller) validateBillingModelPricing(ctx context.Context, billingEnabled bool, provider, modelName string) error {
-	if !billingEnabled {
+	if !billingEnabled || modelName == "" {
 		return nil
+	}
+	if provider == "" {
+		provider = c.Options.Config.Inference.Provider
 	}
 	if c.Options.ModelInfoProvider == nil {
 		return fmt.Errorf("billing requires pricing metadata for model %q from provider %q", modelName, provider)

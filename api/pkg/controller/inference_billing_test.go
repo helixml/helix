@@ -19,16 +19,30 @@ func TestValidateBillingModelPricing(t *testing.T) {
 	tests := []struct {
 		name           string
 		billingEnabled bool
+		provider       string
+		modelName      string
 		modelInfo      *types.ModelInfo
 		lookupErr      error
 		wantErr        string
 	}{
-		{name: "billing disabled"},
-		{name: "missing metadata", billingEnabled: true, lookupErr: errors.New("not found"), wantErr: "billing requires pricing metadata"},
-		{name: "unpriced model", billingEnabled: true, modelInfo: &types.ModelInfo{}, wantErr: "billing requires non-zero pricing metadata"},
+		{name: "billing disabled", provider: "anthropic", modelName: "claude-fable-5"},
+		{name: "empty model", billingEnabled: true, provider: "anthropic"},
+		{name: "missing metadata", billingEnabled: true, provider: "anthropic", modelName: "claude-fable-5", lookupErr: errors.New("not found"), wantErr: "billing requires pricing metadata"},
+		{name: "unpriced model", billingEnabled: true, provider: "anthropic", modelName: "claude-fable-5", modelInfo: &types.ModelInfo{}, wantErr: "billing requires non-zero pricing metadata"},
 		{
 			name:           "priced model",
 			billingEnabled: true,
+			provider:       "anthropic",
+			modelName:      "claude-fable-5",
+			modelInfo: &types.ModelInfo{Pricing: types.Pricing{
+				Prompt:     "0.000002",
+				Completion: "0.00001",
+			}},
+		},
+		{
+			name:           "default provider",
+			billingEnabled: true,
+			modelName:      "claude-fable-5",
 			modelInfo: &types.ModelInfo{Pricing: types.Pricing{
 				Prompt:     "0.000002",
 				Completion: "0.00001",
@@ -40,18 +54,21 @@ func TestValidateBillingModelPricing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			modelInfoProvider := model.NewMockModelInfoProvider(ctrl)
-			if tt.billingEnabled {
+			if tt.billingEnabled && tt.modelName != "" {
 				modelInfoProvider.EXPECT().
 					GetModelInfo(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, req *model.ModelInfoRequest) (*types.ModelInfo, error) {
 						require.Equal(t, "anthropic", req.Provider)
-						require.Equal(t, "claude-fable-5", req.Model)
+						require.Equal(t, tt.modelName, req.Model)
 						return tt.modelInfo, tt.lookupErr
 					})
 			}
 
-			c := &Controller{Options: Options{ModelInfoProvider: modelInfoProvider}}
-			err := c.validateBillingModelPricing(context.Background(), tt.billingEnabled, "anthropic", "claude-fable-5")
+			c := &Controller{Options: Options{
+				Config:            &config.ServerConfig{Inference: config.Inference{Provider: "anthropic"}},
+				ModelInfoProvider: modelInfoProvider,
+			}}
+			err := c.validateBillingModelPricing(context.Background(), tt.billingEnabled, tt.provider, tt.modelName)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return
