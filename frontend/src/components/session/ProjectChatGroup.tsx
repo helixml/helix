@@ -316,12 +316,6 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
           '&:hover': {
             backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
           },
-          '&:hover .sidebar-group-new, &:focus-within .sidebar-group-new': {
-            opacity: 1,
-          },
-          '@media (hover: none)': onNewTask ? {
-            '& .sidebar-group-new': { opacity: 1 },
-          } : undefined,
         }}
       >
         <Box
@@ -406,8 +400,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
               font: 'inherit',
               fontSize: '10px',
               fontWeight: 500,
-              opacity: 0,
-              transition: 'opacity 100ms ease',
+              opacity: 1,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',

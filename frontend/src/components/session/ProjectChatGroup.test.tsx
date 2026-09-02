@@ -219,6 +219,12 @@ describe('ProjectChatGroup', () => {
     expect(onToggle).not.toHaveBeenCalled()
   })
 
+  it('always shows the new chat affordance', () => {
+    renderEmptyProject()
+
+    expect(screen.getByText('New')).toHaveStyle({ opacity: '1' })
+  })
+
   it('collapses from the chevron, and only from the chevron', () => {
     const onToggle = vi.fn()
     const onNewTask = vi.fn()
