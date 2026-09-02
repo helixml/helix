@@ -60,21 +60,7 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 // repos.
 func findAllWorkspaces() []WorkspaceInfo {
 	var workspaces []WorkspaceInfo
-
-	workDirs := []string{
-		os.Getenv("WORKSPACE_DIR"),
-		"/home/retro/work",
-	}
-
-	var baseDir string
-	for _, dir := range workDirs {
-		if dir != "" {
-			if info, err := os.Stat(dir); err == nil && info.IsDir() {
-				baseDir = dir
-				break
-			}
-		}
-	}
+	baseDir := findAgentWorkspaceRoot()
 
 	if baseDir == "" {
 		return workspaces
@@ -108,6 +94,18 @@ func findAllWorkspaces() []WorkspaceInfo {
 	}
 
 	return workspaces
+}
+
+func findAgentWorkspaceRoot() string {
+	for _, dir := range []string{os.Getenv("WORKSPACE_DIR"), agentWorkspaceRoot} {
+		if dir == "" {
+			continue
+		}
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return dir
+		}
+	}
+	return ""
 }
 
 // getWorkspaceInfo builds workspace info for a git repository

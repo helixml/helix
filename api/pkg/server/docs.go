@@ -4227,7 +4227,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Executes a command inside the sandbox container for benchmarking and debugging.\nOnly specific safe commands are allowed (vkcube, glxgears, pkill).",
+                "description": "Executes a command inside the caller's sandbox container.",
                 "consumes": [
                     "application/json"
                 ],
@@ -4577,6 +4577,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Workspace name",
                         "name": "workspace",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Set to work to list the full session work root (requires update access)",
+                        "name": "root",
                         "in": "query"
                     }
                 ],

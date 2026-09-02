@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -72,7 +73,7 @@ func TestCreateSpecTaskPayloadContainsNoAppIdentity(t *testing.T) {
 	}))
 	defer server.Close()
 
-	task, err := createSpecTask(server.URL, "test-token", "test", "prompt", "prj_test", "headless-ubuntu")
+	task, err := createSpecTask(server.URL, "test-token", "test", "prompt", "prj_test", "headless-ubuntu", true)
 	if err != nil {
 		t.Fatalf("createSpecTask returned an error: %v", err)
 	}
@@ -88,5 +89,71 @@ func TestCreateSpecTaskPayloadContainsNoAppIdentity(t *testing.T) {
 	}
 	if payload["project_id"] != "prj_test" {
 		t.Fatalf("project_id missing from payload: %#v", payload)
+	}
+	if payload["just_do_it_mode"] != true {
+		t.Fatalf("just_do_it_mode missing from payload: %#v", payload)
+	}
+}
+
+func TestStartAcceptsDirectImplementationFlags(t *testing.T) {
+	command := newStartCommand()
+	for _, name := range []string{"just-do-it", "auto-start"} {
+		if command.Flags().Lookup(name) == nil {
+			t.Fatalf("start command is missing --%s", name)
+		}
+	}
+}
+
+func TestStopSpecTaskNoOpsWhenTaskHasNoSession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/spec-tasks/spt_test/stop-agent" {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"spt_test","planning_session_id":""}`))
+	}))
+	defer server.Close()
+
+	if err := stopSpecTask(server.URL, "test-token", "spt_test"); err != nil {
+		t.Fatalf("stopSpecTask returned an error: %v", err)
+	}
+}
+
+func TestQueueSessionMessageReturnsImmediately(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/sessions/ses_test/messages" {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"prompt_id":"prm_test"}`))
+	}))
+	defer server.Close()
+
+	output, err := queueSessionMessage(server.URL, "test-token", "ses_test", "collect files")
+	if err != nil {
+		t.Fatalf("queueSessionMessage returned an error: %v", err)
+	}
+	if !output.Delivered || output.PromptID != "prm_test" {
+		t.Fatalf("unexpected output: %#v", output)
+	}
+}
+
+func TestSendWaitTimeoutIsSuccessfulDelivery(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		<-release
+	}))
+	defer server.Close()
+
+	output, err := sendSessionMessageAndWait(server.URL, "test-token", "ses_test", "collect files", 10*time.Millisecond)
+	if err != nil {
+		close(release)
+		t.Fatalf("timeout should be a successful delivery outcome: %v", err)
+	}
+	close(release)
+	if !output.Delivered || !output.StillRunning {
+		t.Fatalf("unexpected output: %#v", output)
 	}
 }

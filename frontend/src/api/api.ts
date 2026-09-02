@@ -10949,7 +10949,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Executes a command inside the sandbox container for benchmarking and debugging. Only specific safe commands are allowed (vkcube, glxgears, pkill).
+     * @description Executes a command inside the caller's sandbox container.
      *
      * @tags ExternalAgents
      * @name V1ExternalAgentsExecCreate
@@ -11091,6 +11091,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Workspace name */
         workspace?: string;
+        /** Set to work to list the full session work root (requires update access) */
+        root?: string;
       },
       params: RequestParams = {},
     ) =>

@@ -43,6 +43,7 @@ type Client interface {
 	SearchKnowledge(ctx context.Context, f *KnowledgeSearchQuery) ([]*types.KnowledgeSearchResult, error)
 
 	ListSecrets(ctx context.Context, f *SecretFilter) ([]*types.Secret, error)
+	ListProjectSecrets(ctx context.Context, projectID string) ([]*types.Secret, error)
 	CreateSecret(ctx context.Context, secret *types.CreateSecretRequest) (*types.Secret, error)
 	CreateProjectSecret(ctx context.Context, projectID string, secret *types.CreateSecretRequest) (*types.Secret, error)
 	UpdateSecret(ctx context.Context, id string, secret *types.Secret) (*types.Secret, error)
@@ -92,6 +93,8 @@ type Client interface {
 
 	// Projects
 	ApplyProject(ctx context.Context, req *types.ProjectApplyRequest) (*types.ProjectApplyResponse, error)
+	GetProject(ctx context.Context, projectID string) (*types.Project, error)
+	ListProjects(ctx context.Context, organizationID string) ([]*types.Project, error)
 
 	// Project artifacts
 	ListArtifacts(ctx context.Context, projectID string) ([]*types.Artifact, error)

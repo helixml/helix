@@ -46,8 +46,8 @@ func newCreateCommand() *cobra.Command {
 		Short: "Create an artifact from HTML, Markdown, a compiled SPA, PDF, or image",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projectID := firstNonEmpty(flags.projectID, os.Getenv("HELIX_PROJECT_ID"))
-			if projectID == "" {
+			projectRef := firstNonEmpty(flags.projectID, os.Getenv("HELIX_PROJECT_ID"))
+			if projectRef == "" {
 				return errors.New("project is required: pass --project or set HELIX_PROJECT_ID")
 			}
 			if strings.TrimSpace(flags.name) == "" {
@@ -66,6 +66,11 @@ func newCreateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			project, err := cli.LookupProject(cmd.Context(), apiClient, projectRef, "")
+			if err != nil {
+				return err
+			}
+			projectID := project.ID
 			sourceSession, sourceTask := resolveArtifactProvenance(cmd, &flags, projectID)
 			name, description, entrypoint, withSubdomain := flags.name, flags.description, flags.entrypoint, flags.subdomain
 			artifact, err := apiClient.CreateArtifact(cmd.Context(), projectID, &client.ArtifactUploadRequest{
@@ -153,15 +158,19 @@ func newListCommand() *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "List artifacts in a project",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID = firstNonEmpty(projectID, os.Getenv("HELIX_PROJECT_ID"))
-			if projectID == "" {
+			projectRef := firstNonEmpty(projectID, os.Getenv("HELIX_PROJECT_ID"))
+			if projectRef == "" {
 				return errors.New("project is required: pass --project or set HELIX_PROJECT_ID")
 			}
 			apiClient, err := newClient()
 			if err != nil {
 				return err
 			}
-			artifacts, err := apiClient.ListArtifacts(cmd.Context(), projectID)
+			project, err := cli.LookupProject(cmd.Context(), apiClient, projectRef, "")
+			if err != nil {
+				return err
+			}
+			artifacts, err := apiClient.ListArtifacts(cmd.Context(), project.ID)
 			if err != nil {
 				return err
 			}
@@ -181,7 +190,7 @@ func newListCommand() *cobra.Command {
 			return cli.RenderTable(table)
 		},
 	}
-	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (env: HELIX_PROJECT_ID)")
+	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID or name (env: HELIX_PROJECT_ID)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Print JSON")
 	return cmd
 }
@@ -229,7 +238,7 @@ func newDeleteCommand() *cobra.Command {
 
 func addUploadFlags(cmd *cobra.Command, flags *uploadFlags, includeProject bool) {
 	if includeProject {
-		cmd.Flags().StringVarP(&flags.projectID, "project", "p", "", "Project ID (env: HELIX_PROJECT_ID)")
+		cmd.Flags().StringVarP(&flags.projectID, "project", "p", "", "Project ID or name (env: HELIX_PROJECT_ID)")
 	}
 	cmd.Flags().StringVarP(&flags.name, "name", "n", "", "Artifact name")
 	cmd.Flags().StringVar(&flags.description, "description", "", "Artifact description")

@@ -551,6 +551,36 @@ func TestWorkspaceFilesListsTrackedAndUntrackedOnly(t *testing.T) {
 	assert.Equal(t, workspace, response.Workspace)
 }
 
+func TestWorkspaceFilesAndDownloadIncludeSiblingOutputsFromWorkRoot(t *testing.T) {
+	workRoot := t.TempDir()
+	t.Setenv("WORKSPACE_DIR", workRoot)
+	require.NoError(t, os.MkdirAll(filepath.Join(workRoot, "repo", ".git"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(workRoot, "engagement"), 0o755))
+	contents := []byte("collected output\n")
+	require.NoError(t, os.WriteFile(filepath.Join(workRoot, "engagement", "findings.json"), contents, 0o644))
+	server := newTestServer(t)
+
+	listReq := httptest.NewRequest(http.MethodGet, "/workspace/files?root=work", nil)
+	listRecorder := httptest.NewRecorder()
+	server.handleWorkspaceFiles(listRecorder, listReq)
+	require.Equal(t, http.StatusOK, listRecorder.Code, listRecorder.Body.String())
+	var response types.WorkspaceFilesResponse
+	require.NoError(t, json.Unmarshal(listRecorder.Body.Bytes(), &response))
+	paths := make(map[string]string, len(response.Entries))
+	for _, entry := range response.Entries {
+		paths[entry.Path] = entry.Kind
+	}
+	assert.Equal(t, "directory", paths["engagement"])
+	assert.Equal(t, "file", paths["engagement/findings.json"])
+	assert.NotContains(t, paths, "repo/.git")
+
+	downloadReq := httptest.NewRequest(http.MethodGet, "/workspace/file/download?root=work&path=engagement/findings.json", nil)
+	downloadRecorder := httptest.NewRecorder()
+	server.handleWorkspaceFileDownload(downloadRecorder, downloadReq)
+	require.Equal(t, http.StatusOK, downloadRecorder.Code, downloadRecorder.Body.String())
+	assert.Equal(t, contents, downloadRecorder.Body.Bytes())
+}
+
 func TestListWorkspaceSkillsUsesProjectPrecedenceAndFollowsSymlinks(t *testing.T) {
 	workDir := t.TempDir()
 	homeDir := t.TempDir()

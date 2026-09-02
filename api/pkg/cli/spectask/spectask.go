@@ -84,14 +84,17 @@ func newStartCommand() *cobra.Command {
 	var quiet bool
 	var wait bool
 	var noWait bool
+	var justDoIt bool
 
 	cmd := &cobra.Command{
 		Use:   "start [task-id]",
-		Short: "Start a spec task planning session (creates sandbox)",
-		Long: `Start a spec task planning session which creates a sandbox.
+		Short: "Start a spec task agent session (creates sandbox)",
+		Long: `Start a spec task agent session which creates a sandbox.
 
 If no task-id is provided, a new spec task will be created.
 Use --project to specify which project to create the task in.
+Use --just-do-it when the prompt is already a complete brief and the agent
+should begin implementation without a spec-writing and approval phase.
 Use --runtime to pick the sandbox environment:
   ubuntu-desktop   full GNOME desktop you can stream and screenshot (default)
   headless-ubuntu  agent-only, no compositor or streaming — faster and cheaper
@@ -121,6 +124,11 @@ Example workflow:
 				if runtime != "" {
 					return fmt.Errorf("--runtime can only be set when creating a task; %s already has a fixed runtime", taskID)
 				}
+				if justDoIt {
+					if _, err := setSpecTaskJustDoIt(apiURL, token, taskID); err != nil {
+						return fmt.Errorf("failed to enable just-do-it mode: %w", err)
+					}
+				}
 			} else {
 				// Create a new spec task
 				if projectID == "" {
@@ -145,9 +153,9 @@ Example workflow:
 					}
 				}
 				if taskPrompt == "" {
-					taskPrompt = "Testing RevDial connectivity"
+					taskPrompt = "Complete the requested task"
 				}
-				task, err := createSpecTask(apiURL, token, taskName, taskPrompt, projectID, runtime)
+				task, err := createSpecTask(apiURL, token, taskName, taskPrompt, projectID, runtime, justDoIt)
 				if err != nil {
 					return fmt.Errorf("failed to create spec task: %w", err)
 				}
@@ -169,9 +177,10 @@ Example workflow:
 				}
 			}
 
-			// Start planning - this triggers async session creation
+			// Start the task agent. The server selects planning or direct
+			// implementation according to the task's just-do-it mode.
 			if !quiet {
-				fmt.Printf("Starting planning for task %s...\n", taskID)
+				fmt.Printf("Starting agent for task %s...\n", taskID)
 			}
 			task, err := triggerStartPlanning(apiURL, token, taskID)
 			if err != nil {
@@ -193,7 +202,7 @@ Example workflow:
 				if quiet {
 					fmt.Println(taskID)
 				} else {
-					fmt.Printf("\n✅ Task created — planning started: %s\n", taskID)
+					fmt.Printf("\n✅ Task agent started: %s\n", taskID)
 					if taskURL := buildTaskURL(apiURL, task, projectID); taskURL != "" {
 						fmt.Printf("   Open in browser: %s\n", taskURL)
 					}
@@ -263,6 +272,8 @@ Example workflow:
 	cmd.Flags().StringVar(&runtime, "runtime", "", "Sandbox environment for the new task: ubuntu-desktop (streamable GNOME desktop) or headless-ubuntu (agent only, no desktop). Empty = project default. Immutable once the task exists.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output the task ID (session ID with --wait)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Block until the sandbox has booted, then print session-level connect info (default: return immediately with the task URL — the browser page shows it loading)")
+	cmd.Flags().BoolVar(&justDoIt, "just-do-it", false, "Skip spec planning and go straight to implementation")
+	cmd.Flags().Bool("auto-start", false, "Start immediately (already the behavior of this command; accepted for create-command parity)")
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Deprecated: no-wait is now the default; kept as a no-op for back-compat")
 	_ = cmd.Flags().MarkHidden("no-wait")
 
@@ -383,7 +394,7 @@ func newStopCommand() *cobra.Command {
 	var all bool
 
 	cmd := &cobra.Command{
-		Use:   "stop <session-id>",
+		Use:   "stop <session-id|task-id>",
 		Short: "Stop a running sandbox session",
 		Long: `Stops a running sandbox session and its container.
 
@@ -391,6 +402,7 @@ Use --all to stop all sessions with external agents.
 
 Examples:
   helix spectask stop ses_01xxx      # Stop specific session
+  helix spectask stop spt_01xxx      # Stop a task, or no-op if it is not running
   helix spectask stop --all          # Stop all sessions
 `,
 		Args: cobra.MaximumNArgs(1),
@@ -406,14 +418,45 @@ Examples:
 				return fmt.Errorf("session ID required (or use --all)")
 			}
 
-			sessionID := args[0]
-			return stopSession(apiURL, token, sessionID)
+			id := args[0]
+			if strings.HasPrefix(id, "spt_") {
+				return stopSpecTask(apiURL, token, id)
+			}
+			return stopSession(apiURL, token, id)
 		},
 	}
 
 	cmd.Flags().BoolVar(&all, "all", false, "Stop all sessions with external agents")
 
 	return cmd
+}
+
+func stopSpecTask(apiURL, token, taskID string) error {
+	url := fmt.Sprintf("%s/api/v1/spec-tasks/%s/stop-agent", apiURL, taskID)
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to stop task agent: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("stop failed: %d - %s", resp.StatusCode, string(body))
+	}
+	var task SpecTask
+	if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
+		return fmt.Errorf("decode stopped task: %w", err)
+	}
+	if task.PlanningSessionID == "" {
+		fmt.Printf("Task %s is not running; nothing to stop.\n", taskID)
+	} else {
+		fmt.Printf("Task %s agent stopped.\n", taskID)
+	}
+	return nil
 }
 
 func stopSession(apiURL, token, sessionID string) error {
@@ -504,6 +547,7 @@ type SpecTask struct {
 	ProjectID         string               `json:"project_id"`
 	PlanningSessionID string               `json:"planning_session_id"`
 	SandboxRuntime    types.SandboxRuntime `json:"sandbox_runtime"`
+	JustDoItMode      bool                 `json:"just_do_it_mode"`
 }
 
 // buildTaskURL returns the frontend task-detail page URL, which is known the
@@ -540,17 +584,13 @@ type SessionMetadata struct {
 	StatusMessage   string `json:"status_message"`
 }
 
-func createSpecTask(apiURL, token, name, prompt, projectID, runtime string) (*SpecTask, error) {
-	payload := map[string]string{
-		"name":   name,
-		"prompt": prompt, // API expects "prompt" not "description"
-	}
-	if projectID != "" {
-		payload["project_id"] = projectID
-	}
-	// Omitted means "inherit the project default" — the server resolves it.
-	if runtime != "" {
-		payload["sandbox_runtime"] = runtime
+func createSpecTask(apiURL, token, name, prompt, projectID, runtime string, justDoIt bool) (*SpecTask, error) {
+	payload := types.CreateTaskRequest{
+		Name:           name,
+		Prompt:         prompt,
+		ProjectID:      projectID,
+		SandboxRuntime: types.SandboxRuntime(runtime),
+		JustDoItMode:   justDoIt,
 	}
 	jsonData, _ := json.Marshal(payload)
 
@@ -579,6 +619,36 @@ func createSpecTask(apiURL, token, name, prompt, projectID, runtime string) (*Sp
 		return nil, err
 	}
 
+	return &task, nil
+}
+
+func setSpecTaskJustDoIt(apiURL, token, taskID string) (*SpecTask, error) {
+	enabled := true
+	payload := types.SpecTaskUpdateRequest{JustDoItMode: &enabled}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s/api/v1/spec-tasks/%s", apiURL, taskID)
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API returned %d: %s", resp.StatusCode, string(body))
+	}
+	var task SpecTask
+	if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
+		return nil, err
+	}
 	return &task, nil
 }
 

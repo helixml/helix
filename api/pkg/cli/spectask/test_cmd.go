@@ -17,10 +17,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// isTimeoutErr reports whether an HTTP request failed because our own client
-// deadline expired, as opposed to never reaching the server. The two demand
-// opposite responses: a timeout means the request is in flight and must not be
-// re-sent, while an unreachable server can be retried safely.
+// isTimeoutErr reports whether an HTTP request exceeded the caller's wait
+// budget. A synchronous chat request must not be retried after this point,
+// because the server may still be processing the delivered turn.
 func isTimeoutErr(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
 		return true
@@ -478,22 +477,60 @@ func outputHuman(suite *TestSuite) error {
 	return nil
 }
 
-// Script-friendly command for sending a message and waiting for response
+type queuedSessionMessageRequest struct {
+	Content string `json:"content"`
+}
+
+type queuedSessionMessageResponse struct {
+	PromptID string `json:"prompt_id"`
+}
+
+type blockingChatRequest struct {
+	SessionID string                `json:"session_id"`
+	Messages  []blockingChatMessage `json:"messages"`
+	Stream    bool                  `json:"stream"`
+}
+
+type blockingChatMessage struct {
+	Role    string              `json:"role"`
+	Content blockingChatContent `json:"content"`
+}
+
+type blockingChatContent struct {
+	ContentType string   `json:"content_type"`
+	Parts       []string `json:"parts"`
+}
+
+type blockingChatResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
+type sendCommandOutput struct {
+	PromptID     string `json:"prompt_id,omitempty"`
+	Delivered    bool   `json:"delivered"`
+	StillRunning bool   `json:"still_running,omitempty"`
+	Response     string `json:"response,omitempty"`
+}
+
+// Script-friendly command for sending a message and optionally waiting for response.
 func newSendCommand() *cobra.Command {
 	var waitForComplete bool
-	var pollInterval int
 	var maxWait int
 	var jsonOutput bool
+	var quiet bool
 
 	cmd := &cobra.Command{
 		Use:   "send <session-id|task-id> <message>",
 		Short: "Send a message to a session and optionally wait for completion",
-		Long: `Send a message to a session for scripted testing.
+		Long: `Queue a message for a session and return immediately by default.
 
-This command is designed for scripted/automated testing:
-  - Sends a message to the session
-  - Optionally waits for the agent to complete processing
-  - Returns structured output suitable for parsing
+The default path uses Helix's durable prompt queue, so the message remains
+pending while the agent is busy or reconnecting. Pass --wait to use the
+synchronous chat path and wait for the reply.
 
 Examples:
   # Send and immediately return
@@ -510,155 +547,136 @@ Examples:
 `,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if waitForComplete && maxWait <= 0 {
+				return fmt.Errorf("--max-wait must be greater than zero")
+			}
 			sessionID, err := resolveSessionID(args[0])
 			if err != nil {
 				return err
 			}
-			message := args[1]
-			apiURL := getAPIURL()
-			token := getToken()
-
-			// Send the message with retry for session not ready
-			chatURL := fmt.Sprintf("%s/api/v1/sessions/chat", apiURL)
-			deadline := time.Now().Add(time.Duration(maxWait) * time.Second)
-
-			var body []byte
-			var response map[string]interface{}
-
-			for time.Now().Before(deadline) {
-				payload := map[string]interface{}{
-					"session_id": sessionID,
-					"messages": []map[string]interface{}{
-						{
-							"role": "user",
-							"content": map[string]interface{}{
-								"content_type": "text",
-								"parts":        []string{message},
-							},
-						},
-					},
-					"stream": false,
-				}
-				jsonData, _ := json.Marshal(payload)
-
-				req, err := http.NewRequest("POST", chatURL, bytes.NewBuffer(jsonData))
+			message, apiURL, token := args[1], getAPIURL(), getToken()
+			if !waitForComplete {
+				output, err := queueSessionMessage(apiURL, token, sessionID, message)
 				if err != nil {
 					return err
 				}
-				req.Header.Set("Authorization", "Bearer "+token)
-				req.Header.Set("Content-Type", "application/json")
-
-				// /sessions/chat is blocking for zed_external sessions: it holds
-				// the connection for the whole agent turn, which is routinely
-				// minutes. Give the request the rest of our budget rather than a
-				// fixed 30s, or the client gives up mid-turn.
-				client := &http.Client{Timeout: time.Until(deadline)}
-				resp, err := client.Do(req)
-				if err != nil {
-					// A timeout means the POST was already delivered and the agent
-					// is working on it — retrying would send the user's message a
-					// second time. Only a failure to reach the server at all is
-					// safe to retry.
-					if isTimeoutErr(err) {
-						return fmt.Errorf("timed out after %ds waiting for the agent's reply; "+
-							"the message was delivered and the turn is still running "+
-							"(raise --max-wait, or poll the session instead): %w", maxWait, err)
-					}
-					fmt.Fprintf(os.Stderr, "Waiting for session to be ready...\n")
-					time.Sleep(5 * time.Second)
-					continue
-				}
-
-				body, _ = io.ReadAll(resp.Body)
-				resp.Body.Close()
-
-				if resp.StatusCode == http.StatusOK {
-					break
-				}
-
-				// Retry on 5xx errors (session not ready)
-				if resp.StatusCode >= 500 {
-					fmt.Fprintf(os.Stderr, "Waiting for session to be ready...\n")
-					time.Sleep(5 * time.Second)
-					continue
-				}
-
-				return fmt.Errorf("chat API returned %d: %s", resp.StatusCode, string(body))
+				return printSendCommandOutput(cmd, output, jsonOutput, quiet)
 			}
 
-			if err := json.Unmarshal(body, &response); err != nil {
-				// Might be plain text response
-				response = map[string]interface{}{
-					"response": strings.TrimSpace(string(body)),
-				}
+			output, err := sendSessionMessageAndWait(apiURL, token, sessionID, message, time.Duration(maxWait)*time.Second)
+			if err != nil {
+				return err
 			}
-
-			if waitForComplete {
-				// Poll for session to become idle
-				fmt.Fprintf(os.Stderr, "Waiting for agent to complete...\n")
-				ticker := time.NewTicker(time.Duration(pollInterval) * time.Second)
-				defer ticker.Stop()
-
-				timeout := time.After(time.Duration(maxWait) * time.Second)
-
-				for {
-					select {
-					case <-timeout:
-						return fmt.Errorf("timeout waiting for agent to complete")
-					case <-ticker.C:
-						session, err := getSessionDetails(apiURL, token, sessionID)
-						if err != nil {
-							continue
-						}
-						// Check if agent is still working
-						if session.Mode != "action" {
-							goto done
-						}
-					}
-				}
-			done:
-				// Fetch the latest interaction to get the actual response
-				historyURL := fmt.Sprintf("%s/api/v1/sessions/%s/interactions", apiURL, sessionID)
-				req, err := http.NewRequest("GET", historyURL, nil)
-				if err == nil {
-					req.Header.Set("Authorization", "Bearer "+token)
-					if resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req); err == nil {
-						defer resp.Body.Close()
-						if body, err := io.ReadAll(resp.Body); err == nil {
-							var interactions []map[string]interface{}
-							if json.Unmarshal(body, &interactions) == nil && len(interactions) > 0 {
-								// Get the last interaction's response_message
-								lastInteraction := interactions[len(interactions)-1]
-								if msg, ok := lastInteraction["response_message"].(string); ok && msg != "" {
-									response["response"] = msg
-								}
-							}
-						}
-					}
-				}
-			}
-
-			if jsonOutput {
-				encoder := json.NewEncoder(os.Stdout)
-				encoder.SetIndent("", "  ")
-				return encoder.Encode(response)
-			}
-
-			// Human output
-			if respText, ok := response["response"].(string); ok {
-				fmt.Printf("%s\n", respText)
-			} else {
-				fmt.Printf("%v\n", response)
-			}
-
-			return nil
+			return printSendCommandOutput(cmd, output, jsonOutput, quiet)
 		},
 	}
 
 	cmd.Flags().BoolVar(&waitForComplete, "wait", false, "Wait for agent to complete processing")
-	cmd.Flags().IntVar(&pollInterval, "poll", 2, "Poll interval in seconds when waiting")
 	cmd.Flags().IntVar(&maxWait, "max-wait", 300, "Maximum wait time in seconds")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress confirmation output")
+	cmd.Flags().Int("poll", 2, "Deprecated: --wait no longer polls")
+	_ = cmd.Flags().MarkDeprecated("poll", "--wait now uses the synchronous response directly")
 
 	return cmd
+}
+
+func queueSessionMessage(apiURL, token, sessionID, message string) (*sendCommandOutput, error) {
+	payload, err := json.Marshal(queuedSessionMessageRequest{Content: message})
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/messages", apiURL, sessionID)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to queue message: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read queue response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("message API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var queued queuedSessionMessageResponse
+	if err := json.Unmarshal(body, &queued); err != nil {
+		return nil, fmt.Errorf("decode queue response: %w", err)
+	}
+	return &sendCommandOutput{PromptID: queued.PromptID, Delivered: true}, nil
+}
+
+func sendSessionMessageAndWait(apiURL, token, sessionID, message string, timeout time.Duration) (*sendCommandOutput, error) {
+	payload, err := json.Marshal(blockingChatRequest{
+		SessionID: sessionID,
+		Messages: []blockingChatMessage{{
+			Role:    "user",
+			Content: blockingChatContent{ContentType: "text", Parts: []string{message}},
+		}},
+		Stream: false,
+	})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, apiURL+"/api/v1/sessions/chat", bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	if err != nil {
+		if isTimeoutErr(err) {
+			return &sendCommandOutput{Delivered: true, StillRunning: true}, nil
+		}
+		return nil, fmt.Errorf("failed to send message: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read chat response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("chat API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var chatResponse blockingChatResponse
+	if err := json.Unmarshal(body, &chatResponse); err != nil {
+		return nil, fmt.Errorf("decode chat response: %w", err)
+	}
+	responseText := ""
+	if len(chatResponse.Choices) > 0 {
+		responseText = chatResponse.Choices[0].Message.Content
+	}
+	return &sendCommandOutput{Delivered: true, Response: responseText}, nil
+}
+
+func printSendCommandOutput(cmd *cobra.Command, output *sendCommandOutput, jsonOutput, quiet bool) error {
+	if quiet {
+		return nil
+	}
+	if jsonOutput {
+		encoder := json.NewEncoder(cmd.OutOrStdout())
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(output)
+	}
+	if output.StillRunning {
+		fmt.Fprintln(cmd.OutOrStdout(), "Message delivered; the agent is still running.")
+		return nil
+	}
+	if output.Response != "" {
+		fmt.Fprintln(cmd.OutOrStdout(), output.Response)
+		return nil
+	}
+	if output.PromptID != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Message queued (%s).\n", output.PromptID)
+		return nil
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "Message delivered.")
+	return nil
 }
