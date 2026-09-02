@@ -166,13 +166,26 @@ func (s *PostgresStore) SetActiveWebServiceSandbox(ctx context.Context, projectI
 	if projectID == "" {
 		return fmt.Errorf("project_id is required")
 	}
-	return s.gdb.WithContext(ctx).
+	if sandboxID == "" {
+		return fmt.Errorf("sandbox_id is required")
+	}
+	res := s.gdb.WithContext(ctx).
 		Model(&types.ProjectWebServiceState{}).
-		Where("project_id = ?", projectID).
+		Where(`project_id = ? AND EXISTS (
+			SELECT 1 FROM sandboxes
+			WHERE id = ? AND project_id = ? AND purpose = ? AND deleted_at IS NULL
+		)`, projectID, sandboxID, projectID, types.SandboxPurposeWebService).
 		Updates(map[string]interface{}{
 			"active_sandbox_id": sandboxID,
 			"updated_at":        time.Now(),
-		}).Error
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // SetWebServiceHostDeviceID records the runner the project's web service is

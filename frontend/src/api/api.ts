@@ -1371,6 +1371,7 @@ export interface ServerDevContainerWithClients {
   owner_name?: string;
   project_id?: string;
   project_name?: string;
+  purpose?: string;
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
   sandbox_id?: string;
