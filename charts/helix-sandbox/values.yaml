@@ -107,6 +107,12 @@ sandbox:
   #   extraEnv:
   #     - name: HELIX_DISK_PRESSURE_PATHS
   #       value: "/var/lib/docker,/hydra-data,/data"
+  # Hydra warns once when free space crosses 10%, refuses new desktops at 2%,
+  # and stops running desktops at 1%. Override those thresholds with
+  # HELIX_DISK_PRESSURE_WARN_FREE_PCT, HELIX_DISK_PRESSURE_REFUSE_FREE_PCT,
+  # and HELIX_DISK_PRESSURE_STOP_FREE_PCT respectively.
+  # HELIX_DESKTOP_IMAGE_RETENTION controls how many previous versions are kept
+  # for rollback (default 1; set 0 to keep only the configured current image).
   extraEnv: []
 
 # Hydra configuration (multi-tenant container isolation)

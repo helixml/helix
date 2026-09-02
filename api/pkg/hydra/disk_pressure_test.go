@@ -2,6 +2,8 @@ package hydra
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"syscall"
 	"testing"
@@ -177,7 +179,37 @@ func (s *DiskPressureSuite) TestCheckStart_RefusesWhenLow() {
 	s.zpoolOut = "1000\t20\n"
 	err := checkDiskPressureForStart()
 	require.Error(s.T(), err)
+	var capacityErr *DiskCapacityError
+	require.ErrorAs(s.T(), err, &capacityErr)
 	assert.Contains(s.T(), err.Error(), "disk space critically low")
+	assert.Contains(s.T(), err.Error(), "Hydra host")
+	assert.Contains(s.T(), err.Error(), "remove unused desktop images")
+}
+
+func (s *DiskPressureSuite) TestCreateHandlerReturnsInsufficientStorage() {
+	s.zpoolOut = "1000\t10\n"
+	server := NewServer(NewManager(s.T().TempDir(), s.T().TempDir()), "")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/dev-containers", strings.NewReader(`{
+		"session_id":"ses_test","image":"helix-ubuntu:2.12.8-linux-amd64","container_name":"desktop-test"
+	}`))
+	recorder := httptest.NewRecorder()
+
+	server.handleCreateDevContainer(recorder, req)
+
+	assert.Equal(s.T(), http.StatusInsufficientStorage, recorder.Code)
+	assert.Contains(s.T(), recorder.Body.String(), "Hydra host")
+}
+
+func (s *DiskPressureSuite) TestWarningThresholdConfigurationAndTransitions() {
+	s.T().Setenv("HELIX_DISK_PRESSURE_WARN_FREE_PCT", "15")
+	resetDiskPressureConfig()
+	cfg := getDiskPressureConfig()
+	assert.Equal(s.T(), 15.0, cfg.warnFreePct)
+
+	active := updateDiskPressureWarning(measurement{freePct: 14, backend: "zfs", hasPct: true}, cfg, false)
+	assert.True(s.T(), active)
+	assert.True(s.T(), updateDiskPressureWarning(measurement{freePct: 13, backend: "zfs", hasPct: true}, cfg, active))
+	assert.False(s.T(), updateDiskPressureWarning(measurement{freePct: 16, backend: "zfs", hasPct: true}, cfg, active))
 }
 
 func (s *DiskPressureSuite) TestCheckStart_RefusesBelowThreshold() {

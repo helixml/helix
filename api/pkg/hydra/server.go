@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -455,7 +456,12 @@ func (s *Server) handleCreateDevContainer(w http.ResponseWriter, r *http.Request
 			Str("session_id", req.SessionID).
 			Str("container_name", req.ContainerName).
 			Msg("Failed to create dev container")
-		http.Error(w, fmt.Sprintf("failed to create dev container: %s", err), http.StatusInternalServerError)
+		status := http.StatusInternalServerError
+		var capacityErr *DiskCapacityError
+		if errors.As(err, &capacityErr) {
+			status = http.StatusInsufficientStorage
+		}
+		http.Error(w, fmt.Sprintf("failed to create dev container: %s", err), status)
 		return
 	}
 

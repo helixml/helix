@@ -13,6 +13,23 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// DiskCapacityError is returned when Hydra can measure the backing storage
+// and deliberately rejects a start. HTTP handlers map it to 507 rather than
+// presenting an operator-actionable capacity problem as a generic 500.
+type DiskCapacityError struct {
+	Message string
+}
+
+func (e *DiskCapacityError) Error() string { return e.Message }
+
+func newDiskCapacityError(message string) error {
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		hostname = "unknown"
+	}
+	return &DiskCapacityError{Message: fmt.Sprintf("%s; Hydra host %s; remove unused desktop images from the affected Docker storage volume and retry", message, hostname)}
+}
+
 // Disk-pressure admission control.
 //
 // The storage backing every session must never hit 0% free: ENOSPC inside a
@@ -64,6 +81,7 @@ import (
 const (
 	defaultDiskPressureRefuseFreePct = 2.0
 	defaultDiskPressureStopFreePct   = 1.0
+	defaultDiskPressureWarnFreePct   = 10.0
 	defaultDiskPressureCheckInterval = 30 * time.Second
 )
 
@@ -72,6 +90,7 @@ type diskPressureConfig struct {
 	enabled       bool
 	refuseFreePct float64
 	stopFreePct   float64
+	warnFreePct   float64
 	checkInterval time.Duration
 }
 
@@ -85,6 +104,7 @@ var (
 //	HELIX_DISK_PRESSURE_ENABLED          default true
 //	HELIX_DISK_PRESSURE_REFUSE_FREE_PCT  default 2.0  (≤ this → refuse new)
 //	HELIX_DISK_PRESSURE_STOP_FREE_PCT    default 1.0  (≤ this → stop existing)
+//	HELIX_DISK_PRESSURE_WARN_FREE_PCT    default 10.0 (≤ this → warn operator)
 //	HELIX_DISK_PRESSURE_CHECK_INTERVAL   default 30s
 func getDiskPressureConfig() diskPressureConfig {
 	diskPressureConfigOnce.Do(func() {
@@ -92,6 +112,7 @@ func getDiskPressureConfig() diskPressureConfig {
 			enabled:       envBool("HELIX_DISK_PRESSURE_ENABLED", true),
 			refuseFreePct: envFloat("HELIX_DISK_PRESSURE_REFUSE_FREE_PCT", defaultDiskPressureRefuseFreePct),
 			stopFreePct:   envFloat("HELIX_DISK_PRESSURE_STOP_FREE_PCT", defaultDiskPressureStopFreePct),
+			warnFreePct:   envFloat("HELIX_DISK_PRESSURE_WARN_FREE_PCT", defaultDiskPressureWarnFreePct),
 			checkInterval: envDuration("HELIX_DISK_PRESSURE_CHECK_INTERVAL", defaultDiskPressureCheckInterval),
 		}
 	})
@@ -425,7 +446,7 @@ func checkDiskPressureForStart() error {
 				Str("backend", m.backend).
 				Strs("paths", diskPressurePaths()).
 				Msg("disk-pressure: refusing to start dev container, a configured data path does not exist (set HELIX_DISK_PRESSURE_PATHS or create the directory)")
-			return fmt.Errorf("refusing to start dev container: one of the disk-pressure paths %v does not exist; set HELIX_DISK_PRESSURE_PATHS to the correct mounts and retry", diskPressurePaths())
+			return newDiskCapacityError(fmt.Sprintf("refusing to start dev container: one of the disk-pressure paths %v does not exist; set HELIX_DISK_PRESSURE_PATHS to the correct mounts and retry", diskPressurePaths()))
 		}
 		// Unknown measurement, both backends unavailable. Fail open, allow
 		// the start, but log loudly so operators notice.
@@ -453,7 +474,7 @@ func checkDiskPressureForStart() error {
 		if m.triggerPath != "" {
 			where = fmt.Sprintf("%s at %s", m.backend, m.triggerPath)
 		}
-		return fmt.Errorf("refusing to start dev container: disk space critically low, %s reports %.2f%% free (minimum %.0f%% required); free up space and retry", where, m.freePct, cfg.refuseFreePct)
+		return newDiskCapacityError(fmt.Sprintf("refusing to start dev container: disk space critically low, %s reports %.2f%% free (minimum %.0f%% required)", where, m.freePct, cfg.refuseFreePct))
 	}
 
 	return nil
@@ -481,11 +502,13 @@ func (dm *DevContainerManager) runDiskPressureMonitor() {
 		Strs("paths", diskPressurePaths()).
 		Float64("refuse_free_pct", cfg.refuseFreePct).
 		Float64("stop_free_pct", cfg.stopFreePct).
+		Float64("warn_free_pct", cfg.warnFreePct).
 		Dur("check_interval", cfg.checkInterval).
 		Msg("disk-pressure: monitor started")
 
 	ticker := time.NewTicker(cfg.checkInterval)
 	defer ticker.Stop()
+	warningActive := false
 	for range ticker.C {
 		m, err := measureDisk()
 		if err != nil {
@@ -496,6 +519,8 @@ func (dm *DevContainerManager) runDiskPressureMonitor() {
 		if !m.hasPct {
 			continue
 		}
+
+		warningActive = updateDiskPressureWarning(m, cfg, warningActive)
 
 		if m.freePct <= cfg.stopFreePct {
 			log.Error().
@@ -508,6 +533,31 @@ func (dm *DevContainerManager) runDiskPressureMonitor() {
 			dm.emergencyStopAllDevContainers(m.freePct)
 		}
 	}
+}
+
+// updateDiskPressureWarning emits only on threshold transitions. Hydra's logs
+// are included in the admin Runner Logs stream, making this visible to
+// operators without flooding that stream every check interval.
+func updateDiskPressureWarning(m measurement, cfg diskPressureConfig, active bool) bool {
+	if m.freePct <= cfg.warnFreePct && !active {
+		log.Warn().
+			Str("backend", m.backend).
+			Str("pool", poolName()).
+			Str("trigger_path", m.triggerPath).
+			Float64("free_pct", m.freePct).
+			Float64("warn_pct", cfg.warnFreePct).
+			Msg("disk-pressure: storage is running low; remove unused images or expand the volume before admission is blocked")
+		return true
+	}
+	if m.freePct > cfg.warnFreePct && active {
+		log.Info().
+			Str("backend", m.backend).
+			Str("trigger_path", m.triggerPath).
+			Float64("free_pct", m.freePct).
+			Msg("disk-pressure: storage recovered above warning threshold")
+		return false
+	}
+	return active
 }
 
 // emergencyStopAllDevContainers gracefully stops every tracked dev container to
