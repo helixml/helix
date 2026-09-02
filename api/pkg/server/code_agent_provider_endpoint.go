@@ -74,7 +74,14 @@ func (s *HelixAPIServer) resolveCodeAgentProviderEndpoint(
 		ownerType = types.OwnerTypeOrg
 	}
 	if types.IsGlobalProviderID(providerRef) {
-		endpoint, err := s.getBuiltInProviderEndpoint(ctx, types.CanonicalProviderName(providerRef))
+		providerName := types.CanonicalProviderName(providerRef)
+		var endpoint *types.ProviderEndpoint
+		var err error
+		if providerName == string(types.ProviderOpenAI) {
+			endpoint, err = s.getBuiltInOpenAIProviderEndpoint()
+		} else {
+			endpoint, err = s.getBuiltInProviderEndpoint(ctx, providerName)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -87,6 +94,16 @@ func (s *HelixAPIServer) resolveCodeAgentProviderEndpoint(
 			return nil, fmt.Errorf("list providers: %w", err)
 		}
 		if endpoint := resolveProviderEndpointRef(endpoints, providerRef); endpoint != nil {
+			// Provider-manager global entries are discovery-only synthetics and
+			// intentionally do not expose credentials. Hydrate a selected built-in
+			// before the code-agent proxy tries to authenticate upstream. A real
+			// org/DB endpoint wins in resolveProviderEndpointRef and is left intact.
+			if endpoint.ID == types.GlobalProviderID(string(types.ProviderOpenAI)) {
+				return s.getBuiltInOpenAIProviderEndpoint()
+			}
+			if endpoint.ID == types.GlobalProviderID(string(types.ProviderAnthropic)) {
+				return s.getBuiltInProviderEndpoint(ctx, string(types.ProviderAnthropic))
+			}
 			return endpoint, nil
 		}
 	}

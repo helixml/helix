@@ -82,11 +82,10 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 		return substitutions, err
 	}
 
-	// One predicate, case-insensitive on names: substitution catalogs are
-	// name-keyed (alt.Provider is always a canonical name) but the
-	// agent-stored value may be an ID, a canonical global name, or a
-	// legacy mixed-case name. Single helper avoids the case-sensitive Go
-	// map gotcha that the previous double-keyed providerSet papered over.
+	// One predicate for all supported provider reference shapes. Provider
+	// endpoint presets used to be stored as names such as "user/anthropic",
+	// while global endpoints are now exposed as "anthropic". Treat those as
+	// the same provider kind; DB-backed pe_ references must still match by ID.
 	providerKnown := func(ref string) bool {
 		if ref == "" {
 			return false
@@ -95,7 +94,7 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			if ep.ID != "" && ep.ID == ref {
 				return true
 			}
-			if strings.EqualFold(ep.Name, ref) {
+			if types.CanonicalProviderName(ep.Name) == types.CanonicalProviderName(ref) {
 				return true
 			}
 		}
@@ -702,15 +701,16 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 	}
 
 	// Provider references are IDs for DB-backed providers, canonical names
-	// for env-baked globals. Match incoming agent values against either —
-	// case-insensitive on names so a legacy agent that stored "OpenAI" still
-	// matches the canonical "openai" record.
+	// for env-baked globals, and (on legacy agents) preset names such as
+	// "user/openai". Match IDs exactly and names by canonical provider kind.
+	// This lets a legacy org agent be saved and migrated when the matching
+	// org/global provider exists, without making a personal pe_ ID visible.
 	providerKnown := func(ref string) bool {
 		for _, ep := range endpoints {
 			if ep.ID != "" && ep.ID == ref {
 				return true
 			}
-			if strings.EqualFold(ep.Name, ref) {
+			if types.CanonicalProviderName(ep.Name) == types.CanonicalProviderName(ref) {
 				return true
 			}
 		}
