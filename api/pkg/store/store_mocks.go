@@ -2733,6 +2733,21 @@ func (mr *MockStoreMockRecorder) GetDecodedLicense(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDecodedLicense", reflect.TypeOf((*MockStore)(nil).GetDecodedLicense), ctx)
 }
 
+// GetDelegatedClaudeSubscriptionForOrg mocks base method.
+func (m *MockStore) GetDelegatedClaudeSubscriptionForOrg(ctx context.Context, orgID string) (*types.ClaudeSubscription, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDelegatedClaudeSubscriptionForOrg", ctx, orgID)
+	ret0, _ := ret[0].(*types.ClaudeSubscription)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDelegatedClaudeSubscriptionForOrg indicates an expected call of GetDelegatedClaudeSubscriptionForOrg.
+func (mr *MockStoreMockRecorder) GetDelegatedClaudeSubscriptionForOrg(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDelegatedClaudeSubscriptionForOrg", reflect.TypeOf((*MockStore)(nil).GetDelegatedClaudeSubscriptionForOrg), ctx, orgID)
+}
+
 // GetDiskUsageHistory mocks base method.
 func (m *MockStore) GetDiskUsageHistory(ctx context.Context, sandboxID string, since time.Time) ([]*types.DiskUsageHistory, error) {
 	m.ctrl.T.Helper()
@@ -6518,6 +6533,21 @@ func (m *MockStore) UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Conte
 func (mr *MockStoreMockRecorder) UpdateClaudeSubscriptionCredentialsIfNewer(ctx, id, encryptedCredentials, expiresAt, refreshTokenExpiresAt, refreshedAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateClaudeSubscriptionCredentialsIfNewer", reflect.TypeOf((*MockStore)(nil).UpdateClaudeSubscriptionCredentialsIfNewer), ctx, id, encryptedCredentials, expiresAt, refreshTokenExpiresAt, refreshedAt)
+}
+
+// UpdateClaudeSubscriptionDelegation mocks base method.
+func (m *MockStore) UpdateClaudeSubscriptionDelegation(ctx context.Context, id string, orgIDs []string) (*types.ClaudeSubscription, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateClaudeSubscriptionDelegation", ctx, id, orgIDs)
+	ret0, _ := ret[0].(*types.ClaudeSubscription)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateClaudeSubscriptionDelegation indicates an expected call of UpdateClaudeSubscriptionDelegation.
+func (mr *MockStoreMockRecorder) UpdateClaudeSubscriptionDelegation(ctx, id, orgIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateClaudeSubscriptionDelegation", reflect.TypeOf((*MockStore)(nil).UpdateClaudeSubscriptionDelegation), ctx, id, orgIDs)
 }
 
 // UpdateClaudeSubscriptionStatus mocks base method.

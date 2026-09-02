@@ -51,12 +51,14 @@ type OrgCodeAgentHarnessesUpdateRequest struct {
 // combined with SubscriptionEnabled to decide whether subscription models are
 // available to the requesting member.
 type OrgCodeAgentHarnessStatus struct {
-	Runtime               CodeAgentRuntime `json:"runtime"`
-	Enabled               bool             `json:"enabled"`
-	SubscriptionEnabled   *bool            `json:"subscription_enabled"`
-	ProviderRefs          []string         `json:"provider_refs"`
-	SupportsSubscription  bool             `json:"supports_subscription"`
-	ViewerHasSubscription bool             `json:"viewer_has_subscription"`
+	Runtime                    CodeAgentRuntime `json:"runtime"`
+	Enabled                    bool             `json:"enabled"`
+	SubscriptionEnabled        *bool            `json:"subscription_enabled"`
+	ProviderRefs               []string         `json:"provider_refs"`
+	SupportsSubscription       bool             `json:"supports_subscription"`
+	ViewerHasSubscription      bool             `json:"viewer_has_subscription"`
+	SubscriptionOwnerName      string           `json:"subscription_owner_name,omitempty"`
+	SubscriptionCredentialType string           `json:"subscription_credential_type,omitempty"`
 }
 
 func (h *OrgCodeAgentHarness) AllowsSubscription() bool {

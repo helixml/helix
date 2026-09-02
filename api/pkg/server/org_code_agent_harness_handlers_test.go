@@ -238,8 +238,14 @@ func TestBuildOrgCodeAgentHarnessStatuses(t *testing.T) {
 			ProviderRefs:        []string{"provider-1"},
 		}}, nil,
 	)
-	mockStore.EXPECT().GetEffectiveClaudeSubscription(gomock.Any(), "user_1", "org_1").Return(
-		&types.ClaudeSubscription{}, nil,
+	mockStore.EXPECT().GetDelegatedClaudeSubscriptionForOrg(gomock.Any(), "org_1").Return(
+		&types.ClaudeSubscription{
+			OwnerID: "user_delegate", Status: "active", DelegatedOrgIDs: []string{"org_1"},
+			AccountEmail: "claude@example.com", CredentialType: "setup_token",
+		}, nil,
+	)
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "user_delegate"}).Return(
+		&types.User{ID: "user_delegate", Email: "delegate@example.com"}, nil,
 	)
 	mockStore.EXPECT().GetEffectiveCodexSubscription(gomock.Any(), "user_1", "org_1").Return(
 		nil, store.ErrNotFound,
@@ -260,6 +266,8 @@ func TestBuildOrgCodeAgentHarnessStatuses(t *testing.T) {
 	assert.False(t, *byRuntime[types.CodeAgentRuntimeClaudeCode].SubscriptionEnabled)
 	assert.Equal(t, []string{"provider-1"}, byRuntime[types.CodeAgentRuntimeClaudeCode].ProviderRefs)
 	assert.True(t, byRuntime[types.CodeAgentRuntimeClaudeCode].ViewerHasSubscription)
+	assert.Equal(t, "delegate@example.com", byRuntime[types.CodeAgentRuntimeClaudeCode].SubscriptionOwnerName)
+	assert.Equal(t, "setup_token", byRuntime[types.CodeAgentRuntimeClaudeCode].SubscriptionCredentialType)
 	assert.True(t, byRuntime[types.CodeAgentRuntimeCodexCLI].Enabled)
 	assert.Nil(t, byRuntime[types.CodeAgentRuntimeCodexCLI].ProviderRefs)
 	assert.Nil(t, byRuntime[types.CodeAgentRuntimeCodexCLI].SubscriptionEnabled)

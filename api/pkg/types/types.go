@@ -1916,8 +1916,8 @@ type CronTrigger struct {
 	// authenticates as the person it acts for, exactly as CreateTaskRequest does
 	// for a run dispatched by hand. Credential resolution only: the task is still
 	// created by, owned by, and attributed to the trigger's app owner, and the
-	// named user must have delegated their subscription to this organization or it
-	// is ignored. Currently honoured by the spec_task action.
+	// named user must have delegated their subscription to this organization or
+	// credential resolution fails closed. Currently honoured by the spec_task action.
 	CredentialOwnerID string `json:"credential_owner_id,omitempty" yaml:"credential_owner_id,omitempty"`
 
 	// JustDoItMode makes the spec_task action skip spec generation and go straight

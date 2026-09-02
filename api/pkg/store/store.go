@@ -927,10 +927,12 @@ type Store interface {
 	GetClaudeSubscription(ctx context.Context, id string) (*types.ClaudeSubscription, error)
 	GetClaudeSubscriptionForOwner(ctx context.Context, ownerID string, ownerType types.OwnerType) (*types.ClaudeSubscription, error)
 	UpdateClaudeSubscription(ctx context.Context, sub *types.ClaudeSubscription) (*types.ClaudeSubscription, error)
+	UpdateClaudeSubscriptionDelegation(ctx context.Context, id string, orgIDs []string) (*types.ClaudeSubscription, error)
 	UpdateClaudeSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials string, expiresAt, refreshTokenExpiresAt, refreshedAt time.Time) (bool, error)
 	UpdateClaudeSubscriptionStatus(ctx context.Context, sub *types.ClaudeSubscription) error
 	DeleteClaudeSubscription(ctx context.Context, id string) error
 	ListClaudeSubscriptions(ctx context.Context, ownerID string) ([]*types.ClaudeSubscription, error)
+	GetDelegatedClaudeSubscriptionForOrg(ctx context.Context, orgID string) (*types.ClaudeSubscription, error)
 	GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error)
 	GetSessionClaudeSubscription(ctx context.Context, session *types.Session) (*types.ClaudeSubscription, error)
 	CreateCodexSubscription(ctx context.Context, sub *types.CodexSubscription) (*types.CodexSubscription, error)

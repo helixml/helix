@@ -4,12 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
+
+type ClaudeSubscriptionDelegationConflictError struct {
+	OrganizationID string
+	OwnerID        string
+}
+
+func (e *ClaudeSubscriptionDelegationConflictError) Error() string {
+	return fmt.Sprintf("organization %s already has a delegated Claude subscription", e.OrganizationID)
+}
 
 func (s *PostgresStore) CreateClaudeSubscription(ctx context.Context, sub *types.ClaudeSubscription) (*types.ClaudeSubscription, error) {
 	if sub.ID == "" {
@@ -77,6 +88,47 @@ func (s *PostgresStore) UpdateClaudeSubscription(ctx context.Context, sub *types
 		return nil, err
 	}
 	return s.GetClaudeSubscription(ctx, sub.ID)
+}
+
+func (s *PostgresStore) UpdateClaudeSubscriptionDelegation(ctx context.Context, id string, orgIDs []string) (*types.ClaudeSubscription, error) {
+	var updated *types.ClaudeSubscription
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var sub types.ClaudeSubscription
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&sub).Error; err != nil {
+			return err
+		}
+		lockIDs := append([]string{}, sub.DelegatedOrgIDs...)
+		lockIDs = append(lockIDs, orgIDs...)
+		sort.Strings(lockIDs)
+		for i, orgID := range lockIDs {
+			if i > 0 && orgID == lockIDs[i-1] {
+				continue
+			}
+			var org types.Organization
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").Where("id = ?", orgID).First(&org).Error; err != nil {
+				return err
+			}
+		}
+		for _, orgID := range orgIDs {
+			var other types.ClaudeSubscription
+			err := tx.Where("id <> ? AND owner_type = ? AND ? = ANY(delegated_org_ids)", id, types.OwnerTypeUser, orgID).
+				Order("created ASC, id ASC").First(&other).Error
+			if err == nil {
+				return &ClaudeSubscriptionDelegationConflictError{OrganizationID: orgID, OwnerID: other.OwnerID}
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		}
+		sub.DelegatedOrgIDs = orgIDs
+		sub.Updated = time.Now()
+		if err := tx.Save(&sub).Error; err != nil {
+			return err
+		}
+		updated = &sub
+		return nil
+	})
+	return updated, err
 }
 
 // UpdateClaudeSubscriptionCredentialsIfNewer writes rotated credentials only when
@@ -160,6 +212,27 @@ func (s *PostgresStore) ListClaudeSubscriptions(ctx context.Context, ownerID str
 	return subs, nil
 }
 
+func (s *PostgresStore) GetDelegatedClaudeSubscriptionForOrg(ctx context.Context, orgID string) (*types.ClaudeSubscription, error) {
+	if orgID == "" {
+		return nil, ErrNotFound
+	}
+	var subs []*types.ClaudeSubscription
+	if err := s.gdb.WithContext(ctx).
+		Where("owner_type = ? AND ? = ANY(delegated_org_ids)", types.OwnerTypeUser, orgID).
+		Order("created ASC, id ASC").
+		Limit(2).
+		Find(&subs).Error; err != nil {
+		return nil, err
+	}
+	if len(subs) == 0 {
+		return nil, ErrNotFound
+	}
+	if len(subs) > 1 {
+		return nil, fmt.Errorf("multiple Claude subscriptions are delegated to organization %s", orgID)
+	}
+	return subs[0], nil
+}
+
 // GetSessionClaudeSubscription resolves the Claude subscription that should
 // authenticate a session's agent.
 //
@@ -169,20 +242,29 @@ func (s *PostgresStore) ListClaudeSubscriptions(ctx context.Context, ownerID str
 // The delegation check is the consent gate: without it, anyone who can create a
 // session could name any user as credential owner and spend their Claude quota.
 //
-// A named-but-undelegated (or missing) credential owner falls back to the
-// session owner's normal resolution rather than failing, so a revoked delegation
-// degrades to previous behaviour instead of bricking the agent.
+// An explicit credential owner fails closed when missing or undelegated. Once a
+// task records who pays for it, resolution must not silently switch billing.
 func (s *PostgresStore) GetSessionClaudeSubscription(ctx context.Context, session *types.Session) (*types.ClaudeSubscription, error) {
 	if session == nil {
 		return nil, ErrNotFound
 	}
-	if owner := session.Metadata.CredentialOwnerID; owner != "" && owner != session.Owner {
+	if owner := session.Metadata.CredentialOwnerID; owner != "" {
 		sub, err := s.GetClaudeSubscriptionForOwner(ctx, owner, types.OwnerTypeUser)
-		if err != nil && !errors.Is(err, ErrNotFound) {
+		if err != nil {
 			return nil, err
 		}
-		if err == nil && subscriptionDelegatedTo(sub, session.OrganizationID) {
+		if owner == session.Owner || subscriptionDelegatedTo(sub, session.OrganizationID) {
 			return sub, nil
+		}
+		return nil, ErrNotFound
+	}
+	if session.Metadata.SpecTaskID != "" {
+		sub, err := s.GetDelegatedClaudeSubscriptionForOrg(ctx, session.OrganizationID)
+		if err == nil {
+			return sub, nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return nil, err
 		}
 	}
 	return s.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)

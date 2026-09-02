@@ -245,8 +245,8 @@ type CreateTaskRequest struct {
 	// CredentialOwnerID optionally names the user whose Claude subscription should
 	// authenticate this task's agent, for orchestrators dispatching work on a
 	// human's behalf under one service API key. Credential resolution only — the
-	// task is still created by, owned by, and attributed to the caller. Ignored
-	// unless that user has delegated their subscription to this organization.
+	// task is still created by, owned by, and attributed to the caller. Resolution
+	// fails closed unless that user has delegated to this organization.
 	CredentialOwnerID string `json:"credential_owner_id,omitempty"`
 
 	// Branch configuration

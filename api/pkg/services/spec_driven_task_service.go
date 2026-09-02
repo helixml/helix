@@ -201,6 +201,16 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	if project != nil {
 		organizationID = project.OrganizationID
 	}
+	credentialOwnerID := req.CredentialOwnerID
+	if credentialOwnerID == "" && organizationID != "" && codeAgentConfig != nil &&
+		codeAgentConfig.Runtime == types.CodeAgentRuntimeClaudeCode && codeAgentConfig.CredentialType.IsSubscription() {
+		delegated, err := s.store.GetDelegatedClaudeSubscriptionForOrg(ctx, organizationID)
+		if err == nil {
+			credentialOwnerID = delegated.OwnerID
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("resolve organization Claude subscription: %w", err)
+		}
+	}
 
 	// Determine initial status. If AutoStart is requested, skip backlog and queue
 	// immediately (mirrors cloneTaskToProject behaviour). This bypasses the project's
@@ -238,8 +248,8 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		JustDoItMode:             req.JustDoItMode, // Set Just Do It mode from request
 		// Credential-only override: whose Claude subscription authenticates this
 		// task's agent. Enforced at resolution time against the named user's
-		// delegation grant, so an unauthorised value simply has no effect.
-		CredentialOwnerID: req.CredentialOwnerID,
+		// delegation grant; missing or revoked grants fail closed.
+		CredentialOwnerID: credentialOwnerID,
 		// Branch configuration
 		BranchMode:   branchMode,
 		BaseBranch:   req.BaseBranch,    // User-specified base branch (empty = use repo default)

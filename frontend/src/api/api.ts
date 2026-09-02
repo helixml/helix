@@ -3701,8 +3701,8 @@ export interface TypesCreateTaskRequest {
    * CredentialOwnerID optionally names the user whose Claude subscription should
    * authenticate this task's agent, for orchestrators dispatching work on a
    * human's behalf under one service API key. Credential resolution only — the
-   * task is still created by, owned by, and attributed to the caller. Ignored
-   * unless that user has delegated their subscription to this organization.
+   * task is still created by, owned by, and attributed to the caller. Resolution
+   * fails closed unless that user has delegated to this organization.
    */
   credential_owner_id?: string;
   /** Optional: IDs of tasks this task depends on */
@@ -3771,8 +3771,8 @@ export interface TypesCronTrigger {
    * authenticates as the person it acts for, exactly as CreateTaskRequest does
    * for a run dispatched by hand. Credential resolution only: the task is still
    * created by, owned by, and attributed to the trigger's app owner, and the
-   * named user must have delegated their subscription to this organization or it
-   * is ignored. Currently honoured by the spec_task action.
+   * named user must have delegated their subscription to this organization or
+   * credential resolution fails closed. Currently honoured by the spec_task action.
    */
   credential_owner_id?: string;
   emails?: string[];
@@ -5028,7 +5028,9 @@ export interface TypesOrgCodeAgentHarnessStatus {
   enabled?: boolean;
   provider_refs?: string[];
   runtime?: TypesCodeAgentRuntime;
+  subscription_credential_type?: string;
   subscription_enabled?: boolean;
+  subscription_owner_name?: string;
   supports_subscription?: boolean;
   viewer_has_subscription?: boolean;
 }

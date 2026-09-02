@@ -124,14 +124,13 @@ const DelegationPicker: FC<DelegationPickerProps> = ({
   return (
     <Box sx={{ mt: 1.5 }}>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-        Sharing with an organization enables Claude Code subscription mode there. Its agents can
-        then use this subscription when they run work on your behalf - for example a bot you own
-        that is launched by a shared service account.
+        Delegating to an organization makes this its Claude Code subscription. Any member can use
+        it for tasks in that organization, billed to the Claude account connected here.
       </Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
         {grantedCount === 0
-          ? `Not shared with any of your ${withIDs.length} organizations.`
-          : `Shared with ${grantedCount} of ${withIDs.length} organizations.`}
+          ? `Not delegated to any of your ${withIDs.length} organizations.`
+          : `Delegated to ${grantedCount} of ${withIDs.length} organizations.`}
       </Typography>
       {withIDs.length > DELEGATION_FILTER_THRESHOLD && (
         <TextField
@@ -345,7 +344,9 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       setDelegationConflict(null)
     },
     onError: (error: any, variables) => {
-      if (error?.response?.status === 409 && !variables.switchToSubscription) {
+      if (error?.response?.status === 409
+        && error?.response?.data?.message?.includes('API-provider mode')
+        && !variables.switchToSubscription) {
         setDelegationConflict({
           id: variables.id,
           orgIDs: variables.orgIDs,
