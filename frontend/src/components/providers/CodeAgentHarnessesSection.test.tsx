@@ -77,6 +77,38 @@ describe('CodeAgentHarnessesSection', () => {
     })).toBeInTheDocument()
   })
 
+  it('shows the delegator and organization without an opaque Claude identity', () => {
+    render(
+      <CodeAgentHarnessesSection
+        harnesses={[{ ...harnesses[0], subscription_owner_name: 'Alex' }]}
+        endpoints={[]}
+        organizationName="Customer"
+        subscriptionIdentity={() => 'Authenticated as Claude org abc'}
+        onChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
+    expect(screen.getByText('Subscription owner: Alex')).toBeInTheDocument()
+    expect(screen.getByText('Delegated to: Customer')).toBeInTheDocument()
+    expect(screen.queryByText('Authenticated as Claude org abc')).not.toBeInTheDocument()
+  })
+
+  it('shows an available delegate when subscription mode is disabled', () => {
+    render(
+      <CodeAgentHarnessesSection
+        harnesses={[{
+          ...harnesses[0], subscription_enabled: false, subscription_owner_name: 'Alex',
+        }]}
+        endpoints={[]}
+        onChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
+    expect(screen.getByText('Subscription owner: Alex')).toBeInTheDocument()
+  })
+
   it('writes an explicit provider allow-list when a provider is disabled', () => {
     const onChange = vi.fn()
     render(

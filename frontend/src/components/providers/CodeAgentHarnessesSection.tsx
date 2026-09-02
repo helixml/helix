@@ -88,6 +88,7 @@ const CodeAgentHarnessesSection: FC<{
         const subscriptionActionNode = harness.supports_subscription
           ? subscriptionAction?.(harness.runtime || '')
           : null
+        const subscriptionIdentityNode = subscriptionIdentity?.(harness.runtime || '')
         const requiredProviderName = requiredProviderNameForRuntime(harness.runtime)
 
         return (
@@ -113,9 +114,21 @@ const CodeAgentHarnessesSection: FC<{
                       {harness.runtime === 'claude_code' ? 'Claude subscription' : 'ChatGPT subscription'}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                      {subscriptionIdentity?.(harness.runtime || '')
+                      {harness.subscription_owner_name
+                        ? `Subscription owner: ${harness.subscription_owner_name}`
+                        : subscriptionIdentityNode
                         || (viewerHasSubscription ? 'Connected' : 'Not connected')}
                     </Typography>
+                    {harness.subscription_owner_name && organizationName && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                        Delegated to: {organizationName}
+                      </Typography>
+                    )}
+                    {harness.subscription_owner_name && harness.subscription_credential_type === 'setup_token' && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                        Authentication: Setup token
+                      </Typography>
+                    )}
                   </Box>
                   <Stack
                     direction="row"

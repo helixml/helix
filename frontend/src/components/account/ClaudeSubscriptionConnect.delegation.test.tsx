@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ClaudeSubscriptionConnect from './ClaudeSubscriptionConnect'
 
 const delegationUpdate = vi.fn()
+const snackbarError = vi.fn()
 const organizations = [{
   id: 'org_1',
   name: 'Hello',
@@ -30,7 +31,7 @@ vi.mock('../../hooks/useApi', () => ({
 }))
 
 vi.mock('../../hooks/useSnackbar', () => ({
-  default: () => ({ success: vi.fn(), error: vi.fn() }),
+  default: () => ({ success: vi.fn(), error: snackbarError }),
 }))
 
 vi.mock('../../hooks/useAccount', () => ({
@@ -53,7 +54,10 @@ function renderAccount() {
 }
 
 describe('ClaudeSubscriptionConnect delegation', () => {
-  beforeEach(() => delegationUpdate.mockReset())
+  beforeEach(() => {
+    delegationUpdate.mockReset()
+    snackbarError.mockReset()
+  })
 
   it('enables subscription mode when sharing succeeds', async () => {
     delegationUpdate.mockResolvedValue({ data: {} })
@@ -69,7 +73,7 @@ describe('ClaudeSubscriptionConnect delegation', () => {
 
   it('asks before replacing API-provider mode', async () => {
     delegationUpdate
-      .mockRejectedValueOnce({ response: { status: 409 } })
+      .mockRejectedValueOnce({ response: { status: 409, data: { message: 'organization org_1 is using API-provider mode' } } })
       .mockResolvedValueOnce({ data: {} })
     renderAccount()
 
@@ -82,5 +86,19 @@ describe('ClaudeSubscriptionConnect delegation', () => {
       delegated_org_ids: ['org_1'],
       switch_to_subscription: true,
     }))
+  })
+
+  it('shows another-owner conflicts without offering an API mode switch', async () => {
+    delegationUpdate.mockRejectedValue({
+      response: { status: 409, data: { message: "Hello already uses Beatrice's Claude subscription. Ask Beatrice to remove that delegation before adding yours." } },
+    })
+    renderAccount()
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Hello' }))
+
+    await waitFor(() => expect(snackbarError).toHaveBeenCalledWith(
+      "Hello already uses Beatrice's Claude subscription. Ask Beatrice to remove that delegation before adding yours.",
+    ))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

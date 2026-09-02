@@ -106,6 +106,62 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	// Note: Goroutine will fail gracefully, we only test the synchronous part
 }
 
+func TestSpecDrivenTaskService_SnapshotsDelegatedClaudeOwner(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(
+		mockStore, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+	ctx := context.Background()
+	config := &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+	}
+	mockStore.EXPECT().GetProject(ctx, "project_1").Return(&types.Project{
+		ID: "project_1", OrganizationID: "org_1", CodeAgentConfig: config,
+	}, nil)
+	mockStore.EXPECT().GetDelegatedClaudeSubscriptionForOrg(ctx, "org_1").Return(
+		&types.ClaudeSubscription{OwnerID: "usr_delegate"}, nil,
+	)
+	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
+	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			require.Equal(t, "usr_delegate", task.CredentialOwnerID)
+			return nil
+		},
+	)
+
+	task, err := service.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
+		ProjectID: "project_1", UserID: "usr_member", Prompt: "Do work",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "usr_delegate", task.CredentialOwnerID)
+}
+
+func TestSpecDrivenTaskService_ExplicitClaudeOwnerWins(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(
+		mockStore, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+	ctx := context.Background()
+	mockStore.EXPECT().GetProject(ctx, "project_1").Return(&types.Project{
+		ID: "project_1", OrganizationID: "org_1",
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+		},
+	}, nil)
+	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
+	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).Return(nil)
+
+	task, err := service.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
+		ProjectID: "project_1", UserID: "usr_member", Prompt: "Do work", CredentialOwnerID: "usr_explicit",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "usr_explicit", task.CredentialOwnerID)
+}
+
 func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsInvalidSandboxRuntime(t *testing.T) {
 	service := NewSpecDrivenTaskService(
 		nil, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),

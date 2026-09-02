@@ -5780,8 +5780,8 @@ definitions:
           CredentialOwnerID optionally names the user whose Claude subscription should
           authenticate this task's agent, for orchestrators dispatching work on a
           human's behalf under one service API key. Credential resolution only — the
-          task is still created by, owned by, and attributed to the caller. Ignored
-          unless that user has delegated their subscription to this organization.
+          task is still created by, owned by, and attributed to the caller. Resolution
+          fails closed unless that user has delegated to this organization.
         type: string
       depends_on:
         description: 'Optional: IDs of tasks this task depends on'
@@ -5882,8 +5882,8 @@ definitions:
           authenticates as the person it acts for, exactly as CreateTaskRequest does
           for a run dispatched by hand. Credential resolution only: the task is still
           created by, owned by, and attributed to the trigger's app owner, and the
-          named user must have delegated their subscription to this organization or it
-          is ignored. Currently honoured by the spec_task action.
+          named user must have delegated their subscription to this organization or
+          credential resolution fails closed. Currently honoured by the spec_task action.
         type: string
       emails:
         items:
@@ -7917,8 +7917,12 @@ definitions:
         type: array
       runtime:
         $ref: '#/definitions/types.CodeAgentRuntime'
+      subscription_credential_type:
+        type: string
       subscription_enabled:
         type: boolean
+      subscription_owner_name:
+        type: string
       supports_subscription:
         type: boolean
       viewer_has_subscription:

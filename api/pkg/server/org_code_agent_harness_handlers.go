@@ -104,9 +104,15 @@ func (apiServer *HelixAPIServer) buildOrgCodeAgentHarnessStatuses(ctx context.Co
 		policies[row.Runtime] = row
 	}
 
-	hasClaude, err := apiServer.viewerHasClaudeSubscription(ctx, orgID, userID)
+	claudeSub, err := apiServer.Store.GetDelegatedClaudeSubscriptionForOrg(ctx, orgID)
+	if errors.Is(err, store.ErrNotFound) {
+		claudeSub, err = apiServer.Store.GetEffectiveClaudeSubscription(ctx, userID, orgID)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve Claude subscription: %w", err)
+		if !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("failed to resolve Claude subscription: %w", err)
+		}
+		claudeSub = nil
 	}
 	hasCodex, err := apiServer.viewerHasCodexSubscription(ctx, orgID, userID)
 	if err != nil {
@@ -128,13 +134,31 @@ func (apiServer *HelixAPIServer) buildOrgCodeAgentHarnessStatuses(ctx context.Co
 		}
 		switch runtime {
 		case types.CodeAgentRuntimeClaudeCode:
-			status.ViewerHasSubscription = hasClaude
+			status.ViewerHasSubscription = claudeSub != nil && claudeSub.Status == "active"
+			if claudeSub != nil && subscriptionDelegatedToOrg(claudeSub, orgID) {
+				status.SubscriptionOwnerName = claudeSub.OwnerID
+				if owner, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: claudeSub.OwnerID}); err == nil {
+					if name := userDisplayName(owner); name != "" {
+						status.SubscriptionOwnerName = name
+					}
+				}
+				status.SubscriptionCredentialType = claudeSub.CredentialType
+			}
 		case types.CodeAgentRuntimeCodexCLI:
 			status.ViewerHasSubscription = hasCodex
 		}
 		statuses = append(statuses, status)
 	}
 	return statuses, nil
+}
+
+func subscriptionDelegatedToOrg(sub *types.ClaudeSubscription, orgID string) bool {
+	for _, delegatedOrgID := range sub.DelegatedOrgIDs {
+		if delegatedOrgID == orgID {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeHarnessProviderRefs(refs []string) ([]string, error) {
@@ -186,14 +210,6 @@ func normalizeHarnessCredentialSources(update *types.OrgCodeAgentHarnessUpdate) 
 
 func claudeHarnessUsesAPIProviderMode(harness *types.OrgCodeAgentHarness) bool {
 	return harness != nil && !(harness.SubscriptionEnabled != nil && *harness.SubscriptionEnabled) && (harness.ProviderRefs == nil || len(harness.ProviderRefs) > 0)
-}
-
-func (apiServer *HelixAPIServer) viewerHasClaudeSubscription(ctx context.Context, orgID, userID string) (bool, error) {
-	_, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, userID, orgID)
-	if errors.Is(err, store.ErrNotFound) {
-		return false, nil
-	}
-	return err == nil, err
 }
 
 func (apiServer *HelixAPIServer) viewerHasCodexSubscription(ctx context.Context, orgID, userID string) (bool, error) {

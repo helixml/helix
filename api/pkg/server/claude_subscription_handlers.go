@@ -151,10 +151,12 @@ func (apiServer *HelixAPIServer) createClaudeSubscriptionFrom(ctx context.Contex
 		}
 	}
 
-	// Delete any existing subscriptions for this owner before creating a new one.
+	// Re-authentication replaces credentials, not the owner's explicit sharing consent.
 	existingSubs, _ := apiServer.Store.ListClaudeSubscriptions(ctx, ownerID)
+	var delegatedOrgIDs []string
 	for _, old := range existingSubs {
 		if old.OwnerType == ownerType {
+			delegatedOrgIDs = append(delegatedOrgIDs, old.DelegatedOrgIDs...)
 			_ = apiServer.Store.DeleteClaudeSubscription(ctx, old.ID)
 			log.Info().Str("old_subscription_id", old.ID).Msg("Deleted old Claude subscription on re-auth")
 		}
@@ -173,6 +175,7 @@ func (apiServer *HelixAPIServer) createClaudeSubscriptionFrom(ctx context.Contex
 		RefreshTokenExpiresAt: refreshTokenExpiresAt,
 		Status:                "active",
 		CreatedBy:             user.ID,
+		DelegatedOrgIDs:       delegatedOrgIDs,
 	}
 
 	created, err := apiServer.Store.CreateClaudeSubscription(ctx, sub)
@@ -627,16 +630,34 @@ func (apiServer *HelixAPIServer) updateClaudeSubscriptionDelegation(_ http.Respo
 		}
 		harnesses[orgID] = harness
 	}
+	updated, err := apiServer.Store.UpdateClaudeSubscriptionDelegation(req.Context(), sub.ID, granted)
+	if err != nil {
+		var conflict *store.ClaudeSubscriptionDelegationConflictError
+		if errors.As(err, &conflict) {
+			org, orgErr := apiServer.lookupOrg(req.Context(), conflict.OrganizationID)
+			if orgErr != nil {
+				return nil, system.NewHTTPError500("failed to resolve organization name")
+			}
+			owner, ownerErr := apiServer.Store.GetUser(req.Context(), &store.GetUserQuery{ID: conflict.OwnerID})
+			if ownerErr != nil {
+				return nil, system.NewHTTPError500("failed to resolve subscription owner")
+			}
+			orgName := org.DisplayName
+			if orgName == "" {
+				orgName = org.Name
+			}
+			ownerName := userDisplayName(owner)
+			return nil, system.NewHTTPError409(fmt.Sprintf(
+				"%s already uses %s's Claude subscription. Ask %s to remove that delegation before adding yours.",
+				orgName, ownerName, ownerName,
+			))
+		}
+		return nil, system.NewHTTPError500("failed to update subscription: " + err.Error())
+	}
 	for orgID := range harnesses {
 		if err := apiServer.enableSubscriptionCodeAgentHarness(req.Context(), orgID, user.ID, types.CodeAgentRuntimeClaudeCode); err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
-	}
-
-	sub.DelegatedOrgIDs = granted
-	updated, err := apiServer.Store.UpdateClaudeSubscription(req.Context(), sub)
-	if err != nil {
-		return nil, system.NewHTTPError500("failed to update subscription: " + err.Error())
 	}
 
 	log.Info().

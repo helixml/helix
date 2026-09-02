@@ -28,28 +28,37 @@ func (h *HydraExecutor) verifySubscriptionCredentials(ctx context.Context, agent
 	// Login and exploratory desktops have no parent app — and the Codex/Claude
 	// login flows start exactly such a desktop to *obtain* the subscription, so
 	// they must never be gated on already having one.
-	if session.ParentApp == "" {
+	if session.ParentApp == "" && session.Metadata.SpecTaskID == "" {
 		return nil
 	}
-	app, err := h.store.GetApp(ctx, session.ParentApp)
-	if err != nil || app == nil {
-		return nil
-	}
-
-	// Match buildCodeAgentConfig: the first zed_external assistant is the one
-	// whose runtime and credentials the container is configured from.
-	var assistant *types.AssistantConfig
-	for i := range app.Config.Helix.Assistants {
-		if app.Config.Helix.Assistants[i].AgentType == types.AgentTypeZedExternal {
-			assistant = &app.Config.Helix.Assistants[i]
-			break
+	var runtime types.CodeAgentRuntime
+	var credentialType types.CodeAgentCredentialType
+	if session.Metadata.SpecTaskID != "" {
+		task, err := h.store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+		if err != nil || task == nil || task.CodeAgentConfig == nil {
+			return nil
+		}
+		runtime = task.CodeAgentConfig.Runtime
+		credentialType = task.CodeAgentConfig.CredentialType
+	} else {
+		app, err := h.store.GetApp(ctx, session.ParentApp)
+		if err != nil || app == nil {
+			return nil
+		}
+		for i := range app.Config.Helix.Assistants {
+			assistant := &app.Config.Helix.Assistants[i]
+			if assistant.AgentType == types.AgentTypeZedExternal {
+				runtime = assistant.CodeAgentRuntime
+				credentialType = assistant.CodeAgentCredentialType
+				break
+			}
 		}
 	}
-	if assistant == nil || !assistant.CodeAgentCredentialType.IsSubscription() {
+	if !credentialType.IsSubscription() {
 		return nil
 	}
 
-	switch assistant.CodeAgentRuntime {
+	switch runtime {
 	case types.CodeAgentRuntimeClaudeCode:
 		sub, err := h.store.GetSessionClaudeSubscription(ctx, session)
 		if err != nil || sub == nil || sub.Status != "active" {

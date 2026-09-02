@@ -31442,7 +31442,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.CodeAgentExecutionConfig"
                 },
                 "credential_owner_id": {
-                    "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate this task's agent, for orchestrators dispatching work on a\nhuman's behalf under one service API key. Credential resolution only — the\ntask is still created by, owned by, and attributed to the caller. Ignored\nunless that user has delegated their subscription to this organization.",
+                    "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate this task's agent, for orchestrators dispatching work on a\nhuman's behalf under one service API key. Credential resolution only — the\ntask is still created by, owned by, and attributed to the caller. Resolution\nfails closed unless that user has delegated to this organization.",
                     "type": "string"
                 },
                 "depends_on": {
@@ -31571,7 +31571,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "credential_owner_id": {
-                    "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate the agent this trigger starts. An orchestrator writing triggers\non people's behalf under one service API key sets it so a scheduled run\nauthenticates as the person it acts for, exactly as CreateTaskRequest does\nfor a run dispatched by hand. Credential resolution only: the task is still\ncreated by, owned by, and attributed to the trigger's app owner, and the\nnamed user must have delegated their subscription to this organization or it\nis ignored. Currently honoured by the spec_task action.",
+                    "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate the agent this trigger starts. An orchestrator writing triggers\non people's behalf under one service API key sets it so a scheduled run\nauthenticates as the person it acts for, exactly as CreateTaskRequest does\nfor a run dispatched by hand. Credential resolution only: the task is still\ncreated by, owned by, and attributed to the trigger's app owner, and the\nnamed user must have delegated their subscription to this organization or\ncredential resolution fails closed. Currently honoured by the spec_task action.",
                     "type": "string"
                 },
                 "emails": {
@@ -34358,8 +34358,14 @@ const docTemplate = `{
                 "runtime": {
                     "$ref": "#/definitions/types.CodeAgentRuntime"
                 },
+                "subscription_credential_type": {
+                    "type": "string"
+                },
                 "subscription_enabled": {
                     "type": "boolean"
+                },
+                "subscription_owner_name": {
+                    "type": "string"
                 },
                 "supports_subscription": {
                     "type": "boolean"
