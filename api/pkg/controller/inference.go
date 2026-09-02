@@ -21,6 +21,7 @@ import (
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
+	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -124,6 +125,31 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		opts.Provider = assistant.Provider
 	}
 
+	// Determine which model to use: prefer assistant.Model, fall back to GenerationModel
+	effectiveModel := assistant.Model
+	effectiveProvider := assistant.Provider
+	if effectiveModel == "" && assistant.GenerationModel != "" {
+		effectiveModel = assistant.GenerationModel
+		if assistant.GenerationModelProvider != "" {
+			effectiveProvider = assistant.GenerationModelProvider
+		}
+	}
+
+	if effectiveProvider != "" {
+		opts.Provider = effectiveProvider
+	}
+
+	if effectiveModel != "" {
+		req.Model = effectiveModel
+
+		modelName, err := model.ProcessModelName(c.Options.Config.Inference.Provider, req.Model, types.SessionTypeText)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid model name '%s': %w", req.Model, err)
+		}
+
+		req.Model = modelName
+	}
+
 	// Check token quota before processing
 	if err := c.checkInferenceTokenQuota(ctx, user.ID, opts.Provider); err != nil {
 		return nil, nil, err
@@ -134,7 +160,12 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
 
-	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, client.BillingEnabled())
+	billingEnabled := client.BillingEnabled()
+	if err := c.validateBillingModelPricing(ctx, billingEnabled, opts.Provider, req.Model); err != nil {
+		return nil, nil, err
+	}
+
+	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, billingEnabled)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
 	}
@@ -163,31 +194,6 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	}
 
 	req = setSystemPrompt(&req, assistant.SystemPrompt)
-
-	// Determine which model to use: prefer assistant.Model, fall back to GenerationModel
-	effectiveModel := assistant.Model
-	effectiveProvider := assistant.Provider
-	if effectiveModel == "" && assistant.GenerationModel != "" {
-		effectiveModel = assistant.GenerationModel
-		if assistant.GenerationModelProvider != "" {
-			effectiveProvider = assistant.GenerationModelProvider
-		}
-	}
-
-	if effectiveProvider != "" {
-		opts.Provider = effectiveProvider
-	}
-
-	if effectiveModel != "" {
-		req.Model = effectiveModel
-
-		modelName, err := model.ProcessModelName(c.Options.Config.Inference.Provider, req.Model, types.SessionTypeText)
-		if err != nil {
-			return nil, nil, fmt.Errorf("invalid model name '%s': %w", req.Model, err)
-		}
-
-		req.Model = modelName
-	}
 
 	if assistant.Temperature != 0.0 {
 		req.Temperature = assistant.Temperature
@@ -319,6 +325,31 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		opts.Provider = assistant.Provider
 	}
 
+	// Determine which model to use: prefer assistant.Model, fall back to GenerationModel
+	effectiveModel := assistant.Model
+	effectiveProvider := assistant.Provider
+	if effectiveModel == "" && assistant.GenerationModel != "" {
+		effectiveModel = assistant.GenerationModel
+		if assistant.GenerationModelProvider != "" {
+			effectiveProvider = assistant.GenerationModelProvider
+		}
+	}
+
+	if effectiveProvider != "" {
+		opts.Provider = effectiveProvider
+	}
+
+	if effectiveModel != "" {
+		req.Model = effectiveModel
+
+		modelName, err := model.ProcessModelName(c.Options.Config.Inference.Provider, req.Model, types.SessionTypeText)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid model name '%s': %w", req.Model, err)
+		}
+
+		req.Model = modelName
+	}
+
 	// Check token quota before processing
 	if err := c.checkInferenceTokenQuota(ctx, user.ID, opts.Provider); err != nil {
 		return nil, nil, err
@@ -329,7 +360,12 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
 
-	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, client.BillingEnabled())
+	billingEnabled := client.BillingEnabled()
+	if err := c.validateBillingModelPricing(ctx, billingEnabled, opts.Provider, req.Model); err != nil {
+		return nil, nil, err
+	}
+
+	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, billingEnabled)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
 	}
@@ -358,31 +394,6 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	}
 
 	req = setSystemPrompt(&req, assistant.SystemPrompt)
-
-	// Determine which model to use: prefer assistant.Model, fall back to GenerationModel
-	effectiveModel := assistant.Model
-	effectiveProvider := assistant.Provider
-	if effectiveModel == "" && assistant.GenerationModel != "" {
-		effectiveModel = assistant.GenerationModel
-		if assistant.GenerationModelProvider != "" {
-			effectiveProvider = assistant.GenerationModelProvider
-		}
-	}
-
-	if effectiveProvider != "" {
-		opts.Provider = effectiveProvider
-	}
-
-	if effectiveModel != "" {
-		req.Model = effectiveModel
-
-		modelName, err := model.ProcessModelName(c.Options.Config.Inference.Provider, req.Model, types.SessionTypeText)
-		if err != nil {
-			return nil, nil, fmt.Errorf("invalid model name '%s': %w", req.Model, err)
-		}
-
-		req.Model = modelName
-	}
 
 	if assistant.Temperature != 0.0 {
 		req.Temperature = assistant.Temperature
@@ -429,6 +440,36 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	}
 
 	return stream, &req, nil
+}
+
+func (c *Controller) validateBillingModelPricing(ctx context.Context, billingEnabled bool, provider, modelName string) error {
+	if !billingEnabled {
+		return nil
+	}
+	if c.Options.ModelInfoProvider == nil {
+		return fmt.Errorf("billing requires pricing metadata for model %q from provider %q", modelName, provider)
+	}
+
+	modelInfo, err := c.Options.ModelInfoProvider.GetModelInfo(ctx, &model.ModelInfoRequest{
+		Provider: provider,
+		Model:    modelName,
+	})
+	if err != nil || modelInfo == nil {
+		return fmt.Errorf("billing requires pricing metadata for model %q from provider %q", modelName, provider)
+	}
+
+	cost, err := pricing.CalculateTokenPrice(modelInfo, pricing.TokenUsage{
+		PromptTokens:     1,
+		CompletionTokens: 1,
+	})
+	if err != nil {
+		return fmt.Errorf("invalid pricing metadata for model %q from provider %q: %w", modelName, provider, err)
+	}
+	if cost.PromptCost == 0 && cost.CompletionCost == 0 {
+		return fmt.Errorf("billing requires non-zero pricing metadata for model %q from provider %q", modelName, provider)
+	}
+
+	return nil
 }
 
 type helixAgentModelRef struct {

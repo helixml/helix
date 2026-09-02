@@ -92,6 +92,48 @@ func Test_GetQwen38FlashNextVisionModalities(t *testing.T) {
 	}
 }
 
+func Test_GetClaude5Pricing(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	tests := []struct {
+		modelID         string
+		slug            string
+		prompt          string
+		completion      string
+		inputCacheRead  string
+		inputCacheWrite string
+	}{
+		{"claude-fable-5", "anthropic/claude-fable-5", "0.00001", "0.00005", "0.000001", "0.0000125"},
+		{"claude-fable-5-1", "anthropic/claude-fable-5.1", "0.00001", "0.00005", "0.00000025", "0.0000125"},
+		{"claude-opus-5", "anthropic/claude-opus-5", "0.000005", "0.000025", "0.0000005", "0.00000625"},
+		{"claude-sonnet-5", "anthropic/claude-sonnet-5", "0.000002", "0.00001", "0.0000002", "0.0000025"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.modelID, func(t *testing.T) {
+			modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+				Provider: "anthropic",
+				Model:    tt.modelID,
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.modelID, modelInfo.ProviderModelID)
+			assert.Equal(t, tt.slug, modelInfo.Slug)
+			assert.Equal(t, 1_000_000, modelInfo.ContextLength)
+			assert.Equal(t, 128_000, modelInfo.MaxCompletionTokens)
+			assert.Equal(t, []types.Modality{types.ModalityText, types.ModalityImage, types.Modality("file")}, modelInfo.InputModalities)
+			assert.Equal(t, []types.Modality{types.ModalityText}, modelInfo.OutputModalities)
+			assert.True(t, modelInfo.SupportsReasoning)
+			assert.Contains(t, modelInfo.SupportedParameters, "reasoning_effort")
+			assert.Equal(t, tt.prompt, modelInfo.Pricing.Prompt)
+			assert.Equal(t, tt.completion, modelInfo.Pricing.Completion)
+			assert.Equal(t, tt.inputCacheRead, modelInfo.Pricing.InputCacheRead)
+			assert.Equal(t, tt.inputCacheWrite, modelInfo.Pricing.InputCacheWrite)
+		})
+	}
+}
+
 func Test_GetHaiku35(t *testing.T) {
 	b, err := NewBaseModelInfoProvider()
 	assert.NoError(t, err)
