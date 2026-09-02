@@ -80,7 +80,10 @@ export const resolveSidebarProjectFilter = (
 
 export const filterSidebarProjectsWithActivity = (
   projects: TypesProject[],
-): TypesProject[] => projects.filter((project) => !!project.last_activity_at)
+  currentUserId: string,
+): TypesProject[] => projects.filter((project) => (
+  !!project.last_activity_at || (!!currentUserId && project.user_id === currentUserId)
+))
 
 export const parseSidebarParticipantIds = (storedValue: string | null): string[] | null => {
   if (storedValue === null) return null

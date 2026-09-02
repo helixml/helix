@@ -300,14 +300,15 @@ describe('ProjectChatSidebar logic', () => {
       .toEqual(['project-two', 'project-one'])
   })
 
-  it('removes projects without chat activity from the active sidebar', () => {
+  it('keeps the current user\'s empty projects in the active sidebar', () => {
     const projectsWithEmpty: TypesProject[] = [
       { id: 'project-active', name: 'Active', last_activity_at: '2026-08-31T10:00:00Z' },
-      { id: 'project-empty', name: 'Empty' },
+      { id: 'project-owned-empty', name: 'Owned empty', user_id: 'user-one' },
+      { id: 'project-shared-empty', name: 'Shared empty', user_id: 'user-two' },
     ]
 
-    expect(filterSidebarProjectsWithActivity(projectsWithEmpty).map((project) => project.id))
-      .toEqual(['project-active'])
+    expect(filterSidebarProjectsWithActivity(projectsWithEmpty, 'user-one').map((project) => project.id))
+      .toEqual(['project-active', 'project-owned-empty'])
   })
 
   it('uses AND matching across multiple search tokens', () => {

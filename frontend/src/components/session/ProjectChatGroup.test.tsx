@@ -84,6 +84,27 @@ const renderEmptyProject = (collapsed = false) => render(
   />,
 )
 
+const renderOwnedEmptyProject = () => render(
+  <ProjectChatGroup
+    orgId="org-one"
+    project={{ id: 'project-one', name: 'My empty project', user_id: 'user-one' }}
+    collapsed={false}
+    query=""
+    activeItemId=""
+    relativeTimeNow={Date.now()}
+    enabled
+    participantIds={[]}
+    organizationMembers={[]}
+    currentUser={{ id: 'user-one' }}
+    archivingItemId={null}
+    onToggle={vi.fn()}
+    onNewTask={vi.fn()}
+    onOpenItem={vi.fn()}
+    onOpenItemContextMenu={vi.fn()}
+    onArchiveItem={vi.fn()}
+  />,
+)
+
 describe('ProjectChatGroup', () => {
   it('hides an expanded project with no visible sessions or tasks', async () => {
     mocks.emptySessions = true
@@ -101,6 +122,13 @@ describe('ProjectChatGroup', () => {
     expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
     expect(mocks.sessionOptions.at(-1)?.enabled).toBe(true)
     expect(mocks.taskOptions.at(-1)?.enabled).toBe(true)
+  })
+
+  it('shows an empty project owned by the current user', async () => {
+    mocks.emptySessions = true
+    renderOwnedEmptyProject()
+
+    await waitFor(() => expect(screen.getByText('My empty project')).toBeInTheDocument())
   })
 
   it('stops querying after a collapsed group proves it has visible items', async () => {
