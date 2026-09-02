@@ -86,6 +86,18 @@ func (s *HelixAPIServer) createSecret(_ http.ResponseWriter, r *http.Request) (*
 	if err := json.NewDecoder(r.Body).Decode(&secretReq); err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
+	if secretReq.ProjectID != "" {
+		project, err := s.Store.GetProject(ctx, secretReq.ProjectID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404("project not found")
+			}
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		if err := s.authorizeUserToProject(ctx, user, project, types.ActionCreate); err != nil {
+			return nil, system.NewHTTPError403("not authorized to create secrets in this project")
+		}
+	}
 
 	// Encrypt the secret value before storing
 	encryptionKey, err := s.getEncryptionKey()
@@ -147,15 +159,20 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Check authorization: either user owns the secret OR has access to the project
-	authorized := false
-	if existing.Owner == user.ID {
-		authorized = true
-	} else if existing.ProjectID != "" {
-		// For project secrets, check if user has update access to the project
-		if err := s.authorizeUserToProjectByID(ctx, user, existing.ProjectID, types.ActionUpdate); err == nil {
-			authorized = true
+	// Project-scoped rows remain governed by their project even when their
+	// original creator still owns the secret row. This validates that the
+	// project still exists and prevents an owner from rotating a credential in
+	// a project they can no longer update.
+	authorized := existing.Owner == user.ID && existing.ProjectID == ""
+	if existing.ProjectID != "" {
+		project, projectErr := s.Store.GetProject(ctx, existing.ProjectID)
+		if projectErr != nil {
+			if errors.Is(projectErr, store.ErrNotFound) {
+				return nil, system.NewHTTPError404("project not found")
+			}
+			return nil, system.NewHTTPError500(projectErr.Error())
 		}
+		authorized = s.authorizeUserToProject(ctx, user, project, types.ActionUpdate) == nil
 	}
 	if !authorized {
 		// Return 404 instead of 403 to avoid leaking existence of secret

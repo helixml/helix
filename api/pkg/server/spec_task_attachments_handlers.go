@@ -17,9 +17,20 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Statuses past which attachments are read-only — the agent has already started using
-// them and changing them mid-flight would be confusing.
-var specTaskAttachmentReadOnlyStatuses = map[types.SpecTaskStatus]bool{
+// Uploads remain available while an agent is working. StageUploadedAttachments
+// commits late files and queues a note to the active session, so blocking them
+// during implementation contradicts the delivery mechanism and makes
+// just-do-it tasks impossible to correct. Once delivery has reached a PR the
+// task input is terminal and uploads are locked again.
+var specTaskAttachmentUploadReadOnlyStatuses = map[types.SpecTaskStatus]bool{
+	types.TaskStatusPullRequest: true,
+	types.TaskStatusDone:        true,
+}
+
+// Deletion remains stricter than upload because removing a committed attachment
+// also requires removing it from helix-specs. A corrected file can still be
+// uploaded and the running agent is notified.
+var specTaskAttachmentDeleteReadOnlyStatuses = map[types.SpecTaskStatus]bool{
 	types.TaskStatusSpecApproved:         true,
 	types.TaskStatusImplementationQueued: true,
 	types.TaskStatusImplementation:       true,
@@ -29,8 +40,12 @@ var specTaskAttachmentReadOnlyStatuses = map[types.SpecTaskStatus]bool{
 	types.TaskStatusImplementationFailed: true,
 }
 
-func specTaskAttachmentsLocked(status types.SpecTaskStatus) bool {
-	return specTaskAttachmentReadOnlyStatuses[status]
+func specTaskAttachmentUploadsLocked(status types.SpecTaskStatus) bool {
+	return specTaskAttachmentUploadReadOnlyStatuses[status]
+}
+
+func specTaskAttachmentDeletesLocked(status types.SpecTaskStatus) bool {
+	return specTaskAttachmentDeleteReadOnlyStatuses[status]
 }
 
 // uploadSpecTaskAttachments godoc
@@ -71,8 +86,8 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if specTaskAttachmentsLocked(task.Status) {
-		http.Error(w, "task is past spec_review — attachments are read-only", http.StatusConflict)
+	if specTaskAttachmentUploadsLocked(task.Status) {
+		http.Error(w, "task has reached pull request delivery — attachments are read-only", http.StatusConflict)
 		return
 	}
 
@@ -332,7 +347,7 @@ func (s *HelixAPIServer) deleteSpecTaskAttachment(w http.ResponseWriter, r *http
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if specTaskAttachmentsLocked(task.Status) {
+	if specTaskAttachmentDeletesLocked(task.Status) {
 		http.Error(w, "task is past spec_review — attachments are read-only", http.StatusConflict)
 		return
 	}

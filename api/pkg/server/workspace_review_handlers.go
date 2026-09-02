@@ -85,11 +85,16 @@ func (apiServer *HelixAPIServer) getWorkspaceReview(w http.ResponseWriter, req *
 // @Produce json
 // @Param sessionID path string true "Session ID"
 // @Param workspace query string false "Workspace name"
+// @Param root query string false "Set to work to list the full session work root (requires update access)"
 // @Success 200 {object} types.WorkspaceFilesResponse
 // @Router /api/v1/external-agents/{sessionID}/workspace-files [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getWorkspaceFiles(w http.ResponseWriter, req *http.Request) {
-	apiServer.proxyAuthorizedWorkspaceGET(w, req, "/workspace/files", &types.WorkspaceFilesResponse{})
+	action := types.ActionGet
+	if req.URL.Query().Get("root") != "" {
+		action = types.ActionUpdate
+	}
+	apiServer.proxyAuthorizedWorkspaceGETWithAction(w, req, "/workspace/files", &types.WorkspaceFilesResponse{}, action)
 }
 
 // getWorkspaceFile godoc
@@ -109,7 +114,11 @@ func (apiServer *HelixAPIServer) getWorkspaceFile(w http.ResponseWriter, req *ht
 
 // downloadWorkspaceFile streams a complete, binary-safe workspace file from the task desktop.
 func (apiServer *HelixAPIServer) downloadWorkspaceFile(w http.ResponseWriter, req *http.Request) {
-	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, types.ActionGet)
+	action := types.ActionGet
+	if req.URL.Query().Get("root") != "" {
+		action = types.ActionUpdate
+	}
+	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, action)
 	if !ok {
 		return
 	}
@@ -195,7 +204,11 @@ func (apiServer *HelixAPIServer) getWorkspaceSkills(w http.ResponseWriter, req *
 }
 
 func (apiServer *HelixAPIServer) proxyAuthorizedWorkspaceGET(w http.ResponseWriter, req *http.Request, desktopPath string, response interface{}) {
-	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, types.ActionGet)
+	apiServer.proxyAuthorizedWorkspaceGETWithAction(w, req, desktopPath, response, types.ActionGet)
+}
+
+func (apiServer *HelixAPIServer) proxyAuthorizedWorkspaceGETWithAction(w http.ResponseWriter, req *http.Request, desktopPath string, response interface{}, action types.Action) {
+	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, action)
 	if !ok {
 		return
 	}

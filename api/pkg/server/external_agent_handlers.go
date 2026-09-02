@@ -368,8 +368,7 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 }
 
 // @Summary Execute command in sandbox
-// @Description Executes a command inside the sandbox container for benchmarking and debugging.
-// @Description Only specific safe commands are allowed (vkcube, glxgears, pkill).
+// @Description Executes a command inside the caller's sandbox container.
 // @Tags ExternalAgents
 // @Accept json
 // @Produce json
@@ -404,7 +403,7 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 	log.Info().Str("session_id", session.ID).Str("owner", session.Owner).Msg("🔧 execInSandbox: session found")
 
 	// Verify ownership
-	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionUpdate)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusForbidden)
 		return

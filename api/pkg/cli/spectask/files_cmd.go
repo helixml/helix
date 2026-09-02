@@ -25,8 +25,11 @@ func newFilesCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "files <session-id>",
 		Short: "List files in a session's workspace",
-		Long: `List the files in a running session container's workspace (the same
-listing the web UI Files browser shows).
+		Long: `List files below a running session's /home/retro/work directory.
+
+This includes Git checkouts and sibling output directories created by the
+agent. Pass --workspace to restrict the listing to one repository's tracked and
+non-ignored files.
 
 Examples:
   helix spectask files ses_01xxx
@@ -42,6 +45,8 @@ Examples:
 			u := fmt.Sprintf("%s/api/v1/external-agents/%s/workspace-files", apiURL, sessionID)
 			if workspace != "" {
 				u += "?workspace=" + url.QueryEscape(workspace)
+			} else {
+				u += "?root=work"
 			}
 			body, err := workspaceGET(u, token)
 			if err != nil {
@@ -70,7 +75,7 @@ Examples:
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&workspace, "workspace", "", "Workspace/repo name (default: primary)")
+	cmd.Flags().StringVar(&workspace, "workspace", "", "Restrict listing to a workspace/repo name (default: full /home/retro/work tree)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Print JSON")
 	return cmd
 }
@@ -86,11 +91,12 @@ func newDownloadCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "download <session-id> <remote-path>",
 		Short: "Download a file from a session's workspace",
-		Long: `Download a file from a running session container's workspace.
+		Long: `Download a file from a running session container's /home/retro/work directory.
 
-<remote-path> is relative to the workspace root. By default the file is written
-to the current directory under its base name; use -o to choose a path, or -o -
-to stream to stdout.
+<remote-path> is relative to /home/retro/work, so files beside repository
+checkouts are directly reachable. Pass --workspace to make it relative to one
+repository instead. By default the file is written to the current directory
+under its base name; use -o to choose a path, or -o - to stream to stdout.
 
 Examples:
   helix spectask download ses_01xxx engagement/findings.json
@@ -108,6 +114,8 @@ Examples:
 			q.Set("path", remotePath)
 			if workspace != "" {
 				q.Set("workspace", workspace)
+			} else {
+				q.Set("root", "work")
 			}
 			u := fmt.Sprintf("%s/api/v1/external-agents/%s/workspace-file/download?%s", apiURL, sessionID, q.Encode())
 			body, err := workspaceGET(u, token)
@@ -129,7 +137,7 @@ Examples:
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&workspace, "workspace", "", "Workspace/repo name (default: primary)")
+	cmd.Flags().StringVar(&workspace, "workspace", "", "Resolve the remote path inside this workspace/repo (default: /home/retro/work)")
 	cmd.Flags().StringVarP(&outPath, "output", "o", "", "Local output path (default: base name; '-' for stdout)")
 	return cmd
 }

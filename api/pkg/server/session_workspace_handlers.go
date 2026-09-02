@@ -20,9 +20,8 @@ package server
 //
 // Both helpers reach the desktop via RevDial → /workspace/status and
 // /workspace/commit-and-push (defined in api/pkg/desktop/workspace.go).
-// We deliberately do NOT use the generic /exec endpoint because it's
-// allowlist-restricted to a small set of safe commands — git plumbing
-// runs through dedicated endpoints with structured request/response.
+// Git plumbing runs through dedicated endpoints with structured
+// request/response payloads instead of parsing generic command output.
 
 import (
 	"bufio"

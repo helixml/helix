@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"net/http"
 	"os"
@@ -172,9 +173,18 @@ func (s *Server) handleWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	workDir, workspace, err := resolveReviewWorkspace(r.URL.Query().Get("workspace"))
+	workDir, workspace, workRoot, err := resolveWorkspaceBrowseRoot(r.URL.Query().Get("root"), r.URL.Query().Get("workspace"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if workRoot {
+		entries, truncated, err := listSessionWorkRoot(workDir)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("list session work root: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, types.WorkspaceFilesResponse{Workspace: workspace, Entries: entries, Truncated: truncated})
 		return
 	}
 	// listTruncated matters: a workspace whose path listing exceeds the output
@@ -268,7 +278,7 @@ func (s *Server) handleWorkspaceFileDownload(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	workDir, _, err := resolveReviewWorkspace(r.URL.Query().Get("workspace"))
+	workDir, _, workRoot, err := resolveWorkspaceBrowseRoot(r.URL.Query().Get("root"), r.URL.Query().Get("workspace"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -278,7 +288,7 @@ func (s *Server) handleWorkspaceFileDownload(w http.ResponseWriter, r *http.Requ
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if !workspaceFileIsBrowsable(r.Context(), workDir, rel) {
+	if !workRoot && !workspaceFileIsBrowsable(r.Context(), workDir, rel) {
 		http.Error(w, "path is not a browsable workspace file", http.StatusBadRequest)
 		return
 	}
@@ -296,6 +306,78 @@ func (s *Server) handleWorkspaceFileDownload(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(rel)}))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, filepath.Base(rel), info.ModTime(), file)
+}
+
+func resolveWorkspaceBrowseRoot(rootMode, workspace string) (string, string, bool, error) {
+	if rootMode == "" {
+		workDir, resolvedWorkspace, err := resolveReviewWorkspace(workspace)
+		return workDir, resolvedWorkspace, false, err
+	}
+	if rootMode != "work" {
+		return "", "", false, fmt.Errorf("unknown workspace root %q", rootMode)
+	}
+	if workspace != "" {
+		return "", "", false, fmt.Errorf("workspace and root cannot be combined")
+	}
+	workDir := findAgentWorkspaceRoot()
+	if workDir == "" {
+		return "", "", false, fmt.Errorf("session work root not found")
+	}
+	return workDir, "work", true, nil
+}
+
+func listSessionWorkRoot(workDir string) ([]types.WorkspaceFileEntry, bool, error) {
+	entries := make([]types.WorkspaceFileEntry, 0)
+	truncated := false
+	err := filepath.WalkDir(workDir, func(pathValue string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if pathValue == workDir {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Name() == ".git" {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if len(entries) >= workspaceTreeEntryLimit {
+			truncated = true
+			return fs.SkipAll
+		}
+		rel, err := filepath.Rel(workDir, pathValue)
+		if err != nil {
+			return err
+		}
+		kind := "file"
+		var size int64
+		if entry.IsDir() {
+			kind = "directory"
+		} else {
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if !info.Mode().IsRegular() {
+				return nil
+			}
+			size = info.Size()
+		}
+		entries = append(entries, types.WorkspaceFileEntry{Path: filepath.ToSlash(rel), Kind: kind, Size: size})
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries, truncated, nil
 }
 
 func (s *Server) handleWorkspaceFileWrite(w http.ResponseWriter, r *http.Request) {

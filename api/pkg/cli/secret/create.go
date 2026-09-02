@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -16,7 +17,7 @@ func init() {
 	createCmd.Flags().StringP("name", "n", "", "Name of the secret")
 	createCmd.Flags().StringP("value", "v", "", "Value of the secret")
 	createCmd.Flags().StringP("app-id", "a", "", "App ID to associate the secret with")
-	createCmd.Flags().StringP("project", "p", "", "Project ID to associate the secret with (injected as env var in project sessions)")
+	createCmd.Flags().StringP("project", "p", "", "Project ID or name to associate the secret with (injected as env var in project sessions)")
 	_ = createCmd.MarkFlagRequired("name")
 }
 
@@ -46,13 +47,21 @@ var createCmd = &cobra.Command{
 		}
 
 		secret := &types.CreateSecretRequest{
-			Name:      name,
-			Value:     value,
-			AppID:     appID,
-			ProjectID: projectID,
+			Name:  name,
+			Value: value,
+			AppID: appID,
 		}
 
-		_, err = apiClient.CreateSecret(cmd.Context(), secret)
+		if projectID != "" {
+			project, resolveErr := cli.LookupProject(cmd.Context(), apiClient, projectID, "")
+			if resolveErr != nil {
+				return resolveErr
+			}
+			projectID = project.ID
+			_, err = apiClient.CreateProjectSecret(cmd.Context(), projectID, secret)
+		} else {
+			_, err = apiClient.CreateSecret(cmd.Context(), secret)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to create secret: %w", err)
 		}

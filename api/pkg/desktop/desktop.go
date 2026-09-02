@@ -559,7 +559,7 @@ func (s *Server) registerWorkspaceRoutes(mux *http.ServeMux) {
 	// /exec is not desktop-specific either: git identity sync on spec approval
 	// and the Claude/Codex subscription login flows all target headless
 	// containers. The server is loopback-only and reached through authenticated
-	// RevDial API routes; the command allowlist is an additional boundary.
+	// RevDial API routes; authorization is enforced by the public API route.
 	mux.HandleFunc("/exec", s.handleExec)
 	mux.HandleFunc("/workspaces", s.handleWorkspaces)
 	mux.HandleFunc("/workspace/review", s.handleWorkspaceReview)
@@ -570,7 +570,7 @@ func (s *Server) registerWorkspaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/workspace/checkpoints/capture", s.handleWorkspaceCheckpointCapture)
 	mux.HandleFunc("/workspace/checkpoints/diff", s.handleWorkspaceCheckpointDiff)
 	// Git plumbing used by the fork-and-pause safety net stays on fixed,
-	// dedicated endpoints rather than weakening the generic /exec allowlist.
+	// dedicated endpoints so callers receive structured responses.
 	mux.HandleFunc("/workspace/status", s.handleWorkspaceStatus)
 	mux.HandleFunc("/workspace/commit-and-push", s.handleWorkspaceCommitAndPush)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"mime/multipart"
 	"net"
@@ -149,18 +150,21 @@ func TestWorkspaceOnlyServerServesFilesAndDiffsWithoutDesktop(t *testing.T) {
 	_ = response.Body.Close()
 	require.Equal(t, http.StatusNotFound, response.StatusCode)
 
-	// /exec IS served headless — git identity sync and the subscription login
-	// flows run against headless containers. Its allowlist still applies.
-	response, err = http.Post(baseURL+"/exec", "application/json", strings.NewReader(`{"command":["rm","-rf","/"]}`))
+	// /exec is served headless because terminal workflows and server setup both
+	// need the same command surface as desktop sessions.
+	response, err = http.Post(baseURL+"/exec", "application/json", strings.NewReader(`{"command":["sh","-c","printf headless-ready"]}`))
 	require.NoError(t, err)
+	body, readErr := io.ReadAll(response.Body)
 	_ = response.Body.Close()
-	require.Equal(t, http.StatusForbidden, response.StatusCode)
+	require.NoError(t, readErr)
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	assert.JSONEq(t, `{"success":true,"output":"headless-ready","exit_code":0}`, string(body))
 
 	cancel()
 	require.ErrorIs(t, <-errCh, context.Canceled)
 }
 
-func TestWorkspaceOnlyServerAllowsRestrictedExecForServerSetup(t *testing.T) {
+func TestWorkspaceOnlyServerAllowsExecForServerSetup(t *testing.T) {
 	server := NewServer(Config{WorkspaceOnly: true}, slog.Default())
 
 	recorder := httptest.NewRecorder()

@@ -33,6 +33,17 @@ func (c *HelixClient) ListSecrets(ctx context.Context, f *SecretFilter) ([]*type
 	return secrets, nil
 }
 
+// ListProjectSecrets retrieves the write-only metadata for secrets attached to
+// one project. Secret values are never returned by the API.
+func (c *HelixClient) ListProjectSecrets(ctx context.Context, projectID string) ([]*types.Secret, error) {
+	var secrets []*types.Secret
+	err := c.makeRequest(ctx, http.MethodGet, fmt.Sprintf("/projects/%s/secrets", url.PathEscape(projectID)), nil, &secrets)
+	if err != nil {
+		return nil, err
+	}
+	return secrets, nil
+}
+
 // CreateSecret creates a new secret
 func (c *HelixClient) CreateSecret(ctx context.Context, secret *types.CreateSecretRequest) (*types.Secret, error) {
 	var createdSecret types.Secret
@@ -80,7 +91,7 @@ func (c *HelixClient) CreateProjectSecret(ctx context.Context, projectID string,
 	}
 
 	var created types.Secret
-	err = c.makeRequest(ctx, http.MethodPost, fmt.Sprintf("/projects/%s/secrets", projectID), bytes.NewBuffer(bts), &created)
+	err = c.makeRequest(ctx, http.MethodPost, fmt.Sprintf("/projects/%s/secrets", url.PathEscape(projectID)), bytes.NewBuffer(bts), &created)
 	if err != nil {
 		return nil, err
 	}

@@ -28,8 +28,11 @@ type ExecResponse struct {
 	PID      int    `json:"pid,omitempty"` // Only set for background commands
 }
 
-// handleExec executes a restricted command in the container. The HTTP server
-// is loopback-only; authenticated API handlers reach it through RevDial.
+// handleExec executes a command in the container. The HTTP server is
+// loopback-only; authenticated API handlers reach it through RevDial after
+// checking that the caller can update the session. A command allowlist here is
+// not a meaningful boundary once shell interpreters are supported: it only
+// makes normal terminal work fail while providing no additional isolation.
 //
 // POST /exec
 // Request body: {"command": ["vkcube"], "background": true}
@@ -48,44 +51,6 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 
 	if len(req.Command) == 0 {
 		http.Error(w, "command is required", http.StatusBadRequest)
-		return
-	}
-
-	// Security: Only allow specific commands for safety
-	allowedCommands := map[string]bool{
-		"vkcube":                   true,
-		"glxgears":                 true,
-		"pkill":                    true,
-		"killall":                  true,
-		"ls":                       true,
-		"echo":                     true,
-		"weston-simple-egl":        true,
-		"cat":                      true,
-		"test":                     true,
-		"npm":                      true, // Codex login wrapper installs the Codex CLI
-		"helix-codex-auth-wrapper": true, // runs Codex device authentication with stdout capture
-		"git":                      true, // scoped further below: only identity writes via gitInvocationAllowed
-	}
-
-	cmdName := req.Command[0]
-	if !allowedCommands[cmdName] {
-		s.logger.Warn("exec: blocked disallowed command", "command", cmdName)
-		http.Error(w, fmt.Sprintf("command not allowed: %s", cmdName), http.StatusForbidden)
-		return
-	}
-	if cmdName == "cat" && !catInvocationAllowed(req.Command) {
-		s.logger.Warn("exec: blocked cat outside subscription login files", "args", req.Command)
-		http.Error(w, "cat invocation not allowed", http.StatusForbidden)
-		return
-	}
-
-	// Extra scoping for git: `git` is a dispatcher with ~150 subcommands, some
-	// of which can exfiltrate secrets (e.g. via a custom credential.helper) or
-	// make destructive filesystem changes. Only allow the identity-writing
-	// subset used by the spec-approval flow.
-	if cmdName == "git" && !gitInvocationAllowed(req.Command) {
-		s.logger.Warn("exec: blocked git invocation", "args", req.Command)
-		http.Error(w, "git invocation not allowed (only 'git config --global user.name|user.email <value>')", http.StatusForbidden)
 		return
 	}
 
@@ -151,39 +116,4 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
-}
-
-func catInvocationAllowed(cmd []string) bool {
-	if len(cmd) != 2 || cmd[0] != "cat" {
-		return false
-	}
-	switch cmd[1] {
-	case "/home/retro/.codex/auth.json", "/tmp/codex-auth-stdout.txt", "/tmp/codex-auth-error.txt":
-		return true
-	default:
-		return false
-	}
-}
-
-// gitInvocationAllowed restricts `git` invocations to the identity-writing
-// subset: `git config --global user.name <value>` or
-// `git config --global user.email <value>`. Any other form is rejected.
-//
-// This exists because `git` as a dispatcher is extremely broad: allowing the
-// binary unconditionally would permit arbitrary `git clone`, custom
-// credential helpers, object fetches over HTTP, etc. from anyone able to
-// reach the exec endpoint.
-func gitInvocationAllowed(cmd []string) bool {
-	if len(cmd) != 5 {
-		return false
-	}
-	if cmd[0] != "git" || cmd[1] != "config" || cmd[2] != "--global" {
-		return false
-	}
-	if cmd[3] != "user.name" && cmd[3] != "user.email" {
-		return false
-	}
-	// Reject values that look like flags so we can't be tricked into
-	// invoking `git config --global user.name --some-other-flag`.
-	return !strings.HasPrefix(cmd[4], "-")
 }

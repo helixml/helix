@@ -16639,9 +16639,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: |-
-        Executes a command inside the sandbox container for benchmarking and debugging.
-        Only specific safe commands are allowed (vkcube, glxgears, pkill).
+      description: Executes a command inside the caller's sandbox container.
       parameters:
       - description: Session ID
         in: path
@@ -16866,6 +16864,11 @@ paths:
       - description: Workspace name
         in: query
         name: workspace
+        type: string
+      - description: Set to work to list the full session work root (requires update
+          access)
+        in: query
+        name: root
         type: string
       produces:
       - application/json
