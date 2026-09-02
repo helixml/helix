@@ -1534,6 +1534,31 @@ func TestValidateProvidersAndModels_UnavailableProviderMessage(t *testing.T) {
 	require.ErrorContains(t, err, "provider 'pe_provider' is not available")
 }
 
+func TestValidateProvidersAndModels_LegacyPresetNameMatchesOrganizationProvider(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockProviderManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{providerManager: mockProviderManager}
+	ctx := context.Background()
+	user := &types.User{ID: "user1"}
+	app := &types.App{
+		OrganizationID: "org1",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			Provider: "user/anthropic",
+			Model:    "claude-sonnet",
+		}}}},
+	}
+
+	mockProviderManager.EXPECT().
+		ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).
+		Return([]*types.ProviderEndpoint{{
+			ID:           "global/anthropic",
+			Name:         "anthropic",
+			EndpointType: types.ProviderEndpointTypeGlobal,
+		}}, nil)
+
+	require.NoError(t, server.validateProvidersAndModels(ctx, user, app))
+}
+
 // TestListEndpointsForApp covers app-scoped provider snapshots.
 func TestListEndpointsForApp(t *testing.T) {
 	ctrl := gomock.NewController(t)

@@ -88,6 +88,33 @@ func TestResolveCodeAgentProviderEndpointPrefersLegacyNamedOrganizationAnthropic
 	require.Same(t, orgEndpoint, endpoint)
 }
 
+func TestResolveCodeAgentProviderEndpointHydratesLegacyNamedGlobalOpenAI(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	providerManager.EXPECT().
+		ListProviderEndpointsForOwner(gomock.Any(), "org_1", types.OwnerTypeOrg).
+		Return([]*types.ProviderEndpoint{{
+			ID:           "global/openai",
+			Name:         "openai",
+			EndpointType: types.ProviderEndpointTypeGlobal,
+		}}, nil)
+
+	server := &HelixAPIServer{
+		Cfg: &config.ServerConfig{Providers: config.Providers{OpenAI: config.OpenAI{
+			APIKey:  "global-key",
+			BaseURL: "https://api.openai.com/v1",
+		}}},
+		providerManager: providerManager,
+	}
+	endpoint, err := server.resolveCodeAgentProviderEndpoint(context.Background(), &types.User{
+		ID: "user_1", OrganizationID: "org_1",
+	}, "user/openai")
+
+	require.NoError(t, err)
+	require.Equal(t, "global-key", endpoint.APIKey)
+	require.Equal(t, "https://api.openai.com/v1", endpoint.BaseURL)
+}
+
 func TestResolveCodeAgentProviderEndpointKeepsExplicitDatabaseID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	providerManager := manager.NewMockProviderManager(ctrl)
