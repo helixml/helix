@@ -206,6 +206,22 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 	secret.OwnerType = existing.OwnerType
 	secret.ProjectID = existing.ProjectID
 	secret.AppID = existing.AppID
+	// The store persists a full row (GORM Save), so any field the client
+	// omitted would otherwise be written back as its zero value. Scope is
+	// fixed at creation (an omitted scope used to silently zero it, changing
+	// which sessions the secret is injected into), Name must not blank, and an
+	// omitted/empty value must keep the stored ciphertext rather than delete
+	// the secret's value.
+	secret.Scope = existing.Scope
+	if secret.Name == "" {
+		secret.Name = existing.Name
+	}
+	if len(secret.Value) == 0 {
+		secret.Value = existing.Value
+	}
+	if secret.Created.IsZero() {
+		secret.Created = existing.Created
+	}
 
 	updatedSecret, err := s.Store.UpdateSecret(ctx, &secret)
 	if err != nil {
