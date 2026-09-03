@@ -53,7 +53,7 @@ const ArtifactsView: FC<Props> = ({ artifacts, mode, onEdit, onDelete }) => {
   const downloadArtifact = (artifact: TypesArtifact) => {
     if (!artifact.id) return
     const link = document.createElement('a')
-    link.href = `/artifacts/${artifact.id}/download`
+    link.href = `/api/v1/artifacts/${artifact.id}/download`
     link.download = ''
     document.body.appendChild(link)
     link.click()
