@@ -1057,6 +1057,100 @@ func (s *HelixAPIServer) serveArtifactDocument(w http.ResponseWriter, r *http.Re
 	s.serveArtifactFile(w, r, artifact, "")
 }
 
+// serveArtifactDownload delivers artifact content as a file attachment so the
+// project list can hand users the original upload. Single file artifacts stream
+// the file itself; multi-file bundles stream a ZIP of the active version.
+func (s *HelixAPIServer) serveArtifactDownload(w http.ResponseWriter, r *http.Request) {
+	artifactID := mux.Vars(r)["artifact_id"]
+	artifact, err := s.Store.GetArtifact(r.Context(), artifactID)
+	if err != nil || artifact.ActiveVersion == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if artifact.Visibility != types.ArtifactVisibilityPublic {
+		user := getRequestUser(r)
+		if user == nil || user.ID == "" {
+			http.Error(w, "artifact access required", http.StatusUnauthorized)
+			return
+		}
+		if err := s.authorizeUserToProjectByID(r.Context(), user, artifact.ProjectID, types.ActionGet); err != nil {
+			http.Error(w, "artifact access denied", http.StatusForbidden)
+			return
+		}
+	}
+	setArtifactDocumentSecurityHeaders(w.Header(), artifactRequestOrigin(r, s.Cfg.WebServer.URL))
+	if len(artifact.ActiveVersion.Files) > 1 {
+		s.serveArtifactBundle(w, r, artifact)
+		return
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{
+		"filename": artifactDownloadFilename(artifact, path.Ext(artifact.Entrypoint)),
+	}))
+	s.serveArtifactFile(w, r, artifact, "")
+}
+
+// serveArtifactBundle streams the active version as a ZIP. The archive is built
+// on the fly, so a filestore failure mid-stream truncates the download - the
+// response is already committed by then and there is no status left to send.
+func (s *HelixAPIServer) serveArtifactBundle(w http.ResponseWriter, r *http.Request, artifact *types.Artifact) {
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{
+		"filename": artifactDownloadFilename(artifact, ".zip"),
+	}))
+	if r.Method == http.MethodHead {
+		return
+	}
+	archive := zip.NewWriter(w)
+	for _, file := range artifact.ActiveVersion.Files {
+		if err := writeArtifactBundleEntry(r.Context(), archive, s.Controller.Options.Filestore, artifact.ActiveVersion, file.Path); err != nil {
+			log.Warn().Err(err).Str("artifact_id", artifact.ID).Str("path", file.Path).Msg("stream artifact bundle")
+			return
+		}
+	}
+	if err := archive.Close(); err != nil {
+		log.Warn().Err(err).Str("artifact_id", artifact.ID).Msg("close artifact bundle")
+	}
+}
+
+func writeArtifactBundleEntry(ctx context.Context, archive *zip.Writer, fs filestore.FileStore, version *types.ArtifactVersion, filePath string) error {
+	reader, err := fs.OpenFile(ctx, path.Join(version.StoragePrefix, filePath))
+	if err != nil {
+		return fmt.Errorf("open artifact file: %w", err)
+	}
+	defer reader.Close()
+	entry, err := archive.CreateHeader(&zip.FileHeader{Name: filePath, Method: zip.Deflate, Modified: version.CreatedAt})
+	if err != nil {
+		return fmt.Errorf("create archive entry: %w", err)
+	}
+	if _, err := io.Copy(entry, reader); err != nil {
+		return fmt.Errorf("write archive entry: %w", err)
+	}
+	return nil
+}
+
+// artifactDownloadFilename names the attachment after the artifact so downloads
+// are recognisable, falling back to the stored entrypoint.
+func artifactDownloadFilename(artifact *types.Artifact, ext string) string {
+	base := strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == '"' || r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, artifact.Name)
+	base = strings.Trim(strings.TrimSpace(base), ".")
+	if base == "" {
+		if ext == ".zip" {
+			return "artifact.zip"
+		}
+		return path.Base(artifact.Entrypoint)
+	}
+	if ext != "" && !strings.EqualFold(path.Ext(base), ext) {
+		base += ext
+	}
+	return base
+}
+
 func (s *HelixAPIServer) serveArtifactFile(w http.ResponseWriter, r *http.Request, artifact *types.Artifact, requestedPath string) {
 	filename, metadata, ok := resolveArtifactFile(artifact, requestedPath)
 	if !ok {
