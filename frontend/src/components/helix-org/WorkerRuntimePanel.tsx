@@ -4,10 +4,12 @@
 import { FC, useEffect, useMemo, useState } from 'react'
 import Button from '@mui/material/Button'
 import Paper from '@mui/material/Paper'
+import Typography from '@mui/material/Typography'
 
 import AgentConfigForm, { AgentConfigValue } from './BotRuntimeForm'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import useSnackbar from '../../hooks/useSnackbar'
+import { extractErrorMessage } from '../../hooks/useErrorCallback'
 import { useOrgCodeAgentHarnesses } from '../../services/codeAgentHarnessesService'
 import {
   SettingsSpecDTO,
@@ -67,12 +69,20 @@ const DefaultAgentConfigPanel: FC<{ disabled?: boolean }> = ({ disabled = false 
 
   const [value, setValue] = useState<AgentConfigValue>(initial)
   const [dirty, setDirty] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+
+  useEffect(() => {
+    if (saveStatus !== 'saved') return
+    const timeout = window.setTimeout(() => setSaveStatus('idle'), 3000)
+    return () => window.clearTimeout(timeout)
+  }, [saveStatus])
 
   // Re-seed local state when the loaded data lands or refreshes.
   useEffect(() => {
     if (!data) return
     setValue(initial)
     setDirty(false)
+    setSaveStatus('idle')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
 
@@ -82,20 +92,24 @@ const DefaultAgentConfigPanel: FC<{ disabled?: boolean }> = ({ disabled = false 
     setDirty(true)
   }
 
-  const handleSave = () => {
-    setMut
-      .mutateAsync({ key: 'agent.default', value: JSON.stringify({
+  const handleSave = async () => {
+    setSaveStatus('saving')
+    try {
+      await setMut.mutateAsync({ key: 'agent.default', value: JSON.stringify({
         code_agent_runtime: value.runtime,
         code_agent_credential_type: value.credentials,
         provider: value.provider,
         model: value.model,
         reasoning_effort: value.reasoning_effort || 'none',
       }) })
-      .then(() => {
-        setDirty(false)
-        snackbar.success('Default runtime saved')
-      })
-      .catch((e: any) => snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed'))
+      setDirty(false)
+      snackbar.success('Default runtime saved')
+      setSaveStatus('saved')
+    } catch (e: any) {
+      const message = extractErrorMessage(e) || 'save failed'
+      snackbar.error(message)
+      setSaveStatus('error')
+    }
   }
 
   const subscriptionAvailability = {
@@ -118,17 +132,27 @@ const DefaultAgentConfigPanel: FC<{ disabled?: boolean }> = ({ disabled = false 
               value={value}
               onChange={handlePatch}
               showReasoningEffort
-              disabled={disabled}
+              disabled={disabled || setMut.isPending || saveStatus === 'saving'}
               subscriptionAvailability={subscriptionAvailability}
             />
             <Button
               variant="contained"
               onClick={handleSave}
-              disabled={disabled || !dirty || setMut.isPending}
+              disabled={disabled || !dirty || setMut.isPending || saveStatus === 'saving'}
               sx={{ mt: 2 }}
             >
-              {setMut.isPending ? 'Saving...' : 'Save Default Runtime'}
+              {setMut.isPending || saveStatus === 'saving' ? 'Saving...' : 'Save Default Runtime'}
             </Button>
+            {saveStatus !== 'idle' && (
+              <Typography
+                role="status"
+                variant="caption"
+                color={saveStatus === 'error' ? 'error.main' : saveStatus === 'saved' ? 'success.main' : 'text.secondary'}
+                sx={{ display: 'block', mt: 2 }}
+              >
+                {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save failed'}
+              </Typography>
+            )}
           </>}
     </Paper>
   )

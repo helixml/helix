@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import DefaultRuntimePanel from './WorkerRuntimePanel'
 
 const mocks = vi.hoisted(() => ({
   set: vi.fn(),
+  pending: false,
   settings: {
     specs: [{
       key: 'agent.default',
@@ -21,11 +22,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../services/helixOrgService', () => ({
   useHelixOrgBase: () => ({ orgID: 'org-1' }),
-  useHelixOrgSettings: () => ({
-    data: mocks.settings,
-    isLoading: false,
-  }),
-  useSetHelixOrgSetting: () => ({ mutateAsync: mocks.set }),
+  useHelixOrgSettings: () => ({ data: mocks.settings, isLoading: false }),
+  useSetHelixOrgSetting: () => ({ mutateAsync: mocks.set, isPending: mocks.pending }),
 }))
 
 vi.mock('../../services/codeAgentHarnessesService', () => ({
@@ -37,11 +35,11 @@ vi.mock('../../hooks/useSnackbar', () => ({
 }))
 
 vi.mock('./BotRuntimeForm', () => ({
-  default: ({ value, onChange, showReasoningEffort }: any) => (
+  default: ({ value, onChange, showReasoningEffort, disabled }: any) => (
     <div>
       <span>{value.runtime}/{value.provider}/{value.model}/{value.reasoning_effort}</span>
       <span>{showReasoningEffort ? 'Reasoning enabled' : 'Reasoning hidden'}</span>
-      <button onClick={() => onChange({ reasoning_effort: 'high' })}>Set high</button>
+      <button disabled={disabled} onClick={() => onChange({ reasoning_effort: 'high' })}>Set high</button>
     </div>
   ),
 }))
@@ -50,9 +48,10 @@ describe('Default Runtime panel', () => {
   beforeEach(() => {
     mocks.set.mockReset()
     mocks.set.mockResolvedValue(undefined)
+    mocks.pending = false
   })
 
-  it('shows and saves the complete organization runtime', async () => {
+  it('saves the complete organization runtime only after Save', async () => {
     render(<DefaultRuntimePanel />)
 
     expect(screen.getByText('zed_agent/pe_helix/helix-model/medium')).toBeInTheDocument()
@@ -71,5 +70,28 @@ describe('Default Runtime panel', () => {
         reasoning_effort: 'high',
       }),
     }))
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+  })
+
+  it('shows failure feedback when Save fails', async () => {
+    let rejectUpdate!: (error: Error) => void
+    mocks.set.mockImplementation(() => new Promise((_, reject) => {
+      rejectUpdate = reject
+    }))
+    render(<DefaultRuntimePanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set high' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save Default Runtime' }))
+    expect(await screen.findByText('Saving...', { selector: '[role="status"]' })).toBeInTheDocument()
+    act(() => rejectUpdate(new Error('network failed')))
+    expect(await screen.findByText('Save failed')).toBeInTheDocument()
+  })
+
+  it('disables controls while a save is pending', () => {
+    mocks.pending = true
+    render(<DefaultRuntimePanel />)
+
+    expect(screen.getByRole('button', { name: 'Set high' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled()
   })
 })
