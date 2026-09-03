@@ -10,7 +10,6 @@ import {
   compactRelativeTime,
   DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES,
   filterProjectChatGroups,
-  filterSidebarProjectsWithActivity,
   filterSidebarMembers,
   getSidebarPullRequestIcon,
   getSidebarMemberResults,
@@ -298,17 +297,6 @@ describe('ProjectChatSidebar logic', () => {
     }).map((project) => project.id)).toEqual(['project-two', 'project-one'])
     expect(reorderProjectIds(['project-one', 'project-two'], 'project-one', 'project-two'))
       .toEqual(['project-two', 'project-one'])
-  })
-
-  it('keeps the current user\'s empty projects in the active sidebar', () => {
-    const projectsWithEmpty: TypesProject[] = [
-      { id: 'project-active', name: 'Active', last_activity_at: '2026-08-31T10:00:00Z' },
-      { id: 'project-owned-empty', name: 'Owned empty', user_id: 'user-one' },
-      { id: 'project-shared-empty', name: 'Shared empty', user_id: 'user-two' },
-    ]
-
-    expect(filterSidebarProjectsWithActivity(projectsWithEmpty, 'user-one').map((project) => project.id))
-      .toEqual(['project-active', 'project-owned-empty'])
   })
 
   it('uses AND matching across multiple search tokens', () => {

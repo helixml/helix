@@ -37,7 +37,6 @@ import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import {
   ALL_PROJECTS_FILTER,
   collapsedGroupsStorageKey,
-  filterSidebarProjectsWithActivity,
   getChatShortcutNumber,
   isChatShortcutModifier,
   isNewThreadShortcut,
@@ -162,8 +161,7 @@ const ProjectChatSidebar: FC<{
     setVisibleThreadCount,
     setManualProjectOrder,
   } = useProjectChatSidebarPreferences(preferencesStorageKey, projects)
-  const activeProjects = filterSidebarProjectsWithActivity(projects, currentUserId)
-  const sidebarProjects = showArchived ? projects : activeProjects
+  const sidebarProjects = projects
   const focusedProject = projectFilter === ALL_PROJECTS_FILTER
     ? undefined
     : sidebarProjects.find((project) => project.id === projectFilter)
@@ -171,11 +169,7 @@ const ProjectChatSidebar: FC<{
   const focusMode = projectFilter !== ALL_PROJECTS_FILTER && !!focusedProject
   const displayedProjects = focusMode && focusedProject
     ? [focusedProject]
-    : sortedProjects.filter((project) => (
-      showArchived
-      || !!project.last_activity_at
-      || (!!currentUserId && project.user_id === currentUserId)
-    ))
+    : sortedProjects
 
   useEffect(() => {
     if (projectsLoading || resolvedProjectFilter === projectFilter) return

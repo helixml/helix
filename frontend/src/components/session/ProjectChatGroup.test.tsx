@@ -84,10 +84,10 @@ const renderEmptyProject = (collapsed = false) => render(
   />,
 )
 
-const renderOwnedEmptyProject = () => render(
+const renderAccessibleEmptyProject = (archived = false) => render(
   <ProjectChatGroup
     orgId="org-one"
-    project={{ id: 'project-one', name: 'My empty project', user_id: 'user-one' }}
+    project={{ id: 'project-one', name: 'Accessible empty project', user_id: 'project-owner' }}
     collapsed={false}
     query=""
     activeItemId=""
@@ -95,7 +95,8 @@ const renderOwnedEmptyProject = () => render(
     enabled
     participantIds={[]}
     organizationMembers={[]}
-    currentUser={{ id: 'user-one' }}
+    currentUser={{ id: 'project-member' }}
+    archived={archived}
     archivingItemId={null}
     onToggle={vi.fn()}
     onNewTask={vi.fn()}
@@ -106,29 +107,34 @@ const renderOwnedEmptyProject = () => render(
 )
 
 describe('ProjectChatGroup', () => {
-  it('hides an expanded project with no visible sessions or tasks', async () => {
+  it('shows an expanded empty project the user can access', async () => {
     mocks.emptySessions = true
     renderEmptyProject()
 
-    await waitFor(() => expect(screen.queryByText('Empty project')).not.toBeInTheDocument())
-    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Empty project')).toBeInTheDocument())
   })
 
-  it('hides a collapsed project after probing its visible items', async () => {
+  it('shows a collapsed empty project after probing its visible items', async () => {
     mocks.emptySessions = true
     renderEmptyProject(true)
 
-    await waitFor(() => expect(screen.queryByText('Empty project')).not.toBeInTheDocument())
-    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Empty project')).toBeInTheDocument())
     expect(mocks.sessionOptions.at(-1)?.enabled).toBe(true)
     expect(mocks.taskOptions.at(-1)?.enabled).toBe(true)
   })
 
-  it('shows an empty project owned by the current user', async () => {
+  it('shows an empty project owned by another user when the current user has access', async () => {
     mocks.emptySessions = true
-    renderOwnedEmptyProject()
+    renderAccessibleEmptyProject()
 
-    await waitFor(() => expect(screen.getByText('My empty project')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Accessible empty project')).toBeInTheDocument())
+  })
+
+  it('hides a project with no archived sessions or tasks in the archived view', async () => {
+    mocks.emptySessions = true
+    renderAccessibleEmptyProject(true)
+
+    await waitFor(() => expect(screen.queryByText('Accessible empty project')).not.toBeInTheDocument())
   })
 
   it('stops querying after a collapsed group proves it has visible items', async () => {

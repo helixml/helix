@@ -253,11 +253,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
     setVisibility(hasVisibleItems ? 'visible' : 'empty')
   }, [hasError, hasVisibleItems, isLoading, projectId])
 
-  const isEmptyProjectOwnedByCurrentUser = !archived
-    && !!currentUser?.id
-    && project?.user_id === currentUser.id
-
-  if (projectId && !isLoading && !hasError && !hasVisibleItems && !isEmptyProjectOwnedByCurrentUser) {
+  if (projectId && archived && !isLoading && !hasError && !hasVisibleItems) {
     return null
   }
 
