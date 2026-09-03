@@ -121,5 +121,5 @@ func TestCreateCodexSubscriptionFromCredentialsRollsBackOnHarnessFailure(t *test
 	_, err := server.createCodexSubscriptionFromCredentials(
 		context.Background(), "user_1", "org_1", validCodexCredentials(),
 	)
-	require.ErrorContains(t, err, "enable subscription harness")
+	require.ErrorContains(t, err, "enable subscription runtime")
 }

@@ -301,9 +301,9 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
             minWidth: 0,
           }}
         >
-          <Typography variant="body2" color="text.secondary">Harness:</Typography>
+          <Typography variant="body2" color="text.secondary">Runtime:</Typography>
           <Box
-            aria-label={`Harness: ${getAgentHarnessLabel(runtime)}`}
+            aria-label={`Runtime: ${getAgentHarnessLabel(runtime)}`}
             sx={{ height: 28, px: 0.75, display: "inline-flex", alignItems: "center" }}
           >
             <AgentHarness runtime={runtime} variant="long" size={16} showTooltip={false} />

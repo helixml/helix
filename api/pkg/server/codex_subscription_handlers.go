@@ -94,7 +94,7 @@ func (apiServer *HelixAPIServer) createCodexSubscription(_ http.ResponseWriter, 
 			return nil, system.NewHTTPError404("organization not found")
 		}
 		if _, err := apiServer.authorizeOrgOwner(req.Context(), user, org.ID); err != nil {
-			return nil, system.NewHTTPError403("not authorized to enable organization harness")
+			return nil, system.NewHTTPError403("not authorized to enable organization runtime")
 		}
 		harnessOrgID = org.ID
 	} else if ownerType == types.OwnerTypeOrg {
@@ -132,7 +132,7 @@ func (apiServer *HelixAPIServer) createCodexSubscription(_ http.ResponseWriter, 
 		if deleteErr := apiServer.Store.DeleteCodexSubscription(context.WithoutCancel(req.Context()), sub.ID); deleteErr != nil {
 			log.Error().Err(deleteErr).Str("subscription_id", sub.ID).Msg("failed to roll back Codex subscription")
 		}
-		return nil, system.NewHTTPError500("failed to enable Codex harness: " + err.Error())
+		return nil, system.NewHTTPError500("failed to enable Codex runtime: " + err.Error())
 	}
 	return sub, nil
 }
@@ -392,7 +392,7 @@ type CodexLoginSessionResponse struct {
 // @Tags Codex
 // @Accept json
 // @Produce json
-// @Param body body types.StartCodexLoginRequest false "Optional organization whose Codex harness should be enabled"
+// @Param body body types.StartCodexLoginRequest false "Optional organization whose Codex runtime should be enabled"
 // @Success 200 {object} CodexLoginSessionResponse
 // @Security BearerAuth
 // @Router /api/v1/codex-subscriptions/start-login [post]
@@ -419,7 +419,7 @@ func (apiServer *HelixAPIServer) startCodexLogin(_ http.ResponseWriter, req *htt
 			return nil, system.NewHTTPError404("organization not found")
 		}
 		if _, err := apiServer.authorizeOrgOwner(req.Context(), user, org.ID); err != nil {
-			return nil, system.NewHTTPError403("not authorized to enable organization harness")
+			return nil, system.NewHTTPError403("not authorized to enable organization runtime")
 		}
 		orgID = org.ID
 	}

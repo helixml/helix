@@ -107,7 +107,7 @@ func TestOpenAIResponsesProxyRejectsOtherHarnesses(t *testing.T) {
 	server.openAIResponsesProxyHandler(recorder, req)
 
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "reserved for the Codex harness")
+	require.Contains(t, recorder.Body.String(), "reserved for the Codex runtime")
 }
 
 func TestOpenAIResponsesProxyRejectsModelDifferentFromTask(t *testing.T) {

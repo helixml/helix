@@ -350,16 +350,16 @@ const OrgSettings: FC = () => {
 
               <Box sx={{ mt: 4 }}>
                 <Typography variant="h6" gutterBottom>
-                  Default Agent Configuration
+                  Default Runtime
                 </Typography>
                 <Typography
                   variant="body2"
                   color="text.secondary"
                   sx={{ mb: 2 }}
                 >
-                  Agent settings copied to Bots when they are first provisioned.
+                  Runtime settings copied to new Bots and new projects. Existing Bots and projects are unchanged.
                 </Typography>
-                <DefaultAgentConfigPanel />
+                <DefaultAgentConfigPanel disabled={isReadOnly} />
                 <Box sx={{ mt: 3 }}>
                   <HelixOrgSettings />
                 </Box>

@@ -73,7 +73,8 @@ import (
 // mounted under /api/v1/orgs/{org}/. The React UI at
 // /orgs/:org_id/helix-org/* consumes those endpoints.
 type helixOrgHandlers struct {
-	api http.Handler
+	api     http.Handler
+	configs *configregistry.Registry
 	// mcpServer is the org MCP server behind `api`. Held directly so the
 	// spec-task MCP backend can serve a project-scoped caller through the
 	// same registry and audit path (ServeMCPForCaller).
@@ -1269,7 +1270,20 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 			}
 			return t.HandleInbound()
 		},
-		Configs:             configReg,
+		Configs: configReg,
+		ValidateDefaultAgentConfig: func(ctx context.Context, orgID string, config types.AssistantConfig) error {
+			if config.CodeAgentRuntime == "" || config.CodeAgentCredentialType == "" || config.Model == "" {
+				return fmt.Errorf("default runtime, credential type, and model are required")
+			}
+			callerID := runtimehelix.UserIDFromContext(ctx)
+			return cfg.APIServer.validateCodeAgentExecutionConfig(
+				ctx,
+				orgDefaultCodeAgentConfig(config),
+				callerID,
+				callerID,
+				orgID,
+			)
+		},
 		Hub:                 bc,
 		Dispatcher:          dispatcher,
 		DBPath:              orgRoot,
@@ -1461,6 +1475,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 
 	return &helixOrgHandlers{
 		api:                           orgServer.Handler(extras...),
+		configs:                       configReg,
 		mcpServer:                     orgServer,
 		scope:                         scope,
 		store:                         st,
@@ -1536,7 +1551,7 @@ func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, worker
 // buildHelixOrgProjectApplier constructs the WorkerProject that
 // both the chat bridge (owner-chat) and the spawner (AI Worker
 // activations) drive. Single source of truth for the embedded
-// SaaS's default agent configuration from the config registry,
+// SaaS's Default Runtime from the config registry,
 // subscription credentials.
 //
 // Called per Ensure by dynamicProjectApplier so registry edits

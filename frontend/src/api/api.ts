@@ -3588,7 +3588,7 @@ export interface TypesCreateClaudeSubscriptionRequest {
   };
   name?: string;
   /**
-   * OrganizationID identifies the org whose Claude Code harness is enabled
+   * OrganizationID identifies the org whose Claude Code runtime is enabled
    * after connection. It is independent from subscription ownership.
    */
   organization_id?: string;
@@ -3604,7 +3604,7 @@ export interface TypesCreateCodexSubscriptionRequest {
   credentials?: TypesCodexAuthCredentials;
   name?: string;
   /**
-   * OrganizationID identifies the org whose Codex harness is enabled after
+   * OrganizationID identifies the org whose Codex runtime is enabled after
    * connection. It is independent from subscription ownership.
    */
   organization_id?: string;
@@ -6763,7 +6763,7 @@ export interface TypesSessionMetadata {
   /**
    * CodeAgentConfig is the complete coding runtime selected for a general
    * external-agent session. ParentApp remains the Helix Agent identity and
-   * supplies instructions/tools; this value owns harness, credentials, model,
+   * supplies instructions/tools; this value owns runtime, credentials, model,
    * and reasoning. SpecTask sessions keep this nil and read the task instead.
    */
   code_agent_config?: TypesCodeAgentExecutionConfig;
@@ -7686,7 +7686,7 @@ export interface TypesSpecTaskZedThreadListResponse {
 
 export interface TypesStartCodexLoginRequest {
   /**
-   * OrganizationID identifies the org whose Codex harness is enabled after
+   * OrganizationID identifies the org whose Codex runtime is enabled after
    * the device flow succeeds.
    */
   organization_id?: string;
@@ -7732,9 +7732,6 @@ export interface TypesSyncAllResponse {
 }
 
 export interface TypesSystemSettingsRequest {
-  default_new_project_agent_model?: string;
-  default_new_project_agent_provider?: string;
-  default_new_project_agent_reasoning_effort?: string;
   enforce_quotas?: boolean;
   huggingface_token?: string;
   kodit_enrichment_model?: string;
@@ -7767,9 +7764,6 @@ export interface TypesSystemSettingsRequest {
 
 export interface TypesSystemSettingsResponse {
   created?: string;
-  default_new_project_agent_model?: string;
-  default_new_project_agent_provider?: string;
-  default_new_project_agent_reasoning_effort?: string;
   enforce_quotas?: boolean;
   /** Sensitive fields are masked */
   huggingface_token_set?: boolean;
@@ -13449,11 +13443,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns every selectable coding-agent harness, whether the organization enabled it, and whether the requesting user can use its subscription mode.
+     * @description Returns every selectable coding-agent runtime, whether the organization enabled it, and whether the requesting user can use its subscription mode.
      *
      * @tags organizations
      * @name V1OrganizationsCodeAgentHarnessesDetail
-     * @summary List an organization's coding-agent harnesses
+     * @summary List an organization's coding-agent runtimes
      * @request GET:/api/v1/organizations/{org_id}/code-agent-harnesses
      * @secure
      */
@@ -13466,11 +13460,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Enables or disables coding-agent harnesses and selects either subscription mode or API-provider mode for each harness. Harnesses omitted from the request are left unchanged. Models are selected per task.
+     * @description Enables or disables coding-agent runtimes and selects either subscription mode or API-provider mode for each runtime. Runtimes omitted from the request are left unchanged. Models are selected per task.
      *
      * @tags organizations
      * @name V1OrganizationsCodeAgentHarnessesUpdate
-     * @summary Update an organization's coding-agent harnesses
+     * @summary Update an organization's coding-agent runtimes
      * @request PUT:/api/v1/organizations/{org_id}/code-agent-harnesses
      * @secure
      */
@@ -16203,7 +16197,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         with_models?: boolean;
         /** Organization ID */
         org_id?: string;
-        /** Filter by organization code-agent harness policy */
+        /** Filter by organization code-agent runtime policy */
         code_agent_runtime?: string;
         /** Include all endpoints (system admin only) */
         all?: boolean;
@@ -17448,7 +17442,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Replaces the complete coding execution config. SpecTask sessions write through to the task; general sessions keep their parent Agent for instructions and tools while storing harness/model configuration on the session. Running sandboxes start a fresh ACP thread with the prior transcript.
+     * @description Replaces the complete coding execution config. SpecTask sessions write through to the task; general sessions keep their parent Agent for instructions and tools while storing runtime/model configuration on the session. Running sandboxes start a fresh ACP thread with the prior transcript.
      *
      * @tags Sessions
      * @name V1SessionsExecutionConfigPartialUpdate

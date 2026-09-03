@@ -1319,7 +1319,7 @@ const OrgUsage: FC = () => {
 
                 <UsagePanel>
                   <ShadcnAreaChart
-                    title="CACHE HIT RATIO BY AGENT HARNESS"
+                    title="CACHE HIT RATIO BY AGENT RUNTIME"
                     headline={formatPercent(cacheHitRatio)}
                     data={agentCacheChartData}
                     series={agentCacheChartSeries}

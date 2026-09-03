@@ -33,6 +33,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import { useListProjects } from '../services'
 import { useListProviders } from '../services/providersService'
+import { useHelixOrgSettings } from '../services/helixOrgService'
 import { invalidateSessionsQuery } from '../services/sessionService'
 import {
   SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
@@ -48,12 +49,15 @@ import { SESSION_TYPE_TEXT } from '../types'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   buildNewChatTaskRequest,
+  chooseNewChatModel,
   modelSupportsReasoningEffort,
   NEW_CHAT_REASONING_EFFORT_OPTIONS,
   newChatHeading,
+  newChatModelStorageKey,
   NewChatReasoningEffort,
   NewChatTaskMode,
-  readNewChatReasoningEffort,
+  parseOrgDefaultRuntime,
+  readNewChatModelSelection,
 } from './newChatLogic'
 import {
   preferredSpecTaskSandboxRuntime,
@@ -119,19 +123,18 @@ const Home: FC = () => {
   const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
     enabled: !!userId && !!orgId,
   })
-  const { data: providers = [] } = useListProviders({
+  const { data: providers = [], isLoading: providersLoading } = useListProviders({
     loadModels: true,
     orgId,
     enabled: !!userId && !!orgId,
   })
+  const { data: orgSettings, isLoading: orgSettingsLoading } = useHelixOrgSettings()
   const selectedProject = projects.find((project) => project.id === requestedProjectId)
   const selectedProjectId = selectedProject?.id || ''
 
-  const [selectedProvider, setSelectedProvider] = useState(() => localStorage.getItem('helix_provider') || '')
-  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem('helix_model') || '')
-  const [reasoningEffort, setReasoningEffort] = useState<NewChatReasoningEffort>(() => (
-    readNewChatReasoningEffort(localStorage.getItem('helix_reasoning_effort'))
-  ))
+  const [selectedProvider, setSelectedProvider] = useState('')
+  const [selectedModel, setSelectedModel] = useState('')
+  const [reasoningEffort, setReasoningEffort] = useState<NewChatReasoningEffort>('medium')
   const [taskCodeAgentConfig, setTaskCodeAgentConfig] = useState<TypesCodeAgentExecutionConfig>()
   // Undefined until the user picks a size, so the create request omits
   // sandbox_resource_overrides and the server resolves the live default at
@@ -156,22 +159,39 @@ const Home: FC = () => {
 
   const projectCodeAgentConfigKey = JSON.stringify(selectedProject?.code_agent_config ?? null)
 
-  useEffect(() => {
-    if (!selectedProvider || !selectedModel) return
-    localStorage.setItem('helix_provider', selectedProvider)
-    localStorage.setItem('helix_model', selectedModel)
-  }, [selectedProvider, selectedModel])
+  const modelStorageKey = newChatModelStorageKey(userId, orgId)
+  const orgDefaultValue = orgSettings?.specs?.find((spec) => spec.key === 'agent.default')?.value
+  const orgDefaultConfig = React.useMemo(
+    () => parseOrgDefaultRuntime(orgDefaultValue),
+    [orgDefaultValue],
+  )
 
   useEffect(() => {
-    localStorage.setItem('helix_reasoning_effort', reasoningEffort)
-  }, [reasoningEffort])
+    if (!userId || !orgId || providersLoading || orgSettingsLoading) return
+    const selection = chooseNewChatModel(
+      providers,
+      readNewChatModelSelection(localStorage.getItem(modelStorageKey)),
+      orgDefaultConfig,
+    )
+    setSelectedProvider(selection?.provider || '')
+    setSelectedModel(selection?.model || '')
+    setReasoningEffort(selection?.reasoningEffort || 'medium')
+  }, [
+    userId,
+    orgId,
+    modelStorageKey,
+    providersLoading,
+    orgSettingsLoading,
+    providers,
+    orgDefaultConfig,
+  ])
 
   useEffect(() => {
     setTaskCodeAgentConfig(selectedProject?.code_agent_config)
   }, [selectedProjectId, projectCodeAgentConfigKey])
 
   // Compute follows the project, not its coding default. Keeping it in the
-  // effect above would reset a chosen sandbox size the moment picking a harness
+  // effect above would reset a chosen sandbox size the moment picking a runtime
   // seeded the project default and refreshed the project.
   useEffect(() => {
     setTaskSandboxResources(undefined)
@@ -214,6 +234,10 @@ const Home: FC = () => {
       account.setShowLoginWindow(true)
       return false
     }
+    if (!selectedProvider || !selectedModel) {
+      snackbar.error('Select a model before starting this chat')
+      return false
+    }
 
     setSubmitting(true)
     try {
@@ -247,7 +271,7 @@ const Home: FC = () => {
     }
     if (!selectedProjectId) return false
     if (!taskCodeAgentConfig?.model) {
-      snackbar.error('Select a coding harness and model before starting this task')
+      snackbar.error('Select a coding runtime and model before starting this task')
       return false
     }
 
@@ -371,10 +395,12 @@ const Home: FC = () => {
       onSelectModel={(provider, model) => {
         setSelectedProvider(provider)
         setSelectedModel(model)
+        localStorage.setItem(modelStorageKey, JSON.stringify({ provider, model, reasoningEffort }))
       }}
       currentType={SESSION_TYPE_TEXT}
       displayMode="short"
       buttonVariant="text"
+      autoSelectFirst={false}
     />
   )
 
@@ -401,6 +427,13 @@ const Home: FC = () => {
             selected={option.value === reasoningEffort}
             onClick={() => {
               setReasoningEffort(option.value)
+              if (selectedProvider && selectedModel) {
+                localStorage.setItem(modelStorageKey, JSON.stringify({
+                  provider: selectedProvider,
+                  model: selectedModel,
+                  reasoningEffort: option.value,
+                }))
+              }
               setEffortMenuAnchor(null)
             }}
           >
@@ -569,7 +602,8 @@ const Home: FC = () => {
               sendMode="direct"
               autoFocus
               fill={isPhone}
-              disabled={submitting || (isProjectContext && !taskCodeAgentConfig?.model)}
+              disabled={submitting
+                || (isProjectContext ? !taskCodeAgentConfig?.model : !selectedModel)}
               placeholder={isProjectContext ? 'Describe what you want to build' : 'Ask anything'}
               inlineImageAttachments={!isProjectContext}
               deferredFileAttachments={isProjectContext}

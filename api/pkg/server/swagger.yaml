@@ -3595,24 +3595,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - slack
-    - cron
-    - gitlab
-    - local
-    - email
     - webhook
-    - helix_events
+    - email
     - github
+    - local
+    - helix_events
+    - gitlab
+    - cron
+    - slack
     type: string
     x-enum-varnames:
-    - KindSlack
-    - KindCron
-    - KindGitLab
-    - KindLocal
-    - KindEmail
     - KindWebhook
-    - KindHelixEvents
+    - KindEmail
     - KindGitHub
+    - KindLocal
+    - KindHelixEvents
+    - KindGitLab
+    - KindCron
+    - KindSlack
   transport.ResolvedActivation:
     properties:
       address:
@@ -5619,7 +5619,7 @@ definitions:
         type: string
       organization_id:
         description: |-
-          OrganizationID identifies the org whose Claude Code harness is enabled
+          OrganizationID identifies the org whose Claude Code runtime is enabled
           after connection. It is independent from subscription ownership.
         type: string
       owner_id:
@@ -5641,7 +5641,7 @@ definitions:
         type: string
       organization_id:
         description: |-
-          OrganizationID identifies the org whose Codex harness is enabled after
+          OrganizationID identifies the org whose Codex runtime is enabled after
           connection. It is independent from subscription ownership.
         type: string
       owner_id:
@@ -10642,7 +10642,7 @@ definitions:
         description: |-
           CodeAgentConfig is the complete coding runtime selected for a general
           external-agent session. ParentApp remains the Helix Agent identity and
-          supplies instructions/tools; this value owns harness, credentials, model,
+          supplies instructions/tools; this value owns runtime, credentials, model,
           and reasoning. SpecTask sessions keep this nil and read the task instead.
       code_agent_overrides:
         allOf:
@@ -12155,7 +12155,7 @@ definitions:
     properties:
       organization_id:
         description: |-
-          OrganizationID identifies the org whose Codex harness is enabled after
+          OrganizationID identifies the org whose Codex runtime is enabled after
           the device flow succeeds.
         type: string
     type: object
@@ -12221,12 +12221,6 @@ definitions:
     type: object
   types.SystemSettingsRequest:
     properties:
-      default_new_project_agent_model:
-        type: string
-      default_new_project_agent_provider:
-        type: string
-      default_new_project_agent_reasoning_effort:
-        type: string
       enforce_quotas:
         type: boolean
       huggingface_token:
@@ -12284,12 +12278,6 @@ definitions:
   types.SystemSettingsResponse:
     properties:
       created:
-        type: string
-      default_new_project_agent_model:
-        type: string
-      default_new_project_agent_provider:
-        type: string
-      default_new_project_agent_reasoning_effort:
         type: string
       enforce_quotas:
         type: boolean
@@ -16494,7 +16482,7 @@ paths:
       - application/json
       description: Launch a temporary headless sandbox and start Codex device authentication
       parameters:
-      - description: Optional organization whose Codex harness should be enabled
+      - description: Optional organization whose Codex runtime should be enabled
         in: body
         name: body
         schema:
@@ -19917,7 +19905,7 @@ paths:
       - organizations
   /api/v1/organizations/{org_id}/code-agent-harnesses:
     get:
-      description: Returns every selectable coding-agent harness, whether the organization
+      description: Returns every selectable coding-agent runtime, whether the organization
         enabled it, and whether the requesting user can use its subscription mode.
       parameters:
       - description: Organization ID or name
@@ -19934,12 +19922,12 @@ paths:
             type: array
       security:
       - BearerAuth: []
-      summary: List an organization's coding-agent harnesses
+      summary: List an organization's coding-agent runtimes
       tags:
       - organizations
     put:
-      description: Enables or disables coding-agent harnesses and selects either subscription
-        mode or API-provider mode for each harness. Harnesses omitted from the request
+      description: Enables or disables coding-agent runtimes and selects either subscription
+        mode or API-provider mode for each runtime. Runtimes omitted from the request
         are left unchanged. Models are selected per task.
       parameters:
       - description: Organization ID or name
@@ -19947,7 +19935,7 @@ paths:
         name: org_id
         required: true
         type: string
-      - description: Harnesses to update
+      - description: Runtimes to update
         in: body
         name: request
         required: true
@@ -19962,7 +19950,7 @@ paths:
             type: array
       security:
       - BearerAuth: []
-      summary: Update an organization's coding-agent harnesses
+      summary: Update an organization's coding-agent runtimes
       tags:
       - organizations
   /api/v1/organizations/{org_id}/sandboxes:
@@ -23850,7 +23838,7 @@ paths:
         in: query
         name: org_id
         type: string
-      - description: Filter by organization code-agent harness policy
+      - description: Filter by organization code-agent runtime policy
         in: query
         name: code_agent_runtime
         type: string
@@ -25585,7 +25573,7 @@ paths:
       - application/json
       description: Replaces the complete coding execution config. SpecTask sessions
         write through to the task; general sessions keep their parent Agent for instructions
-        and tools while storing harness/model configuration on the session. Running
+        and tools while storing runtime/model configuration on the session. Running
         sandboxes start a fresh ACP thread with the prior transcript.
       parameters:
       - description: Session ID

@@ -696,7 +696,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             {externalRuntimeView === 'desktop'
               ? 'Configure the desktop environment available to this agent.'
-              : 'Choose the coding harness, credentials, model, and reasoning effort.'}
+              : 'Choose the coding runtime, credentials, model, and reasoning effort.'}
           </Typography>
         )}
         </>)}
@@ -812,7 +812,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                     <Stack direction="row" spacing={1.25} alignItems="center">
                       <AgentHarness runtime="deepseek_harness" variant="short" size={18} />
                       <Box>
-                      <Typography variant="body2">DeepSeek Harness</Typography>
+                      <Typography variant="body2">DeepSeek Runtime</Typography>
                       <Typography variant="caption" color="text.secondary">
                         DeepSeek's plugin-based ACP agent
                       </Typography>

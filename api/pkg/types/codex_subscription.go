@@ -48,14 +48,14 @@ type CreateCodexSubscriptionRequest struct {
 	Name      string    `json:"name"`
 	OwnerType OwnerType `json:"owner_type"`
 	OwnerID   string    `json:"owner_id,omitempty"`
-	// OrganizationID identifies the org whose Codex harness is enabled after
+	// OrganizationID identifies the org whose Codex runtime is enabled after
 	// connection. It is independent from subscription ownership.
 	OrganizationID string               `json:"organization_id,omitempty"`
 	Credentials    CodexAuthCredentials `json:"credentials"`
 }
 
 type StartCodexLoginRequest struct {
-	// OrganizationID identifies the org whose Codex harness is enabled after
+	// OrganizationID identifies the org whose Codex runtime is enabled after
 	// the device flow succeeds.
 	OrganizationID string `json:"organization_id,omitempty"`
 }

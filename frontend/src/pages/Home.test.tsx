@@ -53,6 +53,14 @@ vi.mock('../services/providersService', () => ({
   useListProviders: () => ({ data: [] }),
 }))
 
+vi.mock('../services/helixOrgService', () => ({
+  useHelixOrgSettings: () => ({ data: { specs: [] }, isLoading: false }),
+}))
+
+vi.mock('../services/userService', () => ({
+  useGetConfig: () => ({ data: {}, isLoading: false }),
+}))
+
 vi.mock('../services/specTaskAttachmentsService', () => ({
   SPEC_TASK_ATTACHMENT_ACCEPTED_MIME: {},
   SPEC_TASK_ATTACHMENT_MAX_BYTES: 1,
@@ -78,11 +86,15 @@ vi.mock('../components/project/ManagedCreateProjectDialog', () => ({
 }))
 
 vi.mock('../components/common/RobustPromptInput', () => ({
-  default: () => <div>Chat prompt</div>,
+  default: ({ leadingActions }: { leadingActions?: React.ReactNode }) => (
+    <div>Chat prompt{leadingActions}</div>
+  ),
 }))
 
 vi.mock('../components/create/AdvancedModelPicker', () => ({
-  default: () => null,
+  default: ({ onSelectModel }: { onSelectModel: (provider: string, model: string) => void }) => (
+    <button onClick={() => onSelectModel('pe_selected', 'selected-model')}>Select model</button>
+  ),
 }))
 
 vi.mock('../components/tasks/SpecTaskExecutionControls', () => ({
@@ -100,6 +112,7 @@ function renderHome() {
 describe('Home project empty state', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
     mockProjectState.projects = []
     mockProjectState.loading = false
   })
@@ -120,5 +133,26 @@ describe('Home project empty state', () => {
 
     expect(screen.getByText('Chat prompt')).toBeInTheDocument()
     expect(screen.queryByText('Get started by creating a new project')).not.toBeInTheDocument()
+  })
+})
+
+describe('Home chat model preference', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockProjectState.projects = [{ id: 'project-1', name: 'Project' }]
+    mockProjectState.loading = false
+  })
+
+  it('persists only a user-selected model in user and organization scoped storage', () => {
+    renderHome()
+
+    expect(localStorage.getItem('helix_chat_model:user-1:org-1')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Select model' }))
+    expect(JSON.parse(localStorage.getItem('helix_chat_model:user-1:org-1') || '')).toEqual({
+      provider: 'pe_selected',
+      model: 'selected-model',
+      reasoningEffort: 'medium',
+    })
   })
 })

@@ -1,16 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildNewChatTaskRequest,
+  chooseNewChatModel,
   chooseProjectChatAgentId,
   modelSupportsReasoningEffort,
   newChatHeading,
+  newChatModelStorageKey,
   projectChatAgentStorageKey,
   readNewChatReasoningEffort,
+  readNewChatModelSelection,
 } from './newChatLogic'
 import {
   TypesCodeAgentCredentialType,
   TypesCodeAgentRuntime,
   TypesSandboxRuntime,
+  TypesProviderEndpointStatus,
 } from '../api/api'
 
 describe('new chat project mode', () => {
@@ -99,6 +103,96 @@ describe('new chat project mode', () => {
   it('falls back to medium for an invalid stored effort', () => {
     expect(readNewChatReasoningEffort('high')).toBe('high')
     expect(readNewChatReasoningEffort('ultra')).toBe('medium')
+  })
+
+  it('scopes saved chat models to the user and organization', () => {
+    expect(newChatModelStorageKey('user_one', 'org_one')).toBe('helix_chat_model:user_one:org_one')
+    expect(newChatModelStorageKey('user_two', 'org_one')).not.toBe(newChatModelStorageKey('user_one', 'org_one'))
+    expect(newChatModelStorageKey('user_one', 'org_two')).not.toBe(newChatModelStorageKey('user_one', 'org_one'))
+  })
+
+  it('prefers a valid saved chat model over the organization default', () => {
+    const providers = [{
+      id: 'pe_default',
+      name: 'default',
+      status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+      available_models: [
+        { id: 'configured-model', enabled: true, type: 'chat' },
+        { id: 'saved-model', enabled: true, type: 'chat' },
+      ],
+    }]
+    expect(chooseNewChatModel(providers, {
+      provider: 'pe_default',
+      model: 'saved-model',
+      reasoningEffort: 'low',
+    }, {
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_ref: 'pe_default',
+      model: 'configured-model',
+      reasoning_effort: 'high',
+    })).toEqual({
+      provider: 'pe_default',
+      model: 'saved-model',
+      reasoningEffort: 'low',
+    })
+  })
+
+  it('uses an accessible API-key organization default when no saved selection exists', () => {
+    const providers = [{
+      id: 'pe_helix',
+      name: 'helix',
+      status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+      available_models: [{ id: 'helix-model', enabled: true, type: 'chat' }],
+    }]
+
+    expect(chooseNewChatModel(providers, undefined, {
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_ref: 'pe_helix',
+      model: 'helix-model',
+      reasoning_effort: 'high',
+    })).toEqual({
+      provider: 'pe_helix',
+      model: 'helix-model',
+      reasoningEffort: 'high',
+    })
+  })
+
+  it('does not use a subscription organization default for provider chat', () => {
+    const providers = [{
+      id: 'pe_helix',
+      name: 'helix',
+      status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+      available_models: [{ id: 'claude-opus-5', enabled: true, type: 'chat' }],
+    }]
+
+    expect(chooseNewChatModel(providers, undefined, {
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+      model: 'claude-opus-5',
+      reasoning_effort: 'high',
+    })).toBeUndefined()
+  })
+
+  it('does not substitute another model when a saved selection is inaccessible', () => {
+    const providers = [{
+      id: 'pe_available',
+      name: 'available',
+      status: TypesProviderEndpointStatus.ProviderEndpointStatusOK,
+      available_models: [{ id: 'available-model', enabled: true, type: 'chat' }],
+    }]
+
+    expect(chooseNewChatModel(providers, {
+      provider: 'pe_missing',
+      model: 'configured-model',
+      reasoningEffort: 'medium',
+    })).toBeUndefined()
+  })
+
+  it('rejects malformed saved chat selections', () => {
+    expect(readNewChatModelSelection('{')).toBeUndefined()
+    expect(readNewChatModelSelection(JSON.stringify({ provider: 'pe_1', model: 'model' }))).toBeUndefined()
   })
 
   it('keeps project agent preferences isolated by organization', () => {

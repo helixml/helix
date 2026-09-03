@@ -37,7 +37,7 @@ const NoCodeAgentsDialog: FC<{
     >
       <DialogContent sx={{ px: 3, pt: 3, pb: 1 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
-          Configure harness
+          Configure runtime
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Configure your coding agent like Claude Code, Codex, OpenCode or Zed.
