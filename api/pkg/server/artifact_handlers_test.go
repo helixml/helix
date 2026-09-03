@@ -3,13 +3,21 @@ package server
 import (
 	"archive/zip"
 	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestReadArtifactZIP(t *testing.T) {
@@ -182,4 +190,93 @@ func TestArtifactDownloadFilename(t *testing.T) {
 	require.Equal(t, "etcpasswd.html", artifactDownloadFilename(&types.Artifact{Name: "../../etc/passwd", Entrypoint: "index.html"}, ".html"))
 	require.Equal(t, "index.html", artifactDownloadFilename(&types.Artifact{Name: "  ", Entrypoint: "index.html"}, ".html"))
 	require.Equal(t, "artifact.zip", artifactDownloadFilename(&types.Artifact{Name: "...", Entrypoint: "index.html"}, ".zip"))
+}
+
+func TestServeArtifactDownloadSingleFile(t *testing.T) {
+	mockStore, mockFilestore, server := newArtifactDownloadTestServer(t)
+	body := "# Engagement notes\n"
+	artifact := artifactDownloadTestArtifact("Engagement notes", "notes.md", []types.ArtifactFile{{
+		Path: "notes.md", Size: int64(len(body)), ContentType: "text/markdown; charset=utf-8", SHA256: "notes-sha",
+	}})
+	mockStore.EXPECT().GetArtifact(gomock.Any(), artifact.ID).Return(artifact, nil)
+	mockFilestore.EXPECT().OpenFile(gomock.Any(), "artifacts/artv_test/notes.md").Return(io.NopCloser(strings.NewReader(body)), nil)
+
+	response := httptest.NewRecorder()
+	request := mux.SetURLVars(httptest.NewRequest(http.MethodGet, "/artifacts/art_test/download", nil), map[string]string{"artifact_id": artifact.ID})
+	server.serveArtifactDownload(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, "attachment; filename=\"Engagement notes.md\"", response.Header().Get("Content-Disposition"))
+	require.Equal(t, "text/markdown; charset=utf-8", response.Header().Get("Content-Type"))
+	require.Equal(t, body, response.Body.String())
+}
+
+func TestServeArtifactDownloadBundle(t *testing.T) {
+	mockStore, mockFilestore, server := newArtifactDownloadTestServer(t)
+	files := []types.ArtifactFile{
+		{Path: "index.html", Size: 14, ContentType: "text/html; charset=utf-8", SHA256: "index-sha"},
+		{Path: "assets/app.js", Size: 15, ContentType: "text/javascript; charset=utf-8", SHA256: "app-sha"},
+	}
+	artifact := artifactDownloadTestArtifact("Assessment dashboard", "index.html", files)
+	mockStore.EXPECT().GetArtifact(gomock.Any(), artifact.ID).Return(artifact, nil)
+	mockFilestore.EXPECT().OpenFile(gomock.Any(), "artifacts/artv_test/index.html").Return(io.NopCloser(strings.NewReader("<h1>Hello</h1>")), nil)
+	mockFilestore.EXPECT().OpenFile(gomock.Any(), "artifacts/artv_test/assets/app.js").Return(io.NopCloser(strings.NewReader("console.log('x')")), nil)
+
+	response := httptest.NewRecorder()
+	request := mux.SetURLVars(httptest.NewRequest(http.MethodGet, "/artifacts/art_test/download", nil), map[string]string{"artifact_id": artifact.ID})
+	server.serveArtifactDownload(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, "application/zip", response.Header().Get("Content-Type"))
+	require.Equal(t, "attachment; filename=\"Assessment dashboard.zip\"", response.Header().Get("Content-Disposition"))
+
+	archive, err := zip.NewReader(bytes.NewReader(response.Body.Bytes()), int64(response.Body.Len()))
+	require.NoError(t, err)
+	require.Len(t, archive.File, 2)
+	require.Equal(t, "index.html", archive.File[0].Name)
+	require.Equal(t, "assets/app.js", archive.File[1].Name)
+	entry, err := archive.File[1].Open()
+	require.NoError(t, err)
+	defer entry.Close()
+	content, err := io.ReadAll(entry)
+	require.NoError(t, err)
+	require.Equal(t, "console.log('x')", string(content))
+}
+
+func TestServeArtifactDownloadRejectsAnonymousPrivateAccess(t *testing.T) {
+	mockStore, _, server := newArtifactDownloadTestServer(t)
+	artifact := artifactDownloadTestArtifact("Private report", "report.pdf", []types.ArtifactFile{{Path: "report.pdf"}})
+	artifact.Visibility = types.ArtifactVisibilityProject
+	mockStore.EXPECT().GetArtifact(gomock.Any(), artifact.ID).Return(artifact, nil)
+
+	response := httptest.NewRecorder()
+	request := mux.SetURLVars(httptest.NewRequest(http.MethodGet, "/artifacts/art_test/download", nil), map[string]string{"artifact_id": artifact.ID})
+	server.serveArtifactDownload(response, request)
+
+	require.Equal(t, http.StatusUnauthorized, response.Code)
+}
+
+func newArtifactDownloadTestServer(t *testing.T) (*store.MockStore, *filestore.MockFileStore, *HelixAPIServer) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	mockFilestore := filestore.NewMockFileStore(ctrl)
+	server := &HelixAPIServer{
+		Cfg:   &config.ServerConfig{WebServer: config.WebServer{URL: "https://helix.example"}},
+		Store: mockStore,
+		Controller: &controller.Controller{Options: controller.Options{
+			Filestore: mockFilestore,
+		}},
+	}
+	return mockStore, mockFilestore, server
+}
+
+func artifactDownloadTestArtifact(name, entrypoint string, files []types.ArtifactFile) *types.Artifact {
+	return &types.Artifact{
+		ID: "art_test", ProjectID: "prj_test", Name: name, Entrypoint: entrypoint,
+		Visibility: types.ArtifactVisibilityPublic,
+		ActiveVersion: &types.ArtifactVersion{
+			ID: "artv_test", StoragePrefix: "artifacts/artv_test", Files: files, CreatedAt: time.Unix(1, 0),
+		},
+	}
 }
