@@ -39,6 +39,16 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     cp /opt/helix/headless-containers.conf /home/retro/.config/containers/containers.conf
     chown retro:retro /home/retro/.config/containers/containers.conf
 
+    if ! gosu retro env \
+        HOME=/home/retro \
+        USER=retro \
+        XDG_RUNTIME_DIR="${PODMAN_RUNTIME}" \
+        /usr/bin/rootlesskit /bin/true; then
+        echo "[buildkit] FATAL: the host blocked /usr/bin/rootlesskit from creating and re-executing in a user namespace"
+        echo "[buildkit] Enable unprivileged user namespaces and permit /usr/bin/rootlesskit in the host security policy"
+        exit 1
+    fi
+
     rm -f "${PODMAN_SOCKET}"
     gosu retro env \
         HOME=/home/retro \
@@ -85,7 +95,7 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
         bash -c '
         while true; do
             echo "[$(date -Iseconds)] Starting rootless BuildKit daemon..."
-            env -u BUILDKIT_HOST rootlesskit \
+            env -u BUILDKIT_HOST /usr/bin/rootlesskit \
                 --state-dir="${BUILDKIT_ROOTLESSKIT_STATE}" \
                 buildkitd \
                 --root="${BUILDKIT_DATA}" \

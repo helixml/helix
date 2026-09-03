@@ -11,10 +11,10 @@ import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import SaveIcon from '@mui/icons-material/Save'
 
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import useSnackbar from '../hooks/useSnackbar'
+import { extractErrorMessage } from '../hooks/useErrorCallback'
 import GitHubAppPanel from '../components/helix-org/GitHubAppPanel'
 import SlackIntegrationsPanel from '../components/helix-org/SlackIntegrationsPanel'
 import {
@@ -79,6 +79,13 @@ const GenericSettingRow: FC<{ spec: SettingsSpecDTO }> = ({ spec }) => {
   const snackbar = useSnackbar()
   const [value, setValue] = useState('')
   const [dirty, setDirty] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+
+  useEffect(() => {
+    if (saveStatus !== 'saved') return
+    const timeout = window.setTimeout(() => setSaveStatus('idle'), 3000)
+    return () => window.clearTimeout(timeout)
+  }, [saveStatus])
 
   useEffect(() => {
     setValue(spec.value ?? '')
@@ -86,20 +93,25 @@ const GenericSettingRow: FC<{ spec: SettingsSpecDTO }> = ({ spec }) => {
   }, [spec.value, spec.configured])
 
   const handleSave = async () => {
+    if (!dirty || setMut.isPending) return
+    setSaveStatus('saving')
     try {
       await setMut.mutateAsync({ key: spec.key, value })
       snackbar.success(`${spec.key} saved`)
       setDirty(false)
+      setSaveStatus('saved')
     } catch (e: any) {
-      snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed')
+      snackbar.error(extractErrorMessage(e) || 'save failed')
+      setSaveStatus('error')
     }
   }
   const handleClear = async () => {
     try {
       await delMut.mutateAsync(spec.key)
       snackbar.success(`${spec.key} cleared`)
+      setSaveStatus('idle')
     } catch (e: any) {
-      snackbar.error(e?.response?.data?.error ?? e?.message ?? 'clear failed')
+      snackbar.error(extractErrorMessage(e) || 'clear failed')
     }
   }
   return (
@@ -118,19 +130,33 @@ const GenericSettingRow: FC<{ spec: SettingsSpecDTO }> = ({ spec }) => {
           fullWidth
           size="small"
           value={value}
-          onChange={(e) => { setValue(e.target.value); setDirty(true) }}
+          onChange={(e) => { setValue(e.target.value); setDirty(true); setSaveStatus('idle') }}
+          onBlur={handleSave}
+          disabled={setMut.isPending}
           placeholder={spec.type === 'string' ? '"plain string (no quotes needed in UI)"' : 'raw JSON per spec type'}
           multiline={spec.type !== 'string'}
           minRows={spec.type !== 'string' ? 3 : undefined}
         />
-        <Stack direction="row" spacing={1}>
-          <Button size="small" variant="contained" color="secondary" startIcon={<SaveIcon />} onClick={handleSave} disabled={!dirty || setMut.isPending}>
-            {setMut.isPending ? 'Saving…' : 'Save'}
-          </Button>
+        <Stack direction="row" spacing={1} alignItems="center">
           {spec.configured && (
-            <Button size="small" color="error" onClick={handleClear} disabled={delMut.isPending}>
+            <Button
+              size="small"
+              color="error"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={handleClear}
+              disabled={delMut.isPending || setMut.isPending}
+            >
               Clear
             </Button>
+          )}
+          {saveStatus !== 'idle' && (
+            <Typography
+              role="status"
+              variant="caption"
+              color={saveStatus === 'error' ? 'error.main' : saveStatus === 'saved' ? 'success.main' : 'text.secondary'}
+            >
+              {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save failed'}
+            </Typography>
           )}
         </Stack>
       </Stack>

@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from "react";
+import React, { FC, useState, useEffect, useRef } from "react";
 import Container from "@mui/material/Container";
 import Box from "@mui/material/Box";
 import TextField from "@mui/material/TextField";
@@ -36,7 +36,10 @@ const OrgSettings: FC = () => {
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const savedValues = useRef({ slug: "", name: "", autoJoinDomain: "" });
   const [errors, setErrors] = useState<{
     slug?: string;
     name?: string;
@@ -44,6 +47,13 @@ const OrgSettings: FC = () => {
   }>({});
 
   const organization = account.organizationTools.organization;
+
+  useEffect(() => {
+    if (saveStatus !== "saved") return;
+    const timeout = window.setTimeout(() => setSaveStatus("idle"), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [saveStatus]);
+
   const isOrgOwner =
     !!account.user &&
     !!organization &&
@@ -52,22 +62,9 @@ const OrgSettings: FC = () => {
         membership.user_id === account.user?.id && membership.role === "owner",
     );
 
-  // Generate slug from name for new organizations
-  const handleNameBlur = () => {
-    // Only auto-generate slug if:
-    // 1. Current slug is empty
-    // 2. User hasn't manually edited the slug
-    if (slug === "" && !slugManuallyEdited && name) {
-      // Convert name to slug format: lowercase, replace spaces with hyphens
-      const generatedSlug = name.toLowerCase().replace(/\s+/g, "-");
-      setSlug(generatedSlug);
-    }
-  };
-
-  // Mark slug as manually edited when user changes it
   const handleSlugChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSlugManuallyEdited(true);
     setSlug(e.target.value);
+    setSaveStatus("idle");
   };
 
   // Validate form before submission
@@ -109,18 +106,27 @@ const OrgSettings: FC = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Handle form submission
-  const handleSubmit = async () => {
-    // Validate form before submission
+  const handleSave = async () => {
     if (!validateForm()) {
+      return;
+    }
+
+    const normalizedDomain = autoJoinDomain.trim().toLowerCase();
+    if (
+      slug === savedValues.current.slug &&
+      name === savedValues.current.name &&
+      normalizedDomain === savedValues.current.autoJoinDomain
+    ) {
       return;
     }
 
     try {
       setLoading(true);
+      setSaveStatus("saving");
 
       if (!organization || !organization.id) {
         snackbar.error("Organization not found");
+        setSaveStatus("error");
         return;
       }
 
@@ -129,21 +135,28 @@ const OrgSettings: FC = () => {
         ...organization,
         name: slug, // 'name' field in API is our 'slug'
         display_name: name, // 'display_name' in API is our 'name'
-        auto_join_domain: autoJoinDomain.trim().toLowerCase() || undefined,
+        auto_join_domain: normalizedDomain,
       } as TypesOrganization;
 
-      await account.organizationTools.updateOrganization(
+      const updated = await account.organizationTools.updateOrganization(
         organization.id,
         updatedOrg,
       );
-      snackbar.success("Organization updated successfully");
+      if (!updated) {
+        setSaveStatus("error");
+        return;
+      }
 
-      if (slug != organization.name) {
+      savedValues.current = { slug, name, autoJoinDomain: normalizedDomain };
+      setSaveStatus("saved");
+
+      if (slug !== organization.name) {
         router.navigate("org_general", { org_id: slug });
       }
     } catch (error) {
       console.error("Error updating organization:", error);
       snackbar.error("Failed to update organization");
+      setSaveStatus("error");
     } finally {
       setLoading(false);
     }
@@ -154,6 +167,11 @@ const OrgSettings: FC = () => {
       setSlug(organization.name || "");
       setName(organization.display_name || "");
       setAutoJoinDomain(organization.auto_join_domain || "");
+      savedValues.current = {
+        slug: organization.name || "",
+        name: organization.display_name || "",
+        autoJoinDomain: organization.auto_join_domain || "",
+      };
     }
   }, [organization]);
 
@@ -217,14 +235,17 @@ const OrgSettings: FC = () => {
           </Typography>
 
           {organization ? (
-            <Box component="form" sx={{ mt: 3 }}>
+            <Box sx={{ mt: 3 }}>
               {/* Name field (formerly Display Name) */}
               <TextField
                 label="Name"
                 fullWidth
                 value={name}
-                onChange={(e) => setName(e.target.value)}
-                onBlur={handleNameBlur}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setSaveStatus("idle");
+                }}
+                onBlur={handleSave}
                 disabled={loading || isReadOnly}
                 required
                 error={!!errors.name}
@@ -243,6 +264,7 @@ const OrgSettings: FC = () => {
                 fullWidth
                 value={slug}
                 onChange={handleSlugChange}
+                onBlur={handleSave}
                 disabled={loading || isReadOnly}
                 required
                 error={!!errors.slug}
@@ -282,7 +304,11 @@ const OrgSettings: FC = () => {
                 label="Auto-Join Domain"
                 fullWidth
                 value={autoJoinDomain}
-                onChange={(e) => setAutoJoinDomain(e.target.value)}
+                onChange={(e) => {
+                  setAutoJoinDomain(e.target.value);
+                  setSaveStatus("idle");
+                }}
+                onBlur={handleSave}
                 disabled={loading || isReadOnly}
                 error={!!errors.autoJoinDomain}
                 helperText={
@@ -295,6 +321,24 @@ const OrgSettings: FC = () => {
                   readOnly: isReadOnly,
                 }}
               />
+              {saveStatus !== "idle" && (
+                <Alert
+                  severity={
+                    saveStatus === "error"
+                      ? "error"
+                      : saveStatus === "saved"
+                        ? "success"
+                        : "info"
+                  }
+                  sx={{ mb: 3 }}
+                >
+                  {saveStatus === "saving"
+                    ? "Saving organization settings..."
+                    : saveStatus === "saved"
+                      ? "Organization settings saved"
+                      : "Failed to save organization settings"}
+                </Alert>
+              )}
               {autoJoinDomain && !errors.autoJoinDomain && (
                 <Alert severity="info" sx={{ mb: 3 }}>
                   Users with <strong>@{autoJoinDomain.toLowerCase()}</strong>{" "}
@@ -302,22 +346,6 @@ const OrgSettings: FC = () => {
                   they log in via OIDC (e.g., Google, Azure AD). This only works
                   for OIDC authentication with verified emails.
                 </Alert>
-              )}
-
-              {!isReadOnly && (
-                <Box
-                  sx={{ mt: 3, display: "flex", justifyContent: "flex-end" }}
-                >
-                  <Button
-                    onClick={handleSubmit}
-                    variant="outlined"
-                    color="secondary"
-                    disabled={loading}
-                    startIcon={loading ? <CircularProgress size={20} /> : null}
-                  >
-                    Update Organization
-                  </Button>
-                </Box>
               )}
 
               <Box sx={{ mt: 4 }}>

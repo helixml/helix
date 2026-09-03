@@ -788,8 +788,8 @@ RUN apt-get update \
 COPY --from=rootless-buildkit \
     /usr/bin/buildkitd \
     /usr/bin/buildctl \
-    /usr/bin/rootlesskit \
     /usr/local/bin/
+COPY --from=rootless-buildkit /usr/bin/rootlesskit /usr/bin/rootlesskit
 
 # NVIDIA Container Toolkit (enables GPU passthrough in inner containers)
 # This allows the desktop's dockerd to run containers with --runtime=nvidia
