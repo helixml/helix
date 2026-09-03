@@ -76,7 +76,7 @@ func (apiServer *HelixAPIServer) createClaudeSubscriptionFrom(ctx context.Contex
 			return nil, system.NewHTTPError404("organization not found")
 		}
 		if _, err := apiServer.authorizeOrgOwner(ctx, user, org.ID); err != nil {
-			return nil, system.NewHTTPError403("not authorized to enable organization harness")
+			return nil, system.NewHTTPError403("not authorized to enable organization runtime")
 		}
 		harnessOrgID = org.ID
 	} else if ownerType == types.OwnerTypeOrg {
@@ -192,7 +192,7 @@ func (apiServer *HelixAPIServer) createClaudeSubscriptionFrom(ctx context.Contex
 			if deleteErr := apiServer.Store.DeleteClaudeSubscription(context.WithoutCancel(ctx), created.ID); deleteErr != nil {
 				log.Error().Err(deleteErr).Str("subscription_id", created.ID).Msg("failed to roll back Claude subscription")
 			}
-			return nil, system.NewHTTPError500("failed to enable Claude Code harness: " + err.Error())
+			return nil, system.NewHTTPError500("failed to enable Claude Code runtime: " + err.Error())
 		}
 	}
 

@@ -74,7 +74,7 @@ func (s *HelixAPIServer) isProvidersManagementEnabled(ctx context.Context) bool 
 // @Success 200 {array} types.ProviderEndpoint
 // @Param with_models query bool false "Include models"
 // @Param org_id query string false "Organization ID"
-// @Param code_agent_runtime query string false "Filter by organization code-agent harness policy"
+// @Param code_agent_runtime query string false "Filter by organization code-agent runtime policy"
 // @Param all query bool false "Include all endpoints (system admin only)"
 // @Router /api/v1/provider-endpoints [get]
 // @Security BearerAuth

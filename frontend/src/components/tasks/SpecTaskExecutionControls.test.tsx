@@ -131,13 +131,13 @@ describe("SpecTaskExecutionControls", () => {
     );
 
     const executionConfig = screen.getByLabelText("Execution configuration");
-    expect(executionConfig).toHaveTextContent("Harness:");
+    expect(executionConfig).toHaveTextContent("Runtime:");
     expect(executionConfig).toHaveTextContent("Model:");
     expect(executionConfig).toHaveTextContent("Compute:");
     expect(executionConfig).toHaveTextContent("deepseek-v4-flash");
     expect(executionConfig).toHaveTextContent("Medium");
     expect(executionConfig).toHaveTextContent(`${DEFAULT_SANDBOX_PRESET.vcpus} vCPU`);
-    const harness = screen.getByLabelText("Harness: opencode");
+    const harness = screen.getByLabelText("Runtime: opencode");
     expect(harness).toHaveTextContent("opencode");
     expect(harness.querySelector('[data-harness-mark="opencode"]')).toBeInTheDocument();
   });

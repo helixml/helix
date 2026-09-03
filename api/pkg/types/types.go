@@ -515,7 +515,7 @@ type SessionMetadata struct {
 
 	// CodeAgentConfig is the complete coding runtime selected for a general
 	// external-agent session. ParentApp remains the Helix Agent identity and
-	// supplies instructions/tools; this value owns harness, credentials, model,
+	// supplies instructions/tools; this value owns runtime, credentials, model,
 	// and reasoning. SpecTask sessions keep this nil and read the task instead.
 	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
 

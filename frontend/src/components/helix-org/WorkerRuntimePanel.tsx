@@ -1,7 +1,8 @@
-// DefaultAgentConfigPanel edits the org's default agent configuration. New orgs use
+// DefaultAgentConfigPanel edits the org's Default Runtime. New orgs use
 // the atomic agent.default object; legacy worker.* values remain readable.
 
 import { FC, useEffect, useMemo, useState } from 'react'
+import Button from '@mui/material/Button'
 import Paper from '@mui/material/Paper'
 
 import AgentConfigForm, { AgentConfigValue } from './BotRuntimeForm'
@@ -34,13 +35,14 @@ const decodeAgentConfig = (v: string): AgentConfigValue | undefined => {
       credentials: config.code_agent_credential_type ?? '',
       provider: config.provider ?? '',
       model: config.model ?? '',
+      reasoning_effort: config.reasoning_effort ?? 'none',
     }
   } catch {
     return undefined
   }
 }
 
-const DefaultAgentConfigPanel: FC = () => {
+const DefaultAgentConfigPanel: FC<{ disabled?: boolean }> = ({ disabled = false }) => {
   const { orgID } = useHelixOrgBase()
   const { data, isLoading } = useHelixOrgSettings()
   const { data: harnesses = [], isLoading: loadingHarnesses } = useOrgCodeAgentHarnesses(orgID, {
@@ -60,28 +62,39 @@ const DefaultAgentConfigPanel: FC = () => {
     credentials: decodeStringValue(specByKey.get('worker.credentials')?.value ?? '') || 'subscription',
     provider: decodeStringValue(specByKey.get('worker.provider')?.value ?? ''),
     model: decodeStringValue(specByKey.get('worker.model')?.value ?? ''),
+    reasoning_effort: 'none',
   }
 
   const [value, setValue] = useState<AgentConfigValue>(initial)
+  const [dirty, setDirty] = useState(false)
 
   // Re-seed local state when the loaded data lands or refreshes.
   useEffect(() => {
     if (!data) return
     setValue(initial)
+    setDirty(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
 
   const handlePatch = (patch: Partial<AgentConfigValue>) => {
-    const next = { ...value, ...patch }
-    setValue(next)
+    if (disabled) return
+    setValue((current) => ({ ...current, ...patch }))
+    setDirty(true)
+  }
+
+  const handleSave = () => {
     setMut
       .mutateAsync({ key: 'agent.default', value: JSON.stringify({
-        code_agent_runtime: next.runtime,
-        code_agent_credential_type: next.credentials,
-        provider: next.provider,
-        model: next.model,
+        code_agent_runtime: value.runtime,
+        code_agent_credential_type: value.credentials,
+        provider: value.provider,
+        model: value.model,
+        reasoning_effort: value.reasoning_effort || 'none',
       }) })
-      .then(() => snackbar.success('Default agent configuration saved'))
+      .then(() => {
+        setDirty(false)
+        snackbar.success('Default runtime saved')
+      })
       .catch((e: any) => snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed'))
   }
 
@@ -100,11 +113,23 @@ const DefaultAgentConfigPanel: FC = () => {
     <Paper variant="outlined" sx={{ p: 3 }}>
       {isLoading || loadingHarnesses
         ? <LoadingSpinner />
-        : <AgentConfigForm
-            value={value}
-            onChange={handlePatch}
-            subscriptionAvailability={subscriptionAvailability}
-          />}
+        : <>
+            <AgentConfigForm
+              value={value}
+              onChange={handlePatch}
+              showReasoningEffort
+              disabled={disabled}
+              subscriptionAvailability={subscriptionAvailability}
+            />
+            <Button
+              variant="contained"
+              onClick={handleSave}
+              disabled={disabled || !dirty || setMut.isPending}
+              sx={{ mt: 2 }}
+            >
+              {setMut.isPending ? 'Saving...' : 'Save Default Runtime'}
+            </Button>
+          </>}
     </Paper>
   )
 }

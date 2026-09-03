@@ -276,7 +276,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       },
       {
         name: 'harness',
-        title: 'Harness',
+        title: 'Runtime',
       },
       {
         name: 'model',

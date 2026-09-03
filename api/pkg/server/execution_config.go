@@ -243,6 +243,32 @@ func (s *HelixAPIServer) validateCodeAgentExecutionConfig(
 	return nil
 }
 
+func orgDefaultCodeAgentConfig(config types.AssistantConfig) *types.CodeAgentExecutionConfig {
+	return &types.CodeAgentExecutionConfig{
+		Runtime:         config.CodeAgentRuntime,
+		CredentialType:  config.CodeAgentCredentialType,
+		ProviderRef:     config.Provider,
+		Model:           config.Model,
+		ReasoningEffort: config.ReasoningEffort,
+	}
+}
+
+func (s *HelixAPIServer) newProjectCodeAgentConfig(
+	ctx context.Context,
+	organizationID string,
+	explicit *types.CodeAgentExecutionConfig,
+) (*types.CodeAgentExecutionConfig, error) {
+	if explicit != nil || organizationID == "" || s.helixOrg == nil || s.helixOrg.configs == nil ||
+		!s.helixOrg.configs.IsDefaultAgentConfigured(ctx, organizationID) {
+		return explicit, nil
+	}
+	defaults, err := s.helixOrg.configs.GetDefaultAgentConfig(ctx, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load organization default runtime: %w", err)
+	}
+	return orgDefaultCodeAgentConfig(defaults), nil
+}
+
 func isDeferredNativeHarnessProjectConfig(config *types.CodeAgentExecutionConfig) bool {
 	if config == nil || config.CredentialType != types.CodeAgentCredentialTypeAPIKey ||
 		config.ProviderRef != "" || config.Model != "" {

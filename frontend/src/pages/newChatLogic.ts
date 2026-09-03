@@ -6,9 +6,19 @@ import {
   TypesSandboxRuntime,
   TypesSpecTaskPriority,
 } from '../api/api'
+import {
+  providerEndpointIsConnected,
+  resolveProviderEndpointRef,
+} from '../utils/codeAgentProviders'
 
 export type NewChatTaskMode = 'plan' | 'build'
 export type NewChatReasoningEffort = 'none' | 'low' | 'medium' | 'high'
+
+export interface NewChatModelSelection {
+  provider: string
+  model: string
+  reasoningEffort: NewChatReasoningEffort
+}
 
 // Mirrors the tiers agent settings offers and types.ValidReasoningEffort accepts.
 export const NEW_CHAT_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
@@ -22,6 +32,70 @@ export const NEW_CHAT_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
 ]
 
 const PROJECT_CHAT_AGENT_STORAGE_PREFIX = 'helix_project_chat_agent'
+const NEW_CHAT_MODEL_STORAGE_PREFIX = 'helix_chat_model'
+
+export function newChatModelStorageKey(userId: string, orgId: string): string {
+  return `${NEW_CHAT_MODEL_STORAGE_PREFIX}:${userId}:${orgId}`
+}
+
+export function readNewChatModelSelection(value: string | null): NewChatModelSelection | undefined {
+  if (!value) return undefined
+  try {
+    const selection = JSON.parse(value) as Partial<NewChatModelSelection>
+    if (typeof selection.provider !== 'string' || typeof selection.model !== 'string') return undefined
+    if (!NEW_CHAT_REASONING_EFFORT_OPTIONS.some((option) => option.value === selection.reasoningEffort)) return undefined
+    return selection as NewChatModelSelection
+  } catch {
+    return undefined
+  }
+}
+
+export function chooseNewChatModel(
+  providers: TypesProviderEndpoint[],
+  saved: NewChatModelSelection | undefined,
+  orgDefault?: TypesCodeAgentExecutionConfig,
+): NewChatModelSelection | undefined {
+  const resolve = (selection: NewChatModelSelection): NewChatModelSelection | undefined => {
+    const provider = resolveProviderEndpointRef(providers, selection.provider)
+    const model = provider?.available_models?.find((candidate) =>
+      candidate.id === selection.model
+      && candidate.enabled
+      && (!candidate.type || candidate.type === 'chat' || candidate.type === 'text'))
+    if (!provider || !providerEndpointIsConnected(provider) || !model) return undefined
+    return {
+      ...selection,
+      provider: provider.id && provider.id !== '-' ? provider.id : provider.name || '',
+    }
+  }
+
+  const savedSelection = saved && resolve(saved)
+  if (savedSelection) return savedSelection
+  if (orgDefault?.credential_type !== 'api_key' || !orgDefault.provider_ref || !orgDefault.model) {
+    return undefined
+  }
+  return resolve({
+    provider: orgDefault.provider_ref,
+    model: orgDefault.model,
+    reasoningEffort: readNewChatReasoningEffort(orgDefault.reasoning_effort || null),
+  })
+}
+
+export function parseOrgDefaultRuntime(value?: string): TypesCodeAgentExecutionConfig | undefined {
+  if (!value) return undefined
+  try {
+    const config = JSON.parse(value)
+    if (!config.code_agent_runtime || !config.code_agent_credential_type || !config.model) return undefined
+    return {
+      runtime: config.code_agent_runtime,
+      credential_type: config.code_agent_credential_type,
+      provider_ref: config.provider || undefined,
+      model: config.model,
+      reasoning_effort: config.reasoning_effort || 'none',
+    }
+  } catch {
+    return undefined
+  }
+}
 
 export function projectChatAgentStorageKey(orgId: string): string {
   return `${PROJECT_CHAT_AGENT_STORAGE_PREFIX}:${orgId}`

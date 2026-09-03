@@ -462,7 +462,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
     try {
       if (!codeAgentConfig) {
-        snackbar.error("Select a coding harness and model");
+        snackbar.error("Select a coding runtime and model");
         setIsCreating(false);
         return;
       }

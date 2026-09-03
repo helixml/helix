@@ -38,7 +38,7 @@ export const CODE_AGENT_RUNTIME_DISPLAY_NAMES: Record<CodeAgentRuntime, string> 
   'codex_cli': 'Codex',
   'goose_code': 'Goose',
   'opencode': 'opencode',
-  'deepseek_harness': 'DeepSeek Harness',
+  'deepseek_harness': 'DeepSeek Runtime',
 }
 
 // Generate a nice display name from a model ID

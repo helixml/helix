@@ -3933,7 +3933,7 @@ const docTemplate = `{
                 "summary": "Start a Codex login session",
                 "parameters": [
                     {
-                        "description": "Optional organization whose Codex harness should be enabled",
+                        "description": "Optional organization whose Codex runtime should be enabled",
                         "name": "body",
                         "in": "body",
                         "schema": {
@@ -9321,11 +9321,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every selectable coding-agent harness, whether the organization enabled it, and whether the requesting user can use its subscription mode.",
+                "description": "Returns every selectable coding-agent runtime, whether the organization enabled it, and whether the requesting user can use its subscription mode.",
                 "tags": [
                     "organizations"
                 ],
-                "summary": "List an organization's coding-agent harnesses",
+                "summary": "List an organization's coding-agent runtimes",
                 "parameters": [
                     {
                         "type": "string",
@@ -9353,11 +9353,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Enables or disables coding-agent harnesses and selects either subscription mode or API-provider mode for each harness. Harnesses omitted from the request are left unchanged. Models are selected per task.",
+                "description": "Enables or disables coding-agent runtimes and selects either subscription mode or API-provider mode for each runtime. Runtimes omitted from the request are left unchanged. Models are selected per task.",
                 "tags": [
                     "organizations"
                 ],
-                "summary": "Update an organization's coding-agent harnesses",
+                "summary": "Update an organization's coding-agent runtimes",
                 "parameters": [
                     {
                         "type": "string",
@@ -9367,7 +9367,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Harnesses to update",
+                        "description": "Runtimes to update",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -15443,7 +15443,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by organization code-agent harness policy",
+                        "description": "Filter by organization code-agent runtime policy",
                         "name": "code_agent_runtime",
                         "in": "query"
                     },
@@ -18158,7 +18158,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Replaces the complete coding execution config. SpecTask sessions write through to the task; general sessions keep their parent Agent for instructions and tools while storing harness/model configuration on the session. Running sandboxes start a fresh ACP thread with the prior transcript.",
+                "description": "Replaces the complete coding execution config. SpecTask sessions write through to the task; general sessions keep their parent Agent for instructions and tools while storing runtime/model configuration on the session. Running sandboxes start a fresh ACP thread with the prior transcript.",
                 "consumes": [
                     "application/json"
                 ],
@@ -28513,24 +28513,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "slack",
-                "cron",
-                "gitlab",
-                "local",
-                "email",
                 "webhook",
+                "email",
+                "github",
+                "local",
                 "helix_events",
-                "github"
+                "gitlab",
+                "cron",
+                "slack"
             ],
             "x-enum-varnames": [
-                "KindSlack",
-                "KindCron",
-                "KindGitLab",
-                "KindLocal",
-                "KindEmail",
                 "KindWebhook",
+                "KindEmail",
+                "KindGitHub",
+                "KindLocal",
                 "KindHelixEvents",
-                "KindGitHub"
+                "KindGitLab",
+                "KindCron",
+                "KindSlack"
             ]
         },
         "transport.ResolvedActivation": {
@@ -31233,7 +31233,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "organization_id": {
-                    "description": "OrganizationID identifies the org whose Claude Code harness is enabled\nafter connection. It is independent from subscription ownership.",
+                    "description": "OrganizationID identifies the org whose Claude Code runtime is enabled\nafter connection. It is independent from subscription ownership.",
                     "type": "string"
                 },
                 "owner_id": {
@@ -31264,7 +31264,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "organization_id": {
-                    "description": "OrganizationID identifies the org whose Codex harness is enabled after\nconnection. It is independent from subscription ownership.",
+                    "description": "OrganizationID identifies the org whose Codex runtime is enabled after\nconnection. It is independent from subscription ownership.",
                     "type": "string"
                 },
                 "owner_id": {
@@ -37972,7 +37972,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "code_agent_config": {
-                    "description": "CodeAgentConfig is the complete coding runtime selected for a general\nexternal-agent session. ParentApp remains the Helix Agent identity and\nsupplies instructions/tools; this value owns harness, credentials, model,\nand reasoning. SpecTask sessions keep this nil and read the task instead.",
+                    "description": "CodeAgentConfig is the complete coding runtime selected for a general\nexternal-agent session. ParentApp remains the Helix Agent identity and\nsupplies instructions/tools; this value owns runtime, credentials, model,\nand reasoning. SpecTask sessions keep this nil and read the task instead.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/types.CodeAgentExecutionConfig"
@@ -39940,7 +39940,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "organization_id": {
-                    "description": "OrganizationID identifies the org whose Codex harness is enabled after\nthe device flow succeeds.",
+                    "description": "OrganizationID identifies the org whose Codex runtime is enabled after\nthe device flow succeeds.",
                     "type": "string"
                 }
             }
@@ -40035,15 +40035,6 @@ const docTemplate = `{
         "types.SystemSettingsRequest": {
             "type": "object",
             "properties": {
-                "default_new_project_agent_model": {
-                    "type": "string"
-                },
-                "default_new_project_agent_provider": {
-                    "type": "string"
-                },
-                "default_new_project_agent_reasoning_effort": {
-                    "type": "string"
-                },
                 "enforce_quotas": {
                     "type": "boolean"
                 },
@@ -40128,15 +40119,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "created": {
-                    "type": "string"
-                },
-                "default_new_project_agent_model": {
-                    "type": "string"
-                },
-                "default_new_project_agent_provider": {
-                    "type": "string"
-                },
-                "default_new_project_agent_reasoning_effort": {
                     "type": "string"
                 },
                 "enforce_quotas": {

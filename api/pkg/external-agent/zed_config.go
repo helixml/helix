@@ -776,7 +776,7 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 	}
 	if required := requiredProviderForCodeAgentRuntime(assistant.CodeAgentRuntime); required != "" &&
 		!CodeAgentRuntimeAllowsProvider(assistant.CodeAgentRuntime, resolved.Name) {
-		return fmt.Sprintf("coding-agent harness %q API-key mode requires the %s provider; provider %q is not compatible",
+		return fmt.Sprintf("coding-agent runtime %q API-key mode requires the %s provider; provider %q is not compatible",
 			assistant.CodeAgentRuntime, required, resolved.Name)
 	}
 	return ""

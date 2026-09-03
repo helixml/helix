@@ -51,7 +51,7 @@ const CodeAgentHarnessesSection: FC<{
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ py: 3 }}>
         <CircularProgress size={16} />
         <Typography variant="body2" color="text.secondary">
-          Loading coding harnesses…
+          Loading coding runtimes...
         </Typography>
       </Stack>
     )
