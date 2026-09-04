@@ -90,7 +90,7 @@ func TestCITransition_RunningToFailed_NotifiesOnce(t *testing.T) {
 	task := &types.SpecTask{ID: "task-1"}
 	pr := &types.RepoPR{
 		PRID: "pr-2", PRNumber: 12, RepositoryName: "owner/repo",
-		CIURL: "https://example.com/run/42",
+		CIURL: "https://example.com/run/42", CIBaseStatus: CIStatusPassed,
 	}
 
 	o.handleCIStatusTransition(context.Background(), task, pr, CIStatusRunning, CIStatusFailed)
@@ -99,6 +99,19 @@ func TestCITransition_RunningToFailed_NotifiesOnce(t *testing.T) {
 	require.Contains(t, notifier.calls[0].message, "CI failed")
 	require.Contains(t, notifier.calls[0].message, "https://example.com/run/42")
 	require.Contains(t, notifier.calls[0].message, "Please investigate")
+}
+
+func TestCITransition_RunningToFailed_PreExistingFailureDoesNotNotify(t *testing.T) {
+	notifier := &recordingCINotifier{}
+	o := newOrchestratorForCITest(notifier)
+	task := &types.SpecTask{ID: "task-1"}
+
+	for _, baseState := range []string{"", CIStatusNone, CIStatusRunning, CIStatusFailed} {
+		pr := &types.RepoPR{PRID: "pr-2", PRNumber: 12, RepositoryName: "owner/repo", CIBaseStatus: baseState}
+		o.handleCIStatusTransition(context.Background(), task, pr, CIStatusRunning, CIStatusFailed)
+	}
+
+	require.Equal(t, 0, notifier.count())
 }
 
 func TestCITransition_NoOpTransitions_DoNotNotify(t *testing.T) {

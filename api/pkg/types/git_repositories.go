@@ -306,6 +306,9 @@ type PullRequest struct {
 	// provider's CI/build APIs for the right commit. Empty if the
 	// provider response did not include it.
 	HeadSHA string `json:"head_sha,omitempty"`
+	// BaseSHA is the commit SHA on the target side of the PR. CI failures on
+	// the head are only actionable when CI passed on this commit.
+	BaseSHA string `json:"base_sha,omitempty"`
 }
 
 // CIStatus is the normalized CI verdict returned by GitRepositoryService.
