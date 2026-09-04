@@ -3681,6 +3681,13 @@ func (s *SandboxInstance) CanHostDesktop() bool {
 	return s.RenderNode != "SOFTWARE"
 }
 
+// AtMaxCapacity reports whether this host has reached its configured dev
+// container ceiling (SandboxMaxDevContainers at registration time).
+// MaxSandboxes 0 means no ceiling was recorded and never binds.
+func (s *SandboxInstance) AtMaxCapacity() bool {
+	return s.MaxSandboxes > 0 && s.ActiveSandboxes >= s.MaxSandboxes
+}
+
 // SandboxHeartbeatRequest is sent by sandbox-heartbeat daemon every 30 seconds
 type SandboxHeartbeatRequest struct {
 	// Desktop image versions (content-addressable Docker image hashes)

@@ -279,8 +279,9 @@ func (s *PostgresStore) GetSandboxInstancesOlderThanHeartbeat(ctx context.Contex
 	return instances, nil
 }
 
-// FindAvailableSandboxInstance finds a sandbox host that is online, has recent heartbeat, and has the required desktop version.
-// Returns nil if no suitable sandbox host is found.
+// FindAvailableSandboxInstance finds a sandbox host that is online, has a
+// recent heartbeat, is under its max_sandboxes ceiling, and has the required
+// desktop version. Returns nil if no suitable sandbox host is found.
 //
 // requiresDisplay narrows the search to render-capable hosts. Pass true when
 // the container will run a compositor and be streamed; pass false for
@@ -305,28 +306,50 @@ func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, deskto
 	if err != nil {
 		return nil, fmt.Errorf("error finding available sandboxes: %w", err)
 	}
+	return pickSandboxInstance(instances, desktopType, requiresDisplay), nil
+}
 
-	// Find one with the required desktop version
+// pickSandboxInstance selects a dispatch target from load-ordered candidate
+// rows (least-loaded first). A candidate must be under its max_sandboxes
+// ceiling and advertise a non-empty image tag for desktopType in its
+// heartbeat blob.
+//
+// Streamed desktops (requiresDisplay) only run on render-capable hosts: a
+// neuron/inf2 host (no /dev/dri render node) would otherwise be picked on
+// load alone, then the desktop container FATALs at startup.
+//
+// Headless work runs anywhere, but prefers hosts that CANNOT stream a
+// desktop (CPU-only, software render) so render-capable hosts keep their
+// slots free for desktop sessions; a render-capable host is only used when
+// no display-incapable host qualifies.
+func pickSandboxInstance(instances []*types.SandboxInstance, desktopType string, requiresDisplay bool) *types.SandboxInstance {
+	var renderCapable *types.SandboxInstance
 	for _, instance := range instances {
-		// Streamed desktops only run on render-capable hosts. A neuron/inf2
-		// host (no /dev/dri render node) would otherwise be picked on load
-		// alone, then the desktop container FATALs at startup. Headless
-		// containers have no such constraint.
+		if instance.AtMaxCapacity() {
+			continue
+		}
 		if requiresDisplay && !instance.CanHostDesktop() {
 			continue
 		}
-		if len(instance.DesktopVersions) > 0 {
-			var versions map[string]string
-			if err := json.Unmarshal(instance.DesktopVersions, &versions); err != nil {
-				continue // Skip sandboxes with invalid version JSON
-			}
-			if version, ok := versions[desktopType]; ok && version != "" {
-				return instance, nil
-			}
+		if len(instance.DesktopVersions) == 0 {
+			continue
 		}
+		var versions map[string]string
+		if err := json.Unmarshal(instance.DesktopVersions, &versions); err != nil {
+			continue // Skip sandboxes with invalid version JSON
+		}
+		if version, ok := versions[desktopType]; !ok || version == "" {
+			continue
+		}
+		if !requiresDisplay && instance.CanHostDesktop() {
+			if renderCapable == nil {
+				renderCapable = instance
+			}
+			continue
+		}
+		return instance
 	}
-
-	return nil, nil // No suitable sandbox found
+	return renderCapable
 }
 
 // Disk usage history methods

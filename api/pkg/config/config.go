@@ -121,11 +121,12 @@ type ServerConfig struct {
 	// as demand pressure, so this value is what determines when scale-up
 	// fires under load.
 	//
-	// NOTE: this value only affects the autoscaler signal today; the
-	// dispatcher (FindAvailableSandboxInstance) does NOT enforce a hard
-	// rejection at the ceiling - new dev containers can still be placed
-	// on a "full" Runner (sorted ASC by active_sandboxes). Hard
-	// dispatcher rejection is tracked separately as a follow-up.
+	// The ceiling is also enforced at dispatch: the dispatcher
+	// (FindAvailableSandboxInstance and the custom-image host picker)
+	// skips Runners at max_sandboxes, so new dev containers are never
+	// placed on a "full" Runner. With every Runner at its ceiling,
+	// placement fails with a no-capacity error until the autoscaler
+	// adds a host or a container exits.
 	//
 	// Default 20. Raise for hosts with more headroom, lower to make
 	// the autoscaler trigger sooner on smaller hosts. Range is not
