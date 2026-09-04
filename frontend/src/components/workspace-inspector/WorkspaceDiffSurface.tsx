@@ -1,6 +1,14 @@
-import React, { FC, useEffect, useMemo, useRef, useState } from "react";
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CodeView, type CodeViewHandle } from "@pierre/diffs/react";
-import type { CodeViewDiffItem } from "@pierre/diffs";
+import type {
+  CodeViewDiffItem,
+  CodeViewItem,
+  CodeViewLineSelection,
+  DiffLineAnnotation,
+  FileDiffMetadata,
+  LineAnnotation,
+  SelectedLineRange,
+} from "@pierre/diffs";
 import {
   Alert,
   Box,
@@ -34,6 +42,13 @@ import {
   resolveDiffFilePath,
 } from "./pierreStyles";
 import { usePersistedChoice, usePersistedFlag } from "./workspacePreferences";
+import {
+  buildWorkspaceReviewComment,
+  type WorkspaceReviewComment,
+} from "./workspaceReviewComments";
+import WorkspaceFileComment, {
+  type WorkspaceFileCommentEntry,
+} from "./WorkspaceFileComment";
 
 type ReviewScope = "all" | "branch" | "working_tree";
 
@@ -61,6 +76,59 @@ interface WorkspaceDiffSurfaceProps {
   isDesktopStarting?: boolean;
   desktopUnavailableTitle?: string;
   desktopUnavailableDescription?: string;
+  comments: readonly WorkspaceReviewComment[];
+  onUpsertComment: (comment: WorkspaceReviewComment) => void;
+  onRemoveComment: (commentId: string) => void;
+}
+
+interface DiffCommentGroup {
+  entries: WorkspaceFileCommentEntry[];
+  range: SelectedLineRange;
+}
+
+interface DiffCommentDraft {
+  itemId: string;
+  path: string;
+  entry: WorkspaceFileCommentEntry;
+  range: SelectedLineRange;
+}
+
+let diffCommentSequence = 0;
+
+function nextDiffCommentId(): string {
+  diffCommentSequence += 1;
+  return `workspace-comment-${Date.now()}-${diffCommentSequence}`;
+}
+
+function normalizedRange(range: SelectedLineRange) {
+  return { startLine: Math.min(range.start, range.end), endLine: Math.max(range.start, range.end) };
+}
+
+function diffRangeContents(fileDiff: FileDiffMetadata, range: SelectedLineRange): string {
+  const side = range.endSide ?? range.side ?? "additions";
+  const { startLine, endLine } = normalizedRange(range);
+  const lines = side === "deletions" ? fileDiff.deletionLines : fileDiff.additionLines;
+  const chunks: string[] = [];
+  for (const hunk of fileDiff.hunks) {
+    const hunkStart = side === "deletions" ? hunk.deletionStart : hunk.additionStart;
+    const hunkCount = side === "deletions" ? hunk.deletionCount : hunk.additionCount;
+    const lineIndex = side === "deletions" ? hunk.deletionLineIndex : hunk.additionLineIndex;
+    const from = Math.max(startLine, hunkStart);
+    const to = Math.min(endLine, hunkStart + hunkCount - 1);
+    if (from <= to) chunks.push(...lines.slice(lineIndex + from - hunkStart, lineIndex + to - hunkStart + 1));
+  }
+  return chunks.join("\n");
+}
+
+function selectionNodeIsWithin(node: Node | null, container: HTMLElement): boolean {
+  let current = node;
+  while (current) {
+    if (container.contains(current)) return true;
+    const root = current.getRootNode();
+    if (typeof ShadowRoot === "undefined" || !(root instanceof ShadowRoot)) return false;
+    current = root.host;
+  }
+  return false;
 }
 
 const sourceLabel = (source: TypesWorkspaceReviewSource | undefined) =>
@@ -81,6 +149,9 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
   isDesktopStarting,
   desktopUnavailableTitle = "Desktop not running",
   desktopUnavailableDescription = "This task's sandbox is stopped. Start the desktop to load its workspace changes.",
+  comments,
+  onUpsertComment,
+  onRemoveComment,
 }) => {
   const lightTheme = useLightTheme();
   const snackbar = useSnackbar();
@@ -89,7 +160,15 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
   const [layout, setLayout] = usePersistedChoice("layout", DIFF_LAYOUTS, "unified");
   const [wordWrap, setWordWrap] = usePersistedFlag("word-wrap");
   const [pathContextMenu, setPathContextMenu] = useState<PathContextMenu | null>(null);
-  const viewerRef = useRef<CodeViewHandle<undefined>>(null);
+  const [draft, setDraft] = useState<DiffCommentDraft | null>(null);
+  const [selectedLines, setSelectedLines] = useState<CodeViewLineSelection | null>(null);
+  const [selectingText, setSelectingText] = useState(false);
+  const diffContainerRef = useRef<HTMLDivElement | null>(null);
+  const viewerRef = useRef<CodeViewHandle<DiffCommentGroup>>(null);
+  const upsertCommentRef = useRef(onUpsertComment);
+  const removeCommentRef = useRef(onRemoveComment);
+  upsertCommentRef.current = onUpsertComment;
+  removeCommentRef.current = onRemoveComment;
   // A historical turn diff is immutable, so polling the live review behind it
   // would repeatedly run the workspace's git commands for data nothing renders.
   const liveReview = useWorkspaceReview(
@@ -98,7 +177,7 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
     baseBranch,
     ignoreWhitespace,
     pollInterval,
-    !interactionId,
+    !interactionId && !selectingText && !draft,
   );
   const turnReview = useTurnWorkspaceReview(
     sessionId,
@@ -132,16 +211,44 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
     () => parseRenderablePatch(source?.patch),
     [source?.patch],
   );
-  const items = useMemo<CodeViewDiffItem[]>(() => {
+  const items = useMemo<CodeViewDiffItem<DiffCommentGroup>[]>(() => {
     if (renderable?.kind !== "files") return [];
     return [...renderable.files]
       .sort((a, b) => fileDiffPath(a).localeCompare(fileDiffPath(b)))
-      .map((fileDiff, index) => ({
-        id: fileDiff.cacheKey || `${fileDiffPath(fileDiff)}:${index}`,
-        type: "diff",
-        fileDiff,
-      }));
-  }, [renderable]);
+      .map((fileDiff, index) => {
+        const path = fileDiffPath(fileDiff);
+        const id = fileDiff.cacheKey || `${path}:${index}`;
+        const savedAnnotations: DiffLineAnnotation<DiffCommentGroup>[] = comments
+          .filter((comment) => comment.filePath === path)
+          .map((comment) => ({
+            side: comment.side || "additions",
+            lineNumber: comment.endIndex + 1,
+            metadata: {
+              range: {
+                start: comment.startIndex + 1,
+                end: comment.endIndex + 1,
+                side: comment.side || "additions",
+                endSide: comment.side || "additions",
+              },
+              entries: [{
+                id: comment.id,
+                kind: "comment",
+                startLine: comment.startIndex + 1,
+                endLine: comment.endIndex + 1,
+                text: comment.text,
+              }],
+            },
+          }));
+        const draftAnnotation: DiffLineAnnotation<DiffCommentGroup>[] = draft?.itemId === id
+          ? [{
+              side: draft.range.endSide ?? draft.range.side ?? "additions",
+              lineNumber: draft.entry.endLine,
+              metadata: { range: draft.range, entries: [draft.entry] },
+            }]
+          : [];
+        return { id, type: "diff" as const, fileDiff, annotations: [...savedAnnotations, ...draftAnnotation] };
+      });
+  }, [comments, draft, renderable]);
   const renderedPaths = useMemo(
     () => items.map((item) => fileDiffPath(item.fileDiff)),
     [items],
@@ -154,6 +261,81 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
     );
     return { title, path: resolveDiffFilePath(title?.textContent, renderedPaths) };
   };
+
+  useEffect(() => {
+    const updateTextSelection = () => {
+      const selection = window.getSelection();
+      const container = diffContainerRef.current;
+      if (!selection || selection.isCollapsed || !container) {
+        setSelectingText(false);
+        return;
+      }
+      setSelectingText(
+        selectionNodeIsWithin(selection.anchorNode, container) ||
+        selectionNodeIsWithin(selection.focusNode, container),
+      );
+    };
+    document.addEventListener("selectionchange", updateTextSelection);
+    return () => document.removeEventListener("selectionchange", updateTextSelection);
+  }, []);
+
+  const beginComment = useCallback((range: SelectedLineRange | null, item: CodeViewItem<DiffCommentGroup>) => {
+    if (!range || item.type !== "diff") return;
+    const { startLine, endLine } = normalizedRange(range);
+    setSelectedLines({ id: item.id, range });
+    setDraft({
+      itemId: item.id,
+      path: fileDiffPath(item.fileDiff),
+      range,
+      entry: {
+        id: nextDiffCommentId(),
+        kind: "draft",
+        startLine,
+        endLine,
+        text: "",
+      },
+    });
+  }, []);
+
+  const removeEntry = useCallback((entryId: string) => {
+    if (draft?.entry.id === entryId) setDraft(null);
+    else removeCommentRef.current(entryId);
+    setSelectedLines(null);
+  }, [draft]);
+
+  const submitEntry = useCallback((entry: WorkspaceFileCommentEntry, text: string) => {
+    if (!draft || draft.entry.id !== entry.id) return;
+    const item = items.find((candidate) => candidate.id === draft.itemId);
+    if (!item) return;
+    const side = draft.range.endSide ?? draft.range.side ?? "additions";
+    upsertCommentRef.current(buildWorkspaceReviewComment({
+      id: entry.id,
+      filePath: draft.path,
+      startLine: entry.startLine,
+      endLine: entry.endLine,
+      text,
+      fileContents: "",
+      quotedContents: diffRangeContents(item.fileDiff, draft.range),
+      side,
+    }));
+    setDraft(null);
+    setSelectedLines(null);
+  }, [draft, items]);
+
+  const renderAnnotation = useCallback((
+    annotation: LineAnnotation<DiffCommentGroup> | DiffLineAnnotation<DiffCommentGroup>,
+  ) => (
+    <Box sx={{ py: 0.5 }}>
+      {annotation.metadata.entries.map((entry) => (
+        <WorkspaceFileComment
+          key={entry.id}
+          entry={entry}
+          onCancel={removeEntry}
+          onSubmit={submitEntry}
+        />
+      ))}
+    </Box>
+  ), [removeEntry, submitEntry]);
 
   useEffect(() => {
     if (!selectedFile) return;
@@ -337,7 +519,9 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
         </Box>
       ) : (
         <Box
+          ref={diffContainerRef}
           sx={{ flex: 1, minHeight: 0 }}
+          onPointerDownCapture={() => setSelectingText(true)}
           onClickCapture={(event) => {
             const { path } = headerPathFromEvent(event);
             if (path) onOpenFile(path);
@@ -355,9 +539,12 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
             });
           }}
         >
-          <CodeView
+          <CodeView<DiffCommentGroup>
             ref={viewerRef}
             items={items}
+            selectedLines={selectedLines}
+            onSelectedLinesChange={setSelectedLines}
+            renderAnnotation={renderAnnotation}
             className="workspace-code-view"
             style={{ height: "100%", minHeight: 0, overflow: "auto" }}
             options={{
@@ -368,6 +555,10 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
               lineDiffType: "word-alt",
               overflow: wordWrap ? "wrap" : "scroll",
               stickyHeaders: true,
+              enableGutterUtility: !draft,
+              enableLineSelection: !draft,
+              onGutterUtilityClick: (range, context) => beginComment(range, context.item),
+              onLineSelectionEnd: (range, context) => beginComment(range, context.item),
               tokenizeMaxLineLength: 1_000,
               unsafeCSS: DIFF_UNSAFE_CSS,
               itemMetrics: { diffHeaderHeight: 32, hunkSeparatorHeight: 24 },
