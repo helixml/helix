@@ -217,10 +217,13 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
   useImperativeHandle(ref, () => ({
     handleCreateAgent,
     handleGetConfig: (): TypesCodeAgentExecutionConfig => {
-      const isSub = value.codeAgentRuntime === 'claude_code' || (value.codeAgentRuntime === 'codex_cli' && value.claudeCodeMode === 'subscription')
-      const modelToUse = value.codeAgentRuntime === 'codex_cli' && value.claudeCodeMode === 'subscription'
-        ? codexSubscriptionModel
-        : isSub ? '' : (value.selectedModel || '')
+      const isSub = (value.codeAgentRuntime === 'claude_code' || value.codeAgentRuntime === 'codex_cli')
+        && value.claudeCodeMode === 'subscription'
+      const modelToUse = isSub
+        ? value.codeAgentRuntime === 'claude_code'
+          ? claudeSubscriptionModel
+          : codexSubscriptionModel
+        : (value.selectedModel || '')
       const providerToUse = isSub ? '' : (value.selectedProvider || '')
       return {
         runtime: value.codeAgentRuntime as TypesCodeAgentExecutionConfig['runtime'],
@@ -356,7 +359,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
             <Stack direction="row" spacing={1.25} alignItems="center">
               <AgentHarness runtime="deepseek_harness" variant="short" size={18} />
               <Box>
-              <Typography variant="body2">DeepSeek Harness</Typography>
+              <Typography variant="body2">DeepSeek Runtime</Typography>
               <Typography variant="caption" color="text.secondary">
                 DeepSeek's plugin-based ACP agent
               </Typography>

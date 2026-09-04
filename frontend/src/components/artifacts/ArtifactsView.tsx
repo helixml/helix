@@ -10,7 +10,7 @@ import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { EllipsisVertical, ExternalLink, Pencil, Trash2 } from 'lucide-react'
+import { Download, EllipsisVertical, ExternalLink, Pencil, Trash2 } from 'lucide-react'
 
 import { TypesArtifact, TypesArtifactKind } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
@@ -46,6 +46,18 @@ const ArtifactsView: FC<Props> = ({ artifacts, mode, onEdit, onDelete }) => {
 
   const openArtifact = (artifact: TypesArtifact) => {
     if (artifact.id) router.navigate('artifact_viewer', { artifact_id: artifact.id })
+  }
+
+  // Same-origin navigation so the session cookie authenticates the download and
+  // the server's Content-Disposition names the file.
+  const downloadArtifact = (artifact: TypesArtifact) => {
+    if (!artifact.id) return
+    const link = document.createElement('a')
+    link.href = `/api/v1/artifacts/${artifact.id}/download`
+    link.download = ''
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
   }
 
   const openMenu = (event: MouseEvent<HTMLElement>, artifact: TypesArtifact) => {
@@ -109,6 +121,14 @@ const ArtifactsView: FC<Props> = ({ artifacts, mode, onEdit, onDelete }) => {
       }}>
         <ListItemIcon><ExternalLink size={16} /></ListItemIcon>
         <ListItemText primary="Open" />
+      </MenuItem>
+      <MenuItem dense onClick={(event) => {
+        event.stopPropagation()
+        if (currentArtifact) downloadArtifact(currentArtifact)
+        closeMenu()
+      }}>
+        <ListItemIcon><Download size={16} /></ListItemIcon>
+        <ListItemText primary="Download" />
       </MenuItem>
       <MenuItem dense onClick={(event) => {
         event.stopPropagation()

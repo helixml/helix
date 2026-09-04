@@ -81,7 +81,7 @@ export const AgentConfigForm: FC<{
   const apiKeyMode = !supportsSubscription || value.credentials === 'api_key'
   const effortValue = !value.reasoning_effort || value.reasoning_effort === 'none' ? 'default' : value.reasoning_effort
   const effortOptions = getCodeAgentEffortOptions(value.runtime)
-  const canConfigureEffort = showReasoningEffort && (isClaude || isCodex)
+  const canConfigureEffort = showReasoningEffort
 
   const onEffort = (effort: string) => {
     onChange({ reasoning_effort: effort === 'default' ? 'none' : effort })
@@ -198,7 +198,7 @@ export const AgentConfigForm: FC<{
               <Stack direction="row" spacing={1.25} alignItems="center">
                 <AgentHarness runtime="deepseek_harness" variant="short" size={18} />
                 <Box>
-                  <Typography variant="body2">DeepSeek Harness</Typography>
+                  <Typography variant="body2">DeepSeek Runtime</Typography>
                   <Typography variant="caption" color="text.secondary">
                     DeepSeek's plugin-based ACP agent
                   </Typography>

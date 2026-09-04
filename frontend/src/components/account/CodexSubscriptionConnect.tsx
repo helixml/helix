@@ -341,7 +341,7 @@ export default function CodexSubscriptionConnect({ orgId, enableForOrgId }: Prop
               <Box>
                 <Typography variant="h6">Codex connected</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                  OpenAI authorization completed and the Codex harness is ready to use.
+                  OpenAI authorization completed and the Codex runtime is ready to use.
                 </Typography>
               </Box>
             </Stack>

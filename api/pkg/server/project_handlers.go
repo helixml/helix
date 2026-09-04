@@ -400,9 +400,6 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError400("primary repository (default_repo_id) is required")
 	}
 
-	if req.CodeAgentConfig == nil && req.DefaultHelixAppID == "" {
-		return nil, system.NewHTTPError400("code_agent_config is required")
-	}
 	if !types.ValidSpecTaskSandboxRuntime(req.DefaultSandboxRuntime) {
 		return nil, system.NewHTTPError400(fmt.Sprintf("invalid default sandbox runtime %q", req.DefaultSandboxRuntime))
 	}
@@ -424,6 +421,16 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		if err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
+		if req.DefaultHelixAppID == "" {
+			req.CodeAgentConfig, err = s.newProjectCodeAgentConfig(r.Context(), req.OrganizationID, req.CodeAgentConfig)
+			if err != nil {
+				return nil, system.NewHTTPError500(err.Error())
+			}
+		}
+	}
+
+	if req.CodeAgentConfig == nil && req.DefaultHelixAppID == "" {
+		return nil, system.NewHTTPError400("code_agent_config is required; configure the organization Default Runtime")
 	}
 
 	var defaultApp *types.App

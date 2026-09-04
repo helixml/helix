@@ -15,6 +15,7 @@ import Select from "@mui/material/Select";
 import FormControl from "@mui/material/FormControl";
 import InputLabel from "@mui/material/InputLabel";
 import ButtonBase from "@mui/material/ButtonBase";
+import Stack from "@mui/material/Stack";
 
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
@@ -41,8 +42,26 @@ import CodexSubscriptionConnect from "../components/account/CodexSubscriptionCon
 import { useGetConfig } from "../services/userService";
 import { useGetWallet } from "../services/useBilling";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
-import type { TypesWallet } from "../api/api";
 import { useCodexSubscriptions } from "../services/codexSubscriptionsService";
+import {
+  CLAUDE_SUBSCRIPTION_MODELS,
+  CODEX_SUBSCRIPTION_MODELS,
+} from "../components/agent/CodingAgentForm";
+import {
+  findHarnessStatus,
+  useOrgCodeAgentHarnesses,
+  useUpdateOrgCodeAgentHarnesses,
+} from "../services/codeAgentHarnessesService";
+import { useListProviders } from "../services/providersService";
+import {
+  providersForCodeAgentHarness,
+} from "../utils/codeAgentProviders";
+import { providerRef } from "../components/create/AdvancedModelPicker";
+import {
+  TypesCodeAgentCredentialType,
+  TypesCodeAgentRuntime,
+} from "../api/api";
+import type { TypesCodeAgentExecutionConfig } from "../api/api";
 
 const ACCENT = "#00e891";
 const ACCENT_DIM = "rgba(0, 232, 145, 0.08)";
@@ -195,6 +214,7 @@ export default function Onboarding() {
     id: string;
     name: string;
     display_name?: string;
+    viewer_is_owner: boolean;
   } | null>(null);
   const createOrgMutation = useCreateOrg();
 
@@ -214,7 +234,34 @@ export default function Onboarding() {
   // Final step: choose Helix credits or an external coding subscription.
   const [codingAccessOption, setCodingAccessOption] =
     useState<CodingAccessOption>("helix");
+  const [claudeModel, setClaudeModel] = useState("");
+  const [codexModel, setCodexModel] = useState("");
+  const [helixProvider, setHelixProvider] = useState("");
+  const [helixModel, setHelixModel] = useState("");
+  const [helixReasoningEffort, setHelixReasoningEffort] = useState("none");
   const [finishingOnboarding, setFinishingOnboarding] = useState(false);
+  const updateCodeAgentHarnesses = useUpdateOrgCodeAgentHarnesses(createdOrg?.id);
+  const { data: providers = [], isLoading: providersLoading } = useListProviders({
+    loadModels: true,
+    orgId: createdOrg?.id,
+    enabled: !!createdOrg?.id,
+  });
+  const { data: harnesses = [], isLoading: harnessesLoading } =
+    useOrgCodeAgentHarnesses(createdOrg?.id, { enabled: !!createdOrg?.id });
+  const zedHarness = findHarnessStatus(
+    harnesses,
+    TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
+  );
+  const helixProviders = providersForCodeAgentHarness(
+    providers,
+    zedHarness,
+    TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
+  );
+  const selectedHelixProvider = helixProviders.find((provider) => providerRef(provider) === helixProvider);
+  const helixModels = (selectedHelixProvider?.available_models || []).filter((model) =>
+    model.id && model.enabled && (!model.type || model.type === "chat" || model.type === "text"));
+  const helixDefaultAvailable = !!selectedHelixProvider
+    && helixModels.some((model) => model.id === helixModel);
 
   const existingOrgs = account.organizationTools.organizations;
   const hasExistingOrgs = existingOrgs.length > 0;
@@ -293,11 +340,14 @@ export default function Onboarding() {
       id: org.id,
       name: org.name,
       display_name: org.display_name,
+      viewer_is_owner: org.owner === account.user?.id
+        || !!org.memberships?.some((membership) =>
+          membership.user_id === account.user?.id && membership.role === "owner"),
     });
     const orgStepIndex = getStepIndexByType("organization");
     setCompletedSteps((prev) => new Set([...prev, orgStepIndex]));
     setActiveStep(orgStepIndex + 1);
-  }, [createdOrg, existingOrgs, getStepIndexByType]);
+  }, [account.user?.id, createdOrg, existingOrgs, getStepIndexByType]);
 
   useEffect(() => {
     if (hasExistingOrgs) {
@@ -331,19 +381,101 @@ export default function Onboarding() {
         return;
       }
 
-      account.dismissOnboarding();
-      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name);
+      const codeAgentConfig: TypesCodeAgentExecutionConfig | undefined =
+        codingAccessOption === "claude"
+          ? {
+              runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+              credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+              model: claudeModel,
+            }
+          : codingAccessOption === "codex"
+            ? {
+                runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+                credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+                model: codexModel,
+              }
+            : helixProvider && helixModel
+              ? {
+                  runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
+                  credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+                  provider_ref: helixProvider,
+                  model: helixModel,
+                  reasoning_effort: helixReasoningEffort,
+                }
+              : undefined;
+      if (!codeAgentConfig) {
+        snackbar.error("Select a complete default runtime configuration");
+        return;
+      }
+      if (codingAccessOption === "helix" && !helixDefaultAvailable) {
+        snackbar.error("The selected Helix model is not available for Zed Agent in this organization");
+        return;
+      }
+      if (!createdOrg.viewer_is_owner) {
+        snackbar.error("Ask an organization owner to set the Default Runtime");
+        return;
+      }
+
+      const selectedHarness = findHarnessStatus(harnesses, codeAgentConfig.runtime);
+      const subscriptionPolicyReady = selectedHarness?.enabled
+        && selectedHarness.subscription_enabled === true;
+
       setFinishingOnboarding(true);
 
       try {
-        await api.getApiClient().v1UsersMeOnboardingCreate();
+        if (codeAgentConfig.credential_type === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
+          && !subscriptionPolicyReady) {
+          await updateCodeAgentHarnesses.mutateAsync([{
+            runtime: codeAgentConfig.runtime!,
+            enabled: true,
+            subscription_enabled: true,
+          }]);
+        }
+        await api.getApiClient().v1OrgsSettingsUpdate(
+          "agent.default",
+          createdOrg.name,
+          { value: JSON.stringify({
+            code_agent_runtime: codeAgentConfig.runtime,
+            code_agent_credential_type: codeAgentConfig.credential_type,
+            provider: codeAgentConfig.provider_ref || "",
+            model: codeAgentConfig.model,
+            reasoning_effort: codeAgentConfig.reasoning_effort || "none",
+          }) },
+        );
+        try {
+          await api.getApiClient().v1UsersMeOnboardingCreate();
+        } catch (err) {
+          console.error("Failed to mark onboarding complete:", err);
+        }
+        account.dismissOnboarding();
+        localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name);
+        router.navigateReplace("org_projects", {
+          org_id: createdOrg.name,
+          create_project_config: JSON.stringify(codeAgentConfig),
+        });
       } catch (err) {
-        console.error("Failed to mark onboarding complete:", err);
+        console.error("Failed to configure coding access:", err);
+        snackbar.error("Failed to configure coding access");
       } finally {
-        router.navigateReplace("org_chat", { org_id: createdOrg.name });
+        setFinishingOnboarding(false);
       }
     },
-    [createdOrg?.name],
+    [
+      account,
+      api,
+      claudeModel,
+      codexModel,
+      codingAccessOption,
+      createdOrg,
+      harnesses,
+      helixModel,
+      helixProvider,
+      helixReasoningEffort,
+      helixDefaultAvailable,
+      router,
+      snackbar,
+      updateCodeAgentHarnesses,
+    ],
   );
 
   const handleSelectExistingOrg = useCallback(() => {
@@ -360,9 +492,12 @@ export default function Onboarding() {
       id: org.id!,
       name: org.name!,
       display_name: org.display_name,
+      viewer_is_owner: org.owner === account.user?.id
+        || !!org.memberships?.some((membership) =>
+          membership.user_id === account.user?.id && membership.role === "owner"),
     });
     markStepCompleteByType("organization");
-  }, [selectedOrgId, existingOrgs, markStepCompleteByType, snackbar]);
+  }, [account.user?.id, selectedOrgId, existingOrgs, markStepCompleteByType, snackbar]);
 
   const handleCreateOrg = useCallback(async () => {
     if (!orgDisplayName.trim()) {
@@ -378,6 +513,7 @@ export default function Onboarding() {
           id: newOrg.id!,
           name: newOrg.name!,
           display_name: newOrg.display_name,
+          viewer_is_owner: true,
         });
         await account.organizationTools.loadOrganizations();
         markStepCompleteByType("organization");
@@ -843,10 +979,13 @@ export default function Onboarding() {
         );
 
       case "provider": {
+        const inventoryLoading = providersLoading || harnessesLoading;
         const canFinish =
-          codingAccessOption === "helix" ||
-          (codingAccessOption === "claude" && hasClaudeSubscription) ||
-          (codingAccessOption === "codex" && hasCodexSubscription);
+          !inventoryLoading && !!createdOrg?.viewer_is_owner && (
+            (codingAccessOption === "helix" && helixDefaultAvailable) ||
+            (codingAccessOption === "claude" && hasClaudeSubscription && !!claudeModel) ||
+            (codingAccessOption === "codex" && hasCodexSubscription && !!codexModel)
+          );
         const continueLabel =
           codingAccessOption === "claude"
             ? "Continue with Claude subscription"
@@ -893,6 +1032,27 @@ export default function Onboarding() {
                 External subscriptions are optional. Helix Providers is selected
                 by default and charges model usage to your Helix credit balance.
               </Typography>
+              {wallet && (
+                <Typography
+                  sx={{
+                    color: palette.TEXT_SECONDARY,
+                    fontSize: "0.78rem",
+                    mb: 2,
+                  }}
+                >
+                  Current organization balance: ${wallet.balance?.toFixed(2) || "0.00"} credits
+                </Typography>
+              )}
+              {codingAccessOption === "helix" && !inventoryLoading && helixProvider && helixModel && !helixDefaultAvailable && (
+                <Typography color="error" sx={{ fontSize: "0.78rem", mb: 2 }}>
+                  The selected Helix model is not available for Zed Agent in this organization.
+                </Typography>
+              )}
+              {!inventoryLoading && !createdOrg?.viewer_is_owner && (
+                <Typography color="error" sx={{ fontSize: "0.78rem", mb: 2 }}>
+                  Ask an organization owner to set the Default Runtime.
+                </Typography>
+              )}
 
               <Box
                 sx={{
@@ -992,6 +1152,58 @@ export default function Onboarding() {
                 })}
               </Box>
 
+              {codingAccessOption === "helix" && (
+                <Stack spacing={2} sx={{ mb: 2 }}>
+                  <FormControl fullWidth>
+                    <InputLabel id="onboarding-helix-provider-label">Helix provider</InputLabel>
+                    <Select
+                      labelId="onboarding-helix-provider-label"
+                      label="Helix provider"
+                      value={helixProvider}
+                      onChange={(event) => {
+                        setHelixProvider(event.target.value)
+                        setHelixModel("")
+                      }}
+                    >
+                      <MenuItem value="" disabled>Select a provider</MenuItem>
+                      {helixProviders.map((provider) => (
+                        <MenuItem key={providerRef(provider)} value={providerRef(provider)}>
+                          {provider.name || provider.id}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl fullWidth disabled={!helixProvider}>
+                    <InputLabel id="onboarding-helix-model-label">Helix model</InputLabel>
+                    <Select
+                      labelId="onboarding-helix-model-label"
+                      label="Helix model"
+                      value={helixModel}
+                      onChange={(event) => setHelixModel(event.target.value)}
+                    >
+                      <MenuItem value="" disabled>Select a model</MenuItem>
+                      {helixModels.map((model) => (
+                        <MenuItem key={model.id} value={model.id}>{model.id}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl fullWidth>
+                    <InputLabel id="onboarding-helix-reasoning-label">Reasoning effort</InputLabel>
+                    <Select
+                      labelId="onboarding-helix-reasoning-label"
+                      label="Reasoning effort"
+                      value={helixReasoningEffort}
+                      onChange={(event) => setHelixReasoningEffort(event.target.value)}
+                    >
+                      <MenuItem value="none">None</MenuItem>
+                      <MenuItem value="low">Low</MenuItem>
+                      <MenuItem value="medium">Medium</MenuItem>
+                      <MenuItem value="high">High</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Stack>
+              )}
+
               {codingAccessOption === "claude" && !hasClaudeSubscription && (
                 <Box
                   sx={{
@@ -1015,6 +1227,23 @@ export default function Onboarding() {
                 </Box>
               )}
 
+              {codingAccessOption === "claude" && hasClaudeSubscription && (
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel id="onboarding-claude-model-label">Claude model</InputLabel>
+                  <Select
+                    labelId="onboarding-claude-model-label"
+                    label="Claude model"
+                    value={claudeModel}
+                    onChange={(event) => setClaudeModel(event.target.value)}
+                  >
+                    <MenuItem value="" disabled>Select a model</MenuItem>
+                    {CLAUDE_SUBSCRIPTION_MODELS.map((model) => (
+                      <MenuItem key={model.id} value={model.id}>{model.label}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
+
               {codingAccessOption === "codex" && !hasCodexSubscription && (
                 <Box
                   sx={{
@@ -1036,6 +1265,23 @@ export default function Onboarding() {
                   </Typography>
                   <CodexSubscriptionConnect />
                 </Box>
+              )}
+
+              {codingAccessOption === "codex" && hasCodexSubscription && (
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel id="onboarding-codex-model-label">Codex model</InputLabel>
+                  <Select
+                    labelId="onboarding-codex-model-label"
+                    label="Codex model"
+                    value={codexModel}
+                    onChange={(event) => setCodexModel(event.target.value)}
+                  >
+                    <MenuItem value="" disabled>Select a model</MenuItem>
+                    {CODEX_SUBSCRIPTION_MODELS.map((model) => (
+                      <MenuItem key={model.id} value={model.id}>{model.label}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               )}
 
               <Button

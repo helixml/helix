@@ -15,8 +15,6 @@ import {
   OutlinedInput,
   InputAdornment,
   IconButton,
-  MenuItem,
-  Select,
   Switch,
   Table,
   TableBody,
@@ -25,7 +23,6 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Tooltip,
   Typography,
   Alert,
   CircularProgress,
@@ -133,52 +130,6 @@ const SystemSettingsTable: FC = () => {
       } else {
         snackbar.error(`Failed to update settings: ${err.message}`)
       }
-    }
-  }
-
-  const handleSelectDefaultProjectAgentModel = async (provider: string, model: string) => {
-    try {
-      await updateSettings.mutateAsync({
-        default_new_project_agent_provider: provider,
-        default_new_project_agent_model: model,
-        default_new_project_agent_reasoning_effort:
-          settings?.default_new_project_agent_reasoning_effort || 'none',
-      })
-      snackbar.success(`Default project agent model set to ${provider}/${model}`)
-    } catch (err: any) {
-      if (err.response?.status === 403) {
-        snackbar.error('Access denied: Admin privileges required')
-      } else {
-        snackbar.error(`Failed to update settings: ${err.message}`)
-      }
-    }
-  }
-
-  const handleSetDefaultProjectAgentEffort = async (effort: string) => {
-    try {
-      await updateSettings.mutateAsync({
-        default_new_project_agent_reasoning_effort: effort,
-      })
-      snackbar.success(`Default project agent reasoning effort set to ${effort}`)
-    } catch (err: any) {
-      if (err.response?.status === 403) {
-        snackbar.error('Access denied: Admin privileges required')
-      } else {
-        snackbar.error(`Failed to update settings: ${err.message}`)
-      }
-    }
-  }
-
-  const handleClearDefaultProjectAgentModel = async () => {
-    try {
-      await updateSettings.mutateAsync({
-        default_new_project_agent_provider: '',
-        default_new_project_agent_model: '',
-        default_new_project_agent_reasoning_effort: 'none',
-      })
-      snackbar.success('Default project agent model configuration cleared')
-    } catch (err: any) {
-      snackbar.error(`Failed to clear settings: ${err.message}`)
     }
   }
 
@@ -584,94 +535,6 @@ const SystemSettingsTable: FC = () => {
                         >
                           Clear
                         </Button>
-                      )}
-                    </Box>
-                  </TableCell>
-                </TableRow>
-
-                <TableRow>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="medium">
-                      Default New Project Agent
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Provider, model, and reasoning effort assigned when a project creates its coding agent in the background
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={settings?.default_new_project_agent_provider && settings?.default_new_project_agent_model ? 'Configured' : 'Not Set'}
-                      color={settings?.default_new_project_agent_provider && settings?.default_new_project_agent_model ? 'success' : 'default'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {settings?.default_new_project_agent_provider && settings?.default_new_project_agent_model ? (
-                      <>
-                        <Typography variant="body2" fontWeight={500}>
-                          {settings.default_new_project_agent_model}
-                        </Typography>
-                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
-                          {settings.default_new_project_agent_reasoning_effort === 'none'
-                            ? 'No reasoning effort'
-                            : `${settings.default_new_project_agent_reasoning_effort || 'No'} reasoning effort`}
-                        </Typography>
-                      </>
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">
-                        Required for projects using Helix credits
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Box display="flex" gap={1} alignItems="center">
-                      <AdvancedModelPicker
-                        selectedProvider={settings?.default_new_project_agent_provider}
-                        selectedModelId={settings?.default_new_project_agent_model}
-                        onSelectModel={handleSelectDefaultProjectAgentModel}
-                        currentType="chat"
-                        buttonVariant="outlined"
-                        disabled={saving}
-                        hint="Select the provider and model assigned to coding agents created with new projects."
-                        autoSelectFirst={false}
-                      />
-                      <FormControl size="small" sx={{ minWidth: 112 }} disabled={saving}>
-                        <Tooltip title="Default reasoning effort">
-                          <Select
-                            value={settings?.default_new_project_agent_reasoning_effort || 'none'}
-                            inputProps={{ 'aria-label': 'Reasoning effort' }}
-                            onChange={(event) => handleSetDefaultProjectAgentEffort(event.target.value)}
-                            sx={{
-                              height: 32,
-                              borderRadius: 2,
-                              fontSize: '0.875rem',
-                              '& .MuiSelect-select': {
-                                py: 0.5,
-                                pl: 1.25,
-                              },
-                            }}
-                          >
-                            <MenuItem value="none">None</MenuItem>
-                            <MenuItem value="low">Low</MenuItem>
-                            <MenuItem value="medium">Medium</MenuItem>
-                            <MenuItem value="high">High</MenuItem>
-                          </Select>
-                        </Tooltip>
-                      </FormControl>
-                      {settings?.default_new_project_agent_provider && settings?.default_new_project_agent_model && (
-                        <Tooltip title="Clear default project agent model">
-                          <span>
-                            <IconButton
-                              aria-label="Clear default project agent model"
-                              onClick={handleClearDefaultProjectAgentModel}
-                              size="small"
-                              disabled={saving}
-                              sx={{ width: 32, height: 32, color: 'text.secondary' }}
-                            >
-                              <ClearIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
                       )}
                     </Box>
                   </TableCell>

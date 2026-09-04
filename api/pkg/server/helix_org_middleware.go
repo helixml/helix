@@ -307,6 +307,10 @@ func isHelixOrgPrivilegedMutation(r *http.Request) bool {
 		return false
 	}
 	orgSegment := mux.Vars(r)["org"]
+	settingsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/settings/agent.default"
+	if r.URL.Path == settingsPath {
+		return true
+	}
 	assetsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/assets"
 	if r.URL.Path == assetsPath || strings.HasPrefix(r.URL.Path, assetsPath+"/") {
 		return true

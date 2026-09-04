@@ -246,7 +246,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
 
-  // Organization policy controls which harnesses and provider endpoints may be
+  // Organization policy controls which runtimes and provider endpoints may be
   // used. Models remain task-level choices from each allowed provider's live
   // model list.
   const selectableRuntimes = !orgName
@@ -327,6 +327,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     automaticDefault?.credential_type,
     automaticDefault?.provider_ref,
     automaticDefault?.model,
+    automaticDefault?.reasoning_effort,
   ])
 
   const openPicker = (element: HTMLElement) => {
@@ -469,16 +470,16 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
             {unconfigured ? (
               <>
                 <AlertTriangle size={14} aria-hidden="true" />
-                <Box component="span">Configure harness</Box>
+                <Box component="span">Configure runtime</Box>
               </>
             ) : (
               <>
                 {/*
-                  One control for both: the harness mark and name, then the
+                  One control for both: the runtime mark and name, then the
                   model it runs. They were two buttons opening the same popover,
                   which read as two independent settings.
                 */}
-                {/* The mark identifies the harness, so naming it too is redundant. */}
+                {/* The mark identifies the runtime, so naming it too is redundant. */}
                 <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0 }}>
                   <AgentHarness runtime={value?.runtime || runtime} variant="short" size={16} />
                 </Box>

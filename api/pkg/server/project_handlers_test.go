@@ -9,8 +9,11 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -55,6 +58,34 @@ func TestProjectNameExists(t *testing.T) {
 	if projectNameExists(projects, "New Project") {
 		t.Fatal("expected unique project name not to conflict")
 	}
+}
+
+func TestNewProjectCodeAgentConfigInheritsOrganizationDefault(t *testing.T) {
+	orgStore := orgmemory.New()
+	configs := configregistry.New(orgStore.Configs)
+	configs.Register(configregistry.Spec{Key: configregistry.DefaultAgentConfigKey, Type: configregistry.TypeObject})
+	require.NoError(t, configs.Set(context.Background(), "org-1", configregistry.DefaultAgentConfigKey,
+		`{"code_agent_runtime":"claude_code","code_agent_credential_type":"subscription","model":"claude-fable-5","reasoning_effort":"high"}`))
+	server := &HelixAPIServer{helixOrg: &helixOrgHandlers{configs: configs}}
+
+	got, err := server.newProjectCodeAgentConfig(context.Background(), "org-1", nil)
+	require.NoError(t, err)
+	require.Equal(t, &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+		Model: "claude-fable-5", ReasoningEffort: types.ReasoningEffortHigh,
+	}, got)
+}
+
+func TestNewProjectCodeAgentConfigPreservesExplicitConfig(t *testing.T) {
+	explicit := &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeCodexCLI, CredentialType: types.CodeAgentCredentialTypeSubscription,
+		Model: "gpt-5.6-terra",
+	}
+	server := &HelixAPIServer{}
+
+	got, err := server.newProjectCodeAgentConfig(context.Background(), "org-1", explicit)
+	require.NoError(t, err)
+	require.Same(t, explicit, got)
 }
 
 // makeProject returns a personal project owned by the test user.

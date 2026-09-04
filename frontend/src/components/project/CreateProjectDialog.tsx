@@ -20,10 +20,11 @@ import {
 import { Check, ChevronRight, FolderGit2, Link as LinkIcon, Plus } from 'lucide-react'
 import { SiBitbucket, SiGithub, SiGitlab } from 'react-icons/si'
 import { TypesExternalRepositoryType, TypesRepositoryInfo } from '../../api/api'
-import type { TypesGitRepository, TypesAzureDevOps } from '../../api/api'
+import type { TypesCodeAgentExecutionConfig, TypesGitRepository, TypesAzureDevOps } from '../../api/api'
 import { useCreateProject, useListProjects } from '../../services'
 import useAccount from '../../hooks/useAccount'
 import useSnackbar from '../../hooks/useSnackbar'
+import { extractErrorMessage } from '../../hooks/useErrorCallback'
 import { CodeAgentRuntime } from '../../contexts/apps'
 import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
 import CodingAgentForm from '../agent/CodingAgentForm'
@@ -66,6 +67,7 @@ interface CreateProjectDialogProps {
   onLinkRepo?: (url: string, name: string, type: TypesExternalRepositoryType, username?: string, password?: string, azureDevOps?: TypesAzureDevOps, oauthConnectionId?: string, gitProviderConnectionId?: string) => Promise<TypesGitRepository | null>
   // Preselect an existing repo (used when creating project from repo detail page)
   preselectedRepoId?: string
+  initialCodeAgentConfig?: TypesCodeAgentExecutionConfig
 }
 
 const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
@@ -77,6 +79,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   onCreateRepo,
   onLinkRepo,
   preselectedRepoId,
+  initialCodeAgentConfig,
 }) => {
   const account = useAccount()
   const snackbar = useSnackbar()
@@ -102,6 +105,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const [newAgentName, setNewAgentName] = useState(getAgentHarnessLabel('zed_agent'))
+  const [initialConfigActive, setInitialConfigActive] = useState(false)
   const codingAgentFormRef = useRef<CodingAgentFormHandle>(null)
 
   // Agent names are implementation details in project creation. Keep a stable,
@@ -138,13 +142,22 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setSelectedModel('')
       setCodeAgentRuntime('zed_agent')
       setClaudeCodeMode('api_key')
-    } else if (preselectedRepoId) {
-      // When opening with a preselected repo, switch to select mode
-      setRepoMode('select')
-      setSelectedRepoId(preselectedRepoId)
-      setName(preselectedRepoName)
+      setInitialConfigActive(false)
+    } else {
+      if (initialCodeAgentConfig?.runtime) {
+        setCodeAgentRuntime(initialCodeAgentConfig.runtime as CodeAgentRuntime)
+        setClaudeCodeMode(initialCodeAgentConfig.credential_type === 'subscription' ? 'subscription' : 'api_key')
+        setSelectedProvider(initialCodeAgentConfig.provider_ref || '')
+        setSelectedModel(initialCodeAgentConfig.model || '')
+        setInitialConfigActive(true)
+      }
+      if (preselectedRepoId) {
+        setRepoMode('select')
+        setSelectedRepoId(preselectedRepoId)
+        setName(preselectedRepoName)
+      }
     }
-  }, [open, preselectedRepoId, preselectedRepoName])
+  }, [open, preselectedRepoId, preselectedRepoName, initialCodeAgentConfig])
 
   // Auto-select first repo if available
   useEffect(() => {
@@ -281,7 +294,9 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       return
     }
 
-    const codeAgentConfig = codingAgentFormRef.current?.handleGetConfig()
+    const codeAgentConfig = initialConfigActive
+      ? initialCodeAgentConfig
+      : codingAgentFormRef.current?.handleGetConfig()
 
     try {
       const result = await createProjectMutation.mutateAsync({
@@ -302,7 +317,10 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
         }
       }
     } catch (err) {
-      snackbar.error('Failed to create project')
+      const errorMessage = extractErrorMessage(err) || 'Failed to create project'
+      setRepoError(errorMessage.includes('subscription credentials are not enabled for coding-agent runtime')
+        ? `${getAgentHarnessLabel(codeAgentConfig?.runtime)} subscription access is not enabled for this organization. Ask an organization administrator to enable it in Settings > Providers, or select another coding agent.`
+        : errorMessage)
     }
   }
 
@@ -545,6 +563,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
               agentName: newAgentName,
             }}
             onChange={(nextValue) => {
+              setInitialConfigActive(false)
               setCodeAgentRuntime(nextValue.codeAgentRuntime)
               setClaudeCodeMode(nextValue.claudeCodeMode)
               setSelectedProvider(nextValue.selectedProvider)

@@ -38,58 +38,52 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 		Created: originalUpdated.Add(-time.Hour),
 		Updated: originalUpdated,
 
-		HuggingFaceToken:                      "old-token",
-		KoditEnrichmentProvider:               "old-kodit-provider",
-		KoditEnrichmentModel:                  "old-kodit-model",
-		DefaultNewProjectAgentProvider:        "old-project-provider",
-		DefaultNewProjectAgentModel:           "old-project-model",
-		DefaultNewProjectAgentReasoningEffort: types.ReasoningEffortLow,
-		OpenCodeVersion:                       "1.18.19",
-		ProvidersManagementEnabled:            false,
-		EnforceQuotas:                         false,
-		SandboxBillingEnabled:                 false,
-		SandboxHeadlessPriceCreditsPerSecond:  0.01,
-		SandboxDesktopPriceCreditsPerSecond:   0.05,
-		MaxConcurrentHeadlessSandboxes:        8,
-		MaxConcurrentDesktopSandboxes:         4,
-		OptimusReasoningModelProvider:         "old-reasoning-provider",
-		OptimusReasoningModel:                 "old-reasoning-model",
-		OptimusReasoningModelEffort:           "old-reasoning-effort",
-		OptimusGenerationModelProvider:        "old-generation-provider",
-		OptimusGenerationModel:                "old-generation-model",
-		OptimusSmallReasoningModelProvider:    "old-small-reasoning-provider",
-		OptimusSmallReasoningModel:            "old-small-reasoning-model",
-		OptimusSmallReasoningModelEffort:      "old-small-reasoning-effort",
-		OptimusSmallGenerationModelProvider:   "old-small-generation-provider",
-		OptimusSmallGenerationModel:           "old-small-generation-model",
+		HuggingFaceToken:                     "old-token",
+		KoditEnrichmentProvider:              "old-kodit-provider",
+		KoditEnrichmentModel:                 "old-kodit-model",
+		OpenCodeVersion:                      "1.18.19",
+		ProvidersManagementEnabled:           false,
+		EnforceQuotas:                        false,
+		SandboxBillingEnabled:                false,
+		SandboxHeadlessPriceCreditsPerSecond: 0.01,
+		SandboxDesktopPriceCreditsPerSecond:  0.05,
+		MaxConcurrentHeadlessSandboxes:       8,
+		MaxConcurrentDesktopSandboxes:        4,
+		OptimusReasoningModelProvider:        "old-reasoning-provider",
+		OptimusReasoningModel:                "old-reasoning-model",
+		OptimusReasoningModelEffort:          "old-reasoning-effort",
+		OptimusGenerationModelProvider:       "old-generation-provider",
+		OptimusGenerationModel:               "old-generation-model",
+		OptimusSmallReasoningModelProvider:   "old-small-reasoning-provider",
+		OptimusSmallReasoningModel:           "old-small-reasoning-model",
+		OptimusSmallReasoningModelEffort:     "old-small-reasoning-effort",
+		OptimusSmallGenerationModelProvider:  "old-small-generation-provider",
+		OptimusSmallGenerationModel:          "old-small-generation-model",
 	}
 	require.NoError(t, store.gdb.WithContext(ctx).Create(seed).Error)
 
 	req := &types.SystemSettingsRequest{
-		HuggingFaceToken:                      strPtr("new-token"),
-		KoditEnrichmentProvider:               strPtr("new-kodit-provider"),
-		KoditEnrichmentModel:                  strPtr("new-kodit-model"),
-		DefaultNewProjectAgentProvider:        strPtr("new-project-provider"),
-		DefaultNewProjectAgentModel:           strPtr("new-project-model"),
-		DefaultNewProjectAgentReasoningEffort: strPtr(types.ReasoningEffortHigh),
-		OpenCodeVersion:                       strPtr("1.19.0"),
-		ProvidersManagementEnabled:            boolPtr(true),
-		EnforceQuotas:                         boolPtr(true),
-		SandboxBillingEnabled:                 boolPtr(true),
-		SandboxHeadlessPriceCreditsPerSecond:  floatPtr(0.02),
-		SandboxDesktopPriceCreditsPerSecond:   floatPtr(0.08),
-		MaxConcurrentHeadlessSandboxes:        intPtr(12),
-		MaxConcurrentDesktopSandboxes:         intPtr(6),
-		OptimusReasoningModelProvider:         strPtr("new-reasoning-provider"),
-		OptimusReasoningModel:                 strPtr("new-reasoning-model"),
-		OptimusReasoningModelEffort:           strPtr("new-reasoning-effort"),
-		OptimusGenerationModelProvider:        strPtr("new-generation-provider"),
-		OptimusGenerationModel:                strPtr("new-generation-model"),
-		OptimusSmallReasoningModelProvider:    strPtr("new-small-reasoning-provider"),
-		OptimusSmallReasoningModel:            strPtr("new-small-reasoning-model"),
-		OptimusSmallReasoningModelEffort:      strPtr("new-small-reasoning-effort"),
-		OptimusSmallGenerationModelProvider:   strPtr("new-small-generation-provider"),
-		OptimusSmallGenerationModel:           strPtr("new-small-generation-model"),
+		HuggingFaceToken:                     strPtr("new-token"),
+		KoditEnrichmentProvider:              strPtr("new-kodit-provider"),
+		KoditEnrichmentModel:                 strPtr("new-kodit-model"),
+		OpenCodeVersion:                      strPtr("1.19.0"),
+		ProvidersManagementEnabled:           boolPtr(true),
+		EnforceQuotas:                        boolPtr(true),
+		SandboxBillingEnabled:                boolPtr(true),
+		SandboxHeadlessPriceCreditsPerSecond: floatPtr(0.02),
+		SandboxDesktopPriceCreditsPerSecond:  floatPtr(0.08),
+		MaxConcurrentHeadlessSandboxes:       intPtr(12),
+		MaxConcurrentDesktopSandboxes:        intPtr(6),
+		OptimusReasoningModelProvider:        strPtr("new-reasoning-provider"),
+		OptimusReasoningModel:                strPtr("new-reasoning-model"),
+		OptimusReasoningModelEffort:          strPtr("new-reasoning-effort"),
+		OptimusGenerationModelProvider:       strPtr("new-generation-provider"),
+		OptimusGenerationModel:               strPtr("new-generation-model"),
+		OptimusSmallReasoningModelProvider:   strPtr("new-small-reasoning-provider"),
+		OptimusSmallReasoningModel:           strPtr("new-small-reasoning-model"),
+		OptimusSmallReasoningModelEffort:     strPtr("new-small-reasoning-effort"),
+		OptimusSmallGenerationModelProvider:  strPtr("new-small-generation-provider"),
+		OptimusSmallGenerationModel:          strPtr("new-small-generation-model"),
 	}
 
 	updated, err := store.UpdateSystemSettings(ctx, req)
@@ -99,9 +93,6 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 	require.Equal(t, "new-token", updated.HuggingFaceToken)
 	require.Equal(t, "new-kodit-provider", updated.KoditEnrichmentProvider)
 	require.Equal(t, "new-kodit-model", updated.KoditEnrichmentModel)
-	require.Equal(t, "new-project-provider", updated.DefaultNewProjectAgentProvider)
-	require.Equal(t, "new-project-model", updated.DefaultNewProjectAgentModel)
-	require.Equal(t, types.ReasoningEffortHigh, updated.DefaultNewProjectAgentReasoningEffort)
 	require.Equal(t, "1.19.0", updated.OpenCodeVersion)
 	require.True(t, updated.ProvidersManagementEnabled)
 	require.True(t, updated.EnforceQuotas)
@@ -138,30 +129,27 @@ func TestUpdateSystemSettings_PartialUpdateLeavesOtherFieldsUnchanged(t *testing
 		Created: time.Now().Add(-2 * time.Hour),
 		Updated: time.Now().Add(-time.Hour),
 
-		HuggingFaceToken:                      "seed-token",
-		KoditEnrichmentProvider:               "seed-kodit-provider",
-		KoditEnrichmentModel:                  "seed-kodit-model",
-		DefaultNewProjectAgentProvider:        "seed-project-provider",
-		DefaultNewProjectAgentModel:           "seed-project-model",
-		DefaultNewProjectAgentReasoningEffort: types.ReasoningEffortMedium,
-		OpenCodeVersion:                       "1.18.19",
-		ProvidersManagementEnabled:            true,
-		EnforceQuotas:                         false,
-		SandboxBillingEnabled:                 true,
-		SandboxHeadlessPriceCreditsPerSecond:  0.03,
-		SandboxDesktopPriceCreditsPerSecond:   0.09,
-		MaxConcurrentHeadlessSandboxes:        7,
-		MaxConcurrentDesktopSandboxes:         3,
-		OptimusReasoningModelProvider:         "seed-reasoning-provider",
-		OptimusReasoningModel:                 "seed-reasoning-model",
-		OptimusReasoningModelEffort:           "seed-reasoning-effort",
-		OptimusGenerationModelProvider:        "seed-generation-provider",
-		OptimusGenerationModel:                "seed-generation-model",
-		OptimusSmallReasoningModelProvider:    "seed-small-reasoning-provider",
-		OptimusSmallReasoningModel:            "seed-small-reasoning-model",
-		OptimusSmallReasoningModelEffort:      "seed-small-reasoning-effort",
-		OptimusSmallGenerationModelProvider:   "seed-small-generation-provider",
-		OptimusSmallGenerationModel:           "seed-small-generation-model",
+		HuggingFaceToken:                     "seed-token",
+		KoditEnrichmentProvider:              "seed-kodit-provider",
+		KoditEnrichmentModel:                 "seed-kodit-model",
+		OpenCodeVersion:                      "1.18.19",
+		ProvidersManagementEnabled:           true,
+		EnforceQuotas:                        false,
+		SandboxBillingEnabled:                true,
+		SandboxHeadlessPriceCreditsPerSecond: 0.03,
+		SandboxDesktopPriceCreditsPerSecond:  0.09,
+		MaxConcurrentHeadlessSandboxes:       7,
+		MaxConcurrentDesktopSandboxes:        3,
+		OptimusReasoningModelProvider:        "seed-reasoning-provider",
+		OptimusReasoningModel:                "seed-reasoning-model",
+		OptimusReasoningModelEffort:          "seed-reasoning-effort",
+		OptimusGenerationModelProvider:       "seed-generation-provider",
+		OptimusGenerationModel:               "seed-generation-model",
+		OptimusSmallReasoningModelProvider:   "seed-small-reasoning-provider",
+		OptimusSmallReasoningModel:           "seed-small-reasoning-model",
+		OptimusSmallReasoningModelEffort:     "seed-small-reasoning-effort",
+		OptimusSmallGenerationModelProvider:  "seed-small-generation-provider",
+		OptimusSmallGenerationModel:          "seed-small-generation-model",
 	}
 	require.NoError(t, store.gdb.WithContext(ctx).Create(seed).Error)
 
@@ -181,9 +169,6 @@ func TestUpdateSystemSettings_PartialUpdateLeavesOtherFieldsUnchanged(t *testing
 
 	require.Equal(t, "seed-kodit-provider", updated.KoditEnrichmentProvider)
 	require.Equal(t, "seed-kodit-model", updated.KoditEnrichmentModel)
-	require.Equal(t, "seed-project-provider", updated.DefaultNewProjectAgentProvider)
-	require.Equal(t, "seed-project-model", updated.DefaultNewProjectAgentModel)
-	require.Equal(t, types.ReasoningEffortMedium, updated.DefaultNewProjectAgentReasoningEffort)
 	require.Equal(t, "1.18.19", updated.OpenCodeVersion)
 	require.True(t, updated.ProvidersManagementEnabled)
 	require.False(t, updated.EnforceQuotas)
@@ -272,14 +257,4 @@ func TestUpdateSystemSettings_RejectsInvalidSandboxLimits(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "max concurrent desktop sandboxes")
-}
-
-func TestUpdateSystemSettings_RejectsInvalidDefaultProjectAgentEffort(t *testing.T) {
-	store := newSystemSettingsTestStore(t)
-
-	_, err := store.UpdateSystemSettings(context.Background(), &types.SystemSettingsRequest{
-		DefaultNewProjectAgentReasoningEffort: strPtr("maximum"),
-	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "default new project agent reasoning effort")
 }

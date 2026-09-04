@@ -39,12 +39,24 @@ import {
 } from "../services";
 import { useGitRepositories } from "../services/gitRepositoryService";
 import { matchesAllTokens } from "../utils/searchUtils";
+import { useHelixOrgSettings } from "../services/helixOrgService";
+import { parseOrgDefaultRuntime } from "./newChatLogic";
 import type {
   TypesExternalRepositoryType,
   TypesGitRepository,
   TypesAzureDevOps,
   TypesRepositoryInfo,
 } from "../api/api";
+
+export function parseCreateProjectConfig(value?: string): TypesCodeAgentExecutionConfig | undefined {
+  if (!value) return undefined;
+  try {
+    const config = JSON.parse(value) as TypesCodeAgentExecutionConfig;
+    return config.runtime && config.credential_type && config.model ? config : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const Projects: FC = () => {
   const account = useAccount();
@@ -54,6 +66,12 @@ const Projects: FC = () => {
   const api = useApi();
   const { paywallActive, navigateToBilling } = useSubscriptionGate();
   const { openDialog } = useSettingsDialog();
+  const { data: orgSettings } = useHelixOrgSettings();
+  const orgDefaultValue = orgSettings?.specs?.find((spec) => spec.key === "agent.default")?.value;
+  const orgDefaultConfig = React.useMemo(
+    () => parseOrgDefaultRuntime(orgDefaultValue),
+    [orgDefaultValue],
+  );
 
   const isLoggedIn = !!account.user;
 
@@ -114,10 +132,23 @@ const Projects: FC = () => {
     null,
   );
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [initialCreateConfig, setInitialCreateConfig] = useState<
+    TypesCodeAgentExecutionConfig | undefined
+  >();
   const [createRepositoryDialogOpen, setCreateRepositoryDialogOpen] =
     useState(false);
   const [linkRepositoryDialogOpen, setLinkRepositoryDialogOpen] =
     useState(false);
+
+  React.useEffect(() => {
+    if (!router.params.create_project_config) return;
+    const config = parseCreateProjectConfig(router.params.create_project_config);
+    router.removeParams(['create_project_config']);
+    if (config) {
+      setInitialCreateConfig(config);
+      setCreateDialogOpen(true);
+    }
+  }, [router.params.create_project_config]);
   const [browseProvidersOpen, setBrowseProvidersOpen] = useState(false);
   const [repositoryCreating, setRepositoryCreating] = useState(false);
   const [repositoryCreateError, setRepositoryCreateError] = useState("");
@@ -654,7 +685,11 @@ const Projects: FC = () => {
       {/* Create Project Dialog */}
       <CreateProjectDialog
         open={createDialogOpen}
-        onClose={() => setCreateDialogOpen(false)}
+        onClose={() => {
+          setCreateDialogOpen(false)
+          setInitialCreateConfig(undefined)
+        }}
+        initialCodeAgentConfig={initialCreateConfig || orgDefaultConfig}
         repositories={repositories}
         reposLoading={reposLoading}
         onCreateRepo={handleCreateRepoForProject}
@@ -695,7 +730,7 @@ const Projects: FC = () => {
         }}
         onSelect={handleAgentSelected}
         title="Select Task Defaults"
-        description="Choose the coding harness, credentials, provider, and model for tasks in this project."
+        description="Choose the coding runtime, credentials, provider, and model for tasks in this project."
       />
 
       {/* GitHub Auth Wizard for Sample Projects */}

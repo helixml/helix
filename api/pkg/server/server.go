@@ -1534,6 +1534,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	router.Handle("/artifacts/{artifact_id}/embed/{artifact_path:.*}", artifactEmbedHandler).Methods(http.MethodGet, http.MethodHead)
 	artifactDocumentHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.serveArtifactDocument))
 	router.Handle("/artifacts/{artifact_id}/document", artifactDocumentHandler).Methods(http.MethodGet, http.MethodHead)
+	artifactDownloadHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.serveArtifactDownload))
+	router.Handle("/artifacts/{artifact_id}/download", artifactDownloadHandler).Methods(http.MethodGet, http.MethodHead)
 	artifactViewerHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.getArtifactViewer))
 	insecureRouter.Handle("/public/artifacts/{artifact_id}", artifactViewerHandler).Methods(http.MethodGet)
 
@@ -1612,6 +1614,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// Project audit log routes
 	authRouter.HandleFunc("/projects/{id}/audit-logs", system.Wrapper(apiServer.listProjectAuditLogs)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.getArtifact).Methods(http.MethodGet)
+	authRouter.HandleFunc("/artifacts/{artifact_id}/download", apiServer.serveArtifactDownload).Methods(http.MethodGet, http.MethodHead)
 	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.updateArtifact).Methods(http.MethodPut)
 	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.deleteArtifact).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/artifacts/{artifact_id}/versions", apiServer.listArtifactVersions).Methods(http.MethodGet)

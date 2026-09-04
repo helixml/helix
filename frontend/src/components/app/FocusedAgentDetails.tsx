@@ -81,7 +81,7 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
       <AgentSettingsSection
         title="General"
         description={kind === 'org'
-          ? 'Set the worker name, coding harness, model, and reasoning effort.'
+          ? 'Set the worker name, coding runtime, model, and reasoning effort.'
           : 'Choose the name used to identify this coding agent across the organization.'}
       >
         <AgentSettingsRow>
@@ -124,7 +124,7 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
       {kind === 'coding' && (
         <AgentSettingsSection
           title="Provider and model"
-          description="Choose the coding harness, credentials, model, and reasoning effort."
+          description="Choose the coding runtime, credentials, model, and reasoning effort."
         >
           <AgentSettingsRow>{appSettings('configuration')}</AgentSettingsRow>
         </AgentSettingsSection>

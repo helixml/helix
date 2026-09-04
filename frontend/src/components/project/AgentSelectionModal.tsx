@@ -25,7 +25,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   onClose,
   onSelect,
   title = 'Select Task Defaults',
-  description = 'Choose the coding harness, credentials, provider, and model for tasks in this project.',
+  description = 'Choose the coding runtime, credentials, provider, and model for tasks in this project.',
 }) => {
   const [config, setConfig] = useState<TypesCodeAgentExecutionConfig>()
 

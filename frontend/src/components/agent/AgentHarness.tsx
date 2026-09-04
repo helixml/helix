@@ -25,7 +25,7 @@ const harnessMeta: Record<string, HarnessMeta> = {
   gemini_cli: { label: 'Gemini CLI', color: '#4285f4' },
   qwen_code: { label: 'Qwen Code', color: '#6d44e8' },
   goose_code: { label: 'Goose', color: '' },
-  deepseek_harness: { label: 'DeepSeek Harness', color: '#4d6bfe' },
+  deepseek_harness: { label: 'DeepSeek Runtime', color: '#4d6bfe' },
   opencode: { label: 'opencode', color: '' },
   zed_agent: { label: 'Zed Agent', color: '' },
   // An externally-driven Zed. Same mark, different label — it is not Helix's
@@ -37,7 +37,7 @@ const harnessMeta: Record<string, HarnessMeta> = {
 export const getAgentHarnessLabel = (runtime?: string): string => {
   if (!runtime) return 'Zed Agent'
   return harnessMeta[runtime]?.label
-    ?? runtime.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
+    ?? runtime.replace(/_harness$/, '_runtime').split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
 }
 
 type AgentHarnessSource = {

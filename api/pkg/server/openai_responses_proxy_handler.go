@@ -86,7 +86,7 @@ func (s *HelixAPIServer) openAIResponsesProxyHandler(w http.ResponseWriter, r *h
 		return
 	}
 	if selection.Runtime != types.CodeAgentRuntimeCodexCLI {
-		http.Error(w, fmt.Sprintf("/v1/responses is reserved for the Codex harness, got %q", selection.Runtime), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("/v1/responses is reserved for the Codex runtime, got %q", selection.Runtime), http.StatusBadRequest)
 		return
 	}
 	endpoint, err := s.resolveCodeAgentProviderEndpoint(r.Context(), user, selection.ProviderRef)

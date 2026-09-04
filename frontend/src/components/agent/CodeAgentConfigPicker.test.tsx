@@ -421,7 +421,7 @@ describe('CodeAgentConfigPicker', () => {
     )
 
     const trigger = screen.getByRole('button', { name: 'Change coding agent' })
-    expect(trigger).toHaveTextContent('Configure harness')
+    expect(trigger).toHaveTextContent('Configure runtime')
     expect(trigger).not.toHaveTextContent('api-model')
   })
 
@@ -443,7 +443,7 @@ describe('CodeAgentConfigPicker', () => {
 
     const trigger = screen.getByRole('button', { name: 'Change coding agent' })
     expect(trigger).toHaveTextContent('gpt-5.6-sol')
-    expect(trigger).not.toHaveTextContent('Configure harness')
+    expect(trigger).not.toHaveTextContent('Configure runtime')
     expect(trigger).toBeDisabled()
   })
 
@@ -470,7 +470,7 @@ describe('CodeAgentConfigPicker', () => {
     )
 
     await waitFor(() => expect(onChange).not.toHaveBeenCalled())
-    expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('Configure harness')
+    expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('Configure runtime')
   })
 
   it('picks another harness when the last known one is no longer enabled', async () => {

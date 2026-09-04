@@ -105,7 +105,7 @@ const OrgAgentSettings: FC<{
         {!embedded && (<>
         <Typography variant="h5" sx={{ mb: 0.5 }}>Basics</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Configure the org agent's name, coding harness, model, and reasoning effort.
+          Configure the org agent's name, coding runtime, model, and reasoning effort.
         </Typography>
         </>)}
         <Stack spacing={3}>

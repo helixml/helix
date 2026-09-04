@@ -161,11 +161,30 @@ func newHelixOrgRouteTestHandler(t *testing.T) (http.Handler, *helixOrgScope) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{}}
+	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{role: types.OrganizationRoleOwner}}
 	root := mux.NewRouter()
 	router := root.PathPrefix(APIPrefix).Subrouter()
 	server.registerHelixOrgAuthenticatedRoutes(router, &helixOrgHandlers{api: api, scope: scope})
 	return root, scope
+}
+
+func TestHelixOrgDefaultRuntimeMutationRequiresOwner(t *testing.T) {
+	api := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{role: types.OrganizationRoleMember}}
+	handler := server.withHelixOrgIdentity(api)
+
+	for _, method := range []string{http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/orgs/acme/settings/agent.default", nil)
+		req = mux.SetURLVars(req, map[string]string{"org": "acme"})
+		req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1"}))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s status = %d, want %d", method, rec.Code, http.StatusForbidden)
+		}
+	}
 }
 
 func helixOrgRouteRequest(handler http.Handler, method, path string) *httptest.ResponseRecorder {

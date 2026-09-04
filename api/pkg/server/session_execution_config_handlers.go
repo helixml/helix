@@ -102,7 +102,7 @@ func (s *HelixAPIServer) getSessionExecutionConfig(w http.ResponseWriter, r *htt
 
 // updateSessionExecutionConfig godoc
 // @Summary Update session execution configuration
-// @Description Replaces the complete coding execution config. SpecTask sessions write through to the task; general sessions keep their parent Agent for instructions and tools while storing harness/model configuration on the session. Running sandboxes start a fresh ACP thread with the prior transcript.
+// @Description Replaces the complete coding execution config. SpecTask sessions write through to the task; general sessions keep their parent Agent for instructions and tools while storing runtime/model configuration on the session. Running sandboxes start a fresh ACP thread with the prior transcript.
 // @Tags Sessions
 // @Accept json
 // @Produce json
@@ -197,7 +197,7 @@ func (s *HelixAPIServer) updateSessionExecutionConfig(w http.ResponseWriter, r *
 		}
 		_, restarted, httpErr := s.applySessionCodeAgentExecutionConfig(
 			ctx, user, session, req.CodeAgentConfig,
-			"The coding harness or model configuration changed for this session.",
+			"The coding runtime or model configuration changed for this session.",
 		)
 		if httpErr != nil {
 			http.Error(w, httpErr.Message, httpErr.StatusCode)

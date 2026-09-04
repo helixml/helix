@@ -7,17 +7,27 @@ const mockNavigateReplace = vi.fn()
 const mockSnackbarError = vi.fn()
 const mockLoadOrganizations = vi.fn()
 const mockV1UsersMeOnboardingCreate = vi.fn()
+const mockV1OrgsSettingsUpdate = vi.fn()
 const mockCreateOrgMutateAsync = vi.fn()
+const mockUpdateHarnesses = vi.fn()
 
 const mockState = vi.hoisted(() => ({
   walletStatus: 'active',
   claudeSubscriptions: [{ id: 'claude-sub-1' }] as Array<{ id: string }>,
   codexSubscriptions: [] as Array<{ id: string }>,
+  providers: [] as any[],
+  harnesses: [] as any[],
 }))
 
 let mockAccountValue: any
 
-function setAccountWithOrgs(orgs: Array<{ id: string; name: string; display_name: string }>) {
+function setAccountWithOrgs(orgs: Array<{
+  id: string
+  name: string
+  display_name: string
+  owner?: string
+  memberships?: Array<{ user_id: string; role: string }>
+}>) {
   mockAccountValue = {
     user: { id: 'user-1', name: 'Test User', email: 'test@example.com' },
     organizationTools: {
@@ -41,6 +51,7 @@ vi.mock('../hooks/useApi', () => ({
     get: vi.fn(),
     getApiClient: () => ({
       v1UsersMeOnboardingCreate: mockV1UsersMeOnboardingCreate,
+      v1OrgsSettingsUpdate: mockV1OrgsSettingsUpdate,
       v1SubscriptionNewCreate: vi.fn(),
     }),
   }),
@@ -77,9 +88,26 @@ vi.mock('../services/orgService', () => ({
 
 vi.mock('../services/userService', () => ({
   useGetConfig: () => ({
-    data: { billing_enabled: true, edition: 'cloud' },
+    data: {
+      billing_enabled: true,
+      edition: 'cloud',
+    },
     isLoading: false,
   }),
+}))
+
+vi.mock('../services/codeAgentHarnessesService', () => ({
+  useUpdateOrgCodeAgentHarnesses: () => ({ mutateAsync: mockUpdateHarnesses }),
+  useOrgCodeAgentHarnesses: () => ({
+    data: mockState.harnesses,
+    isLoading: false,
+  }),
+  findHarnessStatus: (harnesses: any[], runtime: string) =>
+    harnesses.find((harness) => harness.runtime === runtime),
+}))
+
+vi.mock('../services/providersService', () => ({
+  useListProviders: () => ({ data: mockState.providers, isLoading: false }),
 }))
 
 vi.mock('../services/useBilling', () => ({
@@ -89,7 +117,7 @@ vi.mock('../services/useBilling', () => ({
       subscription_created: 0,
       subscription_current_period_start: 0,
       subscription_current_period_end: 0,
-      balance: 0,
+      balance: 42.5,
     },
     refetch: vi.fn(),
     isFetching: false,
@@ -151,9 +179,22 @@ describe('Onboarding', () => {
     mockState.walletStatus = 'active'
     mockState.claudeSubscriptions = [{ id: 'claude-sub-1' }]
     mockState.codexSubscriptions = []
+    mockState.providers = [{
+      id: 'pe_helix',
+      name: 'helix',
+      status: 'ok',
+      available_models: [{ id: 'helix-model', enabled: true, type: 'chat' }],
+    }]
+    mockState.harnesses = [
+      { runtime: 'zed_agent', enabled: true, subscription_enabled: false },
+      { runtime: 'claude_code', enabled: false, subscription_enabled: false },
+      { runtime: 'codex_cli', enabled: false, subscription_enabled: false },
+    ]
     mockV1UsersMeOnboardingCreate.mockResolvedValue({})
+    mockV1OrgsSettingsUpdate.mockResolvedValue({})
+    mockUpdateHarnesses.mockResolvedValue([])
     setAccountWithOrgs([
-      { id: 'org-1', name: 'my-org', display_name: 'My Org' },
+      { id: 'org-1', name: 'my-org', display_name: 'My Org', owner: 'user-1' },
     ])
   })
 
@@ -168,20 +209,26 @@ describe('Onboarding', () => {
     renderOnboarding()
     await goToCodingAccessStep()
 
-    expect(
-      screen.getByRole('button', { name: /continue with helix credits/i }),
-    ).toBeEnabled()
+    expect(screen.getByRole('button', { name: /continue with helix credits/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /helix providers/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /claude subscription/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /chatgpt subscription/i })).toBeInTheDocument()
+    expect(screen.getByText('Current organization balance: $42.50 credits')).toBeInTheDocument()
     expect(screen.queryByText(/create your first project/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/create your first task/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/where is your code/i)).not.toBeInTheDocument()
   })
 
-  it('completes onboarding with Helix credits and opens org chat', async () => {
+  it('saves the selected Helix runtime and opens project creation', async () => {
     renderOnboarding()
     await goToCodingAccessStep()
+
+    fireEvent.mouseDown(screen.getByLabelText('Helix provider'))
+    fireEvent.click(screen.getByRole('option', { name: 'helix' }))
+    fireEvent.mouseDown(screen.getByLabelText('Helix model'))
+    fireEvent.click(screen.getByRole('option', { name: 'helix-model' }))
+    fireEvent.mouseDown(screen.getByLabelText('Reasoning effort'))
+    fireEvent.click(screen.getByRole('option', { name: 'High' }))
 
     await act(async () => {
       fireEvent.click(
@@ -193,10 +240,27 @@ describe('Onboarding', () => {
       expect(mockV1UsersMeOnboardingCreate).toHaveBeenCalledTimes(1)
     })
     expect(mockAccountValue.dismissOnboarding).toHaveBeenCalledTimes(1)
-    expect(localStorage.getItem('selected_org')).toBe('my-org')
-    expect(mockNavigateReplace).toHaveBeenCalledWith('org_chat', {
-      org_id: 'my-org',
+    expect(mockV1OrgsSettingsUpdate).toHaveBeenCalledWith('agent.default', 'my-org', {
+      value: JSON.stringify({
+        code_agent_runtime: 'zed_agent',
+        code_agent_credential_type: 'api_key',
+        provider: 'pe_helix',
+        model: 'helix-model',
+        reasoning_effort: 'high',
+      }),
     })
+    expect(localStorage.getItem('selected_org')).toBe('my-org')
+    expect(mockNavigateReplace).toHaveBeenCalledWith('org_projects', {
+      org_id: 'my-org',
+      create_project_config: JSON.stringify({
+        runtime: 'zed_agent',
+        credential_type: 'api_key',
+        provider_ref: 'pe_helix',
+        model: 'helix-model',
+        reasoning_effort: 'high',
+      }),
+    })
+    expect(mockUpdateHarnesses).not.toHaveBeenCalled()
   })
 
   it('requires a Claude connection only when Claude is selected', async () => {
@@ -224,12 +288,14 @@ describe('Onboarding', () => {
     ).toBeDisabled()
   })
 
-  it('can finish with a connected external coding subscription', async () => {
+  it('selects a Codex subscription model and enables only that harness', async () => {
     mockState.codexSubscriptions = [{ id: 'codex-sub-1' }]
     renderOnboarding()
     await goToCodingAccessStep()
 
     fireEvent.click(screen.getByRole('button', { name: /chatgpt subscription/i }))
+    fireEvent.mouseDown(screen.getByLabelText('Codex model'))
+    fireEvent.click(screen.getByRole('option', { name: 'GPT-5.6 Terra' }))
     const continueButton = screen.getByRole('button', {
       name: /continue with chatgpt subscription/i,
     })
@@ -240,10 +306,108 @@ describe('Onboarding', () => {
     })
 
     await waitFor(() => {
-      expect(mockNavigateReplace).toHaveBeenCalledWith('org_chat', {
+      expect(mockNavigateReplace).toHaveBeenCalledWith('org_projects', {
         org_id: 'my-org',
+        create_project_config: JSON.stringify({
+          runtime: 'codex_cli',
+          credential_type: 'subscription',
+          model: 'gpt-5.6-terra',
+        }),
       })
     })
+    expect(mockUpdateHarnesses).toHaveBeenCalledWith([{
+      runtime: 'codex_cli',
+      enabled: true,
+      subscription_enabled: true,
+    }])
+    expect(mockV1OrgsSettingsUpdate).toHaveBeenCalledWith('agent.default', 'my-org', {
+      value: JSON.stringify({
+        code_agent_runtime: 'codex_cli',
+        code_agent_credential_type: 'subscription',
+        provider: '',
+        model: 'gpt-5.6-terra',
+        reasoning_effort: 'none',
+      }),
+    })
+  })
+
+  it('selects a Claude subscription model and passes it to project creation', async () => {
+    renderOnboarding()
+    await goToCodingAccessStep()
+
+    fireEvent.click(screen.getByRole('button', { name: /claude subscription/i }))
+    fireEvent.mouseDown(screen.getByLabelText('Claude model'))
+    fireEvent.click(screen.getByRole('option', { name: /Claude Fable 5/i }))
+    fireEvent.click(screen.getByRole('button', { name: /continue with claude subscription/i }))
+
+    await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith('org_projects', {
+      org_id: 'my-org',
+      create_project_config: JSON.stringify({
+        runtime: 'claude_code',
+        credential_type: 'subscription',
+        model: 'claude-fable-5',
+      }),
+    }))
+    expect(mockUpdateHarnesses).toHaveBeenCalledWith([{
+      runtime: 'claude_code',
+      enabled: true,
+      subscription_enabled: true,
+    }])
+    expect(mockV1OrgsSettingsUpdate).toHaveBeenCalledWith('agent.default', 'my-org', {
+      value: JSON.stringify({
+        code_agent_runtime: 'claude_code',
+        code_agent_credential_type: 'subscription',
+        provider: '',
+        model: 'claude-fable-5',
+        reasoning_effort: 'none',
+      }),
+    })
+  })
+
+  it('blocks Helix completion when no allowed provider is available', async () => {
+    mockState.providers = []
+    renderOnboarding()
+    await goToCodingAccessStep()
+
+    expect(screen.getByRole('button', { name: /continue with helix credits/i })).toBeDisabled()
+  })
+
+  it('requires a non-owner to ask the owner before changing subscription policy', async () => {
+    setAccountWithOrgs([
+      { id: 'org-1', name: 'my-org', display_name: 'My Org', owner: 'another-user' },
+    ])
+    renderOnboarding()
+    await goToCodingAccessStep()
+
+    fireEvent.click(screen.getByRole('button', { name: /claude subscription/i }))
+    fireEvent.mouseDown(screen.getByLabelText('Claude model'))
+    fireEvent.click(screen.getByRole('option', { name: /Claude Fable 5/i }))
+
+    expect(screen.getByText(
+      'Ask an organization owner to set the Default Runtime.',
+    )).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /continue with claude subscription/i })).toBeDisabled()
+    expect(mockUpdateHarnesses).not.toHaveBeenCalled()
+  })
+
+  it('does not rewrite policy when subscription access is already enabled', async () => {
+    mockState.harnesses = mockState.harnesses.map((harness) =>
+      harness.runtime === 'claude_code'
+        ? { ...harness, enabled: true, subscription_enabled: true }
+        : harness)
+    renderOnboarding()
+    await goToCodingAccessStep()
+
+    fireEvent.click(screen.getByRole('button', { name: /claude subscription/i }))
+    fireEvent.mouseDown(screen.getByLabelText('Claude model'))
+    fireEvent.click(screen.getByRole('option', { name: /Claude Fable 5/i }))
+    fireEvent.click(screen.getByRole('button', { name: /continue with claude subscription/i }))
+
+    await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
+      'org_projects',
+      expect.any(Object),
+    ))
+    expect(mockUpdateHarnesses).not.toHaveBeenCalled()
   })
 
   it('shows benefits rather than empty billing fields before subscription', async () => {

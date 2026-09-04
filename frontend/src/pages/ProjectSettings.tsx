@@ -915,7 +915,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           </SettingRow>
           <SettingRow
             title="Agent"
-            description="Harness and model new tasks start on, including tasks filed by an agent. Which harnesses are available is set for the whole organization under Providers."
+            description="Runtime and model new tasks start on, including tasks filed by an agent. Which runtimes are available is set for the whole organization under Providers."
           >
             <ProjectCodeAgentDefaults
               project={project}

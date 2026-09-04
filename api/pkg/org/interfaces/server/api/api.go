@@ -97,9 +97,10 @@ type Deps struct {
 	Queries       *queries.Queries
 	WorkerSecrets *workersecrets.Service
 
-	Configs    *configregistry.Registry
-	Hub        *wakebus.Bus
-	Dispatcher Dispatcher
+	Configs                    *configregistry.Registry
+	Hub                        *wakebus.Bus
+	Dispatcher                 Dispatcher
+	ValidateDefaultAgentConfig func(context.Context, string, types.AssistantConfig) error
 
 	// BotRuntime reads a Bot's runtime-state sidecar (project /
 	// agent-app / session ids). A small port so the bot-detail and
