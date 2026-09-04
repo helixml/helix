@@ -3723,6 +3723,12 @@ export interface TypesCreateTaskRequest {
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   prompt?: string;
+  /**
+   * SandboxHostID optionally pins the task's desktop container to a specific
+   * sandbox host (SandboxInstance.ID). The host must be online and satisfy
+   * the runtime's display requirement, or task creation fails.
+   */
+  sandbox_host_id?: string;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   sandbox_runtime?: TypesSandboxRuntime;
   type?: string;
@@ -3955,6 +3961,11 @@ export interface TypesExternalAgentConfig {
   display_width?: number;
   /** Display resolution - either use Resolution preset or explicit dimensions */
   resolution?: string;
+  /**
+   * SandboxHostID pins the session's dev container to a specific sandbox
+   * host (SandboxInstance.ID). Empty means the dispatcher chooses.
+   */
+  sandbox_host_id?: string;
   /** Video capture/encoding mode */
   video_mode?: string;
   /** GNOME zoom percentage (100 default, 200 for 4k/5k) */
@@ -7177,6 +7188,13 @@ export interface TypesSpecTask {
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /**
+   * SandboxHostID pins this task's desktop container to a specific sandbox
+   * host (SandboxInstance.ID). Empty means the dispatcher chooses. Also
+   * honoured on resume, so the task returns to the host that has its
+   * workspace on disk.
+   */
+  sandbox_host_id?: string;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   sandbox_runtime?: TypesSandboxRuntime;
   /** "absent", "running", "starting" — derived from session config in listTasks */
@@ -7569,6 +7587,13 @@ export interface TypesSpecTaskWithProject {
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /**
+   * SandboxHostID pins this task's desktop container to a specific sandbox
+   * host (SandboxInstance.ID). Empty means the dispatcher chooses. Also
+   * honoured on resume, so the task returns to the host that has its
+   * workspace on disk.
+   */
+  sandbox_host_id?: string;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   sandbox_runtime?: TypesSandboxRuntime;
   /** "absent", "running", "starting" — derived from session config in listTasks */
@@ -8935,7 +8960,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerAgentSandboxesDebugResponse, SystemHTTPError>({
+      this.request<ServerAgentSandboxesDebugResponse, TypesAPIError>({
         path: `/api/v1/admin/agent-sandboxes/debug`,
         method: "GET",
         query: query,
@@ -8955,7 +8980,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AdminAgentSandboxesEventsList: (params: RequestParams = {}) =>
-      this.request<string, SystemHTTPError>({
+      this.request<string, TypesAPIError>({
         path: `/api/v1/admin/agent-sandboxes/events`,
         method: "GET",
         secure: true,
@@ -10543,7 +10568,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<File, SystemHTTPError>({
+      this.request<File, TypesAPIError>({
         path: `/api/v1/bandwidth-probe`,
         method: "GET",
         query: query,
@@ -10903,7 +10928,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ExternalAgentsClipboardDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<TypesClipboardData, SystemHTTPError>({
+      this.request<TypesClipboardData, TypesAPIError>({
         path: `/api/v1/external-agents/${sessionId}/clipboard`,
         method: "GET",
         secure: true,
@@ -10921,7 +10946,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ExternalAgentsClipboardCreate: (sessionId: string, clipboard: TypesClipboardData, params: RequestParams = {}) =>
-      this.request<void, SystemHTTPError>({
+      this.request<void, TypesAPIError>({
         path: `/api/v1/external-agents/${sessionId}/clipboard`,
         method: "POST",
         body: clipboard,
@@ -10964,7 +10989,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ExternalAgentsExecCreate: (sessionId: string, body: object, params: RequestParams = {}) =>
-      this.request<object, SystemHTTPError>({
+      this.request<object, TypesAPIError>({
         path: `/api/v1/external-agents/${sessionId}/exec`,
         method: "POST",
         body: body,
@@ -10991,7 +11016,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<File, SystemHTTPError>({
+      this.request<File, TypesAPIError>({
         path: `/api/v1/external-agents/${sessionId}/file`,
         method: "GET",
         query: query,
@@ -11020,7 +11045,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesSandboxFileUploadResponse, SystemHTTPError>({
+      this.request<TypesSandboxFileUploadResponse, TypesAPIError>({
         path: `/api/v1/external-agents/${sessionId}/upload`,
         method: "POST",
         query: query,
@@ -11073,7 +11098,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesWorkspaceFileWriteRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesWorkspaceFileResponse, SystemHTTPError>({
+      this.request<TypesWorkspaceFileResponse, TypesAPIError>({
         path: `/api/v1/external-agents/${sessionId}/workspace-file`,
         method: "PUT",
         body: request,
@@ -11132,7 +11157,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesWorkspaceReviewResponse, SystemHTTPError>({
+      this.request<TypesWorkspaceReviewResponse, TypesAPIError>({
         path: `/api/v1/external-agents/${sessionId}/workspace-review`,
         method: "GET",
         query: query,
@@ -11204,7 +11229,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ExternalAgentsWorkspacesDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<TypesWorkspacesResponse, SystemHTTPError>({
+      this.request<TypesWorkspacesResponse, TypesAPIError>({
         path: `/api/v1/external-agents/${sessionId}/workspaces`,
         method: "GET",
         secure: true,
@@ -11222,7 +11247,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ExternalAgentsWsInputDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<any, void | SystemHTTPError>({
+      this.request<any, void | TypesAPIError>({
         path: `/api/v1/external-agents/${sessionId}/ws/input`,
         method: "GET",
         secure: true,
@@ -11239,7 +11264,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ExternalAgentsWsStreamDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<any, void | SystemHTTPError>({
+      this.request<any, void | TypesAPIError>({
         path: `/api/v1/external-agents/${sessionId}/ws/stream`,
         method: "GET",
         secure: true,
@@ -16311,7 +16336,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+      this.request<TypesAggregatedUsageMetric[], TypesAPIError>({
         path: `/api/v1/provider-endpoints/${id}/daily-usage`,
         method: "GET",
         query: query,
@@ -16369,7 +16394,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+      this.request<TypesAggregatedUsageMetric[], TypesAPIError>({
         path: `/api/v1/provider-endpoints/${id}/throughput-usage`,
         method: "GET",
         query: query,
@@ -16398,7 +16423,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesUsersAggregatedUsageMetric[], SystemHTTPError>({
+      this.request<TypesUsersAggregatedUsageMetric[], TypesAPIError>({
         path: `/api/v1/provider-endpoints/${id}/users-daily-usage`,
         method: "GET",
         query: query,
@@ -17761,7 +17786,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SessionsSandboxStateDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerSessionSandboxStateResponse, SystemHTTPError>({
+      this.request<ServerSessionSandboxStateResponse, TypesAPIError>({
         path: `/api/v1/sessions/${id}/sandbox-state`,
         method: "GET",
         secure: true,

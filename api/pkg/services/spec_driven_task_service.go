@@ -171,6 +171,13 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	}
 	sandboxRuntime = types.EffectiveSpecTaskSandboxRuntime(sandboxRuntime)
 
+	if req.SandboxHostID != "" {
+		requiresDisplay := sandboxRuntime != types.SandboxRuntimeHeadlessUbuntu
+		if err := external_agent.ValidateSandboxHostPin(ctx, s.store, req.SandboxHostID, requiresDisplay); err != nil {
+			return nil, fmt.Errorf("invalid sandbox host: %w", err)
+		}
+	}
+
 	codeAgentConfig := cloneCodeAgentExecutionConfig(req.CodeAgentConfig)
 	if codeAgentConfig == nil && project != nil {
 		codeAgentConfig = cloneCodeAgentExecutionConfig(project.CodeAgentConfig)
@@ -245,6 +252,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		CodeAgentConfig:          codeAgentConfig,
 		SandboxResourceOverrides: sandboxResources,
 		SandboxRuntime:           sandboxRuntime,
+		SandboxHostID:            req.SandboxHostID,
 		JustDoItMode:             req.JustDoItMode, // Set Just Do It mode from request
 		// Credential-only override: whose Claude subscription authenticates this
 		// task's agent. Enforced at resolution time against the named user's
@@ -637,6 +645,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		ProjectID:      task.ProjectID, // For golden Docker cache overlay
 		ProjectPath:    "workspace",    // Use relative path
 		SpecTaskID:     task.ID,        // For task-scoped workspace
+		SandboxID:      task.SandboxHostID,
 		VCPUs:          sandboxVCPUs(task),
 		MemoryMB:       sandboxMemoryMB(task),
 		// RepositoryIDs / PrimaryRepositoryID set by SetRepoContext below.
@@ -1050,6 +1059,7 @@ Follow these guidelines when making changes:
 		ProjectID:           task.ProjectID, // For golden Docker cache overlay
 		ProjectPath:         "workspace",    // Use relative path
 		SpecTaskID:          task.ID,        // For task-scoped workspace
+		SandboxID:           task.SandboxHostID,
 		VCPUs:               sandboxVCPUs(task),
 		MemoryMB:            sandboxMemoryMB(task),
 		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
@@ -2084,6 +2094,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		Input:               "Resuming Zed development environment after container restart",
 		ProjectPath:         "workspace",
 		SpecTaskID:          task.ID,
+		SandboxID:           task.SandboxHostID,
 		VCPUs:               sandboxVCPUs(task),
 		MemoryMB:            sandboxMemoryMB(task),
 		PrimaryRepositoryID: primaryRepoID,

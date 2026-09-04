@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
@@ -1012,6 +1013,14 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				}
 				if startReq.ExternalAgentConfig.DesktopType != "" {
 					zedAgent.DesktopType = startReq.ExternalAgentConfig.DesktopType
+				}
+				if startReq.ExternalAgentConfig.SandboxHostID != "" {
+					requiresDisplay := external_agent.DesktopTypeRequiresDisplay(zedAgent.DesktopType)
+					if err := external_agent.ValidateSandboxHostPin(req.Context(), s.Controller.Options.Store, startReq.ExternalAgentConfig.SandboxHostID, requiresDisplay); err != nil {
+						http.Error(rw, fmt.Sprintf("invalid sandbox host: %s", err.Error()), http.StatusBadRequest)
+						return
+					}
+					zedAgent.SandboxID = startReq.ExternalAgentConfig.SandboxHostID
 				}
 			}
 
@@ -2261,9 +2270,14 @@ func (s *HelixAPIServer) resumeSessionInternal(ctx context.Context, user *types.
 				Err(err).
 				Str("spec_task_id", specTaskID).
 				Msg("Failed to load spec task for resume, continuing without repository info")
-		} else if specTask.ProjectID != "" {
-			agent.ProjectID = specTask.ProjectID
-			agent.OrganizationID = specTask.OrganizationID
+		} else {
+			if specTask.ProjectID != "" {
+				agent.ProjectID = specTask.ProjectID
+				agent.OrganizationID = specTask.OrganizationID
+			}
+			// Honour the task's host pin on resume so the container comes
+			// back up on the host that has its workspace on disk.
+			agent.SandboxID = specTask.SandboxHostID
 		}
 	} else if session.Metadata.ProjectID != "" {
 		agent.ProjectID = session.Metadata.ProjectID

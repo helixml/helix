@@ -375,8 +375,8 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 // @Param sessionID path string true "Session ID"
 // @Param body body object true "Command to execute" Example({"command": ["vkcube"], "background": true})
 // @Success 200 {object} object "Execution result"
-// @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
+// @Failure 401 {object} types.APIError
+// @Failure 403 {object} types.APIError
 // @Router /api/v1/external-agents/{sessionID}/exec [post]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *http.Request) {
@@ -532,7 +532,7 @@ func (apiServer *HelixAPIServer) execCommandInDesktop(ctx context.Context, sessi
 // @Produce application/octet-stream
 // @Param size query int false "Size of data to return in bytes (default 524288 = 512KB, max 2MB)"
 // @Success 200 {file} binary
-// @Failure 401 {object} system.HTTPError
+// @Failure 401 {object} types.APIError
 // @Router /api/v1/bandwidth-probe [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getBandwidthProbe(res http.ResponseWriter, req *http.Request) {
@@ -575,8 +575,8 @@ func (apiServer *HelixAPIServer) getBandwidthProbe(res http.ResponseWriter, req 
 // @Produce json
 // @Param sessionID path string true "Session ID"
 // @Success 200 {object} types.ClipboardData
-// @Failure 401 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
+// @Failure 401 {object} types.APIError
+// @Failure 404 {object} types.APIError
 // @Router /api/v1/external-agents/{sessionID}/clipboard [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWriter, req *http.Request) {
@@ -686,8 +686,8 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 // @Param sessionID path string true "Session ID"
 // @Param clipboard body types.ClipboardData true "Clipboard data to set"
 // @Success 200
-// @Failure 401 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
+// @Failure 401 {object} types.APIError
+// @Failure 404 {object} types.APIError
 // @Router /api/v1/external-agents/{sessionID}/clipboard [post]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWriter, req *http.Request) {
@@ -805,11 +805,11 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 // @Param file formData file true "File to upload"
 // @Param open_file_manager query bool false "Open file manager to show uploaded file (default: true)"
 // @Success 200 {object} types.SandboxFileUploadResponse
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 503 {object} system.HTTPError
+// @Failure 400 {object} types.APIError
+// @Failure 401 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 503 {object} types.APIError
 // @Router /api/v1/external-agents/{sessionID}/upload [post]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, req *http.Request) {
@@ -978,11 +978,11 @@ func desktopUploadURL(rawQuery string) string {
 // @Param sessionID path string true "Session ID"
 // @Param name query string true "Uploaded attachment filename"
 // @Success 200 {file} binary
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 503 {object} system.HTTPError
+// @Failure 400 {object} types.APIError
+// @Failure 401 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 503 {object} types.APIError
 // @Router /api/v1/external-agents/{sessionID}/file [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getExternalAgentFile(res http.ResponseWriter, req *http.Request) {
@@ -1115,10 +1115,10 @@ func (apiServer *HelixAPIServer) configurePendingSession(res http.ResponseWriter
 // @Tags ExternalAgents
 // @Param sessionID path string true "Session ID"
 // @Success 101 "Switching Protocols"
-// @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 503 {object} system.HTTPError
+// @Failure 401 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 503 {object} types.APIError
 // @Router /api/v1/external-agents/{sessionID}/ws/input [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, req *http.Request) {
@@ -1290,10 +1290,10 @@ func generateProxySessionID() string {
 // @Tags ExternalAgents
 // @Param sessionID path string true "Session ID"
 // @Success 101 "Switching Protocols"
-// @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 503 {object} system.HTTPError
+// @Failure 401 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 503 {object} types.APIError
 // @Router /api/v1/external-agents/{sessionID}/ws/stream [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, req *http.Request) {
@@ -1542,10 +1542,10 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 // @Produce json
 // @Param sessionID path string true "Session ID"
 // @Success 200 {object} types.WorkspacesResponse
-// @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 503 {object} system.HTTPError
+// @Failure 401 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 503 {object} types.APIError
 // @Router /api/v1/external-agents/{sessionID}/workspaces [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getExternalAgentWorkspaces(res http.ResponseWriter, req *http.Request) {

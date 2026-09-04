@@ -30,6 +30,26 @@ func TestSandboxInstanceCanHostDesktop(t *testing.T) {
 	}
 }
 
+func TestSandboxInstanceAtMaxCapacity(t *testing.T) {
+	cases := []struct {
+		name   string
+		active int
+		max    int
+		want   bool
+	}{
+		{"under ceiling", 3, 20, false},
+		{"at ceiling", 20, 20, true},
+		{"over ceiling", 21, 20, true},
+		{"no ceiling recorded", 100, 0, false},
+	}
+	for _, tc := range cases {
+		s := &SandboxInstance{ActiveSandboxes: tc.active, MaxSandboxes: tc.max}
+		if got := s.AtMaxCapacity(); got != tc.want {
+			t.Errorf("%s: AtMaxCapacity()=%v want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func Test_SessionChatRequest_PlainString(t *testing.T) {
 	request := &SessionChatRequest{
 		Messages: []*Message{

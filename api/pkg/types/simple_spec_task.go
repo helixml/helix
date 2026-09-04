@@ -243,6 +243,10 @@ type CreateTaskRequest struct {
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" swaggerignore:"true"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
 	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty"`
+	// SandboxHostID optionally pins the task's desktop container to a specific
+	// sandbox host (SandboxInstance.ID). The host must be online and satisfy
+	// the runtime's display requirement, or task creation fails.
+	SandboxHostID string `json:"sandbox_host_id,omitempty"`
 
 	// CredentialOwnerID optionally names the user whose Claude subscription should
 	// authenticate this task's agent, for orchestrators dispatching work on a
@@ -310,6 +314,11 @@ type SpecTask struct {
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty" gorm:"size:64"`
+	// SandboxHostID pins this task's desktop container to a specific sandbox
+	// host (SandboxInstance.ID). Empty means the dispatcher chooses. Also
+	// honoured on resume, so the task returns to the host that has its
+	// workspace on disk.
+	SandboxHostID string `json:"sandbox_host_id,omitempty" gorm:"size:255"`
 
 	// Git repository attachments: REMOVED - now inherited from parent Project
 	// Repos are managed at the project level. Access via project.DefaultRepoID and GetProjectRepositories(project_id)
