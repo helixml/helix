@@ -32,7 +32,15 @@ var (
 )
 
 const (
-	PollInterval              = 30 * time.Second
+	PollInterval = 30 * time.Second
+
+	// mcpReadinessTimeout bounds the wait for the remote context_server
+	// origins to answer. It is generous because a cold sandbox host brings the
+	// API proxy, dockerd, the workspace clone and four MCP servers up at once;
+	// it is bounded because a session that cannot reach the Helix API is not
+	// going to fix itself and the operator needs the error, not a hang.
+	mcpReadinessTimeout       = 60 * time.Second
+	mcpReadinessRetryDelay    = 2 * time.Second
 	DebounceTime              = 500 * time.Millisecond
 	maxAgentStartupErrorBytes = 4096
 )
@@ -1383,6 +1391,21 @@ func main() {
 		log.Printf("Warning: Initial sync failed: %v", err)
 	}
 
+	// Surface unreachable MCP context servers early, in the session UI. The
+	// per-launch gate in start-zed-core.sh is what actually stops Zed starting
+	// (it polls /mcp-readiness before every launch); this only exists so the
+	// operator gets told, rather than having to read container logs.
+	//
+	// In a goroutine so it cannot delay the HTTP listener the gate polls.
+	go func() {
+		if err := daemon.waitForMCPEndpoints(context.Background(), SettingsPath, mcpReadinessTimeout, mcpReadinessRetryDelay); err != nil {
+			log.Printf("FATAL for the agent: %v", err)
+			if reportErr := daemon.reportAgentStartupError(err); reportErr != nil {
+				log.Printf("Failed to report unreachable MCP context servers: %v", reportErr)
+			}
+		}
+	}()
+
 	// Start file watcher for Zed changes
 	if err := daemon.startWatcher(); err != nil {
 		log.Fatalf("Failed to start file watcher: %v", err)
@@ -1400,6 +1423,10 @@ func main() {
 	http.HandleFunc("/health", daemon.healthCheck)
 	http.HandleFunc("/settings", daemon.getSettings)
 	http.HandleFunc("/reload", daemon.forceReload)
+	// Per-launch MCP readiness verdict for start-zed-core.sh. Every Zed launch
+	// is another one-shot MCP registration by the agent, so every launch needs
+	// its own freshly measured answer.
+	http.HandleFunc("/mcp-readiness", daemon.mcpReadinessHandler)
 
 	// SECURITY: bind loopback only. This endpoint exposes GET/PUT /settings and
 	// /reload for the in-container agent + desktop-bridge, which reach it over
