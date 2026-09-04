@@ -9,6 +9,8 @@ interface WorkspaceFileSurfaceProps {
   sessionId: string;
   workspace?: string;
   workspacePath?: string;
+  baseBranch: string;
+  pollInterval: number;
   path: string | null;
   revealPath: string | null;
   onOpenFile: (path: string) => void;
@@ -21,6 +23,8 @@ const WorkspaceFileSurface: FC<WorkspaceFileSurfaceProps> = ({
   sessionId,
   workspace,
   workspacePath,
+  baseBranch,
+  pollInterval,
   path,
   revealPath,
   onOpenFile,
@@ -112,6 +116,8 @@ const WorkspaceFileSurface: FC<WorkspaceFileSurfaceProps> = ({
           sessionId={sessionId}
           workspace={workspace}
           workspacePath={workspacePath}
+          baseBranch={baseBranch}
+          pollInterval={pollInterval}
           selectedPath={path}
           revealPath={revealPath}
           onOpenFile={onOpenFile}

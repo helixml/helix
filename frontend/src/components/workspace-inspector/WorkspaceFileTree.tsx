@@ -1,6 +1,6 @@
 import React, { FC, useEffect, useMemo, useRef, useState } from "react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
-import type { ContextMenuItem, ContextMenuOpenContext } from "@pierre/trees";
+import type { ContextMenuItem, ContextMenuOpenContext, GitStatusEntry } from "@pierre/trees";
 import {
   Box,
   CircularProgress,
@@ -15,20 +15,41 @@ import {
 } from "@mui/material";
 import { ClipboardCopy, Copy, Download, RefreshCw, Search, X } from "lucide-react";
 import axios from "axios";
-import type { TypesWorkspaceFileEntry } from "../../api/api";
+import type { TypesInteractionCodeChangeFile, TypesWorkspaceFileEntry } from "../../api/api";
 import useSnackbar from "../../hooks/useSnackbar";
 import { matchesAllTokens } from "../../utils/searchUtils";
 import { copyTextToClipboard, workspaceFilePath } from "./clipboard";
 import { TREE_UNSAFE_CSS } from "./pierreStyles";
-import { useWorkspaceFile, useWorkspaceFiles } from "./workspaceReviewService";
+import { useWorkspaceFile, useWorkspaceFiles, useWorkspaceReview } from "./workspaceReviewService";
 
 interface WorkspaceFileTreeProps {
   sessionId: string;
   workspace?: string;
   workspacePath?: string;
+  baseBranch: string;
+  pollInterval: number;
   selectedPath: string | null;
   revealPath: string | null;
   onOpenFile: (path: string) => void;
+}
+
+export function changedFileGitStatus(
+  files: readonly TypesInteractionCodeChangeFile[],
+): GitStatusEntry[] {
+  return files.flatMap((file): GitStatusEntry[] => {
+    if (!file.path) return [];
+    switch (file.kind) {
+      case "added":
+      case "deleted":
+      case "modified":
+      case "renamed":
+        return [{ path: file.path, status: file.kind }];
+      case "copied":
+        return [{ path: file.path, status: "added" }];
+      default:
+        return [{ path: file.path, status: "modified" }];
+    }
+  });
 }
 
 function treePath(entry: TypesWorkspaceFileEntry): string | null {
@@ -197,11 +218,14 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
   sessionId,
   workspace,
   workspacePath,
+  baseBranch,
+  pollInterval,
   selectedPath,
   revealPath,
   onOpenFile,
 }) => {
   const filesQuery = useWorkspaceFiles(sessionId, workspace);
+  const reviewQuery = useWorkspaceReview(sessionId, workspace, baseBranch, false, pollInterval);
   const [query, setQuery] = useState("");
   const syncingSelection = useRef(false);
   const entries = filesQuery.data?.entries || [];
@@ -221,6 +245,12 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
     [entriesFingerprint, query],
   );
   const pathsFingerprint = paths.join("\0");
+  const gitStatus = useMemo(
+    () => changedFileGitStatus(
+      reviewQuery.data?.sources?.find((source) => source.id === "all")?.files || [],
+    ),
+    [reviewQuery.data],
+  );
   const { model } = useFileTree({
     paths: [],
     density: "compact",
@@ -246,6 +276,10 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
       }
     }
   }, [pathsFingerprint, query]);
+
+  useEffect(() => {
+    model.setGitStatus(gitStatus);
+  }, [gitStatus, model]);
 
   useEffect(() => {
     if (!selectedPath || !entryKinds.has(selectedPath)) return;
