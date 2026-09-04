@@ -78,10 +78,6 @@ export const resolveSidebarProjectFilter = (
     : ALL_PROJECTS_FILTER
 )
 
-export const filterSidebarProjectsWithActivity = (
-  projects: TypesProject[],
-): TypesProject[] => projects.filter((project) => !!project.last_activity_at)
-
 export const parseSidebarParticipantIds = (storedValue: string | null): string[] | null => {
   if (storedValue === null) return null
   try {
