@@ -328,6 +328,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// This drives the ConfigOptionsView model selector (config_options.current_value),
 		// which is separate from session.models.current_model_id.
 		d.writeClaudeManagedSettings()
+		d.writeClaudeMCPServers()
 
 		claudeACPConfig := map[string]interface{}{
 			"type":         "registry",
@@ -934,6 +935,10 @@ const (
 	ClaudeCredentialsPath        = "/home/retro/.claude/.credentials.json"
 	ClaudeSubscriptionMarkerPath = "/tmp/helix-claude-subscription-mode"
 	ClaudeManagedSettingsPath    = "/etc/claude-code/managed-settings.json"
+	// ClaudeUserConfigPath is Claude Code's user-scope config. mcpServers
+	// written here apply to every workspace without committing a .mcp.json
+	// into the user's repo checkout.
+	ClaudeUserConfigPath = "/home/retro/.claude.json"
 	CodexCredentialsPath         = "/home/retro/.codex/auth.json"
 )
 
@@ -962,6 +967,79 @@ func (d *SettingsDaemon) writeClaudeManagedSettings() {
 		return
 	}
 	log.Printf("Wrote claude managed settings: model=%s", d.codeAgentConfig.Model)
+}
+
+// writeClaudeMCPServers renders the session's Helix context_servers into
+// Claude Code's user-scope mcpServers config. Zed's settings.json
+// context_servers only reach Zed's own agent — the claude-code-acp harness
+// loads MCP servers from Claude Code's own config, so without this
+// translation an MCP configured in Helix (agent- or project-level) is
+// silently invisible to claude_code sessions.
+//
+// Read-modify-write: ~/.claude.json also holds Claude Code's own state
+// (onboarding, per-project history), which must be preserved.
+func (d *SettingsDaemon) writeClaudeMCPServers() {
+	contextServers, _ := d.helixSettings["context_servers"].(map[string]interface{})
+	if len(contextServers) == 0 {
+		return
+	}
+
+	servers := map[string]interface{}{}
+	for name, raw := range contextServers {
+		cfg, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		entry := map[string]interface{}{}
+		if cmd, ok := cfg["command"].(string); ok && cmd != "" {
+			entry["type"] = "stdio"
+			entry["command"] = cmd
+			if args, ok := cfg["args"]; ok && args != nil {
+				entry["args"] = args
+			} else {
+				entry["args"] = []string{}
+			}
+			if env, ok := cfg["env"]; ok && env != nil {
+				entry["env"] = env
+			}
+		} else if serverURL, ok := cfg["url"].(string); ok && serverURL != "" {
+			entry["type"] = "http"
+			entry["url"] = d.rewriteLocalhostURL(serverURL)
+			if headers, ok := cfg["headers"]; ok && headers != nil {
+				entry["headers"] = headers
+			}
+		} else {
+			continue
+		}
+		servers[name] = entry
+	}
+	if len(servers) == 0 {
+		return
+	}
+
+	existing := map[string]interface{}{}
+	if data, err := os.ReadFile(ClaudeUserConfigPath); err == nil {
+		if err := json.Unmarshal(data, &existing); err != nil {
+			log.Printf("Existing %s is not valid JSON, rewriting: %v", ClaudeUserConfigPath, err)
+			existing = map[string]interface{}{}
+		}
+	}
+	existing["mcpServers"] = servers
+
+	data, err := json.Marshal(existing)
+	if err != nil {
+		log.Printf("Failed to marshal claude user config: %v", err)
+		return
+	}
+	if err := os.WriteFile(ClaudeUserConfigPath, data, 0644); err != nil {
+		log.Printf("Failed to write claude user config: %v", err)
+		return
+	}
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	log.Printf("Wrote claude mcpServers to %s: %v", ClaudeUserConfigPath, names)
 }
 
 // syncClaudeCredentials fetches Claude credentials from the Helix API.

@@ -1430,10 +1430,15 @@ type ToolMCPClientConfig struct {
 	Description   string            `json:"description" yaml:"description"`
 	Enabled       bool              `json:"enabled" yaml:"enabled"`
 	URL           string            `json:"url" yaml:"url"`
-	Transport     string            `json:"transport,omitempty" yaml:"transport,omitempty"` // "http" (default, Streamable HTTP) or "sse" (legacy SSE transport)
+	Transport     string            `json:"transport,omitempty" yaml:"transport,omitempty"` // "http" (default, Streamable HTTP), "sse" (legacy SSE transport), or "stdio" (subprocess in the dev container)
 	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
 	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"` // Required OAuth scopes for this API
+
+	// Stdio transport fields (used when Transport is "stdio")
+	Command string            `json:"command,omitempty" yaml:"command,omitempty"`
+	Args    []string          `json:"args,omitempty" yaml:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 
 	Tools []mcp.Tool `json:"tools" yaml:"tools"`
 }
