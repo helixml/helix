@@ -15,6 +15,7 @@ import {
   OutlinedInput,
   InputAdornment,
   IconButton,
+  MenuItem,
   Switch,
   Table,
   TableBody,
@@ -299,6 +300,40 @@ const SystemSettingsTable: FC = () => {
         kodit_vision_embedding_model: '',
       })
       snackbar.success('Code Intelligence Vision Embedding configuration cleared. Kodit is re-initialising on the built-in local model; repositories will be re-indexed automatically in the background.')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectOnboardingHelixModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        onboarding_helix_model_provider: provider,
+        onboarding_helix_model: model,
+      })
+      snackbar.success(`Onboarding Helix model set to ${provider}/${model}`)
+    } catch (err: any) {
+      snackbar.error(`Failed to update settings: ${err.message}`)
+    }
+  }
+
+  const handleSetOnboardingHelixEffort = async (effort: string) => {
+    try {
+      await updateSettings.mutateAsync({ onboarding_helix_model_effort: effort })
+      snackbar.success(`Onboarding reasoning effort set to ${effort}`)
+    } catch (err: any) {
+      snackbar.error(`Failed to update settings: ${err.message}`)
+    }
+  }
+
+  const handleClearOnboardingHelixModel = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        onboarding_helix_model_provider: '',
+        onboarding_helix_model: '',
+        onboarding_helix_model_effort: '',
+      })
+      snackbar.success('Onboarding Helix model configuration cleared')
     } catch (err: any) {
       snackbar.error(`Failed to clear settings: ${err.message}`)
     }
@@ -1145,6 +1180,56 @@ const SystemSettingsTable: FC = () => {
               </TableBody>
             </Table>
           </TableContainer>
+        </CardContent>
+      </Card>
+
+      <Card sx={{ mt: 3 }}>
+        <CardHeader title="Onboarding Helix Model" />
+        <CardContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Choose the Helix provider, model, and effort new users receive automatically during onboarding.
+          </Typography>
+          <Box display="flex" gap={2} alignItems="center" flexWrap="wrap">
+            <AdvancedModelPicker
+              selectedProvider={settings?.onboarding_helix_model_provider}
+              selectedModelId={settings?.onboarding_helix_model}
+              onSelectModel={handleSelectOnboardingHelixModel}
+              currentType="chat"
+              buttonVariant="outlined"
+              disabled={saving}
+              hint="Select the default Helix model used for onboarding."
+              autoSelectFirst={false}
+            />
+            <TextField
+              select
+              size="small"
+              label="Reasoning effort"
+              value={settings?.onboarding_helix_model_effort || 'none'}
+              onChange={(event) => handleSetOnboardingHelixEffort(event.target.value)}
+              disabled={saving}
+              sx={{ minWidth: 170 }}
+            >
+              {['none', 'low', 'medium', 'high'].map((effort) => (
+                <MenuItem key={effort} value={effort}>{effort}</MenuItem>
+              ))}
+            </TextField>
+            {(settings?.onboarding_helix_model_provider || settings?.onboarding_helix_model) && (
+              <Button
+                startIcon={<ClearIcon />}
+                onClick={handleClearOnboardingHelixModel}
+                size="small"
+                color="warning"
+                disabled={saving}
+              >
+                Clear
+              </Button>
+            )}
+          </Box>
+          {(settings?.onboarding_helix_model_provider && settings?.onboarding_helix_model) && (
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+              {settings.onboarding_helix_model_provider}/{settings.onboarding_helix_model}
+            </Typography>
+          )}
         </CardContent>
       </Card>
 

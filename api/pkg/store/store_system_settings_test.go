@@ -42,6 +42,9 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 		KoditEnrichmentProvider:              "old-kodit-provider",
 		KoditEnrichmentModel:                 "old-kodit-model",
 		OpenCodeVersion:                      "1.18.19",
+		OnboardingHelixModelProvider:         "old-onboarding-provider",
+		OnboardingHelixModel:                 "old-onboarding-model",
+		OnboardingHelixModelEffort:           "low",
 		ProvidersManagementEnabled:           false,
 		EnforceQuotas:                        false,
 		SandboxBillingEnabled:                false,
@@ -67,6 +70,9 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 		KoditEnrichmentProvider:              strPtr("new-kodit-provider"),
 		KoditEnrichmentModel:                 strPtr("new-kodit-model"),
 		OpenCodeVersion:                      strPtr("1.19.0"),
+		OnboardingHelixModelProvider:         strPtr("new-onboarding-provider"),
+		OnboardingHelixModel:                 strPtr("new-onboarding-model"),
+		OnboardingHelixModelEffort:           strPtr("high"),
 		ProvidersManagementEnabled:           boolPtr(true),
 		EnforceQuotas:                        boolPtr(true),
 		SandboxBillingEnabled:                boolPtr(true),
@@ -94,6 +100,9 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 	require.Equal(t, "new-kodit-provider", updated.KoditEnrichmentProvider)
 	require.Equal(t, "new-kodit-model", updated.KoditEnrichmentModel)
 	require.Equal(t, "1.19.0", updated.OpenCodeVersion)
+	require.Equal(t, "new-onboarding-provider", updated.OnboardingHelixModelProvider)
+	require.Equal(t, "new-onboarding-model", updated.OnboardingHelixModel)
+	require.Equal(t, "high", updated.OnboardingHelixModelEffort)
 	require.True(t, updated.ProvidersManagementEnabled)
 	require.True(t, updated.EnforceQuotas)
 	require.True(t, updated.SandboxBillingEnabled)
@@ -117,6 +126,7 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 	require.NoError(t, store.gdb.WithContext(ctx).Where("id = ?", types.SystemSettingsID).First(&persisted).Error)
 	require.Equal(t, updated.HuggingFaceToken, persisted.HuggingFaceToken)
 	require.Equal(t, updated.OpenCodeVersion, persisted.OpenCodeVersion)
+	require.Equal(t, updated.OnboardingHelixModel, persisted.OnboardingHelixModel)
 	require.Equal(t, updated.OptimusSmallGenerationModel, persisted.OptimusSmallGenerationModel)
 }
 
@@ -133,6 +143,9 @@ func TestUpdateSystemSettings_PartialUpdateLeavesOtherFieldsUnchanged(t *testing
 		KoditEnrichmentProvider:              "seed-kodit-provider",
 		KoditEnrichmentModel:                 "seed-kodit-model",
 		OpenCodeVersion:                      "1.18.19",
+		OnboardingHelixModelProvider:         "seed-onboarding-provider",
+		OnboardingHelixModel:                 "seed-onboarding-model",
+		OnboardingHelixModelEffort:           "medium",
 		ProvidersManagementEnabled:           true,
 		EnforceQuotas:                        false,
 		SandboxBillingEnabled:                true,
@@ -170,6 +183,9 @@ func TestUpdateSystemSettings_PartialUpdateLeavesOtherFieldsUnchanged(t *testing
 	require.Equal(t, "seed-kodit-provider", updated.KoditEnrichmentProvider)
 	require.Equal(t, "seed-kodit-model", updated.KoditEnrichmentModel)
 	require.Equal(t, "1.18.19", updated.OpenCodeVersion)
+	require.Equal(t, "seed-onboarding-provider", updated.OnboardingHelixModelProvider)
+	require.Equal(t, "seed-onboarding-model", updated.OnboardingHelixModel)
+	require.Equal(t, "medium", updated.OnboardingHelixModelEffort)
 	require.True(t, updated.ProvidersManagementEnabled)
 	require.False(t, updated.EnforceQuotas)
 	require.True(t, updated.SandboxBillingEnabled)

@@ -6442,6 +6442,9 @@ export interface TypesServerConfigForFrontend {
    */
   max_concurrent_desktops?: number;
   organizations_create_enabled_for_non_admins?: boolean;
+  onboarding_helix_model?: string;
+  onboarding_helix_model_effort?: string;
+  onboarding_helix_model_provider?: string;
   /**
    * PreviewURLHTTPS controls whether generated sandbox preview URLs use
    * https:// (true) or http:// (false).
@@ -7746,6 +7749,9 @@ export interface TypesSystemSettingsRequest {
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
   opencode_version?: string;
+  onboarding_helix_model?: string;
+  onboarding_helix_model_effort?: string;
+  onboarding_helix_model_provider?: string;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;
@@ -7792,6 +7798,9 @@ export interface TypesSystemSettingsResponse {
    * can show the floor without hardcoding it.
    */
   opencode_version?: string;
+  onboarding_helix_model?: string;
+  onboarding_helix_model_effort?: string;
+  onboarding_helix_model_provider?: string;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;

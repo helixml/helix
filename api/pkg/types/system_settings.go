@@ -48,6 +48,13 @@ type SystemSettings struct {
 	// pkg/opencode.ValidateVersion.
 	OpenCodeVersion string `json:"opencode_version,omitempty" gorm:"column:opencode_version"`
 
+	// Onboarding Helix model configuration. This is the operator-selected
+	// provider/model shown to new users so they do not need to understand the
+	// deployment's provider inventory before creating their first project.
+	OnboardingHelixModelProvider string `json:"onboarding_helix_model_provider,omitempty" gorm:"column:onboarding_helix_model_provider"`
+	OnboardingHelixModel         string `json:"onboarding_helix_model,omitempty" gorm:"column:onboarding_helix_model"`
+	OnboardingHelixModelEffort   string `json:"onboarding_helix_model_effort,omitempty" gorm:"column:onboarding_helix_model_effort"`
+
 	// Optimus configuration
 	OptimusReasoningModelProvider string `json:"optimus_reasoning_model_provider" yaml:"optimus_reasoning_model_provider"`
 	OptimusReasoningModel         string `json:"optimus_reasoning_model" yaml:"optimus_reasoning_model"`
@@ -91,6 +98,10 @@ type SystemSettingsRequest struct {
 	MaxConcurrentDesktopSandboxes        *int     `json:"max_concurrent_desktop_sandboxes"`
 
 	OpenCodeVersion *string `json:"opencode_version"`
+
+	OnboardingHelixModelProvider *string `json:"onboarding_helix_model_provider"`
+	OnboardingHelixModel         *string `json:"onboarding_helix_model"`
+	OnboardingHelixModelEffort   *string `json:"onboarding_helix_model_effort"`
 
 	OptimusReasoningModelProvider *string `json:"optimus_reasoning_model_provider"`
 	OptimusReasoningModel         *string `json:"optimus_reasoning_model"`
@@ -147,6 +158,10 @@ type SystemSettingsResponse struct {
 	// can show the floor without hardcoding it.
 	OpenCodeVersion        string `json:"opencode_version"`
 	OpenCodeBundledVersion string `json:"opencode_bundled_version"`
+
+	OnboardingHelixModelProvider string `json:"onboarding_helix_model_provider"`
+	OnboardingHelixModel         string `json:"onboarding_helix_model"`
+	OnboardingHelixModelEffort   string `json:"onboarding_helix_model_effort"`
 
 	// Optimus configuration
 	OptimusReasoningModelProvider string `json:"optimus_reasoning_model_provider"`
@@ -205,6 +220,9 @@ func (s *SystemSettings) ToResponseWithSource(dbToken, envToken string) *SystemS
 		// OpenCodeBundledVersion is filled by the handler — types cannot import
 		// pkg/opencode (which imports types).
 		OpenCodeVersion:                     s.OpenCodeVersion,
+		OnboardingHelixModelProvider:        s.OnboardingHelixModelProvider,
+		OnboardingHelixModel:                s.OnboardingHelixModel,
+		OnboardingHelixModelEffort:          s.OnboardingHelixModelEffort,
 		OptimusReasoningModelProvider:       s.OptimusReasoningModelProvider,
 		OptimusReasoningModel:               s.OptimusReasoningModel,
 		OptimusReasoningModelEffort:         s.OptimusReasoningModelEffort,

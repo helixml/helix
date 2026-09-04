@@ -28513,24 +28513,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "webhook",
-                "email",
-                "github",
-                "local",
                 "helix_events",
+                "email",
+                "webhook",
+                "slack",
                 "gitlab",
-                "cron",
-                "slack"
+                "local",
+                "github",
+                "cron"
             ],
             "x-enum-varnames": [
-                "KindWebhook",
-                "KindEmail",
-                "KindGitHub",
-                "KindLocal",
                 "KindHelixEvents",
+                "KindEmail",
+                "KindWebhook",
+                "KindSlack",
                 "KindGitLab",
-                "KindCron",
-                "KindSlack"
+                "KindLocal",
+                "KindGitHub",
+                "KindCron"
             ]
         },
         "transport.ResolvedActivation": {
@@ -37338,6 +37338,16 @@ const docTemplate = `{
                     "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited. Note: /config is unauthenticated, so this is the\nFree-tier floor; real enforcement uses the resolved per-user/per-org cap.",
                     "type": "integer"
                 },
+                "onboarding_helix_model": {
+                    "type": "string"
+                },
+                "onboarding_helix_model_effort": {
+                    "type": "string"
+                },
+                "onboarding_helix_model_provider": {
+                    "description": "Operator-selected default for the Helix-credits path through onboarding.\nProvider references and model IDs are identifiers, not credentials, and\nare safe to expose through the public frontend configuration endpoint.",
+                    "type": "string"
+                },
                 "organizations_create_enabled_for_non_admins": {
                     "type": "boolean"
                 },
@@ -40068,6 +40078,15 @@ const docTemplate = `{
                 "max_concurrent_headless_sandboxes": {
                     "type": "integer"
                 },
+                "onboarding_helix_model": {
+                    "type": "string"
+                },
+                "onboarding_helix_model_effort": {
+                    "type": "string"
+                },
+                "onboarding_helix_model_provider": {
+                    "type": "string"
+                },
                 "opencode_version": {
                     "type": "string"
                 },
@@ -40171,6 +40190,15 @@ const docTemplate = `{
                 },
                 "max_concurrent_headless_sandboxes": {
                     "type": "integer"
+                },
+                "onboarding_helix_model": {
+                    "type": "string"
+                },
+                "onboarding_helix_model_effort": {
+                    "type": "string"
+                },
+                "onboarding_helix_model_provider": {
+                    "type": "string"
                 },
                 "opencode_bundled_version": {
                     "type": "string"

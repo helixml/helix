@@ -262,6 +262,20 @@ export default function Onboarding() {
     model.id && model.enabled && (!model.type || model.type === "chat" || model.type === "text"));
   const helixDefaultAvailable = !!selectedHelixProvider
     && helixModels.some((model) => model.id === helixModel);
+  const hasConfiguredHelixDefault = !!serverConfig?.onboarding_helix_model_provider
+    && !!serverConfig?.onboarding_helix_model;
+
+  useEffect(() => {
+    if (!hasConfiguredHelixDefault) return;
+    setHelixProvider(serverConfig.onboarding_helix_model_provider || "");
+    setHelixModel(serverConfig.onboarding_helix_model || "");
+    setHelixReasoningEffort(serverConfig.onboarding_helix_model_effort || "none");
+  }, [
+    hasConfiguredHelixDefault,
+    serverConfig?.onboarding_helix_model_effort,
+    serverConfig?.onboarding_helix_model_provider,
+    serverConfig?.onboarding_helix_model,
+  ]);
 
   const existingOrgs = account.organizationTools.organizations;
   const hasExistingOrgs = existingOrgs.length > 0;
@@ -1008,13 +1022,13 @@ export default function Onboarding() {
           {
             id: "claude",
             title: "Claude Subscription",
-            description: "Use the tokens included with your Claude Pro or Max plan.",
+            description: "Connect Claude Code and use your Claude Pro or Max plan instead of Helix credits.",
             connected: hasClaudeSubscription,
           },
           {
             id: "codex",
             title: "ChatGPT Subscription",
-            description: "Use the Codex tokens included with your ChatGPT plan.",
+            description: "Connect Codex and use your ChatGPT plan instead of Helix credits.",
             connected: hasCodexSubscription,
           },
         ];
@@ -1029,8 +1043,9 @@ export default function Onboarding() {
                   mb: 2,
                 }}
               >
-                External subscriptions are optional. Helix Providers is selected
-                by default and charges model usage to your Helix credit balance.
+                Helix Providers is selected by default. You can instead connect
+                Claude Code or Codex to use your own subscription; those runs do
+                not use Helix credits.
               </Typography>
               {wallet && (
                 <Typography
@@ -1040,7 +1055,8 @@ export default function Onboarding() {
                     mb: 2,
                   }}
                 >
-                  Current organization balance: ${wallet.balance?.toFixed(2) || "0.00"} credits
+                  You have {wallet.balance?.toFixed(2) || "0.00"} Helix credits.
+                  Helix credits pay for AI model usage through Helix Providers.
                 </Typography>
               )}
               {codingAccessOption === "helix" && !inventoryLoading && helixProvider && helixModel && !helixDefaultAvailable && (
@@ -1154,6 +1170,24 @@ export default function Onboarding() {
 
               {codingAccessOption === "helix" && (
                 <Stack spacing={2} sx={{ mb: 2 }}>
+                  {hasConfiguredHelixDefault ? (
+                    <Box
+                      sx={{
+                        p: 1.5,
+                        borderRadius: 1.5,
+                        border: `1px solid ${palette.BORDER_SUBTLE}`,
+                        bgcolor: palette.OVERLAY_FAINT,
+                      }}
+                    >
+                      <Typography sx={{ color: palette.TEXT_PRIMARY, fontSize: "0.78rem", fontWeight: 600 }}>
+                        Recommended model: {helixModel}
+                      </Typography>
+                      <Typography sx={{ color: palette.TEXT_FADED, fontSize: "0.68rem", mt: 0.5 }}>
+                        Helix has selected the provider and reasoning settings for you.
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <>
                   <FormControl fullWidth>
                     <InputLabel id="onboarding-helix-provider-label">Helix provider</InputLabel>
                     <Select
@@ -1201,6 +1235,8 @@ export default function Onboarding() {
                       <MenuItem value="high">High</MenuItem>
                     </Select>
                   </FormControl>
+                    </>
+                  )}
                 </Stack>
               )}
 
