@@ -1022,13 +1022,13 @@ export default function Onboarding() {
           {
             id: "claude",
             title: "Claude Subscription",
-            description: "Use the tokens included with your Claude Pro or Max plan.",
+            description: "Connect Claude Code and use your Claude Pro or Max plan instead of Helix credits.",
             connected: hasClaudeSubscription,
           },
           {
             id: "codex",
             title: "ChatGPT Subscription",
-            description: "Use the Codex tokens included with your ChatGPT plan.",
+            description: "Connect Codex and use your ChatGPT plan instead of Helix credits.",
             connected: hasCodexSubscription,
           },
         ];
@@ -1043,8 +1043,9 @@ export default function Onboarding() {
                   mb: 2,
                 }}
               >
-                External subscriptions are optional. Helix Providers is selected
-                by default and charges model usage to your Helix credit balance.
+                Helix Providers is selected by default. You can instead connect
+                Claude Code or Codex to use your own subscription; those runs do
+                not use Helix credits.
               </Typography>
               {wallet && (
                 <Typography
@@ -1054,7 +1055,8 @@ export default function Onboarding() {
                     mb: 2,
                   }}
                 >
-                  You have {wallet.balance?.toFixed(2) || "0.00"} Helix credits. Helix credits pay for AI model usage in Helix.
+                  You have {wallet.balance?.toFixed(2) || "0.00"} Helix credits.
+                  Helix credits pay for AI model usage through Helix Providers.
                 </Typography>
               )}
               {codingAccessOption === "helix" && !inventoryLoading && helixProvider && helixModel && !helixDefaultAvailable && (
