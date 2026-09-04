@@ -1218,6 +1218,12 @@ type ServerConfigForFrontend struct {
 	// direct model chats when the user has not customised one. Surfaced to
 	// the frontend so the chat-settings page can prefill the textbox.
 	DefaultChatSystemPrompt string `json:"default_chat_system_prompt"`
+	// Operator-selected default for the Helix-credits path through onboarding.
+	// Provider references and model IDs are identifiers, not credentials, and
+	// are safe to expose through the public frontend configuration endpoint.
+	OnboardingHelixModelProvider string `json:"onboarding_helix_model_provider,omitempty"`
+	OnboardingHelixModel         string `json:"onboarding_helix_model,omitempty"`
+	OnboardingHelixModelEffort   string `json:"onboarding_helix_model_effort,omitempty"`
 	// ServerURL is the operator-configured public origin for this helix
 	// instance (env SERVER_URL → WebServer.URL). Empty when not
 	// configured; the frontend then falls back to

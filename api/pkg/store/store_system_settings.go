@@ -119,6 +119,15 @@ func (s *PostgresStore) UpdateSystemSettings(ctx context.Context, req *types.Sys
 	if req.OpenCodeVersion != nil {
 		settings.OpenCodeVersion = *req.OpenCodeVersion
 	}
+	if req.OnboardingHelixModelProvider != nil {
+		settings.OnboardingHelixModelProvider = *req.OnboardingHelixModelProvider
+	}
+	if req.OnboardingHelixModel != nil {
+		settings.OnboardingHelixModel = *req.OnboardingHelixModel
+	}
+	if req.OnboardingHelixModelEffort != nil {
+		settings.OnboardingHelixModelEffort = *req.OnboardingHelixModelEffort
+	}
 	if req.OptimusReasoningModelProvider != nil {
 		settings.OptimusReasoningModelProvider = *req.OptimusReasoningModelProvider
 	}

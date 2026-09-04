@@ -116,6 +116,9 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500(err.Error())
 	}
 	config.ProvidersManagementEnabled = providersManagementEnabled(systemSettings, apiServer.Cfg)
+	config.OnboardingHelixModelProvider = systemSettings.OnboardingHelixModelProvider
+	config.OnboardingHelixModel = systemSettings.OnboardingHelixModel
+	config.OnboardingHelixModelEffort = systemSettings.OnboardingHelixModelEffort
 
 	// /config is unauthenticated (registered on insecureRouter), so we don't
 	// know which user is calling and can't ask the quota manager for their

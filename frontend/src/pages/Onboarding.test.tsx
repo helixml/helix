@@ -17,6 +17,11 @@ const mockState = vi.hoisted(() => ({
   codexSubscriptions: [] as Array<{ id: string }>,
   providers: [] as any[],
   harnesses: [] as any[],
+  onboardingHelixDefault: {
+    provider: 'pe_helix',
+    model: 'helix-model',
+    effort: 'high',
+  },
 }))
 
 let mockAccountValue: any
@@ -91,6 +96,9 @@ vi.mock('../services/userService', () => ({
     data: {
       billing_enabled: true,
       edition: 'cloud',
+      onboarding_helix_model_provider: mockState.onboardingHelixDefault.provider,
+      onboarding_helix_model: mockState.onboardingHelixDefault.model,
+      onboarding_helix_model_effort: mockState.onboardingHelixDefault.effort,
     },
     isLoading: false,
   }),
@@ -177,6 +185,11 @@ describe('Onboarding', () => {
     vi.clearAllMocks()
     localStorage.clear()
     mockState.walletStatus = 'active'
+    mockState.onboardingHelixDefault = {
+      provider: 'pe_helix',
+      model: 'helix-model',
+      effort: 'high',
+    }
     mockState.claudeSubscriptions = [{ id: 'claude-sub-1' }]
     mockState.codexSubscriptions = []
     mockState.providers = [{
@@ -209,11 +222,13 @@ describe('Onboarding', () => {
     renderOnboarding()
     await goToCodingAccessStep()
 
-    expect(screen.getByRole('button', { name: /continue with helix credits/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /continue with helix credits/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /helix providers/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /claude subscription/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /chatgpt subscription/i })).toBeInTheDocument()
-    expect(screen.getByText('Current organization balance: $42.50 credits')).toBeInTheDocument()
+    expect(screen.getByText('You have 42.50 Helix credits. Helix credits pay for AI model usage in Helix.')).toBeInTheDocument()
+    expect(screen.getByText('Recommended model: helix-model')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Helix provider')).not.toBeInTheDocument()
     expect(screen.queryByText(/create your first project/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/create your first task/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/where is your code/i)).not.toBeInTheDocument()
@@ -222,13 +237,6 @@ describe('Onboarding', () => {
   it('saves the selected Helix runtime and opens project creation', async () => {
     renderOnboarding()
     await goToCodingAccessStep()
-
-    fireEvent.mouseDown(screen.getByLabelText('Helix provider'))
-    fireEvent.click(screen.getByRole('option', { name: 'helix' }))
-    fireEvent.mouseDown(screen.getByLabelText('Helix model'))
-    fireEvent.click(screen.getByRole('option', { name: 'helix-model' }))
-    fireEvent.mouseDown(screen.getByLabelText('Reasoning effort'))
-    fireEvent.click(screen.getByRole('option', { name: 'High' }))
 
     await act(async () => {
       fireEvent.click(

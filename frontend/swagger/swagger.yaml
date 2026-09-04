@@ -3595,24 +3595,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - webhook
-    - email
-    - github
-    - local
     - helix_events
-    - gitlab
-    - cron
+    - email
+    - webhook
     - slack
+    - gitlab
+    - local
+    - github
+    - cron
     type: string
     x-enum-varnames:
-    - KindWebhook
-    - KindEmail
-    - KindGitHub
-    - KindLocal
     - KindHelixEvents
-    - KindGitLab
-    - KindCron
+    - KindEmail
+    - KindWebhook
     - KindSlack
+    - KindGitLab
+    - KindLocal
+    - KindGitHub
+    - KindCron
   transport.ResolvedActivation:
     properties:
       address:
@@ -10155,6 +10155,16 @@ definitions:
           -1 = unlimited. Note: /config is unauthenticated, so this is the
           Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
         type: integer
+      onboarding_helix_model:
+        type: string
+      onboarding_helix_model_effort:
+        type: string
+      onboarding_helix_model_provider:
+        description: |-
+          Operator-selected default for the Helix-credits path through onboarding.
+          Provider references and model IDs are identifiers, not credentials, and
+          are safe to expose through the public frontend configuration endpoint.
+        type: string
       organizations_create_enabled_for_non_admins:
         type: boolean
       preview_url_https:
@@ -12244,6 +12254,12 @@ definitions:
         type: integer
       max_concurrent_headless_sandboxes:
         type: integer
+      onboarding_helix_model:
+        type: string
+      onboarding_helix_model_effort:
+        type: string
+      onboarding_helix_model_provider:
+        type: string
       opencode_version:
         type: string
       optimus_generation_model:
@@ -12316,6 +12332,12 @@ definitions:
         type: integer
       max_concurrent_headless_sandboxes:
         type: integer
+      onboarding_helix_model:
+        type: string
+      onboarding_helix_model_effort:
+        type: string
+      onboarding_helix_model_provider:
+        type: string
       opencode_bundled_version:
         type: string
       opencode_version:
