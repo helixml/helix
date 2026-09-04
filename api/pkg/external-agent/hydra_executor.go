@@ -294,36 +294,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	containerType := h.parseContainerType(agent.DesktopType)
 
 	// Determine sandbox ID - use agent's preference or find an available one
-	sandboxID := agent.SandboxID
-	if sandboxID == "" {
-		// Headless agents use the helix-ubuntu toolchain image, so placement must
-		// select a host advertising that image even though the created container
-		// itself has no compositor or display devices.
-		placementImage := containerType
-		requiresDisplay := true
-		if containerType == "headless" {
-			placementImage = "ubuntu"
-			// No compositor, no encoder — a CPU-only host is fine, it just
-			// has to advertise the toolchain image.
-			requiresDisplay = false
-		}
-		sandbox, err := h.store.FindAvailableSandboxInstance(ctx, placementImage, requiresDisplay)
-		if err != nil {
-			return nil, fmt.Errorf("failed to find available sandbox: %w", err)
-		}
-		if sandbox != nil {
-			sandboxID = sandbox.ID
-			log.Info().
-				Str("sandbox_id", sandboxID).
-				Str("container_type", containerType).
-				Msg("Auto-selected available sandbox")
-		} else {
-			// Fallback to "local" if no sandbox found (for backwards compatibility)
-			sandboxID = "local"
-			log.Warn().
-				Str("container_type", containerType).
-				Msg("No available sandbox found, falling back to 'local'")
-		}
+	sandboxID, err := h.resolveSandboxID(ctx, agent, containerType)
+	if err != nil {
+		return nil, err
 	}
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
 	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
@@ -1294,6 +1267,61 @@ func (h *HydraExecutor) setExternalAgentStatus(ctx context.Context, sessionID, s
 	if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
 		log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update external agent status")
 	}
+}
+
+// resolveSandboxID returns the sandbox host to place this session's dev
+// container on: the agent's explicit preference if set, otherwise the best
+// available registered host. When hosts are registered but none is eligible
+// it fails with a no-capacity error rather than guessing — dialing a wrong
+// device key would just hang for the RevDial grace period and surface a
+// confusing connection error. The legacy "local" device key is used only
+// when the registry is empty (single-node install with no heartbeat
+// configured, where hydra listens as "hydra-local").
+func (h *HydraExecutor) resolveSandboxID(ctx context.Context, agent *types.DesktopAgent, containerType string) (string, error) {
+	if agent.SandboxID != "" {
+		return agent.SandboxID, nil
+	}
+
+	// Headless agents use the helix-ubuntu toolchain image, so placement must
+	// select a host advertising that image even though the created container
+	// itself has no compositor or display devices.
+	placementImage := containerType
+	requiresDisplay := true
+	if containerType == "headless" {
+		placementImage = "ubuntu"
+		// No compositor, no encoder — a CPU-only host is fine, it just
+		// has to advertise the toolchain image.
+		requiresDisplay = false
+	}
+	sandbox, err := h.store.FindAvailableSandboxInstance(ctx, placementImage, requiresDisplay)
+	if err != nil {
+		return "", fmt.Errorf("failed to find available sandbox: %w", err)
+	}
+	if sandbox != nil {
+		log.Info().
+			Str("sandbox_id", sandbox.ID).
+			Str("container_type", containerType).
+			Msg("Auto-selected available sandbox")
+		return sandbox.ID, nil
+	}
+
+	registered, err := h.store.ListSandboxInstances(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to list sandbox instances: %w", err)
+	}
+	if len(registered) > 0 {
+		requirements := fmt.Sprintf("online with a fresh heartbeat, under its max_sandboxes ceiling, advertising the %q image", placementImage)
+		if requiresDisplay {
+			requirements += ", and display-capable"
+		}
+		return "", fmt.Errorf("no sandbox host has capacity for a %q container: none of the %d registered host(s) is %s",
+			containerType, len(registered), requirements)
+	}
+
+	log.Warn().
+		Str("container_type", containerType).
+		Msg("No sandbox instances registered, falling back to legacy 'local' device key")
+	return "local", nil
 }
 
 // parseContainerType converts desktop type string to container type

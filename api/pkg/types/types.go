@@ -638,6 +638,10 @@ type ExternalAgentConfig struct {
 	DesktopType string `json:"desktop_type,omitempty"` // "ubuntu" (default) or "sway"
 	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k/5k)
 
+	// SandboxHostID pins the session's dev container to a specific sandbox
+	// host (SandboxInstance.ID). Empty means the dispatcher chooses.
+	SandboxHostID string `json:"sandbox_host_id,omitempty"`
+
 	// Video capture/encoding mode
 	VideoMode string `json:"video_mode,omitempty"` // "shm" (default), "native", or "zerocopy"
 }
@@ -3679,6 +3683,13 @@ func (s *SandboxInstance) CanHostDesktop() bool {
 		return false
 	}
 	return s.RenderNode != "SOFTWARE"
+}
+
+// AtMaxCapacity reports whether this host has reached its configured dev
+// container ceiling (SandboxMaxDevContainers at registration time).
+// MaxSandboxes 0 means no ceiling was recorded and never binds.
+func (s *SandboxInstance) AtMaxCapacity() bool {
+	return s.MaxSandboxes > 0 && s.ActiveSandboxes >= s.MaxSandboxes
 }
 
 // SandboxHeartbeatRequest is sent by sandbox-heartbeat daemon every 30 seconds
