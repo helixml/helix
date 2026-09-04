@@ -25,6 +25,8 @@ const renderSurface = (path: string | null = "src/app.ts") =>
       sessionId="ses_1"
       workspace="primary"
       workspacePath="/home/retro/work/primary"
+      baseBranch="main"
+      pollInterval={3_000}
       path={path}
       revealPath={null}
       onOpenFile={vi.fn()}

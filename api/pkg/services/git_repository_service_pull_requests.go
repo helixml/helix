@@ -507,6 +507,9 @@ func (s *GitRepositoryService) getAzureDevOpsPullRequest(ctx context.Context, re
 	if adoPR.LastMergeSourceCommit != nil && adoPR.LastMergeSourceCommit.CommitId != nil {
 		pr.HeadSHA = *adoPR.LastMergeSourceCommit.CommitId
 	}
+	if adoPR.LastMergeTargetCommit != nil && adoPR.LastMergeTargetCommit.CommitId != nil {
+		pr.BaseSHA = *adoPR.LastMergeTargetCommit.CommitId
+	}
 
 	return pr, nil
 }
@@ -761,6 +764,7 @@ func (s *GitRepositoryService) getGitHubPullRequest(ctx context.Context, repo *t
 		TargetBranch: ghPR.GetBase().GetRef(),
 		URL:          ghPR.GetHTMLURL(),
 		HeadSHA:      ghPR.GetHead().GetSHA(),
+		BaseSHA:      ghPR.GetBase().GetSHA(),
 	}
 
 	if ghPR.GetUser() != nil {
@@ -1078,6 +1082,7 @@ func (s *GitRepositoryService) getGitLabMergeRequest(ctx context.Context, repo *
 		URL:          glMR.WebURL,
 		HeadSHA:      glMR.SHA,
 	}
+	pr.BaseSHA = glMR.DiffRefs.BaseSha
 
 	if glMR.Author != nil {
 		pr.Author = glMR.Author.Username
