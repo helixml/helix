@@ -9,6 +9,7 @@ export interface WorkspaceReviewComment {
   text: string;
   contents: string;
   language: string;
+  side?: "additions" | "deletions";
 }
 
 function escapeAttribute(value: string): string {
@@ -49,6 +50,8 @@ export function buildWorkspaceReviewComment(input: {
   endLine: number;
   text: string;
   fileContents: string;
+  quotedContents?: string;
+  side?: "additions" | "deletions";
 }): WorkspaceReviewComment {
   const startLine = Math.max(1, Math.min(input.startLine, input.endLine));
   const endLine = Math.max(startLine, Math.max(input.startLine, input.endLine));
@@ -61,8 +64,9 @@ export function buildWorkspaceReviewComment(input: {
     endIndex: endLine - 1,
     rangeLabel: startLine === endLine ? `L${startLine}` : `L${startLine} to L${endLine}`,
     text: input.text.trim(),
-    contents: input.fileContents.split("\n").slice(startLine - 1, endLine).join("\n"),
+    contents: input.quotedContents ?? input.fileContents.split("\n").slice(startLine - 1, endLine).join("\n"),
     language: inferCommentLanguage(input.filePath),
+    side: input.side,
   };
 }
 
@@ -76,6 +80,7 @@ export function formatWorkspaceReviewComment(comment: WorkspaceReviewComment): s
       ` startIndex="${comment.startIndex}"`,
       ` endIndex="${comment.endIndex}"`,
       ` rangeLabel="${escapeAttribute(comment.rangeLabel)}"`,
+      comment.side ? ` side="${comment.side}"` : "",
       ">",
     ].join(""),
     neutralizeReviewCommentTags(comment.text),

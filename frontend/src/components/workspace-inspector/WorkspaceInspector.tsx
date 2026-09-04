@@ -339,6 +339,9 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
             isDesktopStarting={isDesktopStarting}
             desktopUnavailableTitle={desktopUnavailableTitle}
             desktopUnavailableDescription={desktopUnavailableDescription}
+            comments={comments}
+            onUpsertComment={onUpsertComment || NOOP_COMMENT}
+            onRemoveComment={onRemoveComment || NOOP_COMMENT}
           />
         ) : (
           <WorkspaceFileSurface

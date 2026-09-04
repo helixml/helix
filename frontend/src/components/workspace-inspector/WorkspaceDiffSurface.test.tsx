@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   live: vi.fn(),
   turn: vi.fn(),
   refetch: vi.fn(),
+  codeViewProps: undefined as Record<string, any> | undefined,
 }));
 
 vi.mock("../../hooks/useLightTheme", () => ({
@@ -18,9 +19,19 @@ vi.mock("../../hooks/useSnackbar", () => ({
 vi.mock("@pierre/diffs/react", async () => {
   const { forwardRef } = await import("react");
   return {
-    CodeView: forwardRef(({ items }: { items: { id: string }[] }, _ref) => (
-      <div data-testid="code-view">{items.map((item) => item.id).join(",")}</div>
-    )),
+    CodeView: forwardRef((props: Record<string, any>, _ref) => {
+      mocks.codeViewProps = props;
+      return (
+        <div data-testid="code-view">
+          {props.items.map((item: { id: string; annotations?: unknown[] }) => item.id).join(",")}
+          {props.items.flatMap((item: { id: string; annotations?: unknown[] }) =>
+            (item.annotations || []).map((annotation, index) => (
+              <div key={`${item.id}:${index}`}>{props.renderAnnotation?.(annotation, item)}</div>
+            )),
+          )}
+        </div>
+      );
+    }),
   };
 });
 vi.mock("./workspaceReviewService", async (importOriginal) => ({
@@ -58,6 +69,9 @@ const renderSurface = (props = {}) =>
       onOpenFile={vi.fn()}
       onExitTurn={vi.fn()}
       onWorkspaceResolved={vi.fn()}
+      comments={[]}
+      onUpsertComment={vi.fn()}
+      onRemoveComment={vi.fn()}
       {...props}
     />,
   );
@@ -68,6 +82,7 @@ describe("WorkspaceDiffSurface", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    mocks.codeViewProps = undefined;
     mocks.live.mockReturnValue(idleQuery);
     mocks.turn.mockReturnValue(idleQuery);
   });
@@ -135,6 +150,45 @@ describe("WorkspaceDiffSurface", () => {
     expect(mocks.live).toHaveBeenCalled();
     expect(mocks.live.mock.calls[0][5]).toBe(false);
     expect(screen.getByTestId("code-view")).toBeInTheDocument();
+  });
+
+  it("creates diff comments through the shared workspace comment callback", () => {
+    mocks.live.mockReturnValue({
+      ...idleQuery,
+      data: { workspace: "primary", sources: [source("all")] },
+    });
+    const onUpsertComment = vi.fn();
+    renderSurface({ comments: [], onUpsertComment, onRemoveComment: vi.fn() });
+
+    act(() => {
+      mocks.codeViewProps?.options.onLineSelectionEnd(
+        { start: 2, end: 2, side: "additions", endSide: "additions" },
+        { item: mocks.codeViewProps.items[0] },
+      );
+    });
+    const input = screen.getByRole("textbox", { name: "Comment on line 2" });
+    fireEvent.change(input, { target: { value: "Keep this." } });
+    fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
+
+    expect(onUpsertComment).toHaveBeenCalledWith(expect.objectContaining({
+      filePath: "src/app.ts",
+      rangeLabel: "L2",
+      text: "Keep this.",
+      contents: "second",
+      side: "additions",
+    }));
+  });
+
+  it("pauses live polling while text is being selected in the diff", () => {
+    mocks.live.mockReturnValue({
+      ...idleQuery,
+      data: { workspace: "primary", sources: [source("all")] },
+    });
+    renderSurface();
+
+    fireEvent.pointerDown(screen.getByTestId("code-view"));
+
+    expect(mocks.live.mock.calls.at(-1)?.[5]).toBe(false);
   });
 
   it("reads a fresh 503 as a sandbox that is still coming up", () => {
