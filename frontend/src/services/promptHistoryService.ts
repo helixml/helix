@@ -15,6 +15,7 @@ export interface LocalPromptHistoryEntry {
   status: 'sent' | 'sending' | 'pending' | 'failed'
   timestamp: number
   sessionId?: string
+  userId?: string           // Who queued it; absent on entries created locally before sync
   interrupt?: boolean       // If true, interrupts current conversation
   queuePosition?: number    // Position in queue for ordering
   // Retry tracking
@@ -95,6 +96,9 @@ export function backendToLocal(entry: TypesPromptHistoryEntry): LocalPromptHisto
     status: (entry.status as 'sent' | 'pending' | 'failed') || 'sent',
     timestamp: entry.created_at ? new Date(entry.created_at).getTime() : Date.now(),
     sessionId: entry.session_id,
+    // Who queued this. The queue belongs to the agent, so it carries entries from
+    // teammates and bots too; the UI attributes them and keeps them read-only.
+    userId: entry.user_id,
     interrupt: entry.interrupt ?? true,
     queuePosition: entry.queue_position,
     // Retry tracking

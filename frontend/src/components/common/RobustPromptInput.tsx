@@ -89,6 +89,9 @@ import {
   type WorkspaceReviewComment,
 } from '../workspace-inspector/workspaceReviewComments'
 import { SessionContextUsageIndicator } from './ContextUsageIndicator'
+import useAccount from '../../hooks/useAccount'
+import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
+import type { TypesOrganizationMembership, TypesUser } from '../../api/api'
 
 // Threshold for converting large text paste to file attachment (10KB)
 const LARGE_TEXT_THRESHOLD = 10 * 1024
@@ -177,6 +180,14 @@ interface SortableQueueItemProps {
   truncateContent: (content: string, maxLen?: number) => string
   handleRestartAgent: () => void
   isRestarting: boolean
+  // Owner attribution. The queue belongs to the agent, so it shows prompts
+  // queued by teammates and by bots through the session-messages API too.
+  // showOwner is only true once the queue holds more than one distinct owner —
+  // an avatar on every row of a single-person queue is pure noise.
+  showOwner: boolean
+  isForeign: boolean
+  orgMembers: TypesOrganizationMembership[]
+  currentUser?: TypesUser
 }
 
 // Sortable queue item component
@@ -198,6 +209,10 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
   truncateContent,
   handleRestartAgent,
   isRestarting,
+  showOwner,
+  isForeign,
+  orgMembers,
+  currentUser,
 }) => {
   const {
     attributes,
@@ -213,6 +228,13 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
     transition,
     opacity: isDragging ? 0.5 : 1,
   }
+
+  // Whose prompt this is, for the hover label. Falls back to a generic label
+  // when the owner isn't in the org membership list (e.g. a bot account).
+  const owner = resolveOrganizationUser(entry.userId, orgMembers, currentUser)
+  const ownerLabel = isForeign
+    ? `Queued by ${owner?.full_name || owner?.username || owner?.email || 'another user'}`
+    : 'Queued by you'
 
   const isFailed = entry.status === 'failed'
   // Classification (transient vs crashed vs stuck → Restart) is shared with
@@ -359,12 +381,12 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           sx={{
             flex: 1,
             minWidth: 0,
-            cursor: isSending ? 'default' : 'pointer',
-            '&:hover': !isSending ? {
+            cursor: isSending || isForeign ? 'default' : 'pointer',
+            '&:hover': !isSending && !isForeign ? {
               '& .edit-hint': { opacity: 1 },
             } : undefined,
           }}
-          onClick={() => !isSending && handleStartEdit(entry)}
+          onClick={() => !isSending && !isForeign && handleStartEdit(entry)}
         >
           {/* minWidth: 0 lets the Typography ellipsise instead of forcing the
               row to its intrinsic min-content width. On mobile the latter
@@ -372,6 +394,19 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               `overflow: hidden` clip so users couldn't dismiss stuck items.
               See design/2026-04-30-queue-and-other-stuck-state-bugs.md. */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+            {showOwner && (
+              <Tooltip title={ownerLabel}>
+                <Box sx={{ display: 'flex', flexShrink: 0 }}>
+                  <OrganizationUserAvatar
+                    userId={entry.userId}
+                    members={orgMembers}
+                    currentUser={currentUser}
+                    size={18}
+                    iconSize={14}
+                  />
+                </Box>
+              </Tooltip>
+            )}
             <Typography
               variant="body2"
               sx={{
@@ -386,7 +421,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             >
               {truncateContent(entry.content, 50)}
             </Typography>
-            {!isSending && (
+            {!isSending && !isForeign && (
               <Pencil
                 className="edit-hint"
                 size={14}
@@ -487,7 +522,10 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           is narrow (e.g. mobile). Without it the Typography content above
           could squeeze the actions past the queue container's overflow:hidden
           clip and leave queue items unrecoverable. */}
-      {!isEditing && !isSending && (
+      {/* Someone else's queued prompt is read-only: the delete endpoint 403s on a
+          non-owner, and letting one viewer re-order or edit another's message
+          would rewrite their queue. Attribution is enough here. */}
+      {!isEditing && !isSending && !isForeign && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
           {/* Interrupt toggle */}
           <Tooltip title={entry.interrupt !== false ? "Interrupt mode - click to queue after current" : "Queue mode - click to interrupt"}>
@@ -683,6 +721,17 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // the moment dispatch is confirmed; if it later bounces it returns via 'failed'.
   // See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
   const queuedPrompts = [...failedPrompts, ...pendingPrompts].filter(p => p.status !== 'sending')
+
+  // Owner attribution for the queue. The queue is the agent's, not one person's:
+  // it also holds prompts queued by teammates and by bots through the
+  // session-messages API. Only show avatars once more than one owner is actually
+  // present — in the overwhelmingly common single-user case they'd be noise.
+  const account = useAccount()
+  const orgMembers: TypesOrganizationMembership[] = account.organizationTools.organization?.memberships || []
+  const currentUserId = account.user?.id
+  const queueHasMultipleOwners = new Set(
+    queuedPrompts.map(p => p.userId).filter(Boolean)
+  ).size > 1
 
   // Track previous appendText to detect changes
   const prevAppendTextRef = useRef<string | undefined>(undefined)
@@ -1456,6 +1505,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                       truncateContent={truncateContent}
                       handleRestartAgent={handleRestartAgent}
                       isRestarting={isRestartingAgent}
+                      showOwner={queueHasMultipleOwners}
+                      isForeign={!!entry.userId && !!currentUserId && entry.userId !== currentUserId}
+                      orgMembers={orgMembers}
+                      currentUser={account.user}
                     />
                   ))}
               </SortableContext>

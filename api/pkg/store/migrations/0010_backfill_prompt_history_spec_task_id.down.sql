@@ -1,0 +1,4 @@
+-- Irreversible data backfill: the previous values were empty strings written by a
+-- bug, and they are not distinguishable from rows legitimately stamped by the
+-- fixed handler. Clearing spec_task_id again would only restore the invisible
+-- queue this migration exists to repair.
