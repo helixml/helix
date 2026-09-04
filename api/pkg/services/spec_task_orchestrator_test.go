@@ -1213,21 +1213,26 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_Ter
 
 	s.gitService.EXPECT().
 		GetPullRequest(ctx, "repo-1", "1").
-		Return(&types.PullRequest{State: types.PullRequestStateOpen, HeadSHA: "sha-1"}, nil)
+		Return(&types.PullRequest{State: types.PullRequestStateOpen, HeadSHA: "sha-1", BaseSHA: "base-sha"}, nil)
 	s.gitService.EXPECT().
 		GetCIStatus(ctx, "repo-1", "1", "sha-1").
 		Return(&types.CIStatus{State: CIStatusPassed}, nil)
+	s.gitService.EXPECT().
+		GetCIStatus(ctx, "repo-1", "1", "base-sha").
+		Return(&types.CIStatus{State: CIStatusPassed}, nil)
 	s.store.EXPECT().UpdateSpecTask(ctx, task).Return(nil)
 	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
+	s.Equal("base-sha", task.RepoPullRequests[0].CIBaseSHA)
+	s.Equal(CIStatusPassed, task.RepoPullRequests[0].CIBaseStatus)
 
 	s.gitService.EXPECT().
 		GetPullRequest(ctx, "repo-1", "1").
-		Return(&types.PullRequest{State: types.PullRequestStateOpen, HeadSHA: "sha-1"}, nil)
+		Return(&types.PullRequest{State: types.PullRequestStateOpen, HeadSHA: "sha-1", BaseSHA: "base-sha"}, nil)
 	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
 
 	s.gitService.EXPECT().
 		GetPullRequest(ctx, "repo-1", "1").
-		Return(&types.PullRequest{State: types.PullRequestStateOpen, HeadSHA: "sha-2"}, nil)
+		Return(&types.PullRequest{State: types.PullRequestStateOpen, HeadSHA: "sha-2", BaseSHA: "base-sha"}, nil)
 	s.gitService.EXPECT().
 		GetCIStatus(ctx, "repo-1", "1", "sha-2").
 		Return(&types.CIStatus{State: CIStatusRunning}, nil)

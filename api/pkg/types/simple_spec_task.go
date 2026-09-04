@@ -43,10 +43,12 @@ type RepoPR struct {
 	// CIHeadSHA is the head commit we last evaluated; it lets the poller
 	// detect a new push and reset CIStatus so a stale "passed" doesn't
 	// suppress a fresh notification when the next commit fails.
-	CIStatus    string    `json:"ci_status,omitempty"`
-	CIURL       string    `json:"ci_url,omitempty"`
-	CIUpdatedAt time.Time `json:"ci_updated_at,omitempty"`
-	CIHeadSHA   string    `json:"ci_head_sha,omitempty"`
+	CIStatus     string    `json:"ci_status,omitempty"`
+	CIURL        string    `json:"ci_url,omitempty"`
+	CIUpdatedAt  time.Time `json:"ci_updated_at,omitempty"`
+	CIHeadSHA    string    `json:"ci_head_sha,omitempty"`
+	CIBaseSHA    string    `json:"ci_base_sha,omitempty"`
+	CIBaseStatus string    `json:"ci_base_status,omitempty"`
 }
 
 // GetFirstOpenPR returns the first open PR from RepoPullRequests, or nil if none.
