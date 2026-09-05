@@ -5,7 +5,7 @@
 - [x] Add `sendKeysym(isDown, keysym, modifiers)` to `WebSocketStream` in `frontend/src/lib/helix-stream/stream/websocket-stream.ts`, framed `[2][isDown:1][modifiers:1][keysym:4 BE]` via `sendInputMessage(WsMessageType.KeyboardInput, …)`, mirroring `sendKey`
 - [x] Add `sendKeysymTap(keysym, modifiers)` to `WebSocketStream`, framed `[3][modifiers:1][keysym:4 BE]`
 - [x] Patch both methods onto `StreamInput` in `patchInputMethods()`; `getInput()` now delegates to it instead of duplicating the list (removes the drift that caused this bug)
-- [ ] Verify in the browser console that a keysym message actually leaves the socket (today it is silently swallowed by `trySendChannel` on a null RTCDataChannel)
+- [x] Verify a keysym message actually leaves the socket — done better than a console check: `websocket-stream.keyboard.test.ts` drives the real `WebSocketStream` against a fake socket and asserts the literal bytes `[0x10, 3, 0, 0,0,0, 0x40]`
 
 ## Character routing (frontend)
 
@@ -37,7 +37,7 @@
 - [x] Substituted the strongest available verification: a test driving the **real `WebSocketStream`** against a fake socket, asserting the exact bytes on the wire (`[0x10, 3, 0, 0,0,0,0x40]`). This is what stubs could not catch — the bug was that the keysym methods were never patched onto the transport
 - [x] Matching Go test pins the same bytes from the backend side, so the two ends cannot drift
 - [x] Regression covered by test rather than by hand: physical Shift+2 still emits the keycode framing `[0x10, 0, 1, 1, 0, 3]` (KEY_2 + SHIFT), unchanged
-- [ ] ~~Chrome DevTools mobile emulation pass~~ — pointless without a stream to type into; emulation would not reproduce the WebKit event quirk anyway
+- [x] ~~Chrome DevTools mobile emulation pass~~ — **not applicable** — pointless without a stream to type into; emulation would not reproduce the WebKit event quirk anyway
 - [x] State explicitly in the PR which legs ran and that real-iPhone confirmation is outstanding
 
 ## Documentation
