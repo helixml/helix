@@ -525,3 +525,71 @@ describe('ProjectChatSidebar logic', () => {
     expect(isNewThreadShortcut({ key: 'n', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false })).toBe(false)
   })
 })
+
+describe('ProjectChatSidebar bots and people', () => {
+  it('lists agents (not humans) as bots, running first, and hides their home projects', async () => {
+    const { botHomeProjectIds, toSidebarBots, withoutBotProjects } = await import('./ProjectChatSidebar.logic')
+    const bots = toSidebarBots([
+      { id: 'b-mira', name: 'Mira', agent_status: 'stopped', project_id: 'prj_mira', session_id: 'ses_mira', agent_id: 'app_mira' },
+      { id: 'chief', name: 'Chief of Staff', agent_status: 'running', project_id: 'prj_chief' },
+      { id: 'h-user', name: 'Person', kind: 'human' },
+      { id: '', name: 'Broken' },
+    ])
+    expect(bots.map((bot) => bot.id)).toEqual(['chief', 'b-mira'])
+    expect(bots[1]).toMatchObject({ running: false, agentAppId: 'app_mira', projectId: 'prj_mira', sessionId: 'ses_mira' })
+    expect([...botHomeProjectIds(bots)]).toEqual(['prj_chief', 'prj_mira'])
+    expect(withoutBotProjects([
+      { id: 'prj_chief', name: 'chief-of-staff @ org' },
+      { id: 'prj_app', name: 'App' },
+    ], bots).map((project) => project.id)).toEqual(['prj_app'])
+  })
+
+  it('lists other members online first and never the viewer or pending invitations', async () => {
+    const { toSidebarMembers } = await import('./ProjectChatSidebar.logic')
+    const members = toSidebarMembers([
+      { user_id: 'me', user: { id: 'me', full_name: 'Me' }, online: true },
+      { user_id: 'zed', user: { id: 'zed', full_name: 'Zed' }, online: false },
+      { user_id: 'amy', user: { id: 'amy', full_name: 'Amy' }, online: false },
+      { user_id: 'kim', user: { id: 'kim', email: 'kim@example.com' }, online: true },
+      { user_id: 'oin_1', user: { id: 'oin_1', email: 'invited@example.com' } },
+      { user_id: 'ghost' },
+    ], 'me')
+    expect(members.map((member) => member.userId)).toEqual(['kim', 'amy', 'zed'])
+    expect(members[0].online).toBe(true)
+  })
+
+  it('caps offline members but always shows online and expanded ones, and searches instead when typing', async () => {
+    const { visibleSidebarMembers } = await import('./ProjectChatSidebar.logic')
+    const members = [
+      { userId: 'on', user: { full_name: 'Online One' }, online: true },
+      ...['a', 'b', 'c', 'd'].map((id) => ({ userId: id, user: { full_name: `Offline ${id}` }, online: false })),
+    ]
+    const capped = visibleSidebarMembers(members, new Set(['d']), '', false, 2)
+    expect(capped.members.map((member) => member.userId)).toEqual(['on', 'a', 'b', 'd'])
+    expect(capped.hiddenCount).toBe(1)
+    expect(visibleSidebarMembers(members, new Set(), '', true, 2).hiddenCount).toBe(0)
+    const searched = visibleSidebarMembers(members, new Set(), 'offline c', false, 2)
+    expect(searched.members.map((member) => member.userId)).toEqual(['c'])
+  })
+
+  it('flattens a person\'s tasks and chats across projects, newest first, keeping the project name', async () => {
+    const { buildPersonChatItems } = await import('./ProjectChatSidebar.logic')
+    const items = buildPersonChatItems(
+      [{ id: 'prj_a', name: 'Alpha' }, { id: 'prj_b', name: 'Beta' }],
+      [
+        { id: 'task_old', project_id: 'prj_a', name: 'Old task', created_at: '2026-09-01T00:00:00Z', last_message_at: '2026-09-02T00:00:00Z' } as any,
+        { id: 'task_new', project_id: 'prj_b', name: 'New task', created_at: '2026-09-03T00:00:00Z', last_message_at: '2026-09-05T00:00:00Z' } as any,
+      ],
+      [
+        { session_id: 'ses_chat', name: 'Loose chat', created: '2026-09-04T00:00:00Z' },
+        { session_id: 'ses_task', name: 'Task session', created: '2026-09-01T00:00:00Z', metadata: { spec_task_id: 'task_old', project_id: 'prj_a' } },
+      ],
+    )
+    expect(items.map((item) => [item.id, item.projectName])).toEqual([
+      ['task_new', 'Beta'],
+      ['ses_chat', undefined],
+      ['task_old', 'Alpha'],
+    ])
+    expect(items[2].session?.session_id).toBe('ses_task')
+  })
+})

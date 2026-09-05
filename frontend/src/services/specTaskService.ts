@@ -34,11 +34,12 @@ const QUERY_KEYS = {
     offset?: number,
     sort?: 'created' | 'updated' | 'last_message',
     participantIds?: string[],
+    organizationId?: string,
   ) =>
     [
       "spec-tasks",
       "list",
-      { projectId, archivedOnly, withDependsOn, labels, limit, offset, sort, participantIds },
+      { projectId, archivedOnly, withDependsOn, labels, limit, offset, sort, participantIds, organizationId },
     ] as const,
   specTask: (id: string) => ["spec-tasks", id] as const,
   foregroundPRRefresh: (id: string) =>
@@ -99,6 +100,11 @@ export function useSpecTasks(options?: {
   offset?: number;
   sort?: 'created' | 'updated' | 'last_message';
   participantIds?: string[];
+  /**
+   * List across every project the caller can read instead of one project.
+   * Mutually exclusive with projectId.
+   */
+  organizationId?: string;
   enabled?: boolean;
   refetchInterval?: number | false;
 }) {
@@ -114,10 +120,12 @@ export function useSpecTasks(options?: {
       options?.offset,
       options?.sort,
       options?.participantIds,
+      options?.organizationId,
     ),
     queryFn: async () => {
       const response = await api.getApiClient().v1SpecTasksList({
-        project_id: options?.projectId || "default",
+        project_id: options?.organizationId ? undefined : options?.projectId || "default",
+        organization_id: options?.organizationId,
         include_archived: options?.archivedOnly,
         with_depends_on: options?.withDependsOn,
         labels:

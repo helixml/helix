@@ -431,6 +431,13 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	if filters.ProjectID != "" {
 		db = db.Where("project_id = ?", filters.ProjectID)
 	}
+	if filters.FilterProjectIDs {
+		if len(filters.ProjectIDs) == 0 {
+			db = db.Where("1 = 0")
+		} else {
+			db = db.Where("project_id IN ?", filters.ProjectIDs)
+		}
+	}
 	if filters.Status != "" {
 		db = db.Where("status = ?", filters.Status)
 	}

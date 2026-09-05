@@ -77,6 +77,24 @@ type OrganizationMembership struct {
 	// Role - the role of the user in the organization (owner or member)
 	Role OrganizationRole `json:"role" yaml:"role"`
 	User User             `json:"user" yaml:"user"`
+
+	// Online is true when the member has authenticated against the API within
+	// PresenceOnlineWindow. Computed by the members list, never persisted.
+	Online bool `json:"online" yaml:"-" gorm:"-"`
+}
+
+// PresenceOnlineWindow is how recently a user must have authenticated to be
+// shown as online. It must exceed the auth middleware's last_seen_at write
+// throttle, otherwise a continuously active user flickers offline between
+// writes.
+const PresenceOnlineWindow = 3 * time.Minute
+
+// IsUserOnline reports whether the user authenticated within PresenceOnlineWindow of now.
+func IsUserOnline(user *User, now time.Time) bool {
+	if user == nil || user.LastSeenAt == nil {
+		return false
+	}
+	return now.Sub(*user.LastSeenAt) < PresenceOnlineWindow
 }
 
 type AddOrganizationMemberRequest struct {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -177,4 +178,66 @@ func TestDeriveAgentWorkState(t *testing.T) {
 			}
 		})
 	}
+}
+
+// An org-wide listing (organization_id instead of project_id) is bounded to
+// the projects the caller can read, so a member never sees tasks from a
+// colleague's private project.
+func TestListTasks_OrganizationWideIsBoundedToVisibleProjects(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	orgID := "org_tasks"
+	user := types.User{ID: "user_member"}
+
+	expectResolveOrganizationByID(mockStore, orgID)
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: orgID,
+		UserID:         user.ID,
+	}).Return(&types.OrganizationMembership{OrganizationID: orgID, UserID: user.ID, Role: types.OrganizationRoleMember}, nil).AnyTimes()
+	mockStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{OrganizationID: orgID}).Return([]*types.Project{
+		{ID: "prj_mine", OrganizationID: orgID, UserID: user.ID},
+		{ID: "prj_shared", OrganizationID: orgID, UserID: "user_other", Metadata: types.ProjectMetadata{OrgMembersAccess: true}},
+		{ID: "prj_private", OrganizationID: orgID, UserID: "user_other"},
+	}, nil)
+	mockStore.EXPECT().ListTeams(gomock.Any(), gomock.Any()).Return([]*types.Team{}, nil)
+	mockStore.EXPECT().ListAccessGrants(gomock.Any(), gomock.Any()).Return([]*types.AccessGrant{}, nil)
+
+	var captured *types.SpecTaskFilters
+	mockStore.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+			captured = filters
+			return []*types.SpecTask{{ID: "task_1", ProjectID: "prj_shared", AssigneeID: "user_other"}}, nil
+		})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/spec-tasks?organization_id="+orgID+"&participant_ids=user_other", nil)
+	req = req.WithContext(setRequestUser(req.Context(), user))
+	response := httptest.NewRecorder()
+
+	server.listTasks(response, req)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	require.NotNil(t, captured)
+	require.True(t, captured.FilterProjectIDs)
+	require.Equal(t, []string{"prj_mine", "prj_shared"}, captured.ProjectIDs)
+	require.Equal(t, []string{"user_other"}, captured.ParticipantIDs)
+	require.Empty(t, captured.ProjectID)
+
+	var tasks []*types.SpecTask
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &tasks))
+	require.Len(t, tasks, 1)
+	require.Equal(t, "task_1", tasks[0].ID)
+}
+
+func TestListTasks_RequiresProjectOrOrganization(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	server := &HelixAPIServer{Store: store.NewMockStore(ctrl)}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/spec-tasks", nil)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user1"}))
+	response := httptest.NewRecorder()
+
+	server.listTasks(response, req)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
 }

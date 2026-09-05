@@ -35,6 +35,14 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("parent_app = ?", query.AppID)
 	}
 
+	if query.RestrictToProjects {
+		if len(query.ProjectIDs) == 0 {
+			q = q.Where("1 = 0")
+		} else {
+			q = q.Where("project_id IN ?", query.ProjectIDs)
+		}
+	}
+
 	switch query.ProjectScope {
 	case "none":
 		q = q.Where("project_id IS NULL OR project_id = ''")
