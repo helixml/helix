@@ -2,9 +2,9 @@
 
 ## Transport (frontend)
 
-- [ ] Add `sendKeysym(isDown, keysym, modifiers)` to `WebSocketStream` in `frontend/src/lib/helix-stream/stream/websocket-stream.ts`, framed `[2][isDown:1][modifiers:1][keysym:4 BE]` via `sendInputMessage(WsMessageType.KeyboardInput, …)`, mirroring `sendKey`
-- [ ] Add `sendKeysymTap(keysym, modifiers)` to `WebSocketStream`, framed `[3][modifiers:1][keysym:4 BE]`
-- [ ] Patch both methods onto `StreamInput` in `patchInputMethods()` **and** in `getInput()` (both patch sites must stay in sync)
+- [~] Add `sendKeysym(isDown, keysym, modifiers)` to `WebSocketStream` in `frontend/src/lib/helix-stream/stream/websocket-stream.ts`, framed `[2][isDown:1][modifiers:1][keysym:4 BE]` via `sendInputMessage(WsMessageType.KeyboardInput, …)`, mirroring `sendKey`
+- [~] Add `sendKeysymTap(keysym, modifiers)` to `WebSocketStream`, framed `[3][modifiers:1][keysym:4 BE]`
+- [~] Patch both methods onto `StreamInput` in `patchInputMethods()` **and** in `getInput()` (both patch sites must stay in sync)
 - [ ] Verify in the browser console that a keysym message actually leaves the socket (today it is silently swallowed by `trySendChannel` on a null RTCDataChannel)
 
 ## Character routing (frontend)
