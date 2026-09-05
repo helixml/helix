@@ -42,4 +42,4 @@
 
 ## Documentation
 
-- [~] Add `design/2026-09-05-mobile-keyboard-shifted-characters.md` to the helix repo recording the four stacked root causes, the transport-patching gotcha, and the GNOME-vs-Wayland path split
+- [x] Add `design/2026-09-05-mobile-keyboard-shifted-characters.md` to the helix repo recording the four stacked root causes, the transport-patching gotcha, and the GNOME-vs-Wayland path split
