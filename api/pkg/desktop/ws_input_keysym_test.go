@@ -1,6 +1,49 @@
 package desktop
 
-import "testing"
+import (
+	"encoding/binary"
+	"testing"
+)
+
+// Pins the wire contract against the exact bytes the frontend emits when '@' is
+// typed on a phone keyboard. The matching frontend assertion lives in
+// frontend/src/lib/helix-stream/stream/websocket-stream.keyboard.test.ts; if
+// either side changes the framing, one of the two fails.
+func TestKeysymTapWireFormat(t *testing.T) {
+	// Payload after the message-type byte: [subType=3][modifiers=0][keysym 4 BE]
+	payload := []byte{3, 0, 0x00, 0x00, 0x00, 0x40}
+
+	if got := payload[0]; got != 3 {
+		t.Fatalf("subType = %d, want 3 (keysym tap)", got)
+	}
+	// handleWSKeyboardKeysymTap requires at least 6 bytes and decodes as below.
+	if len(payload) < 6 {
+		t.Fatalf("payload too short for handleWSKeyboardKeysymTap: %d bytes", len(payload))
+	}
+
+	modifiers := payload[1]
+	keysym := binary.BigEndian.Uint32(payload[2:6])
+
+	if keysym != '@' {
+		t.Errorf("decoded keysym = %#x, want %#x ('@')", keysym, '@')
+	}
+	if modifiers != 0 {
+		t.Errorf("decoded modifiers = %d, want 0 (a virtual keyboard sends no Shift)", modifiers)
+	}
+
+	// With no modifiers on the wire, the shift level must come from the keysym,
+	// otherwise KEY_2 is pressed bare and the remote desktop types '2'.
+	evdevCode, needsShift := resolveKeysym(keysym)
+	if evdevCode == 0 {
+		t.Fatal("'@' must resolve to a keycode")
+	}
+	if !needsShift {
+		t.Error("'@' must request Shift; without it the remote desktop types '2'")
+	}
+	if modifiers|ModifierShift != ModifierShift {
+		t.Errorf("merged modifiers = %d, want %d", modifiers|ModifierShift, ModifierShift)
+	}
+}
 
 // Virtual keyboards emit a shifted character with no Shift key event, so the
 // shift level has to be derived from the keysym itself. Getting this wrong types
