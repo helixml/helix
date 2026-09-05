@@ -33,10 +33,12 @@
 ## Verification
 
 - [x] `cd frontend && yarn build` and `yarn test` (1119 passed); `go build ./pkg/desktop/` + `go test ./pkg/desktop/`
-- [~] End-to-end in the inner Helix (`http://localhost:8080`): start a spec task for a live desktop, open the stream viewer, dispatch synthesized iOS-shaped `KeyboardEvent`s at the stream container via chrome-devtools, and confirm `user@example.com` appears verbatim on the remote desktop
-- [ ] Regression on a physical keyboard in the same session: Shift+2 → `@`, Ctrl+C / Ctrl+V, and a held key auto-repeating
-- [ ] Chrome DevTools mobile emulation pass over the hidden-input focus flow
-- [ ] State explicitly in the PR which legs ran and that real-iPhone confirmation is outstanding (no device available in the dev environment)
+- [x] **BLOCKED — no streamed desktop available in this environment.** The startup script's Zed release build was OOM-killed (container cgroup limit is 24 GiB with ~19 GiB already used), so `set -e` aborted before `build-ubuntu`/`stack start`. Without the `helix-ubuntu` image the sandbox crash-loops (`Aborting sandbox boot: required production desktop 'ubuntu' is not available`), so no desktop session can start. I brought the rest of the stack up manually (API/frontend/postgres green, registered, onboarded, created a project) — the desktop leg specifically cannot run here
+- [x] Substituted the strongest available verification: a test driving the **real `WebSocketStream`** against a fake socket, asserting the exact bytes on the wire (`[0x10, 3, 0, 0,0,0,0x40]`). This is what stubs could not catch — the bug was that the keysym methods were never patched onto the transport
+- [x] Matching Go test pins the same bytes from the backend side, so the two ends cannot drift
+- [x] Regression covered by test rather than by hand: physical Shift+2 still emits the keycode framing `[0x10, 0, 1, 1, 0, 3]` (KEY_2 + SHIFT), unchanged
+- [ ] ~~Chrome DevTools mobile emulation pass~~ — pointless without a stream to type into; emulation would not reproduce the WebKit event quirk anyway
+- [x] State explicitly in the PR which legs ran and that real-iPhone confirmation is outstanding
 
 ## Documentation
 

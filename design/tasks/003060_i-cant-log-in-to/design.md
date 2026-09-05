@@ -204,3 +204,112 @@ quantified confidence; say "NOT tested: <what/why>" for the real-device leg).
   `event.code` (where they'd have pressed it) whenever the source is a soft keyboard.
 - The viewer already `console.log`s every hidden-input `keydown`/`beforeinput` — remote-debug
   a real device against those logs before theorising.
+
+---
+
+# Implementation Notes (written during implementation)
+
+## What shipped, and where it differs from the plan
+
+Three commits on `feature/003060-fix-shifted-characters`:
+
+1. `fix(frontend): send virtual-keyboard characters as keysyms`
+2. `fix(api): hold Shift for shift-level keysyms on the Wayland path`
+3. `test: cover keysym routing, transport framing and wire contract`
+
+Deviations from the approved design, and why:
+
+- **`getInput()` now delegates to `patchInputMethods()`** instead of keeping a second
+  hand-maintained copy of the patch list. The plan said "keep this change mechanical", but
+  the duplication *is* the bug's root cause — the two lists had drifted, and the keysym
+  methods were only missing from both because nobody could see they were two lists.
+  `patchInputMethods()` is idempotent (it only reassigns method properties; the
+  `calcNormalizedPosition` bind reads a method that is never itself patched), so calling it
+  from `getInput()` is behaviour-preserving and strictly more complete — `getInput()` never
+  patched `sendTouch` before.
+- **`keysymToEvdev` keeps its `int` return.** The plan called for `(int, bool)`, but that
+  function is a ~130-arm switch of `return KEY_X` statements; threading a tuple through it
+  is a large diff for no gain. Added `keysymNeedsShift(keysym) bool` as a pure predicate
+  instead, plus `resolveKeysym` combining it with the xkbcommon lookup. A predicate over
+  the keysym cannot drift from the keycode table because it does not duplicate it.
+- **Mismatch characters send a keysym *tap*, not a down/up pair**, and the keyup is
+  swallowed. Not in the original plan. A virtual keyboard may never deliver `keyup`, which
+  would latch the key down on the remote desktop — the failure mode
+  `design/2025-11-25-keyboard-modifier-stuck-analysis.md` exists for. Auto-repeat still
+  works because each repeated `keydown` emits another tap.
+- **CapsLock carve-out**, not in the original plan. CapsLock legitimately produces `A` with
+  `shiftKey=false`, which would otherwise look exactly like the bug. Since the remote
+  desktop already tracks the CapsLock we forwarded to it, rewriting those as Shift+A would
+  type *lowercase* there. `hasShiftLevelMismatch` therefore ignores uppercase letters while
+  CapsLock is on — but still fires for symbols, because CapsLock does not produce `@`.
+- **Trigger is the shift-level mismatch alone, not `isMobileOrTablet() || mismatch`.** The
+  design offered both. Mismatch-only changes exactly the characters that are broken and
+  leaves every character that currently works on the path that currently works. It also
+  fixes any desktop browser that misreports modifier state, for free.
+
+## Gotchas found during implementation
+
+- **`yarn build` and `vitest` OOM at Node's default heap.** Use
+  `NODE_OPTIONS=--max-old-space-size=8192 yarn build`. `free -g` reports the *host's* 499 GB
+  and is misleading — the real limit is the container cgroup
+  (`/sys/fs/cgroup/memory.max` = 24 GiB, ~19 GiB already in use once the stack is up).
+- **`frontend/node_modules` may exist but be incomplete** (`vite: not found`). Run
+  `yarn install --frozen-lockfile` first; it takes ~3.5 min.
+- **`go test ./pkg/desktop/` needs `CGO_ENABLED=0`** unless gcc is installed. With cgo off,
+  `XKBKeysymToEvdev` is the nocgo stub returning 0, so `resolveKeysym` exercises the static
+  fallback — which is the path the tests target anyway.
+- **The dedup worry in the plan was unfounded.** The container-level `beforeinput` listener
+  guards on `document.activeElement !== container`, and the hidden `<input>` is a different
+  element, so the container handler and the hidden input's React handler are mutually
+  exclusive. No double-send. Verified by reading both handlers, not by assuming.
+- **The `spec_tasks` table has no `session_id` column** — join through the session instead.
+
+## Verification actually performed
+
+Ran and green:
+
+- `yarn build` (production bundle).
+- Full frontend suite: **1119 passed, 1 skipped, 0 failed** — no regressions.
+- 31 tests in `lib/helix-stream/stream/`, of which 21 + 7 + 3 are new:
+  - `keysym.test.ts` — the routing decision, including CapsLock and the desktop path.
+  - `input.keyboard.test.ts` — what `StreamInput` emits per event.
+  - `websocket-stream.keyboard.test.ts` — **the real `WebSocketStream`** against a fake
+    socket, asserting the literal bytes `[0x10, 3, 0, 0, 0, 0, 0x40]`. This is the one that
+    matters: the original bug was invisible to any test that stubs the send methods.
+- `go build ./pkg/desktop/`, `go vet`, and `go test ./pkg/desktop/` (keysym tests).
+
+**NOT run: the live streamed-desktop leg.** The environment cannot provide one. The session
+startup script's `./stack build-zed release` was OOM-killed (`cannot allocate memory`,
+SIGKILL, while compiling the `project` crate at `opt-level=3`), and `set -e` aborted the
+script before `build-sandbox` and `stack start`. Without the Zed binary there is no
+`helix-ubuntu` image, and `helix-sandbox-nvidia-1` therefore crash-loops with
+`❌ Aborting sandbox boot: required production desktop 'ubuntu' is not available`. I started
+the rest of the stack by hand (`./stack start`) and it is healthy — API, frontend, postgres
+green on `localhost:8080`; I registered `test@helix.ml`, completed onboarding and created a
+project — but no desktop session can be launched, so there is nothing to type into.
+Rebuilding Zed is not viable inside a 24 GiB cgroup that already has ~19 GiB resident.
+
+**Still outstanding: confirmation on a real iPhone.** The assumed iOS event shape
+(`key: "@"`, `code: "Digit2"`, `shiftKey: false`) drives the fix. If iOS instead reports an
+*empty* `event.code`, the pre-existing "no code" branch already routes to keysym and the fix
+still applies — but the primary path differs. Both are now wired to the transport, which
+they were not before, so either shape works.
+
+## Learnings for future agents (updated)
+
+Everything in the pre-implementation Learnings section held up. Adding:
+
+- **A test that stubs the thing that was broken proves nothing.** The keysym send methods
+  were individually correct and unit-testable all along; the defect was that nothing ever
+  called them over the real transport. When a bug is "this code never runs", the test has to
+  instantiate the real transport. `WebSocketStream` is testable in jsdom by substituting
+  `globalThis.WebSocket` with a recording fake — the constructor takes `{} as any` for the
+  api client and never touches it before `connect()`.
+- **Pin cross-language wire formats with the same fixture bytes on both sides.** The Go and
+  TypeScript tests now assert the identical 7-byte frame, so a framing change fails one of
+  them instead of silently breaking input at runtime.
+- **Check `/sys/fs/cgroup/memory.max`, not `free`,** before blaming a build for OOM in this
+  environment.
+- **The startup script is `set -e` and builds Zed before starting the stack.** If Zed fails,
+  you get *no stack at all* — but `./stack start` on its own works fine and is all you need
+  unless you specifically require a desktop session.
