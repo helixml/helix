@@ -18,10 +18,10 @@ import (
 )
 
 // lastSeenThrottle limits how often we write users.last_seen_at.
-// Hot-path auth runs on every request; 5 minutes of resolution is plenty
-// for the "when was this user last active" UI while keeping the write
-// rate trivially low.
-const lastSeenThrottle = 5 * time.Minute
+// Hot-path auth runs on every request; one write per user per minute keeps
+// the rate trivially low while giving org presence (types.PresenceOnlineWindow)
+// minute-level resolution. Keep it below PresenceOnlineWindow.
+const lastSeenThrottle = time.Minute
 
 var (
 	// Allowed paths for app API keys. Currently we support

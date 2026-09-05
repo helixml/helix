@@ -79,6 +79,7 @@ export interface ApiAgentDetailDTO {
    * restart banner on the bot page and the org chat panel.
    */
   restart_required?: boolean;
+  session_id?: string;
   tools?: string[];
   updated_at?: string;
 }
@@ -198,6 +199,14 @@ export interface ApiBotDTO {
    * context across triggers (e.g. Slack). Defaults to false.
    */
   preserve_context?: boolean;
+  /**
+   * ProjectID is the bot's own Helix project — the one whose exploratory
+   * session is the bot's chat. SessionID is that session, when the bot
+   * has been activated. Both come from runtime state and let the chat
+   * sidebar list bots as top-level entries instead of surfacing their
+   * project like an ordinary one.
+   */
+  project_id?: string;
   project_ids?: string[];
   provider?: string;
   reasoning_effort?: string;
@@ -207,6 +216,7 @@ export interface ApiBotDTO {
    * restart banner on the bot page and the org chat panel.
    */
   restart_required?: boolean;
+  session_id?: string;
   tools?: string[];
   updated_at?: string;
 }
@@ -2320,13 +2330,13 @@ export enum TransportFieldType {
 
 export enum TransportKind {
   KindSlack = "slack",
-  KindCron = "cron",
-  KindGitLab = "gitlab",
-  KindLocal = "local",
-  KindEmail = "email",
-  KindWebhook = "webhook",
-  KindHelixEvents = "helix_events",
   KindGitHub = "github",
+  KindCron = "cron",
+  KindEmail = "email",
+  KindLocal = "local",
+  KindWebhook = "webhook",
+  KindGitLab = "gitlab",
+  KindHelixEvents = "helix_events",
 }
 
 export interface TransportResolvedActivation {
@@ -5188,6 +5198,11 @@ export interface TypesOrganizationInvitation {
 
 export interface TypesOrganizationMembership {
   created_at?: string;
+  /**
+   * Online is true when the member has authenticated against the API within
+   * PresenceOnlineWindow. Computed by the members list, never persisted.
+   */
+  online?: boolean;
   organization_id?: string;
   /** Role - the role of the user in the organization (owner or member) */
   role?: TypesOrganizationRole;
@@ -5791,6 +5806,11 @@ export interface TypesPublicInvitationInfo {
 
 export interface TypesPullRequest {
   author?: string;
+  /**
+   * BaseSHA is the commit SHA on the target side of the PR. CI failures on
+   * the head are only actionable when CI passed on this commit.
+   */
+  base_sha?: string;
   created_at?: string;
   description?: string;
   /**
@@ -5939,6 +5959,8 @@ export interface TypesRegisterRequest {
 }
 
 export interface TypesRepoPR {
+  ci_base_sha?: string;
+  ci_base_status?: string;
   ci_head_sha?: string;
   /**
    * CI status, populated by the spec task orchestrator's PR poll loop.
@@ -6441,10 +6463,15 @@ export interface TypesServerConfigForFrontend {
    * Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
    */
   max_concurrent_desktops?: number;
-  organizations_create_enabled_for_non_admins?: boolean;
   onboarding_helix_model?: string;
   onboarding_helix_model_effort?: string;
+  /**
+   * Operator-selected default for the Helix-credits path through onboarding.
+   * Provider references and model IDs are identifiers, not credentials, and
+   * are safe to expose through the public frontend configuration endpoint.
+   */
   onboarding_helix_model_provider?: string;
+  organizations_create_enabled_for_non_admins?: boolean;
   /**
    * PreviewURLHTTPS controls whether generated sandbox preview URLs use
    * https:// (true) or http:// (false).
@@ -7748,10 +7775,10 @@ export interface TypesSystemSettingsRequest {
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
-  opencode_version?: string;
   onboarding_helix_model?: string;
   onboarding_helix_model_effort?: string;
   onboarding_helix_model_provider?: string;
+  opencode_version?: string;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;
@@ -7791,6 +7818,9 @@ export interface TypesSystemSettingsResponse {
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
+  onboarding_helix_model?: string;
+  onboarding_helix_model_effort?: string;
+  onboarding_helix_model_provider?: string;
   opencode_bundled_version?: string;
   /**
    * OpenCodeVersion is the admin override; empty means the bundled build.
@@ -7798,9 +7828,6 @@ export interface TypesSystemSettingsResponse {
    * can show the floor without hardcoding it.
    */
   opencode_version?: string;
-  onboarding_helix_model?: string;
-  onboarding_helix_model_effort?: string;
-  onboarding_helix_model_provider?: string;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;
@@ -17186,6 +17213,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         include_external_agents?: boolean;
         /** Return only archived sessions instead of only unarchived ones */
         archived?: boolean;
+        /** List another org member's sessions (requires org_id); limited to projects the caller can access unless they own the org */
+        owner_id?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -18115,7 +18144,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List spec-driven tasks with optional filtering by project, status, or user
+     * @description List spec-driven tasks with optional filtering by project, status, or user. Pass organization_id instead of project_id to list across every project the caller can access.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksList
@@ -18123,9 +18152,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/spec-tasks
      */
     v1SpecTasksList: (
-      query: {
-        /** Project ID */
-        project_id: string;
+      query?: {
+        /** Project ID (required unless organization_id is set) */
+        project_id?: string;
+        /** Organization slug or ID: list tasks across all accessible projects */
+        organization_id?: string;
         /** Filter by status */
         status?: string;
         /** Filter by user ID */

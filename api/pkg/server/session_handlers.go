@@ -158,6 +158,7 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 // @Param   session_role    query    string  false  "Filter by session role (e.g. job)"
 // @Param   include_external_agents query bool false "Include external agent sessions"
 // @Param   archived        query    bool    false  "Return only archived sessions instead of only unarchived ones"
+// @Param   owner_id        query    string  false  "List another org member's sessions (requires org_id); limited to projects the caller can access unless they own the org"
 // @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
 // @Security BearerAuth
@@ -194,6 +195,13 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	query.Owner = user.ID
 	query.OwnerType = user.Type
 
+	// Another member's sessions are only meaningful inside an org: that is
+	// where shared projects make them visible to the caller at all.
+	ownerID := req.URL.Query().Get("owner_id")
+	if ownerID == user.ID {
+		ownerID = ""
+	}
+
 	// Extract organization_id query parameter if present
 	orgID := req.URL.Query().Get("org_id")
 	if orgID != "" {
@@ -205,12 +213,20 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 
 		orgID = org.ID
 
-		_, err = apiServer.authorizeOrgMember(ctx, user, orgID)
+		membership, err := apiServer.authorizeOrgMember(ctx, user, orgID)
 		if err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
 
 		query.OrganizationID = orgID
+
+		if ownerID != "" {
+			if err := apiServer.scopeSessionsToOrgMember(ctx, &query, user, membership, ownerID); err != nil {
+				return nil, err
+			}
+		}
+	} else if ownerID != "" {
+		return nil, system.NewHTTPError400("owner_id requires org_id")
 	} else {
 		// When no organization is specified, we only want personal sessions
 		// Setting empty string explicitly ensures we only get sessions with no organization
@@ -272,6 +288,46 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		TotalCount: totalCount,
 		TotalPages: int(math.Ceil(float64(totalCount) / float64(pageSize))),
 	}, nil
+}
+
+// scopeSessionsToOrgMember points a session list at another org member's
+// sessions. It mirrors authorizeUserToSession: an org owner may see every
+// session in the org, anyone else only sessions inside projects they can
+// access. Sessions outside any project are therefore invisible to non-owners.
+func (apiServer *HelixAPIServer) scopeSessionsToOrgMember(
+	ctx context.Context,
+	query *store.ListSessionsQuery,
+	user *types.User,
+	membership *types.OrganizationMembership,
+	ownerID string,
+) error {
+	if _, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+		OrganizationID: query.OrganizationID,
+		UserID:         ownerID,
+	}); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return system.NewHTTPError404("owner is not a member of this organization")
+		}
+		return system.NewHTTPError500(err.Error())
+	}
+
+	query.Owner = ownerID
+	query.OwnerType = types.OwnerTypeUser
+
+	if membership.Role == types.OrganizationRoleOwner {
+		return nil
+	}
+
+	projects, err := apiServer.visibleOrganizationProjects(ctx, user, query.OrganizationID, membership, false)
+	if err != nil {
+		return system.NewHTTPError500(err.Error())
+	}
+	query.RestrictToProjects = true
+	query.ProjectIDs = make([]string, 0, len(projects))
+	for _, project := range projects {
+		query.ProjectIDs = append(query.ProjectIDs, project.ID)
+	}
+	return nil
 }
 
 func currentAgentInfo(app *types.App, assistantID string) (types.CodeAgentRuntime, string, bool) {

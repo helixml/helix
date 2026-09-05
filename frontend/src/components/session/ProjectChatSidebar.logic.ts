@@ -1,4 +1,5 @@
 import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary } from '../../api/api'
+import type { BotDTO } from '../../services/helixOrgService'
 import type { SpecTask } from '../../services/specTaskService'
 import { matchesAllTokens } from '../../utils/searchUtils'
 
@@ -15,6 +16,8 @@ export type SidebarItem = {
   createdAt?: string
   updatedAt?: string
   projectId?: string
+  /** Set on cross-project lists (a person's work) so the row can say where it lives. */
+  projectName?: string
   session?: TypesSessionSummary
   task?: SpecTask
   pinnedAt?: string
@@ -553,3 +556,133 @@ export const filterProjectChatGroups = (groups: SidebarGroup[], query: string): 
     return items.length > 0 ? [{ ...group, items }] : []
   })
 )
+
+// ---------------------------------------------------------------------------
+// Bots
+// ---------------------------------------------------------------------------
+
+export type SidebarBot = {
+  id: string
+  name: string
+  running: boolean
+  restartRequired: boolean
+  agentAppId?: string
+  projectId?: string
+  sessionId?: string
+}
+
+// Every helix-org agent owns a Helix project whose exploratory session is the
+// agent's chat. The sidebar lists the agent itself, so that project must not
+// also appear as an ordinary project group.
+export const toSidebarBots = (bots: BotDTO[]): SidebarBot[] => (
+  bots
+    .filter((bot) => bot.kind !== 'human' && !!bot.id)
+    .map((bot) => ({
+      id: bot.id!,
+      name: bot.name || bot.id!,
+      running: bot.agent_status === 'running',
+      restartRequired: !!bot.restart_required,
+      agentAppId: bot.agent_id || bot.agent_app_id || undefined,
+      projectId: bot.project_id || undefined,
+      sessionId: bot.session_id || undefined,
+    }))
+    .sort((left, right) => (
+      Number(right.running) - Number(left.running) || left.name.localeCompare(right.name)
+    ))
+)
+
+export const botHomeProjectIds = (bots: SidebarBot[]): Set<string> => (
+  new Set(bots.flatMap((bot) => bot.projectId ? [bot.projectId] : []))
+)
+
+export const withoutBotProjects = (projects: TypesProject[], bots: SidebarBot[]): TypesProject[] => {
+  const hidden = botHomeProjectIds(bots)
+  return projects.filter((project) => !project.id || !hidden.has(project.id))
+}
+
+export const filterSidebarBots = (bots: SidebarBot[], query: string): SidebarBot[] => (
+  query.trim() ? bots.filter((bot) => matchesAllTokens(query, bot.name, bot.id)) : bots
+)
+
+// ---------------------------------------------------------------------------
+// People
+// ---------------------------------------------------------------------------
+
+export type SidebarMember = {
+  userId: string
+  user: NonNullable<TypesOrganizationMembership['user']>
+  online: boolean
+}
+
+const memberDisplayName = (user: SidebarMember['user']): string => (
+  user.full_name || user.username || user.email || ''
+)
+
+// The current user's own work is already grouped by project above, and
+// pending invitations (oin_… placeholders) have no sessions to show.
+export const toSidebarMembers = (
+  members: TypesOrganizationMembership[],
+  currentUserId: string,
+): SidebarMember[] => (
+  members
+    .filter((member): member is TypesOrganizationMembership & { user_id: string; user: SidebarMember['user'] } => (
+      !!member.user_id && !!member.user && member.user_id !== currentUserId && !member.user_id.startsWith('oin_')
+    ))
+    .map((member) => ({ userId: member.user_id, user: member.user, online: !!member.online }))
+    .sort((left, right) => (
+      Number(right.online) - Number(left.online)
+      || memberDisplayName(left.user).localeCompare(memberDisplayName(right.user))
+      || left.userId.localeCompare(right.userId)
+    ))
+)
+
+export const DEFAULT_VISIBLE_OFFLINE_MEMBERS = 5
+
+// Online members and anyone whose work is expanded always show; the offline
+// remainder is capped so a large org does not turn the sidebar into a
+// directory. Searching lifts the cap and matches by name or email.
+export const visibleSidebarMembers = (
+  members: SidebarMember[],
+  selectedUserIds: ReadonlySet<string>,
+  query: string,
+  showAll: boolean,
+  offlineLimit = DEFAULT_VISIBLE_OFFLINE_MEMBERS,
+): { members: SidebarMember[]; hiddenCount: number } => {
+  if (query.trim()) {
+    const matching = members.filter((member) => (
+      matchesAllTokens(query, member.user.full_name, member.user.username, member.user.email)
+    ))
+    return { members: matching, hiddenCount: 0 }
+  }
+  if (showAll) return { members, hiddenCount: 0 }
+  let offlineShown = 0
+  const visible = members.filter((member) => {
+    if (member.online || selectedUserIds.has(member.userId)) return true
+    if (offlineShown < offlineLimit) {
+      offlineShown += 1
+      return true
+    }
+    return false
+  })
+  return { members: visible, hiddenCount: members.length - visible.length }
+}
+
+// A person's work is one flat, most-recent-first list across every project
+// the viewer can see. Grouping by project first would hide what they are
+// doing right now behind a fold per project.
+export const buildPersonChatItems = (
+  projects: TypesProject[],
+  specTasks: SpecTask[],
+  sessions: TypesSessionSummary[],
+  sortOrder: SidebarThreadSortOrder = 'updated_at',
+): SidebarItem[] => {
+  const groups = buildProjectChatGroups(projects, specTasks, sessions, sortOrder)
+  const items = groups.flatMap((group) => group.items.map((item) => ({
+    ...item,
+    projectName: group.id === 'default' ? undefined : group.name,
+  })))
+  return items.sort((left, right) => (
+    sortableTimestamp(sortOrder === 'created_at' ? right.createdAt : right.updatedAt)
+    - sortableTimestamp(sortOrder === 'created_at' ? left.createdAt : left.updatedAt)
+  ))
+}

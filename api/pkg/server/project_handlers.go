@@ -95,21 +95,38 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	projects, err := s.Store.ListProjects(ctx, &store.ListProjectsQuery{
-		OrganizationID: org.ID,
-		IncludeStats:   true,
-	})
+	projects, err := s.visibleOrganizationProjects(ctx, user, org.ID, orgMembership, true)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Org owners see all projects
+	s.populateProjectOwners(ctx, projects)
+	return projects, nil
+}
+
+// visibleOrganizationProjects returns the org's projects the user may read:
+// all of them for an org owner, otherwise only those authorizeUserToProject
+// allows. The same set bounds what the user may see of other members' work
+// (sessions, spec tasks), so every cross-member listing goes through here.
+func (s *HelixAPIServer) visibleOrganizationProjects(
+	ctx context.Context,
+	user *types.User,
+	orgID string,
+	orgMembership *types.OrganizationMembership,
+	includeStats bool,
+) ([]*types.Project, error) {
+	projects, err := s.Store.ListProjects(ctx, &store.ListProjectsQuery{
+		OrganizationID: orgID,
+		IncludeStats:   includeStats,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	if orgMembership.Role == types.OrganizationRoleOwner {
-		s.populateProjectOwners(ctx, projects)
 		return projects, nil
 	}
 
-	// Non-owners only see projects they have access to
 	var authorizedProjects []*types.Project
 	for _, project := range projects {
 		if err := s.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
@@ -117,8 +134,6 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		}
 		authorizedProjects = append(authorizedProjects, project)
 	}
-
-	s.populateProjectOwners(ctx, authorizedProjects)
 	return authorizedProjects, nil
 }
 

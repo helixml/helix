@@ -39,6 +39,12 @@ export interface ListSessionsFilters {
   projectScope?: 'project' | 'none'
   sort?: 'created' | 'updated' | 'last_message'
   archived?: boolean
+  /**
+   * Another org member's sessions (requires orgId). The server limits them to
+   * projects the caller can read, so this is "what are they working on", not
+   * their private history.
+   */
+  ownerId?: string
 }
 
 // The "sessions" prefix is what every invalidation matches on, so it must stay
@@ -127,6 +133,7 @@ export function useListSessions(orgId?: string, search?: string, projectId?: str
       app_id: appId,
       include_external_agents: options?.includeExternalAgents,
       archived: options?.archived,
+      owner_id: options?.ownerId,
     }),
     enabled: options?.enabled ?? true
   })

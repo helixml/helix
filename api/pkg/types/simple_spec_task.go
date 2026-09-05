@@ -533,6 +533,8 @@ type SpecTaskFilters struct {
 	UserID             string         `json:"user_id,omitempty"`
 	FilterParticipants bool           `json:"filter_participants,omitempty"`
 	ParticipantIDs     []string       `json:"participant_ids,omitempty"` // Created by or assigned to any selected user
+	FilterProjectIDs   bool           `json:"filter_project_ids,omitempty"`
+	ProjectIDs         []string       `json:"project_ids,omitempty"` // Any of these projects; empty matches nothing when FilterProjectIDs is set
 	Type               string         `json:"type,omitempty"`
 	Priority           string         `json:"priority,omitempty"`
 	Limit              int            `json:"limit,omitempty"`
