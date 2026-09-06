@@ -27,7 +27,9 @@ sit above either arrangement:
    viewer first (expanded by default), others online first. Expanding a
    member shows their sessions and tasks across every project the viewer can
    read, flattened newest-first with the project name in the tooltip.
-   Expanded members persist per user/org/project-filter in localStorage.
+   Expanded members persist per user/org in localStorage. Searching opens
+   every visible member and agent so their work can match, and hides groups
+   where neither the name nor any item matches.
    Offline members beyond five are behind "Show N more offline".
 
 The **org People page** shows the same presence dot per member.
@@ -40,16 +42,20 @@ online. The members list handler computes `OrganizationMembership.Online`
 (`gorm:"-"`) server-side so client clock skew cannot matter. The sidebar and
 People page poll `GET /organizations/{id}/members` every 30 s via
 `useOrganizationMembers`; an open Helix tab keeps polling other endpoints, so
-"online" means "has Helix open".
+"online" means "has Helix open". Session-scoped API keys (sandboxes, org
+agents acting for a human) do not touch `last_seen_at`, otherwise anyone with a
+running agent would be online forever.
 
 ## Seeing another member's work
 
-- `GET /sessions?org_id=…&owner_id=<user>` lists another member's sessions.
-  Mirrors `authorizeUserToSession`: org owners see everything, other members
-  only sessions inside projects they can read (`visibleOrganizationProjects`,
-  shared with the projects list). Sessions with no project are invisible to
-  non-owners. `ListSessionsQuery.RestrictToProjects/ProjectIDs` carries the
-  bound; an empty bound matches nothing.
+- `GET /sessions?org_id=…&owner_id=<user>` lists another member's sessions,
+  always bounded to projects the caller can read (`visibleOrganizationProjects`,
+  shared with the projects list): every project for an org owner, otherwise
+  those `authorizeUserToProject` allows. Chats outside any project are personal
+  and never listed for someone else. A project-scoped credential (a sandbox's
+  session key) stays confined to its project on either branch.
+  `ListSessionsQuery.RestrictToProjects/ProjectIDs` carries the bound; an empty
+  bound matches nothing.
 - `GET /spec-tasks?organization_id=…&participant_ids=<user>` lists tasks across
   every readable project (`SpecTaskFilters.FilterProjectIDs/ProjectIDs`).
   `project_id` is no longer required when `organization_id` is given.

@@ -305,9 +305,10 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 }
 
 // scopeSessionsToOrgMember points a session list at another org member's
-// sessions. It mirrors authorizeUserToSession: an org owner may see every
-// session in the org, anyone else only sessions inside projects they can
-// access. Sessions outside any project are therefore invisible to non-owners.
+// sessions, bounded to the projects the caller can read (every project for an
+// org owner, subject to their credential's project scope). Chats outside any
+// project are personal and never listed for someone else, owner or not —
+// the sidebar's rule, one notch stricter than authorizeUserToSession.
 func (apiServer *HelixAPIServer) scopeSessionsToOrgMember(
 	ctx context.Context,
 	query *store.ListSessionsQuery,
@@ -328,11 +329,7 @@ func (apiServer *HelixAPIServer) scopeSessionsToOrgMember(
 	query.Owner = ownerID
 	query.OwnerType = types.OwnerTypeUser
 
-	if membership.Role == types.OrganizationRoleOwner {
-		return nil
-	}
-
-	projects, err := apiServer.visibleOrganizationProjects(ctx, user, query.OrganizationID, membership, false)
+	projects, err := apiServer.visibleOrganizationProjects(ctx, user, query.OrganizationID, membership, types.ActionGet, false)
 	if err != nil {
 		return system.NewHTTPError500(err.Error())
 	}

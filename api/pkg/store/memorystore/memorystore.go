@@ -143,6 +143,9 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 	defer m.mu.RUnlock()
 	result := make([]*types.Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
+		if query.RestrictToProjects && !containsString(query.ProjectIDs, s.ProjectID) {
+			continue
+		}
 		cp := *s
 		if query.SortBy == "last_message" {
 			for _, interaction := range m.interactions {
@@ -657,6 +660,9 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 		if filters != nil && filters.CreatedByOrgAgent != "" && t.CreatedByOrgAgent != filters.CreatedByOrgAgent {
 			continue
 		}
+		if filters != nil && filters.FilterProjectIDs && !containsString(filters.ProjectIDs, t.ProjectID) {
+			continue
+		}
 		if filters != nil && filters.FilterParticipants {
 			matchesParticipant := false
 			for _, userID := range filters.ParticipantIDs {
@@ -944,4 +950,13 @@ func (m *MemoryStore) GetZedSettingsOverride(_ context.Context, _ string) (*type
 // connection mid-turn and turning any error-path test into a timeout.
 func (m *MemoryStore) FinishTriggerExecution(_ context.Context, _ string, _ types.TriggerExecutionStatus, _ string) (*types.TriggerExecution, error) {
 	return nil, store.ErrNotFound
+}
+
+func containsString(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
 }

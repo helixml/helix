@@ -122,7 +122,7 @@ type HelixAPIServer struct {
 	// orgAgentConfigChanged, when wired, is called after an App's
 	// system prompt changes so the helix-org layer can flag any Bot backed
 	// by that App as needing a sandbox restart. nil when helix-org is off.
-	orgAgentConfigChanged func(ctx context.Context, appID string)
+	orgAgentConfigChanged       func(ctx context.Context, appID string)
 	Stripe                      *stripe.Stripe
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller

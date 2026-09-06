@@ -18,7 +18,7 @@ import {
   Square,
 } from 'lucide-react'
 
-import type { TypesOrganizationMembership, TypesProject, TypesUser } from '../../api/api'
+import type { TypesOrganizationMembership, TypesPinnedChat, TypesProject, TypesUser } from '../../api/api'
 import useAccount from '../../hooks/useAccount'
 import useIsPhone from '../../hooks/useIsPhone'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -32,10 +32,15 @@ import {
 import { useSpecTasks } from '../../services/specTaskService'
 import { PRESENCE_OFFLINE_COLOR, PRESENCE_ONLINE_COLOR } from '../widgets/PresenceDot'
 import ProjectChatItemRow from './ProjectChatItemRow'
-import { buildPersonChatItems, filterProjectChatGroups } from './ProjectChatSidebar.logic'
+import ProjectChatShowMore from './ProjectChatShowMore'
+import {
+  buildPersonChatItems,
+  filterProjectChatGroups,
+  pinnedAtByItemKeyFrom,
+  sidebarBotMatchesQuery,
+} from './ProjectChatSidebar.logic'
 import type { SidebarBot, SidebarItem, SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
-
-const SHOW_MORE_COUNT = 20
+import { useSidebarItemPagination, windowSidebarItems } from './useSidebarItemPagination'
 
 export const botGroupId = (botId: string): string => `bot:${botId}`
 
@@ -52,6 +57,7 @@ type ItemRowProps = {
   archived?: boolean
   organizationMembers: TypesOrganizationMembership[]
   currentUser?: TypesUser
+  pinnedChats?: TypesPinnedChat[]
   archivingItemId: string | null
   onOpenItem: (item: SidebarItem) => void
   onOpenItemContextMenu: (event: MouseEvent<HTMLElement>, item: SidebarItem) => void
@@ -80,8 +86,6 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
 }) => {
   const account = useAccount()
   const router = useRouter()
-  const lightTheme = useLightTheme()
-  const isPhone = useIsPhone()
   const snackbar = useSnackbar()
   const activateBot = useActivateBot()
   const stopBot = useStopBotAgent()
@@ -98,15 +102,16 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
 
   // A freshly started agent gets its session id from the polled bots list, so
   // the open completes reactively once it lands rather than by re-clicking.
+  const pendingSessionId = pendingOpenBotId
+    ? bots.find((candidate) => candidate.id === pendingOpenBotId)?.sessionId || ''
+    : ''
   useEffect(() => {
-    if (!pendingOpenBotId) return
-    const bot = bots.find((candidate) => candidate.id === pendingOpenBotId)
-    if (!bot?.sessionId) return
+    if (!pendingSessionId) return
     setPendingOpenBotId(null)
-    openSession(bot.sessionId)
-    // openSession closes over context objects; the bots list is the trigger.
+    openSession(pendingSessionId)
+    // openSession closes over context objects; the session id is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bots, pendingOpenBotId])
+  }, [pendingSessionId])
 
   const runBotAction = async (bot: SidebarBot, action: 'start' | 'stop' | 'restart') => {
     setBusyBotId(bot.id)
@@ -161,150 +166,20 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
 
   return (
     <Box>
-      {bots.map((bot) => {
-        const active = !!bot.sessionId && bot.sessionId === rowProps.activeItemId
-        const busy = busyBotId === bot.id || pendingOpenBotId === bot.id
-        const collapsed = collapsedGroups.has(botGroupId(bot.id))
-        const statusTitle = bot.running
-          ? (bot.restartRequired ? 'Running · restart required to apply changes' : 'Agent running')
-          : 'Agent stopped'
-        return (
-          <Box key={bot.id} sx={{ mb: 0.25 }}>
-            <Box
-              className="project-chat-item"
-              role="button"
-              tabIndex={0}
-              aria-label={`Open chat with ${bot.name}`}
-              onClick={() => openBot(bot)}
-              onContextMenu={(event) => openMenu(event, bot)}
-              onKeyDown={(event) => {
-                if (event.target !== event.currentTarget) return
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  openBot(bot)
-                }
-              }}
-              sx={{
-                width: '100%',
-                minWidth: 0,
-                height: 32,
-                pl: 0.75,
-                pr: 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.65,
-                borderRadius: '6px',
-                cursor: 'pointer',
-                position: 'relative',
-                outline: 'none',
-                color: active
-                  ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
-                  : (lightTheme.isLight ? '#71717a' : 'rgba(163,163,163,0.80)'),
-                backgroundColor: active
-                  ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
-                  : 'transparent',
-                '&:hover, &:focus-visible': {
-                  color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-                  backgroundColor: active
-                    ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
-                    : (lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)'),
-                },
-                '&:hover .sidebar-bot-settings, &:focus-within .sidebar-bot-settings': { opacity: 1 },
-                '@media (hover: none)': { '& .sidebar-bot-settings': { opacity: 1 } },
-              }}
-            >
-              <Box
-                component="button"
-                type="button"
-                aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${bot.name}'s tasks`}
-                aria-expanded={!collapsed}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onToggleBot(bot.id)
-                }}
-                sx={{
-                  appearance: 'none',
-                  border: 0,
-                  p: 0,
-                  m: 0,
-                  backgroundColor: 'transparent',
-                  color: 'inherit',
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: isPhone ? 28 : 16,
-                  height: isPhone ? 28 : 16,
-                  borderRadius: '4px',
-                  '&:hover': {
-                    backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(241,243,247,0.12)',
-                  },
-                }}
-              >
-                {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-              </Box>
-              <Tooltip title={statusTitle}>
-                <Box
-                  component="span"
-                  data-bot-status={bot.running ? 'running' : 'stopped'}
-                  onMouseOver={(event) => event.stopPropagation()}
-                  sx={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: '50%',
-                    flexShrink: 0,
-                    backgroundColor: bot.running ? PRESENCE_ONLINE_COLOR : PRESENCE_OFFLINE_COLOR,
-                    boxShadow: bot.running && bot.restartRequired ? '0 0 0 2px rgba(251,191,36,0.55)' : 'none',
-                  }}
-                />
-              </Tooltip>
-              <Bot size={14} style={{ flexShrink: 0, opacity: 0.8 }} />
-              <Typography
-                component="span"
-                sx={{
-                  minWidth: 0,
-                  flex: 1,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  fontSize: '14px',
-                  lineHeight: '20px',
-                  fontWeight: active ? 500 : 400,
-                }}
-              >
-                {bot.name}
-              </Typography>
-              {busy ? (
-                <CircularProgress size={12} color="inherit" sx={{ mr: 0.5 }} />
-              ) : (
-                <Tooltip title="Agent settings">
-                  <span>
-                    <IconButton
-                      className="sidebar-bot-settings"
-                      size="small"
-                      aria-label={`Settings for ${bot.name}`}
-                      disabled={!bot.agentAppId}
-                      onMouseOver={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        openSettings(bot)
-                      }}
-                      sx={{ width: 24, height: 24, opacity: 0, color: 'inherit', transition: 'opacity 100ms ease' }}
-                    >
-                      <Settings size={14} />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              )}
-            </Box>
-            {!collapsed && (
-              <ProjectChatBotTasks orgId={orgId} bot={bot} {...rowProps} />
-            )}
-          </Box>
-        )
-      })}
+      {bots.map((bot) => (
+        <ProjectChatBotEntry
+          key={bot.id}
+          orgId={orgId}
+          bot={bot}
+          collapsed={collapsedGroups.has(botGroupId(bot.id))}
+          busy={busyBotId === bot.id || pendingOpenBotId === bot.id}
+          onToggle={() => onToggleBot(bot.id)}
+          onOpen={() => openBot(bot)}
+          onOpenSettings={() => openSettings(bot)}
+          onOpenMenu={(event) => openMenu(event, bot)}
+          {...rowProps}
+        />
+      ))}
       <Menu
         open={!!menu}
         onClose={closeMenu}
@@ -351,16 +226,30 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
   )
 }
 
-type ProjectChatBotTasksProps = ItemRowProps & {
+type ProjectChatBotEntryProps = ItemRowProps & {
   orgId: string
   bot: SidebarBot
+  collapsed: boolean
+  busy: boolean
+  onToggle: () => void
+  onOpen: () => void
+  onOpenSettings: () => void
+  onOpenMenu: (event: MouseEvent<HTMLElement>) => void
 }
 
-// The spec tasks one agent created, across every project the viewer can
-// read. Tasks only — the agent's own chat is the row above.
-const ProjectChatBotTasks: FC<ProjectChatBotTasksProps> = ({
+// One agent: its row plus the spec tasks it created, across every project the
+// viewer can read. Tasks only — the agent's own chat is the row itself. A
+// search opens the group so its tasks can match, and hides it when neither the
+// agent's name nor any task does.
+const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   orgId,
   bot,
+  collapsed,
+  busy,
+  onToggle,
+  onOpen,
+  onOpenSettings,
+  onOpenMenu,
   projects,
   query,
   activeItemId,
@@ -371,90 +260,200 @@ const ProjectChatBotTasks: FC<ProjectChatBotTasksProps> = ({
   archived = false,
   organizationMembers,
   currentUser,
+  pinnedChats = [],
   archivingItemId,
   onOpenItem,
   onOpenItemContextMenu,
   onArchiveItem,
 }) => {
   const lightTheme = useLightTheme()
-  const [additionalVisibleCount, setAdditionalVisibleCount] = useState(0)
-  const visibleCount = visibleThreadCount + additionalVisibleCount
-  const requestCount = visibleCount + 1
+  const isPhone = useIsPhone()
+  const searching = !!query.trim()
+  const open = !collapsed || searching
+  const pagination = useSidebarItemPagination(visibleThreadCount)
   const tasksQuery = useSpecTasks({
     organizationId: orgId,
     createdByOrgAgent: bot.id,
-    limit: requestCount,
+    limit: pagination.requestCount,
     offset: 0,
     sort: threadSortOrder === 'created_at' ? 'created' : 'last_message',
     archivedOnly: archived,
-    enabled: enabled && !!orgId,
+    enabled: enabled && open && !!orgId,
     refetchInterval: archived ? false : 10000,
   })
   const tasks = tasksQuery.data || []
-  const items = buildPersonChatItems(projects, tasks, [], threadSortOrder)
+  const items = buildPersonChatItems(projects, tasks, [], threadSortOrder, pinnedAtByItemKeyFrom(pinnedChats))
   const filteredItems = filterProjectChatGroups([{ id: bot.id, name: bot.name, items }], query)[0]?.items || []
-  const previewItems = filteredItems.slice(0, visibleCount)
-  const activeHiddenItem = filteredItems.slice(visibleCount).find((item) => item.id === activeItemId)
-  const renderedItems = activeHiddenItem ? [...previewItems, activeHiddenItem] : previewItems
-  const hasMore = filteredItems.length > visibleCount || tasks.length === requestCount
-  const canShowLess = additionalVisibleCount > 0
-  const paginationButtonSx = {
-    appearance: 'none',
-    border: 0,
-    height: 30,
-    px: 1,
-    backgroundColor: 'transparent',
-    color: lightTheme.isLight ? 'rgba(113,113,122,0.75)' : 'rgba(163,163,163,0.75)',
-    cursor: tasksQuery.isFetching ? 'default' : 'pointer',
-    font: 'inherit',
-    fontSize: '12px',
-    '&:hover': {
-      color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-      backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
-    },
-  }
+  const renderedItems = windowSidebarItems(filteredItems, activeItemId, pagination.visibleCount)
+  const hasMore = filteredItems.length > pagination.visibleCount || tasks.length >= pagination.requestCount
+  const active = !!bot.sessionId && bot.sessionId === activeItemId
+  const statusTitle = bot.running
+    ? (bot.restartRequired ? 'Running · restart required to apply changes' : 'Agent running')
+    : 'Agent stopped'
 
-  if (tasksQuery.isError) {
-    return (
-      <Typography color="error" sx={{ pl: 2.15, py: 0.5, fontSize: '0.7rem' }}>
-        Failed to load tasks
-      </Typography>
-    )
+  if (searching && !tasksQuery.isLoading && filteredItems.length === 0 && !sidebarBotMatchesQuery(bot, query)) {
+    return null
   }
-  // An agent with nothing to show keeps a quiet row rather than an empty
-  // "no tasks" line under every idle agent.
-  if (renderedItems.length === 0) return null
 
   return (
-    <Box sx={{ pl: 1.15 }}>
-      {renderedItems.map((item) => (
-        <ProjectChatItemRow
-          key={`${item.kind}:${item.id}`}
-          item={item}
-          active={item.id === activeItemId}
-          relativeTimeNow={relativeTimeNow}
-          archived={archived}
-          archivingItemId={archivingItemId}
-          organizationMembers={organizationMembers}
-          currentUser={currentUser}
-          projectName={item.projectName}
-          onOpenItem={onOpenItem}
-          onOpenItemContextMenu={onOpenItemContextMenu}
-          onArchiveItem={onArchiveItem}
-        />
-      ))}
-      {(canShowLess || hasMore) && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-          {canShowLess && (
-            <Box component="button" type="button" disabled={tasksQuery.isFetching} onClick={() => setAdditionalVisibleCount(0)} sx={paginationButtonSx}>
-              Show less
-            </Box>
-          )}
-          {hasMore && (
-            <Box component="button" type="button" disabled={tasksQuery.isFetching} onClick={() => setAdditionalVisibleCount((count) => count + SHOW_MORE_COUNT)} sx={paginationButtonSx}>
-              {tasksQuery.isFetching ? 'Loading…' : 'Show more'}
-            </Box>
-          )}
+    <Box sx={{ mb: 0.25 }}>
+      <Box
+        // Not a `.project-chat-item`: the Cmd/Ctrl+digit shortcuts number those,
+        // and a digit must open a chat, never start an agent.
+        className="project-chat-agent"
+        role="button"
+        tabIndex={0}
+        aria-label={`Open chat with ${bot.name}`}
+        onClick={onOpen}
+        onContextMenu={onOpenMenu}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onOpen()
+          }
+        }}
+        sx={{
+          width: '100%',
+          minWidth: 0,
+          height: 32,
+          pl: 0.75,
+          pr: 1,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.65,
+          borderRadius: '6px',
+          cursor: 'pointer',
+          position: 'relative',
+          outline: 'none',
+          color: active
+            ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
+            : (lightTheme.isLight ? '#71717a' : 'rgba(163,163,163,0.80)'),
+          backgroundColor: active
+            ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
+            : 'transparent',
+          '&:hover, &:focus-visible': {
+            color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
+            backgroundColor: active
+              ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
+              : (lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)'),
+          },
+          '&:hover .sidebar-bot-settings, &:focus-within .sidebar-bot-settings': { opacity: 1 },
+          '@media (hover: none)': { '& .sidebar-bot-settings': { opacity: 1 } },
+        }}
+      >
+        <Box
+          component="button"
+          type="button"
+          aria-label={`${open ? 'Collapse' : 'Expand'} ${bot.name}'s tasks`}
+          aria-expanded={open}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggle()
+          }}
+          sx={{
+            appearance: 'none',
+            border: 0,
+            p: 0,
+            m: 0,
+            backgroundColor: 'transparent',
+            color: 'inherit',
+            cursor: 'pointer',
+            flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: isPhone ? 28 : 16,
+            height: isPhone ? 28 : 16,
+            borderRadius: '4px',
+            '&:hover': {
+              backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(241,243,247,0.12)',
+            },
+          }}
+        >
+          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        </Box>
+        <Tooltip title={statusTitle}>
+          <Box
+            component="span"
+            data-bot-status={bot.running ? 'running' : 'stopped'}
+            onMouseOver={(event) => event.stopPropagation()}
+            sx={{
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              flexShrink: 0,
+              backgroundColor: bot.running ? PRESENCE_ONLINE_COLOR : PRESENCE_OFFLINE_COLOR,
+              boxShadow: bot.running && bot.restartRequired ? '0 0 0 2px rgba(251,191,36,0.55)' : 'none',
+            }}
+          />
+        </Tooltip>
+        <Bot size={14} style={{ flexShrink: 0, opacity: 0.8 }} />
+        <Typography
+          component="span"
+          sx={{
+            minWidth: 0,
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            fontSize: '14px',
+            lineHeight: '20px',
+            fontWeight: active ? 500 : 400,
+          }}
+        >
+          {bot.name}
+        </Typography>
+        {busy ? (
+          <CircularProgress size={12} color="inherit" sx={{ mr: 0.5 }} />
+        ) : (
+          <Tooltip title="Agent settings">
+            <span>
+              <IconButton
+                className="sidebar-bot-settings"
+                size="small"
+                aria-label={`Settings for ${bot.name}`}
+                disabled={!bot.agentAppId}
+                onMouseOver={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onOpenSettings()
+                }}
+                sx={{ width: 24, height: 24, opacity: 0, color: 'inherit', transition: 'opacity 100ms ease' }}
+              >
+                <Settings size={14} />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+      </Box>
+      {open && tasksQuery.isError && (
+        <Typography color="error" sx={{ pl: 2.15, py: 0.5, fontSize: '0.7rem' }}>
+          Failed to load tasks
+        </Typography>
+      )}
+      {/* An agent with nothing to show keeps a quiet row rather than an empty
+          "no tasks" line under every idle agent. */}
+      {open && renderedItems.length > 0 && (
+        <Box sx={{ pl: 1.15 }}>
+          {renderedItems.map((item) => (
+            <ProjectChatItemRow
+              key={`${item.kind}:${item.id}`}
+              item={item}
+              active={item.id === activeItemId}
+              relativeTimeNow={relativeTimeNow}
+              archived={archived}
+              archivingItemId={archivingItemId}
+              organizationMembers={organizationMembers}
+              currentUser={currentUser}
+              projectName={item.projectName}
+              onOpenItem={onOpenItem}
+              onOpenItemContextMenu={onOpenItemContextMenu}
+              onArchiveItem={onArchiveItem}
+            />
+          ))}
+          <ProjectChatShowMore pagination={pagination} hasMore={hasMore} fetching={tasksQuery.isFetching} />
         </Box>
       )}
     </Box>

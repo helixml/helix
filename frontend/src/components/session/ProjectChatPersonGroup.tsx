@@ -1,11 +1,11 @@
-import { FC, MouseEvent, useState } from 'react'
+import { FC, MouseEvent } from 'react'
 import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import Typography from '@mui/material/Typography'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
-import type { TypesOrganizationMembership, TypesProject, TypesUser } from '../../api/api'
+import type { TypesOrganizationMembership, TypesPinnedChat, TypesProject, TypesUser } from '../../api/api'
 import useIsPhone from '../../hooks/useIsPhone'
 import useLightTheme from '../../hooks/useLightTheme'
 import { useListSessions } from '../../services/sessionService'
@@ -13,13 +13,15 @@ import { useSpecTasks } from '../../services/specTaskService'
 import { getUserInitials } from '../../utils/user'
 import PresenceDot from '../widgets/PresenceDot'
 import ProjectChatItemRow from './ProjectChatItemRow'
+import ProjectChatShowMore from './ProjectChatShowMore'
 import {
   buildPersonChatItems,
   filterProjectChatGroups,
+  pinnedAtByItemKeyFrom,
+  sidebarMemberMatchesQuery,
 } from './ProjectChatSidebar.logic'
 import type { SidebarItem, SidebarMember, SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
-
-const SHOW_MORE_COUNT = 20
+import { useSidebarItemPagination, windowSidebarItems } from './useSidebarItemPagination'
 
 export const sidebarMemberLabel = (member: SidebarMember): string => {
   const name = member.user.full_name || member.user.username || member.user.email || member.userId
@@ -40,6 +42,7 @@ type ProjectChatPersonGroupProps = {
   archived?: boolean
   organizationMembers: TypesOrganizationMembership[]
   currentUser?: TypesUser
+  pinnedChats?: TypesPinnedChat[]
   archivingItemId: string | null
   onToggle: () => void
   onOpenItem: (item: SidebarItem) => void
@@ -48,7 +51,9 @@ type ProjectChatPersonGroupProps = {
 }
 
 // One org member in the People section: their presence, and when expanded,
-// what they are working on across every project the viewer can see.
+// what they are working on across every project the viewer can see. A search
+// opens every group so their work can match, and hides the group when neither
+// the person nor any of their work does.
 const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
   orgId,
   member,
@@ -63,6 +68,7 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
   archived = false,
   organizationMembers,
   currentUser,
+  pinnedChats = [],
   archivingItemId,
   onToggle,
   onOpenItem,
@@ -71,17 +77,18 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
 }) => {
   const lightTheme = useLightTheme()
   const isPhone = useIsPhone()
-  const [additionalVisibleCount, setAdditionalVisibleCount] = useState(0)
-  const visibleCount = visibleThreadCount + additionalVisibleCount
-  const requestCount = visibleCount + 1
-  const queriesEnabled = enabled && expanded && !!orgId
+  const searching = !!query.trim()
+  const open = expanded || searching
+  const queriesEnabled = enabled && open && !!orgId
+  const label = sidebarMemberLabel(member)
+  const pagination = useSidebarItemPagination(visibleThreadCount)
 
   const sessionsQuery = useListSessions(
     orgId,
     undefined,
     undefined,
     0,
-    requestCount,
+    pagination.requestCount,
     {
       enabled: queriesEnabled,
       includeExternalAgents: true,
@@ -92,7 +99,7 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
   )
   const tasksQuery = useSpecTasks({
     organizationId: orgId,
-    limit: requestCount,
+    limit: pagination.requestCount,
     offset: 0,
     sort: threadSortOrder === 'created_at' ? 'created' : 'last_message',
     archivedOnly: archived,
@@ -104,33 +111,18 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
   const sessionsPage = sessionsQuery.data?.data
   const sessions = sessionsPage?.sessions || []
   const tasks = tasksQuery.data || []
-  const items = buildPersonChatItems(projects, tasks, sessions, threadSortOrder)
-  const label = sidebarMemberLabel(member)
+  const items = buildPersonChatItems(projects, tasks, sessions, threadSortOrder, pinnedAtByItemKeyFrom(pinnedChats))
   const filteredItems = filterProjectChatGroups([{ id: member.userId, name: label, items }], query)[0]?.items || []
-  const previewItems = filteredItems.slice(0, visibleCount)
-  const activeHiddenItem = filteredItems.slice(visibleCount).find((item) => item.id === activeItemId)
-  const renderedItems = activeHiddenItem ? [...previewItems, activeHiddenItem] : previewItems
-  const sessionsHaveMore = (sessionsPage?.totalCount || 0) > sessions.length
-  const tasksMayHaveMore = tasks.length === requestCount
-  const hasMore = filteredItems.length > visibleCount || sessionsHaveMore || tasksMayHaveMore
-  const canShowLess = additionalVisibleCount > 0
+  const renderedItems = windowSidebarItems(filteredItems, activeItemId, pagination.visibleCount)
+  const hasMore = filteredItems.length > pagination.visibleCount
+    || (sessionsPage?.totalCount || 0) > sessions.length
+    || tasks.length >= pagination.requestCount
   const isLoading = queriesEnabled && (sessionsQuery.isLoading || tasksQuery.isLoading)
   const isFetchingMore = sessionsQuery.isFetching || tasksQuery.isFetching
   const hasError = sessionsQuery.isError || tasksQuery.isError
-  const paginationButtonSx = {
-    appearance: 'none',
-    border: 0,
-    height: 30,
-    px: 1,
-    backgroundColor: 'transparent',
-    color: lightTheme.isLight ? 'rgba(113,113,122,0.75)' : 'rgba(163,163,163,0.75)',
-    cursor: isFetchingMore ? 'default' : 'pointer',
-    font: 'inherit',
-    fontSize: '12px',
-    '&:hover': {
-      color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-      backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
-    },
+
+  if (searching && !isLoading && !hasError && filteredItems.length === 0 && !sidebarMemberMatchesQuery(member, query)) {
+    return null
   }
 
   return (
@@ -138,8 +130,8 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
       <Box
         role="button"
         tabIndex={0}
-        aria-label={`${expanded ? 'Hide' : 'Show'} ${label}'s work`}
-        aria-expanded={expanded}
+        aria-label={`${open ? 'Hide' : 'Show'} ${label}'s work`}
+        aria-expanded={open}
         data-member-id={member.userId}
         onClick={onToggle}
         onKeyDown={(event) => {
@@ -174,10 +166,10 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            opacity: expanded ? 1 : 0.7,
+            opacity: open ? 1 : 0.7,
           }}
         >
-          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </Box>
         <Box sx={{ position: 'relative', width: 18, height: 18, flexShrink: 0 }}>
           <Avatar sx={{ width: 18, height: 18, fontSize: '0.55rem' }}>
@@ -210,7 +202,7 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
         {isLoading && <CircularProgress size={11} color="inherit" />}
       </Box>
 
-      {expanded && (
+      {open && (
         <Box sx={{ pl: 1.15 }}>
           {hasError && (
             <Typography color="error" sx={{ px: 1, py: 0.75, fontSize: '0.7rem' }}>
@@ -226,7 +218,7 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
                 color: lightTheme.isLight ? 'rgba(113,113,122,0.8)' : 'rgba(163,163,163,0.65)',
               }}
             >
-              {query ? 'No matching work' : 'Nothing you can see yet'}
+              {searching ? 'No matching work' : 'Nothing you can see yet'}
             </Typography>
           )}
           {renderedItems.map((item) => (
@@ -245,32 +237,7 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
               onArchiveItem={onArchiveItem}
             />
           ))}
-          {(canShowLess || hasMore) && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-              {canShowLess && (
-                <Box
-                  component="button"
-                  type="button"
-                  disabled={isFetchingMore}
-                  onClick={() => setAdditionalVisibleCount(0)}
-                  sx={paginationButtonSx}
-                >
-                  Show less
-                </Box>
-              )}
-              {hasMore && (
-                <Box
-                  component="button"
-                  type="button"
-                  disabled={isFetchingMore}
-                  onClick={() => setAdditionalVisibleCount((count) => count + SHOW_MORE_COUNT)}
-                  sx={paginationButtonSx}
-                >
-                  {isFetchingMore ? 'Loading…' : 'Show more'}
-                </Box>
-              )}
-            </Box>
-          )}
+          <ProjectChatShowMore pagination={pagination} hasMore={hasMore} fetching={isFetchingMore} />
         </Box>
       )}
     </Box>

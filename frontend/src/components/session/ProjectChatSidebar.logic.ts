@@ -54,12 +54,14 @@ export const sidebarPreferencesStorageKey = (orgId: string): string => (
   `helix:project-chat-sidebar:preferences:${orgId}`
 )
 
-export const sidebarPeopleFilterStorageKey = (
+// Which members' groups are open when grouping by person. A new key rather
+// than the old people-filter slot: that held multi-selections made for a
+// different purpose, and replaying them would open (and fetch) every one.
+export const sidebarExpandedPeopleStorageKey = (
   userId: string,
   orgId: string,
-  projectId: string,
 ): string => (
-  `helix:project-chat-sidebar:people:${userId}:${orgId}:${projectId}`
+  `helix:project-chat-sidebar:people-expanded:${userId}:${orgId}`
 )
 
 export const ALL_PROJECTS_FILTER = 'all-projects'
@@ -580,8 +582,8 @@ export const withoutBotProjects = (projects: TypesProject[], bots: SidebarBot[])
   return projects.filter((project) => !project.id || !hidden.has(project.id))
 }
 
-export const filterSidebarBots = (bots: SidebarBot[], query: string): SidebarBot[] => (
-  query.trim() ? bots.filter((bot) => matchesAllTokens(query, bot.name, bot.id)) : bots
+export const sidebarBotMatchesQuery = (bot: SidebarBot, query: string): boolean => (
+  !query.trim() || matchesAllTokens(query, bot.name, bot.id)
 )
 
 // ---------------------------------------------------------------------------
@@ -625,9 +627,15 @@ export const toSidebarMembers = (
 
 export const DEFAULT_VISIBLE_OFFLINE_MEMBERS = 5
 
+export const sidebarMemberMatchesQuery = (member: SidebarMember, query: string): boolean => (
+  !query.trim() || matchesAllTokens(query, member.user.full_name, member.user.username, member.user.email)
+)
+
 // Online members and anyone whose work is expanded always show; the offline
 // remainder is capped so a large org does not turn the sidebar into a
-// directory. Searching lifts the cap and matches by name or email.
+// directory. A search keeps that set (their work is searched too) and adds
+// anyone whose name or email matches; each group then hides itself when
+// neither its name nor any of its work matches.
 export const visibleSidebarMembers = (
   members: SidebarMember[],
   selectedUserIds: ReadonlySet<string>,
@@ -636,8 +644,10 @@ export const visibleSidebarMembers = (
   offlineLimit = DEFAULT_VISIBLE_OFFLINE_MEMBERS,
 ): { members: SidebarMember[]; hiddenCount: number } => {
   if (query.trim()) {
+    const usual = new Set(visibleSidebarMembers(members, selectedUserIds, '', showAll, offlineLimit).members
+      .map((member) => member.userId))
     const matching = members.filter((member) => (
-      matchesAllTokens(query, member.user.full_name, member.user.username, member.user.email)
+      usual.has(member.userId) || sidebarMemberMatchesQuery(member, query)
     ))
     return { members: matching, hiddenCount: 0 }
   }
@@ -671,19 +681,26 @@ export const buildPersonChatItems = (
   specTasks: SpecTask[],
   sessions: TypesSessionSummary[],
   sortOrder: SidebarThreadSortOrder = 'updated_at',
+  pinnedAtByItemKey: ReadonlyMap<string, string> = new Map(),
 ): SidebarItem[] => {
   const taskIds = new Set(specTasks.flatMap((task) => task.id ? [task.id] : []))
   const ownSessions = sessions.filter((session) => (
     !session.metadata?.org_worker_id
     && (!session.metadata?.spec_task_id || taskIds.has(session.metadata.spec_task_id))
   ))
-  const groups = buildProjectChatGroups(projects, specTasks, ownSessions, sortOrder)
+  const groups = buildProjectChatGroups(projects, specTasks, ownSessions, sortOrder, pinnedAtByItemKey)
   const items = groups.flatMap((group) => group.items.map((item) => ({
     ...item,
     projectName: group.id === 'default' ? undefined : group.name,
   })))
   return items.sort((left, right) => (
-    sortableTimestamp(sortOrder === 'created_at' ? right.createdAt : right.updatedAt)
+    sortableTimestamp(right.pinnedAt) - sortableTimestamp(left.pinnedAt)
+    || (right.pinnedAt ? 1 : 0) - (left.pinnedAt ? 1 : 0)
+    || sortableTimestamp(sortOrder === 'created_at' ? right.createdAt : right.updatedAt)
     - sortableTimestamp(sortOrder === 'created_at' ? left.createdAt : left.updatedAt)
   ))
 }
+
+export const pinnedAtByItemKeyFrom = (pinnedChats: Array<{ kind?: string; id?: string; pinned_at?: string }>): Map<string, string> => (
+  new Map(pinnedChats.map((pin) => [`${pin.kind}:${pin.id}`, pin.pinned_at || '']))
+)

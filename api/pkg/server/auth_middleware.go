@@ -106,13 +106,19 @@ func looksLikeHelixJWT(token string) bool {
 
 // touchUserLastSeen records that the user just authenticated. The write is
 // throttled per-user by lastSeenThrottle to keep the cost negligible even on
-// hot paths. Runner / empty users are skipped. The DB write runs in a detached
-// goroutine so the request context cancellation does not abort it.
+// hot paths. Runner / empty users are skipped, as are session-scoped API keys:
+// those are minted for sandboxes and org agents acting on a human's behalf,
+// and an agent polling the API all night must not make its owner look online.
+// The DB write runs in a detached goroutine so the request context
+// cancellation does not abort it.
 func (auth *authMiddleware) touchUserLastSeen(user *types.User) {
 	if user == nil || user.ID == "" {
 		return
 	}
 	if user.TokenType == types.TokenTypeRunner {
+		return
+	}
+	if user.TokenType == types.TokenTypeAPIKey && user.SessionID != "" {
 		return
 	}
 

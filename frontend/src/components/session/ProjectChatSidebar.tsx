@@ -1,4 +1,4 @@
-import { FC, MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { FC, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   closestCenter,
   DndContext,
@@ -48,10 +48,9 @@ import {
   parseCollapsedGroupIds,
   serializeSidebarParticipantIds,
   sidebarPreferencesStorageKey,
-  sidebarPeopleFilterStorageKey,
+  sidebarExpandedPeopleStorageKey,
   sidebarProjectFilterStorageKey,
   serializeCollapsedGroupIds,
-  filterSidebarBots,
   parseSidebarGroupBy,
   sidebarGroupByStorageKey,
   toSidebarBots,
@@ -133,7 +132,7 @@ const ProjectChatSidebar: FC<{
   const [query, setQuery] = useState('')
   const [groupBy, setGroupBy] = useState<SidebarGroupBy>(() => readGroupBy(groupByStorageKey))
   const [projectFilter, setProjectFilter] = useState(() => readProjectFilter(projectFilterStorageKey))
-  const peopleFilterStorageKey = sidebarPeopleFilterStorageKey(currentUserId, orgSlug, projectFilter)
+  const peopleFilterStorageKey = sidebarExpandedPeopleStorageKey(currentUserId, orgSlug)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
   const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now())
   const [archiveConfirmation, setArchiveConfirmation] = useState<SidebarItem | null>(null)
@@ -179,13 +178,15 @@ const ProjectChatSidebar: FC<{
   })
   // Polled so a bot starting or stopping (and its session appearing) shows
   // without a reload; the same list drives the org chart's status dots.
-  const { data: orgAgents = [] } = useListHelixOrgBots({
+  const { data: orgAgents = [], isLoading: botsLoading } = useListHelixOrgBots({
     enabled: !!account.user?.id && !!orgId,
     refetchInterval: 10000,
   })
-  const sidebarBots = toSidebarBots(orgAgents)
-  // An agent's own project is its chat; it is listed under Org agents, not Your work.
-  const projects = withoutBotProjects(allProjects, sidebarBots)
+  // Memoised on the query results (stable between fetches) so the project
+  // list keeps its identity for the sort memo and drag handlers downstream.
+  const sidebarBots = useMemo(() => toSidebarBots(orgAgents), [orgAgents])
+  // An agent's own project is its chat; it is listed under Org agents, not Projects.
+  const projects = useMemo(() => withoutBotProjects(allProjects, sidebarBots), [allProjects, sidebarBots])
   const {
     preferences,
     sortedProjects,
@@ -609,9 +610,8 @@ const ProjectChatSidebar: FC<{
   // Focus mode is "just this project" and always lays out by project. The
   // archived view is only about threads, so agents stay out of it. Searching
   // keeps every section so a query can land on an agent, a thread, or a
-  // colleague.
-  const visibleBots = filterSidebarBots(sidebarBots, query)
-  const showBotsSection = !focusMode && !showArchived && visibleBots.length > 0
+  // colleague; each agent hides itself when nothing of its own matches.
+  const showBotsSection = !focusMode && !showArchived && sidebarBots.length > 0
   const groupByPerson = !focusMode && groupBy === 'person'
   const showSectionHeaders = showBotsSection || groupByPerson
 
@@ -770,7 +770,7 @@ const ProjectChatSidebar: FC<{
           '&::-webkit-scrollbar': { display: 'none' },
         }}
       >
-        {projectsLoading ? (
+        {projectsLoading || (botsLoading && sidebarBots.length === 0) ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress size={22} />
           </Box>
@@ -786,8 +786,8 @@ const ProjectChatSidebar: FC<{
                 {!collapsedGroups.has('bots') && (
                   <ProjectChatBotsGroup
                     orgId={orgId}
-                    bots={visibleBots}
-                    collapsedGroups={effectiveCollapsedGroups}
+                    bots={sidebarBots}
+                    collapsedGroups={collapsedGroups}
                     onToggleBot={(botId) => toggleGroup(botGroupId(botId))}
                     onOpenSession={onOpenSession}
                     projects={allProjects}
@@ -799,6 +799,7 @@ const ProjectChatSidebar: FC<{
                     visibleThreadCount={preferences.visibleThreadCount}
                     organizationMembers={selectableMembers}
                     currentUser={account.user}
+                    pinnedChats={pinnedChats}
                     archivingItemId={archivingItemId}
                     onOpenItem={openItem}
                     onOpenItemContextMenu={openItemContextMenu}
@@ -914,6 +915,7 @@ const ProjectChatSidebar: FC<{
                     archived={showArchived}
                     organizationMembers={selectableMembers}
                     currentUser={account.user}
+                    pinnedChats={pinnedChats}
                     archivingItemId={archivingItemId}
                     onOpenItem={openItem}
                     onOpenItemContextMenu={openItemContextMenu}

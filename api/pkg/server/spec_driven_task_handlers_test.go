@@ -250,16 +250,23 @@ func TestOrgAgentForRequestUser(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	server := &HelixAPIServer{Store: mockStore}
 
-	require.Empty(t, server.orgAgentForRequestUser(context.Background(), &types.User{ID: "user1"}))
+	agent, err := server.orgAgentForRequestUser(context.Background(), &types.User{ID: "user1"})
+	require.NoError(t, err)
+	require.Empty(t, agent)
 
 	mockStore.EXPECT().GetSession(gomock.Any(), "ses_bot").Return(&types.Session{
 		ID:       "ses_bot",
 		Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"},
 	}, nil)
-	require.Equal(t, "chief-of-staff", server.orgAgentForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_bot"}))
+	agent, err = server.orgAgentForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_bot"})
+	require.NoError(t, err)
+	require.Equal(t, "chief-of-staff", agent)
 
+	// A key bound to a session that cannot be loaded is an inconsistency,
+	// not a human to attribute the task to.
 	mockStore.EXPECT().GetSession(gomock.Any(), "ses_gone").Return(nil, store.ErrNotFound)
-	require.Empty(t, server.orgAgentForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_gone"}))
+	_, err = server.orgAgentForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_gone"})
+	require.Error(t, err)
 }
 
 func TestListTasks_FiltersByCreatorOrgAgent(t *testing.T) {

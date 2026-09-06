@@ -2,7 +2,7 @@ import { FC, MouseEvent, useState } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 
-import type { TypesOrganizationMembership, TypesProject, TypesUser } from '../../api/api'
+import type { TypesOrganizationMembership, TypesPinnedChat, TypesProject, TypesUser } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
 import ProjectChatPersonGroup from './ProjectChatPersonGroup'
 import { visibleSidebarMembers } from './ProjectChatSidebar.logic'
@@ -23,6 +23,7 @@ type ProjectChatPeopleSectionProps = {
   archived?: boolean
   organizationMembers: TypesOrganizationMembership[]
   currentUser?: TypesUser
+  pinnedChats?: TypesPinnedChat[]
   archivingItemId: string | null
   onOpenItem: (item: SidebarItem) => void
   onOpenItemContextMenu: (event: MouseEvent<HTMLElement>, item: SidebarItem) => void
@@ -47,6 +48,7 @@ const ProjectChatPeopleSection: FC<ProjectChatPeopleSectionProps> = ({
   archived,
   organizationMembers,
   currentUser,
+  pinnedChats,
   archivingItemId,
   onOpenItem,
   onOpenItemContextMenu,
@@ -84,6 +86,7 @@ const ProjectChatPeopleSection: FC<ProjectChatPeopleSectionProps> = ({
           archived={archived}
           organizationMembers={organizationMembers}
           currentUser={currentUser}
+          pinnedChats={pinnedChats}
           archivingItemId={archivingItemId}
           onToggle={() => onToggleMember(member.userId)}
           onOpenItem={onOpenItem}

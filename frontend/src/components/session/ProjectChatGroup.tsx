@@ -27,8 +27,8 @@ import type { SidebarItem } from './ProjectChatSidebar.logic'
 import type { SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
 import type { SortableProjectHandleProps } from './SortableProject'
 import ProjectChatItemRow from './ProjectChatItemRow'
-
-const SHOW_MORE_COUNT = 20
+import ProjectChatShowMore from './ProjectChatShowMore'
+import { useSidebarItemPagination, windowSidebarItems } from './useSidebarItemPagination'
 
 type GroupVisibility = 'unknown' | 'visible' | 'empty'
 
@@ -96,13 +96,12 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const api = useApi()
   const lightTheme = useLightTheme()
   const isPhone = useIsPhone()
-  const [additionalVisibleCount, setAdditionalVisibleCount] = useState(0)
   const [visibility, setVisibility] = useState<GroupVisibility>('unknown')
-  const visibleCount = visibleThreadCount + additionalVisibleCount
   const projectId = project?.id
   const groupId = projectId || 'default'
   const groupName = project?.name || 'No project'
-  const requestCount = visibleCount + 1
+  const pagination = useSidebarItemPagination(visibleThreadCount)
+  const requestCount = pagination.requestCount
   // A collapsed group probes once to determine whether the current participant
   // filter can see anything. Visible collapsed groups then stop querying; empty
   // ones keep watching so a newly assigned task can make the project reappear.
@@ -188,13 +187,10 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
     .find((candidate) => candidate.id === groupId)
   const items = group?.items || []
   const filteredItems = filterProjectChatGroups([{ id: groupId, name: groupName, items }], query)[0]?.items || []
-  const previewItems = filteredItems.slice(0, visibleCount)
-  const activeHiddenItem = filteredItems.slice(visibleCount).find((item) => item.id === activeItemId)
-  const renderedItems = activeHiddenItem ? [...previewItems, activeHiddenItem] : previewItems
+  const renderedItems = windowSidebarItems(filteredItems, activeItemId, pagination.visibleCount)
   const sessionsHaveMore = (sessionsPage?.totalCount || 0) > sessions.length
   const tasksMayHaveMore = !!projectId && tasks.length === requestCount
-  const hasMore = filteredItems.length > visibleCount || sessionsHaveMore || tasksMayHaveMore
-  const canShowLess = additionalVisibleCount > 0
+  const hasMore = filteredItems.length > pagination.visibleCount || sessionsHaveMore || tasksMayHaveMore
   const isLoading = queriesEnabled && (
     sessionsQuery.isLoading
     || (!!projectId && tasksQuery.isLoading)
@@ -204,21 +200,6 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const hasError = sessionsQuery.isError || tasksQuery.isError
   // Archived groups have no "new task", so there the name keeps its old job.
   const activateGroup = onNewTask || onToggle
-  const paginationButtonSx = {
-    appearance: 'none',
-    border: 0,
-    height: 30,
-    px: 1,
-    backgroundColor: 'transparent',
-    color: lightTheme.isLight ? 'rgba(113,113,122,0.75)' : 'rgba(163,163,163,0.75)',
-    cursor: isFetchingMore ? 'default' : 'pointer',
-    font: 'inherit',
-    fontSize: '12px',
-    '&:hover': {
-      color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-      backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
-    },
-  }
 
   const participantScope = (participantIds || []).join('\u0000')
   useEffect(() => {
@@ -417,32 +398,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
               onArchiveItem={onArchiveItem}
             />
           ))}
-          {(canShowLess || hasMore) && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-              {canShowLess && (
-                <Box
-                  component="button"
-                  type="button"
-                  disabled={isFetchingMore}
-                  onClick={() => setAdditionalVisibleCount(0)}
-                  sx={paginationButtonSx}
-                >
-                  Show less
-                </Box>
-              )}
-              {hasMore && (
-                <Box
-                  component="button"
-                  type="button"
-                  disabled={isFetchingMore}
-                  onClick={() => setAdditionalVisibleCount((count) => count + SHOW_MORE_COUNT)}
-                  sx={paginationButtonSx}
-                >
-                  {isFetchingMore ? 'Loading…' : 'Show more'}
-                </Box>
-              )}
-            </Box>
-          )}
+          <ProjectChatShowMore pagination={pagination} hasMore={hasMore} fetching={isFetchingMore} />
         </Box>
       )}
     </Box>

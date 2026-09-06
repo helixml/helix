@@ -153,7 +153,13 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	// Set user ID and email from context
 	req.UserID = user.ID
 	req.UserEmail = user.Email
-	req.CreatedByOrgAgent = s.orgAgentForRequestUser(ctx, user)
+	orgAgent, err := s.orgAgentForRequestUser(ctx, user)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", user.SessionID).Msg("Failed to resolve org agent for task creation")
+		http.Error(w, fmt.Sprintf("failed to resolve creating agent: %v", err), http.StatusInternalServerError)
+		return
+	}
+	req.CreatedByOrgAgent = orgAgent
 
 	// Strip null bytes that Postgres rejects (SQLSTATE 22021)
 	req.Prompt = strings.ReplaceAll(req.Prompt, "\x00", "")
@@ -287,17 +293,18 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 
 // orgAgentForRequestUser names the helix-org agent behind a request, or "".
 // An agent works with a session-scoped API key; the session it names carries
-// the agent's org_worker_id. Humans and ordinary keys have no session.
-func (s *HelixAPIServer) orgAgentForRequestUser(ctx context.Context, user *types.User) string {
+// the agent's org_worker_id. Humans and ordinary keys have no session. The
+// key→session binding is server-minted, so a session that cannot be loaded
+// is an inconsistency, not a case to attribute around.
+func (s *HelixAPIServer) orgAgentForRequestUser(ctx context.Context, user *types.User) (string, error) {
 	if user == nil || user.SessionID == "" {
-		return ""
+		return "", nil
 	}
 	session, err := s.Store.GetSession(ctx, user.SessionID)
 	if err != nil {
-		log.Warn().Err(err).Str("session_id", user.SessionID).Msg("failed to resolve org agent for task creation")
-		return ""
+		return "", fmt.Errorf("load session %s for credential: %w", user.SessionID, err)
 	}
-	return session.Metadata.OrgWorkerID
+	return session.Metadata.OrgWorkerID, nil
 }
 
 // listTasks godoc
@@ -367,7 +374,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
-		projects, err := s.visibleOrganizationProjects(ctx, user, org.ID, membership, false)
+		projects, err := s.visibleOrganizationProjects(ctx, user, org.ID, membership, types.ActionList, false)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("failed to list projects: %v", err), http.StatusInternalServerError)
 			return

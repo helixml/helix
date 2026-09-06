@@ -27,7 +27,7 @@ import {
   serializeSidebarParticipantIds,
   shouldConfirmArchive,
   sidebarPreferencesStorageKey,
-  sidebarPeopleFilterStorageKey,
+  sidebarExpandedPeopleStorageKey,
   sidebarProjectFilterStorageKey,
   sortSidebarProjects,
   specTaskSortKey,
@@ -541,8 +541,9 @@ describe('ProjectChatSidebar bots and people', () => {
     expect(capped.members.map((member) => member.userId)).toEqual(['on', 'a', 'b', 'd'])
     expect(capped.hiddenCount).toBe(1)
     expect(visibleSidebarMembers(members, new Set(), '', true, 2).hiddenCount).toBe(0)
+    // A search keeps the usual set (their work is searched) and adds name matches.
     const searched = visibleSidebarMembers(members, new Set(), 'offline c', false, 2)
-    expect(searched.members.map((member) => member.userId)).toEqual(['c'])
+    expect(searched.members.map((member) => member.userId)).toEqual(['on', 'a', 'b', 'c'])
   })
 
   it('flattens a person\'s tasks and chats across projects, newest first, keeping the project name', async () => {

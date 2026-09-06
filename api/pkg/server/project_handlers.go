@@ -95,7 +95,7 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	projects, err := s.visibleOrganizationProjects(ctx, user, org.ID, orgMembership, true)
+	projects, err := s.visibleOrganizationProjects(ctx, user, org.ID, orgMembership, types.ActionGet, true)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
@@ -104,15 +104,19 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 	return projects, nil
 }
 
-// visibleOrganizationProjects returns the org's projects the user may read:
+// visibleOrganizationProjects returns the org's projects the user may act on:
 // all of them for an org owner, otherwise only those authorizeUserToProject
-// allows. The same set bounds what the user may see of other members' work
-// (sessions, spec tasks), so every cross-member listing goes through here.
+// allows for the action. A project-scoped credential (a sandbox's session key)
+// is confined to its own project on both branches, as authorizeUserToProject
+// would confine it. The same set bounds what the user may see of other
+// members' work (sessions, spec tasks), so every cross-member listing goes
+// through here.
 func (s *HelixAPIServer) visibleOrganizationProjects(
 	ctx context.Context,
 	user *types.User,
 	orgID string,
 	orgMembership *types.OrganizationMembership,
+	action types.Action,
 	includeStats bool,
 ) ([]*types.Project, error) {
 	projects, err := s.Store.ListProjects(ctx, &store.ListProjectsQuery{
@@ -123,13 +127,13 @@ func (s *HelixAPIServer) visibleOrganizationProjects(
 		return nil, err
 	}
 
-	if orgMembership.Role == types.OrganizationRoleOwner {
-		return projects, nil
-	}
-
 	var authorizedProjects []*types.Project
 	for _, project := range projects {
-		if err := s.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+		if orgMembership.Role == types.OrganizationRoleOwner {
+			if err := enforceKeyProjectScope(user, project.ID); err != nil {
+				continue
+			}
+		} else if err := s.authorizeUserToProject(ctx, user, project, action); err != nil {
 			continue
 		}
 		authorizedProjects = append(authorizedProjects, project)
