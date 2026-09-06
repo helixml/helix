@@ -134,10 +134,12 @@ See the [configuration documentation](https://helix.ml/docs) for detailed setup 
 For local development, refer to the [Helix local development guide](./local-development.md).
 
 **Prerequisites:**
-- Docker Desktop (or Docker + Docker Compose)
-- Go 1.24.0+
-- Node.js 18+
-- Make
+- Docker Desktop, or Docker Engine with Compose v2
+- Git
+
+The development stack runs the API and frontend toolchains in containers. For
+running builds directly on the host, the repository currently uses Go 1.25.4
+and Node.js 23.
 
 **Quick development setup:**
 
@@ -146,18 +148,16 @@ For local development, refer to the [Helix local development guide](./local-deve
 git clone https://github.com/helixml/helix.git
 cd helix
 
-# Start supporting services
-docker-compose up -d postgres
+# Create your local configuration
+cp .env.example-prod .env
 
-# Run the backend
-cd api
-go run . serve
-
-# Run the frontend (in a new terminal)
-cd frontend
-npm install
-npm run dev
+# Start the complete development stack
+./stack start
 ```
+
+Open <http://localhost:8080>. The API and frontend hot-reload when their source
+files change. Run `./stack help` to see the available build, test, database, and
+service commands.
 
 See [`local-development.md`](./local-development.md) for comprehensive setup instructions.
 
