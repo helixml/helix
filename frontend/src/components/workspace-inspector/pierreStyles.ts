@@ -52,8 +52,24 @@ export const TREE_UNSAFE_CSS = `
   --trees-border-color-override: color-mix(in srgb, currentColor 14%, transparent);
   --trees-font-family-override: ui-sans-serif, system-ui, sans-serif;
   --trees-font-size-override: 12px;
+  --trees-git-added-color-override: #3fb950;
+  --trees-git-modified-color-override: #d29922;
+  --trees-git-deleted-color-override: #f85149;
+  --trees-git-renamed-color-override: #a371f7;
 }
 button[data-type='item'] { border-radius: 5px; }
+button[data-type='item'][data-item-git-status] {
+  background-color: color-mix(in srgb, var(--trees-item-git-status-color) 13%, transparent);
+  box-shadow: inset 3px 0 0 var(--trees-item-git-status-color);
+  font-weight: 600;
+}
+button[data-type='item'][data-item-git-status]:hover {
+  background-color: color-mix(in srgb, var(--trees-item-git-status-color) 20%, transparent);
+}
+button[data-type='item'][data-item-git-status][aria-selected='true'] {
+  outline: 1px solid var(--trees-selected-focused-border-color);
+  outline-offset: -1px;
+}
 `;
 
 export type RenderablePatch =
