@@ -662,6 +662,10 @@ export const visibleSidebarMembers = (
 // handed to someone else is not theirs. Its planning session is still owned by
 // them, so it is dropped here rather than surfacing as a stray chat — the
 // same rule the project groups apply by excluding task sessions server-side.
+//
+// An org agent's chat session is owned by whoever started the agent, but the
+// agent is one shared entity that lives under Org agents; a person's group is
+// their own tasks and plain chats only.
 export const buildPersonChatItems = (
   projects: TypesProject[],
   specTasks: SpecTask[],
@@ -670,7 +674,8 @@ export const buildPersonChatItems = (
 ): SidebarItem[] => {
   const taskIds = new Set(specTasks.flatMap((task) => task.id ? [task.id] : []))
   const ownSessions = sessions.filter((session) => (
-    !session.metadata?.spec_task_id || taskIds.has(session.metadata.spec_task_id)
+    !session.metadata?.org_worker_id
+    && (!session.metadata?.spec_task_id || taskIds.has(session.metadata.spec_task_id))
   ))
   const groups = buildProjectChatGroups(projects, specTasks, ownSessions, sortOrder)
   const items = groups.flatMap((group) => group.items.map((item) => ({

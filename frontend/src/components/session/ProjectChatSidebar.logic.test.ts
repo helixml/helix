@@ -558,6 +558,8 @@ describe('ProjectChatSidebar bots and people', () => {
         { session_id: 'ses_task', name: 'Task session', created: '2026-09-01T00:00:00Z', metadata: { spec_task_id: 'task_old', project_id: 'prj_a' } },
         // Planning session for a task they created but someone else is assigned to.
         { session_id: 'ses_handed_off', name: 'Spec Generation: handed off', created: '2026-09-06T00:00:00Z', metadata: { spec_task_id: 'task_theirs', project_id: 'prj_a' } },
+        // The org agent they started: the agent's chat, listed under Org agents, not them.
+        { session_id: 'ses_agent', name: 'Software Engineer', created: '2026-09-07T00:00:00Z', metadata: { org_worker_id: 'b-mira', project_id: 'prj_b' } },
       ],
     )
     expect(items.map((item) => [item.id, item.projectName])).toEqual([
