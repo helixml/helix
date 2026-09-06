@@ -3607,24 +3607,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - slack
-    - github
-    - cron
     - email
     - local
+    - cron
     - webhook
+    - github
     - gitlab
     - helix_events
+    - slack
     type: string
     x-enum-varnames:
-    - KindSlack
-    - KindGitHub
-    - KindCron
     - KindEmail
     - KindLocal
+    - KindCron
     - KindWebhook
+    - KindGitHub
     - KindGitLab
     - KindHelixEvents
+    - KindSlack
   transport.ResolvedActivation:
     properties:
       address:
@@ -11167,6 +11167,13 @@ definitions:
       created_by:
         description: Metadata
         type: string
+      created_by_org_agent:
+        description: |-
+          CreatedByOrgAgent is the helix-org agent (org bot handle) that created
+          this task, when an agent rather than a person did. CreatedBy stays the
+          human the agent acts for; this records the agent so its work can be
+          listed under it.
+        type: string
       credential_owner_id:
         description: |-
           CredentialOwnerID names the user whose Claude subscription authenticates
@@ -11831,6 +11838,13 @@ definitions:
         type: string
       created_by:
         description: Metadata
+        type: string
+      created_by_org_agent:
+        description: |-
+          CreatedByOrgAgent is the helix-org agent (org bot handle) that created
+          this task, when an agent rather than a person did. CreatedBy stays the
+          human the agent acts for; this records the agent so its work can be
+          listed under it.
         type: string
       credential_owner_id:
         description: |-
@@ -25201,6 +25215,11 @@ paths:
         in: query
         name: owner_id
         type: string
+      - description: List every member's chats in one project (requires org_id, project_id
+          and project_scope=project)
+        in: query
+        name: all_members
+        type: boolean
       responses:
         "200":
           description: OK
@@ -26685,6 +26704,10 @@ paths:
       - description: Filter by creator or assignee user IDs (comma-separated, OR semantics)
         in: query
         name: participant_ids
+        type: string
+      - description: Only tasks created by this helix-org agent (bot handle)
+        in: query
+        name: created_by_org_agent
         type: string
       - default: false
         description: Include archived tasks

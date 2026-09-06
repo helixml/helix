@@ -444,6 +444,9 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	if filters.UserID != "" {
 		db = db.Where("created_by = ?", filters.UserID)
 	}
+	if filters.CreatedByOrgAgent != "" {
+		db = db.Where("created_by_org_agent = ?", filters.CreatedByOrgAgent)
+	}
 	if filters.FilterParticipants {
 		if len(filters.ParticipantIDs) == 0 {
 			db = db.Where("1 = 0")

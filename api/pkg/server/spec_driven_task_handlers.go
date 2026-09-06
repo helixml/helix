@@ -153,6 +153,7 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	// Set user ID and email from context
 	req.UserID = user.ID
 	req.UserEmail = user.Email
+	req.CreatedByOrgAgent = s.orgAgentForRequestUser(ctx, user)
 
 	// Strip null bytes that Postgres rejects (SQLSTATE 22021)
 	req.Prompt = strings.ReplaceAll(req.Prompt, "\x00", "")
@@ -284,6 +285,21 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(task)
 }
 
+// orgAgentForRequestUser names the helix-org agent behind a request, or "".
+// An agent works with a session-scoped API key; the session it names carries
+// the agent's org_worker_id. Humans and ordinary keys have no session.
+func (s *HelixAPIServer) orgAgentForRequestUser(ctx context.Context, user *types.User) string {
+	if user == nil || user.SessionID == "" {
+		return ""
+	}
+	session, err := s.Store.GetSession(ctx, user.SessionID)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", user.SessionID).Msg("failed to resolve org agent for task creation")
+		return ""
+	}
+	return session.Metadata.OrgWorkerID
+}
+
 // listTasks godoc
 // @Summary List spec-driven tasks
 // @Description List spec-driven tasks with optional filtering by project, status, or user. Pass organization_id instead of project_id to list across every project the caller can access.
@@ -294,6 +310,7 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 // @Param   status query string false "Filter by status"
 // @Param   user_id query string false "Filter by user ID"
 // @Param   participant_ids query string false "Filter by creator or assignee user IDs (comma-separated, OR semantics)"
+// @Param   created_by_org_agent query string false "Only tasks created by this helix-org agent (bot handle)"
 // @Param   include_archived query bool false "Include archived tasks" default(false)
 // @Param   with_depends_on query bool false "Include depends on tasks" default(false)
 // @Param   labels query string false "Filter by labels (comma-separated, AND semantics)"
@@ -394,6 +411,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		ParticipantIDs:     participantIDs,
 		FilterProjectIDs:   filterProjectIDs,
 		ProjectIDs:         projectIDs,
+		CreatedByOrgAgent:  query.Get("created_by_org_agent"),
 		WithDependsOn:      query.Get("with_depends_on") == "true",
 		Limit:              parseIntQuery(query.Get("limit"), 0), // 0 = no limit, return all tasks
 		Offset:             parseIntQuery(query.Get("offset"), 0),

@@ -240,8 +240,10 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 		DependsOn:      dependsOn,
 		JustDoItMode:   in.SkipPlanning,
 		CreatedBy:      hiringUserID,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		// The agent, not the person it acts for, is what created this task.
+		CreatedByOrgAgent: string(workerID),
+		CreatedAt:         now,
+		UpdatedAt:         now,
 
 		SandboxResourceOverrides: sandboxResources,
 		SandboxRuntime:           sandboxRuntime,

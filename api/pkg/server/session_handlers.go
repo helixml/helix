@@ -159,6 +159,7 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 // @Param   include_external_agents query bool false "Include external agent sessions"
 // @Param   archived        query    bool    false  "Return only archived sessions instead of only unarchived ones"
 // @Param   owner_id        query    string  false  "List another org member's sessions (requires org_id); limited to projects the caller can access unless they own the org"
+// @Param   all_members     query    bool    false  "List every member's chats in one project (requires org_id, project_id and project_scope=project)"
 // @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
 // @Security BearerAuth
@@ -201,6 +202,7 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	if ownerID == user.ID {
 		ownerID = ""
 	}
+	allMembers := req.URL.Query().Get("all_members") == "true"
 
 	// Extract organization_id query parameter if present
 	orgID := req.URL.Query().Get("org_id")
@@ -225,8 +227,20 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 				return nil, err
 			}
 		}
-	} else if ownerID != "" {
-		return nil, system.NewHTTPError400("owner_id requires org_id")
+		if allMembers {
+			// One project, everyone in it. Project access is exactly the
+			// condition under which authorizeUserToSession lets the caller
+			// open any of these sessions, so the same check gates the list.
+			if projectScope != "project" {
+				return nil, system.NewHTTPError400("all_members requires project_id and project_scope=project")
+			}
+			if err := apiServer.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet); err != nil {
+				return nil, system.NewHTTPError403(err.Error())
+			}
+			query.AnyOwner = true
+		}
+	} else if ownerID != "" || allMembers {
+		return nil, system.NewHTTPError400("owner_id and all_members require org_id")
 	} else {
 		// When no organization is specified, we only want personal sessions
 		// Setting empty string explicitly ensures we only get sessions with no organization

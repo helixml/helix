@@ -2329,14 +2329,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindSlack = "slack",
-  KindGitHub = "github",
-  KindCron = "cron",
   KindEmail = "email",
   KindLocal = "local",
+  KindCron = "cron",
   KindWebhook = "webhook",
+  KindGitHub = "github",
   KindGitLab = "gitlab",
   KindHelixEvents = "helix_events",
+  KindSlack = "slack",
 }
 
 export interface TransportResolvedActivation {
@@ -7100,6 +7100,13 @@ export interface TypesSpecTask {
   /** Metadata */
   created_by?: string;
   /**
+   * CreatedByOrgAgent is the helix-org agent (org bot handle) that created
+   * this task, when an agent rather than a person did. CreatedBy stays the
+   * human the agent acts for; this records the agent so its work can be
+   * listed under it.
+   */
+  created_by_org_agent?: string;
+  /**
    * CredentialOwnerID names the user whose Claude subscription authenticates
    * this task's agent sessions, when that differs from CreatedBy. It changes
    * ONLY credential resolution — the task and its sessions are still owned by,
@@ -7490,6 +7497,13 @@ export interface TypesSpecTaskWithProject {
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  /**
+   * CreatedByOrgAgent is the helix-org agent (org bot handle) that created
+   * this task, when an agent rather than a person did. CreatedBy stays the
+   * human the agent acts for; this records the agent so its work can be
+   * listed under it.
+   */
+  created_by_org_agent?: string;
   /**
    * CredentialOwnerID names the user whose Claude subscription authenticates
    * this task's agent sessions, when that differs from CreatedBy. It changes
@@ -17215,6 +17229,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         archived?: boolean;
         /** List another org member's sessions (requires org_id); limited to projects the caller can access unless they own the org */
         owner_id?: string;
+        /** List every member's chats in one project (requires org_id, project_id and project_scope=project) */
+        all_members?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -18163,6 +18179,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         user_id?: string;
         /** Filter by creator or assignee user IDs (comma-separated, OR semantics) */
         participant_ids?: string;
+        /** Only tasks created by this helix-org agent (bot handle) */
+        created_by_org_agent?: string;
         /**
          * Include archived tasks
          * @default false

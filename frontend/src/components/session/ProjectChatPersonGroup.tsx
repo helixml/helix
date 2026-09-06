@@ -21,9 +21,10 @@ import type { SidebarItem, SidebarMember, SidebarThreadSortOrder } from './Proje
 
 const SHOW_MORE_COUNT = 20
 
-export const sidebarMemberLabel = (member: SidebarMember): string => (
-  member.user.full_name || member.user.username || member.user.email || member.userId
-)
+export const sidebarMemberLabel = (member: SidebarMember): string => {
+  const name = member.user.full_name || member.user.username || member.user.email || member.userId
+  return member.isViewer ? `${name} (you)` : name
+}
 
 type ProjectChatPersonGroupProps = {
   orgId: string

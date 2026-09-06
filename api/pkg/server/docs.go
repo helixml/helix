@@ -17497,6 +17497,12 @@ const docTemplate = `{
                         "description": "List another org member's sessions (requires org_id); limited to projects the caller can access unless they own the org",
                         "name": "owner_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "List every member's chats in one project (requires org_id, project_id and project_scope=project)",
+                        "name": "all_members",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -19743,6 +19749,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Filter by creator or assignee user IDs (comma-separated, OR semantics)",
                         "name": "participant_ids",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only tasks created by this helix-org agent (bot handle)",
+                        "name": "created_by_org_agent",
                         "in": "query"
                     },
                     {
@@ -28534,24 +28546,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "slack",
-                "github",
-                "cron",
                 "email",
                 "local",
+                "cron",
                 "webhook",
+                "github",
                 "gitlab",
-                "helix_events"
+                "helix_events",
+                "slack"
             ],
             "x-enum-varnames": [
-                "KindSlack",
-                "KindGitHub",
-                "KindCron",
                 "KindEmail",
                 "KindLocal",
+                "KindCron",
                 "KindWebhook",
+                "KindGitHub",
                 "KindGitLab",
-                "KindHelixEvents"
+                "KindHelixEvents",
+                "KindSlack"
             ]
         },
         "transport.ResolvedActivation": {
@@ -38680,6 +38692,10 @@ const docTemplate = `{
                     "description": "Metadata",
                     "type": "string"
                 },
+                "created_by_org_agent": {
+                    "description": "CreatedByOrgAgent is the helix-org agent (org bot handle) that created\nthis task, when an agent rather than a person did. CreatedBy stays the\nhuman the agent acts for; this records the agent so its work can be\nlisted under it.",
+                    "type": "string"
+                },
                 "credential_owner_id": {
                     "description": "CredentialOwnerID names the user whose Claude subscription authenticates\nthis task's agent sessions, when that differs from CreatedBy. It changes\nONLY credential resolution — the task and its sessions are still owned by,\nand attributed to, CreatedBy. Nothing \"runs as\" the credential owner.\n\nThis exists for orchestrators (HelixOS) that dispatch every task with one\nservice API key but run work on behalf of different humans: without it the\nservice account's subscription authenticates everyone's bots, so one\nperson's expired token breaks all of them and no one can use their own\nClaude account.\n\nHonoured only when the named user has delegated their subscription to this\norganization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able\nto create a task could spend another user's Claude quota. See\nResolveClaudeCredentialOwner.",
                     "type": "string"
@@ -39536,6 +39552,10 @@ const docTemplate = `{
                 },
                 "created_by": {
                     "description": "Metadata",
+                    "type": "string"
+                },
+                "created_by_org_agent": {
+                    "description": "CreatedByOrgAgent is the helix-org agent (org bot handle) that created\nthis task, when an agent rather than a person did. CreatedBy stays the\nhuman the agent acts for; this records the agent so its work can be\nlisted under it.",
                     "type": "string"
                 },
                 "credential_owner_id": {

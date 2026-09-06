@@ -42,7 +42,10 @@ type ProjectChatGroupProps = {
   enabled: boolean
   threadSortOrder?: SidebarThreadSortOrder
   visibleThreadCount?: number
-  participantIds: string[]
+  /** Only tasks assigned to these users; omit for everyone's. */
+  participantIds?: string[]
+  /** Every member's chats in this project, not just the viewer's. */
+  allMembers?: boolean
   organizationMembers: TypesOrganizationMembership[]
   currentUser?: TypesUser
   showTaskAvatars?: boolean
@@ -72,6 +75,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   threadSortOrder = 'updated_at',
   visibleThreadCount = 6,
   participantIds,
+  allMembers = false,
   organizationMembers,
   currentUser,
   showTaskAvatars = false,
@@ -116,6 +120,8 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
       projectScope: projectId ? 'project' : 'none',
       sort: threadSortOrder === 'created_at' ? 'created' : 'last_message',
       archived,
+      // Chats outside any project are personal; only project chats are shared.
+      allMembers: allMembers && !!projectId,
     },
   )
   const tasksQuery = useSpecTasks({
@@ -214,7 +220,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
     },
   }
 
-  const participantScope = participantIds.join('\u0000')
+  const participantScope = (participantIds || []).join('\u0000')
   useEffect(() => {
     setVisibility('unknown')
   }, [archived, participantScope])

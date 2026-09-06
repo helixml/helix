@@ -75,9 +75,9 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     ? getSidebarPullRequestIcon(item.task)
     : undefined
   const isArchiving = archivingItemId === item.id
-  const taskPersonId = item.task?.assignee_id || item.task?.created_by || ''
+  const taskPersonId = item.task?.assignee_id || item.task?.created_by || item.session?.owner || ''
   const taskPerson = resolveOrganizationUser(taskPersonId, organizationMembers, currentUser)
-  const taskPersonRole = item.task?.assignee_id ? 'Assigned to' : 'Created by'
+  const taskPersonRole = item.kind === 'session' ? 'Started by' : item.task?.assignee_id ? 'Assigned to' : 'Created by'
   const branch = resolveProjectChatItemBranch(item, defaultBranch)
   // Only resolved for the phone layout — on desktop the tooltip does
   // its own lookup when it actually opens.
@@ -235,7 +235,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
       >
         {item.title}
       </Typography>
-      {showTaskAvatars && item.kind === 'spec-task' && (
+      {showTaskAvatars && !!taskPersonId && (
         <Tooltip title={`${taskPersonRole} ${taskPerson?.full_name || taskPerson?.username || taskPerson?.email || 'unknown user'}`}>
           <Box sx={{ width: 18, height: 18, flexShrink: 0, display: 'inline-flex' }}>
             <OrganizationUserAvatar

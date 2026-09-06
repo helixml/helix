@@ -52,19 +52,21 @@ import {
   sidebarProjectFilterStorageKey,
   serializeCollapsedGroupIds,
   filterSidebarBots,
+  parseSidebarGroupBy,
+  sidebarGroupByStorageKey,
   toSidebarBots,
   toSidebarMembers,
   withoutBotProjects,
 } from './ProjectChatSidebar.logic'
-import type { SidebarItem } from './ProjectChatSidebar.logic'
-import ProjectChatBotsGroup from './ProjectChatBotsGroup'
+import type { SidebarGroupBy, SidebarItem } from './ProjectChatSidebar.logic'
+import ProjectChatBotsGroup, { botGroupId } from './ProjectChatBotsGroup'
 import ProjectChatGroup from './ProjectChatGroup'
 import ProjectChatPeopleSection from './ProjectChatPeopleSection'
 import ProjectChatSectionHeader from './ProjectChatSectionHeader'
 import ProjectChatItemContextMenu from './ProjectChatItemContextMenu'
 import type { ProjectChatContextMenuPosition } from './ProjectChatItemContextMenu'
 import ProjectChatProjectContextMenu from './ProjectChatProjectContextMenu'
-import ProjectChatSidebarPeopleFilter from './ProjectChatSidebarPeopleFilter'
+import ProjectChatGroupByControl from './ProjectChatGroupByControl'
 import ProjectChatSidebarOptions from './ProjectChatSidebarOptions'
 import ProjectChatSidebarProjectFilter from './ProjectChatSidebarProjectFilter'
 import SortableProject from './SortableProject'
@@ -94,6 +96,14 @@ const readParticipantIds = (storageKey: string): string[] | null => {
   }
 }
 
+const readGroupBy = (storageKey: string): SidebarGroupBy => {
+  try {
+    return parseSidebarGroupBy(window.localStorage.getItem(storageKey))
+  } catch {
+    return 'project'
+  }
+}
+
 const readProjectFilter = (storageKey: string): string => {
   try {
     return parseSidebarProjectFilter(window.localStorage.getItem(storageKey))
@@ -118,8 +128,10 @@ const ProjectChatSidebar: FC<{
   const storageKey = collapsedGroupsStorageKey(orgSlug)
   const preferencesStorageKey = sidebarPreferencesStorageKey(orgSlug)
   const projectFilterStorageKey = sidebarProjectFilterStorageKey(orgId)
+  const groupByStorageKey = sidebarGroupByStorageKey(orgId)
 
   const [query, setQuery] = useState('')
+  const [groupBy, setGroupBy] = useState<SidebarGroupBy>(() => readGroupBy(groupByStorageKey))
   const [projectFilter, setProjectFilter] = useState(() => readProjectFilter(projectFilterStorageKey))
   const peopleFilterStorageKey = sidebarPeopleFilterStorageKey(currentUserId, orgSlug, projectFilter)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
@@ -147,6 +159,10 @@ const ProjectChatSidebar: FC<{
   useEffect(() => {
     setProjectFilter(readProjectFilter(projectFilterStorageKey))
   }, [projectFilterStorageKey])
+
+  useEffect(() => {
+    setGroupBy(readGroupBy(groupByStorageKey))
+  }, [groupByStorageKey])
 
   useEffect(() => {
     setParticipantIdsOverride(readParticipantIds(peopleFilterStorageKey))
@@ -223,12 +239,12 @@ const ProjectChatSidebar: FC<{
   const selectableMembers = currentUserId && !memberUserIds.has(currentUserId) && account.user
     ? [{ user_id: currentUserId, user: account.user }, ...organizationMembers]
     : organizationMembers
-  const sidebarMembers = toSidebarMembers(organizationMembers, currentUserId)
-  // Colleagues whose work is expanded in the People section. The viewer's own
-  // work is always the project list above, so their id is never stored here.
-  const expandedPeopleIds = (participantIdsOverride ?? [])
-    .filter((userId) => userId !== currentUserId && memberUserIds.has(userId))
-  const ownParticipantIds = currentUserId ? [currentUserId] : []
+  const sidebarMembers = toSidebarMembers(organizationMembers, account.user)
+  // Members whose work is expanded when grouping by person. Until the viewer
+  // chooses, only their own group is open.
+  const expandedPeopleIds = participantIdsOverride === null
+    ? (currentUserId ? [currentUserId] : [])
+    : participantIdsOverride.filter((userId) => userId === currentUserId || memberUserIds.has(userId))
   const {
     dragInProgressRef,
     suppressClickAfterDragRef,
@@ -473,9 +489,18 @@ const ProjectChatSidebar: FC<{
     void performArchive(item)
   }
 
+  const selectGroupBy = (value: SidebarGroupBy) => {
+    setGroupBy(value)
+    try {
+      window.localStorage.setItem(groupByStorageKey, value)
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  }
+
   const updateSelectedParticipantIds = (userIds: string[]) => {
     const selectedUserIds = userIds.filter((userId) => (
-      userId !== currentUserId && memberUserIds.has(userId)
+      userId === currentUserId || memberUserIds.has(userId)
     ))
     setParticipantIdsOverride(selectedUserIds)
     try {
@@ -543,12 +568,7 @@ const ProjectChatSidebar: FC<{
             onVisibleThreadCountChange={setVisibleThreadCount}
           />
         )}
-        <ProjectChatSidebarPeopleFilter
-          members={organizationMembers.filter((member) => member.user_id !== currentUserId)}
-          currentUser={account.user}
-          selectedUserIds={expandedPeopleIds}
-          onSelectedUserIdsChange={updateSelectedParticipantIds}
-        />
+        {!focusMode && <ProjectChatGroupByControl value={groupBy} onChange={selectGroupBy} />}
         <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
           <IconButton
             size="small"
@@ -586,13 +606,14 @@ const ProjectChatSidebar: FC<{
     </>
   )
   const groupsEnabled = !!account.user?.id && !!orgId
-  // Focus mode is "just this project"; the archived view is only about
-  // threads. Both drop the Org agents and People sections. Searching keeps
-  // every section so a query can land on an agent, a thread, or a colleague.
+  // Focus mode is "just this project" and always lays out by project. The
+  // archived view is only about threads, so agents stay out of it. Searching
+  // keeps every section so a query can land on an agent, a thread, or a
+  // colleague.
   const visibleBots = filterSidebarBots(sidebarBots, query)
   const showBotsSection = !focusMode && !showArchived && visibleBots.length > 0
-  const showPeopleSection = !focusMode && (!showArchived || expandedPeopleIds.length > 0)
-  const showSectionHeaders = showBotsSection || showPeopleSection
+  const groupByPerson = !focusMode && groupBy === 'person'
+  const showSectionHeaders = showBotsSection || groupByPerson
 
   return (
     <Box
@@ -695,6 +716,7 @@ const ProjectChatSidebar: FC<{
               onVisibleThreadCountChange={setVisibleThreadCount}
             />
           )}
+          {!focusMode && <ProjectChatGroupByControl value={groupBy} onChange={selectGroupBy} />}
           <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
             <IconButton
               size="small"
@@ -763,21 +785,36 @@ const ProjectChatSidebar: FC<{
                 />
                 {!collapsedGroups.has('bots') && (
                   <ProjectChatBotsGroup
+                    orgId={orgId}
                     bots={visibleBots}
-                    activeItemId={activeItemId}
+                    collapsedGroups={effectiveCollapsedGroups}
+                    onToggleBot={(botId) => toggleGroup(botGroupId(botId))}
                     onOpenSession={onOpenSession}
+                    projects={allProjects}
+                    query={query}
+                    activeItemId={activeItemId}
+                    relativeTimeNow={relativeTimeNow}
+                    enabled={groupsEnabled}
+                    threadSortOrder={preferences.threadSortOrder}
+                    visibleThreadCount={preferences.visibleThreadCount}
+                    organizationMembers={selectableMembers}
+                    currentUser={account.user}
+                    archivingItemId={archivingItemId}
+                    onOpenItem={openItem}
+                    onOpenItemContextMenu={openItemContextMenu}
+                    onArchiveItem={requestArchive}
                   />
                 )}
               </>
             )}
-            {showSectionHeaders && (
+            {showSectionHeaders && !groupByPerson && (
               <ProjectChatSectionHeader
-                label={showArchived ? 'Archived' : 'Your work'}
+                label={showArchived ? 'Archived' : 'Projects'}
                 collapsed={collapsedGroups.has('projects')}
                 onToggle={() => toggleGroup('projects')}
               />
             )}
-            {!(showSectionHeaders && collapsedGroups.has('projects')) && (
+            {!groupByPerson && !(showSectionHeaders && collapsedGroups.has('projects')) && (
             <>
             {!focusMode && <ProjectChatGroup
               orgId={orgId}
@@ -788,7 +825,7 @@ const ProjectChatSidebar: FC<{
               enabled={groupsEnabled}
               threadSortOrder={preferences.threadSortOrder}
               visibleThreadCount={preferences.visibleThreadCount}
-              participantIds={ownParticipantIds}
+              participantIds={currentUserId ? [currentUserId] : []}
               organizationMembers={selectableMembers}
               currentUser={account.user}
               archived={showArchived}
@@ -827,7 +864,8 @@ const ProjectChatSidebar: FC<{
                         enabled={groupsEnabled}
                         threadSortOrder={preferences.threadSortOrder}
                         visibleThreadCount={preferences.visibleThreadCount}
-                        participantIds={ownParticipantIds}
+                        allMembers
+                        showTaskAvatars
                         organizationMembers={selectableMembers}
                         currentUser={account.user}
                         archived={showArchived}
@@ -853,20 +891,12 @@ const ProjectChatSidebar: FC<{
             </DndContext>
             </>
             )}
-            {showPeopleSection && (
+            {groupByPerson && (
               <>
                 <ProjectChatSectionHeader
-                  label="People"
+                  label={showArchived ? 'Archived' : 'People'}
                   collapsed={collapsedGroups.has('people')}
                   onToggle={() => toggleGroup('people')}
-                  actions={!isPhone && (
-                    <ProjectChatSidebarPeopleFilter
-                      members={organizationMembers.filter((member) => member.user_id !== currentUserId)}
-                      currentUser={account.user}
-                      selectedUserIds={expandedPeopleIds}
-                      onSelectedUserIdsChange={updateSelectedParticipantIds}
-                    />
-                  )}
                 />
                 {!collapsedGroups.has('people') && (
                   <ProjectChatPeopleSection

@@ -45,6 +45,11 @@ export interface ListSessionsFilters {
    * their private history.
    */
   ownerId?: string
+  /**
+   * Every member's chats in one project (requires orgId, projectId and
+   * projectScope 'project'). The server checks project access first.
+   */
+  allMembers?: boolean
 }
 
 // The "sessions" prefix is what every invalidation matches on, so it must stay
@@ -134,6 +139,7 @@ export function useListSessions(orgId?: string, search?: string, projectId?: str
       include_external_agents: options?.includeExternalAgents,
       archived: options?.archived,
       owner_id: options?.ownerId,
+      all_members: options?.allMembers,
     }),
     enabled: options?.enabled ?? true
   })

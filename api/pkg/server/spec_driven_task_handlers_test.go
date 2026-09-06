@@ -241,3 +241,48 @@ func TestListTasks_RequiresProjectOrOrganization(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, response.Code)
 }
+
+// A helix-org agent creates tasks with a session-scoped key; the session it
+// names carries the agent's handle, which the task records as its creator
+// agent. Humans and plain keys have no session and record nothing.
+func TestOrgAgentForRequestUser(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	require.Empty(t, server.orgAgentForRequestUser(context.Background(), &types.User{ID: "user1"}))
+
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_bot").Return(&types.Session{
+		ID:       "ses_bot",
+		Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"},
+	}, nil)
+	require.Equal(t, "chief-of-staff", server.orgAgentForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_bot"}))
+
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_gone").Return(nil, store.ErrNotFound)
+	require.Empty(t, server.orgAgentForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_gone"}))
+}
+
+func TestListTasks_FiltersByCreatorOrgAgent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	user := types.User{ID: "user1"}
+	mockStore.EXPECT().GetProject(gomock.Any(), "project1").Return(&types.Project{ID: "project1", UserID: user.ID}, nil)
+
+	var captured *types.SpecTaskFilters
+	mockStore.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+			captured = filters
+			return []*types.SpecTask{}, nil
+		})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/spec-tasks?project_id=project1&created_by_org_agent=chief-of-staff", nil)
+	req = req.WithContext(setRequestUser(req.Context(), user))
+	response := httptest.NewRecorder()
+
+	server.listTasks(response, req)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	require.NotNil(t, captured)
+	require.Equal(t, "chief-of-staff", captured.CreatedByOrgAgent)
+}

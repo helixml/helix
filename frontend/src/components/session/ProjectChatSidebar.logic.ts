@@ -64,6 +64,18 @@ export const sidebarPeopleFilterStorageKey = (
 
 export const ALL_PROJECTS_FILTER = 'all-projects'
 
+// How the sidebar arranges the org's work: every project with everyone in
+// it, or every person with what they are doing.
+export type SidebarGroupBy = 'project' | 'person'
+
+export const sidebarGroupByStorageKey = (orgId: string): string => (
+  `helix:project-chat-sidebar:group-by:${orgId}`
+)
+
+export const parseSidebarGroupBy = (storedValue: string | null): SidebarGroupBy => (
+  storedValue === 'person' ? 'person' : 'project'
+)
+
 export const sidebarProjectFilterStorageKey = (orgId: string): string => (
   `helix:project-chat-sidebar:project-filter:${orgId}`
 )
@@ -95,38 +107,6 @@ export const parseSidebarParticipantIds = (storedValue: string | null): string[]
 export const serializeSidebarParticipantIds = (userIds: string[]): string => (
   JSON.stringify([...new Set(userIds.filter(Boolean))])
 )
-
-export const filterSidebarMembers = (
-  members: TypesOrganizationMembership[],
-  query: string,
-): TypesOrganizationMembership[] => members.filter((member) => {
-  if (!member.user_id || !member.user) return false
-  return matchesAllTokens(query,
-    member.user.full_name,
-    member.user.username,
-    member.user.email,
-  )
-})
-
-export const getSidebarMemberResults = (
-  members: TypesOrganizationMembership[],
-  query: string,
-  currentUserId: string,
-  selectedUserIds: string[],
-  limit = 10,
-): { members: TypesOrganizationMembership[]; total: number } => {
-  const selectedUserIdSet = new Set(selectedUserIds)
-  const orderedMembers = [...members].sort((left, right) => {
-    if (left.user_id === currentUserId) return -1
-    if (right.user_id === currentUserId) return 1
-    const leftSelected = !!left.user_id && selectedUserIdSet.has(left.user_id)
-    const rightSelected = !!right.user_id && selectedUserIdSet.has(right.user_id)
-    if (leftSelected !== rightSelected) return leftSelected ? -1 : 1
-    return 0
-  })
-  const filteredMembers = filterSidebarMembers(orderedMembers, query)
-  return { members: filteredMembers.slice(0, limit), total: filteredMembers.length }
-}
 
 const isProjectSortOrder = (value: unknown): value is SidebarProjectSortOrder => (
   value === 'updated_at' || value === 'created_at' || value === 'manual'
@@ -612,19 +592,21 @@ export type SidebarMember = {
   userId: string
   user: NonNullable<TypesOrganizationMembership['user']>
   online: boolean
+  isViewer?: boolean
 }
 
 const memberDisplayName = (user: SidebarMember['user']): string => (
   user.full_name || user.username || user.email || ''
 )
 
-// The current user's own work is already grouped by project above, and
-// pending invitations (oin_… placeholders) have no sessions to show.
+// The viewer comes first and is online by definition (they are looking at
+// this). Pending invitations (oin_… placeholders) have no sessions to show.
 export const toSidebarMembers = (
   members: TypesOrganizationMembership[],
-  currentUserId: string,
-): SidebarMember[] => (
-  members
+  currentUser: SidebarMember['user'] | undefined,
+): SidebarMember[] => {
+  const currentUserId = currentUser?.id || ''
+  const others = members
     .filter((member): member is TypesOrganizationMembership & { user_id: string; user: SidebarMember['user'] } => (
       !!member.user_id && !!member.user && member.user_id !== currentUserId && !member.user_id.startsWith('oin_')
     ))
@@ -634,7 +616,12 @@ export const toSidebarMembers = (
       || memberDisplayName(left.user).localeCompare(memberDisplayName(right.user))
       || left.userId.localeCompare(right.userId)
     ))
-)
+  if (!currentUserId || !currentUser) return others
+  // The membership row carries the profile the org sees (full name); the
+  // account record may only have the email.
+  const viewer = members.find((member) => member.user_id === currentUserId)?.user || currentUser
+  return [{ userId: currentUserId, user: viewer, online: true, isViewer: true }, ...others]
+}
 
 export const DEFAULT_VISIBLE_OFFLINE_MEMBERS = 5
 

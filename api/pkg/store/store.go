@@ -68,6 +68,10 @@ type ListSessionsQuery struct {
 	// caller can access.
 	RestrictToProjects bool     `json:"restrict_to_projects"`
 	ProjectIDs         []string `json:"project_ids"`
+	// AnyOwner drops the owner clause. Only valid together with a project
+	// scope the caller has been authorized for: it is how a project group
+	// shows every member's chats.
+	AnyOwner bool `json:"any_owner"`
 }
 
 type ListAPIKeysQuery struct {

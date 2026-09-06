@@ -10,9 +10,7 @@ import {
   compactRelativeTime,
   DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES,
   filterProjectChatGroups,
-  filterSidebarMembers,
   getSidebarPullRequestIcon,
-  getSidebarMemberResults,
   getSidebarTaskStatus,
   getChatShortcutNumber,
   isChatShortcutModifier,
@@ -201,6 +199,14 @@ describe('ProjectChatSidebar logic', () => {
       .toEqual(['newer-pin', 'older-pin', 'newest-chat'])
   })
 
+  it('remembers the grouping per organization and defaults to projects', async () => {
+    const { parseSidebarGroupBy, sidebarGroupByStorageKey } = await import('./ProjectChatSidebar.logic')
+    expect(sidebarGroupByStorageKey('org-a')).not.toBe(sidebarGroupByStorageKey('org-b'))
+    expect(parseSidebarGroupBy(null)).toBe('project')
+    expect(parseSidebarGroupBy('person')).toBe('person')
+    expect(parseSidebarGroupBy('garbage')).toBe('project')
+  })
+
   it('parses and clamps org-scoped local preferences', () => {
     const parsed = parseSidebarPreferences(JSON.stringify({
       projectSortOrder: 'manual',
@@ -229,41 +235,6 @@ describe('ProjectChatSidebar logic', () => {
     expect(parseSidebarProjectFilter(' project-one ')).toBe('project-one')
     expect(resolveSidebarProjectFilter('project-one', projects)).toBe('project-one')
     expect(resolveSidebarProjectFilter('deleted-project', projects)).toBe(ALL_PROJECTS_FILTER)
-  })
-
-  it('persists selected people per user, organization, and project and searches every token', () => {
-    const members: TypesOrganizationMembership[] = [
-      { user_id: 'alice', user: { full_name: 'Alice Example', email: 'alice@example.com' } },
-      { user_id: 'bob', user: { full_name: 'Bob Builder', email: 'bob@work.test' } },
-      { user_id: 'invite', user: undefined },
-    ]
-
-    expect(sidebarPeopleFilterStorageKey('user-one', 'org-one', 'project-one'))
-      .toBe('helix:project-chat-sidebar:people:user-one:org-one:project-one')
-    expect(parseSidebarParticipantIds('["bob","bob","",12]')).toEqual(['bob'])
-    expect(parseSidebarParticipantIds('[]')).toEqual([])
-    expect(parseSidebarParticipantIds(null)).toBeNull()
-    expect(parseSidebarParticipantIds('{bad json')).toBeNull()
-    expect(serializeSidebarParticipantIds(['bob', 'alice', 'bob'])).toBe('["bob","alice"]')
-    expect(filterSidebarMembers(members, 'alice example')).toEqual([members[0]])
-    expect(filterSidebarMembers(members, 'bob work')).toEqual([members[1]])
-    expect(filterSidebarMembers(members, 'alice missing')).toEqual([])
-  })
-
-  it('shows at most ten people before searching, with the current and selected users first', () => {
-    const members: TypesOrganizationMembership[] = Array.from({ length: 12 }, (_, index) => ({
-      user_id: `user-${index}`,
-      user: { full_name: `Member ${index}`, email: `member-${index}@example.com` },
-    }))
-
-    const initial = getSidebarMemberResults(members, '', 'user-11', ['user-10'])
-    expect(initial.total).toBe(12)
-    expect(initial.members).toHaveLength(10)
-    expect(initial.members.slice(0, 2).map((member) => member.user_id)).toEqual(['user-11', 'user-10'])
-
-    const searched = getSidebarMemberResults(members, 'member-3 example', 'user-11', ['user-10'])
-    expect(searched.total).toBe(1)
-    expect(searched.members[0]?.user_id).toBe('user-3')
   })
 
   it('sorts projects by activity, creation, and persisted manual order', () => {
@@ -544,18 +515,20 @@ describe('ProjectChatSidebar bots and people', () => {
     ], bots).map((project) => project.id)).toEqual(['prj_app'])
   })
 
-  it('lists other members online first and never the viewer or pending invitations', async () => {
+  it('lists the viewer first, then other members online first, never pending invitations', async () => {
     const { toSidebarMembers } = await import('./ProjectChatSidebar.logic')
     const members = toSidebarMembers([
-      { user_id: 'me', user: { id: 'me', full_name: 'Me' }, online: true },
+      { user_id: 'me', user: { id: 'me', full_name: 'Me' }, online: false },
       { user_id: 'zed', user: { id: 'zed', full_name: 'Zed' }, online: false },
       { user_id: 'amy', user: { id: 'amy', full_name: 'Amy' }, online: false },
       { user_id: 'kim', user: { id: 'kim', email: 'kim@example.com' }, online: true },
       { user_id: 'oin_1', user: { id: 'oin_1', email: 'invited@example.com' } },
       { user_id: 'ghost' },
-    ], 'me')
-    expect(members.map((member) => member.userId)).toEqual(['kim', 'amy', 'zed'])
-    expect(members[0].online).toBe(true)
+    ], { id: 'me', full_name: 'Me' })
+    expect(members.map((member) => member.userId)).toEqual(['me', 'kim', 'amy', 'zed'])
+    // The viewer is online by definition, whatever the polled flag says.
+    expect(members[0]).toMatchObject({ online: true, isViewer: true })
+    expect(members[1].online).toBe(true)
   })
 
   it('caps offline members but always shows online and expanded ones, and searches instead when typing', async () => {

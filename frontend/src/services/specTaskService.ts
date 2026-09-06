@@ -35,11 +35,12 @@ const QUERY_KEYS = {
     sort?: 'created' | 'updated' | 'last_message',
     participantIds?: string[],
     organizationId?: string,
+    createdByOrgAgent?: string,
   ) =>
     [
       "spec-tasks",
       "list",
-      { projectId, archivedOnly, withDependsOn, labels, limit, offset, sort, participantIds, organizationId },
+      { projectId, archivedOnly, withDependsOn, labels, limit, offset, sort, participantIds, organizationId, createdByOrgAgent },
     ] as const,
   specTask: (id: string) => ["spec-tasks", id] as const,
   foregroundPRRefresh: (id: string) =>
@@ -105,6 +106,8 @@ export function useSpecTasks(options?: {
    * Mutually exclusive with projectId.
    */
   organizationId?: string;
+  /** Only tasks a helix-org agent (bot handle) created. */
+  createdByOrgAgent?: string;
   enabled?: boolean;
   refetchInterval?: number | false;
 }) {
@@ -121,11 +124,13 @@ export function useSpecTasks(options?: {
       options?.sort,
       options?.participantIds,
       options?.organizationId,
+      options?.createdByOrgAgent,
     ),
     queryFn: async () => {
       const response = await api.getApiClient().v1SpecTasksList({
         project_id: options?.organizationId ? undefined : options?.projectId || "default",
         organization_id: options?.organizationId,
+        created_by_org_agent: options?.createdByOrgAgent,
         include_archived: options?.archivedOnly,
         with_depends_on: options?.withDependsOn,
         labels:

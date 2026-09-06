@@ -18,7 +18,9 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 	q := s.gdb.WithContext(ctx).Model(&types.Session{})
 
 	// Add owner and owner type conditions
-	q = q.Where("owner = ? AND owner_type = ?", query.Owner, query.OwnerType)
+	if !query.AnyOwner {
+		q = q.Where("owner = ? AND owner_type = ?", query.Owner, query.OwnerType)
+	}
 
 	// Add parent session condition if specified
 	if query.ParentSession != "" {
