@@ -68,6 +68,10 @@ export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?
     projectScope: filters.projectScope ?? '',
     sort: filters.sort ?? '',
     archived: filters.archived ?? false,
+    // Without these, every person group and every everyone's-work project
+    // group would share one cache entry and show the viewer's own chats.
+    ownerId: filters.ownerId ?? '',
+    allMembers: filters.allMembers ?? false,
   },
 ];
 
