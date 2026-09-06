@@ -119,10 +119,10 @@ type HelixAPIServer struct {
 	// the connection types it owns without the generic service-connection
 	// handlers depending on it. nil when unregistered.
 	onServiceConnectionChange func(ctx context.Context, conn *types.ServiceConnection, deleted bool)
-	// orgAgentInstructionsChanged, when wired, is called after an App's
+	// orgAgentConfigChanged, when wired, is called after an App's
 	// system prompt changes so the helix-org layer can flag any Bot backed
 	// by that App as needing a sandbox restart. nil when helix-org is off.
-	orgAgentInstructionsChanged func(ctx context.Context, appID string)
+	orgAgentConfigChanged func(ctx context.Context, appID string)
 	Stripe                      *stripe.Stripe
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller
