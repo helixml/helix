@@ -8,14 +8,14 @@
 The org chat sidebar (`/orgs/:org/chat`) now has three sections, modelled on
 OpenClaw team mode and the Grok Bot sidebar:
 
-1. **Bots** — every helix-org agent, top level, with a green/grey status dot.
+1. **Org agents** — every helix-org agent, top level, with a green/grey status dot.
    Click opens the agent's chat session directly (`org_session`); an agent that
    has never run is started first and the open completes when the polled bots
    list carries its session id. Hover reveals an **Agent settings** gear
    (`org_agent` with the agent's app id); right-click adds Start/Stop/Restart
    and the agent page. The agent's own Helix project is no longer listed under
-   Projects — it *is* the bot row.
-2. **Projects** — unchanged: the viewer's own tasks and chats grouped by project.
+   Your work — it *is* the agent row.
+2. **Your work** — unchanged: the viewer's own tasks and chats grouped by project.
 3. **People** — every other org member with a presence dot, online first.
    Expanding a member shows their work: their sessions and tasks across every
    project the viewer can read, flattened newest-first with the project name in
@@ -49,6 +49,10 @@ People page poll `GET /organizations/{id}/members` every 30 s via
   `project_id` is no longer required when `organization_id` is given.
 - Bot list DTO gained `project_id` and `session_id` (from runtime state, already
   loaded per bot) so the sidebar needs no per-bot detail fetch.
+
+Tasks follow assignment (the store's participant filter is assignee-only by
+design). A person's planning session for a task they created but assigned to
+someone else is dropped from their group rather than shown as a stray chat.
 
 ## Not done / follow-ups
 

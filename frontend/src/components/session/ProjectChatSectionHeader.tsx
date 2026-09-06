@@ -13,7 +13,7 @@ type ProjectChatSectionHeaderProps = {
   actions?: ReactNode
 }
 
-// Uppercase divider between the sidebar's sections (Bots / Projects / People).
+// Uppercase divider between the sidebar's sections (Org agents / Your work / People).
 // The whole label is the collapse control; actions sit outside it so a filter
 // click never folds the section.
 const ProjectChatSectionHeader: FC<ProjectChatSectionHeaderProps> = ({

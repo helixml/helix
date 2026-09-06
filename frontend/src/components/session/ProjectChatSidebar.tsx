@@ -168,7 +168,7 @@ const ProjectChatSidebar: FC<{
     refetchInterval: 10000,
   })
   const sidebarBots = toSidebarBots(orgAgents)
-  // An agent's own project is its chat; it is listed under Bots, not Projects.
+  // An agent's own project is its chat; it is listed under Org agents, not Your work.
   const projects = withoutBotProjects(allProjects, sidebarBots)
   const {
     preferences,
@@ -587,8 +587,8 @@ const ProjectChatSidebar: FC<{
   )
   const groupsEnabled = !!account.user?.id && !!orgId
   // Focus mode is "just this project"; the archived view is only about
-  // threads. Both drop the Bots and People sections. Searching keeps every
-  // section so a query can land on a bot, a thread, or a colleague.
+  // threads. Both drop the Org agents and People sections. Searching keeps
+  // every section so a query can land on an agent, a thread, or a colleague.
   const visibleBots = filterSidebarBots(sidebarBots, query)
   const showBotsSection = !focusMode && !showArchived && visibleBots.length > 0
   const showPeopleSection = !focusMode && (!showArchived || expandedPeopleIds.length > 0)
@@ -757,7 +757,7 @@ const ProjectChatSidebar: FC<{
             {showBotsSection && (
               <>
                 <ProjectChatSectionHeader
-                  label="Bots"
+                  label="Org agents"
                   collapsed={collapsedGroups.has('bots')}
                   onToggle={() => toggleGroup('bots')}
                 />
@@ -772,7 +772,7 @@ const ProjectChatSidebar: FC<{
             )}
             {showSectionHeaders && (
               <ProjectChatSectionHeader
-                label={showArchived ? 'Archived' : 'Projects'}
+                label={showArchived ? 'Archived' : 'Your work'}
                 collapsed={collapsedGroups.has('projects')}
                 onToggle={() => toggleGroup('projects')}
               />

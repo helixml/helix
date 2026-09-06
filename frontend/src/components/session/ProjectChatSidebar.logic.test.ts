@@ -583,6 +583,8 @@ describe('ProjectChatSidebar bots and people', () => {
       [
         { session_id: 'ses_chat', name: 'Loose chat', created: '2026-09-04T00:00:00Z' },
         { session_id: 'ses_task', name: 'Task session', created: '2026-09-01T00:00:00Z', metadata: { spec_task_id: 'task_old', project_id: 'prj_a' } },
+        // Planning session for a task they created but someone else is assigned to.
+        { session_id: 'ses_handed_off', name: 'Spec Generation: handed off', created: '2026-09-06T00:00:00Z', metadata: { spec_task_id: 'task_theirs', project_id: 'prj_a' } },
       ],
     )
     expect(items.map((item) => [item.id, item.projectName])).toEqual([
