@@ -46,6 +46,9 @@ func (s *HelixAPIServer) listProjects(_ http.ResponseWriter, r *http.Request) ([
 	user := getRequestUser(r)
 
 	orgID := r.URL.Query().Get("organization_id")
+	if orgID == "" && user.TokenType == types.TokenTypeAPIKey {
+		orgID = user.OrganizationID
+	}
 
 	if orgID != "" {
 		return s.listOrganizationProjects(r.Context(), user, orgID)

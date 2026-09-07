@@ -460,6 +460,26 @@ func (s *AuthzAppSuite) TestNoOrg_OwnerAllowed() {
 	s.NoError(err)
 }
 
+func (s *AuthzAppSuite) TestOrganizationKeyCannotAccessPersonalApp() {
+	app := &types.App{ID: "app1", Owner: s.userID}
+	user := &types.User{
+		ID: s.userID, TokenType: types.TokenTypeAPIKey, OrganizationID: s.orgID,
+	}
+
+	err := s.server.authorizeUserToApp(context.Background(), user, app, types.ActionGet)
+	s.ErrorIs(err, errOrganizationScopedKey)
+}
+
+func (s *AuthzAppSuite) TestOrganizationKeyCannotAccessAnotherOrganization() {
+	app := &types.App{ID: "app1", Owner: s.userID, OrganizationID: "org-other"}
+	user := &types.User{
+		ID: s.userID, TokenType: types.TokenTypeAPIKey, OrganizationID: s.orgID,
+	}
+
+	err := s.server.authorizeUserToApp(context.Background(), user, app, types.ActionGet)
+	s.ErrorIs(err, errOrganizationScopedKey)
+}
+
 func (s *AuthzAppSuite) TestNoOrg_NonOwnerDenied() {
 	app := &types.App{ID: "app1", Owner: "someone_else"}
 	user := &types.User{ID: s.userID}

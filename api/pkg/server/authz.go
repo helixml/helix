@@ -19,11 +19,17 @@ func (apiServer *HelixAPIServer) orgAuthorizer() *orgstore.Authorizer {
 
 // authorizeOrgOwner checks if the user is an owner of the organization.
 func (apiServer *HelixAPIServer) authorizeOrgOwner(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
+	if err := enforceKeyOrganizationScope(user, orgID); err != nil {
+		return nil, err
+	}
 	return apiServer.orgAuthorizer().AuthorizeOrgOwner(ctx, user, orgID)
 }
 
 // authorizeOrgMember checks if the user is a member of the organization.
 func (apiServer *HelixAPIServer) authorizeOrgMember(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
+	if err := enforceKeyOrganizationScope(user, orgID); err != nil {
+		return nil, err
+	}
 	return apiServer.orgAuthorizer().AuthorizeOrgMember(ctx, user, orgID)
 }
 
@@ -65,6 +71,9 @@ func (apiServer *HelixAPIServer) authorizeUserToAppAccessGrants(ctx context.Cont
 // authorizeUserToApp checks if a user has access to an app
 // This is a server-level method that centralizes the authorization logic
 func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
+	if err := enforceKeyOrganizationScope(user, app.OrganizationID); err != nil {
+		return err
+	}
 	// If the organization ID is not set and the user is not the app owner, then error
 	if app.OrganizationID == "" {
 		// This is the old style app logic, where the app is owned by a user and optionally made global
@@ -156,6 +165,15 @@ func (apiServer *HelixAPIServer) authorizeUserToProjectByID(ctx context.Context,
 // against a different project.
 var errProjectScopedKey = errors.New("credential is scoped to another project")
 
+var errOrganizationScopedKey = errors.New("credential is scoped to another organization")
+
+func enforceKeyOrganizationScope(user *types.User, organizationID string) error {
+	if user == nil || user.TokenType != types.TokenTypeAPIKey || user.OrganizationID == "" || user.OrganizationID == organizationID {
+		return nil
+	}
+	return fmt.Errorf("%w: key is scoped to organization %s, request targets %s", errOrganizationScopedKey, user.OrganizationID, organizationID)
+}
+
 // enforceKeyProjectScope confines a project-scoped credential to its own
 // project.
 //
@@ -179,6 +197,9 @@ func enforceKeyProjectScope(user *types.User, projectID string) error {
 }
 
 func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, user *types.User, project *types.Project, action types.Action) error {
+	if err := enforceKeyOrganizationScope(user, project.OrganizationID); err != nil {
+		return err
+	}
 	// Scope check first: a project-scoped key must not reach another project
 	// even when its owner would otherwise be authorized.
 	if err := enforceKeyProjectScope(user, project.ID); err != nil {
@@ -222,6 +243,9 @@ func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, use
 }
 
 func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, user *types.User, repository *types.GitRepository, action types.Action) error {
+	if err := enforceKeyOrganizationScope(user, repository.OrganizationID); err != nil {
+		return err
+	}
 	// If the organization ID is not set, only the owner can access
 	if repository.OrganizationID == "" {
 		if user.ID == repository.OwnerID {
@@ -284,6 +308,9 @@ func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, 
 }
 
 func (apiServer *HelixAPIServer) authorizeUserToSession(ctx context.Context, user *types.User, session *types.Session, action types.Action) error {
+	if err := enforceKeyOrganizationScope(user, session.OrganizationID); err != nil {
+		return err
+	}
 	// If the organization ID is not set and the user is not the project owner, then error
 	if session.OrganizationID == "" {
 		// This is the old style project logic, where the project is owned by a user and optionally made global
@@ -332,5 +359,8 @@ func (apiServer *HelixAPIServer) authorizeUserToSession(ctx context.Context, use
 // authorizeUserToResource evaluates the user's team + direct access grants for a
 // resource. Delegates to the shared orgstore authorizer.
 func (apiServer *HelixAPIServer) authorizeUserToResource(ctx context.Context, user *types.User, orgID, resourceID string, resourceType types.Resource, action types.Action) error {
+	if err := enforceKeyOrganizationScope(user, orgID); err != nil {
+		return err
+	}
 	return apiServer.orgAuthorizer().AuthorizeUserToResource(ctx, user, orgID, resourceID, resourceType, action)
 }

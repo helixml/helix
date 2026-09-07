@@ -268,6 +268,9 @@ func (s *HelixAPIServer) listAgents(_ http.ResponseWriter, r *http.Request) ([]*
 	ctx := r.Context()
 	user := getRequestUser(r)
 	orgID := r.URL.Query().Get("organization_id") // If filtering for a specific organization
+	if orgID == "" && user.TokenType == types.TokenTypeAPIKey {
+		orgID = user.OrganizationID
+	}
 
 	if orgID != "" {
 		orgApps, err := s.listOrganizationApps(ctx, user, orgID)

@@ -27,6 +27,29 @@ func TestIsAdminWithContext_EmptyUserID(t *testing.T) {
 	assert.False(t, result, "empty userID should return false")
 }
 
+func TestGetUserFromToken_OrganizationAPIKeyDoesNotInheritAdmin(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	key := types.APIKeyPrefix + "org-scoped"
+
+	mockStore.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: key}).Return(&types.ApiKey{
+		Key: key, Owner: "admin-user", OwnerType: types.OwnerTypeUser, OrganizationID: "org-1",
+	}, nil)
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "admin-user"}).Return(&types.User{
+		ID: "admin-user", Admin: true,
+	}, nil)
+	mockStore.EXPECT().EnsureUserMeta(gomock.Any(), types.UserMeta{ID: "admin-user"}).Return(&types.UserMeta{}, nil)
+
+	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
+		adminUserIDs: []string{"admin-user"},
+	}, nil, nil)
+
+	user, err := auth.getUserFromToken(context.Background(), key)
+	assert.NoError(t, err)
+	assert.False(t, user.Admin)
+	assert.Equal(t, "org-1", user.OrganizationID)
+}
+
 func TestIsAdminWithContext_DevMode_EveryoneIsAdmin(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

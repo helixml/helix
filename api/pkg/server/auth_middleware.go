@@ -226,7 +226,10 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.APIKeyType = apiKey.Type
 		user.ID = apiKey.Owner
 		user.Type = apiKey.OwnerType
-		user.Admin = auth.isAdminWithContext(ctx, user.ID)
+		// Organization-scoped credentials must not inherit the creator's global
+		// administrator privileges. Their authority is bounded by the organization
+		// recorded on the key, regardless of who created it.
+		user.Admin = apiKey.OrganizationID == "" && auth.isAdminWithContext(ctx, user.ID)
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}

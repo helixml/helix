@@ -339,6 +339,9 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 	projectID := r.URL.Query().Get("project_id")
 
 	user := getRequestUser(r)
+	if orgID == "" && user.TokenType == types.TokenTypeAPIKey {
+		orgID = user.OrganizationID
+	}
 
 	var orgMembership *types.OrganizationMembership
 	if orgID != "" {
