@@ -12,6 +12,8 @@ import {
   filterProjectChatGroups,
   getSandboxControl,
   getSidebarPullRequestIcon,
+  githubOrgAvatarUrl,
+  isActiveSidebarTask,
   getSidebarTaskStatus,
   getChatShortcutNumber,
   isChatShortcutModifier,
@@ -203,9 +205,10 @@ describe('ProjectChatSidebar logic', () => {
   it('remembers the grouping per organization and defaults to projects', async () => {
     const { parseSidebarGroupBy, sidebarGroupByStorageKey } = await import('./ProjectChatSidebar.logic')
     expect(sidebarGroupByStorageKey('org-a')).not.toBe(sidebarGroupByStorageKey('org-b'))
-    expect(parseSidebarGroupBy(null)).toBe('project')
+    expect(parseSidebarGroupBy(null)).toBe('person')
     expect(parseSidebarGroupBy('person')).toBe('person')
-    expect(parseSidebarGroupBy('garbage')).toBe('project')
+    expect(parseSidebarGroupBy('project')).toBe('project')
+    expect(parseSidebarGroupBy('garbage')).toBe('person')
   })
 
   it('parses and clamps org-scoped local preferences', () => {
@@ -495,6 +498,41 @@ describe('ProjectChatSidebar logic', () => {
   it('leaves the browser-reserved new-window chord alone', () => {
     expect(isNewThreadShortcut({ key: 'n', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBe(false)
     expect(isNewThreadShortcut({ key: 'n', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false })).toBe(false)
+  })
+
+  it('treats working, live-sandbox, and queued tasks as active', () => {
+    expect(isActiveSidebarTask({ agent_work_state: 'working' } as any)).toBe(true)
+    expect(isActiveSidebarTask({ sandbox_state: 'running', agent_work_state: 'idle' } as any)).toBe(true)
+    expect(isActiveSidebarTask({ sandbox_state: 'starting' } as any)).toBe(true)
+    expect(isActiveSidebarTask({ status: 'queued_implementation', sandbox_state: 'absent' } as any)).toBe(true)
+
+    expect(isActiveSidebarTask({ status: 'done', sandbox_state: 'absent' } as any)).toBe(false)
+    expect(isActiveSidebarTask({ status: 'spec_review', sandbox_state: 'absent' } as any)).toBe(false)
+    expect(isActiveSidebarTask(undefined)).toBe(false)
+  })
+
+  it('derives a GitHub owner avatar only for github.com repos', () => {
+    expect(githubOrgAvatarUrl([
+      { external_type: 'github', external_url: 'https://github.com/helixml/helix' },
+    ])).toBe('https://github.com/helixml.png?size=48')
+
+    // First github repo wins; non-github entries are skipped, not fatal.
+    expect(githubOrgAvatarUrl([
+      { external_type: 'gitlab', external_url: 'https://gitlab.com/acme/api' },
+      { external_url: 'https://github.com/acme/api.git' },
+    ])).toBe('https://github.com/acme.png?size=48')
+
+    // GitHub Enterprise hosts have no public avatar endpoint.
+    expect(githubOrgAvatarUrl([
+      { external_type: 'github', external_url: 'https://github.internal.corp/acme/api' },
+    ])).toBeUndefined()
+
+    expect(githubOrgAvatarUrl([
+      { external_type: 'github', external_url: 'not a url' },
+      {},
+    ])).toBeUndefined()
+    expect(githubOrgAvatarUrl([])).toBeUndefined()
+    expect(githubOrgAvatarUrl()).toBeUndefined()
   })
 
   it('resolves the sandbox control for tasks and external-agent chats', () => {
