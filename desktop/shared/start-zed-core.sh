@@ -102,6 +102,71 @@ wait_for_zed_config() {
     exit 1
 }
 
+# Prove the Helix MCP context servers are reachable before EVERY Zed launch.
+#
+# Zed hands the agent its MCP servers exactly once, on the ACP session/new
+# request, and the agent (opencode, qwen, ...) connects to each one exactly
+# once. There is no retry on either side: a server that fails to connect in
+# that window stays "failed" for the whole session, its tools never enter the
+# model's tool map, and every call the model makes returns "Model tried to call
+# unavailable tool". Inference keeps working because it retries per turn, so
+# the session looks healthy while the agent is silently tool-less.
+#
+# This runs per launch, not once at boot, because run_zed_restart_loop respawns
+# Zed for the life of the container and the settings-sync-daemon's restartZed()
+# deliberately uses that path to give the agent a fresh ACP session on an agent
+# switch. Every one of those launches is another one-shot registration.
+#
+# The verdict is measured fresh by the daemon each time we ask. See
+# design/2026-09-01-opencode-mcp-tools-unavailable.md.
+wait_for_mcp_endpoints() {
+    local PORT="${SETTINGS_SYNC_PORT:-9877}"
+    local URL="http://127.0.0.1:${PORT}/mcp-readiness"
+    # Generous: covers a cold boot (the daemon's listener comes up after the
+    # first sync) and rides out a transient blip on a mid-session restart.
+    # Bounded, because a session that cannot reach its own API is not going to
+    # fix itself and the operator needs the error rather than a silent hang.
+    local MAX_WAIT=180
+    # A wall-clock deadline, not an attempt count. Counting attempts made the
+    # documented 180s bound a lie: each iteration can spend up to the curl
+    # timeout plus the sleep, so 180 attempts was really ~33 minutes of held
+    # launch. The daemon probes its endpoints concurrently with a 5s cap, so a
+    # verdict normally arrives in well under a second.
+    local DEADLINE=$(( $(date +%s) + MAX_WAIT ))
+    local LAST_REPORT=0
+    local ELAPSED=0
+    local RESPONSE=""
+    local STATUS=""
+    local BODY=""
+
+    echo "Checking Helix MCP context servers are reachable..."
+    while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+        # Not curl -f: a 503 carries the reason in its body and that is exactly
+        # what we want to print. Status and body are captured together.
+        RESPONSE=$(curl -sS --max-time 10 -w '\n%{http_code}' "$URL" 2>&1)
+        STATUS=$(printf '%s' "$RESPONSE" | tail -n 1)
+        BODY=$(printf '%s' "$RESPONSE" | sed '$d')
+        if [ "$STATUS" = "200" ]; then
+            echo "Helix MCP context servers reachable"
+            return 0
+        fi
+        sleep 1
+        ELAPSED=$(( $(date +%s) - DEADLINE + MAX_WAIT ))
+        if [ $(( ELAPSED - LAST_REPORT )) -ge 10 ]; then
+            LAST_REPORT=$ELAPSED
+            echo "Still waiting for MCP context servers... (${ELAPSED}s of ${MAX_WAIT}s)"
+        fi
+    done
+
+    echo "FATAL: Helix MCP context servers are not reachable from this container after ${MAX_WAIT}s."
+    echo "Last verdict from ${URL}:"
+    echo "  ${BODY}"
+    echo "Starting the agent now would give it no Helix tools for the entire session."
+    echo "Check: HELIX_API_URL=${HELIX_API_URL:-UNSET}; the context_server urls in"
+    echo "  $HOME/.config/zed/settings.json must resolve and connect from inside this container."
+    exit 1
+}
+
 wait_for_claude_credentials() {
     # In Claude Code subscription mode, wait for the credentials file before
     # starting Zed. Claude Code's credential reader is memoized — if it starts
@@ -186,6 +251,9 @@ run_zed_restart_loop() {
     trap 'echo "Caught signal, continuing restart loop..."' 15 2 1
 
     while true; do
+        # Every launch is a fresh ACP session and therefore a fresh one-shot
+        # MCP registration by the agent. Re-verify before each one.
+        wait_for_mcp_endpoints
         echo "Launching Zed..."
         # ZED_EXTRA_FILES can be set by desktop-specific script (e.g., user guide)
         if [ "${HELIX_HEADLESS}" = "1" ]; then
