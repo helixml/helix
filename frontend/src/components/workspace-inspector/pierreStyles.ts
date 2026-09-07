@@ -61,6 +61,10 @@ button[data-type='item'][data-item-git-status] {
 button[data-type='item'][data-item-git-status]:hover {
   background-color: color-mix(in srgb, var(--trees-item-git-status-color) 20%, transparent);
 }
+button[data-type='item'][data-item-git-status][data-item-selected='true'],
+button[data-type='item'][data-item-git-status][data-item-selected='true']:hover {
+  background-color: var(--trees-selected-bg);
+}
 `;
 
 export type RenderablePatch =

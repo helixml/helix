@@ -58,5 +58,7 @@ describe("workspace file tree styles", () => {
     expect(TREE_UNSAFE_CSS).toContain("button[data-type='item'][data-item-git-status]");
     expect(TREE_UNSAFE_CSS).toContain("background-color:");
     expect(TREE_UNSAFE_CSS).toContain("box-shadow: inset 3px 0 0");
+    expect(TREE_UNSAFE_CSS).toContain("[data-item-git-status][data-item-selected='true']");
+    expect(TREE_UNSAFE_CSS).toContain("background-color: var(--trees-selected-bg)");
   });
 });
