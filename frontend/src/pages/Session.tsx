@@ -52,6 +52,7 @@ import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
 import useSubscriptionGate from '../hooks/useSubscriptionGate'
 import Paywall from '../components/subscription/Paywall'
+import AgentChat from '../components/session/AgentChat'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
 import { useGetConfig } from '../services/userService'
@@ -1598,6 +1599,46 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
       ]
     : [{ title: 'Chat', routeName: 'chat' }]
 
+  // External-agent sessions (org bots, project chat) use the same chat surface
+  // as spec tasks — AgentChat — so composer behaviour (sandbox file/image
+  // attachments, prompt queue, plan progress, cancel) is one implementation
+  // and every fix lands on both. The legacy renderer below stays for plain
+  // model chats only.
+  const externalAgentChat = isExternalAgent ? (
+    <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
+      <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {!orgChatView && !previewMode && (isOwner || account.admin) && (
+          <Box sx={{ flexShrink: 0, borderBottom: lightTheme.border, py: 1, px: 2 }}>
+            <SessionToolbar
+              session={session.data}
+              onReload={safeReloadSession}
+              onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
+            />
+          </Box>
+        )}
+        <AgentChat
+          sessionId={session.data.id || sessionID}
+          projectId={sessionProjectID || undefined}
+          enableInteractionDebugCopy
+          showSessionPromptQueue
+          appendText={promptAppendText}
+          leadingActions={(
+            <CodeAgentExecutionControls
+              value={selectedCodeAgentConfig}
+              onChange={(config) => handleAgentModelChange('', {}, config)}
+              disabled={updateExecutionConfig.isPending}
+              compact
+            />
+          )}
+          placeholder={session.data.config?.paused
+            ? 'This session is paused — open the forked child to keep chatting'
+            : `Chat with ${orgBot?.name || apps.app?.config.helix.name || 'agent'}…`}
+          disabled={!!session.data.config?.paused}
+        />
+      </Box>
+    </Paywall>
+  ) : null
+
   return (
     <Page
       breadcrumbs={breadcrumbs}
@@ -1624,7 +1665,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
           lifecycleBusy={orgBotLifecycleBusy}
           onAppendToChat={appendToChat}
         >
-          {sessionContent}
+          {externalAgentChat}
         </OrgAgentSessionWorkspace>
       ) : sessionContent}
     </Page>

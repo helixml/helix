@@ -457,5 +457,10 @@ Verified live in the dev stack (`unmanned-org`, bot `b-mira`):
 | Go | `go test ./pkg/org/... ./pkg/sandbox/ ./pkg/external-agent/` and the org/inproc/workspace server tests pass |
 | Frontend | `tsc` clean, `yarn build` passes, `vitest` for helix-org / sandboxes / app folders passes |
 
+| chat parity | the bot session page now renders `AgentChat` (the spec-task chat) instead of the legacy Session composer: sandbox file/image attachments via upload, prompt queue, plan progress, cancel, execution controls |
+| native SSH (`sandbox_ssh_access` → proxy on :2224) | fixed: `helix/sandboxes.go` opened the hydra terminal with the row id, which 404s for every session-backed row; now `HydraOpsID()`. Verified with a minted user cert: `ssh sandbox@localhost -p 2224` lands in the headless bot container (`HELIX_WORKER_ID=b-mira`, `HELIX_HEADLESS=1`) |
+| Sandboxes UI terminal on the bot's row | Terminal tab on `/orgs/…/sandboxes/<id>` opens a shell in the bot container |
+
 NOT tested: headless placement on a display-less host, quota caps, org delete sweep,
-the migration backfill on a production copy, and mobile layout.
+the migration backfill on a production copy, mobile layout, and native SSH against a
+desktop bot (same docker-exec path; only the id routing differed).
