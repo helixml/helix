@@ -98,6 +98,8 @@ vi.mock('../services/helixOrgService', () => ({
     mutateAsync: mocks.restartMutateAsync,
     isPending: mocks.restartIsPending,
   }),
+  useActivateBot: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useStopBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 vi.mock('../components/system/Page', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
