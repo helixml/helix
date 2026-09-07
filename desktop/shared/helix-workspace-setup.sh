@@ -651,44 +651,60 @@ echo "  Claude: ~/.claude.json -> $CLAUDE_STATE_DIR/.claude.json"
 # checkout stays in place. The selected skills are linked into:
 #   ~/.agents/skills  zed-agent, codex, gemini, goose, opencode, qwen
 #   ~/.claude/skills  Claude Code (and opencode's Claude-compatible scan)
+# (deepseek_harness discovery is unverified — see the 2026-09-07 design doc.)
 # ~/.qwen/skills is not a discovery dir here: settings-sync-daemon sets
 # QWEN_HOME, so qwen reads $QWEN_HOME/skills and ~/.agents/skills instead.
 # This has to run after the ~/.claude symlink above, which replaces whatever
 # was there. Linked per skill rather than linking the directory, so skills a
 # user or project installs into those directories are left alone.
 #
+# The default set is the task-facing skills. helix-deploy, helix-e2e and
+# helix-agents are operator skills (install/upgrade the control plane, DB
+# access, org creation); a task agent gets them only when an operator opts in,
+# so a prompt-injected agent is not handed an on-ramp to the Helix running it.
+#
 #   HELIX_SKILLS_REPO  upstream to refresh from (default github.com/helixml/skills)
 #   HELIX_SKILLS_REF   branch/tag/sha to track (default main; empty = never refresh)
-#   HELIX_SKILLS       space-separated skill names to link (default: all)
+#   HELIX_SKILLS       space-separated skill names to link, or "all"
+#                      (default: helix-cli helix-artifacts helix-spec-tasks helix-board helix-files)
+#
+# Nothing in here may abort workspace setup (the script runs under set -e):
+# a broken or restructured skills checkout must cost the agent its skills, not
+# its desktop. Hence the function + explicit guards.
 SKILLS_SEED=/opt/helix/skills
 SKILLS_DIR="$WORK_DIR/.helix-skills"
-if [ -d "$SKILLS_SEED/skills" ]; then
+SKILLS_DEFAULT="helix-cli helix-artifacts helix-spec-tasks helix-board helix-files"
+setup_helix_skills() {
     if [ ! -d "$SKILLS_DIR/.git" ]; then
         rm -rf "$SKILLS_DIR"
-        cp -r "$SKILLS_SEED" "$SKILLS_DIR"
+        cp -r "$SKILLS_SEED" "$SKILLS_DIR" || { echo "  Skills: cannot copy seed $SKILLS_SEED -> $SKILLS_DIR"; return 1; }
     fi
-    SKILLS_REPO="${HELIX_SKILLS_REPO:-https://github.com/helixml/skills.git}"
-    SKILLS_REF="${HELIX_SKILLS_REF-main}"
-    if [ -n "$SKILLS_REF" ]; then
-        if GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$SKILLS_DIR" fetch -q --depth 1 "$SKILLS_REPO" "$SKILLS_REF" 2>/tmp/helix-skills-fetch.err \
+    local repo="${HELIX_SKILLS_REPO:-https://github.com/helixml/skills.git}"
+    local ref="${HELIX_SKILLS_REF-main}"
+    if [ -n "$ref" ]; then
+        local fetch_err
+        fetch_err=$(mktemp) || fetch_err=/dev/null
+        if GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$SKILLS_DIR" fetch -q --depth 1 "$repo" "$ref" 2>"$fetch_err" \
             && git -C "$SKILLS_DIR" checkout -q --detach FETCH_HEAD; then
-            echo "  Skills: refreshed from $SKILLS_REPO@$SKILLS_REF ($(git -C "$SKILLS_DIR" rev-parse --short HEAD))"
+            echo "  Skills: refreshed from $repo@$ref ($(git -C "$SKILLS_DIR" rev-parse --short HEAD 2>/dev/null))"
         else
-            echo "  Skills: refresh from $SKILLS_REPO@$SKILLS_REF failed ($(tail -n1 /tmp/helix-skills-fetch.err 2>/dev/null)); keeping $(git -C "$SKILLS_DIR" rev-parse --short HEAD)"
+            echo "  Skills: refresh from $repo@$ref failed ($(tail -n1 "$fetch_err" 2>/dev/null)); keeping $(git -C "$SKILLS_DIR" rev-parse --short HEAD 2>/dev/null)"
         fi
+        [ "$fetch_err" != /dev/null ] && rm -f "$fetch_err"
     fi
-    SKILLS_SELECTED="${HELIX_SKILLS:-}"
-    if [ -z "$SKILLS_SELECTED" ]; then
-        SKILLS_SELECTED=$(cd "$SKILLS_DIR/skills" && ls -d */ | tr -d / | tr '\n' ' ')
+    local selected="${HELIX_SKILLS:-$SKILLS_DEFAULT}"
+    if [ "$selected" = "all" ]; then
+        selected=$(cd "$SKILLS_DIR/skills" 2>/dev/null && ls -d */ 2>/dev/null | tr -d / | tr '\n' ' ') || true
     fi
-    SKILLS_LINKED=""
-    for skill in $SKILLS_SELECTED; do
+    local linked="" skill
+    for skill in $selected; do
         if [ -f "$SKILLS_DIR/skills/$skill/SKILL.md" ]; then
-            SKILLS_LINKED="$SKILLS_LINKED $skill"
+            linked="$linked $skill"
         else
             echo "  Skills: $skill not found in $SKILLS_DIR/skills — skipped"
         fi
     done
+    local skills_home
     for skills_home in ~/.agents/skills ~/.claude/skills; do
         # Report rather than swallow: a root-owned parent makes this fail, and
         # a silently unlinked harness looks identical to one with no skills.
@@ -700,11 +716,16 @@ if [ -d "$SKILLS_SEED/skills" ]; then
         # /opt/helix/skills/<name> layout) so deselected or removed skills
         # don't linger; links a user or project made are left alone.
         find "$skills_home" -maxdepth 1 -type l \( -lname "$SKILLS_DIR/*" -o -lname "/opt/helix/skills/*" \) -delete 2>/dev/null || true
-        for skill in $SKILLS_LINKED; do
-            ln -sfn "$SKILLS_DIR/skills/$skill" "$skills_home/$skill"
+        for skill in $linked; do
+            ln -sfn "$SKILLS_DIR/skills/$skill" "$skills_home/$skill" || echo "  Skills: cannot link $skill into $skills_home"
         done
     done
-    echo "  Skills:$SKILLS_LINKED -> ~/.agents/skills, ~/.claude/skills"
+    echo "  Skills:${linked:- (none)} -> ~/.agents/skills, ~/.claude/skills"
+}
+if [ -d "$SKILLS_SEED/skills" ]; then
+    if ! setup_helix_skills; then
+        echo "  Skills: setup failed — continuing without Helix agent skills"
+    fi
 fi
 
 # Browser profile (Chrome / Chromium): symlink ~/.config/google-chrome and

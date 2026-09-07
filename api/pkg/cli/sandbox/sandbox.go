@@ -93,7 +93,7 @@ func newRuntimesCmd() *cobra.Command {
 func newClient() (*client.HelixClient, error) {
 	apiKey := config.CliAPIKey()
 	if apiKey == "" {
-		return nil, errors.New("HELIX_API_KEY is not set")
+		return nil, errors.New("HELIX_API_KEY (or USER_API_TOKEN inside a Helix sandbox) is not set")
 	}
 	return client.NewClient(config.CliURL("http://localhost:8080"), apiKey, false)
 }

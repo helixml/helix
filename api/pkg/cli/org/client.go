@@ -32,7 +32,7 @@ func newHTTPClient() (*httpClient, error) {
 	}
 	apiKey := config.CliAPIKey()
 	if apiKey == "" {
-		return nil, fmt.Errorf("HELIX_API_KEY is not set")
+		return nil, fmt.Errorf("HELIX_API_KEY (or USER_API_TOKEN inside a Helix sandbox) is not set")
 	}
 	return &httpClient{
 		base:   url,

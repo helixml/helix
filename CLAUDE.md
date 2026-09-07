@@ -700,12 +700,13 @@ Skills that teach a coding agent to drive Helix live in
 at `/opt/helix/skills`, pinned by `SKILLS_COMMIT` in `sandbox-versions.txt` (passed as a
 build-arg by `./stack build-desktop` and `.drone.yml`; the Dockerfile has no default). On
 every container start `helix-workspace-setup.sh` copies it to `~/work/.helix-skills`,
-refreshes it from upstream `main`, and links every skill into `~/.agents/skills` and
-`~/.claude/skills` — the two directories that between them cover zed-agent, Claude Code,
+refreshes it from upstream `main`, and links the default set (`helix-cli`, `helix-artifacts`,
+`helix-spec-tasks`, `helix-board`, `helix-files`) into `~/.agents/skills` and `~/.claude/skills` — the two directories that between them cover zed-agent, Claude Code,
 Codex, Gemini CLI, goose, opencode and qwen. When the fetch fails (air-gapped, proxy) the
 last good checkout is kept, so the pin only matters offline. Per-container knobs:
 `HELIX_SKILLS_REF` (branch/tag/sha; empty disables refresh), `HELIX_SKILLS` (space-separated
-subset to link), `HELIX_SKILLS_REPO`.
+names, or `all` — the operator skills `helix-deploy`/`helix-e2e`/`helix-agents` are opt-in only),
+`HELIX_SKILLS_REPO`. A broken skills checkout never aborts workspace setup.
 
 Inside the sandbox the `helix` CLI authenticates from `HELIX_API_URL` + `USER_API_TOKEN`
 (`config.LoadCliConfig` falls back to them when `HELIX_URL`/`HELIX_API_KEY` are unset), so

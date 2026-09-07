@@ -100,8 +100,16 @@ advertises it; what is missing is Helix-side context on *when* it matters.
 Rather than pin-and-bake, tasks now **always get the latest skills**: the image
 bakes a shallow clone as an offline seed, and `helix-workspace-setup.sh`
 refreshes it from `helixml/skills` `main` at every container start, keeping the
-last good checkout when the fetch fails. **All** skills are linked by default
-(`HELIX_SKILLS` narrows the set per container). Shipped with it: the
+last good checkout when the fetch fails. The default linked set is the
+**task-facing** skills — `helix-cli`, `helix-artifacts`, `helix-spec-tasks`,
+`helix-board`, `helix-files`. `helix-deploy`, `helix-e2e` and `helix-agents`
+stay opt-in (`HELIX_SKILLS=all` or an explicit list): they teach control-plane
+install/upgrade, DB access and org creation, and a task agent holds a
+`USER_API_TOKEN`-authenticated CLI, so handing them out by default would give a
+prompt-injected agent an on-ramp to the Helix running it (review on PR 3190).
+The task-facing skills widen the earlier `helix-artifacts`-only set on
+purpose: delegation and board/task/file operations are what an in-task agent
+legitimately needs, and are project-scoped by the token. Shipped with it: the
 `SKILLS_COMMIT` build-arg plumbing, the CLI credential fallback in
 `config.LoadCliConfig`, `HELIX_ORGANIZATION_ID` for spec-task desktops, links
 into `~/.agents/skills` + `~/.claude/skills` only, and a static "## Helix

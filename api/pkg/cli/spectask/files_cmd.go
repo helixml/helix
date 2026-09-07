@@ -40,7 +40,7 @@ Examples:
 			sessionID := args[0]
 			apiURL, token := getAPIURL(), getToken()
 			if apiURL == "" || token == "" {
-				return fmt.Errorf("HELIX_URL and HELIX_API_KEY environment variables must be set")
+				return fmt.Errorf("HELIX_API_KEY (or USER_API_TOKEN inside a Helix sandbox) must be set")
 			}
 			u := fmt.Sprintf("%s/api/v1/external-agents/%s/workspace-files", apiURL, sessionID)
 			if workspace != "" {
@@ -108,7 +108,7 @@ Examples:
 			sessionID, remotePath := args[0], args[1]
 			apiURL, token := getAPIURL(), getToken()
 			if apiURL == "" || token == "" {
-				return fmt.Errorf("HELIX_URL and HELIX_API_KEY environment variables must be set")
+				return fmt.Errorf("HELIX_API_KEY (or USER_API_TOKEN inside a Helix sandbox) must be set")
 			}
 			q := url.Values{}
 			q.Set("path", remotePath)
