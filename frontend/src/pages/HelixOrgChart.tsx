@@ -211,7 +211,7 @@ type FlatBot = {
   // Reporting is many-to-many: a Bot may report to several managers.
   parentIds: string[]
   // Desktop sandbox online-ness for the presence dot.
-  agentStatus: 'running' | 'stopped'
+  agentStatus: 'running' | 'starting' | 'stopped'
   agentRuntime: string
   agentModel: string
   projectId?: string
@@ -223,8 +223,9 @@ type FlatBot = {
 type BotNodeData = {
   botId: string
   botName: string
-  // running = desktop sandbox online; stopped (or missing) = offline.
-  agentStatus: 'running' | 'stopped'
+  // running = sandbox online; starting = container booting; stopped (or
+  // missing) = offline.
+  agentStatus: 'running' | 'starting' | 'stopped'
   agentRuntime: string
   agentModel: string
   projectId: string
@@ -546,12 +547,17 @@ export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
 
   const online = data.agentStatus === 'running'
+  const starting = data.agentStatus === 'starting'
   const selected = !!data.selected
   const cardBorderColor = selected ? selectedBorder : idleBorder
   const cardBorderWidth = selected ? 2 : 1
   const drawerOffset = 4
-  const statusColor = online ? 'rgb(46, 160, 67)' : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
-  const statusLabel = online ? 'Agent sandbox online' : 'Agent sandbox stopped'
+  const statusColor = online
+    ? 'rgb(46, 160, 67)'
+    : starting
+      ? 'rgb(214, 158, 46)'
+      : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
+  const statusLabel = online ? 'Agent sandbox online' : starting ? 'Agent sandbox starting' : 'Agent sandbox stopped'
 
   const closeMenu = () => setMenuEl(null)
 
@@ -2436,7 +2442,9 @@ const HelixOrgChart: FC = () => {
         id: b.id ?? '',
         name: b.name ?? '',
         parentIds: b.parent_ids ?? [],
-        agentStatus: b.agent_status === 'running' ? 'running' as const : 'stopped' as const,
+        agentStatus: b.agent_status === 'running'
+          ? 'running' as const
+          : b.sandbox_status === 'pending' ? 'starting' as const : 'stopped' as const,
         agentRuntime: b.agent_runtime ?? '',
         agentModel: b.agent_model ?? '',
         projectId: projectIDByBotID.get(b.id ?? '') ?? '',

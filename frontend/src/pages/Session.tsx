@@ -67,7 +67,7 @@ import {
 import { splitSystemPrefix } from '../components/session/CollapsibleSystemPrefix'
 import OrgAgentSessionWorkspace from '../components/helix-org/OrgAgentSessionWorkspace'
 import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
-import { useHelixOrgBot, useRestartBotAgent } from '../services/helixOrgService'
+import { useActivateBot, useHelixOrgBot, useRestartBotAgent, useStopBotAgent } from '../services/helixOrgService'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -299,6 +299,16 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   })
   const orgBot = orgBotDetail?.bot
   const restartOrgBotAgent = useRestartBotAgent()
+  const activateOrgBotAgent = useActivateBot()
+  const stopOrgBotAgent = useStopBotAgent()
+  const orgBotLifecycleBusy = restartOrgBotAgent.isPending || activateOrgBotAgent.isPending || stopOrgBotAgent.isPending
+  // Terminal "copy to chat" appends to the composer; the sequence suffix makes
+  // repeated copies of the same text distinct, as on the spec task page.
+  const chatAppendSequence = useRef(0)
+  const appendToChat = useCallback((text: string) => {
+    chatAppendSequence.current += 1
+    setPromptAppendText(`${text}#${chatAppendSequence.current}`)
+  }, [])
 
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
@@ -1607,6 +1617,12 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
         <OrgAgentSessionWorkspace
           sessionId={session.data.id || sessionID}
           organizationId={(router.params.org_id as string) || session.data.organization_id || ''}
+          bot={orgBot}
+          onStart={orgWorkerId ? () => { void activateOrgBotAgent.mutateAsync(orgWorkerId) } : undefined}
+          onStop={orgWorkerId ? () => { void stopOrgBotAgent.mutateAsync(orgWorkerId) } : undefined}
+          onRestart={orgWorkerId ? () => { void restartOrgBotAgent.mutateAsync(orgWorkerId) } : undefined}
+          lifecycleBusy={orgBotLifecycleBusy}
+          onAppendToChat={appendToChat}
         >
           {sessionContent}
         </OrgAgentSessionWorkspace>

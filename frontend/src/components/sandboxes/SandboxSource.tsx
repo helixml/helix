@@ -2,7 +2,7 @@ import { FC, MouseEvent } from 'react'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { ListChecks, TerminalSquare } from 'lucide-react'
+import { Bot, ListChecks, TerminalSquare } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
 import { TypesSandbox } from '../../api/api'
@@ -19,6 +19,43 @@ interface SandboxSourceProps {
 // API. Without a marker the list reads as a pile of unexplained rows.
 const SandboxSource: FC<SandboxSourceProps> = ({ sandbox }) => {
   const router = useRouter()
+
+  if (sandbox.org_bot_id) {
+    const canNavigate = Boolean(router.params.org_id)
+    const openAgent = (e: MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (!canNavigate) return
+      router.navigate('helix_org_bot_detail', {
+        org_id: router.params.org_id,
+        bot_id: sandbox.org_bot_id,
+      })
+    }
+    return (
+      <Tooltip title={canNavigate ? 'Open the org agent this sandbox belongs to' : 'Org agent sandbox'}>
+        <Box
+          component={canNavigate ? 'a' : 'span'}
+          href={canNavigate ? '#' : undefined}
+          onClick={canNavigate ? openAgent : undefined}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.75,
+            minWidth: 0,
+            textDecoration: 'none',
+            color: 'text.secondary',
+            cursor: canNavigate ? 'pointer' : 'default',
+            '&:hover': canNavigate ? { color: 'text.primary' } : undefined,
+          }}
+        >
+          <Bot size={14} style={{ flexShrink: 0 }} />
+          <Typography variant="body2" color="inherit" noWrap>
+            Org agent
+          </Typography>
+        </Box>
+      </Tooltip>
+    )
+  }
 
   if (!sandbox.spec_task_id) {
     const label = sandbox.session_id ? 'Session' : 'Sandbox API'

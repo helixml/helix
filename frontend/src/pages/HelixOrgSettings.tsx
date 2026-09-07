@@ -34,6 +34,8 @@ const EXCLUDED_KEYS = new Set<string>([
   'worker.credentials',
   'worker.provider',
   'worker.model',
+  'worker.sandbox_runtime',
+  'worker.sandbox_vcpus',
   'agent.default',
   'transport.github',
 ])

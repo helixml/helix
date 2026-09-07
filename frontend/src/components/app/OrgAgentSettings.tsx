@@ -12,6 +12,7 @@ import { Pencil, Square, SquareCheck } from 'lucide-react'
 
 import ToolPickerDialog from '../helix-org/ToolPickerDialog'
 import AgentConfigForm, { AgentConfigValue } from '../helix-org/BotRuntimeForm'
+import BotSandboxForm, { BotSandboxValue } from '../helix-org/BotSandboxForm'
 import MonacoEditor from '../widgets/MonacoEditor'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useListProjects } from '../../services/projectService'
@@ -64,6 +65,18 @@ const OrgAgentSettings: FC<{
     model: '',
     reasoning_effort: 'none',
   })
+
+  const [sandbox, setSandbox] = useState<BotSandboxValue>({ runtime: '', vcpus: 0 })
+  useEffect(() => {
+    setSandbox({
+      runtime: agent?.sandbox_runtime ?? '',
+      vcpus: agent?.sandbox_resource_overrides?.vcpus ?? 0,
+    })
+  }, [agent?.sandbox_runtime, agent?.sandbox_resource_overrides?.vcpus])
+  const sandboxDirty = !!agent && (
+    sandbox.runtime !== (agent.sandbox_runtime ?? '')
+    || sandbox.vcpus !== (agent.sandbox_resource_overrides?.vcpus ?? 0)
+  )
 
   useEffect(() => {
     setName(agent?.name ?? '')
@@ -192,6 +205,35 @@ const OrgAgentSettings: FC<{
   if (section === 'runtime') {
     return (
       <Box sx={{ mt: embedded ? 0 : 3 }}>
+        {!embedded && <Typography variant="subtitle1">Sandbox</Typography>}
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          The container this agent runs in. Changes apply the next time the agent starts;
+          a running sandbox shows a restart prompt.
+        </Typography>
+        <BotSandboxForm
+          value={sandbox}
+          onChange={(patch) => setSandbox((current) => ({ ...current, ...patch }))}
+          disabled={readOnly || updateAgent.isPending}
+          inheritLabel="Org default"
+          effective={{
+            runtime: agent.effective_sandbox_runtime,
+            vcpus: agent.effective_sandbox_resource_overrides?.vcpus,
+            memory_mb: agent.effective_sandbox_resource_overrides?.memory_mb,
+          }}
+        />
+        <Box sx={{ mt: 2, mb: 3 }}>
+          <Button
+            variant="contained"
+            size="small"
+            disabled={readOnly || updateAgent.isPending || !sandboxDirty}
+            onClick={() => void update({
+              sandbox_runtime: sandbox.runtime as NonNullable<typeof agent.sandbox_runtime>,
+              sandbox_resource_overrides: { vcpus: sandbox.vcpus },
+            })}
+          >
+            Save sandbox
+          </Button>
+        </Box>
         {!embedded && <Typography variant="subtitle1">Context</Typography>}
         <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
           <Typography variant="body1">Preserve context</Typography>

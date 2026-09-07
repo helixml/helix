@@ -45,6 +45,8 @@ export interface ApiAgentDetailDTO {
    * not (it would repeat kilobytes of prompt per row).
    */
   default_instructions?: string;
+  effective_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  effective_sandbox_runtime?: TypesSandboxRuntime;
   helix_user_id?: string;
   id?: string;
   identity?: Record<string, string>;
@@ -79,6 +81,19 @@ export interface ApiAgentDetailDTO {
    * restart banner on the bot page and the org chat panel.
    */
   restart_required?: boolean;
+  sandbox_id?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime and SandboxResourceOverrides are the bot's own sandbox
+   * config in the spec-task vocabulary; empty means "inherit the org
+   * default". The Effective* fields are what the next container start will
+   * actually use once org and global defaults are applied. SandboxID /
+   * SandboxStatus come from the session-backed sandboxes row, when one
+   * exists (pending, running, stopping, stopped, failed).
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
+  sandbox_status?: string;
+  sandbox_status_message?: string;
   session_id?: string;
   tools?: string[];
   updated_at?: string;
@@ -175,6 +190,8 @@ export interface ApiBotDTO {
    * not (it would repeat kilobytes of prompt per row).
    */
   default_instructions?: string;
+  effective_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  effective_sandbox_runtime?: TypesSandboxRuntime;
   helix_user_id?: string;
   id?: string;
   identity?: Record<string, string>;
@@ -216,6 +233,19 @@ export interface ApiBotDTO {
    * restart banner on the bot page and the org chat panel.
    */
   restart_required?: boolean;
+  sandbox_id?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime and SandboxResourceOverrides are the bot's own sandbox
+   * config in the spec-task vocabulary; empty means "inherit the org
+   * default". The Effective* fields are what the next container start will
+   * actually use once org and global defaults are applied. SandboxID /
+   * SandboxStatus come from the session-backed sandboxes row, when one
+   * exists (pending, running, stopping, stopped, failed).
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
+  sandbox_status?: string;
+  sandbox_status_message?: string;
   session_id?: string;
   tools?: string[];
   updated_at?: string;
@@ -272,6 +302,12 @@ export interface ApiCreateBotRequest {
   preserve_context?: boolean;
   provider?: string;
   reasoning_effort?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime / SandboxResourceOverrides are optional; see BotDTO.
+   * Only vcpus is read from the overrides — memory follows the preset.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
   tools?: string[];
   triggers?: string[];
 }
@@ -552,6 +588,14 @@ export interface ApiUpdateBotRequest {
   project_ids?: string[];
   provider?: string;
   reasoning_effort?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime / SandboxResourceOverrides patch the bot's sandbox
+   * config. A present-but-empty runtime, or vcpus=0, resets that field to
+   * inherit. Takes effect on the next container start; a running sandbox
+   * gets restart_required.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
   tools?: string[];
 }
 
@@ -2329,14 +2373,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindEmail = "email",
-  KindLocal = "local",
-  KindCron = "cron",
   KindWebhook = "webhook",
-  KindGitHub = "github",
-  KindGitLab = "gitlab",
   KindHelixEvents = "helix_events",
+  KindLocal = "local",
+  KindGitHub = "github",
   KindSlack = "slack",
+  KindGitLab = "gitlab",
+  KindEmail = "email",
+  KindCron = "cron",
 }
 
 export interface TransportResolvedActivation {
@@ -6141,6 +6185,12 @@ export interface TypesSandbox {
   image?: string;
   memory_mb?: number;
   name?: string;
+  /**
+   * OrgBotID is the helix-org bot whose session owns this container, when
+   * there is one. Denormalised from the session (org_worker_id) so the bot
+   * detail and the Sandboxes list can link both ways without joining sessions.
+   */
+  org_bot_id?: string;
   organization_id?: string;
   owner?: string;
   /**
@@ -6893,6 +6943,16 @@ export interface TypesSessionMetadata {
   /** GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE) */
   render_node?: string;
   runtime_instructions?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime and SandboxResourceOverrides are the container runtime and
+   * size for an org-worker session. The org spawner writes them from the Bot
+   * on every activation and StartDesktop reads them on every launch path
+   * (fresh start, message auto-start, resume, auto-wake, reconciler), so a
+   * headless bot never comes back as a desktop. SpecTask sessions leave both
+   * empty — the task is authoritative there, as with CodeAgentConfig.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
   session_rag_results?: TypesSessionRAGResult[];
   /** "planning", "implementation", "coordination", "exploratory" */
   session_role?: string;

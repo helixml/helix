@@ -7,16 +7,114 @@ import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
 
 import AgentConfigForm, { AgentConfigValue } from './BotRuntimeForm'
+import BotSandboxForm, { BotSandboxValue } from './BotSandboxForm'
+import { DEFAULT_SANDBOX_PRESET } from '../../constants/sandboxPresets'
+import { TypesSandboxRuntime } from '../../api/api'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import useSnackbar from '../../hooks/useSnackbar'
 import { extractErrorMessage } from '../../hooks/useErrorCallback'
 import { useOrgCodeAgentHarnesses } from '../../services/codeAgentHarnessesService'
 import {
   SettingsSpecDTO,
+  useDeleteHelixOrgSetting,
   useHelixOrgBase,
   useHelixOrgSettings,
   useSetHelixOrgSetting,
 } from '../../services/helixOrgService'
+
+export const SANDBOX_RUNTIME_KEY = 'worker.sandbox_runtime'
+export const SANDBOX_VCPUS_KEY = 'worker.sandbox_vcpus'
+
+const decodeIntValue = (v: string): number => {
+  if (!v) return 0
+  try {
+    const parsed = JSON.parse(v)
+    return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : 0
+  } catch {
+    return 0
+  }
+}
+
+// DefaultSandboxPanel edits the org-wide sandbox defaults every agent
+// without its own setting inherits. Unset falls through to the Helix
+// default (full desktop, standard preset), matching spec tasks.
+export const DefaultSandboxPanel: FC<{ disabled?: boolean }> = ({ disabled = false }) => {
+  const { data, isLoading } = useHelixOrgSettings()
+  const setMut = useSetHelixOrgSetting()
+  const deleteMut = useDeleteHelixOrgSetting()
+  const snackbar = useSnackbar()
+
+  const specByKey = useMemo(() => {
+    const m = new Map<string, SettingsSpecDTO>()
+    for (const s of data?.specs ?? []) m.set(s.key, s)
+    return m
+  }, [data])
+  const stored: BotSandboxValue = {
+    runtime: decodeStringValue(specByKey.get(SANDBOX_RUNTIME_KEY)?.value ?? ''),
+    vcpus: decodeIntValue(specByKey.get(SANDBOX_VCPUS_KEY)?.value ?? ''),
+  }
+  const [value, setValue] = useState<BotSandboxValue>(stored)
+  const [dirty, setDirty] = useState(false)
+
+  useEffect(() => {
+    if (!data) return
+    setValue(stored)
+    setDirty(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data])
+
+  const saving = setMut.isPending || deleteMut.isPending
+  const handleSave = async () => {
+    try {
+      if (value.runtime) {
+        await setMut.mutateAsync({ key: SANDBOX_RUNTIME_KEY, value: JSON.stringify(value.runtime) })
+      } else if (specByKey.get(SANDBOX_RUNTIME_KEY)?.configured) {
+        await deleteMut.mutateAsync(SANDBOX_RUNTIME_KEY)
+      }
+      if (value.vcpus) {
+        await setMut.mutateAsync({ key: SANDBOX_VCPUS_KEY, value: JSON.stringify(value.vcpus) })
+      } else if (specByKey.get(SANDBOX_VCPUS_KEY)?.configured) {
+        await deleteMut.mutateAsync(SANDBOX_VCPUS_KEY)
+      }
+      setDirty(false)
+      snackbar.success('Default sandbox saved')
+    } catch (e: any) {
+      snackbar.error(extractErrorMessage(e) || 'save failed')
+    }
+  }
+
+  return (
+    <Paper variant="outlined" sx={{ p: 3 }}>
+      <Typography variant="subtitle1" sx={{ mb: 0.5 }}>Default sandbox</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Environment and size for agents that don't set their own. Applies on each agent's next start.
+      </Typography>
+      {isLoading ? <LoadingSpinner /> : (
+        <>
+          <BotSandboxForm
+            value={value}
+            onChange={(patch) => { setValue((current) => ({ ...current, ...patch })); setDirty(true) }}
+            disabled={disabled || saving}
+            inheritLabel="Helix default"
+            effective={{
+              runtime: TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop,
+              vcpus: DEFAULT_SANDBOX_PRESET.vcpus,
+              memory_mb: DEFAULT_SANDBOX_PRESET.memory_mb,
+            }}
+          />
+          <Button
+            variant="contained"
+            onClick={handleSave}
+            disabled={disabled || !dirty || saving}
+            sx={{ mt: 2 }}
+          >
+            {saving ? 'Saving...' : 'Save Default Sandbox'}
+          </Button>
+        </>
+      )}
+    </Paper>
+  )
+}
 
 const decodeStringValue = (v: string): string => {
   if (!v) return ''
