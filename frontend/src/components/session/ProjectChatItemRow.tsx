@@ -250,10 +250,60 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         fontSize: '14px',
         lineHeight: '20px',
         fontWeight: active ? 500 : 400,
+        // The stacked row's hierarchy is carried by contrast: the title
+        // reads brighter than the muted project line above it.
+        ...(stacked && !active && {
+          color: lightTheme.isLight ? '#52525b' : 'rgba(212,212,216,0.88)',
+        }),
       }}
     >
       {item.title}
     </Typography>
+  )
+
+  // The stacked row keeps its title line clean: the workflow status collapses
+  // to a colored dot at the right edge (label in the tooltip), and the PR icon
+  // only appears once a pull request actually exists — the grey "no PR yet"
+  // placeholder is noise repeated on every row.
+  const stackedStatusIcons = item.kind === 'spec-task' && (
+    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
+      {pullRequestIcon?.url && (
+        <Tooltip title={pullRequestIcon.tooltip}>
+          <Box
+            component="a"
+            href={pullRequestIcon.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={pullRequestIcon.tooltip}
+            onMouseOver={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            sx={{ display: 'inline-flex', color: pullRequestIcon.color, cursor: 'pointer' }}
+          >
+            <GitPullRequest size={12} />
+          </Box>
+        </Tooltip>
+      )}
+      {status && (
+        <Tooltip title={status.tooltip || status.label}>
+          <Box
+            onMouseOver={(event) => event.stopPropagation()}
+            sx={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              flexShrink: 0,
+              backgroundColor: status.color,
+              animation: isAgentWorking
+                ? `${activeStatusDotPulse} 2s ease-in-out infinite`
+                : 'none',
+              '@media (prefers-reduced-motion: reduce)': {
+                animation: 'none',
+              },
+            }}
+          />
+        </Tooltip>
+      )}
+    </Box>
   )
 
   const avatarNode = showTaskAvatars && !!taskPersonId && (
@@ -427,7 +477,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
                 whiteSpace: 'nowrap',
                 fontSize: '11px',
                 lineHeight: '14px',
-                fontWeight: 500,
+                fontWeight: 400,
                 color: active
                   ? (lightTheme.isLight ? 'rgba(39,39,42,0.68)' : 'rgba(241,243,247,0.72)')
                   : (lightTheme.isLight ? 'rgba(113,113,122,0.8)' : 'rgba(163,163,163,0.65)'),
@@ -438,10 +488,10 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
             {timeAndArchive}
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%' }}>
-            {statusIcons}
             {titleNode}
             {avatarNode}
             {pinNode}
+            {stackedStatusIcons}
           </Box>
           {subLineNode}
         </>
