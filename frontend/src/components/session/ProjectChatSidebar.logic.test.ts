@@ -13,6 +13,7 @@ import {
   getSandboxControl,
   getSidebarPullRequestIcon,
   githubOrgAvatarUrl,
+  isActiveSidebarTask,
   getSidebarTaskStatus,
   getChatShortcutNumber,
   isChatShortcutModifier,
@@ -496,6 +497,17 @@ describe('ProjectChatSidebar logic', () => {
   it('leaves the browser-reserved new-window chord alone', () => {
     expect(isNewThreadShortcut({ key: 'n', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBe(false)
     expect(isNewThreadShortcut({ key: 'n', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false })).toBe(false)
+  })
+
+  it('treats working, live-sandbox, and queued tasks as active', () => {
+    expect(isActiveSidebarTask({ agent_work_state: 'working' } as any)).toBe(true)
+    expect(isActiveSidebarTask({ sandbox_state: 'running', agent_work_state: 'idle' } as any)).toBe(true)
+    expect(isActiveSidebarTask({ sandbox_state: 'starting' } as any)).toBe(true)
+    expect(isActiveSidebarTask({ status: 'queued_implementation', sandbox_state: 'absent' } as any)).toBe(true)
+
+    expect(isActiveSidebarTask({ status: 'done', sandbox_state: 'absent' } as any)).toBe(false)
+    expect(isActiveSidebarTask({ status: 'spec_review', sandbox_state: 'absent' } as any)).toBe(false)
+    expect(isActiveSidebarTask(undefined)).toBe(false)
   })
 
   it('derives a GitHub owner avatar only for github.com repos', () => {

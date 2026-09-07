@@ -16,7 +16,7 @@ import AgentHarness from '../agent/AgentHarness'
 import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
 import { getProjectChatItemDetails, resolveProjectChatItemBranch } from './projectChatItemDetails'
-import { compactRelativeTime, getSidebarPullRequestIcon, getSidebarTaskStatus, githubOrgAvatarUrl } from './ProjectChatSidebar.logic'
+import { compactRelativeTime, getSidebarPullRequestIcon, getSidebarTaskStatus, githubOrgAvatarUrl, isActiveSidebarTask } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 
 const activeStatusDotPulse = keyframes`
@@ -127,6 +127,11 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
       ].filter(Boolean) as Array<{ key: string; icon: ReactElement; value?: string }>
     : []
 
+  // Active tasks trade their timestamp for the live status label (t3-style):
+  // "24 minutes ago" says nothing while the agent is mid-implementation, and
+  // once the task goes quiet recency becomes the interesting fact again.
+  const showStatusAsTime = stacked && !!status && isActiveSidebarTask(item.task)
+
   // Time + archive occupy the same slot: the time yields to the archive
   // button on hover. In the stacked layout the slot sits on the project
   // line (t3-style, time top-right); otherwise on the single content line.
@@ -134,7 +139,11 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     <Box
       sx={isPhone && !stacked
         ? { display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }
-        : { width: 28, height: stacked ? 16 : 28, flexShrink: 0, position: 'relative' }}
+        : stacked
+          // Static content sizes the slot so a status label wider than the
+          // 28px timestamp column still fits; the archive button overlays it.
+          ? { minWidth: 28, height: 16, flexShrink: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }
+          : { width: 28, height: 28, flexShrink: 0, position: 'relative' }}
     >
       <Typography
         className="sidebar-item-time"
@@ -143,20 +152,29 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         sx={{
           ...(isPhone && !stacked
             ? { position: 'static' }
-            : { position: 'absolute', inset: 0 }),
+            : stacked
+              ? { position: 'static' }
+              : { position: 'absolute', inset: 0 }),
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-end',
-          color: active
-            ? (lightTheme.isLight ? 'rgba(39,39,42,0.58)' : 'rgba(241,243,247,0.72)')
-            : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
+          whiteSpace: 'nowrap',
+          color: showStatusAsTime
+            ? status!.color
+            : active
+              ? (lightTheme.isLight ? 'rgba(39,39,42,0.58)' : 'rgba(241,243,247,0.72)')
+              : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
           fontSize: '10px',
           lineHeight: 1,
           fontVariantNumeric: 'tabular-nums',
           transition: 'opacity 100ms ease',
+          ...(showStatusAsTime && isAgentWorking && {
+            animation: `${activeStatusDotPulse} 2s ease-in-out infinite`,
+            '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+          }),
         }}
       >
-        {compactRelativeTime(item.updatedAt, relativeTimeNow)}
+        {showStatusAsTime ? status!.label : compactRelativeTime(item.updatedAt, relativeTimeNow)}
       </Typography>
       <Tooltip title={`${archiveVerb} ${item.kind === 'spec-task' ? 'task' : 'chat'}`}>
         <IconButton
@@ -283,7 +301,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
           </Box>
         </Tooltip>
       )}
-      {status && (
+      {status && !showStatusAsTime && (
         <Tooltip title={status.tooltip || status.label}>
           <Box
             onMouseOver={(event) => event.stopPropagation()}
@@ -293,12 +311,6 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
               borderRadius: '50%',
               flexShrink: 0,
               backgroundColor: status.color,
-              animation: isAgentWorking
-                ? `${activeStatusDotPulse} 2s ease-in-out infinite`
-                : 'none',
-              '@media (prefers-reduced-motion: reduce)': {
-                animation: 'none',
-              },
             }}
           />
         </Tooltip>

@@ -402,6 +402,23 @@ export const getSidebarTaskStatus = (task?: SpecTask): SidebarStatus | null => {
   return workflowStatus
 }
 
+// "Active" here means something is happening or about to: these rows trade
+// their relative timestamp for the live status label (t3-style) — recency
+// only matters once a task has gone quiet.
+export const isActiveSidebarTask = (task?: SpecTask): boolean => {
+  if (!task) return false
+  if (task.agent_work_state === 'working') return true
+  if (task.sandbox_state === 'running' || task.sandbox_state === 'starting') return true
+  switch (task.status) {
+    case 'queued_spec_generation':
+    case 'queued_implementation':
+    case 'implementation_queued':
+      return true
+    default:
+      return false
+  }
+}
+
 const PULL_REQUEST_ICON_COLORS: Record<string, string> = {
   open: '#10b981',
   closed: '#ef4444',
