@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"sort"
+	"strconv"
 )
 
 // RestartFingerprint hashes exactly the Node config a running sandbox
@@ -15,6 +16,9 @@ import (
 //   - Content — materialized into AGENTS.md/CLAUDE.md before the desktop
 //     starts. SyncAgentProfile rewrites them in a live container, but only
 //     during an activation, never on save.
+//   - SandboxRuntime / SandboxVCPUs / SandboxMemoryMB — the container is
+//     created headless-or-desktop at a fixed size; nothing resizes or
+//     re-images a live container, so a change only lands on the next start.
 //
 // Deliberately excluded, because each already reaches a running sandbox
 // without a restart: runtime/model/provider/effort (hot-switched through
@@ -41,5 +45,11 @@ func RestartFingerprint(n Node) string {
 	}
 	h.Write([]byte{0x01})
 	h.Write([]byte(n.Content))
+	h.Write([]byte{0x02})
+	h.Write([]byte(n.SandboxRuntime))
+	h.Write([]byte{0x00})
+	h.Write([]byte(strconv.Itoa(n.SandboxVCPUs)))
+	h.Write([]byte{0x00})
+	h.Write([]byte(strconv.Itoa(n.SandboxMemoryMB)))
 	return hex.EncodeToString(h.Sum(nil))
 }

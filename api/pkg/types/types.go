@@ -519,6 +519,15 @@ type SessionMetadata struct {
 	// and reasoning. SpecTask sessions keep this nil and read the task instead.
 	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
 
+	// SandboxRuntime and SandboxResourceOverrides are the container runtime and
+	// size for an org-worker session. The org spawner writes them from the Bot
+	// on every activation and StartDesktop reads them on every launch path
+	// (fresh start, message auto-start, resume, auto-wake, reconciler), so a
+	// headless bot never comes back as a desktop. SpecTask sessions leave both
+	// empty — the task is authoritative there, as with CodeAgentConfig.
+	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty"`
+	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+
 	// Container fields (Hydra executor)
 	ContainerName string `json:"container_name,omitempty"` // Docker container name
 	ContainerID   string `json:"container_id,omitempty"`   // Docker container ID
@@ -623,6 +632,15 @@ type SessionChatRequest struct {
 	// a Worker's identity.
 	OrgWorkerID         string `json:"-"`
 	RuntimeInstructions string `json:"-"`
+	// SessionName, when set, names a freshly created session up front so the
+	// container start that follows (and the sandbox row it opens) sees the
+	// final name rather than the placeholder derived from the first prompt.
+	SessionName string `json:"-"`
+	// SandboxRuntime / SandboxResourceOverrides are the org worker's resolved
+	// container runtime and size, persisted onto the session metadata. Internal
+	// for the same reason as OrgWorkerID.
+	SandboxRuntime           SandboxRuntime            `json:"-"`
+	SandboxResourceOverrides *SandboxResourceOverrides `json:"-"`
 }
 
 // ExternalAgentConfig holds display configuration for external agent sessions
@@ -2086,6 +2104,11 @@ type DesktopAgent struct {
 	ProjectID           string   `json:"project_id,omitempty"`            // Project ID for exploratory sessions (when no SpecTask)
 	RepositoryIDs       []string `json:"repository_ids,omitempty"`        // Git repository IDs to checkout
 	PrimaryRepositoryID string   `json:"primary_repository_id,omitempty"` // Primary git repository (opened in Zed by default)
+	// OrgWorkerID / OrgWorkerName identify a helix-org bot session. Filled from
+	// the session metadata by the executor's bootstrap step; they name and link
+	// the sandbox billing row to the bot. Never accepted from callers.
+	OrgWorkerID   string `json:"-"`
+	OrgWorkerName string `json:"-"`
 
 	// Branch configuration (for starting on correct branch)
 	BranchMode    string `json:"branch_mode,omitempty"`    // "new" or "existing"

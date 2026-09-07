@@ -55,6 +55,11 @@ type SpawnerConfig struct {
 	Model    string
 	// Credentials forwards to WorkerProject.Credentials. See there.
 	Credentials string
+	// SandboxRuntime / SandboxResources are the org-level sandbox defaults a
+	// Bot inherits when it sets none of its own. Empty / nil fall through to
+	// the global spec-task defaults (ubuntu-desktop, standard preset).
+	SandboxRuntime   types.SandboxRuntime
+	SandboxResources *types.SandboxResourceOverrides
 	// SpecsMandate is an optional full activation mandate override.
 	// Empty uses the Bot's current Content.
 	SpecsMandate string
@@ -295,12 +300,13 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			sessionName = string(workerID)
 		}
 		instructions := briefing.BuildInstructions(workerID, mandate)
-		if err := cfg.prepareAgentInstructions(startupCtx, orgID, workerID, sessionName, instructions); err != nil {
+		launch := EffectiveLaunchConfig(bot, cfg.SandboxRuntime, cfg.SandboxResources)
+		if err := cfg.prepareAgentInstructions(startupCtx, orgID, workerID, sessionName, instructions, launch); err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
 		}
 		prompt := briefing.BuildPrompt(triggers)
-		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, instructions, prompt, bot.PreserveContext, publish)
+		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, instructions, prompt, bot.PreserveContext, launch, publish)
 		if err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
@@ -324,14 +330,16 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 // prepareAgentInstructions refreshes an existing session before its old ACP
 // thread is cleared. Fresh sessions receive the same content through
 // StartSessionParams, which stores it on the session for Hydra to materialize
-// before the desktop starts.
-func (c SpawnerConfig) prepareAgentInstructions(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions string) error {
+// before the desktop starts. The launch config rides along so a Bot whose
+// sandbox runtime/size changed since the session was created lands the new
+// values on the session before any path can auto-start its container.
+func (c SpawnerConfig) prepareAgentInstructions(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions string, launch SessionLaunchConfig) error {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return fmt.Errorf("prepare agent instructions: load worker state: %w", err)
 	}
 	if state.SessionID != "" {
-		if err := c.Client.SyncAgentProfile(ctx, state.SessionID, sessionName, string(workerID), instructions); err != nil {
+		if err := c.Client.SyncAgentProfile(ctx, state.SessionID, sessionName, string(workerID), instructions, launch); err != nil {
 			return fmt.Errorf("prepare agent instructions: sync existing session: %w", err)
 		}
 	}
@@ -415,7 +423,7 @@ func sanitizeLogValue(value string) string {
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions, prompt string, preserveContext bool, _ func(string)) (string, string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions, prompt string, preserveContext bool, launch SessionLaunchConfig, _ func(string)) (string, string, error) {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return "", "", err
@@ -499,6 +507,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 		Prompt:         prompt,
 		WorkerID:       string(workerID),
 		Instructions:   instructions,
+		Launch:         launch,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("ensure session: %w", err)

@@ -23585,6 +23585,12 @@ const docTemplate = `{
                     "description": "DefaultInstructions is the built-in seed prompt for this node, when\none exists (currently only the Chief of Staff every org is seeded\nwith). It lets the UI offer \"reset instructions\" and hide that\naffordance for operator-created nodes, which have no default to\nreset to. Detail-only: GET /bots/{id} populates it, the list does\nnot (it would repeat kilobytes of prompt per row).",
                     "type": "string"
                 },
+                "effective_sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "effective_sandbox_runtime": {
+                    "$ref": "#/definitions/types.SandboxRuntime"
+                },
                 "helix_user_id": {
                     "type": "string"
                 },
@@ -23639,6 +23645,26 @@ const docTemplate = `{
                 "restart_required": {
                     "description": "RestartRequired is true when the sandbox is running but still holds\nthe tool list and instructions from before the last save. Drives the\nrestart banner on the bot page and the org chat panel.",
                     "type": "boolean"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime and SandboxResourceOverrides are the bot's own sandbox\nconfig in the spec-task vocabulary; empty means \"inherit the org\ndefault\". The Effective* fields are what the next container start will\nactually use once org and global defaults are applied. SandboxID /\nSandboxStatus come from the session-backed sandboxes row, when one\nexists (pending, running, stopping, stopped, failed).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
+                "sandbox_status": {
+                    "type": "string"
+                },
+                "sandbox_status_message": {
+                    "type": "string"
                 },
                 "session_id": {
                     "type": "string"
@@ -23858,6 +23884,12 @@ const docTemplate = `{
                     "description": "DefaultInstructions is the built-in seed prompt for this node, when\none exists (currently only the Chief of Staff every org is seeded\nwith). It lets the UI offer \"reset instructions\" and hide that\naffordance for operator-created nodes, which have no default to\nreset to. Detail-only: GET /bots/{id} populates it, the list does\nnot (it would repeat kilobytes of prompt per row).",
                     "type": "string"
                 },
+                "effective_sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "effective_sandbox_runtime": {
+                    "$ref": "#/definitions/types.SandboxRuntime"
+                },
                 "helix_user_id": {
                     "type": "string"
                 },
@@ -23913,6 +23945,26 @@ const docTemplate = `{
                 "restart_required": {
                     "description": "RestartRequired is true when the sandbox is running but still holds\nthe tool list and instructions from before the last save. Drives the\nrestart banner on the bot page and the org chat panel.",
                     "type": "boolean"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime and SandboxResourceOverrides are the bot's own sandbox\nconfig in the spec-task vocabulary; empty means \"inherit the org\ndefault\". The Effective* fields are what the next container start will\nactually use once org and global defaults are applied. SandboxID /\nSandboxStatus come from the session-backed sandboxes row, when one\nexists (pending, running, stopping, stopped, failed).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
+                "sandbox_status": {
+                    "type": "string"
+                },
+                "sandbox_status_message": {
+                    "type": "string"
                 },
                 "session_id": {
                     "type": "string"
@@ -24032,6 +24084,17 @@ const docTemplate = `{
                 },
                 "reasoning_effort": {
                     "type": "string"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime / SandboxResourceOverrides are optional; see BotDTO.\nOnly vcpus is read from the overrides — memory follows the preset.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
                 },
                 "tools": {
                     "type": "array",
@@ -24624,6 +24687,17 @@ const docTemplate = `{
                 },
                 "reasoning_effort": {
                     "type": "string"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime / SandboxResourceOverrides patch the bot's sandbox\nconfig. A present-but-empty runtime, or vcpus=0, resets that field to\ninherit. Takes effect on the next container start; a running sandbox\ngets restart_required.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
                 },
                 "tools": {
                     "type": "array",
@@ -28546,24 +28620,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "email",
-                "local",
-                "cron",
                 "webhook",
-                "github",
-                "gitlab",
                 "helix_events",
-                "slack"
+                "local",
+                "github",
+                "slack",
+                "gitlab",
+                "email",
+                "cron"
             ],
             "x-enum-varnames": [
-                "KindEmail",
-                "KindLocal",
-                "KindCron",
                 "KindWebhook",
-                "KindGitHub",
-                "KindGitLab",
                 "KindHelixEvents",
-                "KindSlack"
+                "KindLocal",
+                "KindGitHub",
+                "KindSlack",
+                "KindGitLab",
+                "KindEmail",
+                "KindCron"
             ]
         },
         "transport.ResolvedActivation": {
@@ -36924,6 +36998,10 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "org_bot_id": {
+                    "description": "OrgBotID is the helix-org bot whose session owns this container, when\nthere is one. Denormalised from the session (org_worker_id) so the bot\ndetail and the Sandboxes list can link both ways without joining sessions.",
+                    "type": "string"
+                },
                 "organization_id": {
                     "type": "string"
                 },
@@ -38201,6 +38279,17 @@ const docTemplate = `{
                 },
                 "runtime_instructions": {
                     "type": "string"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime and SandboxResourceOverrides are the container runtime and\nsize for an org-worker session. The org spawner writes them from the Bot\non every activation and StartDesktop reads them on every launch path\n(fresh start, message auto-start, resume, auto-wake, reconciler), so a\nheadless bot never comes back as a desktop. SpecTask sessions leave both\nempty — the task is authoritative there, as with CodeAgentConfig.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
                 },
                 "session_rag_results": {
                     "type": "array",

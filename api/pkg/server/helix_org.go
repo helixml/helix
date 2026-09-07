@@ -173,7 +173,11 @@ type orgWorkerRuntime struct {
 	sessions interface {
 		GetSession(ctx context.Context, id string) (*types.Session, error)
 		GetApp(ctx context.Context, id string) (*types.App, error)
+		GetSandboxBySession(ctx context.Context, sessionID string) (*types.Sandbox, error)
 	}
+	// configs resolves the org's default sandbox config so the DTO can show
+	// what a Bot with no config of its own will actually launch with.
+	configs *configregistry.Registry
 }
 
 func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgchart.NodeID) (helixorgapi.BotRuntimeInfo, error) {
@@ -192,6 +196,28 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 			assistant := app.Config.Helix.Assistants[0]
 			info.Runtime = string(assistant.CodeAgentRuntime)
 			info.Model = assistant.Model
+		}
+	}
+	if bot, err := o.st.Nodes.Get(ctx, orgID, workerID); err == nil {
+		var orgRuntime types.SandboxRuntime
+		var orgResources *types.SandboxResourceOverrides
+		if o.configs != nil {
+			orgRuntime, orgResources = o.configs.GetDefaultSandboxConfig(ctx, orgID)
+		}
+		launch := runtimehelix.EffectiveLaunchConfig(bot, orgRuntime, orgResources)
+		info.EffectiveSandboxRuntime = launch.SandboxRuntime
+		resources := launch.SandboxResources
+		info.EffectiveSandboxResources = &resources
+	}
+	// The session-backed sandboxes row is the container's lifecycle record
+	// (pending/running/stopping/stopped/failed + hydra's failure reason). A
+	// bot that never started has no row; a lookup failure leaves the fields
+	// empty rather than failing the whole read.
+	if s.SessionID != "" && o.sessions != nil {
+		if sb, err := o.sessions.GetSandboxBySession(ctx, s.SessionID); err == nil && sb != nil {
+			info.SandboxID = sb.ID
+			info.SandboxStatus = string(sb.Status)
+			info.SandboxStatusMessage = sb.StatusMessage
 		}
 	}
 	// Resolve sandbox online-ness from the session metadata the desktop
@@ -1147,7 +1173,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// RegisterBuiltins so start_bot / stop_bot / restart_bot share the same
 	// service instance as POST /bots/{id}/activate|stop-agent|restart-agent.
 	sessionResetter := botSessionResetter{client: inProcClient, st: st}
-	workerRuntime := orgWorkerRuntime{st: st, sessions: helixStore}
+	workerRuntime := orgWorkerRuntime{st: st, sessions: helixStore, configs: configReg}
 	svc.Activations = activations.New(activations.Deps{
 		Repo:       st.Activations,
 		Now:        deps.Now,
@@ -1711,23 +1737,26 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 	}
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, orgID, d.Cfg)
 	specsMandate, _ := d.Cfg.GetString(ctx, orgID, "worker.specs_mandate")
+	sandboxRuntime, sandboxResources := d.Cfg.GetDefaultSandboxConfig(ctx, orgID)
 	return runtimehelix.SpawnerConfig{
-		Client:         d.SpawnerClient,
-		ProjectService: d.ProjectSvc,
-		OrgID:          orgID,
-		OrgDisplayName: orgDisplayName(ctx, d.HelixStore, orgID),
-		Runtime:        runtime,
-		Credentials:    credentials,
-		Provider:       provider,
-		Model:          model,
-		SpecsMandate:   specsMandate,
-		Store:          d.OrgStore,
-		Hub:            d.Hub,
-		PubSub:         d.PubSub,
-		Snapshotter:    runtimehelix.NoopSessionPreamble{},
-		Logger:         d.Logger,
-		NewID:          d.NewID,
-		Now:            d.Now,
+		Client:           d.SpawnerClient,
+		ProjectService:   d.ProjectSvc,
+		OrgID:            orgID,
+		OrgDisplayName:   orgDisplayName(ctx, d.HelixStore, orgID),
+		Runtime:          runtime,
+		Credentials:      credentials,
+		Provider:         provider,
+		Model:            model,
+		SandboxRuntime:   sandboxRuntime,
+		SandboxResources: sandboxResources,
+		SpecsMandate:     specsMandate,
+		Store:            d.OrgStore,
+		Hub:              d.Hub,
+		PubSub:           d.PubSub,
+		Snapshotter:      runtimehelix.NoopSessionPreamble{},
+		Logger:           d.Logger,
+		NewID:            d.NewID,
+		Now:              d.Now,
 		BearerForUser: func(ctx context.Context, userID string) (string, error) {
 			return helixorg.NewHelixAPIKeys(d.HelixStore, d.Cfg).User(ctx, userID)
 		},

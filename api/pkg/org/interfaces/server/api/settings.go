@@ -13,11 +13,13 @@ import (
 )
 
 var agentProvisioningKeys = map[string]bool{
-	configregistry.DefaultAgentConfigKey: true,
-	"worker.runtime":                     true,
-	"worker.credentials":                 true,
-	"worker.provider":                    true,
-	"worker.model":                       true,
+	configregistry.DefaultAgentConfigKey:    true,
+	"worker.runtime":                        true,
+	"worker.credentials":                    true,
+	"worker.provider":                       true,
+	"worker.model":                          true,
+	configregistry.DefaultSandboxRuntimeKey: true,
+	configregistry.DefaultSandboxVCPUsKey:   true,
 }
 
 // ---- Settings -----------------------------------------------------------

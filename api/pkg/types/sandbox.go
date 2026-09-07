@@ -90,6 +90,11 @@ type Sandbox struct {
 	// to the task without joining through sessions.
 	SpecTaskID string `json:"spec_task_id,omitempty" gorm:"size:64;index"`
 
+	// OrgBotID is the helix-org bot whose session owns this container, when
+	// there is one. Denormalised from the session (org_worker_id) so the bot
+	// detail and the Sandboxes list can link both ways without joining sessions.
+	OrgBotID string `json:"org_bot_id,omitempty" gorm:"size:128;index"`
+
 	// Display fields apply to desktop runtimes.
 	DisplayWidth  int `json:"display_width,omitempty"`
 	DisplayHeight int `json:"display_height,omitempty"`
@@ -180,6 +185,7 @@ type BeginSandboxSessionRequest struct {
 	Owner          string
 	ProjectID      string
 	SpecTaskID     string
+	OrgBotID       string
 	Name           string
 	Runtime        SandboxRuntime
 	VCPUs          int

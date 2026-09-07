@@ -93,7 +93,15 @@ func (c *Controller) BeginSession(ctx context.Context, req *types.BeginSandboxSe
 		existing.VCPUs = vcpus
 		existing.MemoryMB = memoryMB
 		existing.SpecTaskID = req.SpecTaskID
+		existing.OrgBotID = req.OrgBotID
 		existing.ProjectID = req.ProjectID
+		// A restarted Bot may have changed runtime (desktop ↔ headless) since
+		// the row was opened; the row must follow so pricing type and the
+		// Sandboxes list describe the container that is actually running.
+		existing.Runtime = runtime
+		if req.Name != "" {
+			existing.Name = req.Name
+		}
 		existing.Status = types.SandboxStatusPending
 		existing.StatusMessage = ""
 		// Reopen the billing window at the restart: the gap while the desktop
@@ -115,6 +123,7 @@ func (c *Controller) BeginSession(ctx context.Context, req *types.BeginSandboxSe
 		Owner:          req.Owner,
 		SessionID:      req.SessionID,
 		SpecTaskID:     req.SpecTaskID,
+		OrgBotID:       req.OrgBotID,
 		Runtime:        runtime,
 		Status:         types.SandboxStatusPending,
 		VCPUs:          vcpus,

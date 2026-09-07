@@ -79,3 +79,10 @@ func TestRestartFingerprint_ToolsCannotRunIntoContent(t *testing.T) {
 
 	require.NotEqual(t, RestartFingerprint(a), RestartFingerprint(b))
 }
+
+func TestRestartFingerprint_ChangesOnSandboxConfig(t *testing.T) {
+	before := fpNode(t, "# bot", []tool.Name{"chat"})
+
+	require.NotEqual(t, RestartFingerprint(before), RestartFingerprint(before.WithSandboxRuntime("headless-ubuntu")))
+	require.NotEqual(t, RestartFingerprint(before), RestartFingerprint(before.WithSandboxResources(4, 8192)))
+}

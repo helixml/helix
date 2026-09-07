@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // ---- Nodes ---------------------------------------------------------------
@@ -75,6 +76,7 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 				dto.SessionID = info.SessionID
 				dto.AgentRuntime = info.Runtime
 				dto.AgentModel = info.Model
+				applySandboxInfo(&dto, info)
 			}
 		}
 		out = append(out, dto)
@@ -139,6 +141,8 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		Sources:         toTriggerSources(req.Triggers),
 		ParentID:        orgchart.NodeID(strings.TrimSpace(req.ParentID)),
 		PreserveContext: req.PreserveContext,
+		SandboxRuntime:  string(req.SandboxRuntime),
+		SandboxVCPUs:    sandboxVCPUs(req.SandboxResourceOverrides),
 		DeferActivation: deferActivation,
 		AgentConfig: lifecycle.AgentConfig{
 			CodeAgentRuntime:        req.CodeAgentRuntime,
@@ -216,6 +220,7 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 			detail.Bot.SessionID = info.SessionID
 			detail.Bot.AgentRuntime = info.Runtime
 			detail.Bot.AgentModel = info.Model
+			applySandboxInfo(&detail.Bot, info)
 			if strings.Contains(r.URL.Path, "/agents/") {
 				writeJSON(w, http.StatusOK, AgentDetailDTO{BotDTO: detail.Bot, ProjectID: detail.ProjectID})
 			} else {
@@ -318,12 +323,24 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("canonical agent updater is not available"))
 		return
 	}
+	var sandboxRuntimePatch *string
+	if req.SandboxRuntime != nil {
+		runtime := string(*req.SandboxRuntime)
+		sandboxRuntimePatch = &runtime
+	}
+	var sandboxVCPUsPatch *int
+	if req.SandboxResourceOverrides != nil {
+		vcpus := req.SandboxResourceOverrides.VCPUs
+		sandboxVCPUsPatch = &vcpus
+	}
 	updated, err := a.deps.Nodes.Update(ctx, orgID, id, nodes.UpdateParams{
 		Name:            namePatch,
 		Content:         contentPatch,
 		Tools:           toolsPatch,
 		ProjectIDs:      stringSlicePatch(req.ProjectIDs),
 		PreserveContext: req.PreserveContext,
+		SandboxRuntime:  sandboxRuntimePatch,
+		SandboxVCPUs:    sandboxVCPUsPatch,
 		Identity:        identityPatch,
 	})
 	if err != nil {
@@ -339,12 +356,16 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 				identity[key] = value
 			}
 			preserveContext := existing.PreserveContext
+			sandboxRuntime := existing.SandboxRuntime
+			sandboxVCPUs := existing.SandboxVCPUs
 			_, rollbackErr := a.deps.Nodes.Update(ctx, orgID, id, nodes.UpdateParams{
 				Name:            &existing.Name,
 				Content:         &existing.Content,
 				Tools:           &tools,
 				ProjectIDs:      &projectIDs,
 				PreserveContext: &preserveContext,
+				SandboxRuntime:  &sandboxRuntime,
+				SandboxVCPUs:    &sandboxVCPUs,
 				Identity:        &identity,
 			})
 			if rollbackErr != nil {
@@ -729,9 +750,13 @@ func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 		ParentIDs:       parentIDs,
 		OrganizationID:  b.OrganizationID,
 		PreserveContext: b.PreserveContext,
+		SandboxRuntime:  types.SandboxRuntime(b.SandboxRuntime),
 		Kind:            b.Kind,
 		HelixUserID:     b.HelixUserID,
 		Identity:        b.Identity,
+	}
+	if b.SandboxVCPUs > 0 {
+		dto.SandboxResourceOverrides = &types.SandboxResourceOverrides{VCPUs: b.SandboxVCPUs, MemoryMB: b.SandboxMemoryMB}
 	}
 	if !b.CreatedAt.IsZero() {
 		dto.CreatedAt = b.CreatedAt.Format(time.RFC3339)
@@ -822,4 +847,24 @@ func (a *apiHandler) listTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// sandboxVCPUs reads the vCPU count out of an optional resource override;
+// memory is never accepted independently (the preset ladder fixes it).
+func sandboxVCPUs(overrides *types.SandboxResourceOverrides) int {
+	if overrides == nil {
+		return 0
+	}
+	return overrides.VCPUs
+}
+
+// applySandboxInfo copies the runtime sidecar's resolved sandbox view onto
+// the wire DTO. Shared by the list and detail handlers so the two never
+// disagree about which fields carry the effective launch config.
+func applySandboxInfo(dto *BotDTO, info BotRuntimeInfo) {
+	dto.EffectiveSandboxRuntime = info.EffectiveSandboxRuntime
+	dto.EffectiveSandboxResourceOverrides = info.EffectiveSandboxResources
+	dto.SandboxID = info.SandboxID
+	dto.SandboxStatus = info.SandboxStatus
+	dto.SandboxStatusMessage = info.SandboxStatusMessage
 }

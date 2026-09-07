@@ -3166,6 +3166,13 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		}
 	}
 
+	// Name the session before the desktop starts: StartDesktop labels the
+	// sandbox billing row after the session, so a name applied afterwards
+	// would leave the row carrying the first-prompt placeholder.
+	if req.SessionName != "" && session.Name != req.SessionName {
+		session.Name = req.SessionName
+	}
+
 	// Autonomous surfaces (org workers) ask for crash auto-recovery. Set it on
 	// the metadata after the build/reuse branch so it sticks on the reused
 	// exploratory singleton too, not only on a freshly minted row.
@@ -3178,6 +3185,10 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		}
 		session.Metadata.OrgWorkerID = req.OrgWorkerID
 		session.Metadata.RuntimeInstructions = req.RuntimeInstructions
+		// Sandbox launch config travels with the worker identity: the
+		// executor reads it on every StartDesktop for this session.
+		session.Metadata.SandboxRuntime = req.SandboxRuntime
+		session.Metadata.SandboxResourceOverrides = req.SandboxResourceOverrides
 	}
 
 	if req.AppID != "" {
