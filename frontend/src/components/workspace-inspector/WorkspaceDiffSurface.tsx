@@ -217,7 +217,7 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
       .sort((a, b) => fileDiffPath(a).localeCompare(fileDiffPath(b)))
       .map((fileDiff, index) => {
         const path = fileDiffPath(fileDiff);
-        const id = fileDiff.cacheKey || `${path}:${index}`;
+        const id = `${path}:${index}`;
         const savedAnnotations: DiffLineAnnotation<DiffCommentGroup>[] = comments
           .filter((comment) => comment.filePath === path)
           .map((comment) => ({
@@ -246,7 +246,13 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
               metadata: { range: draft.range, entries: [draft.entry] },
             }]
           : [];
-        return { id, type: "diff" as const, fileDiff, annotations: [...savedAnnotations, ...draftAnnotation] };
+        return {
+          id,
+          type: "diff" as const,
+          fileDiff,
+          annotations: [...savedAnnotations, ...draftAnnotation],
+          version: savedAnnotations.length * 2 + draftAnnotation.length,
+        };
       });
   }, [comments, draft, renderable]);
   const renderedPaths = useMemo(
@@ -542,7 +548,6 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
             ref={viewerRef}
             items={items}
             selectedLines={selectedLines}
-            onSelectedLinesChange={setSelectedLines}
             renderAnnotation={renderAnnotation}
             className="workspace-code-view"
             style={{ height: "100%", minHeight: 0, overflow: "auto" }}
