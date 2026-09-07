@@ -32,6 +32,8 @@ type ProjectChatPersonGroupProps = {
   orgId: string
   member: SidebarMember
   projects: TypesProject[]
+  /** Set in focus mode: show only this person's work in that project. */
+  projectId?: string
   expanded: boolean
   query: string
   activeItemId: string
@@ -58,6 +60,7 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
   orgId,
   member,
   projects,
+  projectId,
   expanded,
   query,
   activeItemId,
@@ -86,7 +89,7 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
   const sessionsQuery = useListSessions(
     orgId,
     undefined,
-    undefined,
+    projectId,
     0,
     pagination.requestCount,
     {
@@ -98,7 +101,9 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
     },
   )
   const tasksQuery = useSpecTasks({
-    organizationId: orgId,
+    // projectId and organizationId are mutually exclusive on the API: focus
+    // mode lists one project, otherwise everything the viewer can read.
+    ...(projectId ? { projectId } : { organizationId: orgId }),
     limit: pagination.requestCount,
     offset: 0,
     sort: threadSortOrder === 'created_at' ? 'created' : 'last_message',
@@ -111,7 +116,10 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
   const sessionsPage = sessionsQuery.data?.data
   const sessions = sessionsPage?.sessions || []
   const tasks = tasksQuery.data || []
-  const items = buildPersonChatItems(projects, tasks, sessions, threadSortOrder, pinnedAtByItemKeyFrom(pinnedChats))
+  const builtItems = buildPersonChatItems(projects, tasks, sessions, threadSortOrder, pinnedAtByItemKeyFrom(pinnedChats))
+  // Server queries already filter, but sessions without project metadata land
+  // in the no-project bucket — keep the focused list strictly to its project.
+  const items = projectId ? builtItems.filter((item) => item.projectId === projectId) : builtItems
   const filteredItems = filterProjectChatGroups([{ id: member.userId, name: label, items }], query)[0]?.items || []
   const renderedItems = windowSidebarItems(filteredItems, activeItemId, pagination.visibleCount)
   const hasMore = filteredItems.length > pagination.visibleCount

@@ -569,7 +569,7 @@ const ProjectChatSidebar: FC<{
             onVisibleThreadCountChange={setVisibleThreadCount}
           />
         )}
-        {!focusMode && <ProjectChatGroupByControl value={groupBy} onChange={selectGroupBy} />}
+        <ProjectChatGroupByControl value={groupBy} onChange={selectGroupBy} />
         <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
           <IconButton
             size="small"
@@ -607,12 +607,13 @@ const ProjectChatSidebar: FC<{
     </>
   )
   const groupsEnabled = !!account.user?.id && !!orgId
-  // Focus mode is "just this project" and always lays out by project. The
-  // archived view is only about threads, so agents stay out of it. Searching
-  // keeps every section so a query can land on an agent, a thread, or a
+  // Focus mode is "just this project" — it narrows what shows, never how it
+  // is laid out, so the group-by choice survives filtering. The archived
+  // view is only about threads, so agents stay out of it. Searching keeps
+  // every section so a query can land on an agent, a thread, or a
   // colleague; each agent hides itself when nothing of its own matches.
   const showBotsSection = !focusMode && !showArchived && sidebarBots.length > 0
-  const groupByPerson = !focusMode && groupBy === 'person'
+  const groupByPerson = groupBy === 'person'
   const showSectionHeaders = showBotsSection || groupByPerson
 
   return (
@@ -716,7 +717,7 @@ const ProjectChatSidebar: FC<{
               onVisibleThreadCountChange={setVisibleThreadCount}
             />
           )}
-          {!focusMode && <ProjectChatGroupByControl value={groupBy} onChange={selectGroupBy} />}
+          <ProjectChatGroupByControl value={groupBy} onChange={selectGroupBy} />
           <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
             <IconButton
               size="small"
@@ -906,6 +907,7 @@ const ProjectChatSidebar: FC<{
                     selectedUserIds={expandedPeopleIds}
                     onToggleMember={togglePerson}
                     projects={allProjects}
+                    projectId={focusMode ? focusedProject?.id : undefined}
                     query={query}
                     activeItemId={activeItemId}
                     relativeTimeNow={relativeTimeNow}

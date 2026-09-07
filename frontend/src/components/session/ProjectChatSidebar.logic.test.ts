@@ -205,9 +205,10 @@ describe('ProjectChatSidebar logic', () => {
   it('remembers the grouping per organization and defaults to projects', async () => {
     const { parseSidebarGroupBy, sidebarGroupByStorageKey } = await import('./ProjectChatSidebar.logic')
     expect(sidebarGroupByStorageKey('org-a')).not.toBe(sidebarGroupByStorageKey('org-b'))
-    expect(parseSidebarGroupBy(null)).toBe('project')
+    expect(parseSidebarGroupBy(null)).toBe('person')
     expect(parseSidebarGroupBy('person')).toBe('person')
-    expect(parseSidebarGroupBy('garbage')).toBe('project')
+    expect(parseSidebarGroupBy('project')).toBe('project')
+    expect(parseSidebarGroupBy('garbage')).toBe('person')
   })
 
   it('parses and clamps org-scoped local preferences', () => {

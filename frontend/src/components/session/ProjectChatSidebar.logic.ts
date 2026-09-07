@@ -75,8 +75,10 @@ export const sidebarGroupByStorageKey = (orgId: string): string => (
   `helix:project-chat-sidebar:group-by:${orgId}`
 )
 
+// Person grouping is the default view; an explicit choice of project
+// grouping persists per org via this stored value.
 export const parseSidebarGroupBy = (storedValue: string | null): SidebarGroupBy => (
-  storedValue === 'person' ? 'person' : 'project'
+  storedValue === 'project' ? 'project' : 'person'
 )
 
 export const sidebarProjectFilterStorageKey = (orgId: string): string => (
