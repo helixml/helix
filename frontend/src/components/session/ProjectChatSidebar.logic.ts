@@ -75,8 +75,10 @@ export const sidebarGroupByStorageKey = (orgId: string): string => (
   `helix:project-chat-sidebar:group-by:${orgId}`
 )
 
+// Person grouping is the default view; an explicit choice of project
+// grouping persists per org via this stored value.
 export const parseSidebarGroupBy = (storedValue: string | null): SidebarGroupBy => (
-  storedValue === 'person' ? 'person' : 'project'
+  storedValue === 'project' ? 'project' : 'person'
 )
 
 export const sidebarProjectFilterStorageKey = (orgId: string): string => (
@@ -224,6 +226,28 @@ export const isOrgAgentSession = (
 export const isExternalAgentSession = (item: SidebarItem): boolean => (
   item.kind === 'session' && item.session?.metadata?.agent_type === 'zed_external'
 )
+
+// GitHub serves an owner's avatar at github.com/<owner>.png (users and orgs
+// alike). Only github.com qualifies — a GitHub Enterprise host has no public
+// avatar endpoint, so those fall back to the generic project glyph.
+export const githubOrgAvatarUrl = (
+  repos: Array<{ external_type?: string; external_url?: string }> = [],
+): string | undefined => {
+  for (const repo of repos) {
+    if (!repo.external_url) continue
+    if (repo.external_type && repo.external_type !== 'github') continue
+    try {
+      const url = new URL(repo.external_url)
+      if (url.hostname !== 'github.com' && url.hostname !== 'www.github.com') continue
+      const [owner] = url.pathname.split('/').filter(Boolean)
+      if (!owner) continue
+      return `https://github.com/${owner}.png?size=48`
+    } catch {
+      continue
+    }
+  }
+  return undefined
+}
 
 export type SidebarSandboxControl = {
   sessionId: string
@@ -378,6 +402,23 @@ export const getSidebarTaskStatus = (task?: SpecTask): SidebarStatus | null => {
   }
 
   return workflowStatus
+}
+
+// "Active" here means something is happening or about to: these rows trade
+// their relative timestamp for the live status label (t3-style) — recency
+// only matters once a task has gone quiet.
+export const isActiveSidebarTask = (task?: SpecTask): boolean => {
+  if (!task) return false
+  if (task.agent_work_state === 'working') return true
+  if (task.sandbox_state === 'running' || task.sandbox_state === 'starting') return true
+  switch (task.status) {
+    case 'queued_spec_generation':
+    case 'queued_implementation':
+    case 'implementation_queued':
+      return true
+    default:
+      return false
+  }
 }
 
 const PULL_REQUEST_ICON_COLORS: Record<string, string> = {

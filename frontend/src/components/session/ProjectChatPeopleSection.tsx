@@ -14,6 +14,8 @@ type ProjectChatPeopleSectionProps = {
   selectedUserIds: string[]
   onToggleMember: (userId: string) => void
   projects: TypesProject[]
+  /** Set in focus mode: show only each person's work in this project. */
+  projectId?: string
   query: string
   activeItemId: string
   relativeTimeNow: number
@@ -39,6 +41,7 @@ const ProjectChatPeopleSection: FC<ProjectChatPeopleSectionProps> = ({
   selectedUserIds,
   onToggleMember,
   projects,
+  projectId,
   query,
   activeItemId,
   relativeTimeNow,
@@ -76,6 +79,7 @@ const ProjectChatPeopleSection: FC<ProjectChatPeopleSectionProps> = ({
           orgId={orgId}
           member={member}
           projects={projects}
+          projectId={projectId}
           expanded={selected.has(member.userId)}
           query={query}
           activeItemId={activeItemId}

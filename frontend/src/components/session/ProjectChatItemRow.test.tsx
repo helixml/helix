@@ -1,0 +1,100 @@
+import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import ProjectChatItemRow from './ProjectChatItemRow'
+import type { SidebarItem } from './ProjectChatSidebar.logic'
+
+const mocks = vi.hoisted(() => ({
+  isPhone: false,
+  repositories: [] as Array<{ external_type?: string; external_url?: string }>,
+}))
+
+vi.mock('../../hooks/useLightTheme', () => ({
+  default: () => ({ isLight: false }),
+}))
+
+vi.mock('../../hooks/useIsPhone', () => ({
+  default: () => mocks.isPhone,
+}))
+
+vi.mock('../../hooks/useApps', () => ({
+  default: () => ({ apps: [] }),
+}))
+
+vi.mock('../../services/projectService', () => ({
+  useGetProjectRepositories: () => ({ data: mocks.repositories }),
+}))
+
+afterEach(() => {
+  vi.clearAllMocks()
+  mocks.isPhone = false
+  mocks.repositories = []
+})
+
+const NOW = Date.parse('2026-09-07T12:00:00Z')
+
+const renderRow = (item: SidebarItem) => render(
+  <ProjectChatItemRow
+    item={item}
+    active={false}
+    relativeTimeNow={NOW}
+    archivingItemId={null}
+    organizationMembers={[]}
+    projectName={item.projectName}
+    onOpenItem={vi.fn()}
+    onOpenItemContextMenu={vi.fn()}
+    onArchiveItem={vi.fn()}
+  />,
+)
+
+const quietTask: SidebarItem = {
+  id: 'task-1',
+  kind: 'spec-task',
+  title: 'Fix the installer',
+  updatedAt: '2026-09-05T12:00:00Z',
+  projectId: 'prj-1',
+  projectName: 'keel',
+  task: { id: 'task-1', status: 'done', sandbox_state: 'absent' } as any,
+}
+
+describe('ProjectChatItemRow', () => {
+  it('stacks the project name above the title only for cross-project rows', () => {
+    renderRow(quietTask)
+    expect(screen.getByText('keel')).toBeInTheDocument()
+    expect(screen.getByText('Fix the installer')).toBeInTheDocument()
+
+    renderRow({ ...quietTask, id: 'task-2', projectName: undefined })
+    expect(screen.getAllByText('keel')).toHaveLength(1)
+  })
+
+  it('shows the relative time for quiet tasks and the status label for active ones', () => {
+    renderRow(quietTask)
+    expect(screen.getByText('2d')).toBeInTheDocument()
+    expect(screen.queryByText('Implementation')).not.toBeInTheDocument()
+
+    renderRow({
+      ...quietTask,
+      id: 'task-3',
+      task: { id: 'task-3', status: 'implementation', sandbox_state: 'running', agent_work_state: 'working' } as any,
+    })
+    expect(screen.getByText('Implementation')).toBeInTheDocument()
+  })
+
+  it('renders the GitHub owner avatar and falls back to the folder glyph on load failure', () => {
+    mocks.repositories = [{ external_type: 'github', external_url: 'https://github.com/keel-hq/keel' }]
+    const { container } = renderRow(quietTask)
+    const img = container.querySelector('img')
+    expect(img).toHaveAttribute('src', 'https://github.com/keel-hq.png?size=48')
+
+    fireEvent.error(img!)
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('keeps time and status label visible on a phone', () => {
+    mocks.isPhone = true
+    renderRow(quietTask)
+    // Both are static row content on a phone — no hover exists to reveal them.
+    expect(screen.getByText('2d')).toBeInTheDocument()
+    expect(screen.getByText('Completed')).toBeInTheDocument()
+  })
+})
