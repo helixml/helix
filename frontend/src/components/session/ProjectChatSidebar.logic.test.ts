@@ -10,6 +10,7 @@ import {
   compactRelativeTime,
   DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES,
   filterProjectChatGroups,
+  getSandboxControl,
   getSidebarPullRequestIcon,
   getSidebarTaskStatus,
   getChatShortcutNumber,
@@ -494,6 +495,62 @@ describe('ProjectChatSidebar logic', () => {
   it('leaves the browser-reserved new-window chord alone', () => {
     expect(isNewThreadShortcut({ key: 'n', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBe(false)
     expect(isNewThreadShortcut({ key: 'n', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false })).toBe(false)
+  })
+
+  it('resolves the sandbox control for tasks and external-agent chats', () => {
+    // Spec task: backend-derived state, session id from the attached session summary.
+    expect(getSandboxControl({
+      id: 'task-1',
+      kind: 'spec-task',
+      title: 'Task',
+      task: { id: 'task-1', sandbox_state: 'running' } as any,
+      session: { session_id: 'ses-1' },
+    })).toEqual({ sessionId: 'ses-1', state: 'running' })
+
+    // Spec task without an attached session summary falls back to planning_session_id.
+    expect(getSandboxControl({
+      id: 'task-2',
+      kind: 'spec-task',
+      title: 'Task',
+      task: { id: 'task-2', sandbox_state: 'absent', planning_session_id: 'ses-2' } as any,
+    })).toEqual({ sessionId: 'ses-2', state: 'absent' })
+
+    // Spec task with no session at all: nothing to act on.
+    expect(getSandboxControl({
+      id: 'task-3',
+      kind: 'spec-task',
+      title: 'Task',
+      task: { id: 'task-3', sandbox_state: 'absent' } as any,
+    })).toBeNull()
+
+    // External-agent chat derives state from its session metadata.
+    expect(getSandboxControl({
+      id: 'ses-4',
+      kind: 'session',
+      title: 'Chat',
+      session: {
+        session_id: 'ses-4',
+        metadata: { agent_type: 'zed_external', container_name: 'c', external_agent_status: 'running' },
+      },
+    })).toEqual({ sessionId: 'ses-4', state: 'running' })
+
+    expect(getSandboxControl({
+      id: 'ses-5',
+      kind: 'session',
+      title: 'Chat',
+      session: {
+        session_id: 'ses-5',
+        metadata: { agent_type: 'zed_external', external_agent_status: 'stopped' },
+      },
+    })).toEqual({ sessionId: 'ses-5', state: 'absent' })
+
+    // Plain LLM chat has no sandbox lifecycle and must not be offered start/stop.
+    expect(getSandboxControl({
+      id: 'ses-6',
+      kind: 'session',
+      title: 'Chat',
+      session: { session_id: 'ses-6', metadata: {} },
+    })).toBeNull()
   })
 })
 

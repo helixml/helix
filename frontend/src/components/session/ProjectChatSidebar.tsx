@@ -948,6 +948,17 @@ const ProjectChatSidebar: FC<{
         item={contextMenuItem}
         position={contextMenuPosition}
         onClose={closeItemContextMenu}
+        onOpenProjectBoard={(projectId) => {
+          account.orgNavigate('project-specs', { id: projectId })
+          onOpenSession()
+        }}
+        onOpenProjectSettings={(projectId) => {
+          openDialog('project-settings', { projectId })
+        }}
+        onOpenProjectArtifacts={(projectId) => {
+          account.orgNavigate('project-artifacts', { id: projectId })
+          onOpenSession()
+        }}
       />
 
       <ProjectChatProjectContextMenu
