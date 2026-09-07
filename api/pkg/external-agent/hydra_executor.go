@@ -1476,6 +1476,9 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	if agent.ProjectID != "" {
 		env = append(env, fmt.Sprintf("HELIX_PROJECT_ID=%s", agent.ProjectID))
 	}
+	if agent.OrganizationID != "" {
+		env = append(env, fmt.Sprintf("HELIX_ORGANIZATION_ID=%s", agent.OrganizationID))
+	}
 	// NOTE: HELIX_PRIMARY_REPO_NAME is set in StartDesktop after fetching actual repo name
 
 	// Display settings for non-headless containers
