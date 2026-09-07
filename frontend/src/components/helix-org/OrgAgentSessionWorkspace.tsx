@@ -24,7 +24,7 @@ import { TypesSandboxRuntime } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DiffViewer from '../tasks/DiffViewer'
 import SandboxBrowser from '../tasks/SandboxBrowser'
-import SandboxStatusIndicator, { SandboxIndicatorState } from '../tasks/SandboxStatusIndicator'
+import { SandboxIndicatorState } from '../tasks/SandboxStatusIndicator'
 import SpecTaskTerminalDrawer from '../tasks/SpecTaskTerminalDrawer'
 import SpecTaskViewToolbar, { TaskView } from '../tasks/SpecTaskViewToolbar'
 import TaskSessionPlaceholder from '../tasks/TaskSessionPlaceholder'
@@ -136,7 +136,6 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
       hasSession={!!sessionId}
       showChatTab={!isBigScreen}
       showDesktop={!isHeadless}
-      renderActions={() => <SandboxStatusIndicator state={indicatorState} />}
       onToggleTerminal={() => setTerminalOpen((open) => !open)}
       terminalOpen={terminalOpen}
       showStart={!!bot && !!onStart && !desktopRunning && !starting}

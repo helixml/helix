@@ -9,7 +9,7 @@ interface WorkspaceFileSurfaceProps {
   sessionId: string;
   workspace?: string;
   workspacePath?: string;
-  baseBranch: string;
+  baseBranch?: string;
   pollInterval: number;
   path: string | null;
   revealPath: string | null;

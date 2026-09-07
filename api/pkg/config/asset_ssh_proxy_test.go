@@ -6,19 +6,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInferAssetSSHProxyAddressUsesSandboxAPIHost(t *testing.T) {
-	address, err := inferAssetSSHProxyAddress("http://api:8080", "https://helix.example.com")
+// Agents live on the isolated sandbox bridge, where only helix-api.internal
+// resolves; the control plane's own host would be advertised to a client that
+// can never reach it.
+func TestAssetSSHProxyAddressDefaultsToSandboxBridge(t *testing.T) {
+	t.Setenv("SANDBOX_API_URL", "http://api:8080")
+	t.Setenv("SERVER_URL", "https://helix.example.com")
+	t.Setenv("ASSET_SSH_PROXY_ADDRESS", "")
+	cfg, err := LoadServerConfig()
 	require.NoError(t, err)
-	require.Equal(t, "api:2224", address)
+	require.Equal(t, "helix-api.internal:2224", cfg.WebServer.AssetSSHProxyAddress)
 }
 
-func TestInferAssetSSHProxyAddressFallsBackToServerHost(t *testing.T) {
-	address, err := inferAssetSSHProxyAddress("", "https://helix.example.com:8080")
+func TestAssetSSHProxyAddressHonoursOverride(t *testing.T) {
+	t.Setenv("ASSET_SSH_PROXY_ADDRESS", "ssh.example.com:2224")
+	cfg, err := LoadServerConfig()
 	require.NoError(t, err)
-	require.Equal(t, "helix.example.com:2224", address)
-}
-
-func TestInferAssetSSHProxyAddressRejectsMissingHostname(t *testing.T) {
-	_, err := inferAssetSSHProxyAddress("://bad", "https://helix.example.com")
-	require.ErrorContains(t, err, "parse SANDBOX_API_URL")
+	require.Equal(t, "ssh.example.com:2224", cfg.WebServer.AssetSSHProxyAddress)
 }

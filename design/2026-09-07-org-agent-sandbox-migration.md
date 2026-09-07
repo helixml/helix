@@ -464,3 +464,30 @@ Verified live in the dev stack (`unmanned-org`, bot `b-mira`):
 NOT tested: headless placement on a display-less host, quota caps, org delete sweep,
 the migration backfill on a production copy, mobile layout, and native SSH against a
 desktop bot (same docker-exec path; only the id routing differed).
+
+## 8. Follow-up fixes (2026-09-08)
+
+- **Agent-side SSH was unreachable.** `sandbox_ssh_access` advertised the proxy as
+  `api:2224` (inferred from `SANDBOX_API_URL`), a name that does not resolve on the
+  isolated sandbox bridge, where only `helix-api.internal` (the Hydra gateway) is
+  routable and only :18080 was forwarded. Hydra now mirrors the control plane's SSH
+  proxy on the gateway (`hydra.SandboxSSHProxyListenAddress`, a raw TCP pipe; the
+  control plane still authenticates every connection), the sandbox network policy
+  admits gateway:2224, and `ASSET_SSH_PROXY_ADDRESS` defaults to
+  `helix-api.internal:2224`. Verified from inside a desktop bot container with a
+  minted cert: `ssh sandbox@helix-api.internal -p 2224` lands in the bot's own
+  container. Existing sandboxes need the new hydra binary and a network-policy
+  re-run (or a sandbox restart) to pick up the rule.
+- **Files / Diff stayed on the start placeholder after the sandbox came up.** The
+  session page fetched the bot once; the workspace gates those surfaces on
+  `agent_status`, so it never noticed the start. The bot is now polled every 5 s
+  while the page is open.
+- **Diff base branch.** The workspace inspector sent `base=main` for every session.
+  Org agents' repos are not necessarily on main (keel is on master); `base` is now
+  omitted unless the caller knows a task branch, so the desktop resolves the
+  repository's own default.
+- **Prompt queue parity.** The org session queue now uses the same attached-header
+  chrome and rows as the spec-task composer queue, and hides prompts already handed
+  to the agent (`sending`) like the task queue does.
+- The trailing status dot on the view toolbar is gone; status lives on the Details
+  pane, which was redesigned as a stat strip plus copyable ids.

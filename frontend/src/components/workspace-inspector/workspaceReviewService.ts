@@ -137,7 +137,7 @@ export const workspaceReviewKeys = {
   review: (
     sessionId: string,
     workspace: string | undefined,
-    base: string,
+    base: string | undefined,
     ignoreWhitespace: boolean,
   ) =>
     [
@@ -185,10 +185,13 @@ export function useWorkspaces(sessionId: string | undefined, enabled = true) {
   });
 }
 
+// `base` undefined lets the desktop pick the repository's own default branch
+// (its remote HEAD) — right for sessions with no task branch, such as org
+// agents, whose repos are not necessarily on main.
 export function useWorkspaceReview(
   sessionId: string | undefined,
   workspace: string | undefined,
-  base: string,
+  base: string | undefined,
   ignoreWhitespace: boolean,
   pollInterval: number,
   enabled = true,

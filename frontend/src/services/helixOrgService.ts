@@ -459,11 +459,12 @@ export function useListHelixOrgBots(options?: { enabled?: boolean; refetchInterv
   })
 }
 
-export function useHelixOrgBot(botId: string | undefined, options?: { enabled?: boolean }) {
+export function useHelixOrgBot(botId: string | undefined, options?: { enabled?: boolean; refetchInterval?: number | false }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
     queryKey: QUERY_KEYS.bot(orgID, botId ?? ''),
+    refetchInterval: options?.refetchInterval,
     queryFn: async () => {
       if (!botId) return null
       const res = await api.getApiClient().v1OrgsAgentsDetail2(orgID, botId)

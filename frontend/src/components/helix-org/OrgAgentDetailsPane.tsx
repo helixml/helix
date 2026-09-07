@@ -1,22 +1,26 @@
 // OrgAgentDetailsPane is the "Details" view of the org agent workspace — the
-// bot's counterpart of the spec task Details view. It shows the sandbox the
-// agent runs in (status, environment, size, host row), the session and
-// project it is attached to, and the shareable preview URLs. Editing lives
-// on the agent settings page; this pane links there.
+// bot's counterpart of the spec task Details view: what the agent runs in
+// (environment, size, status), where it lives (sandbox, session, project),
+// and the shareable preview URLs. Editing lives on the agent settings page;
+// this pane links there.
 
-import { FC } from 'react'
+import { FC, ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Link from '@mui/material/Link'
-import Paper from '@mui/material/Paper'
+import IconButton from '@mui/material/IconButton'
 import Stack from '@mui/material/Stack'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { Settings2 } from 'lucide-react'
+import { Box as BoxIcon, Cpu, FolderKanban, MessageSquare, Monitor, Settings2, SquareTerminal } from 'lucide-react'
 
+import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import { BotDTO } from '../../services/helixOrgService'
-import SandboxStatusIndicator, { SandboxIndicatorState } from '../tasks/SandboxStatusIndicator'
+import { TypesSandboxRuntime } from '../../api/api'
+import CopyButton from '../common/CopyButton'
+import { SandboxIndicatorState } from '../tasks/SandboxStatusIndicator'
 import SharePreviewSection from '../tasks/SharePreviewSection'
+import { PRESENCE_OFFLINE_COLOR, PRESENCE_ONLINE_COLOR } from '../widgets/PresenceDot'
 import { sandboxRuntimeLabel, sandboxSizeLabel } from './BotSandboxForm'
 
 interface OrgAgentDetailsPaneProps {
@@ -26,112 +30,215 @@ interface OrgAgentDetailsPaneProps {
   indicatorState: SandboxIndicatorState
 }
 
-const Row: FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <Stack direction="row" spacing={2} alignItems="baseline" sx={{ minWidth: 0 }}>
-    <Typography variant="body2" color="text.secondary" sx={{ width: 120, flexShrink: 0 }}>
+const STATUS_LABEL: Record<SandboxIndicatorState, string> = {
+  running: 'Running',
+  starting: 'Starting',
+  stopped: 'Stopped',
+}
+
+// One fact of the sandbox: a label, a value, and an optional "org default"
+// note. The stat strip is the same dense treatment cards use elsewhere.
+const Stat: FC<{ icon: ReactNode; label: string; value: string; note?: string }> = ({ icon, label, value, note }) => {
+  const lightTheme = useLightTheme()
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: 'text.secondary', mb: 0.25 }}>
+        {icon}
+        <Typography variant="caption" sx={{ fontSize: '0.65rem', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          {label}
+        </Typography>
+      </Stack>
+      <Typography variant="body2" sx={{ fontSize: '0.85rem', fontWeight: 600, lineHeight: 1.3 }} noWrap>
+        {value}
+      </Typography>
+      {note && (
+        <Typography variant="caption" sx={{ color: lightTheme.isLight ? 'rgba(113,113,122,0.9)' : 'rgba(163,163,163,0.7)' }}>
+          {note}
+        </Typography>
+      )}
+    </Box>
+  )
+}
+
+// An identifier with its own copy control, optionally opening the thing it
+// names. Kept monospace and single-line so ids never wrap.
+const IdRow: FC<{ label: string; value: string; onOpen?: () => void; openLabel?: string }> = ({ label, value, onOpen, openLabel }) => (
+  <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, minHeight: 30 }}>
+    <Typography variant="body2" color="text.secondary" sx={{ width: 72, flexShrink: 0 }}>
       {label}
     </Typography>
-    <Box sx={{ minWidth: 0, flex: 1 }}>{children}</Box>
+    {onOpen ? (
+      <Typography
+        component="button"
+        type="button"
+        variant="body2"
+        onClick={onOpen}
+        aria-label={openLabel}
+        sx={{
+          appearance: 'none',
+          border: 0,
+          p: 0,
+          background: 'none',
+          color: 'primary.main',
+          cursor: 'pointer',
+          fontFamily: 'monospace',
+          fontSize: '0.8rem',
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          textAlign: 'left',
+          '&:hover': { textDecoration: 'underline' },
+        }}
+      >
+        {value}
+      </Typography>
+    ) : (
+      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', minWidth: 0 }} noWrap>
+        {value}
+      </Typography>
+    )}
+    <Box sx={{ flexShrink: 0, ml: 'auto' }}>
+      <CopyButton content={value} size="small" />
+    </Box>
   </Stack>
 )
 
 const OrgAgentDetailsPane: FC<OrgAgentDetailsPaneProps> = ({ bot, sessionId, organizationId, indicatorState }) => {
   const router = useRouter()
+  const lightTheme = useLightTheme()
   const agentID = bot.agent_id ?? bot.agent_app_id
+  const headless = bot.effective_sandbox_runtime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu
   const runtime = sandboxRuntimeLabel(bot.effective_sandbox_runtime) || 'Full Desktop'
   const size = sandboxSizeLabel(
     bot.effective_sandbox_resource_overrides?.vcpus,
     bot.effective_sandbox_resource_overrides?.memory_mb,
-  )
+  ) || 'Standard'
   const ownRuntime = !!bot.sandbox_runtime
   const ownSize = !!bot.sandbox_resource_overrides?.vcpus
   const statusLabel = bot.sandbox_status
     ? bot.sandbox_status.charAt(0).toUpperCase() + bot.sandbox_status.slice(1)
-    : indicatorState === 'running' ? 'Running' : 'Stopped'
+    : STATUS_LABEL[indicatorState]
+  const statusColor = indicatorState === 'running'
+    ? PRESENCE_ONLINE_COLOR
+    : indicatorState === 'starting' ? '#fbbf24' : PRESENCE_OFFLINE_COLOR
+  const panelSx = {
+    border: '1px solid',
+    borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)',
+    borderRadius: 2,
+    backgroundColor: 'background.paper',
+    p: 2,
+  } as const
 
   const openSettings = () => {
     if (!agentID) return
     router.navigate('org_agent', { org_id: organizationId, app_id: agentID })
   }
-  const openSandbox = (e: React.MouseEvent) => {
-    e.preventDefault()
-    if (!bot.sandbox_id) return
-    router.navigate('org_sandbox_detail', { org_id: organizationId, sandbox_id: bot.sandbox_id })
-  }
-  const openProject = (e: React.MouseEvent) => {
-    e.preventDefault()
-    if (!bot.project_id) return
-    router.navigate('org_project-specs', { org_id: organizationId, id: bot.project_id })
-  }
 
   return (
-    <Stack spacing={2}>
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
-          <Stack direction="row" alignItems="center" spacing={0.5}>
-            <SandboxStatusIndicator state={indicatorState} />
-            <Typography variant="subtitle1">Sandbox</Typography>
-          </Stack>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<Settings2 size={16} />}
-            onClick={openSettings}
-            disabled={!agentID}
-          >
+    <Stack spacing={2} sx={{ maxWidth: 760 }}>
+      <Box sx={panelSx}>
+        <Stack direction="row" alignItems="center" spacing={1.25} sx={{ mb: 2 }}>
+          <Box
+            component="span"
+            sx={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: statusColor, flexShrink: 0 }}
+          />
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, flex: 1, minWidth: 0 }} noWrap>
+            {bot.name || bot.id}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {statusLabel}
+          </Typography>
+          <Tooltip title="Agent settings">
+            <span>
+              <IconButton size="small" aria-label="Agent settings" onClick={openSettings} disabled={!agentID}>
+                <Settings2 size={18} />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Stack>
+
+        {bot.sandbox_status_message && (
+          <Typography variant="body2" color="error.main" sx={{ mb: 1.5 }}>
+            {bot.sandbox_status_message}
+          </Typography>
+        )}
+        {bot.restart_required && (
+          <Typography variant="body2" color="warning.main" sx={{ mb: 1.5 }}>
+            The running sandbox predates the latest settings. Restart the agent to apply them.
+          </Typography>
+        )}
+
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr 1fr', sm: '1fr 1fr 1fr' },
+            gap: 2,
+            p: 1.5,
+            borderRadius: 2,
+            background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
+            border: '1px solid rgba(255,255,255,0.06)',
+          }}
+        >
+          <Stat
+            icon={headless ? <SquareTerminal size={13} /> : <Monitor size={13} />}
+            label="Environment"
+            value={runtime}
+            note={ownRuntime ? undefined : 'Org default'}
+          />
+          <Stat icon={<Cpu size={13} />} label="Compute" value={size} note={ownSize ? undefined : 'Org default'} />
+          <Stat icon={<BoxIcon size={13} />} label="Status" value={statusLabel} />
+        </Box>
+
+        <Stack spacing={0} sx={{ mt: 2 }}>
+          {bot.sandbox_id && (
+            <IdRow
+              label="Sandbox"
+              value={bot.sandbox_id}
+              openLabel="Open sandbox"
+              onOpen={() => router.navigate('org_sandbox_detail', { org_id: organizationId, sandbox_id: bot.sandbox_id! })}
+            />
+          )}
+          <IdRow label="Session" value={sessionId} />
+          {bot.project_id && (
+            <IdRow
+              label="Project"
+              value={bot.project_id}
+              openLabel="Open project"
+              onOpen={() => router.navigate('org_project-specs', { org_id: organizationId, id: bot.project_id! })}
+            />
+          )}
+        </Stack>
+
+        <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+          <Button size="small" variant="outlined" startIcon={<Settings2 size={15} />} onClick={openSettings} disabled={!agentID}>
             Agent settings
           </Button>
-        </Stack>
-        <Stack spacing={1}>
-          <Row label="Status">
-            <Typography variant="body2">{statusLabel}</Typography>
-            {bot.sandbox_status_message && (
-              <Typography variant="caption" color="error.main" sx={{ display: 'block' }}>
-                {bot.sandbox_status_message}
-              </Typography>
-            )}
-          </Row>
-          <Row label="Environment">
-            <Typography variant="body2">
-              {runtime}
-              {!ownRuntime && (
-                <Typography component="span" variant="caption" color="text.secondary"> · org default</Typography>
-              )}
-            </Typography>
-          </Row>
-          <Row label="Compute">
-            <Typography variant="body2">
-              {size || 'Standard'}
-              {!ownSize && (
-                <Typography component="span" variant="caption" color="text.secondary"> · org default</Typography>
-              )}
-            </Typography>
-          </Row>
-          {bot.restart_required && (
-            <Typography variant="caption" color="warning.main">
-              The running sandbox predates the latest settings. Restart the agent to apply them.
-            </Typography>
-          )}
-          {bot.sandbox_id && (
-            <Row label="Sandbox">
-              <Link href="#" onClick={openSandbox} variant="body2" sx={{ fontFamily: 'monospace' }} noWrap>
-                {bot.sandbox_id}
-              </Link>
-            </Row>
-          )}
-          <Row label="Session">
-            <Typography variant="body2" sx={{ fontFamily: 'monospace' }} noWrap>{sessionId}</Typography>
-          </Row>
           {bot.project_id && (
-            <Row label="Project">
-              <Link href="#" onClick={openProject} variant="body2" sx={{ fontFamily: 'monospace' }} noWrap>
-                {bot.project_id}
-              </Link>
-            </Row>
+            <Button
+              size="small"
+              variant="text"
+              startIcon={<FolderKanban size={15} />}
+              onClick={() => router.navigate('org_project-specs', { org_id: organizationId, id: bot.project_id! })}
+            >
+              Project board
+            </Button>
           )}
+          <Button
+            size="small"
+            variant="text"
+            startIcon={<MessageSquare size={15} />}
+            onClick={() => router.navigate('helix_org_bot_detail', { org_id: organizationId, bot_id: bot.id! })}
+            disabled={!bot.id}
+          >
+            Agent page
+          </Button>
         </Stack>
-      </Paper>
-      <SharePreviewSection sessionId={sessionId} />
+      </Box>
+
+      <Box sx={{ ...panelSx, '& > .MuiBox-root': { mb: 0 } }}>
+        <SharePreviewSection sessionId={sessionId} />
+      </Box>
     </Stack>
   )
 }

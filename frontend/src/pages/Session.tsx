@@ -295,8 +295,12 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   // ordinary project chat) leave org_worker_id empty, so the lookup and
   // restart-required banner stay inert there.
   const orgWorkerId = (orgChatView && session?.data?.config?.org_worker_id) || ''
+  // Polled: the workspace gates Diff, Files, Browser and the terminal on the
+  // agent's sandbox status, which changes underneath an open page whenever the
+  // agent starts, stops or is restarted.
   const { data: orgBotDetail } = useHelixOrgBot(orgWorkerId || undefined, {
     enabled: !!orgWorkerId,
+    refetchInterval: 5000,
   })
   const orgBot = orgBotDetail?.bot
   const restartOrgBotAgent = useRestartBotAgent()

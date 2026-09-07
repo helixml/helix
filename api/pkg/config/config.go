@@ -2,8 +2,6 @@ package config
 
 import (
 	"fmt"
-	"net"
-	"net/url"
 	"strings"
 	"time"
 
@@ -463,11 +461,7 @@ func LoadServerConfig() (ServerConfig, error) {
 		cfg.Notifications.AppURL = cfg.WebServer.URL
 	}
 	if cfg.WebServer.AssetSSHProxyAddress == "" {
-		address, err := inferAssetSSHProxyAddress(cfg.WebServer.SandboxAPIURL, cfg.WebServer.URL)
-		if err != nil {
-			return ServerConfig{}, err
-		}
-		cfg.WebServer.AssetSSHProxyAddress = address
+		cfg.WebServer.AssetSSHProxyAddress = defaultAssetSSHProxyAddress
 	}
 	// The spec task sandbox default is read from packages that have no config
 	// handle (desktopBillingResources is a free function; HydraExecutor holds no
@@ -483,25 +477,12 @@ func LoadServerConfig() (ServerConfig, error) {
 	return cfg, nil
 }
 
-func inferAssetSSHProxyAddress(sandboxAPIURL, serverURL string) (string, error) {
-	endpoint := sandboxAPIURL
-	name := "SANDBOX_API_URL"
-	if endpoint == "" {
-		endpoint = serverURL
-		name = "SERVER_URL"
-	}
-	if endpoint == "" {
-		return "", nil
-	}
-	parsed, err := url.Parse(endpoint)
-	if err != nil {
-		return "", fmt.Errorf("parse %s for asset SSH proxy: %w", name, err)
-	}
-	if parsed.Hostname() == "" {
-		return "", fmt.Errorf("%s must include a hostname for the asset SSH proxy", name)
-	}
-	return net.JoinHostPort(parsed.Hostname(), "2224"), nil
-}
+// defaultAssetSSHProxyAddress is where an agent reaches the Helix SSH proxy.
+// Agents run inside session containers on the isolated sandbox bridge, where
+// the only routable control-plane name is helix-api.internal (the Hydra
+// gateway). Hydra mirrors the proxy there on :2224 (hydra.SandboxSSHProxyPort);
+// the control plane's own hostname is deliberately unreachable from a sandbox.
+const defaultAssetSSHProxyAddress = "helix-api.internal:2224"
 
 type Inference struct {
 	Provider string `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
@@ -901,7 +882,7 @@ type WebServer struct {
 	Host                 string `envconfig:"SERVER_HOST" default:"0.0.0.0" description:"The host to bind the api server to."`
 	Port                 int    `envconfig:"SERVER_PORT" default:"80" description:""`
 	AssetSSHProxyListen  string `envconfig:"ASSET_SSH_PROXY_LISTEN" default:":2224" description:"Address for the Helix managed-resource SSH proxy to listen on."`
-	AssetSSHProxyAddress string `envconfig:"ASSET_SSH_PROXY_ADDRESS" description:"Public host:port for agents to reach the Helix asset and sandbox SSH proxy."`
+	AssetSSHProxyAddress string `envconfig:"ASSET_SSH_PROXY_ADDRESS" description:"host:port agents use to reach the Helix asset and sandbox SSH proxy. Defaults to helix-api.internal:2224, the Hydra-mirrored proxy on the sandbox bridge."`
 	// Can either be a URL to frontend (for dev proxy) or a path to static files (for prod)
 	// Default is dev proxy; Dockerfile sets FRONTEND_URL=/www for production
 	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081" description:"URL to proxy to or filesystem path to serve from"`

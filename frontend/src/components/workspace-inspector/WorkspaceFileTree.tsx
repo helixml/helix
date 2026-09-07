@@ -26,7 +26,7 @@ interface WorkspaceFileTreeProps {
   sessionId: string;
   workspace?: string;
   workspacePath?: string;
-  baseBranch: string;
+  baseBranch?: string;
   pollInterval: number;
   selectedPath: string | null;
   revealPath: string | null;
