@@ -107,7 +107,7 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 | DRM manager (`api/pkg/drm/`, `api/cmd/helix-drm-manager/`) | `./stack build-drm-manager` | Systemd service on VM guest |
 | Zed config (`zed_config.go`) | No rebuild | API-side, Air hot reloads. Start NEW session |
 | Settings-sync-daemon | `./stack build-ubuntu` | Start NEW session after |
-| Agent skills (`SKILLS_COMMIT` in `sandbox-versions.txt`) | `./stack build-ubuntu` | Start NEW session after |
+| Agent skills (helixml/skills) | None — refreshed from `main` at every container start. `SKILLS_COMMIT` in `sandbox-versions.txt` only pins the offline seed: bump + `./stack build-ubuntu` | Start NEW session after |
 
 Full rebuild order: `build-zed` → `build-ubuntu` → `build-sandbox` (if needed) → start new session.
 
@@ -696,17 +696,21 @@ helix api -X POST /orgs/unmanned-org/bots/chief-of-staff/activate
 ### Agent skills
 
 Skills that teach a coding agent to drive Helix live in
-[helixml/skills](https://github.com/helixml/skills), pinned by `SKILLS_COMMIT` in
-`sandbox-versions.txt`. The desktop images install the selected ones (`HELIX_SKILLS` in
-`Dockerfile.ubuntu-helix`) to `/opt/helix/skills`, and `helix-workspace-setup.sh` links them
-into `~/.claude/skills`, `~/.agents/skills`, and `~/.qwen/skills` on every container start —
-the three directories Claude Code, opencode, goose, and qwen actually scan. Bumping a skill is
-a `SKILLS_COMMIT` edit plus `./stack build-ubuntu`; a new session picks it up.
+[helixml/skills](https://github.com/helixml/skills). The desktop images bake a shallow clone
+at `/opt/helix/skills`, pinned by `SKILLS_COMMIT` in `sandbox-versions.txt` (passed as a
+build-arg by `./stack build-desktop` and `.drone.yml`; the Dockerfile has no default). On
+every container start `helix-workspace-setup.sh` copies it to `~/work/.helix-skills`,
+refreshes it from upstream `main`, and links every skill into `~/.agents/skills` and
+`~/.claude/skills` — the two directories that between them cover zed-agent, Claude Code,
+Codex, Gemini CLI, goose, opencode and qwen. When the fetch fails (air-gapped, proxy) the
+last good checkout is kept, so the pin only matters offline. Per-container knobs:
+`HELIX_SKILLS_REF` (branch/tag/sha; empty disables refresh), `HELIX_SKILLS` (space-separated
+subset to link), `HELIX_SKILLS_REPO`.
 
-Currently installed: **helix-artifacts** — publish and manage project artifacts
-(`helix artifact …`). Control-plane skills (`helix-board`, `helix-deploy`, `helix-e2e`, …) are
-deliberately *not* installed: an agent in a task sandbox should work on the task's repo, not
-reconfigure the Helix running it.
+Inside the sandbox the `helix` CLI authenticates from `HELIX_API_URL` + `USER_API_TOKEN`
+(`config.LoadCliConfig` falls back to them when `HELIX_URL`/`HELIX_API_KEY` are unset), so
+the skills' `helix …` commands work as written. The planning and implementation prompts
+carry a short "## Helix skills" section pointing the agent at them.
 
 `skills/helix-org-cli/SKILL.md` above is a different thing — a skill checked into this repo,
 visible only to an agent working on this repo.

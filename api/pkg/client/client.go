@@ -176,6 +176,7 @@ func NewClient(url, apiKey string, tlsSkipVerify bool) (*HelixClient, error) {
 		return nil, errors.New("apiKey is required, find yours in your helix account page and set HELIX_API_KEY and HELIX_URL")
 	}
 
+	url = strings.TrimRight(url, "/")
 	if !strings.HasSuffix(url, "/api/v1") {
 		// append /api/v1 to the url
 		url = url + "/api/v1"

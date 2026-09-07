@@ -930,43 +930,34 @@ RUN test -x bin/qwen && \
 
 # Helix agent skills (github.com/helixml/skills).
 #
-# Baked in rather than fetched at session start so an offline or air-gapped
-# deployment gets the same agent capabilities. The canonical copy is root-owned
-# under /opt/helix/skills; helix-workspace-setup.sh symlinks it into each
-# harness's discovery directory on every container start (it cannot be done
-# here — that script replaces ~/.claude with a symlink to persistent workspace
-# storage, which would drop anything this stage wrote there).
+# A shallow clone pinned at SKILLS_COMMIT is baked in as the seed, so an
+# offline or air-gapped deployment still gets the skills. On every container
+# start helix-workspace-setup.sh copies it into persistent workspace storage,
+# refreshes it from upstream (HELIX_SKILLS_REF, default main) when the network
+# allows, and links the selected skills (HELIX_SKILLS, default all) into each
+# harness's discovery directory. The clone keeps its .git so that refresh is a
+# plain `git fetch`. Linking cannot happen here: that script replaces ~/.claude
+# with a symlink to persistent storage, dropping anything this stage wrote.
 #
-# HELIX_SKILLS selects what to install. The repo carries skills for driving a
-# Helix control plane (helix-board, helix-deploy, helix-e2e, …); those are
-# deliberately left out, since an agent in a task sandbox should work on the
-# task's repo, not reconfigure the Helix running it.
-#
-# Keep SKILLS_COMMIT in sync with sandbox-versions.txt.
-ARG SKILLS_COMMIT=657b1314886e8b969d5f54f06cbff47cc9c59bd0
-ARG HELIX_SKILLS="helix-artifacts"
+# SKILLS_COMMIT is read from sandbox-versions.txt by `./stack build-desktop`
+# and .drone.yml. There is deliberately no default so the pin cannot drift.
+ARG SKILLS_COMMIT
 RUN <<_INSTALL_SKILLS
 set -eu
-echo "=== Installing Helix agent skills (${HELIX_SKILLS}) @ ${SKILLS_COMMIT} ==="
-git init -q /tmp/helix-skills
-git -C /tmp/helix-skills fetch -q --depth 1 https://github.com/helixml/skills.git "${SKILLS_COMMIT}"
-git -C /tmp/helix-skills checkout -q FETCH_HEAD
-mkdir -p /opt/helix/skills
-for skill in ${HELIX_SKILLS}; do
-  # Fail the build rather than ship a silently-missing skill: a renamed or
-  # dropped upstream directory must surface here, not as an agent that
-  # quietly has no idea the feature exists.
-  if [ ! -f "/tmp/helix-skills/skills/${skill}/SKILL.md" ]; then
-    echo "ERROR: skills/${skill}/SKILL.md not found at ${SKILLS_COMMIT}" >&2
-    exit 1
-  fi
-  cp -a "/tmp/helix-skills/skills/${skill}" /opt/helix/skills/
-done
-rm -rf /tmp/helix-skills
-echo "${SKILLS_COMMIT}" > /opt/helix/skills.version
+if [ -z "${SKILLS_COMMIT:-}" ]; then
+  echo "ERROR: SKILLS_COMMIT build-arg is required (see sandbox-versions.txt)" >&2
+  exit 1
+fi
+echo "=== Installing Helix agent skills @ ${SKILLS_COMMIT} ==="
+git init -q /opt/helix/skills
+git -C /opt/helix/skills remote add origin https://github.com/helixml/skills.git
+git -C /opt/helix/skills fetch -q --depth 1 origin "${SKILLS_COMMIT}"
+git -C /opt/helix/skills checkout -q --detach FETCH_HEAD
+# Fail the build rather than ship an empty skill set.
+ls -d /opt/helix/skills/skills/*/SKILL.md >/dev/null
 chown -R root:root /opt/helix/skills
 chmod -R a+rX,go-w /opt/helix/skills
-ls /opt/helix/skills
+ls /opt/helix/skills/skills
 _INSTALL_SKILLS
 
 # Sway configuration (GOW pattern)

@@ -892,6 +892,15 @@ function build-desktop() {
     exit 1
   fi
 
+  # Pin for github.com/helixml/skills. The Dockerfile has no default, so
+  # sandbox-versions.txt is the only place this value can come from.
+  local SKILLS_COMMIT
+  SKILLS_COMMIT=$(awk -F= '$1 == "SKILLS_COMMIT" { print $2 }' sandbox-versions.txt)
+  if [ -z "$SKILLS_COMMIT" ]; then
+    echo "❌ SKILLS_COMMIT is not set in sandbox-versions.txt"
+    exit 1
+  fi
+
   # --load: with a docker-container buildx driver (any project-local builder
   # left selected in `docker buildx use`) an unqualified build writes only to
   # the build cache. The image hash read back below would then be the previous
@@ -900,6 +909,7 @@ function build-desktop() {
   # the default docker driver.
   docker buildx build --provenance=false --load -f "$DOCKERFILE" \
     --build-arg "GO_VERSION=${GO_VERSION}" \
+    --build-arg "SKILLS_COMMIT=${SKILLS_COMMIT}" \
     -t "${IMAGE_NAME}:latest" \
     .
 

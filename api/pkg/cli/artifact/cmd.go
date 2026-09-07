@@ -276,12 +276,7 @@ func resolveArtifactProvenance(cmd *cobra.Command, flags *uploadFlags, projectID
 }
 
 func newClient() (*client.HelixClient, error) {
-	apiURL := firstNonEmpty(os.Getenv("HELIX_URL"), os.Getenv("HELIX_API_URL"), "http://localhost:8080")
-	apiKey := firstNonEmpty(os.Getenv("HELIX_API_KEY"), os.Getenv("USER_API_TOKEN"))
-	if apiKey == "" {
-		return nil, errors.New("authentication is required: set HELIX_API_KEY or USER_API_TOKEN")
-	}
-	return client.NewClient(strings.TrimRight(apiURL, "/"), apiKey, false)
+	return client.NewClientFromEnv()
 }
 
 func openArtifactContent(sourcePath string) (*client.ArtifactContent, func(), error) {
