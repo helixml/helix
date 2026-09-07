@@ -1,6 +1,7 @@
-import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary } from '../../api/api'
+import type { TypesOrganizationMembership, TypesProject, TypesSessionMetadata, TypesSessionSummary } from '../../api/api'
 import type { BotDTO } from '../../services/helixOrgService'
 import type { SpecTask } from '../../services/specTaskService'
+import { deriveSandboxState } from '../external-agent/sandboxState'
 import { matchesAllTokens } from '../../utils/searchUtils'
 
 export type SidebarStatus = {
@@ -223,6 +224,38 @@ export const isOrgAgentSession = (
 export const isExternalAgentSession = (item: SidebarItem): boolean => (
   item.kind === 'session' && item.session?.metadata?.agent_type === 'zed_external'
 )
+
+export type SidebarSandboxControl = {
+  sessionId: string
+  state: 'running' | 'starting' | 'absent'
+}
+
+const sandboxControlFromMetadata = (
+  sessionId: string,
+  metadata?: TypesSessionMetadata,
+): SidebarSandboxControl | null => {
+  const derived = deriveSandboxState(metadata)
+  if (!derived.hasDesktopLifecycleState || derived.sandboxState === 'loading') return null
+  return { sessionId, state: derived.sandboxState }
+}
+
+// Resolves the sandbox lifecycle target for a sidebar row: the session id the
+// resume/stop endpoints act on plus the current container state. Null when the
+// row has no sandbox at all (plain LLM chats, tasks that never provisioned a
+// desktop) so callers don't offer start/stop where it can't apply.
+export const getSandboxControl = (item: SidebarItem): SidebarSandboxControl | null => {
+  if (item.kind === 'spec-task') {
+    const sessionId = item.session?.session_id || item.task?.planning_session_id
+    if (!sessionId) return null
+    const state = item.task?.sandbox_state
+    if (state === 'running' || state === 'starting' || state === 'absent') {
+      return { sessionId, state }
+    }
+    return sandboxControlFromMetadata(sessionId, item.session?.metadata)
+  }
+  if (!isExternalAgentSession(item)) return null
+  return sandboxControlFromMetadata(item.id, item.session?.metadata)
+}
 
 // Archiving is reversible (see the Archived view), so the confirmation exists
 // only to warn about the irreversible side effect: stopping a running agent.
