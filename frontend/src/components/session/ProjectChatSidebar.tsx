@@ -688,11 +688,11 @@ const ProjectChatSidebar: FC<{
               },
             }}
           />
-          <Tooltip title="New thread (⌘⇧O / Ctrl+Shift+O)">
+          <Tooltip title="New task (⌘⇧O / Ctrl+Shift+O)">
             <IconButton
               size="small"
               onClick={openNewChatPicker}
-              aria-label="New thread"
+              aria-label="New task"
               aria-keyshortcuts="Meta+Shift+O Control+Shift+O"
             >
               <SquarePen size={16} strokeWidth={1.7} />
