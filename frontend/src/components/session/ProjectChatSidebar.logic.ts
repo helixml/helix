@@ -225,6 +225,28 @@ export const isExternalAgentSession = (item: SidebarItem): boolean => (
   item.kind === 'session' && item.session?.metadata?.agent_type === 'zed_external'
 )
 
+// GitHub serves an owner's avatar at github.com/<owner>.png (users and orgs
+// alike). Only github.com qualifies — a GitHub Enterprise host has no public
+// avatar endpoint, so those fall back to the generic project glyph.
+export const githubOrgAvatarUrl = (
+  repos: Array<{ external_type?: string; external_url?: string }> = [],
+): string | undefined => {
+  for (const repo of repos) {
+    if (!repo.external_url) continue
+    if (repo.external_type && repo.external_type !== 'github') continue
+    try {
+      const url = new URL(repo.external_url)
+      if (url.hostname !== 'github.com' && url.hostname !== 'www.github.com') continue
+      const [owner] = url.pathname.split('/').filter(Boolean)
+      if (!owner) continue
+      return `https://github.com/${owner}.png?size=48`
+    } catch {
+      continue
+    }
+  }
+  return undefined
+}
+
 export type SidebarSandboxControl = {
   sessionId: string
   state: 'running' | 'starting' | 'absent'

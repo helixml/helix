@@ -1,21 +1,22 @@
-import { FC, MouseEvent, ReactElement } from 'react'
+import { FC, MouseEvent, ReactElement, useState } from 'react'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { keyframes } from '@mui/material/styles'
-import { Archive, ArchiveRestore, GitBranch, GitPullRequest, Pin } from 'lucide-react'
+import { Archive, ArchiveRestore, Folder, GitBranch, GitPullRequest, Pin } from 'lucide-react'
 
 import type { TypesOrganizationMembership, TypesUser } from '../../api/api'
 import useApps from '../../hooks/useApps'
 import useIsPhone from '../../hooks/useIsPhone'
 import useLightTheme from '../../hooks/useLightTheme'
+import { useGetProjectRepositories } from '../../services/projectService'
 import AgentHarness from '../agent/AgentHarness'
 import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
 import { getProjectChatItemDetails, resolveProjectChatItemBranch } from './projectChatItemDetails'
-import { compactRelativeTime, getSidebarPullRequestIcon, getSidebarTaskStatus } from './ProjectChatSidebar.logic'
+import { compactRelativeTime, getSidebarPullRequestIcon, getSidebarTaskStatus, githubOrgAvatarUrl } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 
 const activeStatusDotPulse = keyframes`
@@ -26,6 +27,28 @@ const activeStatusDotPulse = keyframes`
     opacity: 0.35;
   }
 `
+
+// Project glyph for the stacked (cross-project) row: the GitHub owner avatar
+// when the project's repo lives on github.com, the generic folder otherwise —
+// including when the avatar can't load (air-gapped deployments never reach
+// github.com, so the broken-image state must degrade to the folder).
+const ProjectRowIcon: FC<{ projectId?: string }> = ({ projectId }) => {
+  const repositoriesQuery = useGetProjectRepositories(projectId || '', !!projectId)
+  const [failed, setFailed] = useState(false)
+  const avatarUrl = githubOrgAvatarUrl(repositoriesQuery.data || [])
+  if (avatarUrl && !failed) {
+    return (
+      <Box
+        component="img"
+        src={avatarUrl}
+        alt=""
+        onError={() => setFailed(true)}
+        sx={{ width: 14, height: 14, borderRadius: '3px', flexShrink: 0, display: 'block' }}
+      />
+    )
+  }
+  return <Folder size={12} style={{ opacity: 0.72, flexShrink: 0 }} />
+}
 
 export type ProjectChatItemRowProps = {
   item: SidebarItem
@@ -38,7 +61,11 @@ export type ProjectChatItemRowProps = {
   showTaskAvatars?: boolean
   repositoryName?: string
   defaultBranch?: string
-  /** Shown in the tooltip when the row sits in a cross-project list. */
+  /**
+   * Set when the row sits in a cross-project list (a person's or bot's work).
+   * Switches the row to the stacked layout with the project named above the
+   * title, and feeds the tooltip.
+   */
   projectName?: string
   onOpenItem: (item: SidebarItem) => void
   onOpenItemContextMenu: (event: MouseEvent<HTMLElement>, item: SidebarItem) => void
@@ -68,6 +95,10 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   // No hover on a phone, so the facts the tooltip carries have to live on the
   // row itself. That makes the row two lines, and taller.
   const isPhone = useIsPhone()
+  // Cross-project lists stack the project name above the title on every
+  // device, so the reader knows where each piece of work lives without
+  // hovering.
+  const stacked = !!projectName
   const archiveVerb = archived ? 'Unarchive' : 'Archive'
   const status = item.kind === 'spec-task' ? getSidebarTaskStatus(item.task) : null
   const isAgentWorking = item.kind === 'spec-task' && item.task?.agent_work_state === 'working'
@@ -95,6 +126,222 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         },
       ].filter(Boolean) as Array<{ key: string; icon: ReactElement; value?: string }>
     : []
+
+  // Time + archive occupy the same slot: the time yields to the archive
+  // button on hover. In the stacked layout the slot sits on the project
+  // line (t3-style, time top-right); otherwise on the single content line.
+  const timeAndArchive = (
+    <Box
+      sx={isPhone && !stacked
+        ? { display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }
+        : { width: 28, height: stacked ? 16 : 28, flexShrink: 0, position: 'relative' }}
+    >
+      <Typography
+        className="sidebar-item-time"
+        component="span"
+        title={item.updatedAt ? new Date(item.updatedAt).toLocaleString() : undefined}
+        sx={{
+          ...(isPhone && !stacked
+            ? { position: 'static' }
+            : { position: 'absolute', inset: 0 }),
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          color: active
+            ? (lightTheme.isLight ? 'rgba(39,39,42,0.58)' : 'rgba(241,243,247,0.72)')
+            : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
+          fontSize: '10px',
+          lineHeight: 1,
+          fontVariantNumeric: 'tabular-nums',
+          transition: 'opacity 100ms ease',
+        }}
+      >
+        {compactRelativeTime(item.updatedAt, relativeTimeNow)}
+      </Typography>
+      <Tooltip title={`${archiveVerb} ${item.kind === 'spec-task' ? 'task' : 'chat'}`}>
+        <IconButton
+          className="sidebar-item-archive"
+          size="small"
+          disabled={isArchiving}
+          aria-label={`${archiveVerb} ${item.kind === 'spec-task' ? 'task' : 'chat'} ${item.title}`}
+          onMouseOver={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            onArchiveItem(item)
+          }}
+          sx={{
+            ...(isPhone && !stacked
+              ? { position: 'static', width: 28, height: 28 }
+              : { position: 'absolute', top: stacked ? -6 : 0, right: 0, bottom: stacked ? -6 : 0, width: 20, height: 28 }),
+            opacity: 0,
+            color: 'inherit',
+            transition: 'opacity 100ms ease',
+          }}
+        >
+          {isArchiving
+            ? <CircularProgress size={12} color="inherit" />
+            : archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+        </IconButton>
+      </Tooltip>
+    </Box>
+  )
+
+  const statusIcons = item.kind === 'spec-task' && (
+    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
+      <Tooltip title={pullRequestIcon?.tooltip || ''}>
+        <Box
+          component="a"
+          href={pullRequestIcon?.url}
+          target={pullRequestIcon?.url ? '_blank' : undefined}
+          rel={pullRequestIcon?.url ? 'noopener noreferrer' : undefined}
+          aria-label={pullRequestIcon?.tooltip}
+          onMouseOver={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            if (!pullRequestIcon?.url) event.preventDefault()
+          }}
+          sx={{
+            display: 'inline-flex',
+            color: pullRequestIcon?.color || 'currentColor',
+            cursor: pullRequestIcon?.url ? 'pointer' : 'default',
+          }}
+        >
+          <GitPullRequest size={13} />
+        </Box>
+      </Tooltip>
+      {status && (
+        <Tooltip title={status.tooltip || ''} disableHoverListener={!status.tooltip}>
+          <Box
+            onMouseOver={(event) => event.stopPropagation()}
+            sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45 }}
+          >
+            <Box
+              sx={{
+                width: 5,
+                height: 5,
+                borderRadius: '50%',
+                backgroundColor: status.color,
+                animation: isAgentWorking
+                  ? `${activeStatusDotPulse} 2s ease-in-out infinite`
+                  : 'none',
+                '@media (prefers-reduced-motion: reduce)': {
+                  animation: 'none',
+                },
+              }}
+            />
+            <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
+              {status.label}
+            </Typography>
+          </Box>
+        </Tooltip>
+      )}
+    </Box>
+  )
+
+  const titleNode = (
+    <Typography
+      component="span"
+      sx={{
+        minWidth: 0,
+        flex: 1,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        fontSize: '14px',
+        lineHeight: '20px',
+        fontWeight: active ? 500 : 400,
+      }}
+    >
+      {item.title}
+    </Typography>
+  )
+
+  const avatarNode = showTaskAvatars && !!taskPersonId && (
+    <Tooltip title={`${taskPersonRole} ${taskPerson?.full_name || taskPerson?.username || taskPerson?.email || 'unknown user'}`}>
+      <Box sx={{ width: 18, height: 18, flexShrink: 0, display: 'inline-flex' }}>
+        <OrganizationUserAvatar
+          userId={taskPersonId}
+          members={organizationMembers}
+          currentUser={currentUser}
+          size={18}
+          fontSize="0.55rem"
+          iconSize={16}
+        />
+      </Box>
+    </Tooltip>
+  )
+
+  const subLineNode = isPhone && subLine.length > 0 && (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1.25,
+        minWidth: 0,
+        color: lightTheme.isLight
+          ? 'rgba(113,113,122,0.85)'
+          : 'rgba(163,163,163,0.72)',
+      }}
+    >
+      {subLine.map((entry) => (
+        <Box
+          key={entry.key}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+            minWidth: 0,
+            // The branch takes the slack; the other entries are
+            // icon-sized and should stay whole.
+            flexShrink: entry.key === 'branch' ? 1 : 0,
+          }}
+        >
+          <Box sx={{ display: 'inline-flex', flexShrink: 0 }}>{entry.icon}</Box>
+          {entry.value && (
+            <Typography
+              component="span"
+              sx={{
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                fontSize: '11px',
+                lineHeight: '15px',
+              }}
+            >
+              {entry.value}
+            </Typography>
+          )}
+        </Box>
+      ))}
+    </Box>
+  )
+
+  const pinNode = item.pinnedAt && (
+    <Tooltip title="Pinned">
+      <Box
+        component="span"
+        className="sidebar-item-pin"
+        aria-label="Pinned"
+        onMouseOver={(event) => event.stopPropagation()}
+        sx={{
+          width: 14,
+          height: stacked ? 20 : 28,
+          flexShrink: 0,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: active
+            ? (lightTheme.isLight ? 'rgba(39,39,42,0.68)' : 'rgba(241,243,247,0.78)')
+            : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.62)'),
+          transition: 'opacity 100ms ease',
+        }}
+      >
+        <Pin size={11} fill="currentColor" strokeWidth={1.7} />
+      </Box>
+    </Tooltip>
+  )
+
   return (
     <ProjectChatItemTooltip
       item={item}
@@ -119,11 +366,13 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
       sx={{
         width: '100%',
         minWidth: 0,
-        // Two lines and a 48px touch target on a phone; the dense
-        // single-line row everywhere else.
-        ...(isPhone
-          ? { minHeight: 52, py: 0.75, flexDirection: 'column', alignItems: 'stretch', gap: 0.25 }
-          : { height: 32, flexDirection: 'row', alignItems: 'center', gap: 0.75 }),
+        // Stacked (cross-project) and phone rows are two lines; project
+        // groups on desktop keep the dense single-line row.
+        ...(stacked
+          ? { py: 0.75, flexDirection: 'column', alignItems: 'stretch', gap: 0.4 }
+          : isPhone
+            ? { minHeight: 52, py: 0.75, flexDirection: 'column', alignItems: 'stretch', gap: 0.25 }
+            : { height: 32, flexDirection: 'row', alignItems: 'center', gap: 0.75 }),
         px: 1,
         borderRadius: '6px',
         display: 'flex',
@@ -149,7 +398,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         // coarse pointer it is always shown. On a phone it gets its
         // own column instead (below), so the time stays visible too.
         '@media (hover: none)': {
-          '& .sidebar-item-time': { opacity: isPhone ? 1 : 0 },
+          '& .sidebar-item-time': { opacity: isPhone && !stacked ? 1 : 0 },
           '& .sidebar-item-archive': { opacity: 1 },
         },
         ...(isPhone && {
@@ -164,213 +413,53 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         }),
       }}
     >
-      <Box
-        sx={isPhone
-          ? { display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%' }
-          : { display: 'contents' }}
-      >
-      {item.kind === 'spec-task' && (
-        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
-          <Tooltip title={pullRequestIcon?.tooltip || ''}>
-            <Box
-              component="a"
-              href={pullRequestIcon?.url}
-              target={pullRequestIcon?.url ? '_blank' : undefined}
-              rel={pullRequestIcon?.url ? 'noopener noreferrer' : undefined}
-              aria-label={pullRequestIcon?.tooltip}
-              onMouseOver={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation()
-                if (!pullRequestIcon?.url) event.preventDefault()
-              }}
+      {stacked ? (
+        <>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, minWidth: 0, width: '100%' }}>
+            <ProjectRowIcon projectId={item.projectId} />
+            <Typography
+              component="span"
               sx={{
-                display: 'inline-flex',
-                color: pullRequestIcon?.color || 'currentColor',
-                cursor: pullRequestIcon?.url ? 'pointer' : 'default',
-              }}
-            >
-              <GitPullRequest size={13} />
-            </Box>
-          </Tooltip>
-          {status && (
-            <Tooltip title={status.tooltip || ''} disableHoverListener={!status.tooltip}>
-              <Box
-                onMouseOver={(event) => event.stopPropagation()}
-                sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45 }}
-              >
-                <Box
-                  sx={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: '50%',
-                    backgroundColor: status.color,
-                    animation: isAgentWorking
-                      ? `${activeStatusDotPulse} 2s ease-in-out infinite`
-                      : 'none',
-                    '@media (prefers-reduced-motion: reduce)': {
-                      animation: 'none',
-                    },
-                  }}
-                />
-                <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
-                  {status.label}
-                </Typography>
-              </Box>
-            </Tooltip>
-          )}
-        </Box>
-      )}
-      <Typography
-        component="span"
-        sx={{
-          minWidth: 0,
-          flex: 1,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          fontSize: '14px',
-          lineHeight: '20px',
-          fontWeight: active ? 500 : 400,
-        }}
-      >
-        {item.title}
-      </Typography>
-      {showTaskAvatars && !!taskPersonId && (
-        <Tooltip title={`${taskPersonRole} ${taskPerson?.full_name || taskPerson?.username || taskPerson?.email || 'unknown user'}`}>
-          <Box sx={{ width: 18, height: 18, flexShrink: 0, display: 'inline-flex' }}>
-            <OrganizationUserAvatar
-              userId={taskPersonId}
-              members={organizationMembers}
-              currentUser={currentUser}
-              size={18}
-              fontSize="0.55rem"
-              iconSize={16}
-            />
-          </Box>
-        </Tooltip>
-      )}
-      {item.pinnedAt && (
-        <Tooltip title="Pinned">
-          <Box
-            component="span"
-            className="sidebar-item-pin"
-            aria-label="Pinned"
-            onMouseOver={(event) => event.stopPropagation()}
-            sx={{
-              width: 14,
-              height: 28,
-              flexShrink: 0,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: active
-                ? (lightTheme.isLight ? 'rgba(39,39,42,0.68)' : 'rgba(241,243,247,0.78)')
-                : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.62)'),
-              transition: 'opacity 100ms ease',
-            }}
-          >
-            <Pin size={11} fill="currentColor" strokeWidth={1.7} />
-          </Box>
-        </Tooltip>
-      )}
-      <Box
-        sx={isPhone
-          ? { display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }
-          : { width: 28, height: 28, flexShrink: 0, position: 'relative' }}
-      >
-        <Typography
-          className="sidebar-item-time"
-          component="span"
-          title={item.updatedAt ? new Date(item.updatedAt).toLocaleString() : undefined}
-          sx={{
-            ...(isPhone
-              ? { position: 'static' }
-              : { position: 'absolute', inset: 0 }),
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            color: active
-              ? (lightTheme.isLight ? 'rgba(39,39,42,0.58)' : 'rgba(241,243,247,0.72)')
-              : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
-            fontSize: '10px',
-            lineHeight: 1,
-            fontVariantNumeric: 'tabular-nums',
-            transition: 'opacity 100ms ease',
-          }}
-        >
-          {compactRelativeTime(item.updatedAt, relativeTimeNow)}
-        </Typography>
-        <Tooltip title={`${archiveVerb} ${item.kind === 'spec-task' ? 'task' : 'chat'}`}>
-          <IconButton
-            className="sidebar-item-archive"
-            size="small"
-            disabled={isArchiving}
-            aria-label={`${archiveVerb} ${item.kind === 'spec-task' ? 'task' : 'chat'} ${item.title}`}
-            onMouseOver={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation()
-              onArchiveItem(item)
-            }}
-            sx={{
-              ...(isPhone
-                ? { position: 'static', width: 28, height: 28 }
-                : { position: 'absolute', top: 0, right: 0, bottom: 0, width: 20, height: 28 }),
-              opacity: 0,
-              color: 'inherit',
-              transition: 'opacity 100ms ease',
-            }}
-          >
-            {isArchiving
-              ? <CircularProgress size={12} color="inherit" />
-              : archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
-          </IconButton>
-        </Tooltip>
-      </Box>
-      </Box>
-      {isPhone && subLine.length > 0 && (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.25,
-            minWidth: 0,
-            color: lightTheme.isLight
-              ? 'rgba(113,113,122,0.85)'
-              : 'rgba(163,163,163,0.72)',
-          }}
-        >
-          {subLine.map((entry) => (
-            <Box
-              key={entry.key}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.5,
                 minWidth: 0,
-                // The branch takes the slack; the other entries are
-                // icon-sized and should stay whole.
-                flexShrink: entry.key === 'branch' ? 1 : 0,
+                flex: 1,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                fontSize: '11px',
+                lineHeight: '14px',
+                fontWeight: 500,
+                color: active
+                  ? (lightTheme.isLight ? 'rgba(39,39,42,0.68)' : 'rgba(241,243,247,0.72)')
+                  : (lightTheme.isLight ? 'rgba(113,113,122,0.8)' : 'rgba(163,163,163,0.65)'),
               }}
             >
-              <Box sx={{ display: 'inline-flex', flexShrink: 0 }}>{entry.icon}</Box>
-              {entry.value && (
-                <Typography
-                  component="span"
-                  sx={{
-                    minWidth: 0,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    fontSize: '11px',
-                    lineHeight: '15px',
-                  }}
-                >
-                  {entry.value}
-                </Typography>
-              )}
-            </Box>
-          ))}
-        </Box>
+              {projectName}
+            </Typography>
+            {timeAndArchive}
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%' }}>
+            {statusIcons}
+            {titleNode}
+            {avatarNode}
+            {pinNode}
+          </Box>
+          {subLineNode}
+        </>
+      ) : (
+        <>
+          <Box
+            sx={isPhone
+              ? { display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%' }
+              : { display: 'contents' }}
+          >
+            {statusIcons}
+            {titleNode}
+            {avatarNode}
+            {pinNode}
+            {timeAndArchive}
+          </Box>
+          {subLineNode}
+        </>
       )}
     </Box>
     </ProjectChatItemTooltip>

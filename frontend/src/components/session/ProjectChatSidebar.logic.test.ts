@@ -12,6 +12,7 @@ import {
   filterProjectChatGroups,
   getSandboxControl,
   getSidebarPullRequestIcon,
+  githubOrgAvatarUrl,
   getSidebarTaskStatus,
   getChatShortcutNumber,
   isChatShortcutModifier,
@@ -495,6 +496,30 @@ describe('ProjectChatSidebar logic', () => {
   it('leaves the browser-reserved new-window chord alone', () => {
     expect(isNewThreadShortcut({ key: 'n', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBe(false)
     expect(isNewThreadShortcut({ key: 'n', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false })).toBe(false)
+  })
+
+  it('derives a GitHub owner avatar only for github.com repos', () => {
+    expect(githubOrgAvatarUrl([
+      { external_type: 'github', external_url: 'https://github.com/helixml/helix' },
+    ])).toBe('https://github.com/helixml.png?size=48')
+
+    // First github repo wins; non-github entries are skipped, not fatal.
+    expect(githubOrgAvatarUrl([
+      { external_type: 'gitlab', external_url: 'https://gitlab.com/acme/api' },
+      { external_url: 'https://github.com/acme/api.git' },
+    ])).toBe('https://github.com/acme.png?size=48')
+
+    // GitHub Enterprise hosts have no public avatar endpoint.
+    expect(githubOrgAvatarUrl([
+      { external_type: 'github', external_url: 'https://github.internal.corp/acme/api' },
+    ])).toBeUndefined()
+
+    expect(githubOrgAvatarUrl([
+      { external_type: 'github', external_url: 'not a url' },
+      {},
+    ])).toBeUndefined()
+    expect(githubOrgAvatarUrl([])).toBeUndefined()
+    expect(githubOrgAvatarUrl()).toBeUndefined()
   })
 
   it('resolves the sandbox control for tasks and external-agent chats', () => {
