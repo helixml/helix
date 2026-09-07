@@ -64,7 +64,7 @@ describe("InteractionLiveStream", () => {
     renderStream(true);
 
     expect(screen.getByRole("status", { name: "Sandbox stopped" })).toBeInTheDocument();
-    expect(screen.getByText(/the agent is not running/i)).toBeInTheDocument();
+    expect(screen.getByText(/send a message to wake the agent/i)).toBeInTheDocument();
   });
 
   it("still shows the timer when the sandbox is alive", () => {
