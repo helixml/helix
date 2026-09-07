@@ -34,15 +34,18 @@ const activeStatusDotPulse = keyframes`
 // github.com, so the broken-image state must degrade to the folder).
 const ProjectRowIcon: FC<{ projectId?: string }> = ({ projectId }) => {
   const repositoriesQuery = useGetProjectRepositories(projectId || '', !!projectId)
-  const [failed, setFailed] = useState(false)
+  // Track which URL failed rather than a boolean so a URL change (repos
+  // resolving late, project reassignment) gets a fresh attempt.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const avatarUrl = githubOrgAvatarUrl(repositoriesQuery.data || [])
-  if (avatarUrl && !failed) {
+  if (avatarUrl && avatarUrl !== failedUrl) {
     return (
       <Box
         component="img"
+        key={avatarUrl}
         src={avatarUrl}
         alt=""
-        onError={() => setFailed(true)}
+        onError={() => setFailedUrl(avatarUrl)}
         sx={{ width: 14, height: 14, borderRadius: '3px', flexShrink: 0, display: 'block' }}
       />
     )
@@ -137,7 +140,9 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   // line (t3-style, time top-right); otherwise on the single content line.
   const timeAndArchive = (
     <Box
-      sx={isPhone && !stacked
+      sx={isPhone
+        // No hover on a phone, so time and archive sit side by side and
+        // stay visible — in the stacked layout too.
         ? { display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }
         : stacked
           // Static content sizes the slot so a status label wider than the
@@ -150,11 +155,9 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         component="span"
         title={item.updatedAt ? new Date(item.updatedAt).toLocaleString() : undefined}
         sx={{
-          ...(isPhone && !stacked
+          ...(isPhone || stacked
             ? { position: 'static' }
-            : stacked
-              ? { position: 'static' }
-              : { position: 'absolute', inset: 0 }),
+            : { position: 'absolute', inset: 0 }),
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-end',
@@ -188,7 +191,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
             onArchiveItem(item)
           }}
           sx={{
-            ...(isPhone && !stacked
+            ...(isPhone
               ? { position: 'static', width: 28, height: 28 }
               : { position: 'absolute', top: stacked ? -6 : 0, right: 0, bottom: stacked ? -6 : 0, width: 20, height: 28 }),
             opacity: 0,
@@ -305,14 +308,25 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         <Tooltip title={status.tooltip || status.label}>
           <Box
             onMouseOver={(event) => event.stopPropagation()}
-            sx={{
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              flexShrink: 0,
-              backgroundColor: status.color,
-            }}
-          />
+            sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45, flexShrink: 0 }}
+          >
+            <Box
+              sx={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                flexShrink: 0,
+                backgroundColor: status.color,
+              }}
+            />
+            {/* No hover on a phone, so the label the tooltip would carry
+                has to live on the row itself. */}
+            {isPhone && (
+              <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
+                {status.label}
+              </Typography>
+            )}
+          </Box>
         </Tooltip>
       )}
     </Box>
@@ -460,7 +474,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         // coarse pointer it is always shown. On a phone it gets its
         // own column instead (below), so the time stays visible too.
         '@media (hover: none)': {
-          '& .sidebar-item-time': { opacity: isPhone && !stacked ? 1 : 0 },
+          '& .sidebar-item-time': { opacity: isPhone ? 1 : 0 },
           '& .sidebar-item-archive': { opacity: 1 },
         },
         ...(isPhone && {
