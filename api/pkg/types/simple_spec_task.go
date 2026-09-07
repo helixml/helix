@@ -230,6 +230,10 @@ type CreateTaskRequest struct {
 	Priority  SpecTaskPriority `json:"priority"`
 	UserID    string           `json:"user_id"`
 	UserEmail string           `json:"user_email,omitempty"` // Optional: User email for audit trail
+	// CreatedByOrgAgent is set by the server when the caller is a helix-org
+	// agent's session (its API key names a session with org_worker_id). Never
+	// accepted from the client.
+	CreatedByOrgAgent string `json:"-"`
 	// AppID is accepted only so the API can return an explicit migration error
 	// to old clients. New tasks must provide CodeAgentConfig or inherit the
 	// project's materialized configuration.
@@ -400,12 +404,17 @@ type SpecTask struct {
 	CredentialOwnerID string `json:"credential_owner_id,omitempty" gorm:"size:255;index"`
 
 	// Metadata
-	CreatedBy string                 `json:"created_by"`
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
-	Archived  bool                   `json:"archived" gorm:"default:false;index"` // Archive to hide from main view
-	Labels    []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
+	CreatedBy string `json:"created_by"`
+	// CreatedByOrgAgent is the helix-org agent (org bot handle) that created
+	// this task, when an agent rather than a person did. CreatedBy stays the
+	// human the agent acts for; this records the agent so its work can be
+	// listed under it.
+	CreatedByOrgAgent string                 `json:"created_by_org_agent,omitempty" gorm:"size:255;index"`
+	CreatedAt         time.Time              `json:"created_at"`
+	UpdatedAt         time.Time              `json:"updated_at"`
+	Archived          bool                   `json:"archived" gorm:"default:false;index"` // Archive to hide from main view
+	Labels            []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
+	Metadata          map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Public sharing
 	PublicDesignDocs bool `json:"public_design_docs" gorm:"default:false"` // Allow viewing design docs without login
@@ -533,6 +542,9 @@ type SpecTaskFilters struct {
 	UserID             string         `json:"user_id,omitempty"`
 	FilterParticipants bool           `json:"filter_participants,omitempty"`
 	ParticipantIDs     []string       `json:"participant_ids,omitempty"` // Created by or assigned to any selected user
+	FilterProjectIDs   bool           `json:"filter_project_ids,omitempty"`
+	ProjectIDs         []string       `json:"project_ids,omitempty"` // Any of these projects; empty matches nothing when FilterProjectIDs is set
+	CreatedByOrgAgent  string         `json:"created_by_org_agent,omitempty"`
 	Type               string         `json:"type,omitempty"`
 	Priority           string         `json:"priority,omitempty"`
 	Limit              int            `json:"limit,omitempty"`

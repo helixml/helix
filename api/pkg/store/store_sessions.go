@@ -18,7 +18,9 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 	q := s.gdb.WithContext(ctx).Model(&types.Session{})
 
 	// Add owner and owner type conditions
-	q = q.Where("owner = ? AND owner_type = ?", query.Owner, query.OwnerType)
+	if !query.AnyOwner {
+		q = q.Where("owner = ? AND owner_type = ?", query.Owner, query.OwnerType)
+	}
 
 	// Add parent session condition if specified
 	if query.ParentSession != "" {
@@ -33,6 +35,14 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 
 	if query.AppID != "" {
 		q = q.Where("parent_app = ?", query.AppID)
+	}
+
+	if query.RestrictToProjects {
+		if len(query.ProjectIDs) == 0 {
+			q = q.Where("1 = 0")
+		} else {
+			q = q.Where("project_id IN ?", query.ProjectIDs)
+		}
 	}
 
 	switch query.ProjectScope {

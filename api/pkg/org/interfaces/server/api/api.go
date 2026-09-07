@@ -258,9 +258,9 @@ type BotRuntimeInfo struct {
 	// "stopped". Empty when the status could not be resolved.
 	AgentStatus string
 	// RestartRequired is true when the bot's sandbox is running but is
-	// still serving config from before the operator's last save. Only
-	// tool and instruction changes raise it — everything else on the bot
-	// page already reaches a running sandbox without a restart.
+	// still serving config from before the operator's last save: tools,
+	// instructions, or the agent's model/provider/runtime/effort, all of
+	// which the sandbox bakes in at start.
 	RestartRequired bool
 }
 

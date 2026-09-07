@@ -2,7 +2,7 @@ import type { FC, ReactElement } from 'react'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { BrainCircuit, Cpu, FolderGit2, GitBranch, Monitor, SquareTerminal } from 'lucide-react'
+import { BrainCircuit, Cpu, Folder, FolderGit2, GitBranch, Monitor, SquareTerminal } from 'lucide-react'
 
 import useApps from '../../hooks/useApps'
 import AgentHarness from '../agent/AgentHarness'
@@ -13,6 +13,8 @@ type ProjectChatItemTooltipProps = {
   item: SidebarItem
   repository?: string
   branch?: string
+  /** The project a row belongs to, for lists that span projects. */
+  projectName?: string
   /**
    * Phones show the same facts on the row's second line, so the tooltip would
    * be a duplicate they cannot dismiss.
@@ -25,6 +27,7 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
   item,
   repository,
   branch,
+  projectName,
   disabled = false,
   children,
 }) => {
@@ -35,6 +38,7 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
   if (disabled) return children
 
   const rows = [
+    projectName && { icon: <Folder size={13} />, value: projectName },
     repository && { icon: <FolderGit2 size={13} />, value: repository },
     branch && { icon: <GitBranch size={13} />, value: branch },
     harness && {

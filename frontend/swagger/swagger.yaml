@@ -101,6 +101,8 @@ definitions:
           the tool list and instructions from before the last save. Drives the
           restart banner on the bot page and the org chat panel.
         type: boolean
+      session_id:
+        type: string
       tools:
         items:
           type: string
@@ -284,6 +286,14 @@ definitions:
           Bot's chat session before each re-activation, so it accumulates
           context across triggers (e.g. Slack). Defaults to false.
         type: boolean
+      project_id:
+        description: |-
+          ProjectID is the bot's own Helix project — the one whose exploratory
+          session is the bot's chat. SessionID is that session, when the bot
+          has been activated. Both come from runtime state and let the chat
+          sidebar list bots as top-level entries instead of surfacing their
+          project like an ordinary one.
+        type: string
       project_ids:
         items:
           type: string
@@ -298,6 +308,8 @@ definitions:
           the tool list and instructions from before the last save. Drives the
           restart banner on the bot page and the org chat panel.
         type: boolean
+      session_id:
+        type: string
       tools:
         items:
           type: string
@@ -3595,24 +3607,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - helix_events
     - email
-    - webhook
-    - slack
-    - gitlab
     - local
-    - github
     - cron
+    - webhook
+    - github
+    - gitlab
+    - helix_events
+    - slack
     type: string
     x-enum-varnames:
-    - KindHelixEvents
     - KindEmail
-    - KindWebhook
-    - KindSlack
-    - KindGitLab
     - KindLocal
-    - KindGitHub
     - KindCron
+    - KindWebhook
+    - KindGitHub
+    - KindGitLab
+    - KindHelixEvents
+    - KindSlack
   transport.ResolvedActivation:
     properties:
       address:
@@ -8231,6 +8243,11 @@ definitions:
     properties:
       created_at:
         type: string
+      online:
+        description: |-
+          Online is true when the member has authenticated against the API within
+          PresenceOnlineWindow. Computed by the members list, never persisted.
+        type: boolean
       organization_id:
         type: string
       role:
@@ -9187,6 +9204,11 @@ definitions:
     properties:
       author:
         type: string
+      base_sha:
+        description: |-
+          BaseSHA is the commit SHA on the target side of the PR. CI failures on
+          the head are only actionable when CI passed on this commit.
+        type: string
       created_at:
         type: string
       description:
@@ -9419,6 +9441,10 @@ definitions:
     type: object
   types.RepoPR:
     properties:
+      ci_base_sha:
+        type: string
+      ci_base_status:
+        type: string
       ci_head_sha:
         type: string
       ci_status:
@@ -11141,6 +11167,13 @@ definitions:
       created_by:
         description: Metadata
         type: string
+      created_by_org_agent:
+        description: |-
+          CreatedByOrgAgent is the helix-org agent (org bot handle) that created
+          this task, when an agent rather than a person did. CreatedBy stays the
+          human the agent acts for; this records the agent so its work can be
+          listed under it.
+        type: string
       credential_owner_id:
         description: |-
           CredentialOwnerID names the user whose Claude subscription authenticates
@@ -11805,6 +11838,13 @@ definitions:
         type: string
       created_by:
         description: Metadata
+        type: string
+      created_by_org_agent:
+        description: |-
+          CreatedByOrgAgent is the helix-org agent (org bot handle) that created
+          this task, when an agent rather than a person did. CreatedBy stays the
+          human the agent acts for; this records the agent so its work can be
+          listed under it.
         type: string
       credential_owner_id:
         description: |-
@@ -25170,6 +25210,16 @@ paths:
         in: query
         name: archived
         type: boolean
+      - description: List another org member's sessions (requires org_id); limited
+          to projects the caller can access unless they own the org
+        in: query
+        name: owner_id
+        type: string
+      - description: List every member's chats in one project (requires org_id, project_id
+          and project_scope=project)
+        in: query
+        name: all_members
+        type: boolean
       responses:
         "200":
           description: OK
@@ -26632,12 +26682,16 @@ paths:
   /api/v1/spec-tasks:
     get:
       description: List spec-driven tasks with optional filtering by project, status,
-        or user
+        or user. Pass organization_id instead of project_id to list across every project
+        the caller can access.
       parameters:
-      - description: Project ID
+      - description: Project ID (required unless organization_id is set)
         in: query
         name: project_id
-        required: true
+        type: string
+      - description: 'Organization slug or ID: list tasks across all accessible projects'
+        in: query
+        name: organization_id
         type: string
       - description: Filter by status
         in: query
@@ -26650,6 +26704,10 @@ paths:
       - description: Filter by creator or assignee user IDs (comma-separated, OR semantics)
         in: query
         name: participant_ids
+        type: string
+      - description: Only tasks created by this helix-org agent (bot handle)
+        in: query
+        name: created_by_org_agent
         type: string
       - default: false
         description: Include archived tasks

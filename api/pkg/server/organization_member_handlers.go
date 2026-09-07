@@ -50,6 +50,10 @@ func (apiServer *HelixAPIServer) listOrganizationMembers(rw http.ResponseWriter,
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	now := time.Now()
+	for _, member := range members {
+		member.Online = types.IsUserOnline(&member.User, now)
+	}
 
 	// Surface pending invitations alongside real members so the OrgPeople
 	// UI can show them as placeholder rows without a second endpoint.

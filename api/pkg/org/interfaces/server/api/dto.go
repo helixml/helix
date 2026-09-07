@@ -70,7 +70,14 @@ type BotDTO struct {
 	// RestartRequired is true when the sandbox is running but still holds
 	// the tool list and instructions from before the last save. Drives the
 	// restart banner on the bot page and the org chat panel.
-	RestartRequired         bool                          `json:"restart_required,omitempty"`
+	RestartRequired bool `json:"restart_required,omitempty"`
+	// ProjectID is the bot's own Helix project — the one whose exploratory
+	// session is the bot's chat. SessionID is that session, when the bot
+	// has been activated. Both come from runtime state and let the chat
+	// sidebar list bots as top-level entries instead of surfacing their
+	// project like an ordinary one.
+	ProjectID               string                        `json:"project_id,omitempty"`
+	SessionID               string                        `json:"session_id,omitempty"`
 	AgentRuntime            string                        `json:"agent_runtime,omitempty"`
 	AgentModel              string                        `json:"agent_model,omitempty"`
 	CodeAgentRuntime        types.CodeAgentRuntime        `json:"code_agent_runtime,omitempty"`

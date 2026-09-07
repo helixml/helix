@@ -241,6 +241,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		Status:                   initialStatus,
 		OriginalPrompt:           req.Prompt,
 		CreatedBy:                req.UserID,
+		CreatedByOrgAgent:        req.CreatedByOrgAgent,
 		PlanningStartedBy:        planningStartedBy,
 		CodeAgentConfig:          codeAgentConfig,
 		SandboxResourceOverrides: sandboxResources,

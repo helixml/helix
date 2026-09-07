@@ -62,6 +62,16 @@ type ListSessionsQuery struct {
 	IncludeExternalAgents bool            `json:"include_external_agents"`
 	ExcludeArchived       bool            `json:"exclude_archived"` // Hide archived sessions
 	ArchivedOnly          bool            `json:"archived_only"`    // Return ONLY archived sessions; takes precedence over ExcludeArchived
+	// RestrictToProjects limits results to sessions whose project_id is in
+	// ProjectIDs. An empty ProjectIDs then matches nothing. Used when listing
+	// another member's sessions, which are only visible through projects the
+	// caller can access.
+	RestrictToProjects bool     `json:"restrict_to_projects"`
+	ProjectIDs         []string `json:"project_ids"`
+	// AnyOwner drops the owner clause. Only valid together with a project
+	// scope the caller has been authorized for: it is how a project group
+	// shows every member's chats.
+	AnyOwner bool `json:"any_owner"`
 }
 
 type ListAPIKeysQuery struct {

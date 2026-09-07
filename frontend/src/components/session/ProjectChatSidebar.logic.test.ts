@@ -10,9 +10,7 @@ import {
   compactRelativeTime,
   DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES,
   filterProjectChatGroups,
-  filterSidebarMembers,
   getSidebarPullRequestIcon,
-  getSidebarMemberResults,
   getSidebarTaskStatus,
   getChatShortcutNumber,
   isChatShortcutModifier,
@@ -29,7 +27,7 @@ import {
   serializeSidebarParticipantIds,
   shouldConfirmArchive,
   sidebarPreferencesStorageKey,
-  sidebarPeopleFilterStorageKey,
+  sidebarExpandedPeopleStorageKey,
   sidebarProjectFilterStorageKey,
   sortSidebarProjects,
   specTaskSortKey,
@@ -201,6 +199,14 @@ describe('ProjectChatSidebar logic', () => {
       .toEqual(['newer-pin', 'older-pin', 'newest-chat'])
   })
 
+  it('remembers the grouping per organization and defaults to projects', async () => {
+    const { parseSidebarGroupBy, sidebarGroupByStorageKey } = await import('./ProjectChatSidebar.logic')
+    expect(sidebarGroupByStorageKey('org-a')).not.toBe(sidebarGroupByStorageKey('org-b'))
+    expect(parseSidebarGroupBy(null)).toBe('project')
+    expect(parseSidebarGroupBy('person')).toBe('person')
+    expect(parseSidebarGroupBy('garbage')).toBe('project')
+  })
+
   it('parses and clamps org-scoped local preferences', () => {
     const parsed = parseSidebarPreferences(JSON.stringify({
       projectSortOrder: 'manual',
@@ -229,41 +235,6 @@ describe('ProjectChatSidebar logic', () => {
     expect(parseSidebarProjectFilter(' project-one ')).toBe('project-one')
     expect(resolveSidebarProjectFilter('project-one', projects)).toBe('project-one')
     expect(resolveSidebarProjectFilter('deleted-project', projects)).toBe(ALL_PROJECTS_FILTER)
-  })
-
-  it('persists selected people per user, organization, and project and searches every token', () => {
-    const members: TypesOrganizationMembership[] = [
-      { user_id: 'alice', user: { full_name: 'Alice Example', email: 'alice@example.com' } },
-      { user_id: 'bob', user: { full_name: 'Bob Builder', email: 'bob@work.test' } },
-      { user_id: 'invite', user: undefined },
-    ]
-
-    expect(sidebarPeopleFilterStorageKey('user-one', 'org-one', 'project-one'))
-      .toBe('helix:project-chat-sidebar:people:user-one:org-one:project-one')
-    expect(parseSidebarParticipantIds('["bob","bob","",12]')).toEqual(['bob'])
-    expect(parseSidebarParticipantIds('[]')).toEqual([])
-    expect(parseSidebarParticipantIds(null)).toBeNull()
-    expect(parseSidebarParticipantIds('{bad json')).toBeNull()
-    expect(serializeSidebarParticipantIds(['bob', 'alice', 'bob'])).toBe('["bob","alice"]')
-    expect(filterSidebarMembers(members, 'alice example')).toEqual([members[0]])
-    expect(filterSidebarMembers(members, 'bob work')).toEqual([members[1]])
-    expect(filterSidebarMembers(members, 'alice missing')).toEqual([])
-  })
-
-  it('shows at most ten people before searching, with the current and selected users first', () => {
-    const members: TypesOrganizationMembership[] = Array.from({ length: 12 }, (_, index) => ({
-      user_id: `user-${index}`,
-      user: { full_name: `Member ${index}`, email: `member-${index}@example.com` },
-    }))
-
-    const initial = getSidebarMemberResults(members, '', 'user-11', ['user-10'])
-    expect(initial.total).toBe(12)
-    expect(initial.members).toHaveLength(10)
-    expect(initial.members.slice(0, 2).map((member) => member.user_id)).toEqual(['user-11', 'user-10'])
-
-    const searched = getSidebarMemberResults(members, 'member-3 example', 'user-11', ['user-10'])
-    expect(searched.total).toBe(1)
-    expect(searched.members[0]?.user_id).toBe('user-3')
   })
 
   it('sorts projects by activity, creation, and persisted manual order', () => {
@@ -523,5 +494,80 @@ describe('ProjectChatSidebar logic', () => {
   it('leaves the browser-reserved new-window chord alone', () => {
     expect(isNewThreadShortcut({ key: 'n', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBe(false)
     expect(isNewThreadShortcut({ key: 'n', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false })).toBe(false)
+  })
+})
+
+describe('ProjectChatSidebar bots and people', () => {
+  it('lists agents (not humans) as bots, running first, and hides their home projects', async () => {
+    const { botHomeProjectIds, toSidebarBots, withoutBotProjects } = await import('./ProjectChatSidebar.logic')
+    const bots = toSidebarBots([
+      { id: 'b-mira', name: 'Mira', agent_status: 'stopped', project_id: 'prj_mira', session_id: 'ses_mira', agent_id: 'app_mira' },
+      { id: 'chief', name: 'Chief of Staff', agent_status: 'running', project_id: 'prj_chief' },
+      { id: 'h-user', name: 'Person', kind: 'human' },
+      { id: '', name: 'Broken' },
+    ])
+    expect(bots.map((bot) => bot.id)).toEqual(['chief', 'b-mira'])
+    expect(bots[1]).toMatchObject({ running: false, agentAppId: 'app_mira', projectId: 'prj_mira', sessionId: 'ses_mira' })
+    expect([...botHomeProjectIds(bots)]).toEqual(['prj_chief', 'prj_mira'])
+    expect(withoutBotProjects([
+      { id: 'prj_chief', name: 'chief-of-staff @ org' },
+      { id: 'prj_app', name: 'App' },
+    ], bots).map((project) => project.id)).toEqual(['prj_app'])
+  })
+
+  it('lists the viewer first, then other members online first, never pending invitations', async () => {
+    const { toSidebarMembers } = await import('./ProjectChatSidebar.logic')
+    const members = toSidebarMembers([
+      { user_id: 'me', user: { id: 'me', full_name: 'Me' }, online: false },
+      { user_id: 'zed', user: { id: 'zed', full_name: 'Zed' }, online: false },
+      { user_id: 'amy', user: { id: 'amy', full_name: 'Amy' }, online: false },
+      { user_id: 'kim', user: { id: 'kim', email: 'kim@example.com' }, online: true },
+      { user_id: 'oin_1', user: { id: 'oin_1', email: 'invited@example.com' } },
+      { user_id: 'ghost' },
+    ], { id: 'me', full_name: 'Me' })
+    expect(members.map((member) => member.userId)).toEqual(['me', 'kim', 'amy', 'zed'])
+    // The viewer is online by definition, whatever the polled flag says.
+    expect(members[0]).toMatchObject({ online: true, isViewer: true })
+    expect(members[1].online).toBe(true)
+  })
+
+  it('caps offline members but always shows online and expanded ones, and searches instead when typing', async () => {
+    const { visibleSidebarMembers } = await import('./ProjectChatSidebar.logic')
+    const members = [
+      { userId: 'on', user: { full_name: 'Online One' }, online: true },
+      ...['a', 'b', 'c', 'd'].map((id) => ({ userId: id, user: { full_name: `Offline ${id}` }, online: false })),
+    ]
+    const capped = visibleSidebarMembers(members, new Set(['d']), '', false, 2)
+    expect(capped.members.map((member) => member.userId)).toEqual(['on', 'a', 'b', 'd'])
+    expect(capped.hiddenCount).toBe(1)
+    expect(visibleSidebarMembers(members, new Set(), '', true, 2).hiddenCount).toBe(0)
+    // A search keeps the usual set (their work is searched) and adds name matches.
+    const searched = visibleSidebarMembers(members, new Set(), 'offline c', false, 2)
+    expect(searched.members.map((member) => member.userId)).toEqual(['on', 'a', 'b', 'c'])
+  })
+
+  it('flattens a person\'s tasks and chats across projects, newest first, keeping the project name', async () => {
+    const { buildPersonChatItems } = await import('./ProjectChatSidebar.logic')
+    const items = buildPersonChatItems(
+      [{ id: 'prj_a', name: 'Alpha' }, { id: 'prj_b', name: 'Beta' }],
+      [
+        { id: 'task_old', project_id: 'prj_a', name: 'Old task', created_at: '2026-09-01T00:00:00Z', last_message_at: '2026-09-02T00:00:00Z' } as any,
+        { id: 'task_new', project_id: 'prj_b', name: 'New task', created_at: '2026-09-03T00:00:00Z', last_message_at: '2026-09-05T00:00:00Z' } as any,
+      ],
+      [
+        { session_id: 'ses_chat', name: 'Loose chat', created: '2026-09-04T00:00:00Z' },
+        { session_id: 'ses_task', name: 'Task session', created: '2026-09-01T00:00:00Z', metadata: { spec_task_id: 'task_old', project_id: 'prj_a' } },
+        // Planning session for a task they created but someone else is assigned to.
+        { session_id: 'ses_handed_off', name: 'Spec Generation: handed off', created: '2026-09-06T00:00:00Z', metadata: { spec_task_id: 'task_theirs', project_id: 'prj_a' } },
+        // The org agent they started: the agent's chat, listed under Org agents, not them.
+        { session_id: 'ses_agent', name: 'Software Engineer', created: '2026-09-07T00:00:00Z', metadata: { org_worker_id: 'b-mira', project_id: 'prj_b' } },
+      ],
+    )
+    expect(items.map((item) => [item.id, item.projectName])).toEqual([
+      ['task_new', 'Beta'],
+      ['ses_chat', undefined],
+      ['task_old', 'Alpha'],
+    ])
+    expect(items[2].session?.session_id).toBe('ses_task')
   })
 })

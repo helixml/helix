@@ -1,4 +1,4 @@
-import { FC, MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { FC, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   closestCenter,
   DndContext,
@@ -28,6 +28,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { useCreateGitRepository, useGitRepositories } from '../../services/gitRepositoryService'
 import { useListHelixOrgBots } from '../../services/helixOrgService'
+import { useOrganizationMembers } from '../../services/orgService'
 import { useListProjects } from '../../services/projectService'
 import { useArchiveSession } from '../../services/sessionService'
 import { useArchiveSpecTask } from '../../services/specTaskService'
@@ -47,16 +48,24 @@ import {
   parseCollapsedGroupIds,
   serializeSidebarParticipantIds,
   sidebarPreferencesStorageKey,
-  sidebarPeopleFilterStorageKey,
+  sidebarExpandedPeopleStorageKey,
   sidebarProjectFilterStorageKey,
   serializeCollapsedGroupIds,
+  parseSidebarGroupBy,
+  sidebarGroupByStorageKey,
+  toSidebarBots,
+  toSidebarMembers,
+  withoutBotProjects,
 } from './ProjectChatSidebar.logic'
-import type { SidebarItem } from './ProjectChatSidebar.logic'
+import type { SidebarGroupBy, SidebarItem } from './ProjectChatSidebar.logic'
+import ProjectChatBotsGroup, { botGroupId } from './ProjectChatBotsGroup'
 import ProjectChatGroup from './ProjectChatGroup'
+import ProjectChatPeopleSection from './ProjectChatPeopleSection'
+import ProjectChatSectionHeader from './ProjectChatSectionHeader'
 import ProjectChatItemContextMenu from './ProjectChatItemContextMenu'
 import type { ProjectChatContextMenuPosition } from './ProjectChatItemContextMenu'
 import ProjectChatProjectContextMenu from './ProjectChatProjectContextMenu'
-import ProjectChatSidebarPeopleFilter from './ProjectChatSidebarPeopleFilter'
+import ProjectChatGroupByControl from './ProjectChatGroupByControl'
 import ProjectChatSidebarOptions from './ProjectChatSidebarOptions'
 import ProjectChatSidebarProjectFilter from './ProjectChatSidebarProjectFilter'
 import SortableProject from './SortableProject'
@@ -86,6 +95,14 @@ const readParticipantIds = (storageKey: string): string[] | null => {
   }
 }
 
+const readGroupBy = (storageKey: string): SidebarGroupBy => {
+  try {
+    return parseSidebarGroupBy(window.localStorage.getItem(storageKey))
+  } catch {
+    return 'project'
+  }
+}
+
 const readProjectFilter = (storageKey: string): string => {
   try {
     return parseSidebarProjectFilter(window.localStorage.getItem(storageKey))
@@ -110,10 +127,12 @@ const ProjectChatSidebar: FC<{
   const storageKey = collapsedGroupsStorageKey(orgSlug)
   const preferencesStorageKey = sidebarPreferencesStorageKey(orgSlug)
   const projectFilterStorageKey = sidebarProjectFilterStorageKey(orgId)
+  const groupByStorageKey = sidebarGroupByStorageKey(orgId)
 
   const [query, setQuery] = useState('')
+  const [groupBy, setGroupBy] = useState<SidebarGroupBy>(() => readGroupBy(groupByStorageKey))
   const [projectFilter, setProjectFilter] = useState(() => readProjectFilter(projectFilterStorageKey))
-  const peopleFilterStorageKey = sidebarPeopleFilterStorageKey(currentUserId, orgSlug, projectFilter)
+  const peopleFilterStorageKey = sidebarExpandedPeopleStorageKey(currentUserId, orgSlug)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
   const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now())
   const [archiveConfirmation, setArchiveConfirmation] = useState<SidebarItem | null>(null)
@@ -141,6 +160,10 @@ const ProjectChatSidebar: FC<{
   }, [projectFilterStorageKey])
 
   useEffect(() => {
+    setGroupBy(readGroupBy(groupByStorageKey))
+  }, [groupByStorageKey])
+
+  useEffect(() => {
     setParticipantIdsOverride(readParticipantIds(peopleFilterStorageKey))
   }, [peopleFilterStorageKey])
 
@@ -149,10 +172,21 @@ const ProjectChatSidebar: FC<{
     return () => window.clearInterval(interval)
   }, [])
 
-  const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
+  const { data: allProjects = [], isLoading: projectsLoading } = useListProjects(orgId, {
     enabled: !!account.user?.id && !!orgId,
     refetchInterval: 10000,
   })
+  // Polled so a bot starting or stopping (and its session appearing) shows
+  // without a reload; the same list drives the org chart's status dots.
+  const { data: orgAgents = [], isLoading: botsLoading } = useListHelixOrgBots({
+    enabled: !!account.user?.id && !!orgId,
+    refetchInterval: 10000,
+  })
+  // Memoised on the query results (stable between fetches) so the project
+  // list keeps its identity for the sort memo and drag handlers downstream.
+  const sidebarBots = useMemo(() => toSidebarBots(orgAgents), [orgAgents])
+  // An agent's own project is its chat; it is listed under Org agents, not Projects.
+  const projects = useMemo(() => withoutBotProjects(allProjects, sidebarBots), [allProjects, sidebarBots])
   const {
     preferences,
     sortedProjects,
@@ -180,9 +214,6 @@ const ProjectChatSidebar: FC<{
       // Persistence is optional when browser storage is unavailable.
     }
   }, [projectFilter, projectFilterStorageKey, projectsLoading, resolvedProjectFilter])
-  const { data: orgAgents = [] } = useListHelixOrgBots({
-    enabled: !!account.user?.id && !!orgId,
-  })
   const orgAgentAppIds = new Set(orgAgents.flatMap((agent) => [
     agent.agent_id,
     agent.agent_app_id,
@@ -196,15 +227,24 @@ const ProjectChatSidebar: FC<{
   const archiveSpecTask = useArchiveSpecTask()
   const { data: pinnedChats = [] } = usePinnedChats(!!account.user?.id)
   const activeItemId = router.params.taskId || router.params.session_id || ''
-  const organizationMembers = account.organizationTools.organization?.memberships || []
+  // The account context loads memberships once; presence needs the polled
+  // list, which also carries the `online` flag.
+  const { data: liveMembers } = useOrganizationMembers(orgId, {
+    enabled: !!account.user?.id && !!orgId,
+    refetchInterval: 30000,
+  })
+  const organizationMembers = liveMembers ?? account.organizationTools.organization?.memberships ?? []
   const memberUserIds = new Set(organizationMembers.flatMap((member) => (
     member.user_id && member.user ? [member.user_id] : []
   )))
   const selectableMembers = currentUserId && !memberUserIds.has(currentUserId) && account.user
     ? [{ user_id: currentUserId, user: account.user }, ...organizationMembers]
     : organizationMembers
-  const selectedParticipantIds = participantIdsOverride === null
-    ? currentUserId ? [currentUserId] : []
+  const sidebarMembers = toSidebarMembers(organizationMembers, account.user)
+  // Members whose work is expanded when grouping by person. Until the viewer
+  // chooses, only their own group is open.
+  const expandedPeopleIds = participantIdsOverride === null
+    ? (currentUserId ? [currentUserId] : [])
     : participantIdsOverride.filter((userId) => userId === currentUserId || memberUserIds.has(userId))
   const {
     dragInProgressRef,
@@ -450,6 +490,15 @@ const ProjectChatSidebar: FC<{
     void performArchive(item)
   }
 
+  const selectGroupBy = (value: SidebarGroupBy) => {
+    setGroupBy(value)
+    try {
+      window.localStorage.setItem(groupByStorageKey, value)
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  }
+
   const updateSelectedParticipantIds = (userIds: string[]) => {
     const selectedUserIds = userIds.filter((userId) => (
       userId === currentUserId || memberUserIds.has(userId)
@@ -463,6 +512,12 @@ const ProjectChatSidebar: FC<{
     } catch {
       // Persistence is optional when browser storage is unavailable.
     }
+  }
+
+  const togglePerson = (userId: string) => {
+    updateSelectedParticipantIds(expandedPeopleIds.includes(userId)
+      ? expandedPeopleIds.filter((expandedId) => expandedId !== userId)
+      : [...expandedPeopleIds, userId])
   }
 
   const selectProjectFilter = (projectId: string) => {
@@ -514,12 +569,7 @@ const ProjectChatSidebar: FC<{
             onVisibleThreadCountChange={setVisibleThreadCount}
           />
         )}
-        <ProjectChatSidebarPeopleFilter
-          members={selectableMembers}
-          currentUser={account.user}
-          selectedUserIds={selectedParticipantIds}
-          onSelectedUserIdsChange={updateSelectedParticipantIds}
-        />
+        {!focusMode && <ProjectChatGroupByControl value={groupBy} onChange={selectGroupBy} />}
         <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
           <IconButton
             size="small"
@@ -557,6 +607,13 @@ const ProjectChatSidebar: FC<{
     </>
   )
   const groupsEnabled = !!account.user?.id && !!orgId
+  // Focus mode is "just this project" and always lays out by project. The
+  // archived view is only about threads, so agents stay out of it. Searching
+  // keeps every section so a query can land on an agent, a thread, or a
+  // colleague; each agent hides itself when nothing of its own matches.
+  const showBotsSection = !focusMode && !showArchived && sidebarBots.length > 0
+  const groupByPerson = !focusMode && groupBy === 'person'
+  const showSectionHeaders = showBotsSection || groupByPerson
 
   return (
     <Box
@@ -659,12 +716,7 @@ const ProjectChatSidebar: FC<{
               onVisibleThreadCountChange={setVisibleThreadCount}
             />
           )}
-          <ProjectChatSidebarPeopleFilter
-            members={selectableMembers}
-            currentUser={account.user}
-            selectedUserIds={selectedParticipantIds}
-            onSelectedUserIdsChange={updateSelectedParticipantIds}
-          />
+          {!focusMode && <ProjectChatGroupByControl value={groupBy} onChange={selectGroupBy} />}
           <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
             <IconButton
               size="small"
@@ -718,12 +770,53 @@ const ProjectChatSidebar: FC<{
           '&::-webkit-scrollbar': { display: 'none' },
         }}
       >
-        {projectsLoading ? (
+        {projectsLoading || (botsLoading && sidebarBots.length === 0) ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress size={22} />
           </Box>
         ) : (
           <>
+            {showBotsSection && (
+              <>
+                <ProjectChatSectionHeader
+                  label="Org agents"
+                  collapsed={collapsedGroups.has('bots')}
+                  onToggle={() => toggleGroup('bots')}
+                />
+                {!collapsedGroups.has('bots') && (
+                  <ProjectChatBotsGroup
+                    orgId={orgId}
+                    bots={sidebarBots}
+                    collapsedGroups={collapsedGroups}
+                    onToggleBot={(botId) => toggleGroup(botGroupId(botId))}
+                    onOpenSession={onOpenSession}
+                    projects={allProjects}
+                    query={query}
+                    activeItemId={activeItemId}
+                    relativeTimeNow={relativeTimeNow}
+                    enabled={groupsEnabled}
+                    threadSortOrder={preferences.threadSortOrder}
+                    visibleThreadCount={preferences.visibleThreadCount}
+                    organizationMembers={selectableMembers}
+                    currentUser={account.user}
+                    pinnedChats={pinnedChats}
+                    archivingItemId={archivingItemId}
+                    onOpenItem={openItem}
+                    onOpenItemContextMenu={openItemContextMenu}
+                    onArchiveItem={requestArchive}
+                  />
+                )}
+              </>
+            )}
+            {showSectionHeaders && !groupByPerson && (
+              <ProjectChatSectionHeader
+                label={showArchived ? 'Archived' : 'Projects'}
+                collapsed={collapsedGroups.has('projects')}
+                onToggle={() => toggleGroup('projects')}
+              />
+            )}
+            {!groupByPerson && !(showSectionHeaders && collapsedGroups.has('projects')) && (
+            <>
             {!focusMode && <ProjectChatGroup
               orgId={orgId}
               collapsed={effectiveCollapsedGroups.has('default')}
@@ -733,10 +826,9 @@ const ProjectChatSidebar: FC<{
               enabled={groupsEnabled}
               threadSortOrder={preferences.threadSortOrder}
               visibleThreadCount={preferences.visibleThreadCount}
-              participantIds={selectedParticipantIds}
+              participantIds={currentUserId ? [currentUserId] : []}
               organizationMembers={selectableMembers}
               currentUser={account.user}
-              showTaskAvatars={selectedParticipantIds.some((userId) => userId !== currentUserId)}
               archived={showArchived}
               pinnedChats={pinnedChats}
               archivingItemId={archivingItemId}
@@ -773,10 +865,10 @@ const ProjectChatSidebar: FC<{
                         enabled={groupsEnabled}
                         threadSortOrder={preferences.threadSortOrder}
                         visibleThreadCount={preferences.visibleThreadCount}
-                        participantIds={selectedParticipantIds}
+                        allMembers
+                        showTaskAvatars
                         organizationMembers={selectableMembers}
                         currentUser={account.user}
-                        showTaskAvatars={selectedParticipantIds.some((userId) => userId !== currentUserId)}
                         archived={showArchived}
                         pinnedChats={pinnedChats}
                         archivingItemId={archivingItemId}
@@ -798,6 +890,40 @@ const ProjectChatSidebar: FC<{
                 )] : [])}
               </SortableContext>
             </DndContext>
+            </>
+            )}
+            {groupByPerson && (
+              <>
+                <ProjectChatSectionHeader
+                  label={showArchived ? 'Archived' : 'People'}
+                  collapsed={collapsedGroups.has('people')}
+                  onToggle={() => toggleGroup('people')}
+                />
+                {!collapsedGroups.has('people') && (
+                  <ProjectChatPeopleSection
+                    orgId={orgId}
+                    members={sidebarMembers}
+                    selectedUserIds={expandedPeopleIds}
+                    onToggleMember={togglePerson}
+                    projects={allProjects}
+                    query={query}
+                    activeItemId={activeItemId}
+                    relativeTimeNow={relativeTimeNow}
+                    enabled={groupsEnabled}
+                    threadSortOrder={preferences.threadSortOrder}
+                    visibleThreadCount={preferences.visibleThreadCount}
+                    archived={showArchived}
+                    organizationMembers={selectableMembers}
+                    currentUser={account.user}
+                    pinnedChats={pinnedChats}
+                    archivingItemId={archivingItemId}
+                    onOpenItem={openItem}
+                    onOpenItemContextMenu={openItemContextMenu}
+                    onArchiveItem={requestArchive}
+                  />
+                )}
+              </>
+            )}
           </>
         )}
       </Box>

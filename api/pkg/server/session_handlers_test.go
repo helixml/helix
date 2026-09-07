@@ -1147,3 +1147,228 @@ func (s *SessionProviderRefValidationSuite) TestPeRef_NotFound_Rejected() {
 	s.Require().Error(err)
 	s.Contains(err.Error(), "not found")
 }
+
+// -----------------------------------------------------------------------------
+// listSessions?owner_id= — another member's sessions
+// -----------------------------------------------------------------------------
+
+func (s *SessionAuthzSuite) expectOrgLookupAndMembership(role types.OrganizationRole) {
+	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{
+		ID: s.orgID,
+	}).Return(&types.Organization{ID: s.orgID}, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           role,
+	}, nil).AnyTimes() // re-read per project by authorizeUserToProject
+}
+
+// A plain member only sees a colleague's sessions through projects they can
+// read themselves: their own project and an org-members-access project, but
+// not a private project owned by someone else.
+func (s *SessionAuthzSuite) TestListSessions_OwnerID_MemberRestrictedToVisibleProjects() {
+	colleagueID := "user_colleague"
+	s.expectOrgLookupAndMembership(types.OrganizationRoleMember)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         colleagueID,
+	}).Return(&types.OrganizationMembership{OrganizationID: s.orgID, UserID: colleagueID}, nil)
+	s.store.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
+		OrganizationID: s.orgID,
+	}).Return([]*types.Project{
+		{ID: "prj_mine", OrganizationID: s.orgID, UserID: s.userID},
+		{ID: "prj_shared", OrganizationID: s.orgID, UserID: colleagueID, Metadata: types.ProjectMetadata{OrgMembersAccess: true}},
+		{ID: "prj_private", OrganizationID: s.orgID, UserID: colleagueID},
+	}, nil)
+	// prj_private falls through to RBAC, which finds no teams or grants.
+	s.store.EXPECT().ListTeams(gomock.Any(), gomock.Any()).Return([]*types.Team{}, nil)
+	s.store.EXPECT().ListAccessGrants(gomock.Any(), gomock.Any()).Return([]*types.AccessGrant{}, nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:              colleagueID,
+		OwnerType:          types.OwnerTypeUser,
+		OrganizationID:     s.orgID,
+		Page:               0,
+		PerPage:            50,
+		ExcludeArchived:    true,
+		RestrictToProjects: true,
+		ProjectIDs:         []string{"prj_mine", "prj_shared"},
+	}).Return([]*types.Session{{ID: "ses_theirs", Owner: colleagueID}}, int64(1), nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID+"&owner_id="+colleagueID, http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.NoError(err)
+	s.Require().Len(result.Sessions, 1)
+	s.Equal("ses_theirs", result.Sessions[0].SessionID)
+	s.Equal(colleagueID, result.Sessions[0].Owner)
+}
+
+// An org owner sees a colleague's work in every project, but still only
+// project work: chats outside any project are personal.
+func (s *SessionAuthzSuite) TestListSessions_OwnerID_OrgOwnerBoundedToAllProjects() {
+	colleagueID := "user_colleague"
+	s.expectOrgLookupAndMembership(types.OrganizationRoleOwner)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         colleagueID,
+	}).Return(&types.OrganizationMembership{OrganizationID: s.orgID, UserID: colleagueID}, nil)
+	s.store.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
+		OrganizationID: s.orgID,
+	}).Return([]*types.Project{
+		{ID: "prj_a", OrganizationID: s.orgID, UserID: colleagueID},
+		{ID: "prj_b", OrganizationID: s.orgID, UserID: "user_other"},
+	}, nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:              colleagueID,
+		OwnerType:          types.OwnerTypeUser,
+		OrganizationID:     s.orgID,
+		Page:               0,
+		PerPage:            50,
+		ExcludeArchived:    true,
+		RestrictToProjects: true,
+		ProjectIDs:         []string{"prj_a", "prj_b"},
+	}).Return([]*types.Session{}, int64(0), nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID+"&owner_id="+colleagueID, http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	_, err := s.server.listSessions(httptest.NewRecorder(), req)
+	s.NoError(err)
+}
+
+// A sandbox's session key belongs to an org owner but is scoped to one
+// project; through it the agent must not reach a colleague's other work.
+func (s *SessionAuthzSuite) TestListSessions_OwnerID_ProjectScopedKeyStaysInItsProject() {
+	colleagueID := "user_colleague"
+	s.expectOrgLookupAndMembership(types.OrganizationRoleOwner)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         colleagueID,
+	}).Return(&types.OrganizationMembership{OrganizationID: s.orgID, UserID: colleagueID}, nil)
+	s.store.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
+		OrganizationID: s.orgID,
+	}).Return([]*types.Project{
+		{ID: "prj_a", OrganizationID: s.orgID, UserID: colleagueID},
+		{ID: "prj_b", OrganizationID: s.orgID, UserID: "user_other"},
+	}, nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:              colleagueID,
+		OwnerType:          types.OwnerTypeUser,
+		OrganizationID:     s.orgID,
+		Page:               0,
+		PerPage:            50,
+		ExcludeArchived:    true,
+		RestrictToProjects: true,
+		ProjectIDs:         []string{"prj_b"},
+	}).Return([]*types.Session{}, int64(0), nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID+"&owner_id="+colleagueID, http.NoBody)
+	req = req.WithContext(setRequestUser(context.Background(), types.User{ID: s.userID, ProjectID: "prj_b"}))
+
+	_, err := s.server.listSessions(httptest.NewRecorder(), req)
+	s.NoError(err)
+}
+
+func (s *SessionAuthzSuite) TestListSessions_OwnerID_NotAMember() {
+	s.expectOrgLookupAndMembership(types.OrganizationRoleOwner)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         "user_stranger",
+	}).Return(nil, store.ErrNotFound)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID+"&owner_id=user_stranger", http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	_, err := s.server.listSessions(httptest.NewRecorder(), req)
+	assertHTTPError(s, err, http.StatusNotFound)
+}
+
+func (s *SessionAuthzSuite) TestListSessions_OwnerID_RequiresOrg() {
+	req := httptest.NewRequest("GET", "/api/v1/sessions?owner_id=user_colleague", http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	_, err := s.server.listSessions(httptest.NewRecorder(), req)
+	assertHTTPError(s, err, http.StatusBadRequest)
+}
+
+// owner_id equal to the caller is the ordinary personal listing.
+func (s *SessionAuthzSuite) TestListSessions_OwnerID_SelfIsPlainListing() {
+	s.expectOrgLookupAndMembership(types.OrganizationRoleMember)
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:           s.userID,
+		OrganizationID:  s.orgID,
+		Page:            0,
+		PerPage:         50,
+		ExcludeArchived: true,
+	}).Return([]*types.Session{}, int64(0), nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID+"&owner_id="+s.userID, http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	_, err := s.server.listSessions(httptest.NewRecorder(), req)
+	s.NoError(err)
+}
+
+// -----------------------------------------------------------------------------
+// listSessions?all_members=true — every member's chats in one project
+// -----------------------------------------------------------------------------
+
+func (s *SessionAuthzSuite) TestListSessions_AllMembers_ProjectAccessDropsOwnerFilter() {
+	s.expectOrgLookupAndMembership(types.OrganizationRoleMember)
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_shared").Return(&types.Project{
+		ID:             "prj_shared",
+		OrganizationID: s.orgID,
+		UserID:         "user_other",
+		Metadata:       types.ProjectMetadata{OrgMembersAccess: true},
+	}, nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:           s.userID,
+		OrganizationID:  s.orgID,
+		ProjectID:       "prj_shared",
+		ProjectScope:    "project",
+		Page:            0,
+		PerPage:         50,
+		ExcludeArchived: true,
+		AnyOwner:        true,
+	}).Return([]*types.Session{{ID: "ses_theirs", Owner: "user_other"}}, int64(1), nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID+"&project_id=prj_shared&project_scope=project&all_members=true", http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+	s.NoError(err)
+	s.Require().Len(result.Sessions, 1)
+	s.Equal("user_other", result.Sessions[0].Owner)
+}
+
+func (s *SessionAuthzSuite) TestListSessions_AllMembers_RequiresProjectScope() {
+	s.expectOrgLookupAndMembership(types.OrganizationRoleMember)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID+"&all_members=true", http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	_, err := s.server.listSessions(httptest.NewRecorder(), req)
+	assertHTTPError(s, err, http.StatusBadRequest)
+}
+
+func (s *SessionAuthzSuite) TestListSessions_AllMembers_DeniedWithoutProjectAccess() {
+	s.expectOrgLookupAndMembership(types.OrganizationRoleMember)
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_private").Return(&types.Project{
+		ID:             "prj_private",
+		OrganizationID: s.orgID,
+		UserID:         "user_other",
+	}, nil)
+	s.store.EXPECT().ListTeams(gomock.Any(), gomock.Any()).Return([]*types.Team{}, nil)
+	s.store.EXPECT().ListAccessGrants(gomock.Any(), gomock.Any()).Return([]*types.AccessGrant{}, nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID+"&project_id=prj_private&project_scope=project&all_members=true", http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	_, err := s.server.listSessions(httptest.NewRecorder(), req)
+	assertHTTPError(s, err, http.StatusForbidden)
+}

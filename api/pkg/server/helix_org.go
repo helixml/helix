@@ -634,7 +634,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// (Agent settings page): a saved system-prompt change is just as
 	// restart-sensitive as a Node.Content edit, but it lands on the App
 	// row, not the Node, so it needs its own App→Node resolution step.
-	cfg.APIServer.orgAgentInstructionsChanged = func(ctx context.Context, appID string) {
+	cfg.APIServer.orgAgentConfigChanged = func(ctx context.Context, appID string) {
 		stampRestartRequiredForApp(context.WithoutCancel(ctx), st, cfg.APIServer.Store, cfg.APIServer.Store, appID)
 	}
 

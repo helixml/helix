@@ -18,10 +18,10 @@ import (
 )
 
 // lastSeenThrottle limits how often we write users.last_seen_at.
-// Hot-path auth runs on every request; 5 minutes of resolution is plenty
-// for the "when was this user last active" UI while keeping the write
-// rate trivially low.
-const lastSeenThrottle = 5 * time.Minute
+// Hot-path auth runs on every request; one write per user per minute keeps
+// the rate trivially low while giving org presence (types.PresenceOnlineWindow)
+// minute-level resolution. Keep it below PresenceOnlineWindow.
+const lastSeenThrottle = time.Minute
 
 var (
 	// Allowed paths for app API keys. Currently we support
@@ -106,13 +106,19 @@ func looksLikeHelixJWT(token string) bool {
 
 // touchUserLastSeen records that the user just authenticated. The write is
 // throttled per-user by lastSeenThrottle to keep the cost negligible even on
-// hot paths. Runner / empty users are skipped. The DB write runs in a detached
-// goroutine so the request context cancellation does not abort it.
+// hot paths. Runner / empty users are skipped, as are session-scoped API keys:
+// those are minted for sandboxes and org agents acting on a human's behalf,
+// and an agent polling the API all night must not make its owner look online.
+// The DB write runs in a detached goroutine so the request context
+// cancellation does not abort it.
 func (auth *authMiddleware) touchUserLastSeen(user *types.User) {
 	if user == nil || user.ID == "" {
 		return
 	}
 	if user.TokenType == types.TokenTypeRunner {
+		return
+	}
+	if user.TokenType == types.TokenTypeAPIKey && user.SessionID != "" {
 		return
 	}
 

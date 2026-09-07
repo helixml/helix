@@ -1048,6 +1048,42 @@ func appSystemPrompt(app *types.App) string {
 	return app.Config.Helix.Assistants[0].SystemPrompt
 }
 
+// appAgentRuntimeConfig is the part of an App's assistant that a running
+// helix-org sandbox bakes in at process start: the ACP agent binary is spawned
+// with the model, provider and reasoning effort in its environment (see the
+// opencode agent_servers config the settings daemon writes), so none of these
+// reach a live agent until it is restarted. Compared before and after a save
+// to decide whether to arm the restart-required banner.
+type agentRuntimeConfig struct {
+	systemPrompt            string
+	codeAgentRuntime        types.CodeAgentRuntime
+	codeAgentCredentialType types.CodeAgentCredentialType
+	provider                string
+	model                   string
+	reasoningEffort         string
+	generationModelProvider string
+	generationModel         string
+	claudeSubscriptionModel string
+}
+
+func appAgentRuntimeConfig(app *types.App) agentRuntimeConfig {
+	if app == nil || len(app.Config.Helix.Assistants) == 0 {
+		return agentRuntimeConfig{}
+	}
+	a := app.Config.Helix.Assistants[0]
+	return agentRuntimeConfig{
+		systemPrompt:            a.SystemPrompt,
+		codeAgentRuntime:        a.CodeAgentRuntime,
+		codeAgentCredentialType: a.CodeAgentCredentialType,
+		provider:                a.Provider,
+		model:                   a.Model,
+		reasoningEffort:         a.ReasoningEffort,
+		generationModelProvider: a.GenerationModelProvider,
+		generationModel:         a.GenerationModel,
+		claudeSubscriptionModel: a.ClaudeSubscriptionModel,
+	}
+}
+
 // updateAgent godoc
 // @Summary Update an existing agent
 // @Description Update existing agent
@@ -1167,13 +1203,14 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// A changed system prompt is restart-sensitive for any helix-org Bot
-	// backed by this App: the running sandbox's AGENTS.md/CLAUDE.md was
-	// materialized from the old prompt. s.orgAgentInstructionsChanged is
-	// nil when helix-org isn't mounted, and a no-op save (prompt
-	// unchanged) must not fire it.
-	if s.orgAgentInstructionsChanged != nil && appSystemPrompt(existing) != appSystemPrompt(updated) {
-		s.orgAgentInstructionsChanged(r.Context(), updated.ID)
+	// A changed system prompt, model, provider, runtime or effort is
+	// restart-sensitive for any helix-org Bot backed by this App: the running
+	// sandbox materialized AGENTS.md/CLAUDE.md from the old prompt and spawned
+	// its agent process with the old model in its environment.
+	// s.orgAgentConfigChanged is nil when helix-org isn't mounted, and a no-op
+	// save must not fire it.
+	if s.orgAgentConfigChanged != nil && appAgentRuntimeConfig(existing) != appAgentRuntimeConfig(updated) {
+		s.orgAgentConfigChanged(r.Context(), updated.ID)
 	}
 
 	restore := func(updateErr error) *system.HTTPError {

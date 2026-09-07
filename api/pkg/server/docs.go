@@ -17491,6 +17491,18 @@ const docTemplate = `{
                         "description": "Return only archived sessions instead of only unarchived ones",
                         "name": "archived",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "List another org member's sessions (requires org_id); limited to projects the caller can access unless they own the org",
+                        "name": "owner_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "List every member's chats in one project (requires org_id, project_id and project_scope=project)",
+                        "name": "all_members",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -19700,7 +19712,7 @@ const docTemplate = `{
         },
         "/api/v1/spec-tasks": {
             "get": {
-                "description": "List spec-driven tasks with optional filtering by project, status, or user",
+                "description": "List spec-driven tasks with optional filtering by project, status, or user. Pass organization_id instead of project_id to list across every project the caller can access.",
                 "produces": [
                     "application/json"
                 ],
@@ -19711,10 +19723,15 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Project ID",
+                        "description": "Project ID (required unless organization_id is set)",
                         "name": "project_id",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID: list tasks across all accessible projects",
+                        "name": "organization_id",
+                        "in": "query"
                     },
                     {
                         "type": "string",
@@ -19732,6 +19749,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Filter by creator or assignee user IDs (comma-separated, OR semantics)",
                         "name": "participant_ids",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only tasks created by this helix-org agent (bot handle)",
+                        "name": "created_by_org_agent",
                         "in": "query"
                     },
                     {
@@ -23617,6 +23640,9 @@ const docTemplate = `{
                     "description": "RestartRequired is true when the sandbox is running but still holds\nthe tool list and instructions from before the last save. Drives the\nrestart banner on the bot page and the org chat panel.",
                     "type": "boolean"
                 },
+                "session_id": {
+                    "type": "string"
+                },
                 "tools": {
                     "type": "array",
                     "items": {
@@ -23868,6 +23894,10 @@ const docTemplate = `{
                     "description": "PreserveContext, when true, stops the runtime from wiping this\nBot's chat session before each re-activation, so it accumulates\ncontext across triggers (e.g. Slack). Defaults to false.",
                     "type": "boolean"
                 },
+                "project_id": {
+                    "description": "ProjectID is the bot's own Helix project — the one whose exploratory\nsession is the bot's chat. SessionID is that session, when the bot\nhas been activated. Both come from runtime state and let the chat\nsidebar list bots as top-level entries instead of surfacing their\nproject like an ordinary one.",
+                    "type": "string"
+                },
                 "project_ids": {
                     "type": "array",
                     "items": {
@@ -23883,6 +23913,9 @@ const docTemplate = `{
                 "restart_required": {
                     "description": "RestartRequired is true when the sandbox is running but still holds\nthe tool list and instructions from before the last save. Drives the\nrestart banner on the bot page and the org chat panel.",
                     "type": "boolean"
+                },
+                "session_id": {
+                    "type": "string"
                 },
                 "tools": {
                     "type": "array",
@@ -28513,24 +28546,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "helix_events",
                 "email",
-                "webhook",
-                "slack",
-                "gitlab",
                 "local",
+                "cron",
+                "webhook",
                 "github",
-                "cron"
+                "gitlab",
+                "helix_events",
+                "slack"
             ],
             "x-enum-varnames": [
-                "KindHelixEvents",
                 "KindEmail",
-                "KindWebhook",
-                "KindSlack",
-                "KindGitLab",
                 "KindLocal",
+                "KindCron",
+                "KindWebhook",
                 "KindGitHub",
-                "KindCron"
+                "KindGitLab",
+                "KindHelixEvents",
+                "KindSlack"
             ]
         },
         "transport.ResolvedActivation": {
@@ -34799,6 +34832,10 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "online": {
+                    "description": "Online is true when the member has authenticated against the API within\nPresenceOnlineWindow. Computed by the members list, never persisted.",
+                    "type": "boolean"
+                },
                 "organization_id": {
                     "type": "string"
                 },
@@ -36153,6 +36190,10 @@ const docTemplate = `{
                 "author": {
                     "type": "string"
                 },
+                "base_sha": {
+                    "description": "BaseSHA is the commit SHA on the target side of the PR. CI failures on\nthe head are only actionable when CI passed on this commit.",
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -36456,6 +36497,12 @@ const docTemplate = `{
         "types.RepoPR": {
             "type": "object",
             "properties": {
+                "ci_base_sha": {
+                    "type": "string"
+                },
+                "ci_base_status": {
+                    "type": "string"
+                },
                 "ci_head_sha": {
                     "type": "string"
                 },
@@ -38645,6 +38692,10 @@ const docTemplate = `{
                     "description": "Metadata",
                     "type": "string"
                 },
+                "created_by_org_agent": {
+                    "description": "CreatedByOrgAgent is the helix-org agent (org bot handle) that created\nthis task, when an agent rather than a person did. CreatedBy stays the\nhuman the agent acts for; this records the agent so its work can be\nlisted under it.",
+                    "type": "string"
+                },
                 "credential_owner_id": {
                     "description": "CredentialOwnerID names the user whose Claude subscription authenticates\nthis task's agent sessions, when that differs from CreatedBy. It changes\nONLY credential resolution — the task and its sessions are still owned by,\nand attributed to, CreatedBy. Nothing \"runs as\" the credential owner.\n\nThis exists for orchestrators (HelixOS) that dispatch every task with one\nservice API key but run work on behalf of different humans: without it the\nservice account's subscription authenticates everyone's bots, so one\nperson's expired token breaks all of them and no one can use their own\nClaude account.\n\nHonoured only when the named user has delegated their subscription to this\norganization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able\nto create a task could spend another user's Claude quota. See\nResolveClaudeCredentialOwner.",
                     "type": "string"
@@ -39501,6 +39552,10 @@ const docTemplate = `{
                 },
                 "created_by": {
                     "description": "Metadata",
+                    "type": "string"
+                },
+                "created_by_org_agent": {
+                    "description": "CreatedByOrgAgent is the helix-org agent (org bot handle) that created\nthis task, when an agent rather than a person did. CreatedBy stays the\nhuman the agent acts for; this records the agent so its work can be\nlisted under it.",
                     "type": "string"
                 },
                 "credential_owner_id": {
