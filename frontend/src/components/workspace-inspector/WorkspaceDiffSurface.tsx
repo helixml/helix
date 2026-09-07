@@ -521,7 +521,6 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
         <Box
           ref={diffContainerRef}
           sx={{ flex: 1, minHeight: 0 }}
-          onPointerDownCapture={() => setSelectingText(true)}
           onClickCapture={(event) => {
             const { path } = headerPathFromEvent(event);
             if (path) onOpenFile(path);
