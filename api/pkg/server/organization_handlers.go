@@ -81,6 +81,11 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 		// Get all organizations the user is a member of
 		var organizations []*types.Organization
 		for _, membership := range memberships {
+			// An organization API key sees only the organization it is
+			// scoped to, even when its creator belongs to several.
+			if isOrgScopedKey(user) && membership.OrganizationID != user.OrganizationID {
+				continue
+			}
 			org, err := apiServer.Store.GetOrganization(r.Context(), &store.GetOrganizationQuery{
 				ID: membership.OrganizationID,
 			})
@@ -208,11 +213,12 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 	}
 
 	if _, err := apiServer.authorizeOrgMember(r.Context(), user, organization.ID); err != nil {
-		// Only a missing membership row is a permission answer. Any other
-		// store error (connection failure, timeout) is a server fault, and
+		// Only a missing membership row, or an organization API key pointed
+		// at another org, is a permission answer. Any other store error
+		// (connection failure, timeout) is a server fault, and
 		// reporting it as 403 is actively harmful: the frontend treats 403 as
 		// permanent and evicts the user from an org they can fully access.
-		if !errors.Is(err, store.ErrNotFound) {
+		if !errors.Is(err, store.ErrNotFound) && !errors.Is(err, errOrgScopedKey) {
 			log.Err(err).Msg("error checking org membership")
 			http.Error(rw, "Could not check org membership: "+err.Error(), http.StatusInternalServerError)
 			return

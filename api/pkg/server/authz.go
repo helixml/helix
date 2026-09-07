@@ -19,11 +19,17 @@ func (apiServer *HelixAPIServer) orgAuthorizer() *orgstore.Authorizer {
 
 // authorizeOrgOwner checks if the user is an owner of the organization.
 func (apiServer *HelixAPIServer) authorizeOrgOwner(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
+	if err := enforceKeyOrgScope(user, orgID); err != nil {
+		return nil, err
+	}
 	return apiServer.orgAuthorizer().AuthorizeOrgOwner(ctx, user, orgID)
 }
 
 // authorizeOrgMember checks if the user is a member of the organization.
 func (apiServer *HelixAPIServer) authorizeOrgMember(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
+	if err := enforceKeyOrgScope(user, orgID); err != nil {
+		return nil, err
+	}
 	return apiServer.orgAuthorizer().AuthorizeOrgMember(ctx, user, orgID)
 }
 
@@ -35,6 +41,16 @@ func (apiServer *HelixAPIServer) resolveOrgID(ctx context.Context, orgRef string
 	org, err := apiServer.lookupOrg(ctx, orgRef)
 	if err != nil {
 		return "", err
+	}
+
+	// An organization API key stays inside its own organization even when
+	// its creator belongs to several (or is a global admin). Resolving the
+	// org from a request-supplied reference is the choke point where the
+	// target org first becomes known, so refuse out-of-org references here.
+	if u := userFromContext(ctx); u != nil {
+		if err := enforceKeyOrgScope(u, org.ID); err != nil {
+			return "", err
+		}
 	}
 
 	return org.ID, nil
@@ -176,6 +192,36 @@ func enforceKeyProjectScope(user *types.User, projectID string) error {
 		return nil
 	}
 	return fmt.Errorf("%w: key is scoped to project %s, request targets %s", errProjectScopedKey, user.ProjectID, projectID)
+}
+
+// errOrgScopedKey is returned when an organization API key is used against
+// a different organization.
+var errOrgScopedKey = errors.New("credential is scoped to another organization")
+
+// isOrgScopedKey reports whether the request authenticated with a
+// user-managed organization API key (created via createOrgAPIKey). Such a
+// key authenticates as whoever created it, so without confinement it
+// inherits that user's full reach: global admins keep admin powers and
+// multi-org members reach their other organizations. Requiring an empty
+// SessionID/SpecTaskID distinguishes these keys from ephemeral session keys,
+// which also carry an OrganizationID but only for attribution and keep their
+// existing scope.
+func isOrgScopedKey(user *types.User) bool {
+	return user != nil &&
+		user.TokenType == types.TokenTypeAPIKey &&
+		user.APIKeyType == types.APIkeytypeAPI &&
+		user.OrganizationID != "" &&
+		user.SessionID == "" &&
+		user.SpecTaskID == ""
+}
+
+// enforceKeyOrgScope confines an organization API key to its own
+// organization.
+func enforceKeyOrgScope(user *types.User, orgID string) error {
+	if !isOrgScopedKey(user) || user.OrganizationID == orgID {
+		return nil
+	}
+	return fmt.Errorf("%w: key is scoped to organization %s, request targets %s", errOrgScopedKey, user.OrganizationID, orgID)
 }
 
 func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, user *types.User, project *types.Project, action types.Action) error {

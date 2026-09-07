@@ -139,12 +139,19 @@ func setRequestUser(ctx context.Context, user types.User) context.Context {
 	return context.WithValue(ctx, userKey, user)
 }
 
-func getRequestUser(req *http.Request) *types.User {
-	// First check if user was set in context (e.g., by socket middleware)
-	userIntf := req.Context().Value(userKey)
+func userFromContext(ctx context.Context) *types.User {
+	userIntf := ctx.Value(userKey)
 	if userIntf != nil {
 		user := userIntf.(types.User)
 		return &user
+	}
+	return nil
+}
+
+func getRequestUser(req *http.Request) *types.User {
+	// First check if user was set in context (e.g., by socket middleware)
+	if user := userFromContext(req.Context()); user != nil {
+		return user
 	}
 
 	// Check if this is a socket request by looking at the underlying connection type

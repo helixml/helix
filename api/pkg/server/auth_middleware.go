@@ -226,7 +226,6 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.APIKeyType = apiKey.Type
 		user.ID = apiKey.Owner
 		user.Type = apiKey.OwnerType
-		user.Admin = auth.isAdminWithContext(ctx, user.ID)
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}
@@ -234,6 +233,15 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.SpecTaskID = apiKey.SpecTaskID
 		user.SessionID = apiKey.SessionID
 		user.OrganizationID = apiKey.OrganizationID
+
+		// An organization API key authenticates as its creator but is
+		// scoped to the organization it was minted for: it must never
+		// inherit the creator's global admin rights, whoever they are.
+		if isOrgScopedKey(user) {
+			user.Admin = false
+		} else {
+			user.Admin = auth.isAdminWithContext(ctx, user.ID)
+		}
 
 		// Ensure user_meta exists with slug for GitHub-style URLs
 		if user.ID != "" {
