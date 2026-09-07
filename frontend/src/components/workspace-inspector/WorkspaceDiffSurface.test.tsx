@@ -159,6 +159,8 @@ describe("WorkspaceDiffSurface", () => {
     });
     const onUpsertComment = vi.fn();
     renderSurface({ comments: [], onUpsertComment, onRemoveComment: vi.fn() });
+    mocks.codeViewProps!.items[0].fileDiff.cacheKey = "parsed-after-render";
+    const initialVersion = mocks.codeViewProps!.items[0].version;
 
     act(() => {
       mocks.codeViewProps?.options.onLineSelectionEnd(
@@ -166,6 +168,7 @@ describe("WorkspaceDiffSurface", () => {
         { item: mocks.codeViewProps.items[0] },
       );
     });
+    expect(mocks.codeViewProps!.items[0].version).not.toBe(initialVersion);
     const input = screen.getByRole("textbox", { name: "Comment on line 2" });
     fireEvent.change(input, { target: { value: "Keep this." } });
     fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
@@ -188,6 +191,7 @@ describe("WorkspaceDiffSurface", () => {
 
     fireEvent.pointerDown(screen.getByTestId("code-view"));
 
+    expect(mocks.codeViewProps?.onSelectedLinesChange).toBeUndefined();
     expect(mocks.live.mock.calls).toHaveLength(1);
     expect(mocks.live.mock.calls[0][5]).toBe(true);
   });
