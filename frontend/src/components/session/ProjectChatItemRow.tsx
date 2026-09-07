@@ -492,7 +492,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
                 fontWeight: 400,
                 color: active
                   ? (lightTheme.isLight ? 'rgba(39,39,42,0.68)' : 'rgba(241,243,247,0.72)')
-                  : (lightTheme.isLight ? 'rgba(113,113,122,0.8)' : 'rgba(163,163,163,0.65)'),
+                  : (lightTheme.isLight ? 'rgba(113,113,122,0.8)' : 'rgba(200,200,206,0.8)'),
               }}
             >
               {projectName}
