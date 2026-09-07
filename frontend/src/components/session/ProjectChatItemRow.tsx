@@ -1,57 +1,22 @@
-import { FC, MouseEvent, ReactElement, useState } from 'react'
+import { FC, MouseEvent, ReactElement } from 'react'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { keyframes } from '@mui/material/styles'
-import { Archive, ArchiveRestore, Folder, GitBranch, GitPullRequest, Pin } from 'lucide-react'
+import { Archive, ArchiveRestore, GitBranch, Pin } from 'lucide-react'
 
 import type { TypesOrganizationMembership, TypesUser } from '../../api/api'
 import useApps from '../../hooks/useApps'
 import useIsPhone from '../../hooks/useIsPhone'
 import useLightTheme from '../../hooks/useLightTheme'
-import { useGetProjectRepositories } from '../../services/projectService'
 import AgentHarness from '../agent/AgentHarness'
 import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
+import { activeStatusDotPulse, ProjectRowIcon, StackedTaskStatusIcons, TaskStatusIcons } from './ProjectChatItemBadges'
 import { getProjectChatItemDetails, resolveProjectChatItemBranch } from './projectChatItemDetails'
-import { compactRelativeTime, getSidebarPullRequestIcon, getSidebarTaskStatus, githubOrgAvatarUrl, isActiveSidebarTask } from './ProjectChatSidebar.logic'
+import { compactRelativeTime, getSidebarPullRequestIcon, getSidebarTaskStatus, isActiveSidebarTask } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
-
-const activeStatusDotPulse = keyframes`
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-`
-
-// Project glyph for the stacked (cross-project) row: the GitHub owner avatar
-// when the project's repo lives on github.com, the generic folder otherwise —
-// including when the avatar can't load (air-gapped deployments never reach
-// github.com, so the broken-image state must degrade to the folder).
-const ProjectRowIcon: FC<{ projectId?: string }> = ({ projectId }) => {
-  const repositoriesQuery = useGetProjectRepositories(projectId || '', !!projectId)
-  // Track which URL failed rather than a boolean so a URL change (repos
-  // resolving late, project reassignment) gets a fresh attempt.
-  const [failedUrl, setFailedUrl] = useState<string | null>(null)
-  const avatarUrl = githubOrgAvatarUrl(repositoriesQuery.data || [])
-  if (avatarUrl && avatarUrl !== failedUrl) {
-    return (
-      <Box
-        component="img"
-        key={avatarUrl}
-        src={avatarUrl}
-        alt=""
-        onError={() => setFailedUrl(avatarUrl)}
-        sx={{ width: 14, height: 14, borderRadius: '3px', flexShrink: 0, display: 'block' }}
-      />
-    )
-  }
-  return <Folder size={12} style={{ opacity: 0.72, flexShrink: 0 }} />
-}
 
 export type ProjectChatItemRowProps = {
   item: SidebarItem
@@ -147,7 +112,18 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         : stacked
           // Static content sizes the slot so a status label wider than the
           // 28px timestamp column still fits; the archive button overlays it.
-          ? { minWidth: 28, height: 16, flexShrink: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }
+          // Without hover the overlay would hide the time forever, so
+          // touch devices get the phone treatment: side by side.
+          ? {
+              minWidth: 28,
+              height: 16,
+              flexShrink: 0,
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              '@media (hover: none)': { gap: 0.5 },
+            }
           : { width: 28, height: 28, flexShrink: 0, position: 'relative' }}
     >
       <Typography
@@ -194,6 +170,9 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
             ...(isPhone
               ? { position: 'static', width: 28, height: 28 }
               : { position: 'absolute', top: stacked ? -6 : 0, right: 0, bottom: stacked ? -6 : 0, width: 20, height: 28 }),
+            ...(!isPhone && stacked && {
+              '@media (hover: none)': { position: 'static', top: 'auto', bottom: 'auto', height: 20 },
+            }),
             opacity: 0,
             color: 'inherit',
             transition: 'opacity 100ms ease',
@@ -208,55 +187,11 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   )
 
   const statusIcons = item.kind === 'spec-task' && (
-    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
-      <Tooltip title={pullRequestIcon?.tooltip || ''}>
-        <Box
-          component="a"
-          href={pullRequestIcon?.url}
-          target={pullRequestIcon?.url ? '_blank' : undefined}
-          rel={pullRequestIcon?.url ? 'noopener noreferrer' : undefined}
-          aria-label={pullRequestIcon?.tooltip}
-          onMouseOver={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation()
-            if (!pullRequestIcon?.url) event.preventDefault()
-          }}
-          sx={{
-            display: 'inline-flex',
-            color: pullRequestIcon?.color || 'currentColor',
-            cursor: pullRequestIcon?.url ? 'pointer' : 'default',
-          }}
-        >
-          <GitPullRequest size={13} />
-        </Box>
-      </Tooltip>
-      {status && (
-        <Tooltip title={status.tooltip || ''} disableHoverListener={!status.tooltip}>
-          <Box
-            onMouseOver={(event) => event.stopPropagation()}
-            sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45 }}
-          >
-            <Box
-              sx={{
-                width: 5,
-                height: 5,
-                borderRadius: '50%',
-                backgroundColor: status.color,
-                animation: isAgentWorking
-                  ? `${activeStatusDotPulse} 2s ease-in-out infinite`
-                  : 'none',
-                '@media (prefers-reduced-motion: reduce)': {
-                  animation: 'none',
-                },
-              }}
-            />
-            <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
-              {status.label}
-            </Typography>
-          </Box>
-        </Tooltip>
-      )}
-    </Box>
+    <TaskStatusIcons
+      status={status}
+      pullRequestIcon={pullRequestIcon}
+      isAgentWorking={isAgentWorking}
+    />
   )
 
   const titleNode = (
@@ -282,54 +217,13 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     </Typography>
   )
 
-  // The stacked row keeps its title line clean: the workflow status collapses
-  // to a colored dot at the right edge (label in the tooltip), and the PR icon
-  // only appears once a pull request actually exists — the grey "no PR yet"
-  // placeholder is noise repeated on every row.
   const stackedStatusIcons = item.kind === 'spec-task' && (
-    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
-      {pullRequestIcon?.url && (
-        <Tooltip title={pullRequestIcon.tooltip}>
-          <Box
-            component="a"
-            href={pullRequestIcon.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={pullRequestIcon.tooltip}
-            onMouseOver={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-            sx={{ display: 'inline-flex', color: pullRequestIcon.color, cursor: 'pointer' }}
-          >
-            <GitPullRequest size={12} />
-          </Box>
-        </Tooltip>
-      )}
-      {status && !showStatusAsTime && (
-        <Tooltip title={status.tooltip || status.label}>
-          <Box
-            onMouseOver={(event) => event.stopPropagation()}
-            sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45, flexShrink: 0 }}
-          >
-            <Box
-              sx={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                flexShrink: 0,
-                backgroundColor: status.color,
-              }}
-            />
-            {/* No hover on a phone, so the label the tooltip would carry
-                has to live on the row itself. */}
-            {isPhone && (
-              <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
-                {status.label}
-              </Typography>
-            )}
-          </Box>
-        </Tooltip>
-      )}
-    </Box>
+    <StackedTaskStatusIcons
+      status={status}
+      pullRequestIcon={pullRequestIcon}
+      showStatus={!showStatusAsTime}
+      showLabel={isPhone}
+    />
   )
 
   const avatarNode = showTaskAvatars && !!taskPersonId && (
@@ -471,10 +365,12 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         '&:hover .sidebar-item-time, &:focus-within .sidebar-item-time': { opacity: 0 },
         '&:hover .sidebar-item-archive, &:focus-within .sidebar-item-archive': { opacity: 1 },
         // Without hover the archive button can never appear, so on a
-        // coarse pointer it is always shown. On a phone it gets its
-        // own column instead (below), so the time stays visible too.
+        // coarse pointer it is always shown. Phone and stacked rows give
+        // it its own column (the stacked slot drops its overlay under
+        // hover: none), so the time/status stays visible alongside it;
+        // only the dense single-line desktop row keeps the swap.
         '@media (hover: none)': {
-          '& .sidebar-item-time': { opacity: isPhone ? 1 : 0 },
+          '& .sidebar-item-time': { opacity: isPhone || stacked ? 1 : 0 },
           '& .sidebar-item-archive': { opacity: 1 },
         },
         ...(isPhone && {
