@@ -229,8 +229,7 @@ func buildJustDoItPrompt(userPrompt, guidelinesSection, primaryRepoName, repoSec
 **Primary Project Directory:** /home/retro/work/%s/
 %s
 %s%s%s
-
-**For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
+`+helixSkillsSection+`**For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
 `, userPrompt, guidelinesSection, primaryRepoName, repoSection, attachmentsSection, shellCommandsGuidance, gitInstructions)
 }
 

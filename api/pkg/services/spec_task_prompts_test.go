@@ -84,3 +84,13 @@ func TestBuildPlanningPrompt_HelixSkills(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildJustDoItPrompt_HelixSkills(t *testing.T) {
+	out := buildJustDoItPrompt("do x", "", "repo", "", "", "", "")
+
+	for _, want := range []string{"## Helix skills", "`helix-cli`", "`helix-artifacts`"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("just-do-it prompt is missing required snippet %q", want)
+		}
+	}
+}
