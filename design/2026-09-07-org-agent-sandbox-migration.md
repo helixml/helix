@@ -465,6 +465,28 @@ NOT tested: headless placement on a display-less host, quota caps, org delete sw
 the migration backfill on a production copy, mobile layout, and native SSH against a
 desktop bot (same docker-exec path; only the id routing differed).
 
+### 2026-09-08: "agent not starting" on chief-of-staff
+
+Not caused by this change. The bot's App was pinned to `qwen3.8-27b` on the
+`ds4-flash-node06` endpoint, which only serves `qwen3.8-flash-next`; every LLM call had
+failed for days (last completed turn 2026-08-08). OpenCode surfaces that as
+`OpenCode service failure: {"service": "session"}` and the real reason only lived in
+`llm_calls`. Two server bugs made it worse and are fixed here:
+
+- `handleThreadLoadError` discarded a thread-load error that arrived within the
+  10 s streaming-evidence window as a "rejected duplicate delivery". The send itself
+  publishes to the streaming context, so an agent that rejects the *first* delivery
+  (OpenCode with a dead persisted session) always lands inside the window, and the
+  turn stayed `waiting` forever with a connected agent that no watchdog reaps. It now
+  defers and re-examines after the window, exactly like `applyTurnError`.
+- Thread-load failures now carry the session's most recent provider error
+  (`recentProviderFailure`, shared with the turn-abort path), so the UI shows
+  "model X is not in the list of allowed models" instead of an opaque service failure.
+
+Recovery for the bot itself was config: model switched to `qwen3.8-flash-next`, then a
+bot restart to discard the OpenCode session created under the bad model. Verified: a
+manual activation completes in ~40 s with successful LLM calls.
+
 ## 8. Follow-up fixes (2026-09-08)
 
 - **Agent-side SSH was unreachable.** `sandbox_ssh_access` advertised the proxy as
