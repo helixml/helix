@@ -66,7 +66,7 @@ describe('EditOrgWindow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith(
-      'helix_org_chart',
+      'org_bot_session',
       { org_id: 'created-org', bot_id: 'chief-of-staff' },
     ))
     expect(mockV1OrgsSettingsUpdate).toHaveBeenCalledWith(

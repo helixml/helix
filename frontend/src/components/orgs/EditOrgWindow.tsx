@@ -164,7 +164,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
       // Open the new organization's Chief of Staff.
       if (!org && created && created.name) {
         localStorage.setItem(SELECTED_ORG_STORAGE_KEY, created.name)
-        router.navigate('helix_org_chart', {
+        router.navigate('org_bot_session', {
           org_id: created.name,
           bot_id: 'chief-of-staff',
         })

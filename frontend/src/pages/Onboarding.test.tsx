@@ -270,7 +270,7 @@ describe('Onboarding', () => {
       }),
     })
     expect(localStorage.getItem('selected_org')).toBe('my-org')
-    expect(mockNavigateReplace).toHaveBeenCalledWith('helix_org_chart', {
+    expect(mockNavigateReplace).toHaveBeenCalledWith('org_bot_session', {
       org_id: 'my-org',
       bot_id: 'chief-of-staff',
     })
@@ -320,7 +320,7 @@ describe('Onboarding', () => {
     })
 
     await waitFor(() => {
-      expect(mockNavigateReplace).toHaveBeenCalledWith('helix_org_chart', {
+      expect(mockNavigateReplace).toHaveBeenCalledWith('org_bot_session', {
         org_id: 'my-org',
         bot_id: 'chief-of-staff',
       })
@@ -415,7 +415,7 @@ describe('Onboarding', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Meet your Chief of Staff' }))
 
     await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
-      'helix_org_chart',
+      'org_bot_session',
       { org_id: 'my-org', bot_id: 'chief-of-staff' },
     ))
     expect(mockUpdateHarnesses).not.toHaveBeenCalled()
@@ -443,7 +443,7 @@ describe('Onboarding', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Meet your Chief of Staff' }))
 
     await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
-      'helix_org_chart',
+      'org_bot_session',
       { org_id: 'new-org', bot_id: 'chief-of-staff' },
     ))
   })
@@ -495,7 +495,7 @@ describe('Onboarding', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Meet your Chief of Staff' }))
 
     await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
-      'helix_org_chart',
+      'org_bot_session',
       { org_id: 'new-org', bot_id: 'chief-of-staff' },
     ))
   })

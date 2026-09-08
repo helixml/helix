@@ -467,7 +467,7 @@ export default function Onboarding() {
         account.dismissOnboarding();
         localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name);
         if (shouldMeetChiefOfStaff) {
-          router.navigateReplace("helix_org_chart", {
+          router.navigateReplace("org_bot_session", {
             org_id: createdOrg.name,
             bot_id: "chief-of-staff",
           });
