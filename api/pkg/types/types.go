@@ -163,6 +163,11 @@ const (
 // not user-initiated (those use the default empty string or app-trigger
 // names like "slack", "crisp"). Used by the fork-and-pause flow.
 const (
+	// InteractionTriggerOrgHire marks the internal prompt that starts a newly
+	// hired organization worker. The prompt is sent to the agent but is not a
+	// human-authored chat message.
+	InteractionTriggerOrgHire = "org_hire"
+
 	// InteractionTriggerForkSeed marks the single synthetic divider
 	// interaction created on a forked child, carrying lineage metadata
 	// and (for the agent prepend path) a serialized blob of the parent
@@ -632,6 +637,7 @@ type SessionChatRequest struct {
 	// a Worker's identity.
 	OrgWorkerID         string `json:"-"`
 	RuntimeInstructions string `json:"-"`
+	InteractionTrigger  string `json:"-"`
 	// SessionName, when set, names a freshly created session up front so the
 	// container start that follows (and the sandbox row it opens) sees the
 	// final name rather than the placeholder derived from the first prompt.

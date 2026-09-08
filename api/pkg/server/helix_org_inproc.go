@@ -966,6 +966,7 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 		AutoRestartOnCrash:  true,
 		OrgWorkerID:         params.WorkerID,
 		RuntimeInstructions: params.Instructions,
+		InteractionTrigger:  params.InteractionTrigger,
 		SessionName:         params.Name,
 		SandboxRuntime:      params.Launch.SandboxRuntime,
 		SandboxResourceOverrides: &types.SandboxResourceOverrides{

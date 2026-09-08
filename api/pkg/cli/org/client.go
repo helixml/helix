@@ -13,6 +13,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/config"
 )
 
 // httpClient is a thin authenticated HTTP helper for helix-org REST paths
@@ -25,25 +26,14 @@ type httpClient struct {
 }
 
 func newHTTPClient() (*httpClient, error) {
-	c, err := client.NewClientFromEnv()
-	if err != nil {
-		return nil, err
-	}
-	// HelixClient.url already includes /api/v1 — reach it via a small
-	// parallel helper that exposes the same env defaults.
-	url := os.Getenv("HELIX_URL")
-	if url == "" {
-		url = "http://localhost:8080"
-	}
-	url = strings.TrimRight(url, "/")
+	url := strings.TrimRight(config.CliURL("http://localhost:8080"), "/")
 	if !strings.HasSuffix(url, "/api/v1") {
 		url = url + "/api/v1"
 	}
-	apiKey := os.Getenv("HELIX_API_KEY")
+	apiKey := config.CliAPIKey()
 	if apiKey == "" {
-		return nil, fmt.Errorf("HELIX_API_KEY is not set")
+		return nil, fmt.Errorf("HELIX_API_KEY (or USER_API_TOKEN inside a Helix sandbox) is not set")
 	}
-	_ = c
 	return &httpClient{
 		base:   url,
 		apiKey: apiKey,

@@ -245,6 +245,9 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 	if fc.lastStartParams.WorkerID != "w-eng" {
 		t.Errorf("StartSession WorkerID = %q (want w-eng)", fc.lastStartParams.WorkerID)
 	}
+	if fc.lastStartParams.InteractionTrigger != types.InteractionTriggerOrgHire {
+		t.Errorf("StartSession InteractionTrigger = %q (want %q)", fc.lastStartParams.InteractionTrigger, types.InteractionTriggerOrgHire)
+	}
 	if !strings.Contains(fc.lastStartParams.Instructions, "=== Instructions ===\n# Role: Engineer") {
 		t.Errorf("StartSession instructions = %q", fc.lastStartParams.Instructions)
 	}

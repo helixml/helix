@@ -642,36 +642,90 @@ fi
 echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
 echo "  Claude: ~/.claude.json -> $CLAUDE_STATE_DIR/.claude.json"
 
-# Helix agent skills: link the image-baked skills (/opt/helix/skills, installed
-# by Dockerfile.ubuntu-helix) into each harness's discovery directory. This has
-# to run after the ~/.claude symlink above, which replaces whatever was there.
-#   ~/.claude/skills  Claude Code, and opencode's Claude-compatible scan
-#   ~/.agents/skills  goose, and opencode's vendor-neutral scan
-#   ~/.qwen/skills    qwen
-# Linked per skill rather than linking the directory, so skills a user or
-# project installs into those directories are left alone. opencode scans both
-# ~/.claude and ~/.agents, so it logs one "duplicate skill name" warning per
-# skill and keeps the first — harmless, and the price of one copy serving
-# every harness.
-if [ -d /opt/helix/skills ]; then
-    for skills_dir in ~/.claude/skills ~/.agents/skills ~/.qwen/skills; do
-        # Report rather than swallow: a root-owned parent (as ~/.qwen was
-        # before the image chowned it) makes this fail, and a silently
-        # unlinked harness looks identical to one that has no skills.
-        if ! mkdir -p "$skills_dir" 2>/dev/null; then
-            echo "  Skills: cannot create $skills_dir (check ownership) — skipped"
+# Helix agent skills (github.com/helixml/skills).
+#
+# The image carries a shallow clone at /opt/helix/skills (pinned by
+# SKILLS_COMMIT at build). Copy it once into persistent workspace storage, then
+# refresh it from upstream on every start so tasks always run with the latest
+# skills; when the fetch fails (air-gapped, proxy, GitHub down) the last good
+# checkout stays in place. The selected skills are linked into:
+#   ~/.agents/skills  zed-agent, codex, gemini, goose, opencode, qwen
+#   ~/.claude/skills  Claude Code (and opencode's Claude-compatible scan)
+# (deepseek_harness discovery is unverified — see the 2026-09-07 design doc.)
+# ~/.qwen/skills is not a discovery dir here: settings-sync-daemon sets
+# QWEN_HOME, so qwen reads $QWEN_HOME/skills and ~/.agents/skills instead.
+# This has to run after the ~/.claude symlink above, which replaces whatever
+# was there. Linked per skill rather than linking the directory, so skills a
+# user or project installs into those directories are left alone.
+#
+# The default set is the task-facing skills. helix-deploy, helix-e2e and
+# helix-agents are operator skills (install/upgrade the control plane, DB
+# access, org creation); a task agent gets them only when an operator opts in,
+# so a prompt-injected agent is not handed an on-ramp to the Helix running it.
+#
+#   HELIX_SKILLS_REPO  upstream to refresh from (default github.com/helixml/skills)
+#   HELIX_SKILLS_REF   branch/tag/sha to track (default main; empty = never refresh)
+#   HELIX_SKILLS       space-separated skill names to link, or "all"
+#                      (default: helix-cli helix-artifacts helix-spec-tasks helix-board helix-files)
+#
+# Nothing in here may abort workspace setup (the script runs under set -e):
+# a broken or restructured skills checkout must cost the agent its skills, not
+# its desktop. Hence the function + explicit guards.
+SKILLS_SEED=/opt/helix/skills
+SKILLS_DIR="$WORK_DIR/.helix-skills"
+SKILLS_DEFAULT="helix-cli helix-artifacts helix-spec-tasks helix-board helix-files"
+setup_helix_skills() {
+    if [ ! -d "$SKILLS_DIR/.git" ]; then
+        rm -rf "$SKILLS_DIR"
+        cp -r "$SKILLS_SEED" "$SKILLS_DIR" || { echo "  Skills: cannot copy seed $SKILLS_SEED -> $SKILLS_DIR"; return 1; }
+    fi
+    local repo="${HELIX_SKILLS_REPO:-https://github.com/helixml/skills.git}"
+    local ref="${HELIX_SKILLS_REF-main}"
+    if [ -n "$ref" ]; then
+        local fetch_err
+        fetch_err=$(mktemp) || fetch_err=/dev/null
+        if GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$SKILLS_DIR" fetch -q --depth 1 "$repo" "$ref" 2>"$fetch_err" \
+            && git -C "$SKILLS_DIR" checkout -q --detach FETCH_HEAD; then
+            echo "  Skills: refreshed from $repo@$ref ($(git -C "$SKILLS_DIR" rev-parse --short HEAD 2>/dev/null))"
+        else
+            echo "  Skills: refresh from $repo@$ref failed ($(tail -n1 "$fetch_err" 2>/dev/null)); keeping $(git -C "$SKILLS_DIR" rev-parse --short HEAD 2>/dev/null)"
+        fi
+        [ "$fetch_err" != /dev/null ] && rm -f "$fetch_err"
+    fi
+    local selected="${HELIX_SKILLS:-$SKILLS_DEFAULT}"
+    if [ "$selected" = "all" ]; then
+        selected=$(cd "$SKILLS_DIR/skills" 2>/dev/null && ls -d */ 2>/dev/null | tr -d / | tr '\n' ' ') || true
+    fi
+    local linked="" skill
+    for skill in $selected; do
+        if [ -f "$SKILLS_DIR/skills/$skill/SKILL.md" ]; then
+            linked="$linked $skill"
+        else
+            echo "  Skills: $skill not found in $SKILLS_DIR/skills — skipped"
+        fi
+    done
+    local skills_home
+    for skills_home in ~/.agents/skills ~/.claude/skills; do
+        # Report rather than swallow: a root-owned parent makes this fail, and
+        # a silently unlinked harness looks identical to one with no skills.
+        if ! mkdir -p "$skills_home" 2>/dev/null; then
+            echo "  Skills: cannot create $skills_home (check ownership) — skipped"
             continue
         fi
-        # ~/.claude lives on the persistent workspace mount, so links written by
-        # an older image outlive it. Drop the ones whose target is gone before
-        # relinking, or a skill dropped from HELIX_SKILLS dangles forever.
-        find "$skills_dir" -maxdepth 1 -type l ! -exec test -e {} \; -delete 2>/dev/null || true
-        for skill in /opt/helix/skills/*/; do
-            [ -f "$skill/SKILL.md" ] || continue
-            ln -sfn "${skill%/}" "$skills_dir/$(basename "$skill")"
+        # Drop every link we manage (into the cache, or an older image's
+        # /opt/helix/skills/<name> layout) so deselected or removed skills
+        # don't linger; links a user or project made are left alone.
+        find "$skills_home" -maxdepth 1 -type l \( -lname "$SKILLS_DIR/*" -o -lname "/opt/helix/skills/*" \) -delete 2>/dev/null || true
+        for skill in $linked; do
+            ln -sfn "$SKILLS_DIR/skills/$skill" "$skills_home/$skill" || echo "  Skills: cannot link $skill into $skills_home"
         done
     done
-    echo "  Skills: $(ls /opt/helix/skills | tr '\n' ' ')-> ~/.claude/skills, ~/.agents/skills, ~/.qwen/skills"
+    echo "  Skills:${linked:- (none)} -> ~/.agents/skills, ~/.claude/skills"
+}
+if [ -d "$SKILLS_SEED/skills" ]; then
+    if ! setup_helix_skills; then
+        echo "  Skills: setup failed — continuing without Helix agent skills"
+    fi
 fi
 
 # Browser profile (Chrome / Chromium): symlink ~/.config/google-chrome and

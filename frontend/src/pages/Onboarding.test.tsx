@@ -8,10 +8,13 @@ const mockSnackbarError = vi.fn()
 const mockLoadOrganizations = vi.fn()
 const mockV1UsersMeOnboardingCreate = vi.fn()
 const mockV1OrgsSettingsUpdate = vi.fn()
+const mockV1SubscriptionNewCreate = vi.fn()
 const mockCreateOrgMutateAsync = vi.fn()
 const mockUpdateHarnesses = vi.fn()
 
 const mockState = vi.hoisted(() => ({
+  edition: 'cloud',
+  billingEnabled: true,
   walletStatus: 'active',
   claudeSubscriptions: [{ id: 'claude-sub-1' }] as Array<{ id: string }>,
   codexSubscriptions: [] as Array<{ id: string }>,
@@ -57,7 +60,7 @@ vi.mock('../hooks/useApi', () => ({
     getApiClient: () => ({
       v1UsersMeOnboardingCreate: mockV1UsersMeOnboardingCreate,
       v1OrgsSettingsUpdate: mockV1OrgsSettingsUpdate,
-      v1SubscriptionNewCreate: vi.fn(),
+      v1SubscriptionNewCreate: mockV1SubscriptionNewCreate,
     }),
   }),
 }))
@@ -94,8 +97,8 @@ vi.mock('../services/orgService', () => ({
 vi.mock('../services/userService', () => ({
   useGetConfig: () => ({
     data: {
-      billing_enabled: true,
-      edition: 'cloud',
+      billing_enabled: mockState.billingEnabled,
+      edition: mockState.edition,
       onboarding_helix_model_provider: mockState.onboardingHelixDefault.provider,
       onboarding_helix_model: mockState.onboardingHelixDefault.model,
       onboarding_helix_model_effort: mockState.onboardingHelixDefault.effort,
@@ -170,10 +173,12 @@ async function goToCodingAccessStep() {
     screen.getByRole('button', { name: /continue with this organization/i }),
   )
 
-  await waitFor(() => {
-    expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument()
-  })
-  fireEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+  if (mockState.billingEnabled) {
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+  }
 
   await waitFor(() => {
     expect(screen.getByText('Choose how to run coding agents')).toBeInTheDocument()
@@ -184,6 +189,9 @@ describe('Onboarding', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    window.history.replaceState({}, '', '/onboarding')
+    mockState.edition = 'cloud'
+    mockState.billingEnabled = true
     mockState.walletStatus = 'active'
     mockState.onboardingHelixDefault = {
       provider: 'pe_helix',
@@ -205,6 +213,8 @@ describe('Onboarding', () => {
     ]
     mockV1UsersMeOnboardingCreate.mockResolvedValue({})
     mockV1OrgsSettingsUpdate.mockResolvedValue({})
+    mockV1SubscriptionNewCreate.mockResolvedValue({})
+    mockCreateOrgMutateAsync.mockResolvedValue(undefined)
     mockUpdateHarnesses.mockResolvedValue([])
     setAccountWithOrgs([
       { id: 'org-1', name: 'my-org', display_name: 'My Org', owner: 'user-1' },
@@ -222,7 +232,7 @@ describe('Onboarding', () => {
     renderOnboarding()
     await goToCodingAccessStep()
 
-    expect(screen.getByRole('button', { name: /continue with helix credits/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Meet your Chief of Staff' })).toBeEnabled()
     expect(screen.getByRole('button', { name: /helix providers/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /claude subscription/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /chatgpt subscription/i })).toBeInTheDocument()
@@ -236,13 +246,13 @@ describe('Onboarding', () => {
     expect(screen.queryByText(/where is your code/i)).not.toBeInTheDocument()
   })
 
-  it('saves the selected Helix runtime and opens project creation', async () => {
+  it('saves the selected Helix runtime and opens the Chief of Staff on cloud', async () => {
     renderOnboarding()
     await goToCodingAccessStep()
 
     await act(async () => {
       fireEvent.click(
-        screen.getByRole('button', { name: /continue with helix credits/i }),
+        screen.getByRole('button', { name: 'Meet your Chief of Staff' }),
       )
     })
 
@@ -260,15 +270,9 @@ describe('Onboarding', () => {
       }),
     })
     expect(localStorage.getItem('selected_org')).toBe('my-org')
-    expect(mockNavigateReplace).toHaveBeenCalledWith('org_projects', {
+    expect(mockNavigateReplace).toHaveBeenCalledWith('org_bot_session', {
       org_id: 'my-org',
-      create_project_config: JSON.stringify({
-        runtime: 'zed_agent',
-        credential_type: 'api_key',
-        provider_ref: 'pe_helix',
-        model: 'helix-model',
-        reasoning_effort: 'high',
-      }),
+      bot_id: 'chief-of-staff',
     })
     expect(mockUpdateHarnesses).not.toHaveBeenCalled()
   })
@@ -282,7 +286,7 @@ describe('Onboarding', () => {
 
     expect(screen.getByRole('button', { name: 'Connect Claude' })).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /continue with claude subscription/i }),
+      screen.getByRole('button', { name: 'Meet your Chief of Staff' }),
     ).toBeDisabled()
   })
 
@@ -294,7 +298,7 @@ describe('Onboarding', () => {
 
     expect(screen.getByRole('button', { name: 'Connect ChatGPT' })).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /continue with chatgpt subscription/i }),
+      screen.getByRole('button', { name: 'Meet your Chief of Staff' }),
     ).toBeDisabled()
   })
 
@@ -307,7 +311,7 @@ describe('Onboarding', () => {
     fireEvent.mouseDown(screen.getByLabelText('Codex model'))
     fireEvent.click(screen.getByRole('option', { name: 'GPT-5.6 Terra' }))
     const continueButton = screen.getByRole('button', {
-      name: /continue with chatgpt subscription/i,
+      name: 'Meet your Chief of Staff',
     })
     expect(continueButton).toBeEnabled()
 
@@ -316,13 +320,9 @@ describe('Onboarding', () => {
     })
 
     await waitFor(() => {
-      expect(mockNavigateReplace).toHaveBeenCalledWith('org_projects', {
+      expect(mockNavigateReplace).toHaveBeenCalledWith('org_bot_session', {
         org_id: 'my-org',
-        create_project_config: JSON.stringify({
-          runtime: 'codex_cli',
-          credential_type: 'subscription',
-          model: 'gpt-5.6-terra',
-        }),
+        bot_id: 'chief-of-staff',
       })
     })
     expect(mockUpdateHarnesses).toHaveBeenCalledWith([{
@@ -341,7 +341,8 @@ describe('Onboarding', () => {
     })
   })
 
-  it('selects a Claude subscription model and passes it to project creation', async () => {
+  it('keeps project creation for an existing self-hosted organization', async () => {
+    mockState.edition = 'self-hosted'
     renderOnboarding()
     await goToCodingAccessStep()
 
@@ -379,7 +380,7 @@ describe('Onboarding', () => {
     renderOnboarding()
     await goToCodingAccessStep()
 
-    expect(screen.getByRole('button', { name: /continue with helix credits/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Meet your Chief of Staff' })).toBeDisabled()
   })
 
   it('requires a non-owner to ask the owner before changing subscription policy', async () => {
@@ -396,7 +397,7 @@ describe('Onboarding', () => {
     expect(screen.getByText(
       'Ask an organization owner to set the Default Runtime.',
     )).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /continue with claude subscription/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Meet your Chief of Staff' })).toBeDisabled()
     expect(mockUpdateHarnesses).not.toHaveBeenCalled()
   })
 
@@ -411,13 +412,92 @@ describe('Onboarding', () => {
     fireEvent.click(screen.getByRole('button', { name: /claude subscription/i }))
     fireEvent.mouseDown(screen.getByLabelText('Claude model'))
     fireEvent.click(screen.getByRole('option', { name: /Claude Fable 5/i }))
-    fireEvent.click(screen.getByRole('button', { name: /continue with claude subscription/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Meet your Chief of Staff' }))
 
     await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
-      'org_projects',
-      expect.any(Object),
+      'org_bot_session',
+      { org_id: 'my-org', bot_id: 'chief-of-staff' },
     ))
     expect(mockUpdateHarnesses).not.toHaveBeenCalled()
+  })
+
+  it('opens the Chief of Staff for an organization created during self-hosted onboarding', async () => {
+    mockState.edition = 'self-hosted'
+    mockState.billingEnabled = false
+    setAccountWithOrgs([])
+    mockCreateOrgMutateAsync.mockResolvedValue({
+      id: 'org-2',
+      name: 'new-org',
+      display_name: 'New Org',
+    })
+    renderOnboarding()
+
+    fireEvent.change(screen.getByLabelText('Organization name'), {
+      target: { value: 'New Org' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create organization' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Meet your Chief of Staff' })).toBeEnabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Meet your Chief of Staff' }))
+
+    await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
+      'org_bot_session',
+      { org_id: 'new-org', bot_id: 'chief-of-staff' },
+    ))
+  })
+
+  it('restores a new self-hosted organization after Stripe returns', async () => {
+    mockState.edition = 'self-hosted'
+    mockState.walletStatus = 'not_subscribed'
+    setAccountWithOrgs([])
+    mockCreateOrgMutateAsync.mockResolvedValue({
+      id: 'org-2',
+      name: 'new-org',
+      display_name: 'New Org',
+    })
+    const firstRender = renderOnboarding()
+
+    fireEvent.change(screen.getByLabelText('Organization name'), {
+      target: { value: 'New Org' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create organization' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /start subscription/i })).toBeEnabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /start subscription/i }))
+
+    await waitFor(() => expect(mockV1SubscriptionNewCreate).toHaveBeenCalledWith({
+      org_id: 'org-2',
+      return_url: '/onboarding?org_id=org-2&created_org=true',
+    }))
+    firstRender.unmount()
+
+    mockState.walletStatus = 'active'
+    setAccountWithOrgs([
+      { id: 'org-2', name: 'new-org', display_name: 'New Org', owner: 'user-1' },
+    ])
+    window.history.replaceState(
+      {},
+      '',
+      '/onboarding?org_id=org-2&created_org=true&success=true',
+    )
+    renderOnboarding()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Meet your Chief of Staff' })).toBeEnabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Meet your Chief of Staff' }))
+
+    await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
+      'org_bot_session',
+      { org_id: 'new-org', bot_id: 'chief-of-staff' },
+    ))
   })
 
   it('shows benefits rather than empty billing fields before subscription', async () => {

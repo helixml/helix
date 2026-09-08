@@ -2,11 +2,13 @@ package activations
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
 
@@ -20,12 +22,23 @@ func (fakeEnsurer) Ensure(_ context.Context, _ string, _ orgchart.NodeID) (strin
 }
 
 type fakeDispatcher struct {
-	gotID  activation.ID
-	events *[]string
+	gotID       activation.ID
+	hireCalls   int
+	manualCalls int
+	events      *[]string
+}
+
+func (f *fakeDispatcher) DispatchHire(_ context.Context, _ string, _ orgchart.NodeID, activationID activation.ID) {
+	f.gotID = activationID
+	f.hireCalls++
+	if f.events != nil {
+		*f.events = append(*f.events, "dispatch")
+	}
 }
 
 func (f *fakeDispatcher) DispatchManual(_ context.Context, _ string, _ orgchart.NodeID, activationID activation.ID) {
 	f.gotID = activationID
+	f.manualCalls++
 	if f.events != nil {
 		*f.events = append(*f.events, "dispatch")
 	}
@@ -92,10 +105,198 @@ func TestActivate_NoRepoMintsNoRow(t *testing.T) {
 	}
 }
 
-type fakeSessions struct{ id string }
+type fakeSessions struct {
+	id  string
+	err error
+}
 
 func (f fakeSessions) SessionID(_ context.Context, _ string, _ orgchart.NodeID) (string, error) {
-	return f.id, nil
+	return f.id, f.err
+}
+
+func TestActivate_FirstChiefOfStaffSessionUsesHire(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	disp := &fakeDispatcher{}
+	svc := New(Deps{
+		Repo:       st.Activations,
+		Now:        func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) },
+		NewID:      func() string { return "first" },
+		Ensurer:    fakeEnsurer{},
+		Dispatcher: disp,
+		Sessions:   fakeSessions{},
+	})
+
+	res, err := svc.Activate(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID)
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if disp.hireCalls != 1 || disp.manualCalls != 0 {
+		t.Fatalf("dispatch calls hire/manual = %d/%d, want 1/0", disp.hireCalls, disp.manualCalls)
+	}
+	row, err := st.Activations.Get(context.Background(), "org-test", res.ActivationID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(row.Triggers) != 1 || row.Triggers[0].Kind != activation.TriggerHire {
+		t.Fatalf("triggers = %+v, want [hire]", row.Triggers)
+	}
+}
+
+func TestActivate_OrdinaryFirstSessionUsesManual(t *testing.T) {
+	t.Parallel()
+	disp := &fakeDispatcher{}
+	svc := New(Deps{
+		Ensurer:    fakeEnsurer{},
+		Dispatcher: disp,
+		Sessions:   fakeSessions{},
+	})
+
+	if _, err := svc.Activate(context.Background(), "org-test", "w-mark"); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if disp.hireCalls != 0 || disp.manualCalls != 1 {
+		t.Fatalf("dispatch calls hire/manual = %d/%d, want 0/1", disp.hireCalls, disp.manualCalls)
+	}
+}
+
+func TestActivate_SessionlessChiefOfStaffWithHistoryUsesManual(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	prior, err := activation.New(
+		"a-prior",
+		seedprompts.ChiefOfStaffBotID,
+		[]activation.Trigger{{Kind: activation.TriggerHire}},
+		time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC),
+		"org-test",
+	)
+	if err != nil {
+		t.Fatalf("build prior activation: %v", err)
+	}
+	if err := prior.Complete(activation.Outcome{Status: activation.StatusOK}, time.Date(2026, 6, 9, 12, 1, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("complete prior activation: %v", err)
+	}
+	if err := st.Activations.Create(context.Background(), prior); err != nil {
+		t.Fatalf("create prior activation: %v", err)
+	}
+	disp := &fakeDispatcher{}
+	svc := New(Deps{
+		Repo:       st.Activations,
+		Now:        func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) },
+		NewID:      func() string { return "retry" },
+		Ensurer:    fakeEnsurer{},
+		Dispatcher: disp,
+		Sessions:   fakeSessions{},
+	})
+
+	res, err := svc.Activate(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID)
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if disp.hireCalls != 0 || disp.manualCalls != 1 {
+		t.Fatalf("dispatch calls hire/manual = %d/%d, want 0/1", disp.hireCalls, disp.manualCalls)
+	}
+	row, err := st.Activations.Get(context.Background(), "org-test", res.ActivationID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(row.Triggers) != 1 || row.Triggers[0].Kind != activation.TriggerManual {
+		t.Fatalf("triggers = %+v, want [manual]", row.Triggers)
+	}
+}
+
+func TestActivate_InFlightActivationIsNotDispatchedAgain(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	inFlight, err := activation.New(
+		"a-repair-chief-of-staff",
+		seedprompts.ChiefOfStaffBotID,
+		[]activation.Trigger{{Kind: activation.TriggerHire}},
+		time.Date(2026, 6, 10, 11, 59, 0, 0, time.UTC),
+		"org-test",
+	)
+	if err != nil {
+		t.Fatalf("build in-flight activation: %v", err)
+	}
+	if err := st.Activations.Create(context.Background(), inFlight); err != nil {
+		t.Fatalf("create in-flight activation: %v", err)
+	}
+	disp := &fakeDispatcher{}
+	svc := New(Deps{
+		Repo:       st.Activations,
+		Now:        func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) },
+		NewID:      func() string { return "duplicate" },
+		Ensurer:    fakeEnsurer{},
+		Dispatcher: disp,
+		Sessions:   fakeSessions{},
+	})
+
+	res, err := svc.Activate(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID)
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if res.ActivationID != inFlight.ID {
+		t.Fatalf("activation id = %q, want existing %q", res.ActivationID, inFlight.ID)
+	}
+	if disp.hireCalls != 0 || disp.manualCalls != 0 {
+		t.Fatalf("dispatch calls hire/manual = %d/%d, want 0/0", disp.hireCalls, disp.manualCalls)
+	}
+	rows, err := st.Activations.ListForWorker(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID, 10)
+	if err != nil {
+		t.Fatalf("ListForWorker: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("activation rows = %d, want 1", len(rows))
+	}
+}
+
+func TestActivate_EstablishedChiefOfStaffSessionUsesManual(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	disp := &fakeDispatcher{}
+	svc := New(Deps{
+		Repo:       st.Activations,
+		Now:        func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) },
+		NewID:      func() string { return "manual" },
+		Ensurer:    fakeEnsurer{},
+		Dispatcher: disp,
+		Sessions:   fakeSessions{id: "ses-1"},
+	})
+
+	res, err := svc.Activate(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID)
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if res.SessionID != "ses-1" {
+		t.Fatalf("session id = %q, want ses-1", res.SessionID)
+	}
+	if disp.hireCalls != 0 || disp.manualCalls != 1 {
+		t.Fatalf("dispatch calls hire/manual = %d/%d, want 0/1", disp.hireCalls, disp.manualCalls)
+	}
+	row, err := st.Activations.Get(context.Background(), "org-test", res.ActivationID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(row.Triggers) != 1 || row.Triggers[0].Kind != activation.TriggerManual {
+		t.Fatalf("triggers = %+v, want [manual]", row.Triggers)
+	}
+}
+
+func TestActivate_SessionLookupErrorUsesManual(t *testing.T) {
+	t.Parallel()
+	disp := &fakeDispatcher{}
+	svc := New(Deps{
+		Ensurer:    fakeEnsurer{},
+		Dispatcher: disp,
+		Sessions:   fakeSessions{err: errors.New("lookup failed")},
+	})
+
+	if _, err := svc.Activate(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if disp.hireCalls != 0 || disp.manualCalls != 1 {
+		t.Fatalf("dispatch calls hire/manual = %d/%d, want 0/1", disp.hireCalls, disp.manualCalls)
+	}
 }
 
 type fakeStopper struct{ called string }
@@ -190,12 +391,12 @@ func TestRestart_ResetsThenActivates(t *testing.T) {
 		Resetter:   resetter,
 		Canceller:  canceller,
 	})
-	res, err := svc.Restart(context.Background(), "org-test", "w-mark")
+	res, err := svc.Restart(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID)
 	if err != nil {
 		t.Fatalf("Restart: %v", err)
 	}
-	if resetter.called != "ses_old" || resetter.bot != "w-mark" {
-		t.Fatalf("resetter = %+v, want ses_old / w-mark", resetter)
+	if resetter.called != "ses_old" || resetter.bot != seedprompts.ChiefOfStaffBotID {
+		t.Fatalf("resetter = %+v, want ses_old / chief-of-staff", resetter)
 	}
 	if !canceller.called {
 		t.Fatal("outstanding activations were not cancelled before restart")
@@ -208,5 +409,33 @@ func TestRestart_ResetsThenActivates(t *testing.T) {
 	}
 	if disp.gotID != "a-restart" {
 		t.Fatalf("dispatcher got %q, want a-restart", disp.gotID)
+	}
+	if disp.manualCalls != 1 || disp.hireCalls != 0 {
+		t.Fatalf("dispatch calls manual/hire = %d/%d, want 1/0", disp.manualCalls, disp.hireCalls)
+	}
+}
+
+func TestRestart_NeverStartedUsesHire(t *testing.T) {
+	t.Parallel()
+	disp := &fakeDispatcher{}
+	resetter := &fakeResetter{}
+	svc := New(Deps{
+		Repo:       memory.New().Activations,
+		Now:        func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) },
+		NewID:      func() string { return "restart-first" },
+		Ensurer:    fakeEnsurer{},
+		Dispatcher: disp,
+		Sessions:   fakeSessions{},
+		Resetter:   resetter,
+	})
+
+	if _, err := svc.Restart(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+	if resetter.called != "" {
+		t.Fatalf("reset session = %q, want no reset", resetter.called)
+	}
+	if disp.hireCalls != 1 || disp.manualCalls != 0 {
+		t.Fatalf("dispatch calls hire/manual = %d/%d, want 1/0", disp.hireCalls, disp.manualCalls)
 	}
 }

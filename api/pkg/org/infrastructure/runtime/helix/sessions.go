@@ -33,16 +33,17 @@ type SessionClient interface {
 // The adapter always sets session_role "exploratory" so it's resolvable
 // by the mirror's GetProjectExploratorySession lookup.
 type StartSessionParams struct {
-	Name           string
-	ProjectID      string
-	OrganizationID string
-	AppID          string
-	AgentType      string
-	Provider       string
-	Model          string
-	Prompt         string
-	WorkerID       string
-	Instructions   string
+	Name               string
+	ProjectID          string
+	OrganizationID     string
+	AppID              string
+	AgentType          string
+	Provider           string
+	Model              string
+	Prompt             string
+	WorkerID           string
+	Instructions       string
+	InteractionTrigger string
 	// Launch is the resolved sandbox runtime + size for the worker's
 	// container, stored on the session so every launch path honours it.
 	Launch SessionLaunchConfig
@@ -118,19 +119,20 @@ func checkDesktopQuota(ctx context.Context, client SessionClient, launch Session
 // a persistence write, a UI update) wire them in here; the helper
 // itself stays free of side-effects beyond the StartChat call.
 type SendPromptParams struct {
-	SessionID      string
-	SessionName    string
-	ProjectID      string
-	OrganizationID string
-	AppID          string
-	AgentType      string
-	Provider       string
-	Model          string
-	Prompt         string
-	WorkerID       string
-	Instructions   string
-	Launch         SessionLaunchConfig
-	OnSessionID    func(sessionID string)
+	SessionID          string
+	SessionName        string
+	ProjectID          string
+	OrganizationID     string
+	AppID              string
+	AgentType          string
+	Provider           string
+	Model              string
+	Prompt             string
+	WorkerID           string
+	Instructions       string
+	InteractionTrigger string
+	Launch             SessionLaunchConfig
+	OnSessionID        func(sessionID string)
 }
 
 // EnsureAndSend makes a worker's session run a prompt. A worker has one
@@ -166,17 +168,18 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		return "", false, err
 	}
 	sid, err := client.StartSession(ctx, StartSessionParams{
-		Name:           params.SessionName,
-		ProjectID:      params.ProjectID,
-		OrganizationID: params.OrganizationID,
-		AppID:          params.AppID,
-		AgentType:      params.AgentType,
-		Provider:       params.Provider,
-		Model:          params.Model,
-		Prompt:         params.Prompt,
-		WorkerID:       params.WorkerID,
-		Instructions:   params.Instructions,
-		Launch:         params.Launch,
+		Name:               params.SessionName,
+		ProjectID:          params.ProjectID,
+		OrganizationID:     params.OrganizationID,
+		AppID:              params.AppID,
+		AgentType:          params.AgentType,
+		Provider:           params.Provider,
+		Model:              params.Model,
+		Prompt:             params.Prompt,
+		WorkerID:           params.WorkerID,
+		Instructions:       params.Instructions,
+		InteractionTrigger: params.InteractionTrigger,
+		Launch:             params.Launch,
 	})
 	if err != nil {
 		return "", false, fmt.Errorf("start helix session: %w", err)

@@ -153,6 +153,7 @@ If you use an internal to-do tool instead of tasks.md, users cannot see your pro
 2. **/home/retro/work/{{.PrimaryRepoName}}/** = Code changes (push to feature branch) - THIS IS YOUR PRIMARY PROJECT
 {{.RepositorySection}}
 {{.AgentToolsSection}}
+` + helixSkillsSection + `
 ## Task Checklist
 
 Your checklist: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks.md

@@ -54,7 +54,7 @@ Examples:
 			token := getToken()
 
 			if apiURL == "" || token == "" {
-				return fmt.Errorf("HELIX_URL and HELIX_API_KEY environment variables must be set")
+				return fmt.Errorf("HELIX_API_KEY (or USER_API_TOKEN inside a Helix sandbox) must be set")
 			}
 
 			// Check if local file exists
