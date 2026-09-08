@@ -1,4 +1,4 @@
-import { FC, Key, useEffect, useMemo, useState } from 'react'
+import { FC, Key, useEffect, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -90,16 +90,6 @@ const OrgAgentSettings: FC<{
     })
   }, [agent?.name, agent?.content, agent?.code_agent_runtime, agent?.code_agent_credential_type, agent?.provider, agent?.model, agent?.reasoning_effort])
 
-  const basicsDirty = useMemo(() => {
-    if (!agent) return false
-    return name !== (agent.name ?? '')
-      || runtimeConfig.runtime !== (agent.code_agent_runtime ?? '')
-      || runtimeConfig.credentials !== (agent.code_agent_credential_type ?? 'api_key')
-      || runtimeConfig.provider !== (agent.provider ?? '')
-      || runtimeConfig.model !== (agent.model ?? '')
-      || (runtimeConfig.reasoning_effort ?? 'none') !== (agent.reasoning_effort ?? 'none')
-  }, [agent, name, runtimeConfig])
-
   if (!agent?.id) return null
 
   const update = async (patch: UpdateBotRequest) => {
@@ -113,12 +103,39 @@ const OrgAgentSettings: FC<{
   }
 
   if (section === 'basics') {
+    // No save button: harness, model and effort persist the moment they change,
+    // the name when its field loses focus. A config change carries an
+    // uncommitted name with it, so the refetch that follows cannot discard it.
+    const nameDirty = !!name.trim() && name.trim() !== (agent.name ?? '')
+    const saveBasics = (config: AgentConfigValue, nextName?: string) => {
+      if (!config.runtime) return
+      void update({
+        ...(nextName ? { name: nextName } : {}),
+        code_agent_runtime: config.runtime as NonNullable<typeof agent.code_agent_runtime>,
+        code_agent_credential_type: config.credentials as NonNullable<typeof agent.code_agent_credential_type>,
+        provider: config.provider,
+        model: config.model,
+        reasoning_effort: config.reasoning_effort ?? 'none',
+      })
+    }
+    const commitName = () => {
+      // A config save disables the field, which blurs it; that patch already
+      // carried the name, so don't PATCH it a second time.
+      if (readOnly || updateAgent.isPending) return
+      // An emptied field is a mistake, not a request to clear the name.
+      if (!name.trim()) {
+        setName(agent.name ?? '')
+        return
+      }
+      if (!nameDirty) return
+      void update({ name: name.trim() })
+    }
     return (
       <Box sx={{ mb: embedded ? 0 : 3 }}>
         {!embedded && (<>
-        <Typography variant="h5" sx={{ mb: 0.5 }}>Basics</Typography>
+        <Typography variant="h5" sx={{ mb: 0.5 }}>Agent</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Configure the org agent's name, coding runtime, model, and reasoning effort.
+          The org agent's name, coding harness, model, and reasoning effort. Changes save as you make them.
         </Typography>
         </>)}
         <Stack spacing={3}>
@@ -126,32 +143,24 @@ const OrgAgentSettings: FC<{
             label="Agent name"
             value={name}
             onChange={(event) => setName(event.target.value)}
+            onBlur={commitName}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+            }}
             disabled={readOnly || updateAgent.isPending}
-            helperText="Use a name that makes this agent easy to identify."
+            helperText="Use a name that makes this agent easy to identify. Saved when you click away."
             fullWidth
           />
           <AgentConfigForm
             value={runtimeConfig}
-            onChange={(patch) => setRuntimeConfig((current) => ({ ...current, ...patch }))}
+            onChange={(patch) => {
+              const next = { ...runtimeConfig, ...patch }
+              setRuntimeConfig(next)
+              saveBasics(next, nameDirty ? name.trim() : undefined)
+            }}
             showReasoningEffort
             disabled={readOnly || updateAgent.isPending}
           />
-          <Box>
-            <Button
-              variant="contained"
-              disabled={readOnly || updateAgent.isPending || !basicsDirty || !name.trim() || !runtimeConfig.runtime}
-              onClick={() => void update({
-                name: name.trim(),
-                code_agent_runtime: runtimeConfig.runtime as NonNullable<typeof agent.code_agent_runtime>,
-                code_agent_credential_type: runtimeConfig.credentials as NonNullable<typeof agent.code_agent_credential_type>,
-                provider: runtimeConfig.provider,
-                model: runtimeConfig.model,
-                reasoning_effort: runtimeConfig.reasoning_effort ?? 'none',
-              })}
-            >
-              Save basics
-            </Button>
-          </Box>
         </Stack>
       </Box>
     )
@@ -195,7 +204,7 @@ const OrgAgentSettings: FC<{
             disabled={readOnly || updateAgent.isPending || !instructionsDirty}
             onClick={() => void update({ content })}
           >
-            Save instructions
+            Save
           </Button>
         </Stack>
       </Stack>
@@ -231,7 +240,7 @@ const OrgAgentSettings: FC<{
               sandbox_resource_overrides: { vcpus: sandbox.vcpus },
             })}
           >
-            Save sandbox
+            Save
           </Button>
         </Box>
         {!embedded && <Typography variant="subtitle1">Context</Typography>}
