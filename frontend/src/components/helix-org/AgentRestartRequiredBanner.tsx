@@ -26,6 +26,16 @@ import { RotateCcw } from 'lucide-react'
 
 import { APP_FONT_FAMILY } from '../../styles/typography'
 
+// The banner is a notice, not a toolbar: its buttons sit shorter than the
+// default so the warning strip keeps breathing room above and below them.
+const COMPACT_BUTTON_SX = {
+  minHeight: 24,
+  py: 0.125,
+  px: 1.25,
+  fontSize: '0.75rem',
+  lineHeight: 1.5,
+} as const
+
 export interface AgentRestartRequiredBannerProps {
   visible: boolean
   working?: boolean
@@ -81,34 +91,35 @@ const AgentRestartRequiredBanner: FC<AgentRestartRequiredBannerProps> = ({
         alignItems: 'center',
         gap: 1,
         px: 1.5,
-        py: 1,
+        py: 0.75,
         mb: 1,
         borderRadius: 1,
         border: `1px solid ${alpha(theme.palette.warning.main, 0.35)}`,
         backgroundColor: alpha(theme.palette.warning.main, 0.08),
       }}
     >
-      <RotateCcw size={18} strokeWidth={1.8} />
+      <RotateCcw size={16} strokeWidth={1.8} />
       <Typography
         variant="body2"
         sx={{ flexGrow: 1, fontSize: '0.8rem', fontFamily: APP_FONT_FAMILY }}
       >
-        Tool and instruction changes apply after a restart.
+        Restart the agent to apply latest changes.
       </Typography>
       <Stack direction="row" alignItems="center" spacing={0.75}>
-        <Button size="small" onClick={() => setDismissed(true)}>
+        <Button size="small" sx={COMPACT_BUTTON_SX} onClick={() => setDismissed(true)}>
           Not now
         </Button>
         <Tooltip title={gateReason}>
           <span>
             <Button
               size="small"
+              sx={COMPACT_BUTTON_SX}
               variant="contained"
               color="secondary"
               disabled={gated}
               onClick={() => setConfirming(true)}
             >
-              Restart sandbox
+              Restart
             </Button>
           </span>
         </Tooltip>
@@ -137,10 +148,10 @@ const AgentRestartRequiredBanner: FC<AgentRestartRequiredBannerProps> = ({
       ) : banner}
 
       <Dialog open={confirming} onClose={() => setConfirming(false)}>
-        <DialogTitle>Restart sandbox?</DialogTitle>
+        <DialogTitle>Restart the agent?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Restarts the sandbox with a fresh conversation. The workspace and
+            The agent starts again with a fresh conversation. The workspace and
             committed work are kept; the current chat history is discarded.
           </DialogContentText>
         </DialogContent>
