@@ -132,9 +132,9 @@ type ActivateResult struct {
 //     helix-org MCP — the immediate user-visible fix the operator clicked
 //     "Start Desktop" for).
 //  2. Read the persisted session id (empty on first activation).
-//  3. Pre-allocate the audit row so the response carries an activation id.
-//  4. Enqueue on the dispatcher's per-Worker queue (coalesces with any
-//     in-flight activation, so a double-click folds into one follow-up).
+//  3. Return any in-flight activation instead of dispatching a duplicate.
+//  4. Otherwise pre-allocate the audit row and enqueue it on the dispatcher's
+//     per-Worker queue.
 //
 // The worker-id is validated up front (it propagates into the
 // helix-specs git layout and topic ids — a defensive format check).
@@ -161,9 +161,17 @@ func (a *Activations) activate(ctx context.Context, orgID string, workerID orgch
 	if a.sessions != nil {
 		var sessionErr error
 		sessionID, sessionErr = a.sessions.SessionID(ctx, orgID, workerID)
-		if !forceManual && workerID == seedprompts.ChiefOfStaffBotID && sessionErr == nil && sessionID == "" && a.repo != nil {
+		if !forceManual && a.repo != nil {
 			rows, historyErr := a.repo.ListForWorker(ctx, orgID, workerID, 1)
-			if historyErr == nil && len(rows) == 0 {
+			if historyErr == nil && len(rows) > 0 && !rows[0].IsCompleted() {
+				return ActivateResult{
+					ActivationID: rows[0].ID,
+					ProjectID:    projectID,
+					AgentID:      agentAppID,
+					SessionID:    sessionID,
+				}, nil
+			}
+			if workerID == seedprompts.ChiefOfStaffBotID && sessionErr == nil && sessionID == "" && historyErr == nil && len(rows) == 0 {
 				triggerKind = activation.TriggerHire
 			}
 		}

@@ -1060,7 +1060,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
   const navigatorItems = useMemo<ChatTurnNavigatorItem[]>(() => {
     return navigatorInteractions.flatMap((interaction) => {
-      if (!interaction.id || interaction.trigger === 'fork_seed' || interaction.trigger === 'fork_handoff') return []
+      if (!interaction.id || interaction.trigger === 'fork_seed' || interaction.trigger === 'fork_handoff' || interaction.trigger === 'org_hire') return []
       const contentText = interaction.prompt_message_content?.parts?.find(
         (part): part is { text: string } =>
           typeof part === 'object' &&

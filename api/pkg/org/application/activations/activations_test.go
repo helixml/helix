@@ -173,6 +173,9 @@ func TestActivate_SessionlessChiefOfStaffWithHistoryUsesManual(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build prior activation: %v", err)
 	}
+	if err := prior.Complete(activation.Outcome{Status: activation.StatusOK}, time.Date(2026, 6, 9, 12, 1, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("complete prior activation: %v", err)
+	}
 	if err := st.Activations.Create(context.Background(), prior); err != nil {
 		t.Fatalf("create prior activation: %v", err)
 	}
@@ -199,6 +202,51 @@ func TestActivate_SessionlessChiefOfStaffWithHistoryUsesManual(t *testing.T) {
 	}
 	if len(row.Triggers) != 1 || row.Triggers[0].Kind != activation.TriggerManual {
 		t.Fatalf("triggers = %+v, want [manual]", row.Triggers)
+	}
+}
+
+func TestActivate_InFlightActivationIsNotDispatchedAgain(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	inFlight, err := activation.New(
+		"a-repair-chief-of-staff",
+		seedprompts.ChiefOfStaffBotID,
+		[]activation.Trigger{{Kind: activation.TriggerHire}},
+		time.Date(2026, 6, 10, 11, 59, 0, 0, time.UTC),
+		"org-test",
+	)
+	if err != nil {
+		t.Fatalf("build in-flight activation: %v", err)
+	}
+	if err := st.Activations.Create(context.Background(), inFlight); err != nil {
+		t.Fatalf("create in-flight activation: %v", err)
+	}
+	disp := &fakeDispatcher{}
+	svc := New(Deps{
+		Repo:       st.Activations,
+		Now:        func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) },
+		NewID:      func() string { return "duplicate" },
+		Ensurer:    fakeEnsurer{},
+		Dispatcher: disp,
+		Sessions:   fakeSessions{},
+	})
+
+	res, err := svc.Activate(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID)
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if res.ActivationID != inFlight.ID {
+		t.Fatalf("activation id = %q, want existing %q", res.ActivationID, inFlight.ID)
+	}
+	if disp.hireCalls != 0 || disp.manualCalls != 0 {
+		t.Fatalf("dispatch calls hire/manual = %d/%d, want 0/0", disp.hireCalls, disp.manualCalls)
+	}
+	rows, err := st.Activations.ListForWorker(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID, 10)
+	if err != nil {
+		t.Fatalf("ListForWorker: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("activation rows = %d, want 1", len(rows))
 	}
 }
 
