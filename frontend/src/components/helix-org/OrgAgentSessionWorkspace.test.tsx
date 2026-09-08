@@ -26,8 +26,8 @@ vi.mock('../tasks/SandboxBrowser', () => ({
 vi.mock('../tasks/SpecTaskTerminalDrawer', () => ({
   default: ({ sessionId }: { sessionId: string }) => <div>Terminal for {sessionId}</div>,
 }))
-vi.mock('./OrgAgentDetailsPane', () => ({
-  default: ({ sessionId }: { sessionId: string }) => <div>Details for {sessionId}</div>,
+vi.mock('./OrgAgentSettingsPane', () => ({
+  default: ({ sessionId }: { sessionId: string }) => <div>Settings for {sessionId}</div>,
 }))
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -93,8 +93,8 @@ describe('OrgAgentSessionWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /browser view/i }))
     expect(screen.getByText('Browser for session-three')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /details view/i }))
-    expect(screen.getByText('Details for session-three')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /settings view/i }))
+    expect(screen.getByText('Settings for session-three')).toBeInTheDocument()
   })
 
   it('hides the desktop for a headless bot and opens on the diff view', () => {

@@ -198,6 +198,8 @@ export interface SpecTaskViewToolbarProps {
   onCollapsePanel?: () => void;
   /** Trailing control: close the task view. */
   onClosePanel?: () => void;
+  /** Label for the "details" view; org agents call it Settings. */
+  detailsLabel?: string;
 }
 
 /**
@@ -235,6 +237,7 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   renderMenuItems,
   onCollapsePanel,
   onClosePanel,
+  detailsLabel,
 }) => {
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const closeMenu = () => setMenuAnchorEl(null);
@@ -249,7 +252,10 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   const iconButtonSx = toolbarIconButtonSx(density);
   const controlIconSize = ICON_BUTTON_METRICS[density].icon;
 
-  const availableTabs = VIEW_TABS.filter(
+  const viewTabs = detailsLabel
+    ? VIEW_TABS.map((t) => (t.value === "details" ? { ...t, label: detailsLabel } : t))
+    : VIEW_TABS;
+  const availableTabs = viewTabs.filter(
     (t) => (!t.sessionOnly || hasSession)
       && (!t.chatOnly || showChatTab)
       && (t.value !== "desktop" || showDesktop),

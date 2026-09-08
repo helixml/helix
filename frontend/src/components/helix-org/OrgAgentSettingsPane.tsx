@@ -1,29 +1,30 @@
-// OrgAgentDetailsPane is the "Details" view of the org agent workspace — the
-// bot's counterpart of the spec task Details view: what the agent runs in
-// (environment, size, status), where it lives (sandbox, session, project),
-// and the shareable preview URLs. Editing lives on the agent settings page;
-// this pane links there.
+// OrgAgentSettingsPane is the "Settings" view of the org agent workspace — the
+// bot's counterpart of the spec task Details view, and the same content the
+// standalone agent page shows. What the agent runs in (environment, size,
+// status), where it lives (sandbox, session, project), the agent's own
+// settings (name, harness, sandbox, instructions, tools, triggers, project
+// access), and the shareable preview URLs. Edits save in place; there is no
+// separate page to go to.
 
 import { FC, ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import IconButton from '@mui/material/IconButton'
 import Stack from '@mui/material/Stack'
-import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { Box as BoxIcon, Cpu, FolderKanban, MessageSquare, Monitor, Settings2, SquareTerminal } from 'lucide-react'
+import { Box as BoxIcon, Cpu, FolderKanban, Monitor, SquareTerminal } from 'lucide-react'
 
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
-import { BotDTO } from '../../services/helixOrgService'
+import { BotDTO, useHelixOrgBot } from '../../services/helixOrgService'
 import { TypesSandboxRuntime } from '../../api/api'
+import OrgAgentSettings from '../app/OrgAgentSettings'
 import CopyButton from '../common/CopyButton'
 import { SandboxIndicatorState } from '../tasks/SandboxStatusIndicator'
 import SharePreviewSection from '../tasks/SharePreviewSection'
 import { PRESENCE_OFFLINE_COLOR, PRESENCE_ONLINE_COLOR } from '../widgets/PresenceDot'
 import { sandboxRuntimeLabel, sandboxSizeLabel } from './BotSandboxForm'
 
-interface OrgAgentDetailsPaneProps {
+interface OrgAgentSettingsPaneProps {
   bot: BotDTO
   sessionId: string
   organizationId: string
@@ -104,9 +105,26 @@ const IdRow: FC<{ label: string; value: string; onOpen?: () => void; openLabel?:
   </Stack>
 )
 
-const OrgAgentDetailsPane: FC<OrgAgentDetailsPaneProps> = ({ bot, sessionId, organizationId, indicatorState }) => {
+// A titled settings block. The embedded OrgAgentSettings sections drop their
+// own page headings, so the pane supplies compact ones.
+const Section: FC<{ title: string; description?: string; children: ReactNode; sx: object }> = ({ title, description, children, sx }) => (
+  <Box sx={sx}>
+    <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: description ? 0.25 : 1.5 }}>
+      {title}
+    </Typography>
+    {description && (
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        {description}
+      </Typography>
+    )}
+    {children}
+  </Box>
+)
+
+const OrgAgentSettingsPane: FC<OrgAgentSettingsPaneProps> = ({ bot, sessionId, organizationId, indicatorState }) => {
   const router = useRouter()
   const lightTheme = useLightTheme()
+  const { data: detail, refetch } = useHelixOrgBot(bot.id || undefined, { enabled: !!bot.id })
   const agentID = bot.agent_id ?? bot.agent_app_id
   const headless = bot.effective_sandbox_runtime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu
   const runtime = sandboxRuntimeLabel(bot.effective_sandbox_runtime) || 'Full Desktop'
@@ -129,11 +147,7 @@ const OrgAgentDetailsPane: FC<OrgAgentDetailsPaneProps> = ({ bot, sessionId, org
     backgroundColor: 'background.paper',
     p: 2,
   } as const
-
-  const openSettings = () => {
-    if (!agentID) return
-    router.navigate('org_agent', { org_id: organizationId, app_id: agentID })
-  }
+  const onSaved = () => { void refetch() }
 
   return (
     <Stack spacing={2} sx={{ maxWidth: 760 }}>
@@ -149,13 +163,6 @@ const OrgAgentDetailsPane: FC<OrgAgentDetailsPaneProps> = ({ bot, sessionId, org
           <Typography variant="body2" color="text.secondary">
             {statusLabel}
           </Typography>
-          <Tooltip title="Agent settings">
-            <span>
-              <IconButton size="small" aria-label="Agent settings" onClick={openSettings} disabled={!agentID}>
-                <Settings2 size={18} />
-              </IconButton>
-            </span>
-          </Tooltip>
         </Stack>
 
         {bot.sandbox_status_message && (
@@ -210,31 +217,46 @@ const OrgAgentDetailsPane: FC<OrgAgentDetailsPaneProps> = ({ bot, sessionId, org
           )}
         </Stack>
 
-        <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-          <Button size="small" variant="outlined" startIcon={<Settings2 size={15} />} onClick={openSettings} disabled={!agentID}>
-            Agent settings
-          </Button>
-          {bot.project_id && (
+        {bot.project_id && (
+          <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
             <Button
               size="small"
-              variant="text"
+              variant="outlined"
               startIcon={<FolderKanban size={15} />}
               onClick={() => router.navigate('org_project-specs', { org_id: organizationId, id: bot.project_id! })}
             >
               Project board
             </Button>
-          )}
-          <Button
-            size="small"
-            variant="text"
-            startIcon={<MessageSquare size={15} />}
-            onClick={() => router.navigate('helix_org_bot_detail', { org_id: organizationId, bot_id: bot.id! })}
-            disabled={!bot.id}
-          >
-            Agent page
-          </Button>
-        </Stack>
+          </Stack>
+        )}
       </Box>
+
+      {agentID && detail?.bot?.id && (
+        <>
+          <Section sx={panelSx} title="Agent" description="Name, coding harness, model and reasoning effort. Changes save as you make them.">
+            <OrgAgentSettings agentID={agentID} section="basics" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+          </Section>
+          <Section
+            sx={panelSx}
+            title="Sandbox"
+            description="Environment and compute for this agent's container, and whether its conversation survives between runs. Sandbox changes apply on the next restart."
+          >
+            <OrgAgentSettings agentID={agentID} section="runtime" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+          </Section>
+          <Section sx={panelSx} title="Instructions" description="Markdown the agent reads on every run.">
+            <OrgAgentSettings agentID={agentID} section="instructions" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+          </Section>
+          <Section sx={panelSx} title="Org tools" description="Helix organization capabilities available to this agent.">
+            <OrgAgentSettings agentID={agentID} section="tools" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+          </Section>
+          <Section sx={panelSx} title="Triggers" description="What starts this agent: a Trigger directly, or the output of a Processor.">
+            <OrgAgentSettings agentID={agentID} section="subscriptions" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+          </Section>
+          <Section sx={panelSx} title="Project access" description="Projects this agent can work in through its organization tools.">
+            <OrgAgentSettings agentID={agentID} section="access" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+          </Section>
+        </>
+      )}
 
       <Box sx={{ ...panelSx, '& > .MuiBox-root': { mb: 0 } }}>
         <SharePreviewSection sessionId={sessionId} />
@@ -243,4 +265,4 @@ const OrgAgentDetailsPane: FC<OrgAgentDetailsPaneProps> = ({ bot, sessionId, org
   )
 }
 
-export default OrgAgentDetailsPane
+export default OrgAgentSettingsPane

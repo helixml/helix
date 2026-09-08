@@ -28,7 +28,7 @@ import { SandboxIndicatorState } from '../tasks/SandboxStatusIndicator'
 import SpecTaskTerminalDrawer from '../tasks/SpecTaskTerminalDrawer'
 import SpecTaskViewToolbar, { TaskView } from '../tasks/SpecTaskViewToolbar'
 import TaskSessionPlaceholder from '../tasks/TaskSessionPlaceholder'
-import OrgAgentDetailsPane from './OrgAgentDetailsPane'
+import OrgAgentSettingsPane from './OrgAgentSettingsPane'
 
 export interface OrgAgentSessionWorkspaceProps {
   sessionId: string
@@ -147,6 +147,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
       showRestart={!!bot && !!onRestart}
       onRestart={onRestart}
       restartBusy={lifecycleBusy}
+      detailsLabel="Settings"
     />
   )
 
@@ -185,7 +186,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
         )
       case 'details':
         return bot
-          ? <OrgAgentDetailsPane bot={bot} sessionId={sessionId} organizationId={organizationId} indicatorState={indicatorState} />
+          ? <OrgAgentSettingsPane bot={bot} sessionId={sessionId} organizationId={organizationId} indicatorState={indicatorState} />
           : null
       case 'desktop':
       default:
@@ -221,24 +222,35 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
       >
         {surface}
       </Box>
-      {terminalOpen && sessionId && (
-        <SpecTaskTerminalDrawer
-          sessionId={sessionId}
-          running={desktopRunning}
-          height={terminalHeight}
-          onHeightChange={handleTerminalHeight}
-          onClose={() => setTerminalOpen(false)}
-          onCopyToChat={(text) => onAppendToChat?.(text)}
-        />
-      )}
     </Box>
   )
 
+  // The terminal drawer sits under the whole workspace — chat and content
+  // alike — exactly as on the spec task page, not inside the right panel.
+  const terminalDrawer = terminalOpen && sessionId ? (
+    <SpecTaskTerminalDrawer
+      sessionId={sessionId}
+      running={desktopRunning}
+      height={terminalHeight}
+      onHeightChange={handleTerminalHeight}
+      onClose={() => setTerminalOpen(false)}
+      onCopyToChat={(text) => onAppendToChat?.(text)}
+    />
+  ) : null
+
   if (!isBigScreen) {
-    return content
+    return (
+      <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {content}
+        </Box>
+        {terminalDrawer}
+      </Box>
+    )
   }
 
   return (
+    <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
     <PanelGroup
       id="org-agent-session-workspace"
       orientation="horizontal"
@@ -247,7 +259,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
         'org-agent-session-desktop': 62,
       }}
       onLayoutChange={(layout) => savePanelLayout(layoutKey, layout, panelIds)}
-      style={{ height: '100%', width: '100%' }}
+      style={{ flex: 1, minHeight: 0, width: '100%' }}
     >
       <Panel
         id="org-agent-session-chat"
@@ -277,6 +289,8 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
         {content}
       </Panel>
     </PanelGroup>
+    {terminalDrawer}
+    </Box>
   )
 }
 
