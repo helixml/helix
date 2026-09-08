@@ -44,6 +44,7 @@ import PasswordReset from './pages/PasswordReset'
 import PasswordResetComplete from './pages/PasswordResetComplete'
 import DesignDocPage from './pages/DesignDocPage'
 import Onboarding from './pages/Onboarding'
+import OrgBotSessionResolver from './pages/OrgBotSessionResolver'
 import Waitlist from './pages/Waitlist'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
@@ -135,6 +136,15 @@ const routes: IApplicationRoute[] = [
   render: () => (
     <Home />
   ),
+}, {
+  name: 'org_bot_session',
+  path: '/orgs/:org_id/chat/agents/:bot_id',
+  meta: {
+    drawer: false,
+    topbar: false,
+    title: 'Agent Chat',
+  },
+  render: () => <OrgBotSessionResolver />,
 }, {
   name: 'org_session',
   path: '/orgs/:org_id/chat/session/:session_id',

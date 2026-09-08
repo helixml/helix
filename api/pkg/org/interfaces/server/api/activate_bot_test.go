@@ -42,6 +42,7 @@ func (f *fakeEnsurer) Ensure(_ context.Context, orgID string, bid orgchart.NodeI
 type fakeDispatcher struct {
 	mu              sync.Mutex
 	manualCalls     int
+	hireCalls       int
 	lastOrgID       string
 	lastBotID       orgchart.NodeID
 	lastActivation  activation.ID
@@ -63,12 +64,21 @@ func (f *fakeDispatcher) DispatchManual(_ context.Context, orgID string, bid org
 	f.lastActivation = actID
 }
 
+func (f *fakeDispatcher) DispatchHire(_ context.Context, orgID string, bid orgchart.NodeID, actID activation.ID) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.hireCalls++
+	f.lastOrgID = orgID
+	f.lastBotID = bid
+	f.lastActivation = actID
+}
+
 // wireActivate rebuilds deps.Activations with the test ensurer +
 // dispatcher so the activate use case (which lives in the activations
 // service now, not the handler) exercises the fakes. Optional
 // Sessions / Resetter / Stopper on deps are forwarded so restart/stop
 // tests can inject fakes without a second constructor.
-func wireActivate(deps orgapi.Deps, st *store.Store, ensurer activations.ProjectEnsurer, disp activations.ManualDispatcher) orgapi.Deps {
+func wireActivate(deps orgapi.Deps, st *store.Store, ensurer activations.ProjectEnsurer, disp activations.Dispatcher) orgapi.Deps {
 	ad := activations.Deps{
 		Repo:       st.Activations,
 		NewID:      func() string { return "act-1" },

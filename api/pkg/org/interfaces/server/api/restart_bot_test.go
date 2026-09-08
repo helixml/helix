@@ -66,8 +66,8 @@ func TestRestartBotAgent_ResetsThenActivatesExistingSession(t *testing.T) {
 	if resetter.calls != 1 || resetter.lastSID != "ses_alice" {
 		t.Errorf("ResetSession calls = %d lastSID = %q, want 1 / ses_alice", resetter.calls, resetter.lastSID)
 	}
-	if disp.manualCalls != 1 {
-		t.Errorf("DispatchManual must run after the reset to start a fresh session; got %d", disp.manualCalls)
+	if disp.manualCalls != 1 || disp.hireCalls != 0 {
+		t.Errorf("dispatch calls manual/hire = %d/%d, want 1/0", disp.manualCalls, disp.hireCalls)
 	}
 }
 
@@ -93,8 +93,8 @@ func TestRestartBotAgent_ActivatesWithoutResetWhenNoSession(t *testing.T) {
 	if resetter.calls != 0 {
 		t.Errorf("ResetSession must NOT run without a live session; got %d", resetter.calls)
 	}
-	if disp.manualCalls != 1 {
-		t.Errorf("DispatchManual must run to start a fresh session; got %d", disp.manualCalls)
+	if disp.hireCalls != 0 || disp.manualCalls != 1 {
+		t.Errorf("dispatch calls hire/manual = %d/%d, want 0/1", disp.hireCalls, disp.manualCalls)
 	}
 }
 

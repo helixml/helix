@@ -300,7 +300,11 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			return err
 		}
 		prompt := briefing.BuildPrompt(triggers)
-		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, instructions, prompt, bot.PreserveContext, publish)
+		interactionTrigger := ""
+		if triggers[0].Kind == activation.TriggerHire {
+			interactionTrigger = types.InteractionTriggerOrgHire
+		}
+		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, instructions, prompt, interactionTrigger, bot.PreserveContext, publish)
 		if err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
@@ -415,7 +419,7 @@ func sanitizeLogValue(value string) string {
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions, prompt string, preserveContext bool, _ func(string)) (string, string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions, prompt, interactionTrigger string, preserveContext bool, _ func(string)) (string, string, error) {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return "", "", err
@@ -493,12 +497,13 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 		// is owned only by the org-service user and every other org admin
 		// gets a 403 loading the worker's chat. The owner-chat bridge path
 		// sets this via EnsureAndSend too; the activation path must match.
-		OrganizationID: orgID,
-		AppID:          state.AgentID,
-		AgentType:      AgentType,
-		Prompt:         prompt,
-		WorkerID:       string(workerID),
-		Instructions:   instructions,
+		OrganizationID:     orgID,
+		AppID:              state.AgentID,
+		AgentType:          AgentType,
+		Prompt:             prompt,
+		WorkerID:           string(workerID),
+		Instructions:       instructions,
+		InteractionTrigger: interactionTrigger,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("ensure session: %w", err)

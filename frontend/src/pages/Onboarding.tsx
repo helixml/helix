@@ -216,6 +216,7 @@ export default function Onboarding() {
     display_name?: string;
     viewer_is_owner: boolean;
   } | null>(null);
+  const [createdOrgDuringOnboarding, setCreatedOrgDuringOnboarding] = useState(false);
   const createOrgMutation = useCreateOrg();
 
   // Step 2: Subscription (conditional)
@@ -264,6 +265,8 @@ export default function Onboarding() {
     && helixModels.some((model) => model.id === helixModel);
   const hasConfiguredHelixDefault = !!serverConfig?.onboarding_helix_model_provider
     && !!serverConfig?.onboarding_helix_model;
+  const shouldMeetChiefOfStaff = serverConfig?.edition === "cloud"
+    || createdOrgDuringOnboarding;
 
   useEffect(() => {
     if (!hasConfiguredHelixDefault) return;
@@ -341,9 +344,8 @@ export default function Onboarding() {
   }, [refetchWallet, getStepIndexByType]);
 
   useEffect(() => {
-    const orgIdFromUrl = new URLSearchParams(window.location.search).get(
-      "org_id",
-    );
+    const searchParams = new URLSearchParams(window.location.search);
+    const orgIdFromUrl = searchParams.get("org_id");
     if (!orgIdFromUrl || createdOrg || !existingOrgs.length) return;
 
     const org = existingOrgs.find((candidate) => candidate.id === orgIdFromUrl);
@@ -358,6 +360,7 @@ export default function Onboarding() {
         || !!org.memberships?.some((membership) =>
           membership.user_id === account.user?.id && membership.role === "owner"),
     });
+    setCreatedOrgDuringOnboarding(searchParams.get("created_org") === "true");
     const orgStepIndex = getStepIndexByType("organization");
     setCompletedSteps((prev) => new Set([...prev, orgStepIndex]));
     setActiveStep(orgStepIndex + 1);
@@ -463,10 +466,17 @@ export default function Onboarding() {
         }
         account.dismissOnboarding();
         localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name);
-        router.navigateReplace("org_projects", {
-          org_id: createdOrg.name,
-          create_project_config: JSON.stringify(codeAgentConfig),
-        });
+        if (shouldMeetChiefOfStaff) {
+          router.navigateReplace("org_bot_session", {
+            org_id: createdOrg.name,
+            bot_id: "chief-of-staff",
+          });
+        } else {
+          router.navigateReplace("org_projects", {
+            org_id: createdOrg.name,
+            create_project_config: JSON.stringify(codeAgentConfig),
+          });
+        }
       } catch (err) {
         console.error("Failed to configure coding access:", err);
         snackbar.error("Failed to configure coding access");
@@ -487,6 +497,7 @@ export default function Onboarding() {
       helixReasoningEffort,
       helixDefaultAvailable,
       router,
+      shouldMeetChiefOfStaff,
       snackbar,
       updateCodeAgentHarnesses,
     ],
@@ -510,6 +521,7 @@ export default function Onboarding() {
         || !!org.memberships?.some((membership) =>
           membership.user_id === account.user?.id && membership.role === "owner"),
     });
+    setCreatedOrgDuringOnboarding(false);
     markStepCompleteByType("organization");
   }, [account.user?.id, selectedOrgId, existingOrgs, markStepCompleteByType, snackbar]);
 
@@ -529,6 +541,7 @@ export default function Onboarding() {
           display_name: newOrg.display_name,
           viewer_is_owner: true,
         });
+        setCreatedOrgDuringOnboarding(true);
         await account.organizationTools.loadOrganizations();
         markStepCompleteByType("organization");
       }
@@ -556,7 +569,7 @@ export default function Onboarding() {
 
       const resp = await api.getApiClient().v1SubscriptionNewCreate({
         org_id: createdOrg.id,
-        return_url: `/onboarding?org_id=${createdOrg.id}`,
+        return_url: `/onboarding?org_id=${createdOrg.id}${createdOrgDuringOnboarding ? "&created_org=true" : ""}`,
       });
       if (!resp.data) return;
 
@@ -567,7 +580,7 @@ export default function Onboarding() {
     } finally {
       setIsSubscribing(false);
     }
-  }, [api, createdOrg, snackbar]);
+  }, [api, createdOrg, createdOrgDuringOnboarding, snackbar]);
 
   const handleDismiss = useCallback(async () => {
     account.dismissOnboarding();
@@ -1331,7 +1344,11 @@ export default function Onboarding() {
                   ) : undefined
                 }
               >
-                {finishingOnboarding ? "Finishing setup..." : continueLabel}
+                {finishingOnboarding
+                  ? "Finishing setup..."
+                  : shouldMeetChiefOfStaff
+                    ? "Meet your Chief of Staff"
+                    : continueLabel}
               </Button>
             </Box>
           </Fade>

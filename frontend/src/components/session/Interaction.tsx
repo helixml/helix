@@ -441,7 +441,7 @@ export const Interaction: FC<InteractionProps> = ({
       onMouseLeave={() => setIsHovering(false)}
     >
       {/* User Message Container */}
-      {userMessage && (
+      {userMessage && interaction.trigger !== "org_hire" && (
         <Box
           sx={{
             display: "flex",

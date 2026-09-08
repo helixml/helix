@@ -966,6 +966,7 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 		AutoRestartOnCrash:  true,
 		OrgWorkerID:         params.WorkerID,
 		RuntimeInstructions: params.Instructions,
+		InteractionTrigger:  params.InteractionTrigger,
 		Messages: []*types.Message{{
 			Role:    "user",
 			Content: types.MessageContent{Parts: []any{params.Prompt}},

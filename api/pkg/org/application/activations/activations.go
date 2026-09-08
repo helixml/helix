@@ -14,6 +14,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 )
 
 // ProjectEnsurer provisions (or fast-paths) a Worker's per-Worker Helix
@@ -24,10 +25,10 @@ type ProjectEnsurer interface {
 	Ensure(ctx context.Context, orgID string, workerID orgchart.NodeID) (projectID, agentAppID, repoID string, err error)
 }
 
-// ManualDispatcher enqueues an operator-driven activation on the
-// per-Worker queue. activationID is the pre-allocated audit-row id;
-// empty means the Spawner mints its own.
-type ManualDispatcher interface {
+// Dispatcher enqueues activations on the per-Worker queue. activationID
+// is the pre-allocated audit-row id; empty means the Spawner mints its own.
+type Dispatcher interface {
+	DispatchHire(ctx context.Context, orgID string, workerID orgchart.NodeID, activationID activation.ID)
 	DispatchManual(ctx context.Context, orgID string, workerID orgchart.NodeID, activationID activation.ID)
 }
 
@@ -71,7 +72,7 @@ type Activations struct {
 	now        func() time.Time
 	newID      func() string
 	ensurer    ProjectEnsurer
-	dispatcher ManualDispatcher
+	dispatcher Dispatcher
 	sessions   SessionResolver
 	stopper    DesktopStopper
 	resetter   SessionResetter
@@ -89,7 +90,7 @@ type Deps struct {
 	Now        func() time.Time
 	NewID      func() string
 	Ensurer    ProjectEnsurer
-	Dispatcher ManualDispatcher
+	Dispatcher Dispatcher
 	Sessions   SessionResolver
 	Stopper    DesktopStopper
 	Resetter   SessionResetter
@@ -115,7 +116,7 @@ func New(deps Deps) *Activations {
 	}
 }
 
-// ActivateResult is what a manual activation returns to the caller: the
+// ActivateResult is what an activation returns to the caller: the
 // pre-allocated activation id plus the project / agent-app / session ids
 // the UI needs to navigate to the desktop.
 type ActivateResult struct {
@@ -125,15 +126,15 @@ type ActivateResult struct {
 	SessionID    string
 }
 
-// Activate runs the manual "activate worker" command end-to-end:
+// Activate runs the "activate worker" command end-to-end:
 //
 //  1. Synchronously ensure the project + agent app (re-attaches the
 //     helix-org MCP — the immediate user-visible fix the operator clicked
 //     "Start Desktop" for).
 //  2. Read the persisted session id (empty on first activation).
-//  3. Pre-allocate the audit row so the response carries an activation id.
-//  4. Enqueue on the dispatcher's per-Worker queue (coalesces with any
-//     in-flight activation, so a double-click folds into one follow-up).
+//  3. Return any in-flight activation instead of dispatching a duplicate.
+//  4. Otherwise pre-allocate the audit row and enqueue it on the dispatcher's
+//     per-Worker queue.
 //
 // The worker-id is validated up front (it propagates into the
 // helix-specs git layout and topic ids — a defensive format check).
@@ -141,6 +142,10 @@ type ActivateResult struct {
 // Activate's Ensure will also error on a missing Worker, but a pre-check
 // gives the cleaner status.
 func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgchart.NodeID) (ActivateResult, error) {
+	return a.activate(ctx, orgID, workerID, false)
+}
+
+func (a *Activations) activate(ctx context.Context, orgID string, workerID orgchart.NodeID, forceManual bool) (ActivateResult, error) {
 	if a.ensurer == nil || a.dispatcher == nil {
 		return ActivateResult{}, ErrActivateUnavailable
 	}
@@ -152,14 +157,34 @@ func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgch
 		return ActivateResult{}, fmt.Errorf("ensure project for %s: %w", workerID, err)
 	}
 	var sessionID string
+	triggerKind := activation.TriggerManual
 	if a.sessions != nil {
-		sessionID, _ = a.sessions.SessionID(ctx, orgID, workerID)
+		var sessionErr error
+		sessionID, sessionErr = a.sessions.SessionID(ctx, orgID, workerID)
+		if !forceManual && a.repo != nil {
+			rows, historyErr := a.repo.ListForWorker(ctx, orgID, workerID, 1)
+			if historyErr == nil && len(rows) > 0 && !rows[0].IsCompleted() {
+				return ActivateResult{
+					ActivationID: rows[0].ID,
+					ProjectID:    projectID,
+					AgentID:      agentAppID,
+					SessionID:    sessionID,
+				}, nil
+			}
+			if workerID == seedprompts.ChiefOfStaffBotID && sessionErr == nil && sessionID == "" && historyErr == nil && len(rows) == 0 {
+				triggerKind = activation.TriggerHire
+			}
+		}
 	}
-	activationID, err := a.prepareManual(ctx, orgID, workerID)
+	activationID, err := a.prepare(ctx, orgID, workerID, triggerKind)
 	if err != nil {
 		return ActivateResult{}, err
 	}
-	a.dispatcher.DispatchManual(ctx, orgID, workerID, activationID)
+	if triggerKind == activation.TriggerHire {
+		a.dispatcher.DispatchHire(ctx, orgID, workerID, activationID)
+	} else {
+		a.dispatcher.DispatchManual(ctx, orgID, workerID, activationID)
+	}
 	return ActivateResult{
 		ActivationID: activationID,
 		ProjectID:    projectID,
@@ -225,16 +250,17 @@ func (a *Activations) Restart(ctx context.Context, orgID string, workerID orgcha
 		if err := a.resetter.ResetSession(ctx, orgID, workerID, sessionID); err != nil {
 			return ActivateResult{}, fmt.Errorf("reset session: %w", err)
 		}
+		return a.activate(ctx, orgID, workerID, true)
 	}
 	return a.Activate(ctx, orgID, workerID)
 }
 
-// prepareManual pre-allocates a TriggerManual activation audit row for
-// the Worker and returns its id. Returns an empty id (and nil error)
+// prepare pre-allocates an activation audit row for the Worker and
+// returns its id. Returns an empty id (and nil error)
 // when the repository or id-generator is unwired — Activate then treats
 // that as "no pre-allocation; the Spawner mints its own", matching the
 // previous inline behaviour.
-func (a *Activations) prepareManual(ctx context.Context, orgID string, workerID orgchart.NodeID) (activation.ID, error) {
+func (a *Activations) prepare(ctx context.Context, orgID string, workerID orgchart.NodeID, triggerKind activation.TriggerKind) (activation.ID, error) {
 	if a.repo == nil || a.newID == nil {
 		return "", nil
 	}
@@ -242,15 +268,15 @@ func (a *Activations) prepareManual(ctx context.Context, orgID string, workerID 
 	act, err := activation.New(
 		id,
 		workerID,
-		[]activation.Trigger{{Kind: activation.TriggerManual}},
+		[]activation.Trigger{{Kind: triggerKind}},
 		a.now(),
 		orgID,
 	)
 	if err != nil {
-		return "", fmt.Errorf("build manual activation: %w", err)
+		return "", fmt.Errorf("build activation: %w", err)
 	}
 	if err := a.repo.Create(ctx, act); err != nil {
-		return "", fmt.Errorf("persist manual activation: %w", err)
+		return "", fmt.Errorf("persist activation: %w", err)
 	}
 	return id, nil
 }
