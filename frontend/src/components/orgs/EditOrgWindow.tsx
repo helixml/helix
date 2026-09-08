@@ -15,7 +15,6 @@ import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import AgentConfigForm, { AgentConfigValue } from '../helix-org/BotRuntimeForm'
 import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
-import { orgLandingRoute } from '../../utils/organizations'
 
 export interface EditOrgWindowProps {
   open: boolean
@@ -162,10 +161,13 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
       // backend on org create — see api/pkg/server/org_graph_seed.go. The
       // frontend no longer creates it.
 
-      // Land the operator on the default page for the new organization.
+      // Open the new organization's Chief of Staff.
       if (!org && created && created.name) {
         localStorage.setItem(SELECTED_ORG_STORAGE_KEY, created.name)
-        router.navigate(orgLandingRoute(), { org_id: created.name })
+        router.navigate('helix_org_chart', {
+          org_id: created.name,
+          bot_id: 'chief-of-staff',
+        })
       }
 
       onClose()
