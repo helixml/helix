@@ -12,6 +12,9 @@ import ClaudeSubscriptionConnect from './ClaudeSubscriptionConnect'
 // makes the catch reachable.
 const createSubscription = vi.fn()
 const deleteSubscription = vi.fn()
+const delegationUpdate = vi.fn()
+const oauthStart = vi.fn()
+const oauthComplete = vi.fn()
 const snackbarSuccess = vi.fn()
 
 vi.mock('../../hooks/useApi', () => ({
@@ -22,8 +25,9 @@ vi.mock('../../hooks/useApi', () => ({
     getApiClient: () => ({
       v1ClaudeSubscriptionsCreate: createSubscription,
       v1ClaudeSubscriptionsDelete: deleteSubscription,
-      v1ClaudeSubscriptionsOauthStartCreate: vi.fn(),
-      v1ClaudeSubscriptionsOauthCompleteCreate: vi.fn(),
+      v1ClaudeSubscriptionsDelegationUpdate: delegationUpdate,
+      v1ClaudeSubscriptionsOauthStartCreate: oauthStart,
+      v1ClaudeSubscriptionsOauthCompleteCreate: oauthComplete,
     }),
   }),
 }))
@@ -36,13 +40,13 @@ vi.mock('../../hooks/useAccount', () => ({
   default: () => ({ admin: false, user: { id: 'usr_1' }, organizationTools: { organizations: [] } }),
 }))
 
-function renderConnect() {
+function renderConnect(props: { enableForOrgId?: string } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <ClaudeSubscriptionConnect variant="button" />
+      <ClaudeSubscriptionConnect variant="button" {...props} />
     </QueryClientProvider>,
   )
 }
@@ -56,6 +60,9 @@ describe('ClaudeSubscriptionConnect — connect failures', () => {
   beforeEach(() => {
     createSubscription.mockReset()
     deleteSubscription.mockReset()
+    delegationUpdate.mockReset()
+    oauthStart.mockReset()
+    oauthComplete.mockReset()
     snackbarSuccess.mockReset()
   })
 
@@ -92,5 +99,47 @@ describe('ClaudeSubscriptionConnect — connect failures', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Connect$/ }))
 
     await waitFor(() => expect(snackbarSuccess).toHaveBeenCalledWith('Claude subscription connected'))
+  })
+
+  it('shares a setup-token subscription connected from organization settings', async () => {
+    createSubscription.mockResolvedValue({
+      data: { id: 'csub_setup', delegated_org_ids: ['org_existing'] },
+    })
+    delegationUpdate.mockResolvedValue({ data: {} })
+
+    renderConnect({ enableForOrgId: 'org_target' })
+    await openDialogOnSetupToken()
+    fireEvent.change(screen.getByLabelText(/Claude Code setup token/i), {
+      target: { value: 'sk-ant-oat01-' + 's'.repeat(60) },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Connect$/ }))
+
+    await waitFor(() => expect(delegationUpdate).toHaveBeenCalledWith('csub_setup', {
+      delegated_org_ids: ['org_existing', 'org_target'],
+    }))
+  })
+
+  it('shares an OAuth subscription connected from organization settings', async () => {
+    oauthStart.mockResolvedValue({
+      data: { authorize_url: 'https://claude.ai/oauth', code_verifier: 'verifier', state: 'state' },
+    })
+    oauthComplete.mockResolvedValue({
+      data: { id: 'csub_oauth', delegated_org_ids: ['org_existing'] },
+    })
+    delegationUpdate.mockResolvedValue({ data: {} })
+    vi.spyOn(window, 'open').mockImplementation(() => null)
+
+    renderConnect({ enableForOrgId: 'org_target' })
+    fireEvent.click(await screen.findByRole('button', { name: /connect/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with Claude' }))
+    await waitFor(() => expect(oauthStart).toHaveBeenCalled())
+    fireEvent.change(screen.getByLabelText('Authorization code'), {
+      target: { value: 'oauth-code' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Connect$/ }))
+
+    await waitFor(() => expect(delegationUpdate).toHaveBeenCalledWith('csub_oauth', {
+      delegated_org_ids: ['org_existing', 'org_target'],
+    }))
   })
 })
