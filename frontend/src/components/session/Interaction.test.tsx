@@ -89,6 +89,23 @@ describe("Interaction", () => {
     expect(screen.queryByRole("button", { name: "agent debug copy" })).not.toBeInTheDocument();
   });
 
+  it("hides an organization hire prompt without hiding the agent reply", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_first_hire",
+          prompt_message: "Internal activation instructions",
+          response_message: "Hello, I am your new agent.",
+          trigger: "org_hire",
+        }}
+      />,
+    );
+
+    expect(screen.queryByTestId("user-message")).not.toBeInTheDocument();
+    expect(screen.getByTestId("agent-reply")).toHaveTextContent("Hello, I am your new agent.");
+  });
+
   it("renders workspace attachments without exposing the transport manifest", () => {
     render(
       <Interaction

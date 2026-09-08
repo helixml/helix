@@ -64,6 +64,7 @@ func (suite *AppendOrOverwriteSuite) TestAppendToEmptySession() {
 	}
 
 	req := &types.SessionChatRequest{
+		InteractionTrigger: types.InteractionTriggerOrgHire,
 		Messages: []*types.Message{
 			{
 				Role: "user",
@@ -83,6 +84,7 @@ func (suite *AppendOrOverwriteSuite) TestAppendToEmptySession() {
 
 	suite.Require().Len(session.Interactions, 1)
 	suite.Equal("Hello, how are you?", session.Interactions[0].PromptMessage)
+	suite.Equal(types.InteractionTriggerOrgHire, session.Interactions[0].Trigger)
 	suite.Equal(types.InteractionStateWaiting, session.Interactions[0].State)
 }
 

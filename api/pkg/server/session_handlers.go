@@ -1297,6 +1297,7 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 			SystemPrompt:         session.Metadata.SystemPrompt,
 			PromptMessage:        message,
 			PromptMessageContent: messageContent,
+			Trigger:              req.InteractionTrigger,
 			State:                types.InteractionStateWaiting, // Will be updated once inference is complete
 		}
 
@@ -1349,6 +1350,7 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 			SystemPrompt:         session.Metadata.SystemPrompt,
 			PromptMessage:        message,
 			PromptMessageContent: messageContent,
+			Trigger:              req.InteractionTrigger,
 		},
 	)
 

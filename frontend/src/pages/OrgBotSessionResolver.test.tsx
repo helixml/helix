@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   refetch: vi.fn(),
   navigateReplace: vi.fn(),
-  bots: [] as Array<{ id: string; session_id?: string }>,
+  bots: [] as Array<{ id: string; name?: string; session_id?: string }>,
   listError: false,
 }))
 
@@ -71,16 +71,18 @@ describe('OrgBotSessionResolver', () => {
     expect(mocks.activate).toHaveBeenCalledTimes(1)
   })
 
-  it('allows activation to be retried while no durable session exists', async () => {
-    mocks.bots = [{ id: 'chief-of-staff' }]
+  it('introduces the selected agent without offering a premature retry', async () => {
+    mocks.bots = [{ id: 'chief-of-staff', name: 'Chief of Staff' }]
     render(<OrgBotSessionResolver />)
 
     await waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(1))
-    fireEvent.click(screen.getByRole('button', {
-      name: 'Retry starting Chief of Staff',
-    }))
-
-    await waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('heading', { name: 'Meet Chief of Staff' })).toBeInTheDocument()
+    expect(screen.getByText(/new agent is getting ready/i)).toBeInTheDocument()
+    expect(screen.getByText('Preparing Chief of Staff')).toBeInTheDocument()
+    expect(screen.getByText('Finding your agent')).toBeInTheDocument()
+    expect(screen.getByText('Starting a secure workspace')).toBeInTheDocument()
+    expect(screen.getByText('Opening your conversation')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
   })
 
   it('offers retry when activation fails', async () => {
@@ -89,10 +91,10 @@ describe('OrgBotSessionResolver', () => {
     render(<OrgBotSessionResolver />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Could not start your Chief of Staff.',
+      'Could not start chief-of-staff.',
     )
     const retry = screen.getByRole('button', {
-      name: 'Retry starting Chief of Staff',
+      name: 'Retry starting chief-of-staff',
     })
     mocks.activate.mockResolvedValue({})
     fireEvent.click(retry)
@@ -105,10 +107,10 @@ describe('OrgBotSessionResolver', () => {
     render(<OrgBotSessionResolver />)
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Could not find your Chief of Staff.',
+      'Could not find this agent.',
     )
     fireEvent.click(screen.getByRole('button', {
-      name: 'Retry finding Chief of Staff',
+      name: 'Retry finding agent',
     }))
 
     expect(mocks.refetch).toHaveBeenCalledTimes(1)
