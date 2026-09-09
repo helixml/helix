@@ -118,7 +118,7 @@ const HelixOrgTriggerDetail: FC = () => {
           {trigger.kind === 'github' && <TriggerWebhookPanel trigger={trigger} orgSlug={orgID} />}
           <Divider />
           <Box>
-            <Typography variant="h6" gutterBottom>Agents started</Typography>
+            <Typography variant="h6" gutterBottom>Org bots started</Typography>
             {!trigger.attached_workers?.length
               ? <Typography variant="body2" color="text.secondary">No agents are attached to this Trigger yet. Attach one from the org chart.</Typography>
               : <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>

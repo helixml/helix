@@ -32,7 +32,7 @@ const SandboxSource: FC<SandboxSourceProps> = ({ sandbox }) => {
       })
     }
     return (
-      <Tooltip title={canNavigate ? 'Open the org agent this sandbox belongs to' : 'Org agent sandbox'}>
+      <Tooltip title={canNavigate ? 'Open the org bot this sandbox belongs to' : 'Org bot sandbox'}>
         <Box
           component={canNavigate ? 'a' : 'span'}
           href={canNavigate ? '#' : undefined}
@@ -50,7 +50,7 @@ const SandboxSource: FC<SandboxSourceProps> = ({ sandbox }) => {
         >
           <Bot size={14} style={{ flexShrink: 0 }} />
           <Typography variant="body2" color="inherit" noWrap>
-            Org agent
+            Org bot
           </Typography>
         </Box>
       </Tooltip>

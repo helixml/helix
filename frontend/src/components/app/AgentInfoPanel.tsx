@@ -16,13 +16,13 @@ const AgentInfoPanel: FC<{
   app: IApp
   orgAgent?: BotDTO
 }> = ({ app, orgAgent }) => {
-  const status = orgAgent?.agent_status
+  const status = orgAgent?.status
 
   return (
     <Box sx={{ pt: 2 }}>
       <Stack spacing={2}>
         <Box>
-          <Typography variant="caption" color="text.secondary">Agent ID</Typography>
+          <Typography variant="caption" color="text.secondary">{orgAgent ? 'Org Bot ID' : 'Agent ID'}</Typography>
           <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
             {orgAgent?.id ?? app.id}
           </Typography>

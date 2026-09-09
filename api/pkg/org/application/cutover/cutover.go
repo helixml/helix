@@ -192,9 +192,7 @@ func convertTopic(ctx context.Context, s *store.Store, topic streaming.Topic) (b
 // implies. Returns false when the attachment already exists, or when the
 // subscription is unconvertible for a reason that is not a failure:
 //   - the Worker row is gone (a dangling subscription the cascade
-//     never reached);
-//   - the Worker is human — attachments are AI-Worker-only, and a human
-//     never had an activation to receive.
+//     never reached).
 func convertSubscription(ctx context.Context, s *store.Store, sub streaming.Subscription, branches map[store.OrgScopedID]branchRef) (bool, error) {
 	workerID := orgchart.NodeID(sub.NodeID)
 	node, err := s.Nodes.Get(ctx, sub.OrganizationID, workerID)
@@ -204,10 +202,6 @@ func convertSubscription(ctx context.Context, s *store.Store, sub streaming.Subs
 		}
 		return false, fmt.Errorf("cutover: look up worker %q: %w", workerID, err)
 	}
-	if node.IsHuman() {
-		return false, nil
-	}
-
 	src := eventsource.Trigger(sub.TopicID)
 	if branch, ok := branches[store.OrgScopedID{OrgID: sub.OrganizationID, ID: sub.TopicID}]; ok {
 		src = eventsource.ProcessorOutput(branch.ProcessorID, branch.OutputID)

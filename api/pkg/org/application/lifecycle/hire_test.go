@@ -13,14 +13,22 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func hireClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 
 type fakeAgentCreator struct{}
 
-func (fakeAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (string, error) {
-	return "app-agent", nil
+func (fakeAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
+	return lifecycle.CreatedAgent{
+		LegacyAppID: "app-agent",
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime:        types.CodeAgentRuntimeCodexCLI,
+			CredentialType: types.CodeAgentCredentialTypeSubscription,
+			Model:          "gpt-5.6",
+		},
+	}, nil
 }
 
 type failingNodeReconciler struct{}
@@ -80,6 +88,9 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	}
 	if res.Node.AgentID != "app-agent" {
 		t.Fatalf("agent app id = %q, want app-agent", res.Node.AgentID)
+	}
+	if res.Node.CodeAgentConfig == nil || res.Node.CodeAgentConfig.Model != "gpt-5.6" {
+		t.Fatalf("code agent config = %+v, want independently persisted config", res.Node.CodeAgentConfig)
 	}
 	if !cleaner.restored || cleaner.orgID != "org-test" || cleaner.agentID != "w-new" {
 		t.Fatalf("agent delivery was not restored for recreated worker")
@@ -177,6 +188,21 @@ func TestCreate_RollsBackBotWhenReconcileFails(t *testing.T) {
 	}
 	if _, err := st.Nodes.Get(context.Background(), "org-test", "w-new"); err == nil {
 		t.Fatal("failed create left bot row")
+	}
+}
+
+func TestCreateRequiresLegacyAppCreator(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newHireService(st)
+	svc.Agents = nil
+
+	_, err := svc.Create(context.Background(), "org-test", lifecycle.CreateParams{ID: "w-new", Content: "x"})
+	if err == nil || err.Error() != "lifecycle: legacy App creator not wired" {
+		t.Fatalf("Create error = %v", err)
+	}
+	if _, getErr := st.Nodes.Get(context.Background(), "org-test", "w-new"); !errors.Is(getErr, store.ErrNotFound) {
+		t.Fatalf("unwired create persisted a Bot: %v", getErr)
 	}
 }
 

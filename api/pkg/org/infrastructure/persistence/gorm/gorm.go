@@ -11,11 +11,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -24,7 +26,7 @@ import (
 // orgRowTypes is the canonical list of org-* tables. Kept in one
 // place so the FK installation loop stays in sync with AutoMigrate.
 var orgRowTypes = []any{
-	&nodeRow{},
+	&OrgBot{},
 	&reportingLineRow{},
 	&nodeRuntimeStateRow{},
 	&eventRow{},
@@ -136,6 +138,16 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	}
 	if err := installWorkerSecretConstraints(db); err != nil {
 		return nil, fmt.Errorf("install worker secret constraints: %w", err)
+	}
+
+	// Drop the legacy human placeholder rows only once the ON DELETE
+	// CASCADE FKs above exist, so the DB removes their reporting lines,
+	// asset links, attachments and secret bindings with them. Deleting
+	// first on a DB that predates those constraints would orphan the
+	// child rows and the ADD CONSTRAINT statements would then fail
+	// validation, aborting startup.
+	if err := removeLegacyHumanBots(db); err != nil {
+		return nil, fmt.Errorf("remove legacy human bots: %w", err)
 	}
 	if err := installAgentAppLinks(db); err != nil {
 		return nil, fmt.Errorf("install agent app links: %w", err)
@@ -306,6 +318,9 @@ func installAgentAppLinks(db *gorm.DB) error {
 			return err
 		}
 	}
+	if err := repairDuplicateAgentAppLinks(db); err != nil {
+		return err
+	}
 	if err := db.Exec(`
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_org_bots_agent_app
 		ON org_bots (org_id, agent_app_id)
@@ -338,7 +353,70 @@ func installAgentAppLinks(db *gorm.DB) error {
 		WHERE bot.agent_app_id = app.id
 		  AND bot.agent_app_id IS NOT NULL
 	`, types.AgentKindOrg).Error; err != nil {
-		return fmt.Errorf("backfill org agent kinds: %w", err)
+		return fmt.Errorf("backfill Org Bot App kinds: %w", err)
+	}
+	return nil
+}
+
+func repairDuplicateAgentAppLinks(db *gorm.DB) error {
+	type duplicate struct {
+		OrgID string
+		AppID string
+	}
+	type linkedBot struct {
+		ID string
+	}
+	type repair struct {
+		duplicate
+		Winner string
+		Losers []string
+	}
+
+	var duplicates []duplicate
+	if err := db.Table("org_bots").
+		Select("org_id, agent_app_id AS app_id").
+		Where("agent_app_id IS NOT NULL").
+		Group("org_id, agent_app_id").
+		Having("COUNT(*) > 1").
+		Scan(&duplicates).Error; err != nil {
+		return fmt.Errorf("list duplicate legacy App links: %w", err)
+	}
+
+	repairs := make([]repair, 0, len(duplicates))
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		for _, duplicate := range duplicates {
+			var bots []linkedBot
+			if err := tx.Table("org_bots").Select("id").
+				Where("org_id = ? AND agent_app_id = ?", duplicate.OrgID, duplicate.AppID).
+				Order("created_at ASC, id ASC").Scan(&bots).Error; err != nil {
+				return fmt.Errorf("list Bots linked to App %s: %w", duplicate.AppID, err)
+			}
+			if len(bots) < 2 {
+				continue
+			}
+			losers := make([]string, 0, len(bots)-1)
+			for _, bot := range bots[1:] {
+				losers = append(losers, bot.ID)
+			}
+			// Keep the oldest Bot on the shared legacy App. Detached Bots are
+			// provisioned their own App by the next bootstrap reconciliation.
+			if err := tx.Table("org_bots").
+				Where("org_id = ? AND id IN ?", duplicate.OrgID, losers).
+				Updates(map[string]any{"agent_app_id": nil, "code_agent_config": nil}).Error; err != nil {
+				return fmt.Errorf("clear duplicate legacy App %s links: %w", duplicate.AppID, err)
+			}
+			repairs = append(repairs, repair{duplicate: duplicate, Winner: bots[0].ID, Losers: losers})
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, repaired := range repairs {
+		slog.Warn("org Bot migration: cleared duplicate legacy App links",
+			"org", repaired.OrgID,
+			"app", repaired.AppID,
+			"kept_bot", repaired.Winner,
+			"cleared_bots", repaired.Losers)
 	}
 	return nil
 }
@@ -361,8 +439,7 @@ func backfillAgentAppLinks(db *gorm.DB) error {
 		JOIN apps AS a
 		  ON a.id = state.value
 		 AND a.organization_id = state.org_id
-		WHERE bot.kind <> 'human'
-		  AND bot.agent_app_id IS NULL
+		WHERE bot.agent_app_id IS NULL
 		  AND state.backend = 'helix'
 		  AND state.key = 'agent_app_id'
 		  AND state.value <> ''
@@ -600,6 +677,41 @@ func dropRemovedTables(db *gorm.DB) error {
 	for _, t := range removedTables {
 		if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", t)).Error; err != nil {
 			return fmt.Errorf("drop %s: %w", t, err)
+		}
+	}
+	return nil
+}
+
+// removeLegacyHumanBots removes the abandoned person-placeholder variant of
+// org_bots and its discriminator/contact columns. People are users joined to
+// organizations through organization_memberships; org_bots now has one shape.
+func removeLegacyHumanBots(db *gorm.DB) error {
+	m := db.Migrator()
+	if !m.HasTable("org_bots") {
+		return nil
+	}
+	if m.HasColumn("org_bots", "kind") {
+		// org_chart_positions has no FK back to org_bots, so its rows
+		// for the human placeholders have to go explicitly or they
+		// linger forever as canvas coordinates for nodes that no
+		// longer exist.
+		if m.HasTable("org_chart_positions") {
+			if err := db.Exec(
+				"DELETE FROM org_chart_positions WHERE kind = ? AND (org_id, id) IN (SELECT org_id, id FROM org_bots WHERE kind = ?)",
+				orgchart.ChartNodeKindBot, "human",
+			).Error; err != nil {
+				return fmt.Errorf("delete human placeholder chart positions: %w", err)
+			}
+		}
+		if err := db.Exec("DELETE FROM org_bots WHERE kind = ?", "human").Error; err != nil {
+			return fmt.Errorf("delete human placeholder rows: %w", err)
+		}
+	}
+	for _, column := range []string{"identity", "helix_user_id", "kind"} {
+		if m.HasColumn("org_bots", column) {
+			if err := db.Exec("ALTER TABLE org_bots DROP COLUMN " + column).Error; err != nil {
+				return fmt.Errorf("drop org_bots.%s: %w", column, err)
+			}
 		}
 	}
 	return nil

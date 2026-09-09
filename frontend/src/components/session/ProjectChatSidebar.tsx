@@ -215,8 +215,7 @@ const ProjectChatSidebar: FC<{
     }
   }, [projectFilter, projectFilterStorageKey, projectsLoading, resolvedProjectFilter])
   const orgAgentAppIds = new Set(orgAgents.flatMap((agent) => [
-    agent.agent_id,
-    agent.agent_app_id,
+    agent.legacy_app_id,
   ]).filter((appId): appId is string => !!appId))
   const { data: repositories = [], isLoading: repositoriesLoading } = useGitRepositories({
     organizationId: orgId,
@@ -780,7 +779,7 @@ const ProjectChatSidebar: FC<{
             {showBotsSection && (
               <>
                 <ProjectChatSectionHeader
-                  label="Org agents"
+                  label="Org bots"
                   collapsed={collapsedGroups.has('bots')}
                   onToggle={() => toggleGroup('bots')}
                 />

@@ -157,9 +157,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
         }
       }
 
-      // Chief of Staff (+ the creator's human node) is now seeded by the
-      // backend on org create — see api/pkg/server/org_graph_seed.go. The
-      // frontend no longer creates it.
+      // The Chief of Staff is seeded by the backend on org create.
 
       // Open the new organization's Chief of Staff.
       if (!org && created && created.name) {

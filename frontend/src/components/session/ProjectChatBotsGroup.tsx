@@ -273,7 +273,7 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   const pagination = useSidebarItemPagination(visibleThreadCount)
   const tasksQuery = useSpecTasks({
     organizationId: orgId,
-    createdByOrgAgent: bot.id,
+    createdByOrgBot: bot.id,
     limit: pagination.requestCount,
     offset: 0,
     sort: threadSortOrder === 'created_at' ? 'created' : 'last_message',

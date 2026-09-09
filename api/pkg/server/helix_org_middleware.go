@@ -48,13 +48,9 @@ type helixOrgScope struct {
 	// first request. nil when not wired.
 	helixEvents *helixevents.Reconciler
 
-	// humanReconcile makes the org's human nodes match its membership on
-	// first request (the correctness backstop for the inline membership
-	// hooks — see org_graph_seed.go). nil when helix-org / the seeder isn't
-	// wired.
-	humanReconcile func(ctx context.Context, orgID string) error
-	botRepair      func(ctx context.Context, orgID, serviceKey string) error
-	botTools       *nodes.Nodes
+	botBootstrap func(ctx context.Context, orgID string) error
+	botRepair    func(ctx context.Context, orgID, serviceKey string) error
+	botTools     *nodes.Nodes
 
 	mu           sync.Mutex
 	bootstrapped map[string]bool
@@ -170,21 +166,29 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org role reconcile failed")
 		}
 
-		// Converge human nodes against org membership: create a node for any
-		// member missing one (covers OIDC joins + members added before this
-		// feature) and remove orphans. Best-effort like the reconciles above.
-		if s.humanReconcile != nil {
-			if err := s.humanReconcile(ctx, orgID); err != nil {
-				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org human-node reconcile failed")
+		// Seed the org's Chief of Staff and converge the Bot→App
+		// links. Best-effort like the reconciles above: an org missing
+		// its Chief of Staff is degraded, but failing the request
+		// would 500 every /orgs/{org}/… route — including the Settings
+		// page needed to fix a bad default agent config, and the public
+		// webhook handlers. The org stays un-bootstrapped so the next
+		// request retries.
+		botBootstrapFailed := false
+		if s.botBootstrap != nil {
+			if err := s.botBootstrap(ctx, orgID); err != nil {
+				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org Bot bootstrap failed")
+				botBootstrapFailed = true
 			}
 		}
 
 		// Mirror pre-existing workers (once per org per process).
 		s.mirror.EnsureAll(ctx, orgID)
 
-		s.mu.Lock()
-		s.bootstrapped[orgID] = true
-		s.mu.Unlock()
+		if !botBootstrapFailed {
+			s.mu.Lock()
+			s.bootstrapped[orgID] = true
+			s.mu.Unlock()
+		}
 		return nil, nil
 	})
 	return err
@@ -207,9 +211,6 @@ func repairNeverActivatedBots(ctx context.Context, orgID string, st *helixorgsto
 		return err
 	}
 	for _, b := range bs {
-		if b.IsHuman() {
-			continue
-		}
 		acts, err := st.Activations.ListForWorker(ctx, orgID, b.ID, 1)
 		if err != nil {
 			return fmt.Errorf("list activations for bot %s: %w", b.ID, err)
@@ -315,11 +316,11 @@ func isHelixOrgPrivilegedMutation(r *http.Request) bool {
 	if r.URL.Path == assetsPath || strings.HasPrefix(r.URL.Path, assetsPath+"/") {
 		return true
 	}
-	agentsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/agents/"
-	if !strings.HasPrefix(r.URL.Path, agentsPath) {
+	botsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/bots/"
+	if !strings.HasPrefix(r.URL.Path, botsPath) {
 		return false
 	}
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, agentsPath), "/")
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, botsPath), "/")
 	return len(parts) >= 3 && parts[0] != "" && parts[1] == "secrets" && parts[2] != ""
 }
 

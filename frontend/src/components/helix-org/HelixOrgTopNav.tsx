@@ -1,4 +1,4 @@
-// Elegant top-bar nav for helix-org (Chart / Agents / Topics / Assets).
+// Elegant top-bar nav for helix-org (Chart / Org Bots / Triggers / Assets).
 // Renders next to theme + notifications on the Page AppBar.
 
 import { FC } from 'react'
@@ -29,11 +29,11 @@ const ITEMS: NavItem[] = [
     isActive: (n) => n === 'helix_org_chart' || n === 'helix_org_root',
   },
   {
-    id: 'agents',
-    label: 'Agents',
-    route: 'org_agents',
+    id: 'bots',
+    label: 'Org Bots',
+    route: 'helix_org_bots',
     icon: <Bot size={16} />,
-    isActive: (n) => n === 'org_agents' || n === 'org_agent',
+    isActive: (n) => n === 'helix_org_bots' || n === 'helix_org_bot_detail',
   },
   {
     id: 'triggers',

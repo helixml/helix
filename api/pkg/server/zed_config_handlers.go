@@ -1305,9 +1305,13 @@ func (apiServer *HelixAPIServer) healLegacyProviderRefs(ctx context.Context, app
 		log.Debug().Str("app_id", app.ID).Msg("agent legacy-name → ID migration: in-memory only (runner-token read)")
 		return
 	}
-	if _, err := apiServer.Store.UpdateApp(ctx, app); err != nil {
+	updated, err := apiServer.Store.UpdateApp(ctx, app)
+	if err != nil {
 		log.Warn().Err(err).Str("app_id", app.ID).Msg("agent legacy-name → ID migration: persist failed; will retry on next read")
 		return
+	}
+	if err := apiServer.syncOrgAgentProjectCodeAgentConfig(ctx, updated); err != nil {
+		log.Warn().Err(err).Str("app_id", app.ID).Msg("agent legacy-name → ID migration: Org Bot config sync failed; reconciliation will retry")
 	}
 	log.Info().Str("app_id", app.ID).Msg("agent legacy-name → ID migration: rewrote provider fields to immutable IDs")
 }

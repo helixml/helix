@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/oauth"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgdomainstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/store"
@@ -1241,6 +1243,22 @@ func (s *HelixAPIServer) syncOrgAgentProjectCodeAgentConfig(ctx context.Context,
 	if app.AgentKind != types.AgentKindOrg || app.OrganizationID == "" {
 		return nil
 	}
+	var linkedNode *orgchart.Node
+	if s.helixOrg != nil && s.helixOrg.store != nil && s.helixOrg.store.Nodes != nil {
+		nodes, err := s.helixOrg.store.Nodes.List(ctx, app.OrganizationID)
+		if err != nil {
+			return fmt.Errorf("list linked Org Bots: %w", err)
+		}
+		for i := range nodes {
+			if nodes[i].AgentID != app.ID {
+				continue
+			}
+			if linkedNode != nil {
+				return fmt.Errorf("legacy App %s is linked to more than one Org Bot", app.ID)
+			}
+			linkedNode = &nodes[i]
+		}
+	}
 	projects, err := s.Store.ListProjects(ctx, &store.ListProjectsQuery{OrganizationID: app.OrganizationID})
 	if err != nil {
 		return fmt.Errorf("list linked projects: %w", err)
@@ -1251,23 +1269,46 @@ func (s *HelixAPIServer) syncOrgAgentProjectCodeAgentConfig(ctx context.Context,
 			continue
 		}
 		if linked != nil {
-			return fmt.Errorf("org agent %s is linked to more than one project", app.ID)
+			return fmt.Errorf("Org Bot %s is linked to more than one project", app.ID)
 		}
 		linked = project
 	}
-	if linked == nil {
+	if linked == nil && linkedNode == nil {
 		return nil
 	}
 	desired, err := external_agent.MaterializeCodeAgentConfig(app, nil)
 	if err != nil {
-		return fmt.Errorf("materialize agent project config: %w", err)
+		return fmt.Errorf("materialize Org Bot execution config: %w", err)
 	}
-	if linked.CodeAgentConfig != nil {
-		desired.ServiceTier = linked.CodeAgentConfig.ServiceTier
+	var previousProjectConfig *types.CodeAgentExecutionConfig
+	if linked != nil {
+		previousProjectConfig = linked.CodeAgentConfig
+		projectConfig := *desired
+		if previousProjectConfig != nil {
+			projectConfig.ServiceTier = previousProjectConfig.ServiceTier
+		}
+		linked.CodeAgentConfig = &projectConfig
+		if err := s.Store.UpdateProject(ctx, linked); err != nil {
+			return fmt.Errorf("sync linked project %s: %w", linked.ID, err)
+		}
 	}
-	linked.CodeAgentConfig = desired
-	if err := s.Store.UpdateProject(ctx, linked); err != nil {
-		return fmt.Errorf("sync linked project %s: %w", linked.ID, err)
+	if linkedNode != nil {
+		nodeConfig := *desired
+		if linkedNode.CodeAgentConfig != nil {
+			nodeConfig.ServiceTier = linkedNode.CodeAgentConfig.ServiceTier
+		}
+		if reflect.DeepEqual(linkedNode.CodeAgentConfig, &nodeConfig) {
+			return nil
+		}
+		if err := s.helixOrg.store.Nodes.UpdateCodeAgentConfig(ctx, app.OrganizationID, linkedNode.ID, &nodeConfig, time.Now().UTC()); err != nil {
+			if linked != nil {
+				linked.CodeAgentConfig = previousProjectConfig
+				if rollbackErr := s.Store.UpdateProject(context.WithoutCancel(ctx), linked); rollbackErr != nil {
+					return fmt.Errorf("sync Org Bot %s: %v; restore linked project %s: %w", linkedNode.ID, err, linked.ID, rollbackErr)
+				}
+			}
+			return fmt.Errorf("sync Org Bot %s: %w", linkedNode.ID, err)
+		}
 	}
 	return nil
 }

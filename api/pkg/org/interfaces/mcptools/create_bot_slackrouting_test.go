@@ -62,6 +62,7 @@ func TestCreateBotRunsInjectedOrgReconcilers(t *testing.T) {
 	spy := &spyOrgReconciler{}
 	deps.Lifecycle = &lifecycle.Service{
 		Store:           st,
+		Agents:          testAgentCreator{},
 		Nodes:           botSvc,
 		NodeReconcilers: []lifecycle.NodeReconciler{rec},
 		OrgReconcilers:  []lifecycle.OrgReconciler{spy},

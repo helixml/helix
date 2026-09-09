@@ -3097,6 +3097,7 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		if req.AgentAppID != "" {
 			agentAppID = agentApp.ID
 		} else if agentApp != nil {
+			previousApp := *agentApp
 			// Apply only owns name/runtime/provider/model/credentials/tools/
 			// display/goose. User-edited skill config (MCPs, APIs, Zapier, …)
 			// lives on the agent app via the Skills UI and must survive
@@ -3113,8 +3114,15 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				appHelixConfig.ExternalAgentConfig = agentApp.Config.Helix.ExternalAgentConfig
 			}
 			agentApp.Config.Helix = appHelixConfig
-			if _, err := s.Store.UpdateApp(r.Context(), agentApp); err != nil {
+			updatedApp, err := s.Store.UpdateApp(r.Context(), agentApp)
+			if err != nil {
 				return nil, system.NewHTTPError500(fmt.Sprintf("failed to update agent app: %v", err))
+			}
+			if err := s.syncOrgAgentProjectCodeAgentConfig(r.Context(), updatedApp); err != nil {
+				if _, rollbackErr := s.Store.UpdateApp(context.WithoutCancel(r.Context()), &previousApp); rollbackErr != nil {
+					return nil, system.NewHTTPError500(fmt.Sprintf("sync Org Bot execution config: %v; restore legacy App: %v", err, rollbackErr))
+				}
+				return nil, system.NewHTTPError500(fmt.Sprintf("sync Org Bot execution config: %v", err))
 			}
 			agentAppID = agentApp.ID
 		} else {
