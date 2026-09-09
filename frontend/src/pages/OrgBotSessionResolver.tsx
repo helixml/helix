@@ -105,7 +105,7 @@ export default function OrgBotSessionResolver() {
           }}
         >
           <Typography variant="h5" sx={{ fontWeight: 650, letterSpacing: '-0.02em' }}>
-            Meet {agentName}
+            Meet your {agentName}
           </Typography>
           <Typography color="text.secondary" sx={{ mt: 1, lineHeight: 1.6 }}>
             Your new agent is getting ready to work with your organization.
