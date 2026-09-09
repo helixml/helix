@@ -11,16 +11,16 @@ import (
 	gormio "gorm.io/gorm"
 )
 
-func TestOrgBotsIsPublicPersistentModel(t *testing.T) {
+func TestOrgBotIsPublicPersistentModel(t *testing.T) {
 	t.Parallel()
 
 	db, err := gormio.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gormio.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&orggorm.OrgBots{}))
+	require.NoError(t, db.AutoMigrate(&orggorm.OrgBot{}))
 	require.True(t, db.Migrator().HasTable("org_bots"))
 
 	legacyAppID := "app-legacy"
-	want := orggorm.OrgBots{
+	want := orggorm.OrgBot{
 		ID:             "b-engineer",
 		OrganizationID: "org-acme",
 		LegacyAppID:    &legacyAppID,
@@ -42,7 +42,7 @@ func TestOrgBotsIsPublicPersistentModel(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&want).Error)
 
-	var got orggorm.OrgBots
+	var got orggorm.OrgBot
 	require.NoError(t, db.Where("org_id = ? AND id = ?", want.OrganizationID, want.ID).First(&got).Error)
 	require.Equal(t, want, got)
 }

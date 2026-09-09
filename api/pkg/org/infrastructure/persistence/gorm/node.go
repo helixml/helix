@@ -15,7 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// OrgBots is the persisted model for an org-chart participant. It has a
+// OrgBot is the persisted model for an org-chart participant. It has a
 // composite primary key (id, org_id) so short readable handles
 //
 // (`b-root`, `b-engineer`) can repeat across helix tenants. OrganizationID
@@ -34,7 +34,7 @@ import (
 // Human placeholders currently share the physical org_bots table and are
 // distinguished by Kind. Separating that storage is independent of removing
 // the legacy App link.
-type OrgBots struct {
+type OrgBot struct {
 	ID              string                          `json:"id" gorm:"column:id;primaryKey;type:text"`
 	OrganizationID  string                          `json:"organization_id" gorm:"column:org_id;primaryKey;type:text;index"`
 	LegacyAppID     *string                         `json:"legacy_app_id,omitempty" gorm:"column:agent_app_id;type:text;index"`
@@ -57,11 +57,11 @@ type OrgBots struct {
 }
 
 // org_bots is the legacy physical name retained for existing Node rows.
-func (OrgBots) TableName() string { return "org_bots" }
+func (OrgBot) TableName() string { return "org_bots" }
 
 type nodeMapper struct{}
 
-func (nodeMapper) ToRow(node orgchart.Node) (OrgBots, error) {
+func (nodeMapper) ToRow(node orgchart.Node) (OrgBot, error) {
 	tools := make([]string, 0, len(node.Tools))
 	for _, t := range node.Tools {
 		tools = append(tools, string(t))
@@ -73,7 +73,7 @@ func (nodeMapper) ToRow(node orgchart.Node) (OrgBots, error) {
 	if node.AgentID != "" {
 		agentID = &node.AgentID
 	}
-	return OrgBots{
+	return OrgBot{
 		ID:              string(node.ID),
 		OrganizationID:  node.OrganizationID,
 		LegacyAppID:     agentID,
@@ -94,7 +94,7 @@ func (nodeMapper) ToRow(node orgchart.Node) (OrgBots, error) {
 	}, nil
 }
 
-func (nodeMapper) ToDomain(row OrgBots) (orgchart.Node, error) {
+func (nodeMapper) ToDomain(row OrgBot) (orgchart.Node, error) {
 	var tools []tool.Name
 	if len(row.Tools) > 0 {
 		tools = make([]tool.Name, 0, len(row.Tools))
@@ -128,13 +128,13 @@ func (nodeMapper) ToDomain(row OrgBots) (orgchart.Node, error) {
 }
 
 type nodesRepo struct {
-	*Repository[orgchart.Node, OrgBots]
+	*Repository[orgchart.Node, OrgBot]
 	db *gorm.DB
 }
 
 func newNodesRepo(db *gorm.DB) *nodesRepo {
 	return &nodesRepo{
-		Repository: NewRepository[orgchart.Node, OrgBots](db, nodeMapper{}, "node"),
+		Repository: NewRepository[orgchart.Node, OrgBot](db, nodeMapper{}, "node"),
 		db:         db,
 	}
 }
@@ -217,7 +217,7 @@ func (r *nodesRepo) ClaimLegacyApp(ctx context.Context, orgID string, id orgchar
 		return false, fmt.Errorf("marshal code agent config: %w", err)
 	}
 	res := r.db.WithContext(ctx).
-		Model(&OrgBots{}).
+		Model(&OrgBot{}).
 		Where("org_id = ? AND id = ? AND agent_app_id IS NULL", orgID, string(id)).
 		Updates(map[string]any{"agent_app_id": appID, "code_agent_config": string(configJSON)})
 	if res.Error != nil {
@@ -234,7 +234,7 @@ func (r *nodesRepo) ClaimLegacyApp(ctx context.Context, orgID string, id orgchar
 // the association tables.
 func (r *nodesRepo) Delete(ctx context.Context, orgID string, id orgchart.NodeID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&OrgBots{})
+		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&OrgBot{})
 		if res.Error != nil {
 			return fmt.Errorf("delete node: %w", res.Error)
 		}
