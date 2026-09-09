@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -309,6 +310,9 @@ func installAgentAppLinks(db *gorm.DB) error {
 			return err
 		}
 	}
+	if err := repairDuplicateAgentAppLinks(db); err != nil {
+		return err
+	}
 	if err := db.Exec(`
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_org_bots_agent_app
 		ON org_bots (org_id, agent_app_id)
@@ -342,6 +346,67 @@ func installAgentAppLinks(db *gorm.DB) error {
 		  AND bot.agent_app_id IS NOT NULL
 	`, types.AgentKindOrg).Error; err != nil {
 		return fmt.Errorf("backfill Org Bot App kinds: %w", err)
+	}
+	return nil
+}
+
+func repairDuplicateAgentAppLinks(db *gorm.DB) error {
+	type duplicate struct {
+		OrgID string
+		AppID string
+	}
+	type linkedBot struct {
+		ID string
+	}
+	type repair struct {
+		duplicate
+		Winner string
+		Losers []string
+	}
+
+	var duplicates []duplicate
+	if err := db.Table("org_bots").
+		Select("org_id, agent_app_id AS app_id").
+		Where("agent_app_id IS NOT NULL").
+		Group("org_id, agent_app_id").
+		Having("COUNT(*) > 1").
+		Scan(&duplicates).Error; err != nil {
+		return fmt.Errorf("list duplicate legacy App links: %w", err)
+	}
+
+	repairs := make([]repair, 0, len(duplicates))
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		for _, duplicate := range duplicates {
+			var bots []linkedBot
+			if err := tx.Table("org_bots").Select("id").
+				Where("org_id = ? AND agent_app_id = ?", duplicate.OrgID, duplicate.AppID).
+				Order("created_at ASC, id ASC").Scan(&bots).Error; err != nil {
+				return fmt.Errorf("list Bots linked to App %s: %w", duplicate.AppID, err)
+			}
+			if len(bots) < 2 {
+				continue
+			}
+			losers := make([]string, 0, len(bots)-1)
+			for _, bot := range bots[1:] {
+				losers = append(losers, bot.ID)
+			}
+			if err := tx.Table("org_bots").
+				Where("org_id = ? AND id IN ?", duplicate.OrgID, losers).
+				Updates(map[string]any{"agent_app_id": nil, "code_agent_config": nil}).Error; err != nil {
+				return fmt.Errorf("clear duplicate legacy App %s links: %w", duplicate.AppID, err)
+			}
+			repairs = append(repairs, repair{duplicate: duplicate, Winner: bots[0].ID, Losers: losers})
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, repaired := range repairs {
+		slog.Warn("org Bot migration: cleared duplicate legacy App links",
+			"org", repaired.OrgID,
+			"app", repaired.AppID,
+			"kept_bot", repaired.Winner,
+			"cleared_bots", repaired.Losers)
 	}
 	return nil
 }

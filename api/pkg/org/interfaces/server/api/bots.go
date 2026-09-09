@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // ---- Nodes ---------------------------------------------------------------
@@ -59,9 +60,9 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 	out := make([]BotDTO, 0, len(bs))
 	for _, b := range bs {
 		dto := botDTO(b, managersByReport[b.ID])
-		if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil && !errors.Is(err, ErrInvalidAgentProfile) {
-			writeError(w, http.StatusInternalServerError, err)
-			return
+		if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil {
+			log.Warn().Err(err).Str("org", orgID).Str("bot", string(b.ID)).
+				Msg("list org bots: using Bot-owned profile because the legacy App profile is unavailable")
 		}
 		dto.Status = "stopped"
 		if a.deps.BotRuntime != nil {
@@ -290,35 +291,55 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		vcpus := req.SandboxResourceOverrides.VCPUs
 		sandboxVCPUsPatch = &vcpus
 	}
-	updated, err := a.deps.Nodes.Update(ctx, orgID, id, nodes.UpdateParams{
-		Name:            namePatch,
-		Content:         contentPatch,
-		Tools:           toolsPatch,
-		ProjectIDs:      stringSlicePatch(req.ProjectIDs),
-		PreserveContext: req.PreserveContext,
-		SandboxRuntime:  sandboxRuntimePatch,
-		SandboxVCPUs:    sandboxVCPUsPatch,
-	})
-	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
-		return
+	projectIDsPatch := stringSlicePatch(req.ProjectIDs)
+	updated := existing
+	nodeChange := namePatch != nil || contentPatch != nil || toolsPatch != nil || projectIDsPatch != nil ||
+		req.PreserveContext != nil || sandboxRuntimePatch != nil || sandboxVCPUsPatch != nil
+	if nodeChange {
+		updated, err = a.deps.Nodes.Update(ctx, orgID, id, nodes.UpdateParams{
+			Name:            namePatch,
+			Content:         contentPatch,
+			Tools:           toolsPatch,
+			ProjectIDs:      projectIDsPatch,
+			PreserveContext: req.PreserveContext,
+			SandboxRuntime:  sandboxRuntimePatch,
+			SandboxVCPUs:    sandboxVCPUsPatch,
+		})
+		if err != nil {
+			writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
+			return
+		}
 	}
 	if updated.AgentID != "" && canonicalChange {
 		if err := a.deps.AgentUpdater.UpdateAgent(ctx, updated.AgentID, configPatch, namePatch, contentPatch); err != nil {
-			tools := append([]tool.Name(nil), existing.Tools...)
-			projectIDs := append([]string(nil), existing.ProjectIDs...)
-			preserveContext := existing.PreserveContext
-			sandboxRuntime := existing.SandboxRuntime
-			sandboxVCPUs := existing.SandboxVCPUs
-			_, rollbackErr := a.deps.Nodes.Update(ctx, orgID, id, nodes.UpdateParams{
-				Name:            &existing.Name,
-				Content:         &existing.Content,
-				Tools:           &tools,
-				ProjectIDs:      &projectIDs,
-				PreserveContext: &preserveContext,
-				SandboxRuntime:  &sandboxRuntime,
-				SandboxVCPUs:    &sandboxVCPUs,
-			})
+			rollback := nodes.UpdateParams{}
+			if namePatch != nil {
+				rollback.Name = &existing.Name
+			}
+			if contentPatch != nil {
+				rollback.Content = &existing.Content
+			}
+			if toolsPatch != nil {
+				tools := append([]tool.Name(nil), existing.Tools...)
+				rollback.Tools = &tools
+			}
+			if projectIDsPatch != nil {
+				projectIDs := append([]string(nil), existing.ProjectIDs...)
+				rollback.ProjectIDs = &projectIDs
+			}
+			if req.PreserveContext != nil {
+				preserveContext := existing.PreserveContext
+				rollback.PreserveContext = &preserveContext
+			}
+			if sandboxRuntimePatch != nil {
+				sandboxRuntime := existing.SandboxRuntime
+				rollback.SandboxRuntime = &sandboxRuntime
+			}
+			if sandboxVCPUsPatch != nil {
+				sandboxVCPUs := existing.SandboxVCPUs
+				rollback.SandboxVCPUs = &sandboxVCPUs
+			}
+			_, rollbackErr := a.deps.Nodes.Update(ctx, orgID, id, rollback)
 			if rollbackErr != nil {
 				writeError(w, http.StatusInternalServerError, fmt.Errorf("update agent: %v; rollback org profile: %w", err, rollbackErr))
 				return

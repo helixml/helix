@@ -26,6 +26,21 @@ func (failingAgentUpdater) UpdateAgent(context.Context, string, orgapi.AgentConf
 	return errors.New("agent update failed")
 }
 
+type interleavingFailingAgentUpdater struct {
+	nodes store.Nodes
+}
+
+func (u interleavingFailingAgentUpdater) UpdateAgent(ctx context.Context, _ string, _ orgapi.AgentConfigPatch, _ *string, _ *string) error {
+	bot, err := u.nodes.Get(ctx, "org-test", "b-agent")
+	if err != nil {
+		return err
+	}
+	if err := u.nodes.Update(ctx, bot.WithTools([]tool.Name{mcptools.ChatName})); err != nil {
+		return err
+	}
+	return errors.New("agent update failed")
+}
+
 type recordingAgentPort struct {
 	profile orgapi.AgentProfile
 	patch   orgapi.AgentConfigPatch
@@ -153,7 +168,7 @@ func TestRESTBotListKeepsOtherBotsWhenOneLinkedAppIsInvalid(t *testing.T) {
 	}
 }
 
-func TestRESTAgentListReportsOperationalAgentReadFailure(t *testing.T) {
+func TestRESTBotListFallsBackOnOperationalAppReadFailure(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
 	bot, err := orgchart.NewNode("b-agent", "Fallback", nil, time.Now().UTC(), "org-test")
@@ -166,11 +181,43 @@ func TestRESTAgentListReportsOperationalAgentReadFailure(t *testing.T) {
 	deps.AgentReader = failingAgentReader{}
 
 	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/bots", nil)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("list status = %d, want 500; body=%s", rec.Code, rec.Body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200; body=%s", rec.Code, rec.Body)
 	}
-	if !strings.Contains(rec.Body.String(), "database unavailable") {
-		t.Fatalf("list error = %s", rec.Body)
+	var got []orgapi.BotDTO
+	decode(t, rec, &got)
+	if len(got) != 1 || got[0].ID != "b-agent" || got[0].Content != "Fallback" {
+		t.Fatalf("Bot-owned fallback = %+v", got)
+	}
+}
+
+func TestRESTUpdateAgentRollbackPreservesConcurrentBotMutation(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	bot, err := orgchart.NewNode("b-agent", "old content", []tool.Name{mcptools.ManagersName}, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot = bot.WithAgentID("app-agent").WithName("Old name")
+	if err := st.Nodes.Create(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+	deps.AgentUpdater = interleavingFailingAgentUpdater{nodes: st.Nodes}
+	name := "New name"
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPatch, "/bots/b-agent", orgapi.UpdateBotRequest{Name: &name})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body)
+	}
+	got, err := st.Nodes.Get(ctx, "org-test", "b-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Old name" {
+		t.Fatalf("name = %q, want rolled back value", got.Name)
+	}
+	if !sameNames(got.Tools, []tool.Name{mcptools.ChatName}) {
+		t.Fatalf("concurrent tools mutation was overwritten: %v", got.Tools)
 	}
 }
 
