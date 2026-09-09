@@ -34,11 +34,11 @@ type managedAssetView struct {
 	OrganizationID string             `json:"organization_id"`
 	Name           string             `json:"name"`
 	Description    string             `json:"description,omitempty"`
-	NotesForAgents string             `json:"notes_for_agents,omitempty"`
+	NotesForBots   string             `json:"notes_for_bots,omitempty"`
 	Enabled        bool               `json:"enabled"`
 	Kind           asset.Kind         `json:"kind"`
 	Server         *managedServerView `json:"server,omitempty"`
-	AgentIDs       []string           `json:"agent_ids"`
+	BotIDs         []string           `json:"bot_ids"`
 	CreatedAt      time.Time          `json:"created_at"`
 	UpdatedAt      time.Time          `json:"updated_at"`
 }
@@ -60,8 +60,8 @@ type orgAssetsResult struct {
 }
 
 type assetLinksResult struct {
-	AssetID  string   `json:"asset_id"`
-	AgentIDs []string `json:"agent_ids"`
+	AssetID string   `json:"asset_id"`
+	BotIDs  []string `json:"bot_ids"`
 }
 
 type assetMutationResult struct {
@@ -78,7 +78,7 @@ func listAssetLinksResult(ctx context.Context, deps Deps, orgID string, value as
 	for _, link := range links {
 		ids = append(ids, link.AgentID)
 	}
-	return assetLinksResult{AssetID: value.ID, AgentIDs: ids}, nil
+	return assetLinksResult{AssetID: value.ID, BotIDs: ids}, nil
 }
 
 func managedAssetsOrgID(inv tool.Invocation, operation string) (string, error) {
@@ -97,14 +97,14 @@ func managedAsset(t Deps, ctx context.Context, orgID string, value asset.Asset) 
 	if err != nil {
 		return managedAssetView{}, err
 	}
-	agentIDs := make([]string, 0, len(links))
+	botIDs := make([]string, 0, len(links))
 	for _, link := range links {
-		agentIDs = append(agentIDs, link.AgentID)
+		botIDs = append(botIDs, link.AgentID)
 	}
 	view := managedAssetView{
 		ID: value.ID, OrganizationID: orgID, Name: value.Name,
-		Description: value.Description, NotesForAgents: value.NotesForAgents,
-		Enabled: !value.Disabled, Kind: value.Kind, AgentIDs: agentIDs,
+		Description: value.Description, NotesForBots: value.NotesForAgents,
+		Enabled: !value.Disabled, Kind: value.Kind, BotIDs: botIDs,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}
 	if value.Config.Server != nil {
@@ -159,7 +159,7 @@ type ListOrgAssets struct{ deps Deps }
 func (t *ListOrgAssets) Name() tool.Name                 { return ListOrgAssetsName }
 func (t *ListOrgAssets) InputSchema() *jsonschema.Schema { return mustSchema[struct{}]() }
 func (t *ListOrgAssets) Description() string {
-	return "List every asset in the organization, including linked agent IDs and public connection configuration. Unlike list_assets, this owner-management view is not limited to assets linked to the caller."
+	return "List every asset in the organization, including linked Bot IDs and public connection configuration. Unlike list_assets, this owner-management view is not limited to assets linked to the caller."
 }
 func (t *ListOrgAssets) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	orgID, err := managedAssetsOrgID(inv, string(ListOrgAssetsName))
@@ -193,7 +193,7 @@ type GetOrgAsset struct{ deps Deps }
 func (t *GetOrgAsset) Name() tool.Name                 { return GetOrgAssetName }
 func (t *GetOrgAsset) InputSchema() *jsonschema.Schema { return mustSchema[assetRefArgs]() }
 func (t *GetOrgAsset) Description() string {
-	return "Get any org asset by ID or name, including linked agent IDs and public connection configuration."
+	return "Get any org asset by ID or name, including linked Bot IDs and public connection configuration."
 }
 func (t *GetOrgAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args assetRefArgs
@@ -222,16 +222,16 @@ const CreateServerAssetName tool.Name = "create_server_asset"
 type CreateServerAsset struct{ deps Deps }
 
 type createServerAssetArgs struct {
-	Name           string         `json:"name"`
-	Description    string         `json:"description,omitempty"`
-	NotesForAgents string         `json:"notes_for_agents,omitempty"`
-	Address        string         `json:"address"`
-	Port           uint16         `json:"port,omitempty"`
-	User           string         `json:"user"`
-	AuthType       asset.AuthType `json:"auth_type,omitempty"`
-	Password       string         `json:"password,omitempty"`
-	HostKey        string         `json:"host_key,omitempty"`
-	AgentIDs       []string       `json:"agent_ids,omitempty"`
+	Name         string         `json:"name"`
+	Description  string         `json:"description,omitempty"`
+	NotesForBots string         `json:"notes_for_bots,omitempty"`
+	Address      string         `json:"address"`
+	Port         uint16         `json:"port,omitempty"`
+	User         string         `json:"user"`
+	AuthType     asset.AuthType `json:"auth_type,omitempty"`
+	Password     string         `json:"password,omitempty"`
+	HostKey      string         `json:"host_key,omitempty"`
+	BotIDs       []string       `json:"bot_ids,omitempty"`
 }
 
 func (t *CreateServerAsset) Name() tool.Name { return CreateServerAssetName }
@@ -239,7 +239,7 @@ func (t *CreateServerAsset) InputSchema() *jsonschema.Schema {
 	return mustSchema[createServerAssetArgs]()
 }
 func (t *CreateServerAsset) Description() string {
-	return "Create a server asset and link it to the calling Bot in one action; agent_ids adds more links. auth_type defaults to ssh_key. SSH-key creation returns the Helix public key and an idempotent install_command. If you already have independent SSH access, run that command on the server; otherwise include it in your response to the owner. Then call get_asset_health and a server operation before claiming readiness."
+	return "Create a server asset and link it to the calling Bot in one action; bot_ids adds more links. auth_type defaults to ssh_key. SSH-key creation returns the Helix public key and an idempotent install_command. If you already have independent SSH access, run that command on the server; otherwise include it in your response to the owner. Then call get_asset_health and a server operation before claiming readiness."
 }
 func (t *CreateServerAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args createServerAssetArgs
@@ -254,14 +254,14 @@ func (t *CreateServerAsset) Invoke(ctx context.Context, inv tool.Invocation) (js
 		return nil, errors.New("assets service is not wired")
 	}
 	value, err := t.deps.Assets.CreateServer(ctx, orgID, assetapp.CreateServerParams{
-		Name: args.Name, Description: args.Description, NotesForAgents: args.NotesForAgents,
+		Name: args.Name, Description: args.Description, NotesForAgents: args.NotesForBots,
 		Address: args.Address, Port: args.Port, User: args.User, AuthType: args.AuthType,
 		Password: args.Password, HostKey: args.HostKey,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create server asset: %w", err)
 	}
-	ids := append([]string{inv.Caller.ID()}, args.AgentIDs...)
+	ids := append([]string{inv.Caller.ID()}, args.BotIDs...)
 	seen := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
@@ -274,9 +274,9 @@ func (t *CreateServerAsset) Invoke(ctx context.Context, inv tool.Invocation) (js
 		seen[id] = struct{}{}
 		if _, err := t.deps.Assets.Link(ctx, orgID, value.ID, id); err != nil {
 			if cleanupErr := t.deps.Assets.Delete(ctx, orgID, value.ID); cleanupErr != nil {
-				return nil, fmt.Errorf("link new asset to agent %q: %w; rollback asset: %v", id, err, cleanupErr)
+				return nil, fmt.Errorf("link new asset to Bot %q: %w; rollback asset: %v", id, err, cleanupErr)
 			}
-			return nil, fmt.Errorf("link new asset to agent %q: %w", id, err)
+			return nil, fmt.Errorf("link new asset to Bot %q: %w", id, err)
 		}
 	}
 	view, err := managedAsset(t.deps, ctx, orgID, value)
@@ -293,17 +293,17 @@ const UpdateServerAssetName tool.Name = "update_server_asset"
 type UpdateServerAsset struct{ deps Deps }
 
 type updateServerAssetArgs struct {
-	Asset          string          `json:"asset"`
-	Name           *string         `json:"name,omitempty"`
-	Description    *string         `json:"description,omitempty"`
-	NotesForAgents *string         `json:"notes_for_agents,omitempty"`
-	Enabled        *bool           `json:"enabled,omitempty"`
-	Address        *string         `json:"address,omitempty"`
-	Port           *uint16         `json:"port,omitempty"`
-	User           *string         `json:"user,omitempty"`
-	AuthType       *asset.AuthType `json:"auth_type,omitempty"`
-	Password       *string         `json:"password,omitempty"`
-	HostKey        *string         `json:"host_key,omitempty"`
+	Asset        string          `json:"asset"`
+	Name         *string         `json:"name,omitempty"`
+	Description  *string         `json:"description,omitempty"`
+	NotesForBots *string         `json:"notes_for_bots,omitempty"`
+	Enabled      *bool           `json:"enabled,omitempty"`
+	Address      *string         `json:"address,omitempty"`
+	Port         *uint16         `json:"port,omitempty"`
+	User         *string         `json:"user,omitempty"`
+	AuthType     *asset.AuthType `json:"auth_type,omitempty"`
+	Password     *string         `json:"password,omitempty"`
+	HostKey      *string         `json:"host_key,omitempty"`
 }
 
 func (t *UpdateServerAsset) Name() tool.Name { return UpdateServerAssetName }
@@ -311,7 +311,7 @@ func (t *UpdateServerAsset) InputSchema() *jsonschema.Schema {
 	return mustSchema[updateServerAssetArgs]()
 }
 func (t *UpdateServerAsset) Description() string {
-	return "Patch a server asset by ID or name. Only supplied fields change. Set enabled=false to block agent MCP and proxy SSH access without removing agent links. Switching to ssh_key generates a new key and returns its install_command; switching to password requires password."
+	return "Patch a server asset by ID or name. Only supplied fields change. Set enabled=false to block Bot MCP and proxy SSH access without removing Bot links. Switching to ssh_key generates a new key and returns its install_command; switching to password requires password."
 }
 func (t *UpdateServerAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args updateServerAssetArgs
@@ -327,7 +327,7 @@ func (t *UpdateServerAsset) Invoke(ctx context.Context, inv tool.Invocation) (js
 		return nil, fmt.Errorf("resolve server asset: %w", err)
 	}
 	value, err := t.deps.Assets.UpdateServer(ctx, orgID, current.ID, assetapp.UpdateServerParams{
-		Name: args.Name, Description: args.Description, NotesForAgents: args.NotesForAgents,
+		Name: args.Name, Description: args.Description, NotesForAgents: args.NotesForBots,
 		Enabled: args.Enabled,
 		Address: args.Address, Port: args.Port, User: args.User, AuthType: args.AuthType,
 		Password: args.Password, HostKey: args.HostKey,
@@ -351,7 +351,7 @@ type DeleteAsset struct{ deps Deps }
 func (t *DeleteAsset) Name() tool.Name                 { return DeleteAssetName }
 func (t *DeleteAsset) InputSchema() *jsonschema.Schema { return mustSchema[assetRefArgs]() }
 func (t *DeleteAsset) Description() string {
-	return "Delete an org asset by ID or name. This also removes every agent link and its derived operational tools."
+	return "Delete an org asset by ID or name. This also removes every Bot link and its derived operational tools."
 }
 func (t *DeleteAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args assetRefArgs
@@ -383,14 +383,14 @@ type LinkAsset struct{ deps Deps }
 type UnlinkAsset struct{ deps Deps }
 
 type assetLinkArgs struct {
-	Asset   string `json:"asset"`
-	AgentID string `json:"agent_id"`
+	Asset string `json:"asset"`
+	BotID string `json:"bot_id"`
 }
 
 func (t *ListAssetLinks) Name() tool.Name                 { return ListAssetLinksName }
 func (t *ListAssetLinks) InputSchema() *jsonschema.Schema { return mustSchema[assetRefArgs]() }
 func (t *ListAssetLinks) Description() string {
-	return "List the agent IDs linked to an asset. These links determine who receives and may invoke its operational tools."
+	return "List the Bot IDs linked to an asset. These links determine which Bots receive and may invoke its operational tools."
 }
 func (t *ListAssetLinks) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args assetRefArgs
@@ -415,7 +415,7 @@ func (t *ListAssetLinks) Invoke(ctx context.Context, inv tool.Invocation) (json.
 func (t *LinkAsset) Name() tool.Name                 { return LinkAssetName }
 func (t *LinkAsset) InputSchema() *jsonschema.Schema { return mustSchema[assetLinkArgs]() }
 func (t *LinkAsset) Description() string {
-	return "Link an asset to an agent, granting that agent the asset's operational MCP tools."
+	return "Link an asset to a Bot, granting that Bot the asset's operational MCP tools."
 }
 func (t *LinkAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args assetLinkArgs
@@ -426,14 +426,14 @@ func (t *LinkAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(args.AgentID) == "" {
-		return nil, errors.New("agent_id is required")
+	if strings.TrimSpace(args.BotID) == "" {
+		return nil, errors.New("bot_id is required")
 	}
 	value, err := resolveManagedAsset(t.deps, ctx, orgID, args.Asset)
 	if err != nil {
 		return nil, fmt.Errorf("resolve asset: %w", err)
 	}
-	if _, err := t.deps.Assets.Link(ctx, orgID, value.ID, args.AgentID); err != nil {
+	if _, err := t.deps.Assets.Link(ctx, orgID, value.ID, args.BotID); err != nil {
 		return nil, fmt.Errorf("link asset: %w", err)
 	}
 	result, err := listAssetLinksResult(ctx, t.deps, orgID, value)
@@ -446,7 +446,7 @@ func (t *LinkAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 func (t *UnlinkAsset) Name() tool.Name                 { return UnlinkAssetName }
 func (t *UnlinkAsset) InputSchema() *jsonschema.Schema { return mustSchema[assetLinkArgs]() }
 func (t *UnlinkAsset) Description() string {
-	return "Unlink an asset from an agent. Its derived operational tools are removed when no other linked asset still requires them."
+	return "Unlink an asset from a Bot. Its derived operational tools are removed when no other linked asset still requires them."
 }
 func (t *UnlinkAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args assetLinkArgs
@@ -457,14 +457,14 @@ func (t *UnlinkAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(args.AgentID) == "" {
-		return nil, errors.New("agent_id is required")
+	if strings.TrimSpace(args.BotID) == "" {
+		return nil, errors.New("bot_id is required")
 	}
 	value, err := resolveManagedAsset(t.deps, ctx, orgID, args.Asset)
 	if err != nil {
 		return nil, fmt.Errorf("resolve asset: %w", err)
 	}
-	if err := t.deps.Assets.Unlink(ctx, orgID, value.ID, args.AgentID); err != nil {
+	if err := t.deps.Assets.Unlink(ctx, orgID, value.ID, args.BotID); err != nil {
 		return nil, fmt.Errorf("unlink asset: %w", err)
 	}
 	result, err := listAssetLinksResult(ctx, t.deps, orgID, value)
