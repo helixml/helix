@@ -1,4 +1,4 @@
-// BotSandboxForm is the controlled picker for an org agent's sandbox: the
+// BotSandboxForm is the controlled picker for an Org Bot's sandbox: the
 // environment (full desktop vs headless) and the compute preset. It uses the
 // same vocabulary and ladder as spec tasks (SpecTaskExecutionControls), but
 // as plain selects because it lives on a settings page, not in a chat

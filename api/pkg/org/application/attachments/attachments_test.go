@@ -45,9 +45,6 @@ func TestCreateTriggerAndProcessorOutput(t *testing.T) {
 }
 func TestCreateFailuresHaveContext(t *testing.T) {
 	ctx, st, svc := setup(t)
-	human, err := orgchart.NewNode("w-human", "person", nil, time.Now(), "org-1")
-	require.NoError(t, err)
-	require.NoError(t, st.Nodes.Create(ctx, human.WithKind(orgchart.NodeKindHuman)))
 	p, err := processor.NewProcessor("p-1", "route", eventsource.SourceRef{}, processor.KindTemplate, json.RawMessage(`{"template":"{{ .Message.body }}"}`), []processor.Output{{ID: "po-a", StreamID: "s-a"}}, "", time.Now(), "org-1")
 	require.NoError(t, err)
 	require.NoError(t, st.Processors.Create(ctx, p))
@@ -55,7 +52,7 @@ func TestCreateFailuresHaveContext(t *testing.T) {
 		name, org, worker string
 		src               eventsource.SourceRef
 		contains          string
-	}{{"worker missing", "org-1", "w-no", eventsource.Trigger("tr-1"), "get worker"}, {"cross tenant worker", "org-2", "w-one", eventsource.Trigger("tr-1"), "get worker"}, {"human", "org-1", "w-human", eventsource.Trigger("tr-1"), "is human"}, {"invalid source", "org-1", "w-one", eventsource.SourceRef{}, "unknown source kind"}, {"trigger missing", "org-1", "w-one", eventsource.Trigger("tr-no"), "trigger \"tr-no\""}, {"processor missing", "org-1", "w-one", eventsource.ProcessorOutput("p-no", "po"), "get processor"}, {"output missing", "org-1", "w-one", eventsource.ProcessorOutput("p-1", "po-no"), "output \"po-no\""}}
+	}{{"worker missing", "org-1", "w-no", eventsource.Trigger("tr-1"), "get worker"}, {"cross tenant worker", "org-2", "w-one", eventsource.Trigger("tr-1"), "get worker"}, {"invalid source", "org-1", "w-one", eventsource.SourceRef{}, "unknown source kind"}, {"trigger missing", "org-1", "w-one", eventsource.Trigger("tr-no"), "trigger \"tr-no\""}, {"processor missing", "org-1", "w-one", eventsource.ProcessorOutput("p-no", "po"), "get processor"}, {"output missing", "org-1", "w-one", eventsource.ProcessorOutput("p-1", "po-no"), "output \"po-no\""}}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := svc.Create(ctx, tt.org, orgchart.NodeID(tt.worker), tt.src, "")

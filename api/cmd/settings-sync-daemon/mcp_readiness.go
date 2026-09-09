@@ -27,7 +27,7 @@ import (
 // <server>_<tool> call the model makes for the rest of the session dies with
 // "Model tried to call unavailable tool", while the LLM path (which retries per
 // turn) keeps working, so the session looks healthy. Meanwhile our own prompts
-// keep instructing the agent to call list_secrets / get_secret / ask_human. A
+// keep instructing the agent to call list_secrets / get_secret. A
 // session in this state burns its whole budget calling tools that were never
 // registered.
 //

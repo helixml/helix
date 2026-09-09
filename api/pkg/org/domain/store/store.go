@@ -14,6 +14,7 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
@@ -26,6 +27,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	"github.com/helixml/helix/api/pkg/org/domain/workersecret"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // ErrNotFound signals that the requested record does not exist.
@@ -60,7 +62,8 @@ type Nodes interface {
 	Get(ctx context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error)
 	List(ctx context.Context, orgID string) ([]orgchart.Node, error)
 	Update(ctx context.Context, node orgchart.Node) error
-	ClaimAgentApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string) (bool, error)
+	UpdateCodeAgentConfig(ctx context.Context, orgID string, id orgchart.NodeID, config *types.CodeAgentExecutionConfig, updatedAt time.Time) error
+	ClaimLegacyApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string, config *types.CodeAgentExecutionConfig) (bool, error)
 	Delete(ctx context.Context, orgID string, id orgchart.NodeID) error
 }
 

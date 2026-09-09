@@ -19,8 +19,8 @@ func fpNode(t *testing.T, content string, tools []tool.Name) Node {
 // is a set. Without sorting, dragging a chip in the tool picker would
 // nag every operator to restart.
 func TestRestartFingerprint_StableAcrossToolReordering(t *testing.T) {
-	a := fpNode(t, "# bot", []tool.Name{"chat", "ask_human", "reports"})
-	b := fpNode(t, "# bot", []tool.Name{"reports", "chat", "ask_human"})
+	a := fpNode(t, "# bot", []tool.Name{"chat", "list_bots", "reports"})
+	b := fpNode(t, "# bot", []tool.Name{"reports", "chat", "list_bots"})
 
 	require.Equal(t, RestartFingerprint(a), RestartFingerprint(b))
 }

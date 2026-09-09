@@ -16,19 +16,19 @@ type chatSurfaceBotRuntime struct {
 }
 
 func (f chatSurfaceBotRuntime) State(_ context.Context, _ string, _ orgchart.NodeID) (orgapi.BotRuntimeInfo, error) {
-	return orgapi.BotRuntimeInfo{ProjectID: f.projectID, SessionID: f.sessionID, AgentStatus: "running"}, nil
+	return orgapi.BotRuntimeInfo{ProjectID: f.projectID, SessionID: f.sessionID, Status: "running"}, nil
 }
 
 // The chat sidebar lists bots as top-level entries and opens their session
 // directly, so the list endpoint must carry the bot's own project and session
 // rather than making the sidebar fetch every bot's detail.
-func TestRESTAgentListCarriesProjectAndSession(t *testing.T) {
+func TestRESTBotListCarriesProjectAndSession(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
 	seedBot(t, st, ctx, "b-alice", "# Alice")
 	deps.BotRuntime = chatSurfaceBotRuntime{projectID: "prj_alice", sessionID: "ses_alice"}
 
-	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/agents", nil)
+	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/bots", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body)
 	}
@@ -45,7 +45,7 @@ func TestRESTAgentListCarriesProjectAndSession(t *testing.T) {
 	if alice == nil {
 		t.Fatalf("b-alice missing from list: %#v", got)
 	}
-	if alice["project_id"] != "prj_alice" || alice["session_id"] != "ses_alice" || alice["agent_status"] != "running" {
+	if alice["project_id"] != "prj_alice" || alice["session_id"] != "ses_alice" || alice["status"] != "running" {
 		t.Fatalf("list row = %#v", alice)
 	}
 }

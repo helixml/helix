@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // ---- Nodes ---------------------------------------------------------------
@@ -59,17 +60,12 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 	out := make([]BotDTO, 0, len(bs))
 	for _, b := range bs {
 		dto := botDTO(b, managersByReport[b.ID])
-		if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil && !errors.Is(err, ErrInvalidAgentProfile) {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		// Humans never run an agent sandbox — always "stopped". Agents
-		// get status from the runtime sidecar + session metadata.
-		dto.AgentStatus = "stopped"
-		if b.Kind != orgchart.NodeKindHuman && a.deps.BotRuntime != nil {
+		a.applyCanonicalAgentProfile(ctx, b, &dto, "list org bots")
+		dto.Status = "stopped"
+		if a.deps.BotRuntime != nil {
 			if info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID); err == nil {
-				if info.AgentStatus != "" {
-					dto.AgentStatus = info.AgentStatus
+				if info.Status != "" {
+					dto.Status = info.Status
 				}
 				dto.RestartRequired = info.RestartRequired
 				dto.ProjectID = info.ProjectID
@@ -188,22 +184,19 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dto := botDTO(b, a.managerIDs(ctx, orgID, id))
-	if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
+	a.applyCanonicalAgentProfile(ctx, b, &dto, "get org bot")
 	// Seeded nodes carry their built-in prompt so the UI can offer a
 	// reset to it; operator-created nodes have none and the field stays
 	// empty, which is the UI's signal to hide the affordance.
 	if def, ok := seedprompts.Default(id); ok {
 		dto.DefaultInstructions = def
 	}
-	dto.AgentStatus = "stopped"
+	dto.Status = "stopped"
 	// Populate the agent app id + project id from the helix-runtime
 	// sidecar so the chart UI can deep-link "chat with bot" to the
 	// per-project Human Desktop session. Missing state = the bot
 	// hasn't activated yet; we leave the fields empty and the UI
-	// shows a disabled button. AgentStatus drives the green/grey
+	// shows a disabled button. Status drives the green/grey
 	// presence control on the bot detail page.
 	if a.deps.BotRuntime != nil {
 		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
@@ -211,9 +204,9 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 			if agentID == "" {
 				agentID = info.AgentID
 			}
-			detail := BotDetailDTO{Bot: dto, AgentID: agentID, LegacyAgentID: agentID, ProjectID: info.ProjectID}
-			if info.AgentStatus != "" {
-				detail.Bot.AgentStatus = info.AgentStatus
+			detail := BotDetailDTO{Bot: dto, LegacyAppID: agentID, ProjectID: info.ProjectID}
+			if info.Status != "" {
+				detail.Bot.Status = info.Status
 			}
 			detail.Bot.RestartRequired = info.RestartRequired
 			detail.Bot.ProjectID = info.ProjectID
@@ -221,33 +214,11 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 			detail.Bot.AgentRuntime = info.Runtime
 			detail.Bot.AgentModel = info.Model
 			applySandboxInfo(&detail.Bot, info)
-			if strings.Contains(r.URL.Path, "/agents/") {
-				writeJSON(w, http.StatusOK, AgentDetailDTO{BotDTO: detail.Bot, ProjectID: detail.ProjectID})
-			} else {
-				writeJSON(w, http.StatusOK, detail)
-			}
+			writeJSON(w, http.StatusOK, detail)
 			return
 		}
 	}
-	if strings.Contains(r.URL.Path, "/agents/") {
-		writeJSON(w, http.StatusOK, AgentDetailDTO{BotDTO: dto})
-	} else {
-		writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto, AgentID: b.AgentID, LegacyAgentID: b.AgentID})
-	}
-}
-
-// @Summary Helix-org: get agent detail
-// @Description Get one canonical Agent with its instructions, tools, runtime, model configuration, project, and reporting lines.
-// @Tags HelixOrg
-// @Produce json
-// @Param org path string true "Organization slug or ID"
-// @Param id path string true "Agent ID"
-// @Success 200 {object} api.AgentDetailDTO
-// @Failure 404 {object} api.ErrorResponse
-// @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/agents/{id} [get]
-func (a *apiHandler) getAgent(w http.ResponseWriter, r *http.Request) {
-	a.getBot(w, r)
+	writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto, LegacyAppID: b.AgentID})
 }
 
 // updateBot rewrites a Bot's content / tools. A nil field is
@@ -285,25 +256,6 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		t := toToolNames(req.Tools)
 		toolsPatch = &t
 	}
-	var identityPatch *map[string]string
-	if req.Identity != nil {
-		target, err := a.deps.Queries.GetBot(ctx, orgID, id)
-		if err != nil {
-			writeError(w, errStatus(err), fmt.Errorf("get bot for identity update: %w", err))
-			return
-		}
-		if target.IsHuman() {
-			if a.deps.AuthorizeHumanContact == nil {
-				writeError(w, http.StatusForbidden, errors.New("human contact updates are not authorized"))
-				return
-			}
-			if err := a.deps.AuthorizeHumanContact(ctx, orgID, target.HelixUserID); err != nil {
-				writeError(w, http.StatusForbidden, err)
-				return
-			}
-		}
-		identityPatch = &req.Identity
-	}
 	namePatch := req.Name
 	contentPatch := req.Content
 	configPatch := AgentConfigPatch{
@@ -319,7 +271,7 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	canonicalChange := !configPatch.Empty() || namePatch != nil || contentPatch != nil
-	if !existing.IsHuman() && existing.AgentID != "" && canonicalChange && a.deps.AgentUpdater == nil {
+	if existing.AgentID != "" && canonicalChange && a.deps.AgentUpdater == nil {
 		writeError(w, http.StatusServiceUnavailable, errors.New("canonical agent updater is not available"))
 		return
 	}
@@ -333,54 +285,69 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		vcpus := req.SandboxResourceOverrides.VCPUs
 		sandboxVCPUsPatch = &vcpus
 	}
-	updated, err := a.deps.Nodes.Update(ctx, orgID, id, nodes.UpdateParams{
-		Name:            namePatch,
-		Content:         contentPatch,
-		Tools:           toolsPatch,
-		ProjectIDs:      stringSlicePatch(req.ProjectIDs),
-		PreserveContext: req.PreserveContext,
-		SandboxRuntime:  sandboxRuntimePatch,
-		SandboxVCPUs:    sandboxVCPUsPatch,
-		Identity:        identityPatch,
-	})
-	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
-		return
-	}
-	if !updated.IsHuman() && updated.AgentID != "" && canonicalChange {
-		if err := a.deps.AgentUpdater.UpdateAgent(ctx, updated.AgentID, configPatch, namePatch, contentPatch); err != nil {
-			tools := append([]tool.Name(nil), existing.Tools...)
-			projectIDs := append([]string(nil), existing.ProjectIDs...)
-			identity := make(map[string]string, len(existing.Identity))
-			for key, value := range existing.Identity {
-				identity[key] = value
-			}
-			preserveContext := existing.PreserveContext
-			sandboxRuntime := existing.SandboxRuntime
-			sandboxVCPUs := existing.SandboxVCPUs
-			_, rollbackErr := a.deps.Nodes.Update(ctx, orgID, id, nodes.UpdateParams{
-				Name:            &existing.Name,
-				Content:         &existing.Content,
-				Tools:           &tools,
-				ProjectIDs:      &projectIDs,
-				PreserveContext: &preserveContext,
-				SandboxRuntime:  &sandboxRuntime,
-				SandboxVCPUs:    &sandboxVCPUs,
-				Identity:        &identity,
-			})
-			if rollbackErr != nil {
-				writeError(w, http.StatusInternalServerError, fmt.Errorf("update agent: %v; rollback org profile: %w", err, rollbackErr))
-				return
-			}
-			writeError(w, errStatus(err), fmt.Errorf("update agent: %w", err))
+	projectIDsPatch := stringSlicePatch(req.ProjectIDs)
+	updated := existing
+	nodeChange := namePatch != nil || contentPatch != nil || toolsPatch != nil || projectIDsPatch != nil ||
+		req.PreserveContext != nil || sandboxRuntimePatch != nil || sandboxVCPUsPatch != nil
+	if nodeChange {
+		updated, err = a.deps.Nodes.Update(ctx, orgID, id, nodes.UpdateParams{
+			Name:            namePatch,
+			Content:         contentPatch,
+			Tools:           toolsPatch,
+			ProjectIDs:      projectIDsPatch,
+			PreserveContext: req.PreserveContext,
+			SandboxRuntime:  sandboxRuntimePatch,
+			SandboxVCPUs:    sandboxVCPUsPatch,
+		})
+		if err != nil {
+			writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
 			return
 		}
 	}
-	dto := botDTO(updated, a.managerIDs(ctx, orgID, id))
-	if err := a.canonicalAgentProfile(ctx, updated, &dto); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
+	if updated.AgentID != "" && canonicalChange {
+		if err := a.deps.AgentUpdater.UpdateAgent(ctx, updated.AgentID, configPatch, namePatch, contentPatch); err != nil {
+			if nodeChange {
+				rollback := nodes.UpdateParams{}
+				if namePatch != nil {
+					rollback.Name = &existing.Name
+				}
+				if contentPatch != nil {
+					rollback.Content = &existing.Content
+				}
+				if toolsPatch != nil {
+					tools := append([]tool.Name(nil), existing.Tools...)
+					rollback.Tools = &tools
+				}
+				if projectIDsPatch != nil {
+					projectIDs := append([]string(nil), existing.ProjectIDs...)
+					rollback.ProjectIDs = &projectIDs
+				}
+				if req.PreserveContext != nil {
+					preserveContext := existing.PreserveContext
+					rollback.PreserveContext = &preserveContext
+				}
+				if sandboxRuntimePatch != nil {
+					sandboxRuntime := existing.SandboxRuntime
+					rollback.SandboxRuntime = &sandboxRuntime
+				}
+				if sandboxVCPUsPatch != nil {
+					sandboxVCPUs := existing.SandboxVCPUs
+					rollback.SandboxVCPUs = &sandboxVCPUs
+				}
+				_, rollbackErr := a.deps.Nodes.Update(ctx, orgID, id, rollback)
+				if rollbackErr != nil {
+					writeError(w, http.StatusInternalServerError, fmt.Errorf("update Bot App: %v; rollback Bot: %w", err, rollbackErr))
+					return
+				}
+			}
+			writeError(w, errStatus(err), fmt.Errorf("update Bot App: %w", err))
+			return
+		}
 	}
+	// The write already succeeded, so an unreadable App must not turn
+	// into a 500 the client reads as "the update failed".
+	dto := botDTO(updated, a.managerIDs(ctx, orgID, id))
+	a.applyCanonicalAgentProfile(ctx, updated, &dto, "update org bot")
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -560,7 +527,7 @@ func (a *apiHandler) ensureBotChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("ensure bot chat: %w", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, BotChatDTO{AgentID: agentAppID, LegacyAgentID: agentAppID, ProjectID: projectID})
+	writeJSON(w, http.StatusOK, BotChatDTO{LegacyAppID: agentAppID, ProjectID: projectID})
 }
 
 // activateBot manually triggers an activation for a Bot. The bot
@@ -612,28 +579,27 @@ func (a *apiHandler) activateBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, BotActivateDTO{
-		ActivationID:  string(res.ActivationID),
-		ProjectID:     res.ProjectID,
-		AgentID:       res.AgentID,
-		LegacyAgentID: res.AgentID,
-		SessionID:     res.SessionID,
+		ActivationID: string(res.ActivationID),
+		ProjectID:    res.ProjectID,
+		LegacyAppID:  res.AgentID,
+		SessionID:    res.SessionID,
 	})
 }
 
-// stopBotAgent stops the bot's desktop sandbox without deleting the
+// stopBot stops the bot's desktop sandbox without deleting the
 // session (transcript stays). The chart / bot-detail "Stop" control hits
 // this. No-op (204) when there is no session or the desktop is already down.
 // Delegates to activations.Stop — same path as the MCP stop_bot tool.
 //
-// @Summary Helix-org: stop a bot's agent desktop
+// @Summary Helix-org: stop a bot's desktop
 // @Tags HelixOrg
 // @Param id path string true "Bot ID"
 // @Success 204
 // @Failure 404 {object} api.ErrorResponse
 // @Failure 501 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/bots/{id}/stop-agent [post]
-func (a *apiHandler) stopBotAgent(w http.ResponseWriter, r *http.Request) {
+// @Router /api/v1/orgs/{org}/bots/{id}/stop [post]
+func (a *apiHandler) stopBot(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if a.deps.Activations == nil {
 		writeError(w, http.StatusNotImplemented, errors.New("stop is not wired in this deployment"))
@@ -664,11 +630,10 @@ func (a *apiHandler) stopBotAgent(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// restartBotAgent gives the bot a genuinely fresh session — the bot-page
-// "Restart agent session" button. Delegates to activations.Restart (reset
+// restartBot gives the bot a genuinely fresh session. Delegates to activations.Restart (reset
 // session then Activate) — same path as the MCP restart_bot tool.
 //
-// @Summary Helix-org: restart a bot's agent session (fresh session + desktop)
+// @Summary Helix-org: restart a bot (fresh session + desktop)
 // @Tags HelixOrg
 // @Param id path string true "Bot ID"
 // @Success 202 {object} api.BotActivateDTO
@@ -676,8 +641,8 @@ func (a *apiHandler) stopBotAgent(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} api.ErrorResponse
 // @Failure 501 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/bots/{id}/restart-agent [post]
-func (a *apiHandler) restartBotAgent(w http.ResponseWriter, r *http.Request) {
+// @Router /api/v1/orgs/{org}/bots/{id}/restart [post]
+func (a *apiHandler) restartBot(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if a.deps.Activations == nil {
 		writeError(w, http.StatusNotImplemented, errors.New("restart is not wired in this deployment"))
@@ -707,11 +672,10 @@ func (a *apiHandler) restartBotAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, BotActivateDTO{
-		ActivationID:  string(res.ActivationID),
-		ProjectID:     res.ProjectID,
-		AgentID:       res.AgentID,
-		LegacyAgentID: res.AgentID,
-		SessionID:     res.SessionID,
+		ActivationID: string(res.ActivationID),
+		ProjectID:    res.ProjectID,
+		LegacyAppID:  res.AgentID,
+		SessionID:    res.SessionID,
 	})
 }
 
@@ -742,8 +706,7 @@ func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.N
 func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 	dto := BotDTO{
 		ID:              string(b.ID),
-		AgentID:         b.AgentID,
-		LegacyAgentID:   b.AgentID,
+		LegacyAppID:     b.AgentID,
 		Name:            b.Name,
 		Content:         b.Content,
 		ProjectIDs:      b.ProjectIDs,
@@ -751,12 +714,19 @@ func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 		OrganizationID:  b.OrganizationID,
 		PreserveContext: b.PreserveContext,
 		SandboxRuntime:  types.SandboxRuntime(b.SandboxRuntime),
-		Kind:            b.Kind,
-		HelixUserID:     b.HelixUserID,
-		Identity:        b.Identity,
 	}
 	if b.SandboxVCPUs > 0 {
 		dto.SandboxResourceOverrides = &types.SandboxResourceOverrides{VCPUs: b.SandboxVCPUs, MemoryMB: b.SandboxMemoryMB}
+	}
+	// The Bot's own execution config is the base profile. It is what the
+	// DTO carries once the legacy App link is gone, and what the handlers
+	// serve when that App can't be read.
+	if b.CodeAgentConfig != nil {
+		dto.CodeAgentRuntime = b.CodeAgentConfig.Runtime
+		dto.CodeAgentCredentialType = b.CodeAgentConfig.CredentialType
+		dto.Provider = b.CodeAgentConfig.ProviderRef
+		dto.Model = b.CodeAgentConfig.Model
+		dto.ReasoningEffort = b.CodeAgentConfig.ReasoningEffort
 	}
 	if !b.CreatedAt.IsZero() {
 		dto.CreatedAt = b.CreatedAt.Format(time.RFC3339)
@@ -773,8 +743,21 @@ func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 	return dto
 }
 
+// applyCanonicalAgentProfile overlays the legacy App profile onto dto
+// while a Bot still has one. A read failure is not fatal: botDTO has
+// already filled dto from the Bot's own name, instructions and
+// CodeAgentConfig, which is the source of truth after the cutover, so
+// every handler serves that rather than failing the whole request over
+// one unreadable App.
+func (a *apiHandler) applyCanonicalAgentProfile(ctx context.Context, bot orgchart.Node, dto *BotDTO, op string) {
+	if err := a.canonicalAgentProfile(ctx, bot, dto); err != nil {
+		log.Warn().Err(err).Str("org", bot.OrganizationID).Str("bot", string(bot.ID)).
+			Msg(op + ": using Bot-owned profile because the legacy App profile is unavailable")
+	}
+}
+
 func (a *apiHandler) canonicalAgentProfile(ctx context.Context, bot orgchart.Node, dto *BotDTO) error {
-	if dto == nil || bot.IsHuman() || bot.AgentID == "" || a.deps.AgentReader == nil {
+	if dto == nil || bot.AgentID == "" || a.deps.AgentReader == nil {
 		return nil
 	}
 	profile, err := a.deps.AgentReader.ReadAgent(ctx, bot.AgentID)

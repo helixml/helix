@@ -5,22 +5,13 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
-// NodeKind distinguishes an ordinary agent Node from a human placeholder.
-// A Go alias (not a named type) so it stays a plain string at the
-// boundary, matching NodeID.
-type NodeKind = string
-
-// NodeKindHuman marks a Node as a human placeholder — never activated,
-// reachable via its Identity handles. The empty kind is an agent Node.
-const NodeKindHuman NodeKind = "human"
-
-// Node is the single org-chart aggregate: the merge of the former Role
-// and Worker. A Node *is* its own job description (no role binding). Kind
-// distinguishes an ordinary agent Node (the default) from a human
-// placeholder (NodeKindHuman) — see Kind below; there is otherwise no
-// per-Node subtype.
+// Node is the single org-bot aggregate: the merge of the former Role and
+// Worker. A Node is always an executable bot and is its own job description;
+// organization members are represented by the organization membership model,
+// never by polymorphic rows in org_bots.
 //
 // ID is the stable, filesystem-safe handle (it names the runtime env,
 // repo and agent app, and is referenced by MCP tools). Name is the
@@ -40,15 +31,6 @@ const NodeKindHuman NodeKind = "human"
 // to its initial topics by creating those rows; subscribe/unsubscribe
 // change them later.
 //
-// Kind is "" for an ordinary agent Node (the default) or NodeKindHuman for
-// a human placeholder — a real person represented in the graph. A human
-// Node is never spawned/activated: its Content is the person's
-// responsibility description, its Identity holds their cross-system
-// handles (Slack, GitHub, email, …), and HelixUserID optionally links it
-// to a real Helix org member so that signed-in user receives the in-app
-// asks addressed to this node. See
-// design/2026-07-07-humans-in-the-org.md.
-//
 // Reporting lines (who reports to whom), subscriptions, the per-Node
 // transcript/team/DM streams, and the runtime project/agent are all
 // anchored on the Node — see ReportingLine, streaming.Subscription, and
@@ -56,9 +38,13 @@ const NodeKindHuman NodeKind = "human"
 type Node struct {
 	ID             NodeID
 	OrganizationID string
-	// AgentID is the canonical Helix Agent backing this org node.
-	// It is required for nodes and empty for human placeholders.
+	// AgentID is the legacy Helix App backing this Org Bot. It remains while
+	// App-owned instructions and tools are migrated onto the Org Bot.
 	AgentID string
+	// CodeAgentConfig is the self-contained execution configuration owned by
+	// this Org Bot. Existing rows may be nil until the legacy App link is
+	// reconciled; runtimes must retain their App fallback during that cutover.
+	CodeAgentConfig *types.CodeAgentExecutionConfig
 	// Name is the human-readable display label (e.g. "Chief of Staff").
 	// Free text, may be empty — the UI falls back to ID. Distinct from
 	// ID, which is the immutable handle.
@@ -87,19 +73,8 @@ type Node struct {
 	SandboxRuntime  string
 	SandboxVCPUs    int
 	SandboxMemoryMB int
-	// Kind is "" (agent, the default) or NodeKindHuman. A human Node is
-	// never spawned — the dispatcher delivers to it instead of activating.
-	Kind NodeKind
-	// HelixUserID optionally links a human Node to a real Helix org member.
-	// Set → that signed-in user receives the in-app asks addressed here.
-	// Empty for agent Nodes and for humans with no Helix account.
-	HelixUserID string
-	// Identity maps a channel name (slack, github, email, discord, …) to
-	// the person's handle on that channel — how the org reaches them.
-	// Only meaningful for a human Node; nil for agents.
-	Identity  map[string]string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // NewNode validates and constructs a Node. Treat the returned value as
@@ -139,6 +114,13 @@ func (n Node) WithName(name string) Node {
 // WithAgentID returns a copy of the Node linked to the canonical Agent.
 func (n Node) WithAgentID(agentID string) Node {
 	n.AgentID = agentID
+	return n
+}
+
+// WithCodeAgentConfig returns a copy of the Node with its self-contained
+// coding-agent execution configuration replaced.
+func (n Node) WithCodeAgentConfig(config *types.CodeAgentExecutionConfig) Node {
+	n.CodeAgentConfig = config
 	return n
 }
 
@@ -189,24 +171,3 @@ func (n Node) WithSandboxResources(vcpus, memoryMB int) Node {
 	n.SandboxMemoryMB = memoryMB
 	return n
 }
-
-// WithKind returns a copy of the Node with Kind replaced.
-func (n Node) WithKind(kind NodeKind) Node {
-	n.Kind = kind
-	return n
-}
-
-// WithHelixUserID returns a copy of the Node with HelixUserID replaced.
-func (n Node) WithHelixUserID(userID string) Node {
-	n.HelixUserID = userID
-	return n
-}
-
-// WithIdentity returns a copy of the Node with Identity replaced.
-func (n Node) WithIdentity(identity map[string]string) Node {
-	n.Identity = identity
-	return n
-}
-
-// IsHuman reports whether this Node is a human placeholder.
-func (n Node) IsHuman() bool { return n.Kind == NodeKindHuman }

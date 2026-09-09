@@ -37,7 +37,7 @@ vi.mock('react-resizable-panels', () => ({
 
 const runningBot = {
   id: 'b-eng',
-  agent_status: 'running',
+  status: 'running',
   sandbox_status: 'running',
   effective_sandbox_runtime: 'ubuntu-desktop',
 } as const
@@ -119,7 +119,7 @@ describe('OrgAgentSessionWorkspace', () => {
       <OrgAgentSessionWorkspace
         sessionId="session-five"
         organizationId="acme"
-        bot={{ ...runningBot, agent_status: 'stopped', sandbox_status: 'stopped' } as any}
+        bot={{ ...runningBot, status: 'stopped', sandbox_status: 'stopped' } as any}
         onStart={onStart}
         onStop={onStop}
       >
@@ -158,8 +158,8 @@ describe('OrgAgentSessionWorkspace', () => {
 describe('botSandboxIndicatorState', () => {
   it('maps agent and sandbox status onto the indicator', () => {
     expect(botSandboxIndicatorState(undefined)).toBe('running')
-    expect(botSandboxIndicatorState({ agent_status: 'running' } as any)).toBe('running')
-    expect(botSandboxIndicatorState({ agent_status: 'stopped', sandbox_status: 'pending' } as any)).toBe('starting')
-    expect(botSandboxIndicatorState({ agent_status: 'stopped', sandbox_status: 'stopped' } as any)).toBe('stopped')
+    expect(botSandboxIndicatorState({ status: 'running' } as any)).toBe('running')
+    expect(botSandboxIndicatorState({ status: 'stopped', sandbox_status: 'pending' } as any)).toBe('starting')
+    expect(botSandboxIndicatorState({ status: 'stopped', sandbox_status: 'stopped' } as any)).toBe('stopped')
   })
 })

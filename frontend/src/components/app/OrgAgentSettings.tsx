@@ -24,7 +24,7 @@ import {
   useUpdateBot,
   UpdateBotRequest,
 } from '../../services/helixOrgService'
-import { useAgentAttachments, useCreateAgentAttachment, useDeleteAgentAttachment, useTriggers } from '../../services/triggerService'
+import { useBotAttachments, useCreateBotAttachment, useDeleteBotAttachment, useTriggers } from '../../services/triggerService'
 
 const OrgAgentSettings: FC<{
   agentID: string
@@ -41,9 +41,9 @@ const OrgAgentSettings: FC<{
   const { data: catalogue = [] } = useListHelixOrgTools({ enabled: section === 'tools' && !!agent })
   const { data: triggers = [], isLoading: triggersLoading } = useTriggers()
   const { data: processors = [], isLoading: processorsLoading } = useListHelixOrgProcessors({ enabled: section === 'subscriptions' && !!agent })
-  const { data: attachments = [], isLoading: attachmentsLoading } = useAgentAttachments(agent?.id)
-  const attach = useCreateAgentAttachment(agent?.id)
-  const detach = useDeleteAgentAttachment(agent?.id)
+  const { data: attachments = [], isLoading: attachmentsLoading } = useBotAttachments(agent?.id)
+  const attach = useCreateBotAttachment(agent?.id)
+  const detach = useDeleteBotAttachment(agent?.id)
   const [editingTools, setEditingTools] = useState(false)
 
   const projectID = detail?.project_id
@@ -96,7 +96,7 @@ const OrgAgentSettings: FC<{
     try {
       await updateAgent.mutateAsync({ id: agent.id ?? '', ...patch })
       await onCanonicalUpdate?.()
-      snackbar.success('Org agent updated')
+      snackbar.success('Org bot updated')
     } catch (error: any) {
       snackbar.error(error?.response?.data?.error ?? error?.message ?? 'update failed')
     }
@@ -133,14 +133,14 @@ const OrgAgentSettings: FC<{
     return (
       <Box sx={{ mb: embedded ? 0 : 3 }}>
         {!embedded && (<>
-        <Typography variant="h5" sx={{ mb: 0.5 }}>Agent</Typography>
+        <Typography variant="h5" sx={{ mb: 0.5 }}>Org Bot</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          The org agent's name, coding harness, model, and reasoning effort. Changes save as you make them.
+          The org bot's name, coding harness, model, and reasoning effort. Changes save as you make them.
         </Typography>
         </>)}
         <Stack spacing={3}>
           <TextField
-            label="Agent name"
+            label="Org bot name"
             value={name}
             onChange={(event) => setName(event.target.value)}
             onBlur={commitName}
@@ -148,7 +148,7 @@ const OrgAgentSettings: FC<{
               if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
             }}
             disabled={readOnly || updateAgent.isPending}
-            helperText="Use a name that makes this agent easy to identify. Saved when you click away."
+            helperText="Use a name that makes this org bot easy to identify. Saved when you click away."
             fullWidth
           />
           <AgentConfigForm
@@ -173,7 +173,7 @@ const OrgAgentSettings: FC<{
         {!embedded && (<>
           <Typography variant="h5">Instructions</Typography>
           <Typography variant="body2" color="text.secondary">
-            Markdown instructions applied to every org-agent interaction.
+            Markdown instructions applied to every org bot interaction.
           </Typography>
         </>)}
         <MonacoEditor
@@ -216,7 +216,7 @@ const OrgAgentSettings: FC<{
       <Box sx={{ mt: embedded ? 0 : 3 }}>
         {!embedded && <Typography variant="subtitle1">Sandbox</Typography>}
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          The container this agent runs in. Changes apply the next time the agent starts;
+          The container this org bot runs in. Changes apply the next time the bot starts;
           a running sandbox shows a restart prompt.
         </Typography>
         <BotSandboxForm
@@ -254,7 +254,7 @@ const OrgAgentSettings: FC<{
           />
         </Stack>
         <Typography variant="body2" color="text.secondary">
-          Keep this org agent's conversation context between triggered runs.
+          Keep this org bot's conversation context between triggered runs.
         </Typography>
       </Box>
     )
@@ -269,7 +269,7 @@ const OrgAgentSettings: FC<{
             {!embedded && <Box>
               <Typography variant="subtitle1">Org tools</Typography>
               <Typography variant="caption" color="text.secondary">
-                Helix organization capabilities available to this org agent.
+                Helix organization capabilities available to this org bot.
               </Typography>
             </Box>}
             <Button
@@ -321,7 +321,7 @@ const OrgAgentSettings: FC<{
         {!embedded && (<>
         <Typography variant="h6" sx={{ mb: 0.5 }}>Triggers</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Choose what starts this agent. You can use a Trigger directly or the result of a Processor.
+          Choose what starts this org bot. You can use a Trigger directly or the result of a Processor.
         </Typography>
         </>)}
         <Autocomplete
@@ -384,7 +384,7 @@ const OrgAgentSettings: FC<{
       {!embedded && (<>
       <Typography variant="h6" sx={{ mb: 0.5 }}>Project access</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Projects this org agent can use through its organization tools.
+        Projects this org bot can use through its organization tools.
       </Typography>
       </>)}
       <Autocomplete

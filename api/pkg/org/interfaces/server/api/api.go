@@ -197,10 +197,6 @@ type Deps struct {
 	// disables the "Create the Helix app" path.
 	GitHubManifestStart func(ctx context.Context, orgID, githubOrg, origin string) (GitHubManifestStartResponse, error)
 
-	// AuthorizeHumanContact allows only the person themself or an org owner
-	// to mutate a human node's identity map.
-	AuthorizeHumanContact func(ctx context.Context, orgID, humanUserID string) error
-
 	// PublicServerURL is the operator-configured external base URL
 	// (e.g. https://helix.example.com) that auto-installed GitHub
 	// webhooks should POST back to. Falls back to localhost when
@@ -253,10 +249,10 @@ type BotRuntimeInfo struct {
 	SessionID string
 	Runtime   string
 	Model     string
-	// AgentStatus is "running" when the bot's exploratory-session
+	// Status is "running" when the bot's exploratory-session
 	// desktop is online (external_agent_status == running), else
 	// "stopped". Empty when the status could not be resolved.
-	AgentStatus string
+	Status string
 	// RestartRequired is true when the bot's sandbox is running but is
 	// still serving config from before the operator's last save: tools,
 	// instructions, or the agent's model/provider/runtime/effort, all of
@@ -343,27 +339,16 @@ func Routes(deps Deps) []Route {
 		// bot's subscription set through these endpoints.
 		{Pattern: "POST /bots/{id}/chat", Handler: http.HandlerFunc(a.ensureBotChat)},
 		{Pattern: "POST /bots/{id}/activate", Handler: http.HandlerFunc(a.activateBot)},
-		{Pattern: "POST /bots/{id}/stop-agent", Handler: http.HandlerFunc(a.stopBotAgent)},
-		{Pattern: "POST /bots/{id}/restart-agent", Handler: http.HandlerFunc(a.restartBotAgent)},
+		{Pattern: "POST /bots/{id}/stop", Handler: http.HandlerFunc(a.stopBot)},
+		{Pattern: "POST /bots/{id}/restart", Handler: http.HandlerFunc(a.restartBot)},
 		// Reporting lines are many-to-many — add/remove individual
 		// manager edges rather than replacing a single parent.
 		{Pattern: "POST /bots/{id}/parents", Handler: http.HandlerFunc(a.addBotParent)},
 		{Pattern: "DELETE /bots/{id}/parents/{parent_id}", Handler: http.HandlerFunc(a.removeBotParent)},
-		{Pattern: "GET /agents", Handler: http.HandlerFunc(a.listAgents)},
-		{Pattern: "POST /agents", Handler: http.HandlerFunc(a.createAgent)},
-		{Pattern: "GET /agents/{id}", Handler: http.HandlerFunc(a.getAgent)},
-		{Pattern: "PATCH /agents/{id}", Handler: http.HandlerFunc(a.updateAgent)},
-		{Pattern: "DELETE /agents/{id}", Handler: http.HandlerFunc(a.deleteAgent)},
-		{Pattern: "POST /agents/{id}/chat", Handler: http.HandlerFunc(a.ensureAgentChat)},
-		{Pattern: "POST /agents/{id}/activate", Handler: http.HandlerFunc(a.activateAgent)},
-		{Pattern: "POST /agents/{id}/stop-agent", Handler: http.HandlerFunc(a.stopAgent)},
-		{Pattern: "POST /agents/{id}/restart-agent", Handler: http.HandlerFunc(a.restartAgent)},
-		{Pattern: "POST /agents/{id}/parents", Handler: http.HandlerFunc(a.addAgentParent)},
-		{Pattern: "DELETE /agents/{id}/parents/{parent_id}", Handler: http.HandlerFunc(a.removeAgentParent)},
-		{Pattern: "GET /agents/{id}/secrets", Handler: http.HandlerFunc(a.listWorkerSecrets)},
-		{Pattern: "GET /agents/{id}/available-secrets", Handler: http.HandlerFunc(a.listAvailableWorkerSecrets)},
-		{Pattern: "PUT /agents/{id}/secrets/{name}", Handler: http.HandlerFunc(a.putWorkerSecret)},
-		{Pattern: "DELETE /agents/{id}/secrets/{name}", Handler: http.HandlerFunc(a.deleteWorkerSecret)},
+		{Pattern: "GET /bots/{id}/secrets", Handler: http.HandlerFunc(a.listWorkerSecrets)},
+		{Pattern: "GET /bots/{id}/available-secrets", Handler: http.HandlerFunc(a.listAvailableWorkerSecrets)},
+		{Pattern: "PUT /bots/{id}/secrets/{name}", Handler: http.HandlerFunc(a.putWorkerSecret)},
+		{Pattern: "DELETE /bots/{id}/secrets/{name}", Handler: http.HandlerFunc(a.deleteWorkerSecret)},
 		{Pattern: "GET /tools", Handler: http.HandlerFunc(a.listTools)},
 		{Pattern: "GET /settings", Handler: http.HandlerFunc(a.listSettings)},
 		{Pattern: "PUT /settings/{key}", Handler: http.HandlerFunc(a.setSetting)},
@@ -375,9 +360,9 @@ func Routes(deps Deps) []Route {
 		{Pattern: "PUT /triggers/{id}", Handler: http.HandlerFunc(a.updateTrigger)},
 		{Pattern: "DELETE /triggers/{id}", Handler: http.HandlerFunc(a.deleteTrigger)},
 		{Pattern: "GET /triggers/{id}/events", Handler: http.HandlerFunc(a.listTriggerEvents)},
-		{Pattern: "GET /agents/{id}/attachments", Handler: http.HandlerFunc(a.listAgentAttachments)},
-		{Pattern: "POST /agents/{id}/attachments", Handler: http.HandlerFunc(a.createAgentAttachment)},
-		{Pattern: "DELETE /agents/{id}/attachments/{attachment_id}", Handler: http.HandlerFunc(a.deleteAgentAttachment)},
+		{Pattern: "GET /bots/{id}/attachments", Handler: http.HandlerFunc(a.listBotAttachments)},
+		{Pattern: "POST /bots/{id}/attachments", Handler: http.HandlerFunc(a.createBotAttachment)},
+		{Pattern: "DELETE /bots/{id}/attachments/{attachment_id}", Handler: http.HandlerFunc(a.deleteBotAttachment)},
 		// Processors — JSON:API CRUD.
 		{Pattern: "GET /processors", Handler: http.HandlerFunc(a.listProcessors)},
 		{Pattern: "POST /processors", Handler: http.HandlerFunc(a.createProcessor)},
@@ -392,7 +377,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /assets/{id}/health", Handler: http.HandlerFunc(a.assetHealth)},
 		{Pattern: "GET /assets/{id}/links", Handler: http.HandlerFunc(a.listAssetLinks)},
 		{Pattern: "POST /assets/{id}/links", Handler: http.HandlerFunc(a.linkAsset)},
-		{Pattern: "DELETE /assets/{id}/links/{agent_id}", Handler: http.HandlerFunc(a.unlinkAsset)},
+		{Pattern: "DELETE /assets/{id}/links/{bot_id}", Handler: http.HandlerFunc(a.unlinkAsset)},
 		// Chart free-placed layout (bots / triggers / processors).
 		{Pattern: "GET /chart/positions", Handler: http.HandlerFunc(a.getChartPositions)},
 		{Pattern: "PUT /chart/positions", Handler: http.HandlerFunc(a.putChartPositions)},

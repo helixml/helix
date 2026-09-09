@@ -59,10 +59,9 @@ Every bot must include the `**On anything else.** Stay quiet`
 block verbatim — it's the default-quiet rule.
 
 Default tools: pick from what the org has — typically `attach_worker`,
-`chat`, `ask_human`, `read_events`, `dm`, `managers`, `reports`. `chat`
+`chat`, `read_events`, `dm`, `managers`, `reports`. `chat`
 sends into an internal conversation; it cannot reach outside the org.
-Use `ask_human` for a known person. To act on an external provider —
-Slack, GitHub, email — call `list_secrets` to find the credential the
+To act on an external provider — Slack, GitHub, email — call `list_secrets` to find the credential the
 Worker has been granted, `get_secret` to fetch it, then use that
 provider's own API. `managers` and `reports` let the bot resolve its
 reporting lines live — escalate up to a manager (`managers` + `dm`),

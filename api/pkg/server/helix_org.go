@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -61,7 +60,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/cutover"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/services"
 	helixstore "github.com/helixml/helix/api/pkg/store"
@@ -71,7 +69,7 @@ import (
 // helixOrgHandlers bundles the JSON HTTP surface helix-org exposes:
 // the JSON-RPC MCP / webhook / org-graph / settings / topics endpoints
 // mounted under /api/v1/orgs/{org}/. The React UI at
-// /orgs/:org_id/helix-org/* consumes those endpoints.
+// /orgs/:org_id/* consumes those endpoints.
 type helixOrgHandlers struct {
 	api     http.Handler
 	configs *configregistry.Registry
@@ -82,9 +80,8 @@ type helixOrgHandlers struct {
 	scope     *helixOrgScope
 	store     *helixorgstore.Store
 	lifecycle *lifecycle.Service
-	// seeder creates the membership-driven human nodes + the per-org Chief
-	// of Staff bot. Copied onto HelixAPIServer by mountHelixOrg so the
-	// org-lifecycle handlers (org create, membership add/remove) can drive it.
+	// seeder creates the per-org Chief of Staff bot. Copied onto
+	// HelixAPIServer by mountHelixOrg so org creation can drive it.
 	seeder *orgGraphSeeder
 	// streamCron is the in-process scheduler that fires events on
 	// KindCron Triggers. The server's run loop calls Start on it in a
@@ -167,7 +164,7 @@ type helixOrgHandlers struct {
 // WorkerRuntime port, so the REST worker-detail / activate handlers read
 // the project / agent-app / session ids without the api adapter touching
 // the store. sessions is the Helix session store used to resolve whether
-// the bot's desktop sandbox is online (agent_status for the chart).
+// the bot's desktop sandbox is online (status for the chart).
 type orgWorkerRuntime struct {
 	st       *helixorgstore.Store
 	sessions interface {
@@ -186,10 +183,10 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 		return helixorgapi.BotRuntimeInfo{}, err
 	}
 	info := helixorgapi.BotRuntimeInfo{
-		ProjectID:   s.ProjectID,
-		AgentID:     s.AgentID,
-		SessionID:   s.SessionID,
-		AgentStatus: "stopped",
+		ProjectID: s.ProjectID,
+		AgentID:   s.AgentID,
+		SessionID: s.SessionID,
+		Status:    "stopped",
 	}
 	if s.AgentID != "" && o.sessions != nil {
 		if app, err := o.sessions.GetApp(ctx, s.AgentID); err == nil && app != nil && len(app.Config.Helix.Assistants) > 0 {
@@ -226,7 +223,7 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 	if s.SessionID != "" && o.sessions != nil {
 		if sess, err := o.sessions.GetSession(ctx, s.SessionID); err == nil && sess != nil {
 			if sess.Metadata.ExternalAgentStatus == "running" {
-				info.AgentStatus = "running"
+				info.Status = "running"
 				// RestartRequiredContainer is the container that was live
 				// when a restart-sensitive config change was saved. Docker
 				// never reuses an id, so a match means this very container
@@ -993,7 +990,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// lifecycle as REST. See `deps.Lifecycle = lifecycleSvc` below.
 
 	// JSON handlers consumed by the React pages at
-	// /orgs/:org_id/helix-org/*. They mount under
+	// /orgs/:org_id/*. They mount under
 	// /api/v1/orgs/{org}/ via the orgServer's extras list. REST hire and
 	// chat-driven hire both call the same workers.Hire service (wired
 	// into apiDeps.Workers below) — one implementation, no drift.
@@ -1006,6 +1003,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Store:         st,
 		Helix:         inProcClient,
 		Agents:        inProcClient,
+		AgentConfigs:  inProcClient,
 		Logger:        logger,
 		AgentDelivery: agentDelivery,
 		// Node-scoped reconcilers: the single topology reconciler (one owner
@@ -1156,22 +1154,10 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// Share the one lifecycleSvc with the MCP tools so create_bot runs the
 	// same OrgReconcilers (Slack auto-router) as REST POST /bots.
 	deps.Lifecycle = lifecycleSvc
-	deps.HumanDelivery = humanInbox{
-		store:           helixStore,
-		slackWorkspaces: slackWS,
-		threadFollower:  threadFollower,
-		ensureSlackRouter: func(ctx context.Context, orgID string, routerID processor.ProcessorID, workerID string) error {
-			router, err := svc.Processors.Get(ctx, orgID, routerID)
-			if err != nil {
-				return err
-			}
-			return validateSlackReplyRouter(router, strings.TrimPrefix(routerID, "p-slack-router-"), workerID)
-		},
-	}
 
 	// Activations owns start/stop/restart for REST and MCP. Built before
 	// RegisterBuiltins so start_bot / stop_bot / restart_bot share the same
-	// service instance as POST /bots/{id}/activate|stop-agent|restart-agent.
+	// service instance as POST /bots/{id}/activate|stop|restart.
 	sessionResetter := botSessionResetter{client: inProcClient, st: st}
 	workerRuntime := orgWorkerRuntime{st: st, sessions: helixStore, configs: configReg}
 	svc.Activations = activations.New(activations.Deps{
@@ -1268,20 +1254,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Processors:    svc.Processors,
 		ChartLayout:   chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: deps.Now}),
 		WorkerSecrets: workerSecrets,
-		AuthorizeHumanContact: func(ctx context.Context, orgID, humanUserID string) error {
-			callerID := runtimehelix.UserIDFromContext(ctx)
-			if callerID == "" {
-				return fmt.Errorf("authenticated user is missing")
-			}
-			if callerID == humanUserID {
-				return nil
-			}
-			if _, err := cfg.APIServer.authorizeOrgOwner(ctx, &types.User{ID: callerID}, orgID); err != nil {
-				return fmt.Errorf("only the person or an organization owner can update human contact details: %w", err)
-			}
-			return nil
-		},
-		BotRuntime: workerRuntime,
+		BotRuntime:    workerRuntime,
 		// Kept on apiDeps so legacy/tests that poke the ports directly still
 		// work; REST stop/restart now go through Activations.
 		BotSessionResetter: sessionResetter,
@@ -1477,22 +1450,13 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		cfg.APIServer.Cfg.GitHub.WebURL(), cfg.APIServer.Cfg.GitHub.APIBaseURL(),
 	)
 
-	// Membership-driven human-node + Chief of Staff seeder. Reuses the same
-	// lifecycle (CoS runs) and bots (human nodes never run) services the REST
-	// create path uses; botStore backs idempotency checks.
+	// The Chief of Staff seeder reuses the same lifecycle service as REST bot
+	// creation; botStore backs idempotency checks.
 	seeder := &orgGraphSeeder{lifecycle: lifecycleSvc, bots: svc.Nodes, botStore: st.Nodes}
-	// Bootstrap-time reconcile: converge human nodes against org membership,
-	// and re-seed / tool-backfill Chief of Staff (idempotent — unions any
+	// Bootstrap-time reconcile re-seeds / tool-backfills Chief of Staff (idempotent — unions any
 	// new OwnerBotTools entries onto existing CoS). Runs once per org per
 	// process via ensureBootstrap.
-	scope.humanReconcile = func(ctx context.Context, orgID string) error {
-		members, err := listOrgMemberUsers(ctx, helixStore, orgID)
-		if err != nil {
-			return err
-		}
-		if err := seeder.ReconcileHumans(ctx, orgID, members); err != nil {
-			return err
-		}
+	scope.botBootstrap = func(ctx context.Context, orgID string) error {
 		if err := seeder.SeedChiefOfStaff(ctx, orgID); err != nil {
 			return err
 		}

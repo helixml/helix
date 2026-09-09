@@ -1,4 +1,4 @@
-// OrgAgentSettingsPane is the "Settings" view of the org agent workspace — the
+// OrgAgentSettingsPane is the "Settings" view of the Org Bot workspace — the
 // bot's counterpart of the spec task Details view, and the same content the
 // standalone agent page shows. What the agent runs in (environment, size,
 // status), where it lives (sandbox, session, project), the agent's own
@@ -125,7 +125,7 @@ const OrgAgentSettingsPane: FC<OrgAgentSettingsPaneProps> = ({ bot, sessionId, o
   const router = useRouter()
   const lightTheme = useLightTheme()
   const { data: detail, refetch } = useHelixOrgBot(bot.id || undefined, { enabled: !!bot.id })
-  const agentID = bot.agent_id ?? bot.agent_app_id
+  const agentID = bot.legacy_app_id
   const headless = bot.effective_sandbox_runtime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu
   const runtime = sandboxRuntimeLabel(bot.effective_sandbox_runtime) || 'Full Desktop'
   const size = sandboxSizeLabel(

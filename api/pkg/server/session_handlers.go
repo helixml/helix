@@ -544,7 +544,7 @@ func (s *HelixAPIServer) isOrgAgentSession(ctx context.Context, session *types.S
 
 	nodes, err := s.helixOrg.store.Nodes.List(ctx, session.OrganizationID)
 	if err != nil {
-		return false, fmt.Errorf("list org agents while archiving session: %w", err)
+		return false, fmt.Errorf("list Org Bots while archiving session: %w", err)
 	}
 	for _, node := range nodes {
 		if node.AgentID == session.ParentApp {

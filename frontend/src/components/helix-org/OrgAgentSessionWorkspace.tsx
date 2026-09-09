@@ -71,7 +71,7 @@ const loadTerminalHeight = (key: string): number => {
 /** Maps the bot DTO onto the three-state indicator the task page uses. */
 export const botSandboxIndicatorState = (bot?: BotDTO): SandboxIndicatorState => {
   if (!bot) return 'running'
-  if (bot.agent_status === 'running') return 'running'
+  if (bot.status === 'running') return 'running'
   if (bot.sandbox_status === 'pending') return 'starting'
   return 'stopped'
 }

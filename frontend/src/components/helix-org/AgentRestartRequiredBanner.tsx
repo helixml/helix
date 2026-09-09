@@ -72,7 +72,7 @@ const AgentRestartRequiredBanner: FC<AgentRestartRequiredBannerProps> = ({
 
   const gated = working || busy
   const gateReason = working
-    ? 'The agent is working — restart when the current turn finishes'
+    ? 'The org bot is working — restart when the current turn finishes'
     : busy
       ? 'Another action is in progress'
       : ''
@@ -103,7 +103,7 @@ const AgentRestartRequiredBanner: FC<AgentRestartRequiredBannerProps> = ({
         variant="body2"
         sx={{ flexGrow: 1, fontSize: '0.8rem', fontFamily: APP_FONT_FAMILY }}
       >
-        Restart the agent to apply latest changes.
+        Restart the org bot to apply latest changes.
       </Typography>
       <Stack direction="row" alignItems="center" spacing={0.75}>
         <Button size="small" sx={COMPACT_BUTTON_SX} onClick={() => setDismissed(true)}>
@@ -148,10 +148,10 @@ const AgentRestartRequiredBanner: FC<AgentRestartRequiredBannerProps> = ({
       ) : banner}
 
       <Dialog open={confirming} onClose={() => setConfirming(false)}>
-        <DialogTitle>Restart the agent?</DialogTitle>
+        <DialogTitle>Restart the org bot?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            The agent starts again with a fresh conversation. The workspace and
+            The org bot starts again with a fresh conversation. The workspace and
             committed work are kept; the current chat history is discarded.
           </DialogContentText>
         </DialogContent>

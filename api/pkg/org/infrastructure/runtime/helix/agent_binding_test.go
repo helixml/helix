@@ -46,21 +46,6 @@ func TestBoundAgentForProject(t *testing.T) {
 	if err := SaveProject(ctx, st, "org-1", "w-manager", "prj-manager-home", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	// A human whose state happens to point at the project is still not an owner.
-	human, err := orgchart.NewNode("h-1", "human", nil, time.Now(), "org-1")
-	if err == nil {
-		human.Kind = orgchart.NodeKindHuman
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := st.Nodes.Create(ctx, human); err != nil {
-		t.Fatal(err)
-	}
-	if err := SaveProject(ctx, st, "org-1", "h-1", "prj-human", "", ""); err != nil {
-		t.Fatal(err)
-	}
-
 	got, err := BoundAgentForProject(ctx, st, "org-1", "prj-home")
 	if err != nil {
 		t.Fatalf("expected owner: %v", err)
@@ -76,10 +61,6 @@ func TestBoundAgentForProject(t *testing.T) {
 	// Agent with runtime state pointing at another project.
 	if _, err := BoundAgentForProject(ctx, st, "org-1", "prj-manager-home"); err != nil {
 		t.Fatalf("manager owns its own home: %v", err)
-	}
-	// Humans never own, even with a matching home project.
-	if _, err := BoundAgentForProject(ctx, st, "org-1", "prj-human"); !errors.Is(err, ErrNoBoundAgent) {
-		t.Fatalf("humans must not own projects, got %v", err)
 	}
 	// Ambiguous ownership fails closed like zero owners.
 	dupe := memory.New() // fresh store cannot reuse st (no delete helper); seed two owners

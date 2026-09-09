@@ -115,18 +115,13 @@ type CreateParams struct {
 	Name            string
 	Content         string
 	AgentID         string
+	CodeAgentConfig *types.CodeAgentExecutionConfig
 	Tools           []tool.Name
 	PreserveContext bool
 	// SandboxRuntime / SandboxVCPUs are the node's own sandbox config; empty
 	// / 0 inherit the org default. VCPUs must be a spec-task preset rung.
 	SandboxRuntime string
 	SandboxVCPUs   int
-	// Kind, HelixUserID, Identity create a human placeholder when Kind ==
-	// orgchart.NodeKindHuman. A human gets no base tools (it never makes an
-	// MCP request) and is never spawned.
-	Kind        orgchart.NodeKind
-	HelixUserID string
-	Identity    map[string]string
 }
 
 // Create builds and persists a new Node, returning the created
@@ -146,15 +141,10 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return orgchart.Node{}, fmt.Errorf("check node id %q: %w", id, err)
 	}
-	// A human placeholder gets no tools — it never makes an MCP request.
-	// An agent gets the caller's tools unioned with the read baseline.
-	tools := p.Tools
-	if p.Kind != orgchart.NodeKindHuman {
-		if err := s.ValidateTools(p.Tools); err != nil {
-			return orgchart.Node{}, err
-		}
-		tools = MergeTools(p.Tools, s.baseTools)
+	if err := s.ValidateTools(p.Tools); err != nil {
+		return orgchart.Node{}, err
 	}
+	tools := MergeTools(p.Tools, s.baseTools)
 	node, err := orgchart.NewNode(id, p.Content, tools, s.now(), orgID)
 	if err != nil {
 		return orgchart.Node{}, err
@@ -165,6 +155,9 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	if p.AgentID != "" {
 		node = node.WithAgentID(p.AgentID)
 	}
+	if p.CodeAgentConfig != nil {
+		node = node.WithCodeAgentConfig(p.CodeAgentConfig)
+	}
 	if p.PreserveContext {
 		node = node.WithPreserveContext(true)
 	}
@@ -174,15 +167,6 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 			return orgchart.Node{}, err
 		}
 		node = node.WithSandboxRuntime(runtime).WithSandboxResources(vcpus, memoryMB)
-	}
-	if p.Kind != "" {
-		node = node.WithKind(p.Kind)
-	}
-	if p.HelixUserID != "" {
-		node = node.WithHelixUserID(p.HelixUserID)
-	}
-	if len(p.Identity) > 0 {
-		node = node.WithIdentity(p.Identity)
 	}
 	if err := s.nodes.Create(ctx, node); err != nil {
 		return orgchart.Node{}, err
@@ -195,6 +179,7 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 // Tools on a content-only update.
 type UpdateParams struct {
 	AgentID         *string
+	CodeAgentConfig *types.CodeAgentExecutionConfig
 	Name            *string
 	Content         *string
 	Tools           *[]tool.Name
@@ -204,9 +189,6 @@ type UpdateParams struct {
 	// non-nil empty runtime or zero vCPUs resets that field to "inherit".
 	SandboxRuntime *string
 	SandboxVCPUs   *int
-	// Identity, when non-nil, replaces the node's per-channel handle map
-	// (human nodes only). nil leaves it unchanged.
-	Identity *map[string]string
 }
 
 // Update reads the existing Node, applies the patch via the domain's
@@ -225,6 +207,9 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 	updated := existing
 	if p.AgentID != nil {
 		updated = updated.WithAgentID(*p.AgentID)
+	}
+	if p.CodeAgentConfig != nil {
+		updated = updated.WithCodeAgentConfig(p.CodeAgentConfig)
 	}
 	if p.Name != nil {
 		updated = updated.WithName(*p.Name)
@@ -255,9 +240,6 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 			return orgchart.Node{}, err
 		}
 		updated = updated.WithSandboxRuntime(runtime).WithSandboxResources(vcpus, memoryMB)
-	}
-	if p.Identity != nil {
-		updated = updated.WithIdentity(*p.Identity)
 	}
 	updated = updated.WithUpdatedAt(s.now())
 	if err := s.nodes.Update(ctx, updated); err != nil {

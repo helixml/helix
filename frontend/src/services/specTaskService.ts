@@ -35,12 +35,12 @@ const QUERY_KEYS = {
     sort?: 'created' | 'updated' | 'last_message',
     participantIds?: string[],
     organizationId?: string,
-    createdByOrgAgent?: string,
+    createdByOrgBot?: string,
   ) =>
     [
       "spec-tasks",
       "list",
-      { projectId, archivedOnly, withDependsOn, labels, limit, offset, sort, participantIds, organizationId, createdByOrgAgent },
+      { projectId, archivedOnly, withDependsOn, labels, limit, offset, sort, participantIds, organizationId, createdByOrgBot },
     ] as const,
   specTask: (id: string) => ["spec-tasks", id] as const,
   foregroundPRRefresh: (id: string) =>
@@ -106,8 +106,8 @@ export function useSpecTasks(options?: {
    * Mutually exclusive with projectId.
    */
   organizationId?: string;
-  /** Only tasks a helix-org agent (bot handle) created. */
-  createdByOrgAgent?: string;
+  /** Only tasks created by this Org Bot handle. */
+  createdByOrgBot?: string;
   enabled?: boolean;
   refetchInterval?: number | false;
 }) {
@@ -124,13 +124,13 @@ export function useSpecTasks(options?: {
       options?.sort,
       options?.participantIds,
       options?.organizationId,
-      options?.createdByOrgAgent,
+      options?.createdByOrgBot,
     ),
     queryFn: async () => {
       const response = await api.getApiClient().v1SpecTasksList({
         project_id: options?.organizationId ? undefined : options?.projectId || "default",
         organization_id: options?.organizationId,
-        created_by_org_agent: options?.createdByOrgAgent,
+        created_by_org_bot: options?.createdByOrgBot,
         include_archived: options?.archivedOnly,
         with_depends_on: options?.withDependsOn,
         labels:

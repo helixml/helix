@@ -3,10 +3,54 @@ package gorm
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+func TestRepairDuplicateAgentAppLinksKeepsOldestBot(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&OrgBot{}); err != nil {
+		t.Fatalf("migrate Bot table: %v", err)
+	}
+	appID := "app-shared"
+	config := `{"runtime":"claude_code"}`
+	for _, row := range []OrgBot{
+		{ID: "b-newer", OrganizationID: "org-test", LegacyAppID: &appID, Content: "newer", CodeAgentConfig: nil, CreatedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
+		{ID: "b-oldest", OrganizationID: "org-test", LegacyAppID: &appID, Content: "oldest", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+	} {
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatalf("create duplicate Bot link: %v", err)
+		}
+	}
+	if err := db.Table("org_bots").Where("id = ?", "b-newer").Update("code_agent_config", config).Error; err != nil {
+		t.Fatalf("seed duplicate config: %v", err)
+	}
+
+	for pass := 1; pass <= 2; pass++ {
+		if err := repairDuplicateAgentAppLinks(db); err != nil {
+			t.Fatalf("repair pass %d: %v", pass, err)
+		}
+	}
+
+	var bots []OrgBot
+	if err := db.Order("id ASC").Find(&bots).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(bots) != 2 {
+		t.Fatalf("Bots = %+v", bots)
+	}
+	if bots[0].ID != "b-newer" || bots[0].LegacyAppID != nil || bots[0].CodeAgentConfig != nil {
+		t.Fatalf("newer duplicate was not cleared: %+v", bots[0])
+	}
+	if bots[1].ID != "b-oldest" || bots[1].LegacyAppID == nil || *bots[1].LegacyAppID != appID {
+		t.Fatalf("oldest Bot did not retain App link: %+v", bots[1])
+	}
+}
 
 func TestBackfillAgentAppLinksRequiresSameOrganization(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
