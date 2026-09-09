@@ -359,6 +359,24 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     },
   })
 
+  const delegateCreatedSubscription = async (sub: { id?: string; delegated_org_ids?: string[] }) => {
+    if (!enableForOrgId) return true
+    try {
+      if (!sub.id) throw new Error('The connected subscription did not return an ID')
+      await api.getApiClient().v1ClaudeSubscriptionsDelegationUpdate(sub.id, {
+        delegated_org_ids: Array.from(new Set([...(sub.delegated_org_ids || []), enableForOrgId])),
+      })
+      return true
+    } catch (error: any) {
+      queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
+      queryClient.invalidateQueries({ queryKey: codeAgentHarnessesQueryKey(enableForOrgId) })
+      setSubmitError(
+        `Connected, but not shared with ${orgLabel(enableForOrgId)}: ${error?.response?.data?.message || error?.message || 'Could not update subscription sharing'}`,
+      )
+      return false
+    }
+  }
+
   const toggleDelegation = (sub: ClaudeSubscriptionData, orgID: string, enabled: boolean) => {
     const current = sub.delegated_org_ids || []
     const next = enabled
@@ -490,7 +508,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       setSubmitting(true)
       setSubmitError(null)
       try {
-        await api.getApiClient().v1ClaudeSubscriptionsOauthCompleteCreate({
+        const { data: created } = await api.getApiClient().v1ClaudeSubscriptionsOauthCompleteCreate({
           code: oauthCode.trim(),
           code_verifier: oauthChallenge.verifier,
           state: oauthChallenge.state,
@@ -500,6 +518,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           ...(enableForOrgId ? { organization_id: enableForOrgId } : {}),
           ...(effectiveOrgIdForOauth ? { owner_type: TypesOwnerType.OwnerTypeOrg, owner_id: effectiveOrgIdForOauth } : {}),
         })
+        if (!(await delegateCreatedSubscription(created))) return
         queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
         if (enableForOrgId) {
           queryClient.invalidateQueries({ queryKey: codeAgentHarnessesQueryKey(enableForOrgId) })
@@ -547,12 +566,13 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     try {
       // Use orgId prop if provided (button/inline variants), otherwise use internal state (account variant)
       const effectiveOrgId = orgId || (ownerType === 'org' ? selectedOrgId : undefined)
-      await api.getApiClient().v1ClaudeSubscriptionsCreate({
+      const { data: created } = await api.getApiClient().v1ClaudeSubscriptionsCreate({
         name: effectiveOrgId ? `${orgLabel(effectiveOrgId)} Claude Subscription` : 'My Claude Subscription',
         ...credentialPayload,
         ...(enableForOrgId ? { organization_id: enableForOrgId } : {}),
         ...(effectiveOrgId ? { owner_type: TypesOwnerType.OwnerTypeOrg, owner_id: effectiveOrgId } : {}),
       })
+      if (!(await delegateCreatedSubscription(created))) return
       queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
       if (enableForOrgId) {
         queryClient.invalidateQueries({ queryKey: codeAgentHarnessesQueryKey(enableForOrgId) })
