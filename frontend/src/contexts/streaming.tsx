@@ -515,22 +515,45 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           while (currentEntries.length < entryCount) {
             currentEntries.push({ type: "text", content: "", message_id: "" });
           }
-          // A patch whose offset is past the end of what we hold means the bytes
-          // between were never received — the socket dropped and the baseline was
-          // cleared without a catch-up arriving. applyPatch would treat that as an
-          // append and silently render only the tail, so resync from the database
-          // instead of showing a truncated reply.
-          let sawGap = false;
-          for (const ep of entryPatches) {
-            if (
-              ep.index < currentEntries.length &&
-              hasPatchGap(currentEntries[ep.index].content, ep.patch_offset)
-            ) {
-              sawGap = true;
-              break;
-            }
-          }
-          if (sawGap) {
+          // DETECT A LOST BASELINE.
+          //
+          // Deltas are only meaningful against the baseline they were computed
+          // from. If the socket dropped and the baseline was cleared without a
+          // catch-up snapshot arriving, we hold nothing while the server is well
+          // into the reply. Two ways that shows up, and BOTH have been seen:
+          //
+          //   1. A patch whose offset is past the end of what we hold.
+          //      applyPatch cannot tell this from an append — its
+          //      `patchOffset >= currentContent.length` branch is true for both —
+          //      so the entry silently restarts mid-sentence.
+          //
+          //   2. Entries we never received any content for. The server only
+          //      patches entries that CHANGED, usually just the one streaming.
+          //      Growing the array to entry_count leaves the earlier ones as
+          //      empty strings, so the reader sees blanks followed by the last
+          //      segment. This is what a viewer of someone else's session
+          //      actually reported on 9 Sept 2026.
+          //
+          // Case 2 is the reason an offset check alone is not enough: a lost
+          // baseline that coincides with a NEW entry starting has offset 0, which
+          // looks perfectly normal.
+          //
+          // The invariant: after applying a patch message, every entry the server
+          // says exists should hold content. Anything else means we are missing
+          // data we cannot reconstruct locally, so resync from the database
+          // rather than render a partial reply.
+          const patchedNow = new Set(entryPatches.map((ep) => ep.index));
+          const lostBaseline =
+            entryPatches.some(
+              (ep) =>
+                ep.index < currentEntries.length &&
+                hasPatchGap(currentEntries[ep.index].content, ep.patch_offset),
+            ) ||
+            currentEntries.some(
+              (entry, i) => !patchedNow.has(i) && entry.content === "",
+            );
+
+          if (lostBaseline) {
             patchEntriesRef.current.delete(interactionId);
             queryClient.invalidateQueries({
               queryKey: ["interactions", currentSessionId],

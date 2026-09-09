@@ -51,3 +51,46 @@ describe('hasPatchGap', () => {
     expect(hasPatchGap('', 0)).toBe(false)
   })
 })
+
+// The shape of the real failure, documented as a unit so the reasoning survives.
+//
+// A delta stream is RELATIVE: "at offset N, add this" only means anything if you
+// already hold the first N characters. That baseline is established either by
+// being connected when the turn started (always true for whoever submitted the
+// message) or by the server's catch-up snapshot (the only route available to
+// someone watching a session they did not start).
+//
+// When neither happens, the client holds nothing and the deltas keep arriving.
+describe('a lost baseline, as a viewer of someone else’s session sees it', () => {
+  it('renders the tail as though it were the whole reply, with no error', () => {
+    // The server is 300 characters into the reply. We hold nothing.
+    const held = ''
+    const delta = 'and that is why the migration finished early.'
+    const rendered = applyPatch(held, 300, delta, 345)
+
+    // No throw, no warning — just a reply that silently begins mid-thought.
+    expect(rendered).toBe(delta)
+    expect(rendered.length).toBeLessThan(345)
+
+    // Which is precisely what the guard is for.
+    expect(hasPatchGap(held, 300)).toBe(true)
+  })
+
+  it('is invisible to an offset check when the lost baseline meets a NEW entry', () => {
+    // A brand-new entry legitimately starts at offset 0, so the offset tells us
+    // nothing. The evidence is elsewhere: the EARLIER entries were never filled.
+    // This is the case that made the reply render as blanks plus a final segment.
+    expect(hasPatchGap('', 0)).toBe(false)
+
+    const entriesAfterGrowingFromNothing = [
+      { content: '' },   // never received — the server only patches what changed
+      { content: '' },   // never received
+      { content: 'the last segment, which is all anyone saw' },
+    ]
+    const patchedNow = new Set([2])
+    const lostBaseline = entriesAfterGrowingFromNothing.some(
+      (entry, i) => !patchedNow.has(i) && entry.content === '',
+    )
+    expect(lostBaseline).toBe(true)
+  })
+})
