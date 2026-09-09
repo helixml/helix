@@ -305,11 +305,11 @@ func isHelixOrgPrivilegedMutation(r *http.Request) bool {
 	if r.URL.Path == assetsPath || strings.HasPrefix(r.URL.Path, assetsPath+"/") {
 		return true
 	}
-	agentsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/agents/"
-	if !strings.HasPrefix(r.URL.Path, agentsPath) {
+	botsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/bots/"
+	if !strings.HasPrefix(r.URL.Path, botsPath) {
 		return false
 	}
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, agentsPath), "/")
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, botsPath), "/")
 	return len(parts) >= 3 && parts[0] != "" && parts[1] == "secrets" && parts[2] != ""
 }
 

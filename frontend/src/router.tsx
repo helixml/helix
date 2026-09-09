@@ -122,13 +122,18 @@ const routes: IApplicationRoute[] = [
   ),
 }, {
   name: 'org_bot_session',
-  path: '/orgs/:org_id/chat/agents/:bot_id',
+  path: '/orgs/:org_id/chat/bots/:bot_id',
   meta: {
     drawer: false,
     topbar: false,
-    title: 'Agent Chat',
+    title: 'Bot Chat',
   },
   render: () => <OrgBotSessionResolver />,
+}, {
+  name: 'org_bot_session_legacy',
+  path: '/orgs/:org_id/chat/agents/:bot_id',
+  meta: { drawer: false },
+  render: () => <RouteRedirect route="org_bot_session" />,
 }, {
   name: 'org_session',
   path: '/orgs/:org_id/chat/session/:session_id',

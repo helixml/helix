@@ -669,12 +669,13 @@ func TestHelixOrgPrivilegedMutation(t *testing.T) {
 		path   string
 		want   bool
 	}{
-		{http.MethodPut, "/api/v1/orgs/test/agents/w-1/secrets/GH_TOKEN", true},
-		{http.MethodDelete, "/api/v1/orgs/test/agents/w-1/secrets/GH_TOKEN", true},
-		{http.MethodGet, "/api/v1/orgs/test/agents/w-1/secrets", false},
-		{http.MethodGet, "/api/v1/orgs/test/agents/w-1/available-secrets", false},
+		{http.MethodPut, "/api/v1/orgs/test/bots/b-1/secrets/GH_TOKEN", true},
+		{http.MethodDelete, "/api/v1/orgs/test/bots/b-1/secrets/GH_TOKEN", true},
+		{http.MethodGet, "/api/v1/orgs/test/bots/b-1/secrets", false},
+		{http.MethodGet, "/api/v1/orgs/test/bots/b-1/available-secrets", false},
 		{http.MethodPatch, "/api/v1/orgs/test/assets/a-1", true},
-		{http.MethodPatch, "/api/v1/orgs/test/agents/w-1", false},
+		{http.MethodPatch, "/api/v1/orgs/test/bots/b-1", false},
+		{http.MethodPut, "/api/v1/orgs/test/agents/b-1/secrets/GH_TOKEN", false},
 	}
 	for _, tt := range tests {
 		req := httptest.NewRequest(tt.method, tt.path, nil)
