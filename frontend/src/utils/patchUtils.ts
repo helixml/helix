@@ -13,6 +13,26 @@
  * @param totalLength - Expected total length after applying patch (for truncation)
  * @returns The reconstructed full content
  */
+/**
+ * Reports whether applying this patch would silently lose content.
+ *
+ * A delta is only meaningful against the baseline it was computed from. If the
+ * client's baseline is SHORTER than the patch's offset, the bytes in between
+ * were never received — usually because the socket dropped and the streaming
+ * baseline was cleared on reconnect without a catch-up snapshot arriving.
+ *
+ * applyPatch cannot recover from that: its `patchOffset >= currentContent.length`
+ * branch treats the gap as a plain append, so the content silently restarts from
+ * the newest fragment and the reader sees only the tail of the response. That was
+ * a real, reported bug — a viewer watching someone else's session saw only the
+ * last sentence of every reply.
+ *
+ * Callers should treat `true` as "resync from the database", not as an error.
+ */
+export function hasPatchGap(currentContent: string, patchOffset: number): boolean {
+  return patchOffset > currentContent.length;
+}
+
 export function applyPatch(
   currentContent: string,
   patchOffset: number,

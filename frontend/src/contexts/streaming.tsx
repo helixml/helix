@@ -17,7 +17,7 @@ import {
   ISessionType,
   IAgentType,
 } from "../types";
-import { applyPatch } from "../utils/patchUtils";
+import { applyPatch, hasPatchGap } from "../utils/patchUtils";
 import { TypesInteraction, TypesInteractionState, TypesMessage, TypesSession } from "../api/api";
 import { ResponseEntry } from "../components/session/InteractionInference";
 import {
@@ -107,6 +107,19 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
   // Keyed by interactionId, stores the current ResponseEntry[] built from entry_patches.
   const patchEntriesRef = useRef<Map<string, ResponseEntry[]>>(new Map());
   const patchPendingRef = useRef<boolean>(false);
+  // Interaction ids we have already pulled into the rendered list.
+  //
+  // Streaming patches deliberately do NOT invalidate the interactions query —
+  // they are high-frequency and the owner's own client already inserted the
+  // interaction optimistically when it sent the prompt. But a VIEWER of someone
+  // else's session never ran that insert, so without this the interaction never
+  // reaches their list: no spinner (nothing is in the `waiting` state to render
+  // as live), no streaming, and the whole reply appearing at once on completion.
+  // Reported by Leah watching Luke's session, 9 Sept 2026.
+  //
+  // So: refetch ONCE per interaction we have not seen, and keep the
+  // high-frequency path allocation-free after that.
+  const seenInteractionsRef = useRef<Set<string>>(new Set());
   // Track whether the WebSocket has experienced a disconnect since last connect.
   // Used to detect reconnection events (vs initial connection) so we can refresh
   // stale state missed during the outage.
@@ -142,6 +155,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
       // Clear all patch state (not session-keyed, so clear everything)
       patchEntriesRef.current.clear();
       patchPendingRef.current = false;
+      seenInteractionsRef.current.clear();
 
       // Also clear stepInfos for the new session (fresh start)
       if (sessionId) {
@@ -486,11 +500,42 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         const entryPatches = parsedData.entry_patches;
         const entryCount = parsedData.entry_count;
 
+        // An interaction we have never rendered needs to enter the list before
+        // any of this can show. See seenInteractionsRef.
+        if (!seenInteractionsRef.current.has(interactionId)) {
+          seenInteractionsRef.current.add(interactionId);
+          queryClient.invalidateQueries({
+            queryKey: ["interactions", currentSessionId],
+          });
+        }
+
         if (entryPatches && entryCount) {
           const currentEntries = patchEntriesRef.current.get(interactionId) || [];
           // Grow array to entry_count if new entries appeared
           while (currentEntries.length < entryCount) {
             currentEntries.push({ type: "text", content: "", message_id: "" });
+          }
+          // A patch whose offset is past the end of what we hold means the bytes
+          // between were never received — the socket dropped and the baseline was
+          // cleared without a catch-up arriving. applyPatch would treat that as an
+          // append and silently render only the tail, so resync from the database
+          // instead of showing a truncated reply.
+          let sawGap = false;
+          for (const ep of entryPatches) {
+            if (
+              ep.index < currentEntries.length &&
+              hasPatchGap(currentEntries[ep.index].content, ep.patch_offset)
+            ) {
+              sawGap = true;
+              break;
+            }
+          }
+          if (sawGap) {
+            patchEntriesRef.current.delete(interactionId);
+            queryClient.invalidateQueries({
+              queryKey: ["interactions", currentSessionId],
+            });
+            return;
           }
           // Apply each entry patch
           for (const ep of entryPatches) {
