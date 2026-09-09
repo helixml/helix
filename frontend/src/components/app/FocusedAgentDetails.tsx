@@ -44,7 +44,7 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
     return (
       <AgentSettingsPage>
         <AgentSettingsRow>
-          <CircularProgress size={22} aria-label="Loading org agent settings" />
+          <CircularProgress size={22} aria-label="Loading org bot settings" />
         </AgentSettingsRow>
       </AgentSettingsPage>
     )
@@ -54,7 +54,7 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
     return (
       <AgentSettingsPage>
         <Alert severity="warning">
-          This backing agent is no longer linked to an organization worker. Open the current worker from the Helix Org Agents list.
+          This legacy App is no longer linked to an org bot. Open the current bot from the Org Bots list.
         </Alert>
       </AgentSettingsPage>
     )

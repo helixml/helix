@@ -153,13 +153,13 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	// Set user ID and email from context
 	req.UserID = user.ID
 	req.UserEmail = user.Email
-	orgAgent, err := s.orgAgentForRequestUser(ctx, user)
+	orgBot, err := s.orgBotForRequestUser(ctx, user)
 	if err != nil {
-		log.Error().Err(err).Str("session_id", user.SessionID).Msg("Failed to resolve org agent for task creation")
+		log.Error().Err(err).Str("session_id", user.SessionID).Msg("Failed to resolve Org Bot for task creation")
 		http.Error(w, fmt.Sprintf("failed to resolve creating agent: %v", err), http.StatusInternalServerError)
 		return
 	}
-	req.CreatedByOrgAgent = orgAgent
+	req.CreatedByOrgBot = orgBot
 
 	// Strip null bytes that Postgres rejects (SQLSTATE 22021)
 	req.Prompt = strings.ReplaceAll(req.Prompt, "\x00", "")
@@ -291,12 +291,12 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(task)
 }
 
-// orgAgentForRequestUser names the helix-org agent behind a request, or "".
-// An agent works with a session-scoped API key; the session it names carries
-// the agent's org_worker_id. Humans and ordinary keys have no session. The
+// orgBotForRequestUser names the Org Bot behind a request, or "".
+// A Bot works with a session-scoped API key; the session it names carries
+// the Bot's org_worker_id. People and ordinary keys have no session. The
 // key→session binding is server-minted, so a session that cannot be loaded
 // is an inconsistency, not a case to attribute around.
-func (s *HelixAPIServer) orgAgentForRequestUser(ctx context.Context, user *types.User) (string, error) {
+func (s *HelixAPIServer) orgBotForRequestUser(ctx context.Context, user *types.User) (string, error) {
 	if user == nil || user.SessionID == "" {
 		return "", nil
 	}
@@ -317,7 +317,7 @@ func (s *HelixAPIServer) orgAgentForRequestUser(ctx context.Context, user *types
 // @Param   status query string false "Filter by status"
 // @Param   user_id query string false "Filter by user ID"
 // @Param   participant_ids query string false "Filter by creator or assignee user IDs (comma-separated, OR semantics)"
-// @Param   created_by_org_agent query string false "Only tasks created by this helix-org agent (bot handle)"
+// @Param   created_by_org_bot query string false "Only tasks created by this Org Bot handle"
 // @Param   include_archived query bool false "Include archived tasks" default(false)
 // @Param   with_depends_on query bool false "Include depends on tasks" default(false)
 // @Param   labels query string false "Filter by labels (comma-separated, AND semantics)"
@@ -418,7 +418,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		ParticipantIDs:     participantIDs,
 		FilterProjectIDs:   filterProjectIDs,
 		ProjectIDs:         projectIDs,
-		CreatedByOrgAgent:  query.Get("created_by_org_agent"),
+		CreatedByOrgBot:    query.Get("created_by_org_bot"),
 		WithDependsOn:      query.Get("with_depends_on") == "true",
 		Limit:              parseIntQuery(query.Get("limit"), 0), // 0 = no limit, return all tasks
 		Offset:             parseIntQuery(query.Get("offset"), 0),

@@ -30,10 +30,6 @@ import (
 // carries no parent column. LegacyAppID is the remaining compatibility link
 // to the Helix App while its instructions and tools are migrated. Execution
 // configuration is already owned by this model through CodeAgentConfig.
-//
-// Human placeholders currently share the physical org_bots table and are
-// distinguished by Kind. Separating that storage is independent of removing
-// the legacy App link.
 type OrgBot struct {
 	ID              string                          `json:"id" gorm:"column:id;primaryKey;type:text"`
 	OrganizationID  string                          `json:"organization_id" gorm:"column:org_id;primaryKey;type:text;index"`
@@ -47,16 +43,11 @@ type OrgBot struct {
 	SandboxRuntime  string                          `json:"sandbox_runtime,omitempty" gorm:"column:sandbox_runtime;not null;default:''"`
 	SandboxVCPUs    int                             `json:"sandbox_vcpus,omitempty" gorm:"column:sandbox_vcpus;not null;default:0"`
 	SandboxMemoryMB int                             `json:"sandbox_memory_mb,omitempty" gorm:"column:sandbox_memory_mb;not null;default:0"`
-	// Kind is "" (agent) or "human". HelixUserID / Identity are only
-	// populated for human placeholder rows.
-	Kind        string            `json:"kind,omitempty" gorm:"column:kind;not null;default:'';index"`
-	HelixUserID string            `json:"helix_user_id,omitempty" gorm:"column:helix_user_id;not null;default:''"`
-	Identity    map[string]string `json:"identity,omitempty" gorm:"column:identity;serializer:json"`
-	CreatedAt   time.Time         `json:"created_at" gorm:"column:created_at"`
-	UpdatedAt   time.Time         `json:"updated_at" gorm:"column:updated_at"`
+	CreatedAt       time.Time                       `json:"created_at" gorm:"column:created_at"`
+	UpdatedAt       time.Time                       `json:"updated_at" gorm:"column:updated_at"`
 }
 
-// org_bots is the legacy physical name retained for existing Node rows.
+// TableName keeps the persisted model on the established org_bots table.
 func (OrgBot) TableName() string { return "org_bots" }
 
 type nodeMapper struct{}
@@ -86,9 +77,6 @@ func (nodeMapper) ToRow(node orgchart.Node) (OrgBot, error) {
 		SandboxRuntime:  node.SandboxRuntime,
 		SandboxVCPUs:    node.SandboxVCPUs,
 		SandboxMemoryMB: node.SandboxMemoryMB,
-		Kind:            node.Kind,
-		HelixUserID:     node.HelixUserID,
-		Identity:        node.Identity,
 		CreatedAt:       node.CreatedAt,
 		UpdatedAt:       node.UpdatedAt,
 	}, nil
@@ -119,9 +107,6 @@ func (nodeMapper) ToDomain(row OrgBot) (orgchart.Node, error) {
 		SandboxRuntime:  row.SandboxRuntime,
 		SandboxVCPUs:    row.SandboxVCPUs,
 		SandboxMemoryMB: row.SandboxMemoryMB,
-		Kind:            row.Kind,
-		HelixUserID:     row.HelixUserID,
-		Identity:        row.Identity,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	}, nil
@@ -140,11 +125,7 @@ func newNodesRepo(db *gorm.DB) *nodesRepo {
 }
 
 func (r *nodesRepo) Create(ctx context.Context, node orgchart.Node) error {
-	if node.IsHuman() {
-		if node.AgentID != "" {
-			return errors.New("create node: human node cannot reference an agent app")
-		}
-	} else if node.AgentID == "" {
+	if node.AgentID == "" {
 		return errors.New("create node: agent app id is required")
 	}
 	return r.Repository.Create(ctx, node)
@@ -175,13 +156,6 @@ func (r *nodesRepo) Update(ctx context.Context, node orgchart.Node) error {
 	if err != nil {
 		return fmt.Errorf("marshal project ids: %w", err)
 	}
-	// Pre-marshal identity for the same reason as tools: the serializer:json
-	// tag does not apply on a map[string]any Updates, so pgx can't infer the
-	// jsonb column type from a bare map[string]string parameter.
-	identityJSON, err := json.Marshal(row.Identity)
-	if err != nil {
-		return fmt.Errorf("marshal identity: %w", err)
-	}
 	codeAgentConfigJSON, err := json.Marshal(row.CodeAgentConfig)
 	if err != nil {
 		return fmt.Errorf("marshal code agent config: %w", err)
@@ -203,9 +177,6 @@ func (r *nodesRepo) Update(ctx context.Context, node orgchart.Node) error {
 			"sandbox_runtime":   row.SandboxRuntime,
 			"sandbox_vcpus":     row.SandboxVCPUs,
 			"sandbox_memory_mb": row.SandboxMemoryMB,
-			"kind":              row.Kind,
-			"helix_user_id":     row.HelixUserID,
-			"identity":          string(identityJSON),
 			"updated_at":        row.UpdatedAt,
 		}),
 	)

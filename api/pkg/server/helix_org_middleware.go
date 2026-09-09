@@ -48,13 +48,9 @@ type helixOrgScope struct {
 	// first request. nil when not wired.
 	helixEvents *helixevents.Reconciler
 
-	// humanReconcile makes the org's human nodes match its membership on
-	// first request (the correctness backstop for the inline membership
-	// hooks — see org_graph_seed.go). nil when helix-org / the seeder isn't
-	// wired.
-	humanReconcile func(ctx context.Context, orgID string) error
-	botRepair      func(ctx context.Context, orgID, serviceKey string) error
-	botTools       *nodes.Nodes
+	botBootstrap func(ctx context.Context, orgID string) error
+	botRepair    func(ctx context.Context, orgID, serviceKey string) error
+	botTools     *nodes.Nodes
 
 	mu           sync.Mutex
 	bootstrapped map[string]bool
@@ -170,12 +166,9 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org role reconcile failed")
 		}
 
-		// Converge human nodes against org membership: create a node for any
-		// member missing one (covers OIDC joins + members added before this
-		// feature) and remove orphans. Best-effort like the reconciles above.
-		if s.humanReconcile != nil {
-			if err := s.humanReconcile(ctx, orgID); err != nil {
-				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org human-node reconcile failed")
+		if s.botBootstrap != nil {
+			if err := s.botBootstrap(ctx, orgID); err != nil {
+				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org bot bootstrap failed")
 			}
 		}
 
@@ -207,9 +200,6 @@ func repairNeverActivatedBots(ctx context.Context, orgID string, st *helixorgsto
 		return err
 	}
 	for _, b := range bs {
-		if b.IsHuman() {
-			continue
-		}
 		acts, err := st.Activations.ListForWorker(ctx, orgID, b.ID, 1)
 		if err != nil {
 			return fmt.Errorf("list activations for bot %s: %w", b.ID, err)

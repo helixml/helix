@@ -16,10 +16,10 @@ func New() *cobra.Command {
 		Long: `Operate on a helix-org organization graph from the CLI.
 
 Examples:
-  helix org agents list --org unmanned-org
-  helix org agents get chief-of-staff --org unmanned-org
-  helix org agents start chief-of-staff --org unmanned-org
-  helix org agents chat chief-of-staff --org unmanned-org "What agents exist?"
+  helix org bots list --org unmanned-org
+  helix org bots get chief-of-staff --org unmanned-org
+  helix org bots start chief-of-staff --org unmanned-org
+  helix org bots chat chief-of-staff --org unmanned-org "What Bots exist?"
   helix org triggers list --org unmanned-org
   helix org processors list --org unmanned-org
   helix org assets list --org unmanned-org

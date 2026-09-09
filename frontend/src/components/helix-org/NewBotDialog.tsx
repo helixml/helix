@@ -86,7 +86,7 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, onCreated, presetP
   const submit = async () => {
     const trimmedId = id.trim()
     if (!trimmedId) {
-      snackbar.error('Agent ID is required')
+      snackbar.error('Org bot ID is required')
       return
     }
     try {
@@ -98,21 +98,21 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, onCreated, presetP
       })
       onCreated?.(res.id ?? trimmedId)
       if (parentId) {
-        snackbar.success(`agent ${res.id ?? trimmedId} created, reporting to ${parentId}`)
+        snackbar.success(`Org bot ${res.id ?? trimmedId} created, reporting to ${parentId}`)
       } else {
-        snackbar.success(`agent ${res.id ?? trimmedId} created - drag an edge from a manager to set who it reports to`)
+        snackbar.success(`Org bot ${res.id ?? trimmedId} created - drag an edge from a manager to set who it reports to`)
       }
       onClose()
     } catch (err: any) {
-      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create agent failed')
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create org bot failed')
     }
   }
 
   return (
-    <HelixOrgSideDrawer open={open} onClose={onClose} title="New agent" width={460}>
+    <HelixOrgSideDrawer open={open} onClose={onClose} title="New Org Bot" width={460}>
       <Stack spacing={2}>
         <Typography variant="body2" color="text.secondary">
-          Create an agent. It appears on the org chart; set reporting lines
+          Create an org bot. It appears on the org chart; set reporting lines
           here or by dragging edges on the chart.
         </Typography>
         <TextField
@@ -120,13 +120,13 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, onCreated, presetP
           placeholder="Chief of Staff"
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
-          helperText="Human-readable display name shown in the chart and agent page."
+          helperText="Human-readable display name shown in the chart and org bot page."
           autoFocus
           fullWidth
           size="small"
         />
         <TextField
-          label="Agent ID"
+          label="Org bot ID"
           placeholder="chief-of-staff"
           value={id}
           onChange={(e) => { setIdEdited(true); setId(e.target.value) }}
@@ -140,7 +140,7 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, onCreated, presetP
             label="Reports to"
             value={presetParentId}
             InputProps={{ readOnly: true }}
-            helperText="Manager this agent reports to."
+            helperText="Manager this org bot reports to."
             fullWidth
             size="small"
             sx={{ '& input': { fontFamily: 'monospace' } }}
@@ -151,7 +151,7 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, onCreated, presetP
             label="Reports to (optional)"
             value={parentId}
             onChange={(e) => setParentId(e.target.value)}
-          helperText="Manager this agent reports to. Leave blank and wire later by dragging an edge in the Chart."
+          helperText="Manager this org bot reports to. Leave blank and wire later by dragging an edge in the Chart."
             fullWidth
             size="small"
           >

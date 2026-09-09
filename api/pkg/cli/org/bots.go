@@ -18,9 +18,9 @@ import (
 
 func newBotsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "agents",
-		Short:   "List and manage helix-org agents",
-		Aliases: []string{"agent", "bots", "bot"},
+		Use:     "bots",
+		Short:   "List and manage Org Bots",
+		Aliases: []string{"bot"},
 	}
 	cmd.AddCommand(newBotsListCmd())
 	cmd.AddCommand(newBotsGetCmd())
@@ -53,17 +53,13 @@ func newBotsListCmd() *cobra.Command {
 			if jsonOut {
 				return printJSON(bots)
 			}
-			fmt.Printf("%-28s %-24s %-10s %s\n", "ID", "NAME", "STATUS", "KIND")
+			fmt.Printf("%-28s %-24s %s\n", "ID", "NAME", "STATUS")
 			for _, b := range bots {
-				kind := b.Kind
-				if kind == "" {
-					kind = "agent"
-				}
-				status := b.AgentStatus
+				status := b.Status
 				if status == "" {
 					status = "-"
 				}
-				fmt.Printf("%-28s %-24s %-10s %s\n", b.ID, truncate(b.Name, 24), status, kind)
+				fmt.Printf("%-28s %-24s %s\n", b.ID, truncate(b.Name, 24), status)
 			}
 			return nil
 		},
@@ -100,13 +96,13 @@ func newBotsGetCmd() *cobra.Command {
 }
 
 func newBotsStartCmd() *cobra.Command {
-	return botActionCmd("start", "Start (activate) a bot's agent desktop", http.MethodPost, "activate")
+	return botActionCmd("start", "Start (activate) a Bot's sandbox", http.MethodPost, "activate")
 }
 func newBotsStopCmd() *cobra.Command {
-	return botActionCmd("stop", "Stop a bot's agent desktop", http.MethodPost, "stop-agent")
+	return botActionCmd("stop", "Stop a Bot's sandbox", http.MethodPost, "stop")
 }
 func newBotsRestartCmd() *cobra.Command {
-	return botActionCmd("restart", "Restart a bot's agent (fresh session)", http.MethodPost, "restart-agent")
+	return botActionCmd("restart", "Restart a Bot with a fresh session", http.MethodPost, "restart")
 }
 
 func botActionCmd(use, short, method, suffix string) *cobra.Command {
@@ -127,7 +123,7 @@ func botActionCmd(use, short, method, suffix string) *cobra.Command {
 			}
 			path := fmt.Sprintf("/orgs/%s/bots/%s/%s", orgID, args[0], suffix)
 			// activate/restart → BotActivateDTO (202); stop → 204.
-			if suffix == "stop-agent" {
+			if suffix == "stop" {
 				if err := c.doJSON(cmd.Context(), method, path, nil, nil, 120*time.Second); err != nil {
 					return err
 				}
@@ -164,7 +160,7 @@ func newBotsChatCmd() *cobra.Command {
 		Short: "Send a message to a bot's exploratory chat session",
 		Long: `Chat with a helix-org bot via its project exploratory session.
 
-Resolves the bot's project, starts the agent if needed (unless --no-start),
+Resolves the Bot's project, starts it if needed (unless --no-start),
 finds or waits for the exploratory session, then POSTs the message to
 /sessions/chat and prints the assistant reply.
 
@@ -207,7 +203,7 @@ Examples:
 				return fmt.Errorf("bot %s has no project yet — try: helix org bots start %s", botID, botID)
 			}
 
-			if !noStart && detail.Bot.AgentStatus != "running" {
+			if !noStart && detail.Bot.Status != "running" {
 				fmt.Fprintf(os.Stderr, "starting bot %s…\n", botID)
 				_ = c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/orgs/%s/bots/%s/activate", orgID, botID), nil, nil, 120*time.Second)
 			}

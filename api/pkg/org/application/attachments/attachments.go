@@ -39,12 +39,8 @@ func (s *Service) Create(ctx context.Context, orgID string, workerID orgchart.No
 	if s.newID == nil {
 		return attachment.Attachment{}, errors.New("create worker attachment: id generator is not configured")
 	}
-	worker, err := s.store.Nodes.Get(ctx, orgID, workerID)
-	if err != nil {
+	if _, err := s.store.Nodes.Get(ctx, orgID, workerID); err != nil {
 		return attachment.Attachment{}, fmt.Errorf("create worker attachment: get worker %q: %w", workerID, err)
-	}
-	if worker.IsHuman() {
-		return attachment.Attachment{}, fmt.Errorf("create worker attachment: worker %q is human", workerID)
 	}
 	if err := s.validateSource(ctx, orgID, source); err != nil {
 		return attachment.Attachment{}, fmt.Errorf("create worker attachment: %w", err)

@@ -131,8 +131,6 @@ type Deps struct {
 	// RegisterBuiltins to read the live registry; nil → the tools fall
 	// back to an unconstrained string array (still valid, just no enum).
 	ToolNames func() []tool.Name
-
-	HumanDelivery HumanDelivery
 }
 
 // Config carries the construction seams the composition root supplies to
@@ -149,6 +147,7 @@ type Config struct {
 	NewID                   IDGen
 	Hub                     *wakebus.Bus
 	Dispatcher              EventDispatcher
+	AgentCreator            lifecycle.AgentCreator
 	AgentContentUpdater     AgentContentUpdater
 	AgentProfileReader      AgentProfileReader
 	ToolChangeNotifier      func(context.Context, string)
@@ -202,8 +201,6 @@ type Config struct {
 	AssetSSHProxyAddress string
 	AssetHealth          func(ctx context.Context, orgID, assetRef string) assetssh.Health
 	Publishing           *publishing.Publishing
-	// HumanDelivery sends ask_human messages through the person's configured route.
-	HumanDelivery HumanDelivery
 }
 
 // Build assembles the application services from the config and returns
@@ -233,7 +230,6 @@ func (c Config) Build() Deps {
 		Sandboxes:            c.sandboxesService(),
 		Repositories:         c.repositoriesPort(),
 		Hub:                  c.Hub,
-		HumanDelivery:        c.HumanDelivery,
 	}
 }
 
@@ -336,6 +332,7 @@ func (c Config) lifecycleService() *lifecycle.Service {
 	svc := &lifecycle.Service{
 		Store:           c.Store,
 		Nodes:           c.botsService(),
+		Agents:          c.AgentCreator,
 		Attacher:        c.attachmentsService(),
 		NodeReconcilers: []lifecycle.NodeReconciler{c.Reconciler},
 		HireHook:        c.HireHook,
@@ -453,8 +450,6 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&DetachWorker{deps: deps},
 		&Chat{deps: deps},
 		&DM{deps: deps},
-		&AskHuman{deps: deps},
-		&SetHumanContact{deps: deps},
 		&ConfigureBotProject{deps: deps},
 		// Processors — topic transforms/filters/js. Mutations are
 		// OwnerBotTools; list/get are BaseReadTools.

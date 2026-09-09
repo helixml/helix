@@ -161,6 +161,12 @@ func (d *Dispatcher) Route(ctx context.Context, e eventsource.Event) error {
 	}
 	targets := make([]orgchart.NodeID, 0, len(rows))
 	for _, a := range rows {
+		if d.store.Nodes == nil {
+			return errors.New("route: bot repository is not configured")
+		}
+		if _, err := d.store.Nodes.Get(ctx, e.OrganizationID, a.WorkerID); err != nil {
+			continue
+		}
 		targets = append(targets, a.WorkerID)
 	}
 	d.deliver(ctx, e.OrganizationID, targets, orgchart.NodeID(e.OriginatingWorkerID), activation.Trigger{
@@ -192,14 +198,6 @@ func (d *Dispatcher) deliver(ctx context.Context, orgID string, targets []orgcha
 			continue
 		}
 		seen[id] = struct{}{}
-		node, err := d.store.Nodes.Get(ctx, orgID, id)
-		if err != nil {
-			d.logger.Warn("dispatch: get bot", "bot", id, "err", err)
-			continue
-		}
-		if node.IsHuman() {
-			continue
-		}
-		d.queue.Enqueue(orgID, node.ID, trigger)
+		d.queue.Enqueue(orgID, id, trigger)
 	}
 }

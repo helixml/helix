@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -68,7 +67,7 @@ func (p *recordingAgentPort) UpdateAgent(_ context.Context, _ string, patch orga
 	return nil
 }
 
-func TestRESTAgentResourceIsFlat(t *testing.T) {
+func TestRESTBotResourceUsesBotDetail(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
 	bot, err := orgchart.NewNode("b-agent", "stale", nil, time.Now().UTC(), "org-test")
@@ -89,28 +88,22 @@ func TestRESTAgentResourceIsFlat(t *testing.T) {
 	deps.AgentUpdater = port
 	handler := orgapi.Handler(deps)
 
-	rec := do(t, handler, http.MethodGet, "/agents/b-agent", nil)
+	rec := do(t, handler, http.MethodGet, "/bots/b-agent", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get status = %d; body=%s", rec.Code, rec.Body)
 	}
-	var got map[string]any
+	var got orgapi.BotDetailDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["name"] != "Canonical" || got["content"] != "Canonical instructions" ||
-		got["code_agent_runtime"] != "codex_cli" || got["model"] != "gpt-5" {
-		t.Fatalf("flat agent = %#v", got)
-	}
-	if _, nested := got["bot"]; nested {
-		t.Fatalf("canonical Agent response contains nested bot: %#v", got)
-	}
-	if _, nested := got["agent"]; nested {
-		t.Fatalf("canonical Agent response contains nested agent: %#v", got)
+	if got.Bot.Name != "Canonical" || got.Bot.Content != "Canonical instructions" ||
+		got.Bot.CodeAgentRuntime != types.CodeAgentRuntimeCodexCLI || got.Bot.Model != "gpt-5" {
+		t.Fatalf("bot detail = %#v", got)
 	}
 
 	runtime := types.CodeAgentRuntimeClaudeCode
 	model := "opus"
-	rec = do(t, handler, http.MethodPatch, "/agents/b-agent", orgapi.UpdateBotRequest{
+	rec = do(t, handler, http.MethodPatch, "/bots/b-agent", orgapi.UpdateBotRequest{
 		CodeAgentRuntime: &runtime,
 		Model:            &model,
 	})
@@ -123,7 +116,7 @@ func TestRESTAgentResourceIsFlat(t *testing.T) {
 	}
 }
 
-func TestRESTAgentListKeepsOtherAgentsWhenOneLinkedAppIsInvalid(t *testing.T) {
+func TestRESTBotListKeepsOtherBotsWhenOneLinkedAppIsInvalid(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
 	for _, fixture := range []struct {
@@ -142,7 +135,7 @@ func TestRESTAgentListKeepsOtherAgentsWhenOneLinkedAppIsInvalid(t *testing.T) {
 	}
 	deps.AgentReader = partialAgentReader{}
 
-	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/agents", nil)
+	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/bots", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list status = %d; body=%s", rec.Code, rec.Body)
 	}
@@ -172,7 +165,7 @@ func TestRESTAgentListReportsOperationalAgentReadFailure(t *testing.T) {
 	}
 	deps.AgentReader = failingAgentReader{}
 
-	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/agents", nil)
+	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/bots", nil)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("list status = %d, want 500; body=%s", rec.Code, rec.Body)
 	}
@@ -197,54 +190,6 @@ func injectMCPPublishing(cfg *mcptools.Config) {
 	cfg.Publishing = publishing.New(deps)
 }
 
-func TestRESTUpdateHumanIdentityAuthorization(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		authorize func(context.Context, string, string) error
-		want      int
-	}{
-		{"self", func(_ context.Context, _, humanUserID string) error {
-			if humanUserID != "usr-human" {
-				t.Fatalf("human user id = %q", humanUserID)
-			}
-			return nil
-		}, http.StatusOK},
-		{"owner", func(context.Context, string, string) error { return nil }, http.StatusOK},
-		{"other member", func(context.Context, string, string) error { return errors.New("forbidden") }, http.StatusForbidden},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			deps, st, _ := newDeps(t)
-			if _, err := deps.Nodes.Create(context.Background(), "org-test", nodes.CreateParams{
-				ID: "h-human", Kind: orgchart.NodeKindHuman, HelixUserID: "usr-human", Content: "Human",
-			}); err != nil {
-				t.Fatal(err)
-			}
-			deps.AuthorizeHumanContact = tc.authorize
-			rec := do(t, orgapi.Handler(deps), "PATCH", "/bots/h-human", orgapi.UpdateBotRequest{
-				Identity: map[string]string{"preferred_contact": "helix"},
-			})
-			if rec.Code != tc.want {
-				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.want, rec.Body)
-			}
-			updated, _ := st.Nodes.Get(context.Background(), "org-test", "h-human")
-			if tc.want == http.StatusForbidden && len(updated.Identity) != 0 {
-				t.Fatalf("forbidden update changed identity: %#v", updated.Identity)
-			}
-		})
-	}
-}
-
-func TestRESTUpdateNonHumanIdentityDoesNotRequireHumanAuthorization(t *testing.T) {
-	deps, st, _ := newDeps(t)
-	seedBot(t, st, context.Background(), "b-agent", "Agent")
-	rec := do(t, orgapi.Handler(deps), "PATCH", "/bots/b-agent", orgapi.UpdateBotRequest{
-		Identity: map[string]string{"external": "value"},
-	})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body)
-	}
-}
-
 func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
@@ -255,8 +200,7 @@ func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 	bot = bot.WithAgentID("app-agent").
 		WithName("Old name").
 		WithProjectIDs([]string{"prj-old"}).
-		WithPreserveContext(true).
-		WithIdentity(map[string]string{"old": "value"})
+		WithPreserveContext(true)
 	if err := st.Nodes.Create(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +214,6 @@ func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 		Tools:           []string{mcptools.ChatName},
 		ProjectIDs:      []string{"prj-new"},
 		PreserveContext: &preserve,
-		Identity:        map[string]string{"new": "value"},
 	})
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body)
@@ -282,7 +225,7 @@ func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 	if got.Name != bot.Name || got.Content != bot.Content || got.PreserveContext != bot.PreserveContext {
 		t.Fatalf("profile was not rolled back: %#v", got)
 	}
-	if !sameNames(got.Tools, bot.Tools) || len(got.ProjectIDs) != 1 || got.ProjectIDs[0] != "prj-old" || got.Identity["old"] != "value" {
+	if !sameNames(got.Tools, bot.Tools) || len(got.ProjectIDs) != 1 || got.ProjectIDs[0] != "prj-old" {
 		t.Fatalf("profile collections were not rolled back: %#v", got)
 	}
 }
@@ -323,6 +266,7 @@ func TestRESTUpdateLinkedAgentRequiresUpdaterBeforeMutation(t *testing.T) {
 func mcpRegistry(t *testing.T, st *store.Store, clock func() time.Time, newID func() string) *mcptools.Registry {
 	t.Helper()
 	deps := mcptools.DefaultDeps(st)
+	deps.AgentCreator = fakeAgentCreator{}
 	deps.Now = clock
 	deps.NewID = newID
 	injectMCPPublishing(&deps)

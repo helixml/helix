@@ -5,8 +5,8 @@ import { chatBotStorageKey, focusChatBot } from './chatBotFocus'
 import HelixOrgChatPanel from './HelixOrgChatPanel'
 
 const DEFAULT_BOTS = [
-  { id: 'bot-one', name: 'Agent One', kind: 'bot', agent_status: 'running' },
-  { id: 'bot-two', name: 'Agent Two', kind: 'bot', agent_status: 'running' },
+  { id: 'bot-one', name: 'Agent One', kind: 'bot', status: 'running' },
+  { id: 'bot-two', name: 'Agent Two', kind: 'bot', status: 'running' },
 ]
 
 const mocks = vi.hoisted(() => ({
@@ -87,18 +87,18 @@ describe('HelixOrgChatPanel query selection', () => {
   })
 
   it('shows the restart banner when the selected bot reports stale config', async () => {
-    renderPanel({ bot: { id: 'b-one', agent_status: 'running', restart_required: true } })
+    renderPanel({ bot: { id: 'b-one', status: 'running', restart_required: true } })
     expect(await screen.findByTestId('agent-restart-required-banner')).toBeInTheDocument()
   })
 
   it('hides the restart banner when config is current', async () => {
-    renderPanel({ bot: { id: 'b-one', agent_status: 'running', restart_required: false } })
+    renderPanel({ bot: { id: 'b-one', status: 'running', restart_required: false } })
     await screen.findByText('Message b-one…')
     expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()
   })
 
   it('keeps the restart banner visible after switching away from the chat tab', async () => {
-    renderPanel({ bot: { id: 'b-one', agent_status: 'running', restart_required: true } })
+    renderPanel({ bot: { id: 'b-one', status: 'running', restart_required: true } })
     await screen.findByTestId('agent-restart-required-banner')
 
     fireEvent.click(screen.getByRole('button', { name: 'Desktop' }))
@@ -107,7 +107,7 @@ describe('HelixOrgChatPanel query selection', () => {
   })
 
   it('does not re-arm a dismissed restart banner on a tab switch', async () => {
-    renderPanel({ bot: { id: 'b-one', agent_status: 'running', restart_required: true } })
+    renderPanel({ bot: { id: 'b-one', status: 'running', restart_required: true } })
     await screen.findByTestId('agent-restart-required-banner')
 
     fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
@@ -120,8 +120,8 @@ describe('HelixOrgChatPanel query selection', () => {
 
   it('re-arms the restart banner when switching to a different stale bot', async () => {
     mocks.bots = [
-      { id: 'b-one', name: 'Bot One', kind: 'bot', agent_status: 'running', restart_required: true },
-      { id: 'b-two', name: 'Bot Two', kind: 'bot', agent_status: 'running', restart_required: true },
+      { id: 'b-one', name: 'Bot One', kind: 'bot', status: 'running', restart_required: true },
+      { id: 'b-two', name: 'Bot Two', kind: 'bot', status: 'running', restart_required: true },
     ]
     mocks.router.params = { org_id: 'acme', bot_id: 'b-one' }
     render(<HelixOrgChatPanel />)

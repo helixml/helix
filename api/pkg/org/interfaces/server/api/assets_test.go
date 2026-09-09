@@ -18,7 +18,7 @@ func TestAssetsAPIKeyAuthCreateUpdateAndSecretRedaction(t *testing.T) {
 	h := orgapi.Handler(deps)
 
 	created := do(t, h, http.MethodPost, "/assets", orgapi.CreateAssetRequest{
-		Name: "production", Description: "Primary API", NotesForAgents: "Do not restart during deploys.",
+		Name: "production", Description: "Primary API", NotesForBots: "Do not restart during deploys.",
 		Kind: asset.KindServer,
 		Server: &orgapi.ServerAssetWriteRequest{
 			Address: "10.0.0.8", Port: 22, User: "ubuntu", AuthType: asset.AuthSSHKey,
@@ -31,21 +31,21 @@ func TestAssetsAPIKeyAuthCreateUpdateAndSecretRedaction(t *testing.T) {
 	decode(t, created, &dto)
 	require.Equal(t, "a-test-id", dto.ID)
 	require.Equal(t, "ssh-ed25519 public-key", dto.Server.PublicKey)
-	require.Equal(t, "Do not restart during deploys.", dto.NotesForAgents)
+	require.Equal(t, "Do not restart during deploys.", dto.NotesForBots)
 	require.True(t, dto.Enabled)
 
 	address := "prod.internal"
 	port := uint16(2222)
 	notes := "Run migrations before deploy."
 	updated := do(t, h, http.MethodPatch, "/assets/"+dto.ID, orgapi.UpdateAssetRequest{
-		NotesForAgents: &notes,
-		Server:         &orgapi.UpdateServerAssetRequest{Address: &address, Port: &port},
+		NotesForBots: &notes,
+		Server:       &orgapi.UpdateServerAssetRequest{Address: &address, Port: &port},
 	})
 	require.Equal(t, http.StatusOK, updated.Code, updated.Body.String())
 	decode(t, updated, &dto)
 	require.Equal(t, "prod.internal", dto.Server.Address)
 	require.Equal(t, uint16(2222), dto.Server.Port)
-	require.Equal(t, notes, dto.NotesForAgents)
+	require.Equal(t, notes, dto.NotesForBots)
 
 	enabled := false
 	disabled := do(t, h, http.MethodPatch, "/assets/"+dto.ID, orgapi.UpdateAssetRequest{Enabled: &enabled})
@@ -97,25 +97,29 @@ func TestAssetsAPILinkDerivesAgentToolsAndDeleteRevokesThem(t *testing.T) {
 	var dto orgapi.AssetDTO
 	decode(t, created, &dto)
 
-	linked := do(t, h, http.MethodPost, "/assets/"+dto.ID+"/links", orgapi.AssetLinkRequest{AgentID: "b-operator"})
+	linked := do(t, h, http.MethodPost, "/assets/"+dto.ID+"/links", orgapi.AssetLinkRequest{BotID: "b-operator"})
 	require.Equal(t, http.StatusCreated, linked.Code, linked.Body.String())
-	agent, err := st.Nodes.Get(context.Background(), "org-test", "b-operator")
+	var linkDTO orgapi.AssetLinkDTO
+	require.NoError(t, json.Unmarshal(linked.Body.Bytes(), &linkDTO))
+	require.Equal(t, "b-operator", linkDTO.BotID)
+	require.NotContains(t, linked.Body.String(), "agent_id")
+	bot, err := st.Nodes.Get(context.Background(), "org-test", "b-operator")
 	require.NoError(t, err)
 	for _, name := range assetapp.ServerTools {
-		require.Contains(t, agent.Tools, name)
+		require.Contains(t, bot.Tools, name)
 	}
 
 	got := do(t, h, http.MethodGet, "/assets/"+dto.ID, nil)
 	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
 	decode(t, got, &dto)
-	require.Equal(t, []string{"b-operator"}, dto.AgentIDs)
+	require.Equal(t, []string{"b-operator"}, dto.BotIDs)
 
 	deleted := do(t, h, http.MethodDelete, "/assets/"+dto.ID, nil)
 	require.Equal(t, http.StatusNoContent, deleted.Code, deleted.Body.String())
-	agent, err = st.Nodes.Get(context.Background(), "org-test", "b-operator")
+	bot, err = st.Nodes.Get(context.Background(), "org-test", "b-operator")
 	require.NoError(t, err)
 	for _, name := range assetapp.ServerTools {
-		require.NotContains(t, agent.Tools, name)
+		require.NotContains(t, bot.Tools, name)
 	}
 }
 

@@ -638,7 +638,7 @@ export const toSidebarBots = (bots: BotDTO[]): SidebarBot[] => (
       name: bot.name || bot.id!,
       running: bot.agent_status === 'running',
       restartRequired: !!bot.restart_required,
-      agentAppId: bot.agent_id || bot.agent_app_id || undefined,
+      agentAppId: bot.legacy_app_id || undefined,
       projectId: bot.project_id || undefined,
       sessionId: bot.session_id || undefined,
     }))

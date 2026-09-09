@@ -12,7 +12,7 @@
 2. Create a local Trigger, open its detail page, edit its name/description with
    the current revision, and confirm the bounded event history renders payloads
    as inert text. A stale revision must return `409 stale_resource`.
-3. Open a live Org Agent's **Inbound attachments** section. Attach it to the
+3. Open a live Org Bot's **Inbound attachments** section. Attach it to the
    Trigger and to two distinct outputs of one Processor. Detach and reattach;
    every Processor selection must include its stable output ID.
 4. Visit `/orgs/<org>/topics` and `/orgs/<org>/topics/<former-id>`. Both show
@@ -938,38 +938,17 @@ an app is present: `SELECT count(*) FROM service_connections WHERE type =
   produced **and** their `s-slack-ws-*` Topics across all orgs; a
   socket-mode app's live connection is torn down without a restart.
 
-## §19. Human nodes (people in the org graph)
+## §19. People in the org chart
 
-Design: `design/2026-07-07-humans-in-the-org.md`. A human node is a Bot
-with `kind=human` — a placeholder for a real person, **never
-spawned/activated**. Humans are **never free-created**: a human node is
-always the projection of an existing org member (`helix_user_id` is the
-anchor). Membership drives the nodes; there is no `create_human` tool and
-no "New human" button.
+People are org members, not Bot placeholders. The chart reads them from
+`organization_memberships` joined to `users`; `org_bots` contains executable
+Org Bots only.
 
-1. **Org create → human node + Chief of Staff (peers, no edge).** Create a
-   new org. The chart at `…/helix-org/chart` shows **two unconnected**
-   nodes: your human node (id `h-<yourUserID>`, display = your name,
-   rendered with a person icon / blue border / **Human** label) and a
-   **Chief of Staff** bot. There is **no reporting line** between them —
-   humans stay out of the reporting graph. Confirm DB:
-   `SELECT id, kind, helix_user_id FROM org_bots WHERE org_id='<org>'`
-   → an `h-<userID>` row `kind='human'` + a `chief-of-staff` row
-   `kind=''`; `SELECT * FROM org_reporting_lines WHERE org_id='<org>'`
-   → **zero rows** referencing the human node.
-2. **No tools on the human** (`SELECT tools FROM org_bots WHERE
-   id='h-<userID>'` → null/empty — a human never makes an MCP request).
-3. **Add a member → their node appears.** Add a second member (invite +
-   accept, or add-member). A `h-<theirUserID>` human node appears on the
-   chart. Remove them → the node disappears
-   (`org_bots` row gone).
-4. **Human is never activated.** Subscribe a human node to any topic and
-   publish an event to it: no agent run is spawned for the human
-   (`org_activations` has no `worker_id='h-<userID>'` row) — the
-   dispatcher skips human subscribers (`b.IsHuman()` guard).
-5. **`who owns X` (no new code).** A bot with `list_bots` reads a human
-   node's content and can name them as an owner — prompt-driven over the
-   existing read surface.
+1. Create an org and confirm its owner appears in the chart's people panel.
+2. Add a member and confirm they appear without creating an `org_bots` row.
+3. Remove the member and confirm they disappear from the people panel.
+4. Confirm `org_bots` has no `kind`, `helix_user_id`, or `identity` columns and
+   contains no `h-<userID>` placeholder rows.
 
 ## Pass criteria
 

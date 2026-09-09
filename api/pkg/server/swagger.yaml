@@ -18,123 +18,9 @@ definitions:
       parent_id:
         type: string
     type: object
-  api.AgentDetailDTO:
-    properties:
-      agent_app_id:
-        type: string
-      agent_id:
-        type: string
-      agent_model:
-        type: string
-      agent_runtime:
-        type: string
-      agent_status:
-        description: |-
-          AgentStatus is "running" when the bot's desktop sandbox is online,
-          "stopped" otherwise (no session, paused, never activated). Drives
-          the green/grey presence dot on the org chart.
-        type: string
-      code_agent_credential_type:
-        $ref: '#/definitions/types.CodeAgentCredentialType'
-      code_agent_runtime:
-        $ref: '#/definitions/types.CodeAgentRuntime'
-      content:
-        type: string
-      created_at:
-        type: string
-      default_instructions:
-        description: |-
-          DefaultInstructions is the built-in seed prompt for this node, when
-          one exists (currently only the Chief of Staff every org is seeded
-          with). It lets the UI offer "reset instructions" and hide that
-          affordance for operator-created nodes, which have no default to
-          reset to. Detail-only: GET /bots/{id} populates it, the list does
-          not (it would repeat kilobytes of prompt per row).
-        type: string
-      effective_sandbox_resource_overrides:
-        $ref: '#/definitions/types.SandboxResourceOverrides'
-      effective_sandbox_runtime:
-        $ref: '#/definitions/types.SandboxRuntime'
-      helix_user_id:
-        type: string
-      id:
-        type: string
-      identity:
-        additionalProperties:
-          type: string
-        type: object
-      kind:
-        description: |-
-          Kind is "" (agent) or "human". A human node is a person placeholder,
-          never activated; Identity holds their cross-system handles and
-          HelixUserID optionally links them to a Helix org member. Identity is
-          omitted for agent bots.
-        type: string
-      model:
-        type: string
-      name:
-        description: |-
-          Name is the human-readable display label; empty means the UI falls
-          back to ID. Distinct from ID, which is the immutable handle.
-        type: string
-      organization_id:
-        type: string
-      parent_ids:
-        items:
-          type: string
-        type: array
-      preserve_context:
-        description: |-
-          PreserveContext, when true, stops the runtime from wiping this
-          Bot's chat session before each re-activation, so it accumulates
-          context across triggers (e.g. Slack). Defaults to false.
-        type: boolean
-      project_id:
-        type: string
-      project_ids:
-        items:
-          type: string
-        type: array
-      provider:
-        type: string
-      reasoning_effort:
-        type: string
-      restart_required:
-        description: |-
-          RestartRequired is true when the sandbox is running but still holds
-          the tool list and instructions from before the last save. Drives the
-          restart banner on the bot page and the org chat panel.
-        type: boolean
-      sandbox_id:
-        type: string
-      sandbox_resource_overrides:
-        $ref: '#/definitions/types.SandboxResourceOverrides'
-      sandbox_runtime:
-        allOf:
-        - $ref: '#/definitions/types.SandboxRuntime'
-        description: |-
-          SandboxRuntime and SandboxResourceOverrides are the bot's own sandbox
-          config in the spec-task vocabulary; empty means "inherit the org
-          default". The Effective* fields are what the next container start will
-          actually use once org and global defaults are applied. SandboxID /
-          SandboxStatus come from the session-backed sandboxes row, when one
-          exists (pending, running, stopping, stopped, failed).
-      sandbox_status:
-        type: string
-      sandbox_status_message:
-        type: string
-      session_id:
-        type: string
-      tools:
-        items:
-          type: string
-        type: array
-      updated_at:
-        type: string
-    type: object
   api.AssetDTO:
     properties:
-      agent_ids:
+      bot_ids:
         items:
           type: string
         type: array
@@ -150,7 +36,7 @@ definitions:
         $ref: '#/definitions/asset.Kind'
       name:
         type: string
-      notes_for_agents:
+      notes_for_bots:
         type: string
       organization_id:
         type: string
@@ -172,14 +58,25 @@ definitions:
       tcp_reachable:
         type: boolean
     type: object
+  api.AssetLinkDTO:
+    properties:
+      asset_id:
+        type: string
+      bot_id:
+        type: string
+      created_at:
+        type: string
+      organization_id:
+        type: string
+    type: object
   api.AssetLinkRequest:
     properties:
-      agent_id:
+      bot_id:
         type: string
     type: object
   api.AssetLinksResponse:
     properties:
-      agent_ids:
+      bot_ids:
         items:
           type: string
         type: array
@@ -218,9 +115,7 @@ definitions:
     properties:
       activation_id:
         type: string
-      agent_app_id:
-        type: string
-      agent_id:
+      legacy_app_id:
         type: string
       project_id:
         type: string
@@ -234,28 +129,16 @@ definitions:
     type: object
   api.BotChatDTO:
     properties:
-      agent_app_id:
-        type: string
-      agent_id:
+      legacy_app_id:
         type: string
       project_id:
         type: string
     type: object
   api.BotDTO:
     properties:
-      agent_app_id:
-        type: string
-      agent_id:
-        type: string
       agent_model:
         type: string
       agent_runtime:
-        type: string
-      agent_status:
-        description: |-
-          AgentStatus is "running" when the bot's desktop sandbox is online,
-          "stopped" otherwise (no session, paused, never activated). Drives
-          the green/grey presence dot on the org chart.
         type: string
       code_agent_credential_type:
         $ref: '#/definitions/types.CodeAgentCredentialType'
@@ -278,20 +161,9 @@ definitions:
         $ref: '#/definitions/types.SandboxResourceOverrides'
       effective_sandbox_runtime:
         $ref: '#/definitions/types.SandboxRuntime'
-      helix_user_id:
-        type: string
       id:
         type: string
-      identity:
-        additionalProperties:
-          type: string
-        type: object
-      kind:
-        description: |-
-          Kind is "" (agent) or "human". A human node is a person placeholder,
-          never activated; Identity holds their cross-system handles and
-          HelixUserID optionally links them to a Helix org member. Identity is
-          omitted for agent bots.
+      legacy_app_id:
         type: string
       model:
         type: string
@@ -354,6 +226,12 @@ definitions:
         type: string
       session_id:
         type: string
+      status:
+        description: |-
+          Status is "running" when the bot's desktop sandbox is online,
+          "stopped" otherwise (no session, paused, never activated). Drives
+          the green/grey presence dot on the org chart.
+        type: string
       tools:
         items:
           type: string
@@ -363,13 +241,11 @@ definitions:
     type: object
   api.BotDetailDTO:
     properties:
-      agent_app_id:
-        type: string
-      agent_id:
-        description: AgentID + ProjectID — see BotChatDTO comments.
-        type: string
       bot:
         $ref: '#/definitions/api.BotDTO'
+      legacy_app_id:
+        description: LegacyAppID + ProjectID — see BotChatDTO comments.
+        type: string
       project_id:
         type: string
     type: object
@@ -401,7 +277,7 @@ definitions:
         $ref: '#/definitions/asset.Kind'
       name:
         type: string
-      notes_for_agents:
+      notes_for_bots:
         type: string
       server:
         $ref: '#/definitions/api.ServerAssetWriteRequest'
@@ -838,7 +714,7 @@ definitions:
         type: boolean
       name:
         type: string
-      notes_for_agents:
+      notes_for_bots:
         type: string
       server:
         $ref: '#/definitions/api.UpdateServerAssetRequest'
@@ -851,14 +727,6 @@ definitions:
         $ref: '#/definitions/types.CodeAgentRuntime'
       content:
         type: string
-      identity:
-        additionalProperties:
-          type: string
-        description: |-
-          Identity is the per-channel handle map for a human node (slack/github/
-          email/…). When present it replaces the stored map; absent leaves it
-          unchanged. Only meaningful for kind=human bots.
-        type: object
       model:
         type: string
       name:
@@ -955,17 +823,6 @@ definitions:
     type: string
     x-enum-varnames:
     - KindServer
-  asset.Link:
-    properties:
-      agent_id:
-        type: string
-      asset_id:
-        type: string
-      created_at:
-        type: string
-      organization_id:
-        type: string
-    type: object
   filestore.Config:
     properties:
       folders:
@@ -3669,24 +3526,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - webhook
-    - helix_events
-    - local
-    - github
-    - slack
-    - gitlab
-    - email
     - cron
+    - email
+    - webhook
+    - local
+    - gitlab
+    - slack
+    - helix_events
+    - github
     type: string
     x-enum-varnames:
-    - KindWebhook
-    - KindHelixEvents
-    - KindLocal
-    - KindGitHub
-    - KindSlack
-    - KindGitLab
-    - KindEmail
     - KindCron
+    - KindEmail
+    - KindWebhook
+    - KindLocal
+    - KindGitLab
+    - KindSlack
+    - KindHelixEvents
+    - KindGitHub
   transport.ResolvedActivation:
     properties:
       address:
@@ -11247,11 +11104,10 @@ definitions:
       created_by:
         description: Metadata
         type: string
-      created_by_org_agent:
+      created_by_org_bot:
         description: |-
-          CreatedByOrgAgent is the helix-org agent (org bot handle) that created
-          this task, when an agent rather than a person did. CreatedBy stays the
-          human the agent acts for; this records the agent so its work can be
+          CreatedByOrgBot is the Org Bot handle that created this task. CreatedBy
+          stays the person the Bot acts for; this records the Bot so its work can be
           listed under it.
         type: string
       credential_owner_id:
@@ -11919,11 +11775,10 @@ definitions:
       created_by:
         description: Metadata
         type: string
-      created_by_org_agent:
+      created_by_org_bot:
         description: |-
-          CreatedByOrgAgent is the helix-org agent (org bot handle) that created
-          this task, when an agent rather than a person did. CreatedBy stays the
-          human the agent acts for; this records the agent so its work can be
+          CreatedByOrgBot is the Org Bot handle that created this task. CreatedBy
+          stays the person the Bot acts for; this records the Bot so its work can be
           listed under it.
         type: string
       credential_owner_id:
@@ -20617,503 +20472,6 @@ paths:
       summary: List sandbox tmux sessions
       tags:
       - Sandboxes
-  /api/v1/orgs/{org}/agents:
-    get:
-      description: List the canonical Agents in an organization, including their instructions,
-        tools, runtime, model configuration, and reporting lines.
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/api.BotDTO'
-            type: array
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list agents'
-      tags:
-      - HelixOrg
-    post:
-      consumes:
-      - application/json
-      description: Create a canonical Agent with its org-chart position, trigger attachments,
-        tools, and Agent App configuration.
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent specification
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.CreateBotRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.CreateBotResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "501":
-          description: Not Implemented
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: create an agent'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}:
-    delete:
-      description: Delete an Agent after archiving its runtime-owned project and deleting
-        its Agent App, knowledge, runtime state, attachments, reporting lines, and
-        org-chart row. Repositories are preserved.
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "501":
-          description: Not Implemented
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: delete an agent'
-      tags:
-      - HelixOrg
-    get:
-      description: Get one canonical Agent with its instructions, tools, runtime,
-        model configuration, project, and reporting lines.
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.AgentDetailDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: get agent detail'
-      tags:
-      - HelixOrg
-    patch:
-      consumes:
-      - application/json
-      description: Update the canonical Agent instructions, tools, project access,
-        runtime, provider, model, or reasoning configuration.
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Agent fields to update
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.UpdateBotRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.BotDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: update an agent'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/activate:
-    post:
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "202":
-          description: Accepted
-          schema:
-            $ref: '#/definitions/api.BotActivateDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "501":
-          description: Not Implemented
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: activate an agent'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/attachments:
-    get:
-      parameters:
-      - description: Organization ID or slug
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.AttachmentListResponse'
-      summary: 'Helix-org: list agent attachments'
-      tags:
-      - HelixOrg
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Organization ID or slug
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Source
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.AttachmentWriteRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.AttachmentDTO'
-      summary: 'Helix-org: attach an agent to a source'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/attachments/{attachment_id}:
-    delete:
-      parameters:
-      - description: Organization ID or slug
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Attachment ID
-        in: path
-        name: attachment_id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-      summary: 'Helix-org: delete an agent attachment'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/available-secrets:
-    get:
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/workersecret.AvailableSource'
-            type: array
-      security:
-      - ApiKeyAuth: []
-      summary: List sources that may be granted to an Agent
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/chat:
-    post:
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.BotChatDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "501":
-          description: Not Implemented
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: provision an agent chat'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/parents:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID of the direct report
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Manager Agent ID
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.AddBotParentRequest'
-      responses:
-        "204":
-          description: No Content
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: add an agent manager'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/parents/{parent_id}:
-    delete:
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID of the direct report
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Manager Agent ID
-        in: path
-        name: parent_id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: remove an agent manager'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/restart-agent:
-    post:
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "202":
-          description: Accepted
-          schema:
-            $ref: '#/definitions/api.BotActivateDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "501":
-          description: Not Implemented
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: restart an agent session'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/secrets:
-    get:
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/api.WorkerSecretBindingDTO'
-            type: array
-      security:
-      - ApiKeyAuth: []
-      summary: List an Agent's secret bindings
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/secrets/{name}:
-    delete:
-      responses:
-        "204":
-          description: No Content
-      security:
-      - ApiKeyAuth: []
-      summary: Delete an Agent secret binding
-      tags:
-      - HelixOrg
-    put:
-      parameters:
-      - description: Binding metadata
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.PutWorkerSecretRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.WorkerSecretBindingDTO'
-      security:
-      - ApiKeyAuth: []
-      summary: Create or replace an Agent secret binding
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/agents/{id}/stop-agent:
-    post:
-      parameters:
-      - description: Organization slug or ID
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Agent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "501":
-          description: Not Implemented
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: stop an agent desktop'
-      tags:
-      - HelixOrg
   /api/v1/orgs/{org}/assets:
     get:
       produces:
@@ -21227,7 +20585,7 @@ paths:
       consumes:
       - application/json
       parameters:
-      - description: Agent link
+      - description: Bot link
         in: body
         name: payload
         required: true
@@ -21239,20 +20597,20 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/asset.Link'
+            $ref: '#/definitions/api.AssetLinkDTO'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: link an asset to an agent'
+      summary: 'Helix-org: link an asset to a bot'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/assets/{id}/links/{agent_id}:
+  /api/v1/orgs/{org}/assets/{id}/links/{bot_id}:
     delete:
       responses:
         "204":
           description: No Content
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: unlink an asset from an agent'
+      summary: 'Helix-org: unlink an asset from a bot'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/bots:
@@ -21423,6 +20781,97 @@ paths:
       summary: 'Helix-org: manually trigger a bot activation'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/attachments:
+    get:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AttachmentListResponse'
+      summary: 'Helix-org: list bot attachments'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Source
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.AttachmentWriteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.AttachmentDTO'
+      summary: 'Helix-org: attach a bot to a source'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/attachments/{attachment_id}:
+    delete:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Attachment ID
+        in: path
+        name: attachment_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: 'Helix-org: delete a bot attachment'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/available-secrets:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/workersecret.AvailableSource'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: List sources that may be granted to a Bot
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/chat:
     post:
       parameters:
@@ -21514,7 +20963,7 @@ paths:
       summary: 'Helix-org: remove a bot reporting line (manager)'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/bots/{id}/restart-agent:
+  /api/v1/orgs/{org}/bots/{id}/restart:
     post:
       parameters:
       - description: Bot ID
@@ -21541,10 +20990,52 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: restart a bot''s agent session (fresh session + desktop)'
+      summary: 'Helix-org: restart a bot (fresh session + desktop)'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/bots/{id}/stop-agent:
+  /api/v1/orgs/{org}/bots/{id}/secrets:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.WorkerSecretBindingDTO'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: List a Bot's secret bindings
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/secrets/{name}:
+    delete:
+      responses:
+        "204":
+          description: No Content
+      security:
+      - ApiKeyAuth: []
+      summary: Delete a Bot secret binding
+      tags:
+      - HelixOrg
+    put:
+      parameters:
+      - description: Binding metadata
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.PutWorkerSecretRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WorkerSecretBindingDTO'
+      security:
+      - ApiKeyAuth: []
+      summary: Create or replace a Bot secret binding
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/stop:
     post:
       parameters:
       - description: Bot ID
@@ -21565,7 +21056,7 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: stop a bot''s agent desktop'
+      summary: 'Helix-org: stop a bot''s desktop'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/chart/positions:
@@ -26785,9 +26276,9 @@ paths:
         in: query
         name: participant_ids
         type: string
-      - description: Only tasks created by this helix-org agent (bot handle)
+      - description: Only tasks created by this Org Bot handle
         in: query
-        name: created_by_org_agent
+        name: created_by_org_bot
         type: string
       - default: false
         description: Include archived tasks

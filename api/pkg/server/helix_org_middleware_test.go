@@ -358,7 +358,7 @@ func TestHelixOrgAssetsAPIIntegrationRBAC(t *testing.T) {
 	ownerStore := &helixOrgRouteTestStore{role: types.OrganizationRoleOwner}
 	ownerHandler := newAssetRBACIntegrationHandler(t, ownerStore)
 	response = assetRBACRequest(t, ownerHandler, &owner, http.MethodPost, "/api/v1/orgs/acme/assets", orgapi.CreateAssetRequest{
-		Name: "production", NotesForAgents: "Deploy only after draining traffic.", Kind: asset.KindServer,
+		Name: "production", NotesForBots: "Deploy only after draining traffic.", Kind: asset.KindServer,
 		Server: &orgapi.ServerAssetWriteRequest{Address: "10.0.0.8", User: "ubuntu", AuthType: asset.AuthSSHKey},
 	})
 	if response.Code != http.StatusCreated {
@@ -469,7 +469,7 @@ func TestEnsureBootstrapProvisionsServiceKeyBeforeGraphSeed(t *testing.T) {
 	configs.Register(configregistry.Spec{Key: "helix.api_key", Type: configregistry.TypeString})
 	scope := newHelixOrgScope(configs, orgStore, &bootstrapHelixStore{}, nil, nil, nil)
 	seeded := false
-	scope.humanReconcile = func(ctx context.Context, orgID string) error {
+	scope.botBootstrap = func(ctx context.Context, orgID string) error {
 		key, err := configs.GetString(ctx, orgID, "helix.api_key")
 		if err != nil {
 			return err
@@ -503,7 +503,7 @@ func TestEnsureBootstrapRetriesAfterServiceKeyFailure(t *testing.T) {
 	}
 }
 
-func TestRepairNeverActivatedBotsSkipsHumansAndActivatedBots(t *testing.T) {
+func TestRepairNeverActivatedBotsSkipsActivatedBots(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	st := orgmemory.New()
@@ -511,10 +511,9 @@ func TestRepairNeverActivatedBotsSkipsHumansAndActivatedBots(t *testing.T) {
 	configs.Register(configregistry.Spec{Key: configregistry.DefaultAgentConfigKey, Type: configregistry.TypeObject})
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 	for _, b := range []orgchart.Node{
-		mustBot(t, "bot-legacy-a", "", now).WithAgentID("app-legacy-a"),
-		mustBot(t, "bot-legacy-b", "", now),
-		mustBot(t, "bot-created", "", now),
-		mustBot(t, "human-owner", orgchart.NodeKindHuman, now),
+		mustBot(t, "bot-legacy-a", now).WithAgentID("app-legacy-a"),
+		mustBot(t, "bot-legacy-b", now),
+		mustBot(t, "bot-created", now),
 	} {
 		if err := st.Nodes.Create(ctx, b); err != nil {
 			t.Fatal(err)
@@ -586,13 +585,13 @@ func TestRepairNeverActivatedBotsSkipsHumansAndActivatedBots(t *testing.T) {
 	}
 }
 
-func mustBot(t *testing.T, id string, kind orgchart.NodeKind, now time.Time) orgchart.Node {
+func mustBot(t *testing.T, id string, now time.Time) orgchart.Node {
 	t.Helper()
 	b, err := orgchart.NewNode(orgchart.NodeID(id), "test bot", nil, now, "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return b.WithKind(kind)
+	return b
 }
 
 // contextCapturingProjectService is a minimal ProjectService stub that

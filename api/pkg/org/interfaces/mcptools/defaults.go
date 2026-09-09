@@ -19,10 +19,8 @@ import (
 // Order matters: it is preserved when appending to a Bot's tool list, so
 // the reconciled output is deterministic.
 //
-// The baseline also includes two safe actions: get_secret obtains an
-// org-scoped external-provider credential, and ask_human contacts a human
-// node through their configured route. Neither mutates the org graph. Without
-// get_secret,
+// The baseline also includes get_secret, which obtains an org-scoped
+// external-provider credential. Without get_secret,
 // a Bot has nothing to authenticate gh/git/auth-curl with — there is no
 // boot-time env-var fallback. Every Bot needs this, so it sits in the
 // baseline.
@@ -37,7 +35,6 @@ var BaseReadTools = []tool.Name{
 	ReadEventsName,
 	BotLogName,
 	GetSecretName,
-	AskHumanName,
 	// Every bot can discover metadata for credentials explicitly granted to it.
 	// Values remain behind the separately audited get_secret call.
 	ListSecretsName,
@@ -85,7 +82,6 @@ func OwnerBotTools() []tool.Name {
 		DetachWorkerName,
 		ChatName,
 		DMName,
-		SetHumanContactName,
 		// Processors: define transforms/filters/js and rewire them.
 		CreateProcessorName,
 		UpdateProcessorName,
@@ -170,7 +166,7 @@ var SpecTaskBlockedTools = []tool.Name{
 	StartBotName, StopBotName, RestartBotName,
 	AttachWorkerName, DetachWorkerName, CreateTriggerName,
 	CreateProcessorName, UpdateProcessorName, DeleteProcessorName,
-	SetHumanContactName, ConfigureBotProjectName,
+	ConfigureBotProjectName,
 	AttachRepositoryName, DetachRepositoryName,
 	CreateServerAssetName, UpdateServerAssetName, DeleteAssetName,
 	LinkAssetName, UnlinkAssetName,

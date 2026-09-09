@@ -347,6 +347,13 @@ These rules keep our list pages visually consistent. When in doubt, mirror `Sand
 - **RBAC**: `authorizeUserToResource()` — unified AccessGrants
 - **Enterprise**: Support internal DNS, proxies, air-gapped, private CAs
 
+## Glossary
+
+- **Org Bot**: an executable participant in an organization's graph. Org Bots are stored in `org_bots`, exposed at `/api/v1/orgs/{org}/bots`, and shown at `/orgs/:org_id/bots`. Use “bot” as shorthand only when the org context is already clear.
+- **Person / org member**: a human who belongs to an organization. People are backed by `users` and `organization_memberships`; they are never rows in `org_bots` and never run as Bots. Org-chart people views must read memberships, not synthesize Bot placeholders.
+- **Helix App**: a reusable agent configuration exposed by the general `/api/v1/agents` API. An Org Bot may still reference a legacy Helix App during migration, but “Agent” is not a synonym for Org Bot.
+- **Coding agent / harness**: the runtime used inside a Bot's sandbox (for example Claude Code, Codex, or Qwen Code). Names such as `AgentRuntime` refer to that execution layer, not to the Org Bot domain model.
+
 ## helix-org design philosophy
 
 Anything under `api/pkg/org/` is the org-graph runtime (Workers, Positions, Roles, Streams). Behaviour lives in the prompt/profile, not in Go code. The code is scaffolding.

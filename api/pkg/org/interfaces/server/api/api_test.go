@@ -40,6 +40,12 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
+type fakeAgentCreator struct{}
+
+func (fakeAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
+	return lifecycle.CreatedAgent{LegacyAppID: "app-test"}, nil
+}
+
 // newDeps builds a fresh store + config registry + hub for one test,
 // with all application services constructed over them (the Phase-D
 // shape: the REST adapter holds services, not the store). The registry
@@ -96,7 +102,7 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		// the topology reconcile. Helix/Mirror stay nil — the REST tests
 		// don't exercise the Helix-side teardown.
 		Lifecycle: &lifecycle.Service{
-			Store: st, Nodes: botsSvc, NodeReconcilers: []lifecycle.NodeReconciler{topo},
+			Store: st, Nodes: botsSvc, Agents: fakeAgentCreator{}, NodeReconcilers: []lifecycle.NodeReconciler{topo},
 			Now: clock, NewID: newID,
 		},
 		Attachments: attachments.New(attachments.Deps{Store: st, Now: clock, NewID: newID}),

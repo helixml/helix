@@ -49,8 +49,7 @@ const HelixOrgBots: FC = () => {
   const { data, isLoading } = useListHelixOrgBots()
   const deleteBot = useDeleteBot()
 
-  // People (kind=human) live in the chart's People panel, not the Bots list.
-  const bots = (data ?? []).filter((b) => b.kind !== 'human')
+  const bots = data ?? []
   const [deleting, setDeleting] = useState<BotDTO | undefined>()
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [currentBot, setCurrentBot] = useState<BotDTO | null>(null)
@@ -75,11 +74,11 @@ const HelixOrgBots: FC = () => {
     if (!deleting) return
     try {
       await deleteBot.mutateAsync(deleting.id ?? '')
-      snackbar.success(`deleted agent ${deleting.id}`)
+      snackbar.success(`Deleted org bot ${deleting.id}`)
     } catch (e: any) {
       const status = e?.response?.status
       if (status === 409) {
-        snackbar.error('owner agent is protected and cannot be deleted')
+        snackbar.error('The owner org bot is protected and cannot be deleted')
       } else {
         snackbar.error(e?.response?.data?.error ?? e?.message ?? 'delete failed')
       }
@@ -152,14 +151,14 @@ const HelixOrgBots: FC = () => {
   }
 
   return (
-    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle="Agents">
+    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle="Org Bots">
       <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
             <Box sx={{ flex: 1 }}>
               <Typography variant="body2" color="text.secondary">
-                Agents in this org. Click an agent to edit instructions,
+                Bots in this org. Click an org bot to edit instructions,
                 tools and subscriptions.
               </Typography>
             </Box>
@@ -170,7 +169,7 @@ const HelixOrgBots: FC = () => {
               onClick={() => setNewBotOpen(true)}
               sx={{ flexShrink: 0, mt: 0.5 }}
             >
-              New agent
+              New Org Bot
             </Button>
           </Stack>
 
@@ -179,7 +178,7 @@ const HelixOrgBots: FC = () => {
           ) : bots.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8 }}>
               <Typography variant="body1" color="text.secondary" gutterBottom>
-                No agents defined yet.
+                No org bots defined yet.
               </Typography>
               <Button
                 variant="contained"
@@ -188,14 +187,14 @@ const HelixOrgBots: FC = () => {
                 onClick={() => setNewBotOpen(true)}
                 sx={{ mt: 1 }}
               >
-                New agent
+                New Org Bot
               </Button>
             </Box>
           ) : (
             <SimpleTable
               authenticated={true}
               fields={[
-                { name: 'name', title: 'Agent' },
+                { name: 'name', title: 'Org Bot' },
                 { name: 'contentPreview', title: 'Instructions' },
                 { name: 'tools', title: 'Tools' },
                 { name: 'reportsTo', title: 'Reports to' },
@@ -233,14 +232,14 @@ const HelixOrgBots: FC = () => {
 
       {deleting && (
         <DeleteConfirmWindow
-          title="agent"
+          title="org bot"
           submitTitle="Delete"
           onSubmit={handleDelete}
           onCancel={() => setDeleting(undefined)}
         >
           <Typography variant="body1">
-            Deleting agent <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> tears down its
-            Helix project, deletes its canonical Agent configuration and knowledge sources,
+            Deleting org bot <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> tears down its
+            Helix project, deletes its runtime configuration and knowledge sources,
             drops its subscriptions, and removes it as a manager from its direct reports.
             This is irreversible.
           </Typography>

@@ -119,7 +119,7 @@ func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instru
 	}
 	executionConfig, err := external_agent.MaterializeCodeAgentConfig(app, nil)
 	if err != nil {
-		return lifecycle.CreatedAgent{}, fmt.Errorf("materialize org agent execution config: %w", err)
+		return lifecycle.CreatedAgent{}, fmt.Errorf("materialize Org Bot execution config: %w", err)
 	}
 	return lifecycle.CreatedAgent{LegacyAppID: app.ID, CodeAgentConfig: executionConfig}, nil
 }
@@ -161,9 +161,9 @@ func (c *inProcHelixClient) ApplyAgentDefaults(ctx context.Context, appID string
 	}
 	if err := c.server.syncOrgAgentProjectCodeAgentConfig(ctx, updated); err != nil {
 		if _, rollbackErr := c.server.Store.UpdateApp(context.WithoutCancel(ctx), &previous); rollbackErr != nil {
-			return fmt.Errorf("sync org agent execution config: %v; restore legacy app: %w", err, rollbackErr)
+			return fmt.Errorf("sync Org Bot execution config: %v; restore legacy App: %w", err, rollbackErr)
 		}
-		return fmt.Errorf("sync org agent execution config: %w", err)
+		return fmt.Errorf("sync Org Bot execution config: %w", err)
 	}
 	return nil
 }
@@ -428,7 +428,7 @@ func (c *inProcHelixClient) markAgentAppAsOrgKind(ctx context.Context, appID str
 	}
 	app.AgentKind = types.AgentKindOrg
 	if _, err := c.server.Store.UpdateApp(ctx, app); err != nil {
-		return fmt.Errorf("classify agent app %s as org agent: %w", appID, err)
+		return fmt.Errorf("classify legacy App %s as Org Bot backing App: %w", appID, err)
 	}
 	return nil
 }

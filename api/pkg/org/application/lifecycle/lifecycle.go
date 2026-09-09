@@ -220,6 +220,9 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 	if s.Nodes == nil {
 		return CreateResult{}, errors.New("lifecycle: nodes service not wired")
 	}
+	if s.Agents == nil {
+		return CreateResult{}, errors.New("lifecycle: legacy App creator not wired")
+	}
 
 	var parent *orgchart.NodeID
 	if p.ParentID != "" {
@@ -249,15 +252,11 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		agentName = strings.TrimSpace(p.ID)
 	}
 	if agentName == "" {
-		agentName = "Agent"
+		agentName = "Org Bot"
 	}
-	var createdAgent CreatedAgent
-	var err error
-	if s.Agents != nil {
-		createdAgent, err = s.Agents.CreateAgent(ctx, orgID, agentName, p.Content, p.AgentConfig)
-		if err != nil {
-			return CreateResult{}, fmt.Errorf("create agent app: %w", err)
-		}
+	createdAgent, err := s.Agents.CreateAgent(ctx, orgID, agentName, p.Content, p.AgentConfig)
+	if err != nil {
+		return CreateResult{}, fmt.Errorf("create legacy App: %w", err)
 	}
 	node, err := s.Nodes.Create(ctx, orgID, nodes.CreateParams{
 		ID:              p.ID,
@@ -390,9 +389,6 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 		return err
 	}
 	for _, node := range all {
-		if node.IsHuman() {
-			continue
-		}
 		if node.AgentID != "" {
 			if node.CodeAgentConfig == nil && s.AgentConfigs != nil {
 				config, err := s.AgentConfigs.ReadAgentExecutionConfig(ctx, node.AgentID)

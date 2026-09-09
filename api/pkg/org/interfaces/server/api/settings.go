@@ -132,9 +132,6 @@ func (a *apiHandler) activateDeferredBotsAfterRuntimeChange(ctx context.Context,
 		return
 	}
 	for _, b := range bs {
-		if b.IsHuman() {
-			continue
-		}
 		provisioned := true
 		if a.deps.BotRuntime != nil {
 			info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID)

@@ -49,7 +49,8 @@ import Waitlist from './pages/Waitlist'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import HelixOrgChart from './pages/HelixOrgChart'
-import HelixOrgHumanDetail from './pages/HelixOrgHumanDetail'
+import HelixOrgBots from './pages/HelixOrgBots'
+import HelixOrgBotDetail from './pages/HelixOrgBotDetail'
 import HelixOrgTriggers from './pages/HelixOrgTriggers'
 import HelixOrgAssets from './pages/HelixOrgAssets'
 import HelixOrgTriggerDetail from './pages/HelixOrgTriggerDetail'
@@ -57,7 +58,6 @@ import HelixOrgTopicsRetired from './pages/HelixOrgTopicsRetired'
 import HelixOrgProcessorDetail from './pages/HelixOrgProcessorDetail'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
-import { useHelixOrgBot } from './services/helixOrgService'
 import { orgLandingRoute } from './utils/organizations'
 import { getSelectedOrg } from './utils/localStorage'
 
@@ -72,22 +72,6 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
   path: '/notfound',
   meta: {},
   render: () => <NotFound />,
-}
-
-const HelixOrgAgentRedirect = () => {
-  const { navigateReplace, params } = useRouter()
-  const { data } = useHelixOrgBot(params.bot_id)
-
-  React.useEffect(() => {
-    const agentID = data?.agent_id ?? data?.agent_app_id
-    if (data?.bot?.kind === 'human') {
-      navigateReplace('helix_org_human_detail', { org_id: params.org_id, bot_id: params.bot_id })
-    } else if (agentID) {
-      navigateReplace('org_agent', { org_id: params.org_id, app_id: agentID })
-    }
-  }, [data?.agent_id, data?.agent_app_id, data?.bot?.kind, params.org_id, params.bot_id])
-
-  return null
 }
 
 const RouteRedirect = ({ route, mapParams }: { route: string; mapParams?: (params: Record<string, any>) => Record<string, any> }) => {
@@ -649,34 +633,34 @@ const routes: IApplicationRoute[] = [
   render: () => <RouteRedirect route="helix_org_chart" />,
 }, {
   name: 'helix_org_bots',
-  path: '/orgs/:org_id/helix-org/agents',
-  meta: { drawer: false },
-  render: () => <RouteRedirect route="org_agents" />,
+  path: '/orgs/:org_id/bots',
+  meta: { drawer: false, title: 'Org Bots' },
+  render: () => <HelixOrgBots />,
 }, {
   name: 'helix_org_bot_detail',
-  path: '/orgs/:org_id/helix-org/agents/:bot_id',
-  meta: { drawer: false },
-  render: () => <HelixOrgAgentRedirect />,
+  path: '/orgs/:org_id/bots/:bot_id',
+  meta: { drawer: false, title: 'Org Bot' },
+  render: () => <HelixOrgBotDetail />,
 }, {
   name: 'helix_org_bots_legacy',
   path: '/orgs/:org_id/helix-org/bots',
-  meta: { drawer: false, title: 'Helix Org - Agents' },
+  meta: { drawer: false },
   render: () => <RouteRedirect route="helix_org_bots" />,
 }, {
   name: 'helix_org_bot_detail_legacy',
   path: '/orgs/:org_id/helix-org/bots/:bot_id',
-  meta: { drawer: false, title: 'Helix Org - Agent' },
+  meta: { drawer: false },
   render: () => <RouteRedirect route="helix_org_bot_detail" />,
 }, {
-  name: 'helix_org_human_detail',
-  path: '/orgs/:org_id/people/:bot_id',
-  meta: { drawer: false, title: 'Person' },
-  render: () => <HelixOrgHumanDetail />,
-}, {
-  name: 'helix_org_human_detail_legacy',
-  path: '/orgs/:org_id/helix-org/humans/:bot_id',
+  name: 'helix_org_agents_legacy',
+  path: '/orgs/:org_id/helix-org/agents',
   meta: { drawer: false },
-  render: () => <RouteRedirect route="helix_org_human_detail" />,
+  render: () => <RouteRedirect route="helix_org_bots" />,
+}, {
+  name: 'helix_org_agent_detail_legacy',
+  path: '/orgs/:org_id/helix-org/agents/:bot_id',
+  meta: { drawer: false },
+  render: () => <RouteRedirect route="helix_org_bot_detail" />,
 }, {
   name: 'helix_org_settings',
   path: '/orgs/:org_id/helix-org/settings',

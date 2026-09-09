@@ -657,7 +657,7 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 		if filters != nil && filters.PlanningSessionID != "" && t.PlanningSessionID != filters.PlanningSessionID {
 			continue
 		}
-		if filters != nil && filters.CreatedByOrgAgent != "" && t.CreatedByOrgAgent != filters.CreatedByOrgAgent {
+		if filters != nil && filters.CreatedByOrgBot != "" && t.CreatedByOrgBot != filters.CreatedByOrgBot {
 			continue
 		}
 		if filters != nil && filters.FilterProjectIDs && !containsString(filters.ProjectIDs, t.ProjectID) {

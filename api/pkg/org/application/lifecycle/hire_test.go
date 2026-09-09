@@ -191,6 +191,21 @@ func TestCreate_RollsBackBotWhenReconcileFails(t *testing.T) {
 	}
 }
 
+func TestCreateRequiresLegacyAppCreator(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newHireService(st)
+	svc.Agents = nil
+
+	_, err := svc.Create(context.Background(), "org-test", lifecycle.CreateParams{ID: "w-new", Content: "x"})
+	if err == nil || err.Error() != "lifecycle: legacy App creator not wired" {
+		t.Fatalf("Create error = %v", err)
+	}
+	if _, getErr := st.Nodes.Get(context.Background(), "org-test", "w-new"); !errors.Is(getErr, store.ErrNotFound) {
+		t.Fatalf("unwired create persisted a Bot: %v", getErr)
+	}
+}
+
 type recordingDispatcher struct{ hires int }
 
 func (r *recordingDispatcher) DispatchHire(context.Context, string, orgchart.NodeID, activation.ID) {

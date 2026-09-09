@@ -348,7 +348,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 					return "", "", "", fmt.Errorf("enable org member access to project %s for %s: %w", state.ProjectID, workerID, err)
 				}
 			}
-			// Runtime/model configuration is owned by the org agent after
+			// Runtime/model configuration is owned by the Org Bot after
 			// initial provisioning. Do not re-apply the provisioning spec here:
 			// doing so would overwrite per-agent edits with worker.* defaults on
 			// every bot start.
@@ -448,14 +448,14 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 }
 
 // syncProjectCodeAgentConfig keeps a Worker project's task defaults equal to
-// the org agent's own coding configuration. Legacy rows without a materialized
+// the Org Bot's own coding configuration. Legacy rows without a materialized
 // config temporarily fall back to their linked App during cutover.
 //
 // project.CodeAgentConfig is what a spec task inherits when it is created
 // without an explicit one, so it decides which harness the Bot's own work runs
 // on. It was previously written once at provisioning time from the applier's
 // worker.* defaults and never refreshed, so changing a Bot's harness in the
-// agent settings left its project — and therefore every task it filed — on the
+// Bot settings left its project — and therefore every task it filed — on the
 // harness it was provisioned with. A Bot running opencode would keep creating
 // deepseek_harness tasks.
 //

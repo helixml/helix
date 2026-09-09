@@ -1247,14 +1247,14 @@ func (s *HelixAPIServer) syncOrgAgentProjectCodeAgentConfig(ctx context.Context,
 	if s.helixOrg != nil && s.helixOrg.store != nil && s.helixOrg.store.Nodes != nil {
 		nodes, err := s.helixOrg.store.Nodes.List(ctx, app.OrganizationID)
 		if err != nil {
-			return fmt.Errorf("list linked org agents: %w", err)
+			return fmt.Errorf("list linked Org Bots: %w", err)
 		}
 		for i := range nodes {
 			if nodes[i].AgentID != app.ID {
 				continue
 			}
 			if linkedNode != nil {
-				return fmt.Errorf("legacy app %s is linked to more than one org agent", app.ID)
+				return fmt.Errorf("legacy App %s is linked to more than one Org Bot", app.ID)
 			}
 			linkedNode = &nodes[i]
 		}
@@ -1269,7 +1269,7 @@ func (s *HelixAPIServer) syncOrgAgentProjectCodeAgentConfig(ctx context.Context,
 			continue
 		}
 		if linked != nil {
-			return fmt.Errorf("org agent %s is linked to more than one project", app.ID)
+			return fmt.Errorf("Org Bot %s is linked to more than one project", app.ID)
 		}
 		linked = project
 	}
@@ -1278,7 +1278,7 @@ func (s *HelixAPIServer) syncOrgAgentProjectCodeAgentConfig(ctx context.Context,
 	}
 	desired, err := external_agent.MaterializeCodeAgentConfig(app, nil)
 	if err != nil {
-		return fmt.Errorf("materialize org agent execution config: %w", err)
+		return fmt.Errorf("materialize Org Bot execution config: %w", err)
 	}
 	var previousProjectConfig *types.CodeAgentExecutionConfig
 	if linked != nil {
@@ -1305,10 +1305,10 @@ func (s *HelixAPIServer) syncOrgAgentProjectCodeAgentConfig(ctx context.Context,
 			if linked != nil {
 				linked.CodeAgentConfig = previousProjectConfig
 				if rollbackErr := s.Store.UpdateProject(context.WithoutCancel(ctx), linked); rollbackErr != nil {
-					return fmt.Errorf("sync org agent %s: %v; restore linked project %s: %w", linkedNode.ID, err, linked.ID, rollbackErr)
+					return fmt.Errorf("sync Org Bot %s: %v; restore linked project %s: %w", linkedNode.ID, err, linked.ID, rollbackErr)
 				}
 			}
-			return fmt.Errorf("sync org agent %s: %w", linkedNode.ID, err)
+			return fmt.Errorf("sync Org Bot %s: %w", linkedNode.ID, err)
 		}
 	}
 	return nil

@@ -20,7 +20,7 @@ export const TRIGGER_QUERY_KEYS = {
   all: (orgID: string) => ['helix-org', orgID, 'triggers'] as const,
   one: (orgID: string, id: string) => ['helix-org', orgID, 'triggers', id] as const,
   events: (orgID: string, id: string) => ['helix-org', orgID, 'triggers', id, 'events'] as const,
-  attachments: (orgID: string, workerID: string) => ['helix-org', orgID, 'agents', workerID, 'attachments'] as const,
+  attachments: (orgID: string, botID: string) => ['helix-org', orgID, 'bots', botID, 'attachments'] as const,
   webhookStatus: (orgID: string, id: string) => ['helix-org', orgID, 'triggers', id, 'webhook-status'] as const,
 }
 
@@ -193,24 +193,24 @@ export function useDeleteTrigger() {
   })
 }
 
-export function useAgentAttachments(workerID?: string) {
+export function useBotAttachments(botID?: string) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, workerID ?? ''),
-    queryFn: async () => (await api.getApiClient().v1OrgsAgentsAttachmentsDetail(orgID, workerID!)).data.attachments ?? [],
-    enabled: !!orgID && !!workerID,
+    queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, botID ?? ''),
+    queryFn: async () => (await api.getApiClient().v1OrgsBotsAttachmentsDetail(orgID, botID!)).data.attachments ?? [],
+    enabled: !!orgID && !!botID,
   })
 }
 
-export function useAgentAttachmentsForWorkers(workerIDs: string[]) {
+export function useBotAttachmentsForBots(botIDs: string[]) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   const results = useQueries({
-    queries: workerIDs.map((workerID) => ({
-      queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, workerID),
-      queryFn: async () => (await api.getApiClient().v1OrgsAgentsAttachmentsDetail(orgID, workerID)).data.attachments ?? [],
-      enabled: !!orgID && !!workerID,
+    queries: botIDs.map((botID) => ({
+      queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, botID),
+      queryFn: async () => (await api.getApiClient().v1OrgsBotsAttachmentsDetail(orgID, botID)).data.attachments ?? [],
+      enabled: !!orgID && !!botID,
     })),
   })
   return {
@@ -219,44 +219,44 @@ export function useAgentAttachmentsForWorkers(workerIDs: string[]) {
   }
 }
 
-export function useCreateAgentAttachmentForChart() {
+export function useCreateBotAttachmentForChart() {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async ({ workerID, source }: { workerID: string; source: ApiAttachmentWriteRequest['source'] }) =>
-      (await api.getApiClient().v1OrgsAgentsAttachmentsCreate(orgID, workerID, { source })).data,
-    onSuccess: async (_data, { workerID }) => qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, workerID) }),
+    mutationFn: async ({ botID, source }: { botID: string; source: ApiAttachmentWriteRequest['source'] }) =>
+      (await api.getApiClient().v1OrgsBotsAttachmentsCreate(orgID, botID, { source })).data,
+    onSuccess: async (_data, { botID }) => qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, botID) }),
   })
 }
 
-export function useDeleteAgentAttachmentForChart() {
+export function useDeleteBotAttachmentForChart() {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async ({ workerID, attachmentID }: { workerID: string; attachmentID: string }) =>
-      api.getApiClient().v1OrgsAgentsAttachmentsDelete(orgID, workerID, attachmentID),
-    onSuccess: async (_data, { workerID }) => qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, workerID) }),
+    mutationFn: async ({ botID, attachmentID }: { botID: string; attachmentID: string }) =>
+      api.getApiClient().v1OrgsBotsAttachmentsDelete(orgID, botID, attachmentID),
+    onSuccess: async (_data, { botID }) => qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, botID) }),
   })
 }
 
-export function useCreateAgentAttachment(workerID?: string) {
+export function useCreateBotAttachment(botID?: string) {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (payload: ApiAttachmentWriteRequest) => (await api.getApiClient().v1OrgsAgentsAttachmentsCreate(orgID, workerID!, payload)).data,
-    onSuccess: async () => qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, workerID ?? '') }),
+    mutationFn: async (payload: ApiAttachmentWriteRequest) => (await api.getApiClient().v1OrgsBotsAttachmentsCreate(orgID, botID!, payload)).data,
+    onSuccess: async () => qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, botID ?? '') }),
   })
 }
 
-export function useDeleteAgentAttachment(workerID?: string) {
+export function useDeleteBotAttachment(botID?: string) {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (attachmentID: string) => api.getApiClient().v1OrgsAgentsAttachmentsDelete(orgID, workerID!, attachmentID),
-    onSuccess: async () => qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, workerID ?? '') }),
+    mutationFn: async (attachmentID: string) => api.getApiClient().v1OrgsBotsAttachmentsDelete(orgID, botID!, attachmentID),
+    onSuccess: async () => qc.invalidateQueries({ queryKey: TRIGGER_QUERY_KEYS.attachments(orgID, botID ?? '') }),
   })
 }

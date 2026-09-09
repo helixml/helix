@@ -2,7 +2,7 @@
 // (route `org_agent`, `<App />`). This is a heavy page component with many
 // data hooks; every one is mocked below so the test exercises only the
 // wiring this change touches: resolving the Bot backing this App via
-// `useListHelixOrgBots().agent_id`, and driving
+// `useListHelixOrgBots().legacy_app_id`, and driving
 // `AgentRestartRequiredBanner.visible` off `bot.restart_required`.
 
 import { render, screen } from '@testing-library/react'
@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
     navigate: vi.fn(),
     mergeParams: vi.fn(),
   },
-  bots: [] as Array<{ id: string; agent_id: string; restart_required?: boolean }>,
+  bots: [] as Array<{ id: string; legacy_app_id: string; restart_required?: boolean }>,
   restartMutateAsync: vi.fn(),
   restartIsPending: false,
 }))
@@ -86,20 +86,20 @@ describe('App agent settings page restart banner', () => {
   })
 
   it('shows the restart banner when the matched bot reports stale config', async () => {
-    mocks.bots = [{ id: 'bot-one', agent_id: 'app-target', restart_required: true }]
+    mocks.bots = [{ id: 'bot-one', legacy_app_id: 'app-target', restart_required: true }]
     render(<App />)
     expect(await screen.findByTestId('agent-restart-required-banner')).toBeInTheDocument()
   })
 
   it('does not show the restart banner when the matched bot is current', async () => {
-    mocks.bots = [{ id: 'bot-one', agent_id: 'app-target', restart_required: false }]
+    mocks.bots = [{ id: 'bot-one', legacy_app_id: 'app-target', restart_required: false }]
     render(<App />)
     await screen.findByText('Focused agent details')
     expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()
   })
 
   it('does not show the restart banner when no bot matches this app', async () => {
-    mocks.bots = [{ id: 'bot-other', agent_id: 'app-other', restart_required: true }]
+    mocks.bots = [{ id: 'bot-other', legacy_app_id: 'app-other', restart_required: true }]
     render(<App />)
     await screen.findByText('Focused agent details')
     expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()

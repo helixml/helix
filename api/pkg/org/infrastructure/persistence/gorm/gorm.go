@@ -100,6 +100,9 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if err := db.AutoMigrate(orgRowTypes...); err != nil {
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
+	if err := removeLegacyHumanBots(db); err != nil {
+		return nil, fmt.Errorf("remove legacy human bots: %w", err)
+	}
 	if err := migrateProcessorOutputIDs(db); err != nil {
 		return nil, fmt.Errorf("migrate processor output ids: %w", err)
 	}
@@ -338,7 +341,7 @@ func installAgentAppLinks(db *gorm.DB) error {
 		WHERE bot.agent_app_id = app.id
 		  AND bot.agent_app_id IS NOT NULL
 	`, types.AgentKindOrg).Error; err != nil {
-		return fmt.Errorf("backfill org agent kinds: %w", err)
+		return fmt.Errorf("backfill Org Bot App kinds: %w", err)
 	}
 	return nil
 }
@@ -361,8 +364,7 @@ func backfillAgentAppLinks(db *gorm.DB) error {
 		JOIN apps AS a
 		  ON a.id = state.value
 		 AND a.organization_id = state.org_id
-		WHERE bot.kind <> 'human'
-		  AND bot.agent_app_id IS NULL
+		WHERE bot.agent_app_id IS NULL
 		  AND state.backend = 'helix'
 		  AND state.key = 'agent_app_id'
 		  AND state.value <> ''
@@ -600,6 +602,29 @@ func dropRemovedTables(db *gorm.DB) error {
 	for _, t := range removedTables {
 		if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", t)).Error; err != nil {
 			return fmt.Errorf("drop %s: %w", t, err)
+		}
+	}
+	return nil
+}
+
+// removeLegacyHumanBots removes the abandoned person-placeholder variant of
+// org_bots and its discriminator/contact columns. People are users joined to
+// organizations through organization_memberships; org_bots now has one shape.
+func removeLegacyHumanBots(db *gorm.DB) error {
+	m := db.Migrator()
+	if !m.HasTable("org_bots") {
+		return nil
+	}
+	if m.HasColumn("org_bots", "kind") {
+		if err := db.Exec("DELETE FROM org_bots WHERE kind = ?", "human").Error; err != nil {
+			return fmt.Errorf("delete human placeholder rows: %w", err)
+		}
+	}
+	for _, column := range []string{"identity", "helix_user_id", "kind"} {
+		if m.HasColumn("org_bots", column) {
+			if err := db.Exec("ALTER TABLE org_bots DROP COLUMN " + column).Error; err != nil {
+				return fmt.Errorf("drop org_bots.%s: %w", column, err)
+			}
 		}
 	}
 	return nil

@@ -239,7 +239,7 @@ func (t *CreateServerAsset) InputSchema() *jsonschema.Schema {
 	return mustSchema[createServerAssetArgs]()
 }
 func (t *CreateServerAsset) Description() string {
-	return "Create a server asset and link it to the calling Bot in one action; agent_ids adds more links. auth_type defaults to ssh_key. SSH-key creation returns the Helix public key and an idempotent install_command. If you already have independent SSH access, run that command on the server; otherwise send it to the owner with ask_human. Then call get_asset_health and a server operation before claiming readiness."
+	return "Create a server asset and link it to the calling Bot in one action; agent_ids adds more links. auth_type defaults to ssh_key. SSH-key creation returns the Helix public key and an idempotent install_command. If you already have independent SSH access, run that command on the server; otherwise include it in your response to the owner. Then call get_asset_health and a server operation before claiming readiness."
 }
 func (t *CreateServerAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args createServerAssetArgs

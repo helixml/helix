@@ -25,7 +25,7 @@ func codingApp(runtime types.CodeAgentRuntime, provider, model string) types.App
 	}
 }
 
-// Legacy rows without a materialized org-agent config retain their App
+// Legacy rows without a materialized Org Bot config retain their App
 // fallback until startup reconciliation backfills them.
 func TestEnsureSyncsProjectTaskDefaultsFromLegacyBotApp(t *testing.T) {
 	st, wid := newProjectTestStore(t, "# Role")
@@ -92,7 +92,7 @@ func TestEnsureSyncsProjectTaskDefaultsFromOrgAgentConfig(t *testing.T) {
 	}
 
 	svc := newFakeProjectService()
-	// Deliberately disagree: materialized org-agent state must win over the
+	// Deliberately disagree: materialized Org Bot state must win over the
 	// compatibility App once it exists.
 	svc.appConfig = codingApp(types.CodeAgentRuntimeOpenCode, "pe_test", "qwen3.8-27b")
 	svc.getProjectResp = types.Project{
@@ -112,7 +112,7 @@ func TestEnsureSyncsProjectTaskDefaultsFromOrgAgentConfig(t *testing.T) {
 	}
 	got := svc.getProjectResp.CodeAgentConfig
 	if got == nil || got.Runtime != types.CodeAgentRuntimeCodexCLI || got.Model != "gpt-5.6" {
-		t.Fatalf("project config = %+v, want org-agent-owned codex config", got)
+		t.Fatalf("project config = %+v, want Org-Bot-owned codex config", got)
 	}
 }
 

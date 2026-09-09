@@ -138,8 +138,8 @@ func TestActivateBot_HappyPath(t *testing.T) {
 
 	var resp orgapi.BotActivateDTO
 	decode(t, rec, &resp)
-	if resp.ProjectID != "prj_alice" || resp.AgentID != "app_alice" {
-		t.Errorf("IDs = (%q,%q), want (prj_alice, app_alice)", resp.ProjectID, resp.AgentID)
+	if resp.ProjectID != "prj_alice" || resp.LegacyAppID != "app_alice" {
+		t.Errorf("IDs = (%q,%q), want (prj_alice, app_alice)", resp.ProjectID, resp.LegacyAppID)
 	}
 	if resp.ActivationID == "" {
 		t.Errorf("ActivationID must be pre-allocated; got empty")

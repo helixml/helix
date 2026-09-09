@@ -7,7 +7,6 @@ import {
   ApiAssetHealthDTO,
   ApiCreateAssetRequest,
   ApiBotActivateDTO,
-  ApiAgentDetailDTO,
   ApiBotBadge,
   ApiBotChatDTO,
   ApiBotDTO,
@@ -34,7 +33,6 @@ import {
 export type BotBadge = ApiBotBadge
 export type BotDTO = ApiBotDTO
 export type BotDetailDTO = Omit<ApiBotDetailDTO, 'bot'> & { bot?: BotDTO }
-export type AgentDetailDTO = ApiAgentDetailDTO
 export type BotActivateDTO = ApiBotActivateDTO
 export type BotChatDTO = ApiBotChatDTO
 export type ToolDTO = ApiToolDTO
@@ -79,51 +77,51 @@ export const QUERY_KEYS = {
   assets: (orgID: string) => ['helix-org', orgID, 'assets'] as const,
   asset: (orgID: string, id: string) => ['helix-org', orgID, 'assets', id] as const,
   assetHealth: (orgID: string, id: string) => ['helix-org', orgID, 'assets', id, 'health'] as const,
-  workerSecrets: (orgID: string, id: string) => ['helix-org', orgID, 'agents', id, 'secrets'] as const,
-  availableWorkerSecrets: (orgID: string, id: string) => ['helix-org', orgID, 'agents', id, 'available-secrets'] as const,
+  workerSecrets: (orgID: string, id: string) => ['helix-org', orgID, 'bots', id, 'secrets'] as const,
+  availableWorkerSecrets: (orgID: string, id: string) => ['helix-org', orgID, 'bots', id, 'available-secrets'] as const,
 }
 
-export function useWorkerSecrets(agentID?: string) {
+export function useWorkerSecrets(botID?: string) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.workerSecrets(orgID, agentID ?? ''),
-    queryFn: async () => (await api.getApiClient().v1OrgsAgentsSecretsDetail(orgID, agentID!)).data,
-    enabled: !!orgID && !!agentID,
+    queryKey: QUERY_KEYS.workerSecrets(orgID, botID ?? ''),
+    queryFn: async () => (await api.getApiClient().v1OrgsBotsSecretsDetail(orgID, botID!)).data,
+    enabled: !!orgID && !!botID,
   })
 }
-export function useAvailableWorkerSecrets(agentID?: string) {
+export function useAvailableWorkerSecrets(botID?: string) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.availableWorkerSecrets(orgID, agentID ?? ''),
-    queryFn: async () => (await api.getApiClient().v1OrgsAgentsAvailableSecretsDetail(orgID, agentID!)).data,
-    enabled: !!orgID && !!agentID,
+    queryKey: QUERY_KEYS.availableWorkerSecrets(orgID, botID ?? ''),
+    queryFn: async () => (await api.getApiClient().v1OrgsBotsAvailableSecretsDetail(orgID, botID!)).data,
+    enabled: !!orgID && !!botID,
   })
 }
-export function usePutWorkerSecret(agentID?: string) {
+export function usePutWorkerSecret(botID?: string) {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (input: { name: string; payload: ApiPutWorkerSecretRequest }) => (
-      await api.getApiClient().v1OrgsAgentsSecretsUpdate(orgID, agentID!, input.name, input.payload)
+      await api.getApiClient().v1OrgsBotsSecretsUpdate(orgID, botID!, input.name, input.payload)
     ).data,
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSecrets(orgID, agentID ?? '') })
-      await qc.invalidateQueries({ queryKey: QUERY_KEYS.availableWorkerSecrets(orgID, agentID ?? '') })
+      await qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSecrets(orgID, botID ?? '') })
+      await qc.invalidateQueries({ queryKey: QUERY_KEYS.availableWorkerSecrets(orgID, botID ?? '') })
     },
   })
 }
-export function useDeleteWorkerSecret(agentID?: string) {
+export function useDeleteWorkerSecret(botID?: string) {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (name: string) => api.getApiClient().v1OrgsAgentsSecretsDelete(orgID, agentID!, name),
+    mutationFn: async (name: string) => api.getApiClient().v1OrgsBotsSecretsDelete(orgID, botID!, name),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSecrets(orgID, agentID ?? '') })
-      await qc.invalidateQueries({ queryKey: QUERY_KEYS.availableWorkerSecrets(orgID, agentID ?? '') })
+      await qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSecrets(orgID, botID ?? '') })
+      await qc.invalidateQueries({ queryKey: QUERY_KEYS.availableWorkerSecrets(orgID, botID ?? '') })
     },
   })
 }
@@ -212,8 +210,8 @@ export function useLinkAsset() {
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async ({ assetID, agentID }: { assetID: string; agentID: string }) =>
-      api.getApiClient().v1OrgsAssetsLinksCreate(orgID, assetID, { agent_id: agentID }),
+    mutationFn: async ({ assetID, botID }: { assetID: string; botID: string }) =>
+      api.getApiClient().v1OrgsAssetsLinksCreate(orgID, assetID, { bot_id: botID }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.assets(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
@@ -226,8 +224,8 @@ export function useUnlinkAsset() {
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async ({ assetID, agentID }: { assetID: string; agentID: string }) =>
-      api.getApiClient().v1OrgsAssetsLinksDelete(orgID, assetID, agentID),
+    mutationFn: async ({ assetID, botID }: { assetID: string; botID: string }) =>
+      api.getApiClient().v1OrgsAssetsLinksDelete(orgID, assetID, botID),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.assets(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
@@ -380,7 +378,7 @@ export function useEnsureBotChat() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (botId: string) => {
-      const res = await api.getApiClient().v1OrgsAgentsChatCreate(orgID, botId)
+      const res = await api.getApiClient().v1OrgsBotsChatCreate(botId, orgID)
       return res.data as BotChatDTO
     },
     onSuccess: (_data, botId) => {
@@ -390,7 +388,7 @@ export function useEnsureBotChat() {
 }
 
 // useActivateBot starts (or wakes) a bot's agent desktop via the full
-// activation pipeline. Used as "Start" when agent_status is stopped.
+// activation pipeline. Used as "Start" when status is stopped.
 export function useActivateBot(orgIDOverride?: string) {
   const api = useApi()
   const qc = useQueryClient()
@@ -398,7 +396,7 @@ export function useActivateBot(orgIDOverride?: string) {
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
     mutationFn: async (botId: string) => {
-      const res = await api.getApiClient().v1OrgsAgentsActivateCreate(orgID, botId)
+      const res = await api.getApiClient().v1OrgsBotsActivateCreate(botId, orgID)
       return res.data as BotActivateDTO
     },
     onSuccess: (_data, botId) => {
@@ -416,7 +414,7 @@ export function useStopBotAgent(orgIDOverride?: string) {
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
     mutationFn: async (botId: string) => {
-      await api.getApiClient().v1OrgsAgentsStopAgentCreate(orgID, botId)
+      await api.getApiClient().v1OrgsBotsStopCreate(botId, orgID)
     },
     onSuccess: (_data, botId) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
@@ -435,7 +433,7 @@ export function useRestartBotAgent(orgIDOverride?: string) {
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
     mutationFn: async (botId: string) => {
-      const res = await api.getApiClient().v1OrgsAgentsRestartAgentCreate(orgID, botId)
+      const res = await api.getApiClient().v1OrgsBotsRestartCreate(botId, orgID)
       return res.data as BotActivateDTO
     },
     onSuccess: (_data, botId) => {
@@ -451,7 +449,7 @@ export function useListHelixOrgBots(options?: { enabled?: boolean; refetchInterv
   return useQuery({
     queryKey: QUERY_KEYS.bots(orgID),
     queryFn: async () => {
-      const res = await api.getApiClient().v1OrgsAgentsDetail(orgID)
+      const res = await api.getApiClient().v1OrgsBotsDetail(orgID)
       return (res.data ?? []) as BotDTO[]
     },
     enabled: !!orgID && (options?.enabled ?? true),
@@ -467,14 +465,8 @@ export function useHelixOrgBot(botId: string | undefined, options?: { enabled?: 
     refetchInterval: options?.refetchInterval,
     queryFn: async () => {
       if (!botId) return null
-      const res = await api.getApiClient().v1OrgsAgentsDetail2(orgID, botId)
-      const agent = res.data as AgentDetailDTO
-      return {
-        bot: agent as BotDTO,
-        agent_id: agent.agent_id ?? agent.agent_app_id,
-        agent_app_id: agent.agent_app_id,
-        project_id: agent.project_id,
-      } as BotDetailDTO
+      const res = await api.getApiClient().v1OrgsBotsDetail2(botId, orgID)
+      return res.data as BotDetailDTO
     },
     enabled: !!orgID && !!botId && (options?.enabled ?? true),
   })
@@ -494,14 +486,8 @@ export function useListHelixOrgBotDetails(
     queries: botIds.map((botId) => ({
       queryKey: QUERY_KEYS.bot(orgID, botId),
       queryFn: async () => {
-        const res = await api.getApiClient().v1OrgsAgentsDetail2(orgID, botId)
-        const agent = res.data as AgentDetailDTO
-        return {
-          bot: agent as BotDTO,
-          agent_id: agent.agent_id ?? agent.agent_app_id,
-          agent_app_id: agent.agent_app_id,
-          project_id: agent.project_id,
-        } as BotDetailDTO
+        const res = await api.getApiClient().v1OrgsBotsDetail2(botId, orgID)
+        return res.data as BotDetailDTO
       },
       enabled: enabled && !!botId,
       refetchInterval: options?.refetchInterval,
@@ -530,7 +516,7 @@ export function useCreateBot() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (payload: CreateBotRequest) => {
-      const res = await api.getApiClient().v1OrgsAgentsCreate(orgID, payload)
+      const res = await api.getApiClient().v1OrgsBotsCreate(orgID, payload)
       return res.data as CreateBotResponse
     },
     onSuccess: () => {
@@ -554,7 +540,7 @@ export function useUpdateBot() {
   return useMutation({
     mutationFn: async (payload: { id: string } & UpdateBotRequest) => {
       const { id, ...body } = payload
-      const res = await api.getApiClient().v1OrgsAgentsPartialUpdate(orgID, id, body)
+      const res = await api.getApiClient().v1OrgsBotsPartialUpdate(orgID, id, body)
       return res.data as BotDTO
     },
     onSuccess: (_data, payload) => {
@@ -579,7 +565,7 @@ export function useAddBotParent() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async ({ botID, parentID }: { botID: string; parentID: string }) => {
-      await api.getApiClient().v1OrgsAgentsParentsCreate(orgID, botID, { parent_id: parentID })
+      await api.getApiClient().v1OrgsBotsParentsCreate(botID, orgID, { parent_id: parentID })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
@@ -601,7 +587,7 @@ export function useRemoveBotParent() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async ({ botID, parentID }: { botID: string; parentID: string }) => {
-      await api.getApiClient().v1OrgsAgentsParentsDelete(orgID, botID, parentID)
+      await api.getApiClient().v1OrgsBotsParentsDelete(botID, parentID, orgID)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
@@ -617,7 +603,7 @@ export function useDeleteBot() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (botId: string) => {
-      await api.getApiClient().v1OrgsAgentsDelete(orgID, botId)
+      await api.getApiClient().v1OrgsBotsDelete(botId, orgID)
     },
     onSuccess: (_data, botId) => {
       // Evict the deleted bot's own queries (the bot key prefix-matches

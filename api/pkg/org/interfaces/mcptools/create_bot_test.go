@@ -7,10 +7,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
+
+type testAgentCreator struct{}
+
+func (testAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
+	return lifecycle.CreatedAgent{LegacyAppID: "app-test"}, nil
+}
 
 // newCreateBotCaller sets up the minimal env create_bot needs: a
 // store-backed Config, a deterministic clock + ID generator, and a
@@ -20,6 +27,7 @@ func newCreateBotCaller(t *testing.T, orgID string) (Config, orgchart.Node) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	deps := DefaultDeps(st)
+	deps.AgentCreator = testAgentCreator{}
 	deps.Now = func() time.Time { return time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC) }
 	deps.NewID = func() string { return "id-create-bot-test" }
 	caller, err := orgchart.NewNode("b-owner", "# Owner", nil, deps.Now(), orgID)
@@ -99,7 +107,6 @@ func TestCreateBotUnionWithCallerTools(t *testing.T) {
 		ReadEventsName,
 		BotLogName,
 		GetSecretName,
-		AskHumanName,
 		ListSecretsName,
 		ListProcessorsName,
 		GetProcessorName,

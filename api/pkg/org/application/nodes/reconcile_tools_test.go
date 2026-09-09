@@ -22,7 +22,7 @@ func at() time.Time { return time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC) }
 var live = map[tool.Name]bool{
 	"list_secrets": true, "get_secret": true,
 	"create_trigger": true, "list_triggers": true, "attach_worker": true,
-	"chat": true, "managers": true, "reports": true, "ask_human": true,
+	"chat": true, "managers": true, "reports": true,
 }
 
 func seed(t *testing.T, st *store.Store, id string, tools []tool.Name) {

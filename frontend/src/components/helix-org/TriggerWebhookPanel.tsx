@@ -122,7 +122,7 @@ const TriggerWebhookPanel: FC<{ trigger: TriggerDTO; orgSlug?: string }> = ({ tr
         <Stack spacing={1}>
           <Typography variant="body2">
             Webhook registered on <strong>{cfg.repo}</strong>{webhookId ? <> (id <code>{webhookId}</code>)</> : null}.
-            {active ? ' Deliveries start your agents automatically.' : ' ⚠ It is currently disabled on GitHub, so no deliveries arrive — re-install to re-enable.'}
+            {active ? ' Deliveries start your org bots automatically.' : ' ⚠ It is currently disabled on GitHub, so no deliveries arrive — re-install to re-enable.'}
           </Typography>
           {live?.state === 'installed' && live.events && live.events.length > 0 && (
             <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
