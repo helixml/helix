@@ -43,6 +43,10 @@ func (s *bootstrapHelixStore) CreateAPIKey(_ context.Context, key *types.ApiKey)
 	return key, nil
 }
 
+func (s *bootstrapHelixStore) GetAPIKey(_ context.Context, key *types.ApiKey) (*types.ApiKey, error) {
+	return &types.ApiKey{Key: key.Key, Owner: "user-owner"}, nil
+}
+
 type failingBootstrapHelixStore struct {
 	helixstore.Store
 }
@@ -500,6 +504,31 @@ func TestEnsureBootstrapRetriesAfterServiceKeyFailure(t *testing.T) {
 	}
 	if scope.bootstrapped["org-retry"] {
 		t.Fatal("failed bootstrap must remain retryable")
+	}
+}
+
+func TestEnsureBootstrapRetriesAfterBotBootstrapFailure(t *testing.T) {
+	t.Parallel()
+	orgStore := orgmemory.New()
+	configs := configregistry.New(orgStore.Configs)
+	configs.Register(configregistry.Spec{Key: "helix.api_key", Type: configregistry.TypeString})
+	scope := newHelixOrgScope(configs, orgStore, &bootstrapHelixStore{}, nil, nil, nil)
+	attempts := 0
+	scope.botBootstrap = func(context.Context, string) error {
+		attempts++
+		return errors.New("list Bots failed")
+	}
+
+	for range 2 {
+		if err := scope.ensureBootstrap(context.Background(), "org-retry"); err == nil {
+			t.Fatal("ensureBootstrap should fail while Bot bootstrap fails")
+		}
+	}
+	if attempts != 2 {
+		t.Fatalf("Bot bootstrap attempts = %d, want 2", attempts)
+	}
+	if scope.bootstrapped["org-retry"] {
+		t.Fatal("failed Bot bootstrap must remain retryable")
 	}
 }
 

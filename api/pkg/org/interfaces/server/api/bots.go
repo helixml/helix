@@ -312,39 +312,41 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 	}
 	if updated.AgentID != "" && canonicalChange {
 		if err := a.deps.AgentUpdater.UpdateAgent(ctx, updated.AgentID, configPatch, namePatch, contentPatch); err != nil {
-			rollback := nodes.UpdateParams{}
-			if namePatch != nil {
-				rollback.Name = &existing.Name
+			if nodeChange {
+				rollback := nodes.UpdateParams{}
+				if namePatch != nil {
+					rollback.Name = &existing.Name
+				}
+				if contentPatch != nil {
+					rollback.Content = &existing.Content
+				}
+				if toolsPatch != nil {
+					tools := append([]tool.Name(nil), existing.Tools...)
+					rollback.Tools = &tools
+				}
+				if projectIDsPatch != nil {
+					projectIDs := append([]string(nil), existing.ProjectIDs...)
+					rollback.ProjectIDs = &projectIDs
+				}
+				if req.PreserveContext != nil {
+					preserveContext := existing.PreserveContext
+					rollback.PreserveContext = &preserveContext
+				}
+				if sandboxRuntimePatch != nil {
+					sandboxRuntime := existing.SandboxRuntime
+					rollback.SandboxRuntime = &sandboxRuntime
+				}
+				if sandboxVCPUsPatch != nil {
+					sandboxVCPUs := existing.SandboxVCPUs
+					rollback.SandboxVCPUs = &sandboxVCPUs
+				}
+				_, rollbackErr := a.deps.Nodes.Update(ctx, orgID, id, rollback)
+				if rollbackErr != nil {
+					writeError(w, http.StatusInternalServerError, fmt.Errorf("update Bot App: %v; rollback Bot: %w", err, rollbackErr))
+					return
+				}
 			}
-			if contentPatch != nil {
-				rollback.Content = &existing.Content
-			}
-			if toolsPatch != nil {
-				tools := append([]tool.Name(nil), existing.Tools...)
-				rollback.Tools = &tools
-			}
-			if projectIDsPatch != nil {
-				projectIDs := append([]string(nil), existing.ProjectIDs...)
-				rollback.ProjectIDs = &projectIDs
-			}
-			if req.PreserveContext != nil {
-				preserveContext := existing.PreserveContext
-				rollback.PreserveContext = &preserveContext
-			}
-			if sandboxRuntimePatch != nil {
-				sandboxRuntime := existing.SandboxRuntime
-				rollback.SandboxRuntime = &sandboxRuntime
-			}
-			if sandboxVCPUsPatch != nil {
-				sandboxVCPUs := existing.SandboxVCPUs
-				rollback.SandboxVCPUs = &sandboxVCPUs
-			}
-			_, rollbackErr := a.deps.Nodes.Update(ctx, orgID, id, rollback)
-			if rollbackErr != nil {
-				writeError(w, http.StatusInternalServerError, fmt.Errorf("update agent: %v; rollback org profile: %w", err, rollbackErr))
-				return
-			}
-			writeError(w, errStatus(err), fmt.Errorf("update agent: %w", err))
+			writeError(w, errStatus(err), fmt.Errorf("update Bot App: %w", err))
 			return
 		}
 	}

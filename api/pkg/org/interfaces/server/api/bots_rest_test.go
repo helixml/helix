@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -28,6 +29,16 @@ func (failingAgentUpdater) UpdateAgent(context.Context, string, orgapi.AgentConf
 
 type interleavingFailingAgentUpdater struct {
 	nodes store.Nodes
+}
+
+type countingNodeStore struct {
+	store.Nodes
+	updates int
+}
+
+func (s *countingNodeStore) Update(ctx context.Context, bot orgchart.Node) error {
+	s.updates++
+	return s.Nodes.Update(ctx, bot)
 }
 
 func (u interleavingFailingAgentUpdater) UpdateAgent(ctx context.Context, _ string, _ orgapi.AgentConfigPatch, _ *string, _ *string) error {
@@ -218,6 +229,30 @@ func TestRESTUpdateAgentRollbackPreservesConcurrentBotMutation(t *testing.T) {
 	}
 	if !sameNames(got.Tools, []tool.Name{mcptools.ChatName}) {
 		t.Fatalf("concurrent tools mutation was overwritten: %v", got.Tools)
+	}
+}
+
+func TestRESTUpdateBotConfigFailureDoesNotWriteBot(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	bot, err := orgchart.NewNode("b-agent", "content", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Create(ctx, bot.WithAgentID("app-agent")); err != nil {
+		t.Fatal(err)
+	}
+	countingStore := &countingNodeStore{Nodes: st.Nodes}
+	deps.Nodes = nodes.New(nodes.Deps{Nodes: countingStore})
+	deps.AgentUpdater = failingAgentUpdater{}
+	model := "new-model"
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPatch, "/bots/b-agent", orgapi.UpdateBotRequest{Model: &model})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body)
+	}
+	if countingStore.updates != 0 {
+		t.Fatalf("Bot store updates = %d, want 0", countingStore.updates)
 	}
 }
 

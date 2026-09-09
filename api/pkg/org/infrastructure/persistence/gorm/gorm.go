@@ -390,6 +390,8 @@ func repairDuplicateAgentAppLinks(db *gorm.DB) error {
 			for _, bot := range bots[1:] {
 				losers = append(losers, bot.ID)
 			}
+			// Keep the oldest Bot on the shared legacy App. Detached Bots are
+			// provisioned their own App by the next bootstrap reconciliation.
 			if err := tx.Table("org_bots").
 				Where("org_id = ? AND id IN ?", duplicate.OrgID, losers).
 				Updates(map[string]any{"agent_app_id": nil, "code_agent_config": nil}).Error; err != nil {

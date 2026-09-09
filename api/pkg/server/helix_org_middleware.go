@@ -168,7 +168,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 
 		if s.botBootstrap != nil {
 			if err := s.botBootstrap(ctx, orgID); err != nil {
-				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org bot bootstrap failed")
+				return nil, fmt.Errorf("bootstrap helix-org Bots: %w", err)
 			}
 		}
 
