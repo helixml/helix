@@ -161,6 +161,26 @@ func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) 
 	return s.GetWallet(ctx, wallet.ID)
 }
 
+// UpdateWalletPlanOverride updates only the admin-controlled plan override.
+// Keeping this separate from UpdateWallet prevents Stripe subscription syncs
+// from clearing an out-of-band paid plan with a stale wallet value.
+func (s *PostgresStore) UpdateWalletPlanOverride(ctx context.Context, walletID, planOverride string) (*types.Wallet, error) {
+	if walletID == "" {
+		return nil, fmt.Errorf("id not specified")
+	}
+
+	err := s.gdb.WithContext(ctx).Model(&types.Wallet{}).Where("id = ?", walletID).Updates(
+		map[string]interface{}{
+			"updated_at":    time.Now(),
+			"plan_override": planOverride,
+		},
+	).Error
+	if err != nil {
+		return nil, err
+	}
+	return s.GetWallet(ctx, walletID)
+}
+
 func (s *PostgresStore) DeleteWallet(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id not specified")

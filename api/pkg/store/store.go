@@ -579,6 +579,7 @@ type Store interface {
 	ListWallets(ctx context.Context, q *ListWalletsQuery) ([]*types.Wallet, error)
 	GetWalletByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*types.Wallet, error)
 	UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
+	UpdateWalletPlanOverride(ctx context.Context, walletID, planOverride string) (*types.Wallet, error)
 	DeleteWallet(ctx context.Context, id string) error
 	UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error)
 

@@ -7392,6 +7392,21 @@ func (mr *MockStoreMockRecorder) UpdateWalletBalance(ctx, walletID, amount, meta
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletBalance", reflect.TypeOf((*MockStore)(nil).UpdateWalletBalance), ctx, walletID, amount, meta)
 }
 
+// UpdateWalletPlanOverride mocks base method.
+func (m *MockStore) UpdateWalletPlanOverride(ctx context.Context, walletID, planOverride string) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWalletPlanOverride", ctx, walletID, planOverride)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateWalletPlanOverride indicates an expected call of UpdateWalletPlanOverride.
+func (mr *MockStoreMockRecorder) UpdateWalletPlanOverride(ctx, walletID, planOverride any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletPlanOverride", reflect.TypeOf((*MockStore)(nil).UpdateWalletPlanOverride), ctx, walletID, planOverride)
+}
+
 // UpdateWebServiceDeploy mocks base method.
 func (m *MockStore) UpdateWebServiceDeploy(ctx context.Context, id string, updates map[string]any) error {
 	m.ctrl.T.Helper()

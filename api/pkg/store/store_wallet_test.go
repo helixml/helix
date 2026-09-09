@@ -312,6 +312,29 @@ func (suite *WalletTestSuite) TestUpdateWallet_EmptyID() {
 	suite.Contains(err.Error(), "id not specified")
 }
 
+func (suite *WalletTestSuite) TestUpdateWalletPlanOverride() {
+	wallet, err := suite.db.CreateWallet(suite.ctx, &types.Wallet{
+		UserID:  system.GenerateID(),
+		Balance: 100.0,
+	})
+	suite.NoError(err)
+
+	updated, err := suite.db.UpdateWalletPlanOverride(suite.ctx, wallet.ID, types.PlanOverridePro)
+	suite.NoError(err)
+	suite.Equal(types.PlanOverridePro, updated.PlanOverride)
+	suite.Equal(100.0, updated.Balance)
+
+	updated, err = suite.db.UpdateWalletPlanOverride(suite.ctx, wallet.ID, "")
+	suite.NoError(err)
+	suite.Empty(updated.PlanOverride)
+}
+
+func (suite *WalletTestSuite) TestUpdateWalletPlanOverride_EmptyID() {
+	_, err := suite.db.UpdateWalletPlanOverride(suite.ctx, "", types.PlanOverridePro)
+	suite.Error(err)
+	suite.Contains(err.Error(), "id not specified")
+}
+
 func (suite *WalletTestSuite) TestUpdateWallet_NonExistentWallet() {
 	wallet := &types.Wallet{
 		ID:                   "non-existent-wallet-id",

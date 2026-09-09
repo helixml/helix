@@ -150,8 +150,7 @@ func (s *HelixAPIServer) consumeUserPlanOnFirstOrg(ctx context.Context, user *ty
 			Msg("failed to get/create wallet for plan-override consumption")
 		return
 	}
-	wallet.PlanOverride = plan
-	if _, err := s.Store.UpdateWallet(ctx, wallet); err != nil {
+	if _, err := s.Store.UpdateWalletPlanOverride(ctx, wallet.ID, plan); err != nil {
 		log.Warn().Err(err).Str("wallet_id", wallet.ID).
 			Msg("failed to persist plan override to wallet")
 		return
@@ -249,8 +248,7 @@ func (apiServer *HelixAPIServer) adminActivateTrial(_ http.ResponseWriter, req *
 		if wErr != nil {
 			return nil, system.NewHTTPError500("failed to get wallet for oldest owned org: " + wErr.Error())
 		}
-		wallet.PlanOverride = types.PlanOverridePro
-		if _, wErr := apiServer.Store.UpdateWallet(ctx, wallet); wErr != nil {
+		if _, wErr := apiServer.Store.UpdateWalletPlanOverride(ctx, wallet.ID, types.PlanOverridePro); wErr != nil {
 			return nil, system.NewHTTPError500("failed to set plan override: " + wErr.Error())
 		}
 		if body.Credits > 0 {
