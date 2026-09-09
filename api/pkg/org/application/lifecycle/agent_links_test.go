@@ -3,7 +3,6 @@ package lifecycle_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -140,6 +139,12 @@ func (r fixedAgentConfigReader) ReadAgentExecutionConfig(context.Context, string
 	return r.config, nil
 }
 
+type agentConfigReaderFunc func(context.Context, string) (*types.CodeAgentExecutionConfig, error)
+
+func (f agentConfigReaderFunc) ReadAgentExecutionConfig(ctx context.Context, appID string) (*types.CodeAgentExecutionConfig, error) {
+	return f(ctx, appID)
+}
+
 type cancellingReconciler struct {
 	cancel context.CancelFunc
 }
@@ -213,13 +218,17 @@ func TestReconcileAgentLinksPreservesReplicaWinner(t *testing.T) {
 	}
 }
 
-func TestReconcileAgentLinksBackfillsExecutionConfig(t *testing.T) {
+func TestReconcileAgentLinksRepairsExecutionConfigDrift(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	ctx := context.Background()
 	node, err := orgchart.NewNode("b-agent", "instructions", nil, time.Now().UTC(), "org-test")
 	require.NoError(t, err)
-	node = node.WithAgentID("app-legacy")
+	node = node.WithAgentID("app-legacy").WithCodeAgentConfig(&types.CodeAgentExecutionConfig{
+		Runtime:     types.CodeAgentRuntimeClaudeCode,
+		Model:       "claude-opus-5",
+		ServiceTier: "priority",
+	})
 	require.NoError(t, st.Nodes.Create(ctx, node))
 
 	config := &types.CodeAgentExecutionConfig{
@@ -242,11 +251,14 @@ func TestReconcileAgentLinksBackfillsExecutionConfig(t *testing.T) {
 	require.NoError(t, svc.ReconcileAgentLinks(ctx, "org-test"))
 	got, err := st.Nodes.Get(ctx, "org-test", node.ID)
 	require.NoError(t, err)
-	require.Equal(t, config, got.CodeAgentConfig)
+	require.Equal(t, config.Runtime, got.CodeAgentConfig.Runtime)
+	require.Equal(t, config.CredentialType, got.CodeAgentConfig.CredentialType)
+	require.Equal(t, config.Model, got.CodeAgentConfig.Model)
+	require.Equal(t, "priority", got.CodeAgentConfig.ServiceTier)
 	require.Equal(t, svc.Now(), got.UpdatedAt)
 }
 
-func TestReconcileAgentLinksReportsClaimAndCleanupFailures(t *testing.T) {
+func TestReconcileAgentLinksContinuesAfterClaimAndCleanupFailures(t *testing.T) {
 	st := memory.New()
 	ctx := context.Background()
 	bot, err := orgchart.NewNode("b-agent", "instructions", nil, time.Now().UTC(), "org-test")
@@ -270,10 +282,37 @@ func TestReconcileAgentLinksReportsClaimAndCleanupFailures(t *testing.T) {
 		}),
 	}
 
-	err = svc.ReconcileAgentLinks(ctx, "org-test")
-	if err == nil || !strings.Contains(err.Error(), "claim failed") || !strings.Contains(err.Error(), "cleanup failed") {
-		t.Fatalf("reconcile error = %v", err)
+	require.NoError(t, svc.ReconcileAgentLinks(ctx, "org-test"))
+	require.Equal(t, []string{"app-unlinked"}, runtime.deletedApps)
+}
+
+func TestReconcileAgentLinksContinuesAfterMissingApp(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	ctx := context.Background()
+	bad, err := orgchart.NewNode("b-a-missing", "instructions", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	good, err := orgchart.NewNode("b-z-good", "instructions", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, st.Nodes.Create(ctx, bad.WithAgentID("app-missing")))
+	require.NoError(t, st.Nodes.Create(ctx, good.WithAgentID("app-good")))
+	desired := &types.CodeAgentExecutionConfig{Runtime: types.CodeAgentRuntimeCodexCLI, Model: "gpt-5.6"}
+	svc := &lifecycle.Service{
+		Store:  st,
+		Agents: fixedAgentCreator{id: "unused"},
+		AgentConfigs: agentConfigReaderFunc(func(_ context.Context, appID string) (*types.CodeAgentExecutionConfig, error) {
+			if appID == "app-missing" {
+				return nil, store.ErrNotFound
+			}
+			return desired, nil
+		}),
+		Nodes: nodes.New(nodes.Deps{Nodes: st.Nodes}),
 	}
+
+	require.NoError(t, svc.ReconcileAgentLinks(ctx, "org-test"))
+	got, err := st.Nodes.Get(ctx, "org-test", good.ID)
+	require.NoError(t, err)
+	require.Equal(t, desired, got.CodeAgentConfig)
 }
 
 func TestDeleteArchivesOwnedProjectAndPreservesAllowedProjects(t *testing.T) {

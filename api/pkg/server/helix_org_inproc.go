@@ -145,8 +145,6 @@ func (c *inProcHelixClient) ApplyAgentDefaults(ctx context.Context, appID string
 		return nil
 	}
 	previous := *app
-	previous.Config = app.Config
-	previous.Config.Helix = app.Config.Helix
 	previous.Config.Helix.Assistants = append([]types.AssistantConfig(nil), app.Config.Helix.Assistants...)
 	applyResolvedAgentDefaults(assistant, defaults)
 	if err := types.ValidateCodeAgentModelCompatibility(*assistant); err != nil {

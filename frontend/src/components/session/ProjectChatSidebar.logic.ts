@@ -627,16 +627,16 @@ export type SidebarBot = {
   sessionId?: string
 }
 
-// Every helix-org agent owns a Helix project whose exploratory session is the
-// agent's chat. The sidebar lists the agent itself, so that project must not
+// Every Org Bot owns a Helix project whose exploratory session is the
+// Bot's chat. The sidebar lists the Bot itself, so that project must not
 // also appear as an ordinary project group.
 export const toSidebarBots = (bots: BotDTO[]): SidebarBot[] => (
   bots
-    .filter((bot) => bot.kind !== 'human' && !!bot.id)
+    .filter((bot) => !!bot.id)
     .map((bot) => ({
       id: bot.id!,
       name: bot.name || bot.id!,
-      running: bot.agent_status === 'running',
+      running: bot.status === 'running',
       restartRequired: !!bot.restart_required,
       agentAppId: bot.legacy_app_id || undefined,
       projectId: bot.project_id || undefined,

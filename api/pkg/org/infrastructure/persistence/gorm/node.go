@@ -182,6 +182,21 @@ func (r *nodesRepo) Update(ctx context.Context, node orgchart.Node) error {
 	)
 }
 
+func (r *nodesRepo) UpdateCodeAgentConfig(ctx context.Context, orgID string, id orgchart.NodeID, config *types.CodeAgentExecutionConfig, updatedAt time.Time) error {
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("marshal code agent config: %w", err)
+	}
+	return r.Repository.Update(ctx,
+		store.WithOrg(orgID),
+		store.WithID(string(id)),
+		store.WithUpdates(map[string]any{
+			"code_agent_config": string(configJSON),
+			"updated_at":        updatedAt,
+		}),
+	)
+}
+
 func (r *nodesRepo) ClaimLegacyApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string, config *types.CodeAgentExecutionConfig) (bool, error) {
 	configJSON, err := json.Marshal(config)
 	if err != nil {

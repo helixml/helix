@@ -315,6 +315,18 @@ func (r *nodesRepo) Update(_ context.Context, b orgchart.Node) error {
 	return nil
 }
 
+func (r *nodesRepo) UpdateCodeAgentConfig(_ context.Context, orgID string, id orgchart.NodeID, config *types.CodeAgentExecutionConfig, updatedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := orgKey{OrgID: orgID, ID: string(id)}
+	b, ok := r.rows[k]
+	if !ok {
+		return fmt.Errorf("bot %q in org %q: %w", id, orgID, store.ErrNotFound)
+	}
+	r.rows[k] = b.WithCodeAgentConfig(config).WithUpdatedAt(updatedAt)
+	return nil
+}
+
 func (r *nodesRepo) ClaimLegacyApp(_ context.Context, orgID string, id orgchart.NodeID, appID string, config *types.CodeAgentExecutionConfig) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

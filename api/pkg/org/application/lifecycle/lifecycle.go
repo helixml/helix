@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"time"
 
@@ -381,60 +382,82 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 }
 
 func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
-	if s.Store == nil || s.Nodes == nil || s.Agents == nil {
+	if s.Store == nil || s.Store.Nodes == nil {
 		return nil
 	}
 	all, err := s.Store.Nodes.List(ctx, orgID)
 	if err != nil {
 		return err
 	}
+	logger := s.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	for _, node := range all {
-		if node.AgentID != "" {
-			if node.CodeAgentConfig == nil && s.AgentConfigs != nil {
-				config, err := s.AgentConfigs.ReadAgentExecutionConfig(ctx, node.AgentID)
-				if err != nil {
-					return fmt.Errorf("read execution config for %s: %w", node.ID, err)
-				}
-				now := time.Now().UTC()
-				if s.Now != nil {
-					now = s.Now()
-				}
-				if err := s.Store.Nodes.Update(ctx, node.WithCodeAgentConfig(config).WithUpdatedAt(now)); err != nil {
-					return fmt.Errorf("backfill execution config for %s: %w", node.ID, err)
-				}
-			}
-			continue
+		if err := s.reconcileAgentLink(ctx, orgID, node); err != nil {
+			logger.Error("reconcile Org Bot legacy App link", "org_id", orgID, "bot_id", node.ID, "legacy_app_id", node.AgentID, "err", err)
 		}
-		name := node.Name
-		if name == "" {
-			name = string(node.ID)
+	}
+	return nil
+}
+
+func (s *Service) reconcileAgentLink(ctx context.Context, orgID string, node orgchart.Node) error {
+	if node.AgentID != "" {
+		if s.AgentConfigs == nil {
+			return nil
 		}
-		createdAgent, err := s.Agents.CreateAgent(ctx, orgID, name, node.Content, AgentConfig{})
+		config, err := s.AgentConfigs.ReadAgentExecutionConfig(ctx, node.AgentID)
 		if err != nil {
-			return fmt.Errorf("create agent app for %s: %w", node.ID, err)
+			return fmt.Errorf("read execution config: %w", err)
 		}
-		claimed, err := s.Store.Nodes.ClaimLegacyApp(ctx, orgID, node.ID, createdAgent.LegacyAppID, createdAgent.CodeAgentConfig)
-		if err != nil {
-			if s.Helix != nil {
-				cleanupCtx, cancel := cleanupContext(ctx)
-				cleanupErr := s.Helix.DeleteApp(cleanupCtx, createdAgent.LegacyAppID)
-				cancel()
-				if cleanupErr != nil && !errors.Is(cleanupErr, helix.ErrProjectNotFound) {
-					return fmt.Errorf("link agent app for %s: %v; delete unlinked agent app %s: %w", node.ID, err, createdAgent.LegacyAppID, cleanupErr)
-				}
-			}
-			return fmt.Errorf("link agent app for %s: %w", node.ID, err)
+		if config == nil {
+			return errors.New("read execution config: empty config")
 		}
-		if !claimed {
-			if s.Helix != nil {
-				cleanupCtx, cancel := cleanupContext(ctx)
-				cleanupErr := s.Helix.DeleteApp(cleanupCtx, createdAgent.LegacyAppID)
-				cancel()
-				if cleanupErr != nil && !errors.Is(cleanupErr, helix.ErrProjectNotFound) {
-					return fmt.Errorf("discard losing agent app %s: %w", createdAgent.LegacyAppID, cleanupErr)
-				}
+		desired := *config
+		if node.CodeAgentConfig != nil {
+			desired.ServiceTier = node.CodeAgentConfig.ServiceTier
+		}
+		if reflect.DeepEqual(node.CodeAgentConfig, &desired) {
+			return nil
+		}
+		now := time.Now().UTC()
+		if s.Now != nil {
+			now = s.Now()
+		}
+		if err := s.Store.Nodes.UpdateCodeAgentConfig(ctx, orgID, node.ID, &desired, now); err != nil {
+			return fmt.Errorf("repair execution config: %w", err)
+		}
+		return nil
+	}
+	if s.Agents == nil {
+		return errors.New("legacy App creator not wired")
+	}
+	name := node.Name
+	if name == "" {
+		name = string(node.ID)
+	}
+	createdAgent, err := s.Agents.CreateAgent(ctx, orgID, name, node.Content, AgentConfig{})
+	if err != nil {
+		return fmt.Errorf("create agent app: %w", err)
+	}
+	claimed, err := s.Store.Nodes.ClaimLegacyApp(ctx, orgID, node.ID, createdAgent.LegacyAppID, createdAgent.CodeAgentConfig)
+	if err != nil {
+		if s.Helix != nil {
+			cleanupCtx, cancel := cleanupContext(ctx)
+			cleanupErr := s.Helix.DeleteApp(cleanupCtx, createdAgent.LegacyAppID)
+			cancel()
+			if cleanupErr != nil && !errors.Is(cleanupErr, helix.ErrProjectNotFound) {
+				return fmt.Errorf("link agent app: %v; delete unlinked agent app %s: %w", err, createdAgent.LegacyAppID, cleanupErr)
 			}
-			continue
+		}
+		return fmt.Errorf("link agent app: %w", err)
+	}
+	if !claimed && s.Helix != nil {
+		cleanupCtx, cancel := cleanupContext(ctx)
+		cleanupErr := s.Helix.DeleteApp(cleanupCtx, createdAgent.LegacyAppID)
+		cancel()
+		if cleanupErr != nil && !errors.Is(cleanupErr, helix.ErrProjectNotFound) {
+			return fmt.Errorf("discard losing agent app %s: %w", createdAgent.LegacyAppID, cleanupErr)
 		}
 	}
 	return nil

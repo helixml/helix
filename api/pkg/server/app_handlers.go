@@ -1300,8 +1300,7 @@ func (s *HelixAPIServer) syncOrgAgentProjectCodeAgentConfig(ctx context.Context,
 		if reflect.DeepEqual(linkedNode.CodeAgentConfig, &nodeConfig) {
 			return nil
 		}
-		updatedNode := linkedNode.WithCodeAgentConfig(&nodeConfig).WithUpdatedAt(time.Now().UTC())
-		if err := s.helixOrg.store.Nodes.Update(ctx, updatedNode); err != nil {
+		if err := s.helixOrg.store.Nodes.UpdateCodeAgentConfig(ctx, app.OrganizationID, linkedNode.ID, &nodeConfig, time.Now().UTC()); err != nil {
 			if linked != nil {
 				linked.CodeAgentConfig = previousProjectConfig
 				if rollbackErr := s.Store.UpdateProject(context.WithoutCancel(ctx), linked); rollbackErr != nil {

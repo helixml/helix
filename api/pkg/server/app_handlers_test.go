@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -32,6 +33,15 @@ type stateLinkedDeleteRuntime struct {
 }
 
 type missingRuntimeState struct{}
+
+type failingCodeAgentConfigNodes struct {
+	orgstore.Nodes
+	err error
+}
+
+func (n failingCodeAgentConfigNodes) UpdateCodeAgentConfig(context.Context, string, orgchart.NodeID, *types.CodeAgentExecutionConfig, time.Time) error {
+	return n.err
+}
 
 func (missingRuntimeState) Get(context.Context, string, orgchart.NodeID, string) (map[string]string, error) {
 	return nil, orgstore.ErrNotFound
@@ -327,6 +337,67 @@ func TestUpdateAppSyncsLinkedOrgProjectCodeAgentConfig(t *testing.T) {
 	require.Equal(t, "provider-qwen", storedNode.CodeAgentConfig.ProviderRef)
 	require.Equal(t, "qwen3.8-27b", storedNode.CodeAgentConfig.Model)
 	require.Equal(t, "flex", storedNode.CodeAgentConfig.ServiceTier)
+}
+
+func TestSyncOrgBotConfigRestoresProjectWhenBotWriteFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+	node, err := orgchart.NewNode("b-engineer", "Build", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	node = node.WithAgentID("app-engineer").WithCodeAgentConfig(&types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeClaudeCode,
+		Model:   "claude-opus-5",
+	})
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), node))
+	copyStore := *orgStore
+	copyStore.Nodes = failingCodeAgentConfigNodes{Nodes: orgStore.Nodes, err: errors.New("bot write failed")}
+
+	app := &types.App{
+		ID: "app-engineer", OrganizationID: "org-test", AgentKind: types.AgentKindOrg,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription, Model: "gpt-5.6",
+		}}}},
+	}
+	previous := &types.CodeAgentExecutionConfig{Runtime: types.CodeAgentRuntimeClaudeCode, Model: "claude-opus-5"}
+	project := &types.Project{ID: "project-engineer", OrganizationID: "org-test", DefaultHelixAppID: app.ID, CodeAgentConfig: previous}
+	helixStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{OrganizationID: "org-test"}).Return([]*types.Project{project}, nil)
+	gomock.InOrder(
+		helixStore.EXPECT().UpdateProject(gomock.Any(), project).DoAndReturn(func(_ context.Context, updated *types.Project) error {
+			require.Equal(t, "gpt-5.6", updated.CodeAgentConfig.Model)
+			return nil
+		}),
+		helixStore.EXPECT().UpdateProject(gomock.Any(), project).DoAndReturn(func(_ context.Context, restored *types.Project) error {
+			require.Same(t, previous, restored.CodeAgentConfig)
+			return nil
+		}),
+	)
+	server := &HelixAPIServer{Store: helixStore, helixOrg: &helixOrgHandlers{store: &copyStore}}
+
+	err = server.syncOrgAgentProjectCodeAgentConfig(context.Background(), app)
+
+	require.ErrorContains(t, err, "bot write failed")
+	require.Same(t, previous, project.CodeAgentConfig)
+}
+
+func TestSyncOrgBotConfigRejectsMultipleLinkedBots(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	orgStore := orgmemory.New()
+	for _, id := range []orgchart.NodeID{"b-one", "b-two"} {
+		node, err := orgchart.NewNode(id, "Build", nil, time.Now().UTC(), "org-test")
+		require.NoError(t, err)
+		require.NoError(t, orgStore.Nodes.Create(context.Background(), node.WithAgentID("app-shared")))
+	}
+	server := &HelixAPIServer{
+		Store:    store.NewMockStore(ctrl),
+		helixOrg: &helixOrgHandlers{store: orgStore},
+	}
+	app := &types.App{ID: "app-shared", OrganizationID: "org-test", AgentKind: types.AgentKindOrg}
+
+	err := server.syncOrgAgentProjectCodeAgentConfig(context.Background(), app)
+
+	require.ErrorContains(t, err, "linked to more than one Org Bot")
 }
 
 func TestUpdateAppRejectsMultipleLinkedOrgProjectsAndRestoresApp(t *testing.T) {

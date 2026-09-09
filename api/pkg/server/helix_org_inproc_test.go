@@ -15,7 +15,9 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -372,6 +374,43 @@ func TestInProcClient_DeferredDefaultsApplyOnlyToUntouchedScaffold(t *testing.T)
 	require.NoError(t, client.ApplyAgentDefaults(ctx, app.ID, defaults))
 	require.Equal(t, types.CodeAgentRuntimeCodexCLI, app.Config.Helix.Assistants[0].CodeAgentRuntime)
 	require.Equal(t, "user-selected", app.Config.Helix.Assistants[0].Model)
+}
+
+func TestInProcClient_ApplyAgentDefaultsSyncsOrgBotConfig(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := helixstore.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+	ctx := context.Background()
+	app := &types.App{
+		ID: "app-deferred", OrganizationID: "org-test", AgentKind: types.AgentKindOrg,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			Name: "Bot", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime: types.CodeAgentRuntimeZedAgent, ReasoningEffort: types.ReasoningEffortNone,
+		}}}},
+	}
+	node, err := orgchart.NewNode("b-bot", "Build", nil, time.Now().UTC(), app.OrganizationID)
+	require.NoError(t, err)
+	require.NoError(t, orgStore.Nodes.Create(ctx, node.WithAgentID(app.ID)))
+	helixStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+	helixStore.EXPECT().UpdateApp(gomock.Any(), app).Return(app, nil)
+	helixStore.EXPECT().ListProjects(gomock.Any(), &helixstore.ListProjectsQuery{OrganizationID: app.OrganizationID}).Return(nil, nil)
+	client := NewInProcHelixClient(&HelixAPIServer{
+		Store:    helixStore,
+		helixOrg: &helixOrgHandlers{store: orgStore},
+	})
+	defaults := types.AssistantConfig{
+		CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+		CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+		Provider:                "openai",
+		Model:                   "gpt-5.6",
+		ReasoningEffort:         "high",
+	}
+
+	require.NoError(t, client.ApplyAgentDefaults(ctx, app.ID, defaults))
+	stored, err := orgStore.Nodes.Get(ctx, app.OrganizationID, node.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.CodeAgentRuntimeCodexCLI, stored.CodeAgentConfig.Runtime)
+	require.Equal(t, "gpt-5.6", stored.CodeAgentConfig.Model)
 }
 
 func TestInProcClient_DeleteProjectNormalizesGormNotFound(t *testing.T) {
