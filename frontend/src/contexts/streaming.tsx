@@ -18,6 +18,9 @@ import {
   IAgentType,
 } from "../types";
 import { applyPatch, hasPatchGap } from "../utils/patchUtils";
+
+/** An embedded agent can signal its host; a top-level one has nobody to tell. */
+const isInIframe = typeof window !== "undefined" && window.parent !== window;
 import { TypesInteraction, TypesInteractionState, TypesMessage, TypesSession } from "../api/api";
 import { ResponseEntry } from "../components/session/InteractionInference";
 import {
@@ -560,6 +563,32 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
             });
             return;
           }
+          // Tell an embedding page when the agent finishes a tool call.
+          //
+          // An embedded agent cannot render into its host — it is cross-origin —
+          // so a host that wants to show the RESULT of a tool call (job cards, a
+          // chart, anything) has no way to know one happened. This is the signal.
+          //
+          // It carries the tool NAME and STATUS only, never the result. The host
+          // fetches its own data from its own API; nothing here is a channel for
+          // data the host would then have to trust. `"*"` as the target origin is
+          // safe for the same reason — there is nothing sensitive in the message.
+          if (isInIframe) {
+            for (const ep of entryPatches) {
+              if (ep.type === "tool_call" && ep.tool_name && ep.tool_status) {
+                window.parent.postMessage(
+                  {
+                    type: "helix-agent-tool",
+                    tool: ep.tool_name,
+                    status: ep.tool_status,
+                    session_id: currentSessionId,
+                  },
+                  "*",
+                );
+              }
+            }
+          }
+
           // Apply each entry patch
           for (const ep of entryPatches) {
             if (ep.index < currentEntries.length) {
