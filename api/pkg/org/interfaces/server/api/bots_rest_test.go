@@ -202,6 +202,59 @@ func TestRESTBotListFallsBackOnOperationalAppReadFailure(t *testing.T) {
 	}
 }
 
+// An unreadable legacy App must not blank out the execution config: the
+// Bot owns it, so list and detail both have to serve the Bot's own
+// CodeAgentConfig rather than empty runtime/model fields.
+func TestRESTBotServesBotOwnedExecutionConfigWhenAppReadFails(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	bot, err := orgchart.NewNode("b-agent", "Fallback", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot = bot.WithAgentID("app-agent").WithCodeAgentConfig(&types.CodeAgentExecutionConfig{
+		Runtime:         types.CodeAgentRuntimeClaudeCode,
+		CredentialType:  types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:     "anthropic",
+		Model:           "claude-opus-5",
+		ReasoningEffort: "high",
+	})
+	if err := st.Nodes.Create(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+	deps.AgentReader = failingAgentReader{}
+	handler := orgapi.Handler(deps)
+
+	assertConfig := func(t *testing.T, what string, dto orgapi.BotDTO) {
+		t.Helper()
+		if dto.CodeAgentRuntime != types.CodeAgentRuntimeClaudeCode ||
+			dto.CodeAgentCredentialType != types.CodeAgentCredentialTypeAPIKey ||
+			dto.Provider != "anthropic" || dto.Model != "claude-opus-5" || dto.ReasoningEffort != "high" {
+			t.Fatalf("%s Bot-owned execution config = %+v", what, dto)
+		}
+	}
+
+	rec := do(t, handler, http.MethodGet, "/bots", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200; body=%s", rec.Code, rec.Body)
+	}
+	var list []orgapi.BotDTO
+	decode(t, rec, &list)
+	if len(list) != 1 {
+		t.Fatalf("bots = %+v", list)
+	}
+	assertConfig(t, "list", list[0])
+
+	// getBot used to 500 on the same failure the list tolerated.
+	rec = do(t, handler, http.MethodGet, "/bots/b-agent", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detail status = %d, want 200; body=%s", rec.Code, rec.Body)
+	}
+	var detail orgapi.BotDetailDTO
+	decode(t, rec, &detail)
+	assertConfig(t, "detail", detail.Bot)
+}
+
 func TestRESTUpdateAgentRollbackPreservesConcurrentBotMutation(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()

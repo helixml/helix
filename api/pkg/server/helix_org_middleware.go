@@ -166,18 +166,29 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org role reconcile failed")
 		}
 
+		// Seed the org's Chief of Staff and converge the Bot→App
+		// links. Best-effort like the reconciles above: an org missing
+		// its Chief of Staff is degraded, but failing the request
+		// would 500 every /orgs/{org}/… route — including the Settings
+		// page needed to fix a bad default agent config, and the public
+		// webhook handlers. The org stays un-bootstrapped so the next
+		// request retries.
+		botBootstrapFailed := false
 		if s.botBootstrap != nil {
 			if err := s.botBootstrap(ctx, orgID); err != nil {
-				return nil, fmt.Errorf("bootstrap helix-org Bots: %w", err)
+				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org Bot bootstrap failed")
+				botBootstrapFailed = true
 			}
 		}
 
 		// Mirror pre-existing workers (once per org per process).
 		s.mirror.EnsureAll(ctx, orgID)
 
-		s.mu.Lock()
-		s.bootstrapped[orgID] = true
-		s.mu.Unlock()
+		if !botBootstrapFailed {
+			s.mu.Lock()
+			s.bootstrapped[orgID] = true
+			s.mu.Unlock()
+		}
 		return nil, nil
 	})
 	return err

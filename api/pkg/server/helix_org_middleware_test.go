@@ -507,7 +507,7 @@ func TestEnsureBootstrapRetriesAfterServiceKeyFailure(t *testing.T) {
 	}
 }
 
-func TestEnsureBootstrapRetriesAfterBotBootstrapFailure(t *testing.T) {
+func TestEnsureBootstrapStaysUsableAfterBotBootstrapFailure(t *testing.T) {
 	t.Parallel()
 	orgStore := orgmemory.New()
 	configs := configregistry.New(orgStore.Configs)
@@ -520,8 +520,8 @@ func TestEnsureBootstrapRetriesAfterBotBootstrapFailure(t *testing.T) {
 	}
 
 	for range 2 {
-		if err := scope.ensureBootstrap(context.Background(), "org-retry"); err == nil {
-			t.Fatal("ensureBootstrap should fail while Bot bootstrap fails")
+		if err := scope.ensureBootstrap(context.Background(), "org-retry"); err != nil {
+			t.Fatalf("a failed Bot bootstrap must not fail the request: %v", err)
 		}
 	}
 	if attempts != 2 {

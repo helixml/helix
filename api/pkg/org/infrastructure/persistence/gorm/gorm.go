@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -101,9 +102,6 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if err := db.AutoMigrate(orgRowTypes...); err != nil {
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
-	if err := removeLegacyHumanBots(db); err != nil {
-		return nil, fmt.Errorf("remove legacy human bots: %w", err)
-	}
 	if err := migrateProcessorOutputIDs(db); err != nil {
 		return nil, fmt.Errorf("migrate processor output ids: %w", err)
 	}
@@ -140,6 +138,16 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	}
 	if err := installWorkerSecretConstraints(db); err != nil {
 		return nil, fmt.Errorf("install worker secret constraints: %w", err)
+	}
+
+	// Drop the legacy human placeholder rows only once the ON DELETE
+	// CASCADE FKs above exist, so the DB removes their reporting lines,
+	// asset links, attachments and secret bindings with them. Deleting
+	// first on a DB that predates those constraints would orphan the
+	// child rows and the ADD CONSTRAINT statements would then fail
+	// validation, aborting startup.
+	if err := removeLegacyHumanBots(db); err != nil {
+		return nil, fmt.Errorf("remove legacy human bots: %w", err)
 	}
 	if err := installAgentAppLinks(db); err != nil {
 		return nil, fmt.Errorf("install agent app links: %w", err)
@@ -683,6 +691,18 @@ func removeLegacyHumanBots(db *gorm.DB) error {
 		return nil
 	}
 	if m.HasColumn("org_bots", "kind") {
+		// org_chart_positions has no FK back to org_bots, so its rows
+		// for the human placeholders have to go explicitly or they
+		// linger forever as canvas coordinates for nodes that no
+		// longer exist.
+		if m.HasTable("org_chart_positions") {
+			if err := db.Exec(
+				"DELETE FROM org_chart_positions WHERE kind = ? AND (org_id, id) IN (SELECT org_id, id FROM org_bots WHERE kind = ?)",
+				orgchart.ChartNodeKindBot, "human",
+			).Error; err != nil {
+				return fmt.Errorf("delete human placeholder chart positions: %w", err)
+			}
+		}
 		if err := db.Exec("DELETE FROM org_bots WHERE kind = ?", "human").Error; err != nil {
 			return fmt.Errorf("delete human placeholder rows: %w", err)
 		}

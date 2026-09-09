@@ -60,10 +60,7 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 	out := make([]BotDTO, 0, len(bs))
 	for _, b := range bs {
 		dto := botDTO(b, managersByReport[b.ID])
-		if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil {
-			log.Warn().Err(err).Str("org", orgID).Str("bot", string(b.ID)).
-				Msg("list org bots: using Bot-owned profile because the legacy App profile is unavailable")
-		}
+		a.applyCanonicalAgentProfile(ctx, b, &dto, "list org bots")
 		dto.Status = "stopped"
 		if a.deps.BotRuntime != nil {
 			if info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID); err == nil {
@@ -187,10 +184,7 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dto := botDTO(b, a.managerIDs(ctx, orgID, id))
-	if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
+	a.applyCanonicalAgentProfile(ctx, b, &dto, "get org bot")
 	// Seeded nodes carry their built-in prompt so the UI can offer a
 	// reset to it; operator-created nodes have none and the field stays
 	// empty, which is the UI's signal to hide the affordance.
@@ -350,11 +344,10 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The write already succeeded, so an unreadable App must not turn
+	// into a 500 the client reads as "the update failed".
 	dto := botDTO(updated, a.managerIDs(ctx, orgID, id))
-	if err := a.canonicalAgentProfile(ctx, updated, &dto); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
+	a.applyCanonicalAgentProfile(ctx, updated, &dto, "update org bot")
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -725,6 +718,16 @@ func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 	if b.SandboxVCPUs > 0 {
 		dto.SandboxResourceOverrides = &types.SandboxResourceOverrides{VCPUs: b.SandboxVCPUs, MemoryMB: b.SandboxMemoryMB}
 	}
+	// The Bot's own execution config is the base profile. It is what the
+	// DTO carries once the legacy App link is gone, and what the handlers
+	// serve when that App can't be read.
+	if b.CodeAgentConfig != nil {
+		dto.CodeAgentRuntime = b.CodeAgentConfig.Runtime
+		dto.CodeAgentCredentialType = b.CodeAgentConfig.CredentialType
+		dto.Provider = b.CodeAgentConfig.ProviderRef
+		dto.Model = b.CodeAgentConfig.Model
+		dto.ReasoningEffort = b.CodeAgentConfig.ReasoningEffort
+	}
 	if !b.CreatedAt.IsZero() {
 		dto.CreatedAt = b.CreatedAt.Format(time.RFC3339)
 	}
@@ -738,6 +741,19 @@ func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 	sort.Strings(tools)
 	dto.Tools = tools
 	return dto
+}
+
+// applyCanonicalAgentProfile overlays the legacy App profile onto dto
+// while a Bot still has one. A read failure is not fatal: botDTO has
+// already filled dto from the Bot's own name, instructions and
+// CodeAgentConfig, which is the source of truth after the cutover, so
+// every handler serves that rather than failing the whole request over
+// one unreadable App.
+func (a *apiHandler) applyCanonicalAgentProfile(ctx context.Context, bot orgchart.Node, dto *BotDTO, op string) {
+	if err := a.canonicalAgentProfile(ctx, bot, dto); err != nil {
+		log.Warn().Err(err).Str("org", bot.OrganizationID).Str("bot", string(bot.ID)).
+			Msg(op + ": using Bot-owned profile because the legacy App profile is unavailable")
+	}
 }
 
 func (a *apiHandler) canonicalAgentProfile(ctx context.Context, bot orgchart.Node, dto *BotDTO) error {

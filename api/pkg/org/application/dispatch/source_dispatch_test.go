@@ -1,7 +1,9 @@
 package dispatch_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -77,4 +79,47 @@ func TestRouteMissingRepository(t *testing.T) {
 	d := dispatch.New(&store.Store{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	err := d.Route(context.Background(), eventsource.Event{})
 	require.ErrorContains(t, err, "not configured")
+}
+
+// flakyNodes fails Get for one id with a non-ErrNotFound error, standing
+// in for a transient store failure.
+type flakyNodes struct {
+	store.Nodes
+	failFor orgchart.NodeID
+}
+
+func (n flakyNodes) Get(ctx context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error) {
+	if id == n.failFor {
+		return orgchart.Node{}, errors.New("connection reset")
+	}
+	return n.Nodes.Get(ctx, orgID, id)
+}
+
+// A store failure on one attachment must be logged, not swallowed, and
+// must not stop the event reaching the other attached Bots.
+func TestRouteLogsStoreFailureAndKeepsRoutingOtherTargets(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New()
+	addNode(t, ctx, st.Nodes, "org-1", "w-a")
+	addNode(t, ctx, st.Nodes, "org-1", "w-b")
+	src := eventsource.ProcessorOutput("p-1", "po-left")
+	addAttachment(t, ctx, st.WorkerAttachments, "a-1", "org-1", "w-a", src)
+	addAttachment(t, ctx, st.WorkerAttachments, "a-2", "org-1", "w-b", src)
+	addAttachment(t, ctx, st.WorkerAttachments, "a-3", "org-1", "w-missing", src)
+	st.Nodes = flakyNodes{Nodes: st.Nodes, failFor: "w-a"}
+
+	var logs bytes.Buffer
+	d := dispatch.New(st, nil, slog.New(slog.NewTextHandler(&logs, nil)))
+	q := &recordingQueue{}
+	d.RegisterActivationQueue(q)
+	e, err := eventsource.NewEvent("e-1", "org-1", src, streaming.Message{Body: "one"}, "", time.Now())
+	require.NoError(t, err)
+	require.NoError(t, d.Route(ctx, e))
+
+	require.Len(t, q.rows, 1)
+	require.Equal(t, orgchart.NodeID("w-b"), q.rows[0].worker)
+	require.Contains(t, logs.String(), "w-a")
+	require.Contains(t, logs.String(), "connection reset")
+	// A fired Bot is expected, not an anomaly — no warning for it.
+	require.NotContains(t, logs.String(), "w-missing")
 }

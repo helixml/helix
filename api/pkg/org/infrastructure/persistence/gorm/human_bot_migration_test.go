@@ -27,12 +27,22 @@ func TestRemoveLegacyHumanBots(t *testing.T) {
 	require.NoError(t, db.Exec(`INSERT INTO org_bots (id, org_id, content, kind) VALUES
 		('b-engineer', 'org-1', 'Build things', ''),
 		('h-owner', 'org-1', 'Owner', 'human')`).Error)
+	// org_chart_positions has no FK back to org_bots, so the human rows'
+	// canvas coordinates have to be removed explicitly.
+	require.NoError(t, db.AutoMigrate(&chartPositionRow{}))
+	require.NoError(t, db.Exec(`INSERT INTO org_chart_positions (org_id, kind, id, x, y, updated_at) VALUES
+		('org-1', 'bot', 'b-engineer', 1, 1, CURRENT_TIMESTAMP),
+		('org-1', 'bot', 'h-owner', 2, 2, CURRENT_TIMESTAMP),
+		('org-1', 'topic', 'h-owner', 3, 3, CURRENT_TIMESTAMP)`).Error)
 
 	require.NoError(t, removeLegacyHumanBots(db))
 
 	var ids []string
 	require.NoError(t, db.Table("org_bots").Order("id").Pluck("id", &ids).Error)
 	require.Equal(t, []string{"b-engineer"}, ids)
+	var positionIDs []string
+	require.NoError(t, db.Table("org_chart_positions").Order("kind, id").Pluck("kind || ':' || id", &positionIDs).Error)
+	require.Equal(t, []string{"bot:b-engineer", "topic:h-owner"}, positionIDs)
 	for _, column := range []string{"identity", "helix_user_id", "kind"} {
 		require.False(t, db.Migrator().HasColumn("org_bots", column), column)
 	}
