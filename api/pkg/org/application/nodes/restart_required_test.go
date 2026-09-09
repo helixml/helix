@@ -147,3 +147,42 @@ func TestUpdate_NilHookIsSafe(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+func ptrInt(i int) *int { return &i }
+
+// Sandbox runtime/size is baked into the container at create time, so a
+// change must raise the restart banner like a tool or content edit.
+func TestUpdate_FiresRestartRequiredOnSandboxConfigChange(t *testing.T) {
+	st := memory.New()
+	seed(t, st, "b-four", []tool.Name{"chat"})
+	spy := &restartSpy{}
+	svc := restartSvc(st, spy)
+
+	updated, err := svc.Update(context.Background(), org, "b-four", nodes.UpdateParams{
+		SandboxRuntime: ptrStr("headless-ubuntu"),
+		SandboxVCPUs:   ptrInt(4),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "headless-ubuntu", updated.SandboxRuntime)
+	require.Equal(t, 4, updated.SandboxVCPUs)
+	require.Equal(t, 8192, updated.SandboxMemoryMB, "memory follows the preset, never independently")
+	require.Equal(t, []orgchart.NodeID{"b-four"}, spy.calls)
+
+	// Resetting vcpus to 0 means "inherit" and clears memory with it.
+	updated, err = svc.Update(context.Background(), org, "b-four", nodes.UpdateParams{SandboxVCPUs: ptrInt(0)})
+	require.NoError(t, err)
+	require.Equal(t, 0, updated.SandboxVCPUs)
+	require.Equal(t, 0, updated.SandboxMemoryMB)
+}
+
+func TestUpdate_RejectsInvalidSandboxConfig(t *testing.T) {
+	st := memory.New()
+	seed(t, st, "b-five", []tool.Name{"chat"})
+	svc := restartSvc(st, &restartSpy{})
+
+	_, err := svc.Update(context.Background(), org, "b-five", nodes.UpdateParams{SandboxRuntime: ptrStr("windows")})
+	require.ErrorContains(t, err, "sandbox_runtime must be")
+
+	_, err = svc.Update(context.Background(), org, "b-five", nodes.UpdateParams{SandboxVCPUs: ptrInt(3)})
+	require.ErrorContains(t, err, "sandbox vcpus must be one of")
+}

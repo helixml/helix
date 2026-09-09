@@ -20,7 +20,7 @@ describe('AgentRestartRequiredBanner', () => {
     const onRestart = vi.fn()
     render(<AgentRestartRequiredBanner visible onRestart={onRestart} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /restart sandbox/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^restart$/i }))
     expect(onRestart).not.toHaveBeenCalled()
     expect(screen.getByText(/current chat history is discarded/i)).toBeInTheDocument()
   })
@@ -29,7 +29,7 @@ describe('AgentRestartRequiredBanner', () => {
     const onRestart = vi.fn()
     render(<AgentRestartRequiredBanner visible onRestart={onRestart} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /restart sandbox/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^restart$/i }))
     fireEvent.click(screen.getByTestId('agent-restart-confirm'))
     expect(onRestart).toHaveBeenCalledTimes(1)
   })
@@ -38,7 +38,7 @@ describe('AgentRestartRequiredBanner', () => {
     const onRestart = vi.fn()
     render(<AgentRestartRequiredBanner visible onRestart={onRestart} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /restart sandbox/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^restart$/i }))
     fireEvent.click(screen.getByTestId('agent-restart-cancel'))
     expect(onRestart).not.toHaveBeenCalled()
     expect(screen.getByTestId('agent-restart-required-banner')).toBeInTheDocument()
@@ -54,12 +54,12 @@ describe('AgentRestartRequiredBanner', () => {
   // Live work in progress is the one thing a restart genuinely destroys.
   it('gates the restart while the agent is mid-turn', () => {
     render(<AgentRestartRequiredBanner visible working onRestart={vi.fn()} />)
-    expect(screen.getByRole('button', { name: /restart sandbox/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^restart$/i })).toBeDisabled()
   })
 
   it('gates the restart while a lifecycle action is in flight', () => {
     render(<AgentRestartRequiredBanner visible busy onRestart={vi.fn()} />)
-    expect(screen.getByRole('button', { name: /restart sandbox/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^restart$/i })).toBeDisabled()
   })
 
   it('pins to the top of its scrolling ancestor when sticky', () => {

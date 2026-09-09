@@ -35,6 +35,9 @@ type nodeRow struct {
 	Tools           []string `gorm:"serializer:json"`
 	ProjectIDs      []string `gorm:"serializer:json"`
 	PreserveContext bool     `gorm:"not null;default:false"`
+	SandboxRuntime  string   `gorm:"not null;default:''"`
+	SandboxVCPUs    int      `gorm:"column:sandbox_vcpus;not null;default:0"`
+	SandboxMemoryMB int      `gorm:"column:sandbox_memory_mb;not null;default:0"`
 	// Kind is "" (agent) or "human". HelixUserID / Identity are only
 	// populated for human placeholder rows.
 	Kind        string            `gorm:"not null;default:'';index"`
@@ -70,6 +73,9 @@ func (nodeMapper) ToRow(node orgchart.Node) (nodeRow, error) {
 		Tools:           tools,
 		ProjectIDs:      node.ProjectIDs,
 		PreserveContext: node.PreserveContext,
+		SandboxRuntime:  node.SandboxRuntime,
+		SandboxVCPUs:    node.SandboxVCPUs,
+		SandboxMemoryMB: node.SandboxMemoryMB,
 		Kind:            node.Kind,
 		HelixUserID:     node.HelixUserID,
 		Identity:        node.Identity,
@@ -99,6 +105,9 @@ func (nodeMapper) ToDomain(row nodeRow) (orgchart.Node, error) {
 		Tools:           tools,
 		ProjectIDs:      row.ProjectIDs,
 		PreserveContext: row.PreserveContext,
+		SandboxRuntime:  row.SandboxRuntime,
+		SandboxVCPUs:    row.SandboxVCPUs,
+		SandboxMemoryMB: row.SandboxMemoryMB,
 		Kind:            row.Kind,
 		HelixUserID:     row.HelixUserID,
 		Identity:        row.Identity,
@@ -172,10 +181,16 @@ func (r *nodesRepo) Update(ctx context.Context, node orgchart.Node) error {
 			"tools":            string(toolsJSON),
 			"project_ids":      string(projectIDsJSON),
 			"preserve_context": row.PreserveContext,
-			"kind":             row.Kind,
-			"helix_user_id":    row.HelixUserID,
-			"identity":         string(identityJSON),
-			"updated_at":       row.UpdatedAt,
+			// Sandbox config columns. This map is the complete column list an
+			// Update writes; a field mapped in ToRow but missing here is
+			// silently dropped on every PATCH.
+			"sandbox_runtime":   row.SandboxRuntime,
+			"sandbox_vcpus":     row.SandboxVCPUs,
+			"sandbox_memory_mb": row.SandboxMemoryMB,
+			"kind":              row.Kind,
+			"helix_user_id":     row.HelixUserID,
+			"identity":          string(identityJSON),
+			"updated_at":        row.UpdatedAt,
 		}),
 	)
 }

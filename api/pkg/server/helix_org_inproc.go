@@ -967,6 +967,12 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 		OrgWorkerID:         params.WorkerID,
 		RuntimeInstructions: params.Instructions,
 		InteractionTrigger:  params.InteractionTrigger,
+		SessionName:         params.Name,
+		SandboxRuntime:      params.Launch.SandboxRuntime,
+		SandboxResourceOverrides: &types.SandboxResourceOverrides{
+			VCPUs:    params.Launch.SandboxResources.VCPUs,
+			MemoryMB: params.Launch.SandboxResources.MemoryMB,
+		},
 		Messages: []*types.Message{{
 			Role:    "user",
 			Content: types.MessageContent{Parts: []any{params.Prompt}},
@@ -975,12 +981,6 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 	session, err := c.server.StartExternalAgentSession(ctx, req, user.ID)
 	if err != nil {
 		return "", fmt.Errorf("start external agent session: %w", err)
-	}
-	if params.Name != "" && session.Name != params.Name {
-		session.Name = params.Name
-		if _, err := c.server.Store.UpdateSession(ctx, *session); err != nil {
-			return "", fmt.Errorf("name external agent session: %w", err)
-		}
 	}
 	return session.ID, nil
 }
@@ -1028,7 +1028,7 @@ func (c *inProcHelixClient) ClearSession(ctx context.Context, sessionID string) 
 // SyncAgentProfile refreshes the display name on every existing session and
 // the instruction files read natively by Codex and Claude on running desktops.
 // The spawner calls this before clearing the existing ACP thread.
-func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string) error {
+func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string, launch runtimehelix.SessionLaunchConfig) error {
 	if sessionID == "" {
 		return errors.New("SyncAgentProfile: sessionID is required")
 	}
@@ -1044,6 +1044,22 @@ func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, ses
 	if session.Metadata.OrgWorkerID != workerID || session.Metadata.RuntimeInstructions != instructions {
 		session.Metadata.OrgWorkerID = workerID
 		session.Metadata.RuntimeInstructions = instructions
+		changed = true
+	}
+	// The Bot's sandbox runtime/size is session state for the same reason the
+	// instructions are: every container start path rebuilds the DesktopAgent
+	// from the session, so a changed Bot config must land here before the
+	// next start — including the auto-start a queued message triggers.
+	resources := session.Metadata.SandboxResourceOverrides
+	if session.Metadata.SandboxRuntime != launch.SandboxRuntime ||
+		resources == nil ||
+		resources.VCPUs != launch.SandboxResources.VCPUs ||
+		resources.MemoryMB != launch.SandboxResources.MemoryMB {
+		session.Metadata.SandboxRuntime = launch.SandboxRuntime
+		session.Metadata.SandboxResourceOverrides = &types.SandboxResourceOverrides{
+			VCPUs:    launch.SandboxResources.VCPUs,
+			MemoryMB: launch.SandboxResources.MemoryMB,
+		}
 		changed = true
 	}
 	if session.ParentApp != "" {

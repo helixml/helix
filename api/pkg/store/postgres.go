@@ -284,6 +284,22 @@ func (s *PostgresStore) runMigrations() error {
 		}
 	}
 
+	// One-time backfill: link pre-existing session-backed sandbox rows to the
+	// helix-org bot whose session owns them. New rows get org_bot_id from the
+	// executor at BeginSession; idempotent because the WHERE excludes rows
+	// already linked.
+	if s.gdb.Migrator().HasTable(&types.Sandbox{}) && s.gdb.Migrator().HasTable(&types.Session{}) {
+		if err := s.gdb.WithContext(context.Background()).Exec(
+			`UPDATE sandboxes SET org_bot_id = s.config->>'org_worker_id'
+			 FROM sessions s
+			 WHERE sandboxes.session_id = s.id
+			   AND COALESCE(sandboxes.org_bot_id, '') = ''
+			   AND COALESCE(s.config->>'org_worker_id', '') <> ''`,
+		).Error; err != nil {
+			return fmt.Errorf("failed to backfill sandboxes.org_bot_id: %w", err)
+		}
+	}
+
 	err = s.AutoMigrateRoleConfig(context.Background())
 	if err != nil {
 		return err

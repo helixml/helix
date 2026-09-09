@@ -44,6 +44,9 @@ type StartSessionParams struct {
 	WorkerID           string
 	Instructions       string
 	InteractionTrigger string
+	// Launch is the resolved sandbox runtime + size for the worker's
+	// container, stored on the session so every launch path honours it.
+	Launch SessionLaunchConfig
 }
 
 // SpawnerClient is the chat-session surface the helix Spawner uses
@@ -74,12 +77,17 @@ type SpawnerClient interface {
 	// and its session-scoped worker identity/instructions. When the desktop is
 	// running it also refreshes the runtime-native files before a new ACP thread
 	// is created; a stopped desktop receives them from session state on restart.
-	SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string) error
+	SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string, launch SessionLaunchConfig) error
 }
 
 // checkDesktopQuota pre-flights the desktop quota gate before
-// opening a new session.
-func checkDesktopQuota(ctx context.Context, client SessionClient) error {
+// opening a new session. Headless containers are not desktops — they need
+// no display host and count against the headless cap, which the sandbox
+// meter enforces at StartDesktop — so the gate only applies to desktops.
+func checkDesktopQuota(ctx context.Context, client SessionClient, launch SessionLaunchConfig) error {
+	if launch.Headless() {
+		return nil
+	}
 	status, err := client.ServerStatus(ctx)
 	if err != nil {
 		// Server-status read failed — log via the caller and proceed.
@@ -123,6 +131,7 @@ type SendPromptParams struct {
 	WorkerID           string
 	Instructions       string
 	InteractionTrigger string
+	Launch             SessionLaunchConfig
 	OnSessionID        func(sessionID string)
 }
 
@@ -155,7 +164,7 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		return params.SessionID, false, nil
 	}
 
-	if err := checkDesktopQuota(ctx, client); err != nil {
+	if err := checkDesktopQuota(ctx, client, params.Launch); err != nil {
 		return "", false, err
 	}
 	sid, err := client.StartSession(ctx, StartSessionParams{
@@ -170,6 +179,7 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		WorkerID:           params.WorkerID,
 		Instructions:       params.Instructions,
 		InteractionTrigger: params.InteractionTrigger,
+		Launch:             params.Launch,
 	})
 	if err != nil {
 		return "", false, fmt.Errorf("start helix session: %w", err)

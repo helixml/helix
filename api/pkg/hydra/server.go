@@ -45,6 +45,9 @@ type Server struct {
 	apiProxyListener    net.Listener
 	apiProxyRetryCancel context.CancelFunc
 	apiProxyRetryDone   sync.WaitGroup
+	sshProxyListener    net.Listener
+	sshProxyRetryCancel context.CancelFunc
+	sshProxyRetryDone   sync.WaitGroup
 }
 
 // StartSandboxAPIProxy exposes the fixed Helix API upstream on the isolated
@@ -305,6 +308,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	if s.apiProxyListener != nil {
 		s.apiProxyListener.Close()
 	}
+	s.stopSandboxSSHProxy()
 
 	// Stop manager
 	if err := s.manager.Stop(ctx); err != nil {

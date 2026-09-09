@@ -1,7 +1,7 @@
 # Org agents: migrate the PoC desktop runtime onto the spec-task sandbox model
 
 **Date:** 2026-09-07
-**Status:** Proposal — nothing implemented yet
+**Status:** Implemented on branch `feature/org-agent-sandbox-runtime` (2026-09-07); see §7 for what was verified live
 **Scope:** `api/pkg/org/**`, `api/pkg/server/helix_org*.go`, `api/pkg/external-agent/hydra_executor.go`,
 `api/pkg/sandbox/controller_session.go`, `frontend/src/components/helix-org/**`, `frontend/src/pages/App.tsx`
 
@@ -421,3 +421,95 @@ change, not just the state change.
 - Task-only surfaces that have no bot equivalent: specs / design-doc review, approval
   and PR actions, attachments, clone groups, the Zed thread selector (a bot has one
   session). Multi-session bots would need the thread selector back.
+
+## 7. Implementation notes and verification (2026-09-07)
+
+Implemented as designed in §3–4, with these deviations discovered while building:
+
+- **Sandbox row naming.** `StartExternalAgentSession` named a fresh session from its
+  first prompt and the in-proc client renamed it only *after* `StartDesktop`, so the
+  sandbox row (named at `BeginSession`) carried the prompt text. `SessionChatRequest`
+  now takes an internal `SessionName`, applied before the desktop starts.
+- **Org nodes repo update map.** `nodesRepo.Update` writes an explicit column map, so
+  new Node fields silently don't persist unless added there. The gorm org tests run on
+  the in-memory store and would not have caught it; the live PATCH did.
+- **GORM naming.** `SandboxVCPUs` needs an explicit `column:sandbox_vcpus` tag; GORM's
+  default produced `sandbox_v_cpus`.
+- **Display-host check on PATCH** is not enforced (the org API adapter has no host
+  store); a desktop bot on a display-less host fails at start with hydra's placement
+  error in `sandbox_status_message` instead.
+
+Verified live in the dev stack (`unmanned-org`, bot `b-mira`):
+
+| Check | Result |
+|---|---|
+| `PATCH` invalid runtime / off-ladder vCPU | 400 with the ladder in the message |
+| `PATCH` headless / 4 vCPU → `GET` | stored + effective values; `sandbox_resource_overrides` reset to inherit with `vcpus: 0` |
+| activate stopped bot | container `headless-external-…`, `HELIX_HEADLESS=1`, `HELIX_WORKER_ID=b-mira`, 4 vCPU / 8 GB, rootless; session metadata carries runtime + resources; sandbox row `Software Engineer`, `headless-ubuntu`, `org_bot_id=b-mira`; agent turn completed |
+| stop-agent → activate (resume path) | same sandbox row reused, container headless at 4 vCPU again |
+| switch to desktop / 8 vCPU while running | `restart_required=true`; container untouched |
+| restart-agent | new session, `ubuntu-external-…` container, 8 vCPU / 16 GB, privileged; `restart_required` cleared; sandbox row `ubuntu-desktop` |
+| restart-agent after the naming fix | new sandbox row named after the bot |
+| org chat → bot session | toolbar Desktop / Browser / Diff / Files / Details, Terminal, Stop, Restart; desktop streams; Diff and Files load the workspace; Details shows sandbox status, environment, compute, sandbox/session/project links, share-preview URLs; terminal drawer opens |
+| agent settings | Environment + Compute picker with "Org default (currently …)" and Save sandbox |
+| org settings | Default sandbox panel (Helix default hints) |
+| Sandboxes list | rows show "Org agent" source linking to the bot |
+| Go | `go test ./pkg/org/... ./pkg/sandbox/ ./pkg/external-agent/` and the org/inproc/workspace server tests pass |
+| Frontend | `tsc` clean, `yarn build` passes, `vitest` for helix-org / sandboxes / app folders passes |
+
+| chat parity | the bot session page now renders `AgentChat` (the spec-task chat) instead of the legacy Session composer: sandbox file/image attachments via upload, prompt queue, plan progress, cancel, execution controls |
+| native SSH (`sandbox_ssh_access` → proxy on :2224) | fixed: `helix/sandboxes.go` opened the hydra terminal with the row id, which 404s for every session-backed row; now `HydraOpsID()`. Verified with a minted user cert: `ssh sandbox@localhost -p 2224` lands in the headless bot container (`HELIX_WORKER_ID=b-mira`, `HELIX_HEADLESS=1`) |
+| Sandboxes UI terminal on the bot's row | Terminal tab on `/orgs/…/sandboxes/<id>` opens a shell in the bot container |
+
+NOT tested: headless placement on a display-less host, quota caps, org delete sweep,
+the migration backfill on a production copy, mobile layout, and native SSH against a
+desktop bot (same docker-exec path; only the id routing differed).
+
+### 2026-09-08: "agent not starting" on chief-of-staff
+
+Not caused by this change. The bot's App was pinned to `qwen3.8-27b` on the
+`ds4-flash-node06` endpoint, which only serves `qwen3.8-flash-next`; every LLM call had
+failed for days (last completed turn 2026-08-08). OpenCode surfaces that as
+`OpenCode service failure: {"service": "session"}` and the real reason only lived in
+`llm_calls`. Two server bugs made it worse and are fixed here:
+
+- `handleThreadLoadError` discarded a thread-load error that arrived within the
+  10 s streaming-evidence window as a "rejected duplicate delivery". The send itself
+  publishes to the streaming context, so an agent that rejects the *first* delivery
+  (OpenCode with a dead persisted session) always lands inside the window, and the
+  turn stayed `waiting` forever with a connected agent that no watchdog reaps. It now
+  defers and re-examines after the window, exactly like `applyTurnError`.
+- Thread-load failures now carry the session's most recent provider error
+  (`recentProviderFailure`, shared with the turn-abort path), so the UI shows
+  "model X is not in the list of allowed models" instead of an opaque service failure.
+
+Recovery for the bot itself was config: model switched to `qwen3.8-flash-next`, then a
+bot restart to discard the OpenCode session created under the bad model. Verified: a
+manual activation completes in ~40 s with successful LLM calls.
+
+## 8. Follow-up fixes (2026-09-08)
+
+- **Agent-side SSH was unreachable.** `sandbox_ssh_access` advertised the proxy as
+  `api:2224` (inferred from `SANDBOX_API_URL`), a name that does not resolve on the
+  isolated sandbox bridge, where only `helix-api.internal` (the Hydra gateway) is
+  routable and only :18080 was forwarded. Hydra now mirrors the control plane's SSH
+  proxy on the gateway (`hydra.SandboxSSHProxyListenAddress`, a raw TCP pipe; the
+  control plane still authenticates every connection), the sandbox network policy
+  admits gateway:2224, and `ASSET_SSH_PROXY_ADDRESS` defaults to
+  `helix-api.internal:2224`. Verified from inside a desktop bot container with a
+  minted cert: `ssh sandbox@helix-api.internal -p 2224` lands in the bot's own
+  container. Existing sandboxes need the new hydra binary and a network-policy
+  re-run (or a sandbox restart) to pick up the rule.
+- **Files / Diff stayed on the start placeholder after the sandbox came up.** The
+  session page fetched the bot once; the workspace gates those surfaces on
+  `agent_status`, so it never noticed the start. The bot is now polled every 5 s
+  while the page is open.
+- **Diff base branch.** The workspace inspector sent `base=main` for every session.
+  Org agents' repos are not necessarily on main (keel is on master); `base` is now
+  omitted unless the caller knows a task branch, so the desktop resolves the
+  repository's own default.
+- **Prompt queue parity.** The org session queue now uses the same attached-header
+  chrome and rows as the spec-task composer queue, and hides prompts already handed
+  to the agent (`sending`) like the task queue does.
+- The trailing status dot on the view toolbar is gone; status lives on the Details
+  pane, which was redesigned as a stat strip plus copyable ids.

@@ -1,180 +1,174 @@
 /**
- * SessionPromptQueue - the single queue view for a session that has no spec
- * task (org-chat / bot sessions). It is session-keyed and DB-backed, so it is
- * the authoritative queue: it surfaces prompts still waiting for the agent
- * (pending/sending) AND failed prompts, including the ones auto-dispatched by
- * the org graph (enqueueAgentMessage). Spec-task pages use RobustPromptInput's
- * own backend-backed queue instead; plain sessions use this one.
+ * SessionPromptQueue - the queue panel for a session that has no spec task
+ * (org agents, project chats). Same chrome and rows as the spec-task queue
+ * inside RobustPromptInput — attached to the top of the composer — so the two
+ * surfaces read identically; only the data source differs (session-keyed
+ * prompt history via useSessionPromptQueue, which the org graph also feeds).
  *
- * Failed prompts are classified (via classifyPromptQueueEntry, shared with
- * RobustPromptInput) so a wedged/crashed agent surfaces the same Restart
- * affordance here as on spec-task pages.
+ * Failed prompts are classified with classifyPromptQueueEntry, shared with
+ * RobustPromptInput, so a wedged agent gets the same Restart affordance.
  */
 import React, { useState } from 'react'
-import { Box, Button, Chip, IconButton, Stack, Tooltip, Typography } from '@mui/material'
-import ScheduleIcon from '@mui/icons-material/Schedule'
-import RestartAltIcon from '@mui/icons-material/RestartAlt'
-import CloseIcon from '@mui/icons-material/Close'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import useApi from '../../hooks/useApi'
-import { listSessionPromptHistory } from '../../services/promptHistoryService'
-import { TypesPromptHistoryEntry } from '../../api/api'
+import { Box, Button, CircularProgress, IconButton, Tooltip, Typography } from '@mui/material'
+import { alpha } from '@mui/material/styles'
+import { CircleAlert, Hourglass, ListStart, RotateCcw, X, Zap } from 'lucide-react'
+
+import { getChatColors } from './chatStyles'
 import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
+import type { SessionPromptQueueEntry } from './useSessionPromptQueue'
 
 interface SessionPromptQueueProps {
   sessionId: string
+  entries: SessionPromptQueueEntry[]
+  onRemove: (entryId: string) => Promise<unknown>
+  onRestartAgent: () => Promise<unknown>
 }
 
-// 'pending'/'sending' are still-in-flight; 'failed' is a stalled/errored prompt
-// that needs surfacing (with Restart when the agent is wedged).
-const VISIBLE_STATUSES = new Set(['pending', 'sending', 'failed'])
+const firstLine = (content: string, maxLen = 60): string => {
+  const line = content.split('\n')[0]
+  return line.length <= maxLen ? line : `${line.substring(0, maxLen - 3)}...`
+}
 
-const SessionPromptQueue: React.FC<SessionPromptQueueProps> = ({ sessionId }) => {
-  const api = useApi()
-  const apiClient = api.getApiClient()
-  const queryClient = useQueryClient()
+const SessionPromptQueue: React.FC<SessionPromptQueueProps> = ({ entries, onRemove, onRestartAgent }) => {
   const [isRestarting, setIsRestarting] = useState(false)
-
-  const { data } = useQuery({
-    queryKey: ['session-prompt-queue', sessionId],
-    enabled: !!sessionId,
-    // Poll while open so queued items appear/clear promptly (mirrors the
-    // spec-task queue's 2s poll cadence).
-    refetchInterval: 2000,
-    queryFn: async () => listSessionPromptHistory(apiClient, sessionId),
-  })
-
-  const visible: TypesPromptHistoryEntry[] = (data?.entries || []).filter(
-    (e) => e.status && VISIBLE_STATUSES.has(e.status),
-  )
-
-  if (visible.length === 0) return null
+  if (entries.length === 0) return null
 
   const handleRestart = () => {
-    if (!apiClient || !sessionId || isRestarting) return
+    if (isRestarting) return
     setIsRestarting(true)
-    apiClient
-      .v1SessionsRestartAgentCreate(sessionId)
+    onRestartAgent()
       .catch((err: unknown) => console.error('Failed to restart agent thread:', err))
       .finally(() => setIsRestarting(false))
   }
 
-  const handleRemove = (entryId: string) => {
-    apiClient.v1PromptHistoryDelete(entryId)
-      .then(() => queryClient.invalidateQueries({ queryKey: ['session-prompt-queue', sessionId] }))
-      .catch((err: unknown) => console.warn('Failed to delete prompt from backend:', err))
-  }
-
-  const queuedCount = visible.filter((e) => e.status !== 'failed').length
-
   return (
     <Box
       sx={{
-        px: 1.5,
-        py: 1,
-        borderBottom: (theme) =>
-          `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`,
+        borderRadius: '20px 20px 0 0',
+        border: '1px solid',
+        borderBottom: 0,
+        borderColor: (theme) => getChatColors(theme).border,
+        bgcolor: (theme) => getChatColors(theme).composerSurface,
+        overflow: 'hidden',
       }}
     >
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
-        <ScheduleIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-        <Typography variant="caption" color="text.secondary">
-          {queuedCount > 0
-            ? `${queuedCount} queued — delivered when the agent is idle`
-            : 'Prompt queue'}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.75,
+          px: 2,
+          pt: 1.25,
+          pb: 0.75,
+          color: (theme) => getChatColors(theme).subtle,
+          borderBottom: '1px solid',
+          borderColor: (theme) => getChatColors(theme).border,
+        }}
+      >
+        <ListStart size={14} />
+        <Typography variant="caption" sx={{ flex: 1, fontWeight: 500, letterSpacing: '0.01em' }}>
+          {`${entries.length} queued`}
         </Typography>
-      </Stack>
-      <Stack spacing={0.5}>
-        {visible.map((e) => {
-          const entryID = e.id
+      </Box>
+      <Box sx={{ maxHeight: 200, overflowY: 'auto' }}>
+        {entries.map((entry, index) => {
           const status = classifyPromptQueueEntry({
-            status: e.status,
-            errorMessage: e.error_message,
-            nextRetryAtMs: e.next_retry_at ? Date.parse(e.next_retry_at) : undefined,
-            retryCount: e.retry_count,
+            status: entry.status,
+            errorMessage: entry.error_message,
+            nextRetryAtMs: entry.next_retry_at ? Date.parse(entry.next_retry_at) : undefined,
+            retryCount: entry.retry_count,
           })
           const isFailed = status.isFailed
+          const isTransient = status.isTransientFailure && !status.showRestart
           return (
-            <Stack key={e.id} spacing={0.5}>
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <Chip
-                  label={e.status}
-                  size="small"
-                  sx={{ height: 18, fontSize: '0.65rem' }}
-                  color={
-                    isFailed
-                      ? status.showRestart
-                        ? 'error'
-                        : 'warning'
-                      : e.status === 'sending'
-                        ? 'primary'
-                        : 'default'
-                  }
-                />
-                {e.interrupt ? (
-                  <Chip
-                    label="interrupt"
-                    size="small"
-                    color="warning"
-                    sx={{ height: 18, fontSize: '0.65rem' }}
-                  />
-                ) : null}
+            <Box
+              key={entry.id}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.75,
+                px: 1.5,
+                py: 0.75,
+                borderBottom: index < entries.length - 1 ? '1px solid' : 'none',
+                borderColor: (theme) => getChatColors(theme).border,
+                bgcolor: isFailed
+                  ? (theme) => alpha(isTransient ? theme.palette.warning.main : theme.palette.error.main, 0.08)
+                  : 'transparent',
+                '&:hover': { bgcolor: (theme) => alpha(theme.palette.text.primary, 0.025) },
+              }}
+            >
+              {isFailed ? (
+                <CircleAlert size={16} style={{ flexShrink: 0, marginLeft: 20 }} />
+              ) : (
+                <Hourglass size={14} style={{ flexShrink: 0, marginLeft: 22, opacity: 0.58 }} />
+              )}
+              <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography
                   variant="body2"
-                  color="text.secondary"
-                  sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  sx={{
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    color: isFailed
+                      ? (isTransient ? 'warning.main' : 'error.main')
+                      : (theme) => getChatColors(theme).assistantForeground,
+                  }}
                 >
-                  {e.content}
+                  {firstLine(entry.content || '')}
                 </Typography>
-                {entryID && (
-                  <Tooltip title="Remove from queue">
-                    <IconButton
-                      size="small"
-                      aria-label="Remove from queue"
-                      onClick={() => handleRemove(entryID)}
-                      sx={{ p: 0.5, flexShrink: 0 }}
-                    >
-                      <CloseIcon sx={{ fontSize: 16 }} />
-                    </IconButton>
-                  </Tooltip>
-                )}
-              </Stack>
-              {isFailed && (
-                <Stack direction="row" alignItems="center" spacing={1} sx={{ pl: 0.5 }}>
+                {isFailed && (
                   <Typography
                     variant="caption"
                     sx={{
+                      display: 'block',
                       color: status.showRestart ? 'error.main' : 'warning.main',
                       fontWeight: status.showRestart ? 600 : 'inherit',
                     }}
                   >
                     {status.isCrashed
-                      ? 'The assistant stopped unexpectedly. Click Restart to recover.'
+                      ? 'The assistant stopped unexpectedly. Restart to recover.'
                       : status.isStuckTransient
-                        ? "The assistant isn't responding. Click Restart to recover."
+                        ? "The assistant isn't responding. Restart to recover."
                         : status.isTransientFailure
                           ? 'Waiting for the assistant — retrying…'
                           : 'This message failed to send.'}
                   </Typography>
-                  {status.showRestart && (
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      color="error"
-                      startIcon={<RestartAltIcon sx={{ fontSize: 16 }} />}
-                      disabled={isRestarting}
-                      onClick={handleRestart}
-                      sx={{ py: 0, minHeight: 24, fontSize: '0.7rem', textTransform: 'none' }}
-                    >
-                      {isRestarting ? 'Restarting…' : 'Restart'}
-                    </Button>
-                  )}
-                </Stack>
+                )}
+              </Box>
+              {entry.interrupt && (
+                <Tooltip title="Interrupts the current turn">
+                  <Zap size={13} style={{ flexShrink: 0, opacity: 0.7 }} />
+                </Tooltip>
               )}
-            </Stack>
+              {status.showRestart && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  startIcon={isRestarting ? <CircularProgress size={12} color="inherit" /> : <RotateCcw size={14} />}
+                  disabled={isRestarting}
+                  onClick={handleRestart}
+                  sx={{ py: 0, minHeight: 24, fontSize: '0.7rem', textTransform: 'none', flexShrink: 0 }}
+                >
+                  {isRestarting ? 'Restarting…' : 'Restart'}
+                </Button>
+              )}
+              <Tooltip title="Remove from queue">
+                <IconButton
+                  size="small"
+                  aria-label="Remove from queue"
+                  onClick={() => {
+                    onRemove(entry.id).catch((err: unknown) => console.warn('Failed to delete prompt from backend:', err))
+                  }}
+                  sx={{ p: 0.5, flexShrink: 0, color: 'text.secondary' }}
+                >
+                  <X size={14} />
+                </IconButton>
+              </Tooltip>
+            </Box>
           )
         })}
-      </Stack>
+      </Box>
     </Box>
   )
 }

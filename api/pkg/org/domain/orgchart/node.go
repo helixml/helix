@@ -77,6 +77,16 @@ type Node struct {
 	// Slack), at the cost of the session growing toward the model's
 	// context limit. See infrastructure/runtime/helix/spawner.go.
 	PreserveContext bool
+	// SandboxRuntime is the container runtime the Node's session is launched
+	// with: "" (inherit the org default, then the global default),
+	// "ubuntu-desktop" or "headless-ubuntu" — the same vocabulary spec tasks
+	// use. SandboxVCPUs/SandboxMemoryMB are the size preset; 0 inherits. The
+	// runtime spawner resolves the effective values on every activation and
+	// stamps them on the session, so a change here takes effect on the next
+	// container start (restart-agent), never on a live container.
+	SandboxRuntime  string
+	SandboxVCPUs    int
+	SandboxMemoryMB int
 	// Kind is "" (agent, the default) or NodeKindHuman. A human Node is
 	// never spawned — the dispatcher delivers to it instead of activating.
 	Kind NodeKind
@@ -163,6 +173,20 @@ func (n Node) WithUpdatedAt(t time.Time) Node {
 // replaced.
 func (n Node) WithPreserveContext(preserve bool) Node {
 	n.PreserveContext = preserve
+	return n
+}
+
+// WithSandboxRuntime returns a copy of the Node with SandboxRuntime replaced.
+func (n Node) WithSandboxRuntime(runtime string) Node {
+	n.SandboxRuntime = runtime
+	return n
+}
+
+// WithSandboxResources returns a copy of the Node with its sandbox size
+// preset replaced. (0, 0) means inherit.
+func (n Node) WithSandboxResources(vcpus, memoryMB int) Node {
+	n.SandboxVCPUs = vcpus
+	n.SandboxMemoryMB = memoryMB
 	return n
 }
 

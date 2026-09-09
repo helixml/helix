@@ -51,6 +51,10 @@ definitions:
           reset to. Detail-only: GET /bots/{id} populates it, the list does
           not (it would repeat kilobytes of prompt per row).
         type: string
+      effective_sandbox_resource_overrides:
+        $ref: '#/definitions/types.SandboxResourceOverrides'
+      effective_sandbox_runtime:
+        $ref: '#/definitions/types.SandboxRuntime'
       helix_user_id:
         type: string
       id:
@@ -101,6 +105,24 @@ definitions:
           the tool list and instructions from before the last save. Drives the
           restart banner on the bot page and the org chat panel.
         type: boolean
+      sandbox_id:
+        type: string
+      sandbox_resource_overrides:
+        $ref: '#/definitions/types.SandboxResourceOverrides'
+      sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          SandboxRuntime and SandboxResourceOverrides are the bot's own sandbox
+          config in the spec-task vocabulary; empty means "inherit the org
+          default". The Effective* fields are what the next container start will
+          actually use once org and global defaults are applied. SandboxID /
+          SandboxStatus come from the session-backed sandboxes row, when one
+          exists (pending, running, stopping, stopped, failed).
+      sandbox_status:
+        type: string
+      sandbox_status_message:
+        type: string
       session_id:
         type: string
       tools:
@@ -252,6 +274,10 @@ definitions:
           reset to. Detail-only: GET /bots/{id} populates it, the list does
           not (it would repeat kilobytes of prompt per row).
         type: string
+      effective_sandbox_resource_overrides:
+        $ref: '#/definitions/types.SandboxResourceOverrides'
+      effective_sandbox_runtime:
+        $ref: '#/definitions/types.SandboxRuntime'
       helix_user_id:
         type: string
       id:
@@ -308,6 +334,24 @@ definitions:
           the tool list and instructions from before the last save. Drives the
           restart banner on the bot page and the org chat panel.
         type: boolean
+      sandbox_id:
+        type: string
+      sandbox_resource_overrides:
+        $ref: '#/definitions/types.SandboxResourceOverrides'
+      sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          SandboxRuntime and SandboxResourceOverrides are the bot's own sandbox
+          config in the spec-task vocabulary; empty means "inherit the org
+          default". The Effective* fields are what the next container start will
+          actually use once org and global defaults are applied. SandboxID /
+          SandboxStatus come from the session-backed sandboxes row, when one
+          exists (pending, running, stopping, stopped, failed).
+      sandbox_status:
+        type: string
+      sandbox_status_message:
+        type: string
       session_id:
         type: string
       tools:
@@ -395,6 +439,14 @@ definitions:
         type: string
       reasoning_effort:
         type: string
+      sandbox_resource_overrides:
+        $ref: '#/definitions/types.SandboxResourceOverrides'
+      sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          SandboxRuntime / SandboxResourceOverrides are optional; see BotDTO.
+          Only vcpus is read from the overrides — memory follows the preset.
       tools:
         items:
           type: string
@@ -821,6 +873,16 @@ definitions:
         type: string
       reasoning_effort:
         type: string
+      sandbox_resource_overrides:
+        $ref: '#/definitions/types.SandboxResourceOverrides'
+      sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          SandboxRuntime / SandboxResourceOverrides patch the bot's sandbox
+          config. A present-but-empty runtime, or vcpus=0, resets that field to
+          inherit. Takes effect on the next container start; a running sandbox
+          gets restart_required.
       tools:
         items:
           type: string
@@ -3607,24 +3669,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - email
-    - local
-    - cron
     - webhook
-    - github
-    - gitlab
     - helix_events
+    - local
+    - github
     - slack
+    - gitlab
+    - email
+    - cron
     type: string
     x-enum-varnames:
-    - KindEmail
-    - KindLocal
-    - KindCron
     - KindWebhook
-    - KindGitHub
-    - KindGitLab
     - KindHelixEvents
+    - KindLocal
+    - KindGitHub
     - KindSlack
+    - KindGitLab
+    - KindEmail
+    - KindCron
   transport.ResolvedActivation:
     properties:
       address:
@@ -9748,6 +9810,12 @@ definitions:
         type: integer
       name:
         type: string
+      org_bot_id:
+        description: |-
+          OrgBotID is the helix-org bot whose session owns this container, when
+          there is one. Denormalised from the session (org_worker_id) so the bot
+          detail and the Sandboxes list can link both ways without joining sessions.
+        type: string
       organization_id:
         type: string
       owner:
@@ -10820,6 +10888,18 @@ definitions:
         type: string
       runtime_instructions:
         type: string
+      sandbox_resource_overrides:
+        $ref: '#/definitions/types.SandboxResourceOverrides'
+      sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          SandboxRuntime and SandboxResourceOverrides are the container runtime and
+          size for an org-worker session. The org spawner writes them from the Bot
+          on every activation and StartDesktop reads them on every launch path
+          (fresh start, message auto-start, resume, auto-wake, reconciler), so a
+          headless bot never comes back as a desktop. SpecTask sessions leave both
+          empty — the task is authoritative there, as with CodeAgentConfig.
       session_rag_results:
         items:
           $ref: '#/definitions/types.SessionRAGResult'

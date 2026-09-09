@@ -596,13 +596,23 @@ func TestInProcSpawnerClient_SyncAgentProfileRenamesStoppedSession(t *testing.T)
 	_, err := store.CreateSession(ctx, types.Session{ID: "ses_profile", Name: "You are Bot old"})
 	require.NoError(t, err)
 
-	err = client.SyncAgentProfile(ctx, "ses_profile", "Build Engineer", "w-build", "instructions")
+	launch := runtimehelix.SessionLaunchConfig{
+		SandboxRuntime:   types.SandboxRuntimeHeadlessUbuntu,
+		SandboxResources: types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192},
+	}
+	err = client.SyncAgentProfile(ctx, "ses_profile", "Build Engineer", "w-build", "instructions", launch)
 	require.ErrorContains(t, err, "external agent executor is not configured")
 
 	got, err := store.GetSession(ctx, "ses_profile")
 	require.NoError(t, err)
 	require.Equal(t, "Build Engineer", got.Name)
 	require.Equal(t, "w-build", got.Metadata.OrgWorkerID)
+	// The Bot's sandbox config must land on the session so the next
+	// container start (any path) launches headless at the chosen preset.
+	require.Equal(t, types.SandboxRuntimeHeadlessUbuntu, got.Metadata.SandboxRuntime)
+	require.NotNil(t, got.Metadata.SandboxResourceOverrides)
+	require.Equal(t, 4, got.Metadata.SandboxResourceOverrides.VCPUs)
+	require.Equal(t, 8192, got.Metadata.SandboxResourceOverrides.MemoryMB)
 	require.Equal(t, "instructions", got.Metadata.RuntimeInstructions)
 }
 

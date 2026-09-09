@@ -71,6 +71,19 @@ type BotDTO struct {
 	// the tool list and instructions from before the last save. Drives the
 	// restart banner on the bot page and the org chat panel.
 	RestartRequired bool `json:"restart_required,omitempty"`
+	// SandboxRuntime and SandboxResourceOverrides are the bot's own sandbox
+	// config in the spec-task vocabulary; empty means "inherit the org
+	// default". The Effective* fields are what the next container start will
+	// actually use once org and global defaults are applied. SandboxID /
+	// SandboxStatus come from the session-backed sandboxes row, when one
+	// exists (pending, running, stopping, stopped, failed).
+	SandboxRuntime                    types.SandboxRuntime            `json:"sandbox_runtime,omitempty"`
+	SandboxResourceOverrides          *types.SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+	EffectiveSandboxRuntime           types.SandboxRuntime            `json:"effective_sandbox_runtime,omitempty"`
+	EffectiveSandboxResourceOverrides *types.SandboxResourceOverrides `json:"effective_sandbox_resource_overrides,omitempty"`
+	SandboxID                         string                          `json:"sandbox_id,omitempty"`
+	SandboxStatus                     string                          `json:"sandbox_status,omitempty"`
+	SandboxStatusMessage              string                          `json:"sandbox_status_message,omitempty"`
 	// ProjectID is the bot's own Helix project — the one whose exploratory
 	// session is the bot's chat. SessionID is that session, when the bot
 	// has been activated. Both come from runtime state and let the chat
@@ -191,17 +204,21 @@ type CreateBotRequest struct {
 	ID string `json:"id,omitempty"`
 	// Name is the human-readable display label (e.g. "Chief of Staff").
 	// Optional; the ID stays the immutable handle.
-	Name                    string                        `json:"name,omitempty"`
-	Content                 string                        `json:"content"`
-	Tools                   []string                      `json:"tools,omitempty"`
-	Triggers                []string                      `json:"triggers,omitempty"`
-	ParentID                string                        `json:"parent_id,omitempty"`
-	PreserveContext         bool                          `json:"preserve_context,omitempty"`
-	CodeAgentRuntime        types.CodeAgentRuntime        `json:"code_agent_runtime,omitempty"`
-	CodeAgentCredentialType types.CodeAgentCredentialType `json:"code_agent_credential_type,omitempty"`
-	Provider                string                        `json:"provider,omitempty"`
-	Model                   string                        `json:"model,omitempty"`
-	ReasoningEffort         string                        `json:"reasoning_effort,omitempty"`
+	Name            string   `json:"name,omitempty"`
+	Content         string   `json:"content"`
+	Tools           []string `json:"tools,omitempty"`
+	Triggers        []string `json:"triggers,omitempty"`
+	ParentID        string   `json:"parent_id,omitempty"`
+	PreserveContext bool     `json:"preserve_context,omitempty"`
+	// SandboxRuntime / SandboxResourceOverrides are optional; see BotDTO.
+	// Only vcpus is read from the overrides — memory follows the preset.
+	SandboxRuntime           types.SandboxRuntime            `json:"sandbox_runtime,omitempty"`
+	SandboxResourceOverrides *types.SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+	CodeAgentRuntime         types.CodeAgentRuntime          `json:"code_agent_runtime,omitempty"`
+	CodeAgentCredentialType  types.CodeAgentCredentialType   `json:"code_agent_credential_type,omitempty"`
+	Provider                 string                          `json:"provider,omitempty"`
+	Model                    string                          `json:"model,omitempty"`
+	ReasoningEffort          string                          `json:"reasoning_effort,omitempty"`
 	// Owner makes this a manager Bot: it receives the canonical owner
 	// tool set (every org-graph mutation - create_bot, delete_bot,
 	// set_bot_content, subscribe, ... - plus the read baseline) so it can
@@ -227,6 +244,12 @@ type UpdateBotRequest struct {
 	Tools           []string `json:"tools,omitempty"`
 	ProjectIDs      []string `json:"project_ids,omitempty"`
 	PreserveContext *bool    `json:"preserve_context,omitempty"`
+	// SandboxRuntime / SandboxResourceOverrides patch the bot's sandbox
+	// config. A present-but-empty runtime, or vcpus=0, resets that field to
+	// inherit. Takes effect on the next container start; a running sandbox
+	// gets restart_required.
+	SandboxRuntime           *types.SandboxRuntime           `json:"sandbox_runtime,omitempty"`
+	SandboxResourceOverrides *types.SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
 	// Identity is the per-channel handle map for a human node (slack/github/
 	// email/…). When present it replaces the stored map; absent leaves it
 	// unchanged. Only meaningful for kind=human bots.

@@ -4279,10 +4279,15 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 				target = nil
 			}
 			if target != nil && target.State == types.InteractionStateWaiting {
-				// A delivery failure against a turn that is still producing
-				// output is proof the delivery was a duplicate, not that the
-				// turn failed. Ignore it outright (unlike an abort, it can never
-				// become true later — the turn is demonstrably reachable).
+				// A delivery failure against a turn that is still producing output
+				// is usually a rejected duplicate delivery, not a failed turn. But it
+				// is not proof: the send itself publishes to the streaming context, so
+				// an agent that rejects the very first delivery (OpenCode with a dead
+				// persisted session, for one) reports the error inside the evidence
+				// window too. Discarding it stranded the turn in state=waiting with a
+				// connected agent, which no watchdog reaps. So defer and re-examine,
+				// exactly like applyTurnError: a live turn keeps producing content and
+				// the error is dropped; a dead one goes silent and the error lands.
 				lastPublish, streaming := apiServer.streamingEvidence(helixSessionID, target.ID)
 				if streaming && time.Since(lastPublish) < liveTurnEvidenceWindow {
 					log.Warn().
@@ -4290,82 +4295,10 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 						Str("interaction_id", target.ID).
 						Str("request_id", requestID).
 						Time("last_publish", lastPublish).
-						Msg("⏸️ [HELIX] thread_load_error names a turn that is still streaming — ignoring rejected duplicate delivery")
+						Msg("⏸️ [HELIX] thread_load_error names a turn that is still streaming — deferring; likely a rejected duplicate delivery")
+					go apiServer.reapplyThreadLoadErrorAfterSilence(helixSessionID, target.ID, acpThreadID, errorMsg)
 				} else {
-					target.State = types.InteractionStateError
-					target.Error = fmt.Sprintf("Thread load failed: %s", errorMsg)
-					target.Updated = time.Now()
-					target.Completed = time.Now()
-					apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), target)
-
-					// If this interaction came from a queue prompt that's still
-					// in 'sending' state (deferred MarkPromptAsSent flow), mark
-					// the prompt as failed so the user sees retry, not a
-					// stuck "queued" entry.
-					//
-					// Distinguish terminal Claude Agent crashes (process exit,
-					// "Session not found") from transient errors. For crashes,
-					// auto-retry is futile — every subsequent send hits the same
-					// dead process and rebounds. We pin next_retry_at far in the
-					// future via MarkPromptAsCrashed so the queue stops looping,
-					// and the frontend's crash detector renders a Restart button.
-					// Read the prompt_id directly from the interaction column so this
-					// works after API restart too (the in-memory map used to be the
-					// only source of this link).
-					if target.PromptID != "" {
-						failureMsg := fmt.Sprintf("Thread load failed: %s", errorMsg)
-						var markErr error
-						// A thread_load_error that RECURS is terminal: it means Zed
-						// cannot deliver the follow-up to the agent (wedged ACP thread,
-						// dead connection, …) and re-sending to the same thread can
-						// never succeed. The exact wrapper/transport wording varies
-						// ("ede_diagnostic …", "response channel cancelled", "send
-						// failed because receiver is gone", …) so we do NOT match on
-						// the string — recurrence is the signal. After a couple of
-						// normal backoff retries (acpWedgeCrashThreshold) we crash-mark
-						// the prompt (pins next_retry_at to the far-future sentinel,
-						// surfacing Restart) instead of looping forever. The first
-						// occurrence still gets normal retries in case it was a genuinely
-						// transient drain that Zed's own retry just missed.
-						recurringThreadLoadFailure := false
-						if !isAgentCrashError(errorMsg) {
-							// Only the recurrence gate needs the prior retry_count; a
-							// hard crash is terminal immediately and short-circuits.
-							if p, gErr := apiServer.Controller.Options.Store.GetPromptHistoryEntry(context.Background(), target.PromptID); gErr == nil && p != nil && p.RetryCount >= acpWedgeCrashThreshold {
-								recurringThreadLoadFailure = true
-							}
-						}
-						if isAgentCrashError(errorMsg) || recurringThreadLoadFailure {
-							log.Warn().
-								Str("prompt_id", target.PromptID).
-								Str("interaction_id", target.ID).
-								Str("acp_thread_id", acpThreadID).
-								Bool("recurring_thread_load_failure", recurringThreadLoadFailure).
-								Msg("💥 [HELIX] Agent thread terminal (hard crash or recurring thread_load_error) — marking prompt crashed (suppress auto-retry, awaits user Restart)")
-							markErr = apiServer.Controller.Options.Store.MarkPromptAsCrashed(context.Background(), target.PromptID, failureMsg)
-							// The hard-crash case already triggered auto-restart above
-							// (outside this loop, PromptID-independent). Here we also
-							// cover the RECURRING thread_load_error case — a wedged queue
-							// prompt that isn't a hard-crash marker — which only reaches
-							// terminal after retries and so always has a PromptID.
-							if recurringThreadLoadFailure && helixSession.Metadata.AutoRestartOnCrash {
-								go apiServer.maybeAutoRestartCrashedAgent(helixSessionID)
-							}
-						} else {
-							markErr = apiServer.Controller.Options.Store.MarkPromptAsFailed(context.Background(), target.PromptID, failureMsg)
-						}
-						if markErr != nil {
-							log.Error().Err(markErr).
-								Str("prompt_id", target.PromptID).
-								Str("interaction_id", target.ID).
-								Msg("Failed to mark prompt after thread load error")
-						}
-					}
-
-					log.Info().
-						Str("helix_session_id", helixSessionID).
-						Str("interaction_id", target.ID).
-						Msg("✅ [HELIX] Marked interaction as error due to thread load failure")
+					apiServer.commitThreadLoadFailure(context.Background(), helixSession, target, acpThreadID, errorMsg)
 				}
 			}
 		}
@@ -4410,13 +4343,30 @@ func (apiServer *HelixAPIServer) maybeExplainProviderFailure(ctx context.Context
 	if !strings.Contains(errorMsg, genericACPAbortMarker) || helixSessionID == "" {
 		return errorMsg
 	}
+	detail, ok := apiServer.recentProviderFailure(ctx, helixSessionID)
+	if !ok {
+		return errorMsg
+	}
+	return fmt.Sprintf("Agent turn aborted: the model provider failed and the coding agent gave up retrying. "+
+		"Last provider error: %s.", detail)
+}
+
+// recentProviderFailure returns a one-line description of the session's most
+// recent model-provider failure — "<error> (model X). N consecutive requests
+// failed" — when one happened within providerFailureLookback. Both the turn
+// abort and thread-load failure paths attach it, because the agent only ever
+// reports a generic service failure while llm_calls holds the actual reason.
+func (apiServer *HelixAPIServer) recentProviderFailure(ctx context.Context, helixSessionID string) (string, bool) {
+	if helixSessionID == "" {
+		return "", false
+	}
 	calls, _, err := apiServer.Store.ListLLMCalls(ctx, &store.ListLLMCallsQuery{
 		SessionID: helixSessionID,
 		Page:      1,
 		PerPage:   10,
 	})
 	if err != nil || len(calls) == 0 {
-		return errorMsg
+		return "", false
 	}
 	// ListLLMCalls orders by created DESC, so the first failure we meet is the
 	// most recent one.
@@ -4431,7 +4381,7 @@ func (apiServer *HelixAPIServer) maybeExplainProviderFailure(ctx context.Context
 		}
 	}
 	if failure == nil || time.Since(failure.Created) > providerFailureLookback {
-		return errorMsg
+		return "", false
 	}
 
 	// Count how many consecutive recent calls failed the same way. One failure
@@ -4450,16 +4400,13 @@ func (apiServer *HelixAPIServer) maybeExplainProviderFailure(ctx context.Context
 	if len(detail) > 300 {
 		detail = detail[:300] + "…"
 	}
-	msg := fmt.Sprintf("Agent turn aborted: the model provider failed and the coding agent gave up retrying. "+
-		"Last provider error: %s", detail)
 	if failure.Model != "" {
-		msg += fmt.Sprintf(" (model %s)", failure.Model)
+		detail += fmt.Sprintf(" (model %s)", failure.Model)
 	}
 	if attempts > 1 {
-		msg += fmt.Sprintf(". %d consecutive requests failed", attempts)
+		detail += fmt.Sprintf(". %d consecutive requests failed", attempts)
 	}
-	msg += "."
-	return msg
+	return detail, true
 }
 
 // maybeReclassifySubscriptionAuthError rewrites the generic ACP mid-turn abort
@@ -4542,6 +4489,128 @@ func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncM
 // durable ExternalAgentRequestID column — which is the whole reason that column
 // exists. Without this, an agent that keeps talking across a restart addresses
 // turns Helix can no longer name.
+// reapplyThreadLoadErrorAfterSilence re-examines a deferred thread_load_error
+// once the evidence window has passed. Fresh content means the turn outlived
+// the rejected delivery and the error is dropped; silence means the delivery
+// really failed and the turn is failed now. Mirrors reapplyTurnErrorAfterSilence.
+func (apiServer *HelixAPIServer) reapplyThreadLoadErrorAfterSilence(helixSessionID, interactionID, acpThreadID, errorMsg string) {
+	time.Sleep(liveTurnEvidenceWindow)
+
+	ctx := context.Background()
+	logger := log.With().
+		Str("helix_session_id", helixSessionID).
+		Str("interaction_id", interactionID).
+		Logger()
+
+	if lastPublish, streaming := apiServer.streamingEvidence(helixSessionID, interactionID); streaming && time.Since(lastPublish) < liveTurnEvidenceWindow {
+		logger.Info().Time("last_publish", lastPublish).Msg("✅ [HELIX] Deferred thread_load_error discarded — turn is still producing output")
+		return
+	}
+	interaction, err := apiServer.Store.GetInteraction(ctx, interactionID)
+	if err != nil || interaction == nil {
+		logger.Warn().Err(err).Msg("[HELIX] Could not reload interaction to re-apply deferred thread_load_error")
+		return
+	}
+	if interaction.State != types.InteractionStateWaiting {
+		logger.Debug().Str("state", string(interaction.State)).Msg("[HELIX] Deferred thread_load_error dropped — turn already reached a terminal state")
+		return
+	}
+	session, err := apiServer.Store.GetSession(ctx, helixSessionID)
+	if err != nil || session == nil {
+		logger.Warn().Err(err).Msg("[HELIX] Could not reload session to re-apply deferred thread_load_error")
+		return
+	}
+	logger.Warn().Str("error", errorMsg).Msg("[HELIX] Turn went silent after deferred thread_load_error — applying it now")
+	apiServer.commitThreadLoadFailure(ctx, session, interaction, acpThreadID, errorMsg)
+}
+
+// commitThreadLoadFailure fails the turn a thread_load_error names and settles
+// its queue prompt (retry, or crash-mark when the failure is terminal). The
+// message carries the most recent model-provider error for the session when
+// there is one: the agent only reports "service failure", while the reason
+// (a model the endpoint does not serve, an auth failure, a down provider) is
+// in llm_calls and is what the operator actually needs to see.
+func (apiServer *HelixAPIServer) commitThreadLoadFailure(ctx context.Context, helixSession *types.Session, target *types.Interaction, acpThreadID, errorMsg string) {
+	helixSessionID := helixSession.ID
+	if detail, ok := apiServer.recentProviderFailure(ctx, helixSessionID); ok {
+		errorMsg = fmt.Sprintf("%s. Last model provider error: %s", errorMsg, detail)
+	}
+	target.State = types.InteractionStateError
+	target.Error = fmt.Sprintf("Thread load failed: %s", errorMsg)
+	target.Updated = time.Now()
+	target.Completed = time.Now()
+	apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), target)
+
+	// If this interaction came from a queue prompt that's still
+	// in 'sending' state (deferred MarkPromptAsSent flow), mark
+	// the prompt as failed so the user sees retry, not a
+	// stuck "queued" entry.
+	//
+	// Distinguish terminal Claude Agent crashes (process exit,
+	// "Session not found") from transient errors. For crashes,
+	// auto-retry is futile — every subsequent send hits the same
+	// dead process and rebounds. We pin next_retry_at far in the
+	// future via MarkPromptAsCrashed so the queue stops looping,
+	// and the frontend's crash detector renders a Restart button.
+	// Read the prompt_id directly from the interaction column so this
+	// works after API restart too (the in-memory map used to be the
+	// only source of this link).
+	if target.PromptID != "" {
+		failureMsg := fmt.Sprintf("Thread load failed: %s", errorMsg)
+		var markErr error
+		// A thread_load_error that RECURS is terminal: it means Zed
+		// cannot deliver the follow-up to the agent (wedged ACP thread,
+		// dead connection, …) and re-sending to the same thread can
+		// never succeed. The exact wrapper/transport wording varies
+		// ("ede_diagnostic …", "response channel cancelled", "send
+		// failed because receiver is gone", …) so we do NOT match on
+		// the string — recurrence is the signal. After a couple of
+		// normal backoff retries (acpWedgeCrashThreshold) we crash-mark
+		// the prompt (pins next_retry_at to the far-future sentinel,
+		// surfacing Restart) instead of looping forever. The first
+		// occurrence still gets normal retries in case it was a genuinely
+		// transient drain that Zed's own retry just missed.
+		recurringThreadLoadFailure := false
+		if !isAgentCrashError(errorMsg) {
+			// Only the recurrence gate needs the prior retry_count; a
+			// hard crash is terminal immediately and short-circuits.
+			if p, gErr := apiServer.Controller.Options.Store.GetPromptHistoryEntry(context.Background(), target.PromptID); gErr == nil && p != nil && p.RetryCount >= acpWedgeCrashThreshold {
+				recurringThreadLoadFailure = true
+			}
+		}
+		if isAgentCrashError(errorMsg) || recurringThreadLoadFailure {
+			log.Warn().
+				Str("prompt_id", target.PromptID).
+				Str("interaction_id", target.ID).
+				Str("acp_thread_id", acpThreadID).
+				Bool("recurring_thread_load_failure", recurringThreadLoadFailure).
+				Msg("💥 [HELIX] Agent thread terminal (hard crash or recurring thread_load_error) — marking prompt crashed (suppress auto-retry, awaits user Restart)")
+			markErr = apiServer.Controller.Options.Store.MarkPromptAsCrashed(context.Background(), target.PromptID, failureMsg)
+			// The hard-crash case already triggered auto-restart above
+			// (outside this loop, PromptID-independent). Here we also
+			// cover the RECURRING thread_load_error case — a wedged queue
+			// prompt that isn't a hard-crash marker — which only reaches
+			// terminal after retries and so always has a PromptID.
+			if recurringThreadLoadFailure && helixSession.Metadata.AutoRestartOnCrash {
+				go apiServer.maybeAutoRestartCrashedAgent(helixSessionID)
+			}
+		} else {
+			markErr = apiServer.Controller.Options.Store.MarkPromptAsFailed(context.Background(), target.PromptID, failureMsg)
+		}
+		if markErr != nil {
+			log.Error().Err(markErr).
+				Str("prompt_id", target.PromptID).
+				Str("interaction_id", target.ID).
+				Msg("Failed to mark prompt after thread load error")
+		}
+	}
+
+	log.Info().
+		Str("helix_session_id", helixSessionID).
+		Str("interaction_id", target.ID).
+		Msg("✅ [HELIX] Marked interaction as error due to thread load failure")
+}
+
 func (apiServer *HelixAPIServer) interactionForRequest(ctx context.Context, requestID string) *types.Interaction {
 	if requestID == "" {
 		return nil

@@ -121,6 +121,8 @@ const HelixOrgChatPanel: FC = () => {
 
   const selectedBot = agents.find((b) => b.id === selectedBotId)
   const agentOnline = selectedBot?.agent_status === 'running'
+  const agentStarting = !agentOnline && selectedBot?.sandbox_status === 'pending'
+  const agentHeadless = selectedBot?.effective_sandbox_runtime === 'headless-ubuntu'
 
   // Project + session for the selected bot (detail endpoint carries project_id).
   const { data: botDetail, refetch: refetchBot } = useHelixOrgBot(selectedBotId || undefined, {
@@ -155,6 +157,10 @@ const HelixOrgChatPanel: FC = () => {
       .catch(() => { if (!cancelled) setChatSessionId(null) })
     return () => { cancelled = true }
   }, [projectID, selectedBotId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (agentHeadless && view === 'desktop') setView('chat')
+  }, [agentHeadless, view])
 
   useEffect(() => {
     streaming.setCurrentSessionId(chatSessionId)
@@ -232,7 +238,11 @@ const HelixOrgChatPanel: FC = () => {
 
   const busy = activateAgent.isPending || stopAgent.isPending || restartAgent.isPending
   const border = lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
-  const statusColor = agentOnline ? 'rgb(46, 160, 67)' : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
+  const statusColor = agentOnline
+    ? 'rgb(46, 160, 67)'
+    : agentStarting
+      ? 'rgb(214, 158, 46)'
+      : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
   const menuIconSx = { mr: 1, fontSize: 20 }
 
   return (
@@ -352,11 +362,12 @@ const HelixOrgChatPanel: FC = () => {
           )}
         </Stack>
         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ pl: 3.5 }}>
-          <Tooltip title={agentOnline ? 'Agent sandbox online' : 'Agent sandbox stopped'}>
+          <Tooltip title={selectedBot?.sandbox_status_message || (agentOnline ? 'Agent sandbox online' : agentStarting ? 'Agent sandbox starting' : 'Agent sandbox stopped')}>
             <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: statusColor, flexShrink: 0 }} />
           </Tooltip>
           <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
-            {agentOnline ? 'Running' : 'Stopped'}
+            {agentOnline ? 'Running' : agentStarting ? 'Starting' : selectedBot?.sandbox_status === 'failed' ? 'Failed' : 'Stopped'}
+            {agentHeadless ? ' · headless' : ''}
             {selectedBotId ? ` · ${selectedBotId}` : ''}
           </Typography>
         </Stack>
@@ -372,7 +383,7 @@ const HelixOrgChatPanel: FC = () => {
           ['chat', 'Chat'],
           ['desktop', 'Desktop'],
           ['tasks', 'Tasks'],
-        ] as const).map(([value, label]) => (
+        ] as const).filter(([value]) => value !== 'desktop' || !agentHeadless).map(([value, label]) => (
           <Button
             key={value}
             size="small"

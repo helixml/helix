@@ -15,6 +15,7 @@ import EmbeddedSessionView, { EmbeddedSessionViewHandle } from './EmbeddedSessio
 import type { ResponseEntry } from './InteractionInference'
 import { ComposerPlanProgress, planStepsFromResponseEntries } from './PlanProgress'
 import SessionPromptQueue from './SessionPromptQueue'
+import { useSessionPromptQueue } from './useSessionPromptQueue'
 import { getChatColors } from './chatStyles'
 import type { WorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
 
@@ -76,6 +77,10 @@ const AgentChat: FC<AgentChatProps> = ({
   )
   const latestInteraction = latestInteractionsResponse?.data?.interactions?.[0]
   const latestInteractionId = latestInteraction?.id || null
+  // Session-keyed queue for sessions without a spec task; the spec-task
+  // composer carries its own backend-backed queue instead.
+  const sessionQueue = useSessionPromptQueue(showSessionPromptQueue ? sessionId : '', isAgentBusy)
+  const hasSessionQueue = showSessionPromptQueue && sessionQueue.entries.length > 0
   const composerPlanSteps = isAgentBusy
     ? planStepsFromResponseEntries(latestInteraction?.response_entries as unknown as ResponseEntry[] | undefined)
     : []
@@ -155,8 +160,6 @@ const AgentChat: FC<AgentChatProps> = ({
         />
       </Box>
 
-      {showSessionPromptQueue && <SessionPromptQueue sessionId={sessionId} />}
-
       <Box
         sx={{
           flexShrink: 0,
@@ -186,6 +189,14 @@ const AgentChat: FC<AgentChatProps> = ({
                 }}
               />
             )}
+            {hasSessionQueue && (
+              <SessionPromptQueue
+                sessionId={sessionId}
+                entries={sessionQueue.entries}
+                onRemove={sessionQueue.remove}
+                onRestartAgent={sessionQueue.restartAgent}
+              />
+            )}
             <RobustPromptInput
               sessionId={sessionId}
               specTaskId={specTaskId}
@@ -208,7 +219,7 @@ const AgentChat: FC<AgentChatProps> = ({
               reviewComments={reviewComments}
               onRemoveReviewComment={onRemoveReviewComment}
               onReviewCommentsSent={onReviewCommentsSent}
-              hasAttachedHeader={showComposerPlan && composerPlanExpanded}
+              hasAttachedHeader={(showComposerPlan && composerPlanExpanded) || hasSessionQueue}
             />
           </Box>
           {footerContent && (

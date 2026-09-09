@@ -27,6 +27,11 @@ type WebSocketSyncSuite struct {
 	ctrl   *gomock.Controller
 	store  *store.MockStore
 	server *HelixAPIServer
+	// llmCalls is what ListLLMCalls returns for any session: the recent
+	// provider-failure lookup runs on every terminal turn error, and most
+	// tests want it to find nothing. Tests that assert the provider detail
+	// set it before firing the event.
+	llmCalls []*types.LLMCall
 }
 
 type recordingPubSub struct {
@@ -46,6 +51,12 @@ func TestWebSocketSyncSuite(t *testing.T) {
 func (s *WebSocketSyncSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.store = store.NewMockStore(s.ctrl)
+	s.llmCalls = nil
+	s.store.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, *store.ListLLMCallsQuery) ([]*types.LLMCall, int64, error) {
+			return s.llmCalls, int64(len(s.llmCalls)), nil
+		},
+	).AnyTimes()
 
 	// TouchSession is called as a fire-and-forget side effect in
 	// handleMessageCompleted and handleMessageAdded (user messages).
@@ -2230,6 +2241,85 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_TransientError_StillUsesMarkAsF
 	}
 	err := s.server.handleThreadLoadError("ses_transient", syncMsg)
 	s.NoError(err)
+}
+
+// A thread_load_error that lands while the turn shows fresh streaming evidence
+// must be deferred, not discarded: the send itself publishes to the streaming
+// context, so an agent that rejects the very first delivery (a dead persisted
+// OpenCode session, for one) reports inside the evidence window too. Dropping
+// it stranded the turn in state=waiting with a connected agent.
+func (s *WebSocketSyncSuite) TestThreadLoadError_StreamingEvidence_DefersInsteadOfDiscarding() {
+	s.server.contextMappings["thread-live"] = "ses_live"
+
+	session := &types.Session{ID: "ses_live", GenerationID: 1, Metadata: types.SessionMetadata{ZedThreadID: "thread-live"}}
+	interaction := &types.Interaction{ID: "int-live", SessionID: "ses_live", State: types.InteractionStateWaiting, PromptID: "prompt-live", ExternalAgentRequestID: "int-live"}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_live").Return(session, nil)
+	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), "int-live").Return(interaction, nil)
+	s.server.streamingContexts["ses_live"] = &streamingContext{
+		session:       session,
+		interaction:   interaction,
+		interactionID: "int-live",
+		lastPublish:   time.Now(),
+	}
+
+	// No UpdateInteraction / MarkPromptAs* expectations: the failure is
+	// deferred to reapplyThreadLoadErrorAfterSilence, which re-examines the
+	// turn after the evidence window rather than failing it now.
+	err := s.server.handleThreadLoadError("ses_live", &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-live",
+			"request_id":    "int-live",
+			"error":         "Failed to send follow-up: Internal error: OpenCode service failure",
+		},
+	})
+	s.NoError(err)
+}
+
+// The agent only reports a generic service failure; the reason (a model the
+// endpoint does not serve, an auth failure, a down provider) is in llm_calls.
+// A thread-load failure must carry it so the operator can act on it.
+func (s *WebSocketSyncSuite) TestThreadLoadError_AttachesRecentProviderFailure() {
+	s.server.contextMappings["thread-prov"] = "ses_prov"
+	s.llmCalls = []*types.LLMCall{{
+		SessionID: "ses_prov", Model: "qwen3.8-27b", Created: time.Now().Add(-20 * time.Second),
+		Error: "model qwen3.8-27b is not in the list of allowed models",
+	}}
+
+	session := &types.Session{ID: "ses_prov", GenerationID: 1, Metadata: types.SessionMetadata{ZedThreadID: "thread-prov"}}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_prov").Return(session, nil)
+	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), "int-prov").Return(
+		&types.Interaction{ID: "int-prov", SessionID: "ses_prov", State: types.InteractionStateWaiting, PromptID: "prompt-prov", ExternalAgentRequestID: "int-prov"}, nil,
+	)
+	var persisted string
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, in *types.Interaction) (*types.Interaction, error) {
+			persisted = in.Error
+			return in, nil
+		},
+	)
+	s.store.EXPECT().GetPromptHistoryEntry(gomock.Any(), "prompt-prov").
+		Return(&types.PromptHistoryEntry{ID: "prompt-prov", RetryCount: 0}, nil)
+	var promptFailure string
+	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-prov", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, msg string) error {
+			promptFailure = msg
+			return nil
+		},
+	)
+
+	err := s.server.handleThreadLoadError("ses_prov", &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-prov",
+			"request_id":    "int-prov",
+			"error":         "Failed to send follow-up: Internal error: OpenCode service failure: {\"service\": \"session\"}",
+		},
+	})
+	s.NoError(err)
+	s.Contains(persisted, "OpenCode service failure")
+	s.Contains(persisted, "Last model provider error: model qwen3.8-27b is not in the list of allowed models (model qwen3.8-27b)")
+	s.Contains(promptFailure, "not in the list of allowed models")
 }
 
 func (s *WebSocketSyncSuite) TestThreadLoadError_MissingCodexRolloutClearsThreadForRetry() {

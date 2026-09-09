@@ -175,6 +175,8 @@ type CreateParams struct {
 	Sources         []eventsource.SourceRef
 	ParentID        orgchart.NodeID
 	PreserveContext bool
+	SandboxRuntime  string
+	SandboxVCPUs    int
 	AgentConfig     AgentConfig
 	// DeferActivation creates the Agent and org topology without starting
 	// its runtime. Settings activation provisions it after the org default
@@ -254,6 +256,8 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		AgentID:         agentAppID,
 		Tools:           p.Tools,
 		PreserveContext: p.PreserveContext,
+		SandboxRuntime:  p.SandboxRuntime,
+		SandboxVCPUs:    p.SandboxVCPUs,
 	})
 	if err != nil {
 		if s.Helix != nil && agentAppID != "" {

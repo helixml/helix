@@ -320,3 +320,42 @@ func (s *ControllerSessionSuite) TestHydraOpsIDPrefersSessionForSessionBackedRow
 	s.Require().Equal("ses_1", sessionBacked.HydraOpsID())
 	s.Require().Equal("sbx_2", controllerManaged.HydraOpsID())
 }
+
+func (s *ControllerSessionSuite) TestBeginSessionReopenFollowsBotRuntimeChange() {
+	// An org bot switched from desktop to headless between runs. The reused
+	// row must describe the container that is about to start — runtime for
+	// pricing type, org_bot_id for the Sandboxes list link — not the old one.
+	stoppedAt := time.Now().Add(-time.Hour)
+	existing := &types.Sandbox{
+		ID:             "sbx_bot",
+		OrganizationID: "org_1",
+		SessionID:      "ses_1",
+		Name:           "Session 1",
+		Runtime:        types.SandboxRuntimeUbuntuDesktop,
+		Status:         types.SandboxStatusStopped,
+		VCPUs:          12,
+		MemoryMB:       24576,
+		StoppedAt:      &stoppedAt,
+	}
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
+	s.store.EXPECT().GetSandboxBySession(gomock.Any(), "ses_1").Return(existing, nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().UpdateSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, sb *types.Sandbox) (*types.Sandbox, error) {
+			s.Require().Equal("b-eng", sb.OrgBotID)
+			s.Require().Equal(types.SandboxRuntimeHeadlessUbuntu, sb.Runtime)
+			s.Require().Equal("Engineer @ Acme", sb.Name)
+			s.Require().Equal(4, sb.VCPUs)
+			return sb, nil
+		},
+	)
+
+	req := s.beginRequest()
+	req.SpecTaskID = ""
+	req.OrgBotID = "b-eng"
+	req.Name = "Engineer @ Acme"
+	req.Runtime = types.SandboxRuntimeHeadlessUbuntu
+	sb, err := s.controller.BeginSession(s.ctx, req)
+	s.Require().NoError(err)
+	s.Require().Equal("sbx_bot", sb.ID)
+}

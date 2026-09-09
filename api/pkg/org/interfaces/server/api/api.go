@@ -262,6 +262,15 @@ type BotRuntimeInfo struct {
 	// instructions, or the agent's model/provider/runtime/effort, all of
 	// which the sandbox bakes in at start.
 	RestartRequired bool
+	// EffectiveSandboxRuntime / EffectiveSandboxResources are the resolved
+	// launch config (bot → org default → global default). SandboxID /
+	// SandboxStatus / SandboxStatusMessage mirror the session-backed
+	// sandboxes row; empty when the bot has never started a container.
+	EffectiveSandboxRuntime   types.SandboxRuntime
+	EffectiveSandboxResources *types.SandboxResourceOverrides
+	SandboxID                 string
+	SandboxStatus             string
+	SandboxStatusMessage      string
 }
 
 // BotRuntime resolves a Bot's runtime-state sidecar. Declared here

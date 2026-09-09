@@ -59,6 +59,10 @@ type fakeHelixClient struct {
 	// the spawner's SessionStartupTimeout actually bounds session
 	// creation. nil means StartSession returns immediately.
 	startBlock <-chan struct{}
+	// lastSyncLaunch records the launch config the spawner synced onto an
+	// existing session, so tests can assert the Bot's sandbox config reaches
+	// the session before the container is (re)started.
+	lastSyncLaunch SessionLaunchConfig
 }
 
 func (f *fakeHelixClient) StartSession(ctx context.Context, params StartSessionParams) (string, error) {
@@ -103,11 +107,12 @@ func (f *fakeHelixClient) ClearSession(_ context.Context, sessionID string) erro
 	return clearErr
 }
 
-func (f *fakeHelixClient) SyncAgentProfile(_ context.Context, sessionID, sessionName, workerID, instructions string) error {
+func (f *fakeHelixClient) SyncAgentProfile(_ context.Context, sessionID, sessionName, workerID, instructions string, launch SessionLaunchConfig) error {
 	atomic.AddInt32(&f.syncCalls, 1)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lastSyncSID = sessionID
+	f.lastSyncLaunch = launch
 	f.lastSessionName = sessionName
 	f.lastWorkerID = workerID
 	f.lastInstructions = instructions
@@ -863,7 +868,7 @@ func (c *concurrencyClient) ClearSession(ctx context.Context, sessionID string) 
 	return c.inner.ClearSession(ctx, sessionID)
 }
 
-func (c *concurrencyClient) SyncAgentProfile(context.Context, string, string, string, string) error {
+func (c *concurrencyClient) SyncAgentProfile(context.Context, string, string, string, string, SessionLaunchConfig) error {
 	return nil
 }
 
