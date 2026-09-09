@@ -1860,6 +1860,21 @@ definitions:
       hostname:
         type: string
     type: object
+  server.AdminOrganizationsResponse:
+    properties:
+      organizations:
+        items:
+          $ref: '#/definitions/types.OrgDetails'
+        type: array
+      page:
+        type: integer
+      pageSize:
+        type: integer
+      totalCount:
+        type: integer
+      totalPages:
+        type: integer
+    type: object
   server.AgentConfigAppliedResponse:
     properties:
       status:
@@ -3669,24 +3684,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - webhook
-    - helix_events
     - local
-    - github
-    - slack
-    - gitlab
     - email
     - cron
+    - slack
+    - github
+    - helix_events
+    - gitlab
+    - webhook
     type: string
     x-enum-varnames:
-    - KindWebhook
-    - KindHelixEvents
     - KindLocal
-    - KindGitHub
-    - KindSlack
-    - KindGitLab
     - KindEmail
     - KindCron
+    - KindSlack
+    - KindGitHub
+    - KindHelixEvents
+    - KindGitLab
+    - KindWebhook
   transport.ResolvedActivation:
     properties:
       address:
@@ -14519,14 +14534,25 @@ paths:
       - organizations
   /api/v1/admin/orgs:
     get:
-      description: List all organizations
+      description: List organizations with server-side pagination and name search
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Organizations per page (default: 25, max: 100)'
+        in: query
+        name: per_page
+        type: integer
+      - description: Search organization display name or name
+        in: query
+        name: query
+        type: string
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/types.OrgDetails'
-            type: array
+            $ref: '#/definitions/server.AdminOrganizationsResponse'
       security:
       - BearerAuth: []
       summary: List organizations with wallets (admin only)
