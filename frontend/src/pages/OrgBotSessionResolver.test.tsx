@@ -76,7 +76,7 @@ describe('OrgBotSessionResolver', () => {
     render(<OrgBotSessionResolver />)
 
     await waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(1))
-    expect(screen.getByRole('heading', { name: 'Meet Chief of Staff' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Meet your Chief of Staff' })).toBeInTheDocument()
     expect(screen.getByText(/new agent is getting ready/i)).toBeInTheDocument()
     expect(screen.getByText('Preparing Chief of Staff')).toBeInTheDocument()
     expect(screen.getByText('Finding your agent')).toBeInTheDocument()
