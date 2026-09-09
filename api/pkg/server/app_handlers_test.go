@@ -53,8 +53,8 @@ func (r *stateLinkedDeleteRuntime) DeleteLinkedAgent(ctx context.Context, orgID 
 	return r.store.Nodes.Delete(ctx, orgID, botID)
 }
 
-func (failingAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (string, error) {
-	return "", fmt.Errorf("reconcile failed")
+func (failingAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
+	return lifecycle.CreatedAgent{}, fmt.Errorf("reconcile failed")
 }
 
 func TestDeleteAppUsesStateOnlyOrgAgentLifecycle(t *testing.T) {
@@ -273,6 +273,14 @@ func TestUpdateAppSyncsLinkedOrgProjectCodeAgentConfig(t *testing.T) {
 		},
 	}
 	unrelated := &types.Project{ID: "project-other", OrganizationID: existing.OrganizationID, DefaultHelixAppID: "app-other"}
+	orgStore := orgmemory.New()
+	node, err := orgchart.NewNode("b-engineer", "Build the product", nil, time.Now().UTC(), existing.OrganizationID)
+	require.NoError(t, err)
+	node = node.WithAgentID(existing.ID).WithCodeAgentConfig(&types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+		Model: "claude-opus-5", ServiceTier: "flex",
+	})
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), node))
 
 	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
 	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
@@ -302,13 +310,23 @@ func TestUpdateAppSyncsLinkedOrgProjectCodeAgentConfig(t *testing.T) {
 	require.NoError(t, err)
 	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
 	req = req.WithContext(setRequestUser(req.Context(), user))
-	server := &HelixAPIServer{Store: helixStore, providerManager: providerManager}
+	server := &HelixAPIServer{
+		Store: helixStore, providerManager: providerManager,
+		helixOrg: &helixOrgHandlers{store: orgStore},
+	}
 
 	updated, httpErr := server.updateAgent(nil, req)
 
 	require.Nil(t, httpErr)
 	require.NotNil(t, updated)
 	require.Nil(t, unrelated.CodeAgentConfig)
+	storedNode, err := orgStore.Nodes.Get(context.Background(), existing.OrganizationID, node.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.CodeAgentRuntimeZedAgent, storedNode.CodeAgentConfig.Runtime)
+	require.Equal(t, types.CodeAgentCredentialTypeAPIKey, storedNode.CodeAgentConfig.CredentialType)
+	require.Equal(t, "provider-qwen", storedNode.CodeAgentConfig.ProviderRef)
+	require.Equal(t, "qwen3.8-27b", storedNode.CodeAgentConfig.Model)
+	require.Equal(t, "flex", storedNode.CodeAgentConfig.ServiceTier)
 }
 
 func TestUpdateAppRejectsMultipleLinkedOrgProjectsAndRestoresApp(t *testing.T) {

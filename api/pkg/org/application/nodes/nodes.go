@@ -115,6 +115,7 @@ type CreateParams struct {
 	Name            string
 	Content         string
 	AgentID         string
+	CodeAgentConfig *types.CodeAgentExecutionConfig
 	Tools           []tool.Name
 	PreserveContext bool
 	// SandboxRuntime / SandboxVCPUs are the node's own sandbox config; empty
@@ -165,6 +166,9 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	if p.AgentID != "" {
 		node = node.WithAgentID(p.AgentID)
 	}
+	if p.CodeAgentConfig != nil {
+		node = node.WithCodeAgentConfig(p.CodeAgentConfig)
+	}
 	if p.PreserveContext {
 		node = node.WithPreserveContext(true)
 	}
@@ -195,6 +199,7 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 // Tools on a content-only update.
 type UpdateParams struct {
 	AgentID         *string
+	CodeAgentConfig *types.CodeAgentExecutionConfig
 	Name            *string
 	Content         *string
 	Tools           *[]tool.Name
@@ -225,6 +230,9 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 	updated := existing
 	if p.AgentID != nil {
 		updated = updated.WithAgentID(*p.AgentID)
+	}
+	if p.CodeAgentConfig != nil {
+		updated = updated.WithCodeAgentConfig(p.CodeAgentConfig)
 	}
 	if p.Name != nil {
 		updated = updated.WithName(*p.Name)

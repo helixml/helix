@@ -24,7 +24,7 @@ import (
 // orgRowTypes is the canonical list of org-* tables. Kept in one
 // place so the FK installation loop stays in sync with AutoMigrate.
 var orgRowTypes = []any{
-	&nodeRow{},
+	&OrgBots{},
 	&reportingLineRow{},
 	&nodeRuntimeStateRow{},
 	&eventRow{},

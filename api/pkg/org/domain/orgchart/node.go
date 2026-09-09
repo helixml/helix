@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // NodeKind distinguishes an ordinary agent Node from a human placeholder.
@@ -56,9 +57,13 @@ const NodeKindHuman NodeKind = "human"
 type Node struct {
 	ID             NodeID
 	OrganizationID string
-	// AgentID is the canonical Helix Agent backing this org node.
-	// It is required for nodes and empty for human placeholders.
+	// AgentID is the legacy Helix App backing this org agent. It remains while
+	// App-owned instructions and tools are migrated onto the org agent.
 	AgentID string
+	// CodeAgentConfig is the self-contained execution configuration owned by
+	// this org agent. Existing rows may be nil until the legacy App link is
+	// reconciled; runtimes must retain their App fallback during that cutover.
+	CodeAgentConfig *types.CodeAgentExecutionConfig
 	// Name is the human-readable display label (e.g. "Chief of Staff").
 	// Free text, may be empty — the UI falls back to ID. Distinct from
 	// ID, which is the immutable handle.
@@ -139,6 +144,13 @@ func (n Node) WithName(name string) Node {
 // WithAgentID returns a copy of the Node linked to the canonical Agent.
 func (n Node) WithAgentID(agentID string) Node {
 	n.AgentID = agentID
+	return n
+}
+
+// WithCodeAgentConfig returns a copy of the Node with its self-contained
+// coding-agent execution configuration replaced.
+func (n Node) WithCodeAgentConfig(config *types.CodeAgentExecutionConfig) Node {
+	n.CodeAgentConfig = config
 	return n
 }
 

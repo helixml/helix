@@ -1006,6 +1006,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Store:         st,
 		Helix:         inProcClient,
 		Agents:        inProcClient,
+		AgentConfigs:  inProcClient,
 		Logger:        logger,
 		AgentDelivery: agentDelivery,
 		// Node-scoped reconcilers: the single topology reconciler (one owner

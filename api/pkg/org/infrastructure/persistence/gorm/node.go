@@ -12,11 +12,13 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
-//	nodeRow has composite PK (id, org_id) so short readable handles
+// OrgBots is the persisted model for an org-chart participant. It has a
+// composite primary key (id, org_id) so short readable handles
 //
-// (`b-root`, `b-engineer`) can repeat across helix tenants. OrgID
+// (`b-root`, `b-engineer`) can repeat across helix tenants. OrganizationID
 // additionally carries a FK to organizations(id) ON DELETE CASCADE -
 // added out-of-band in OpenWithDB because GORM tag-driven FK creation
 // to a table owned by another package is fragile.
@@ -25,34 +27,41 @@ import (
 // content + tool list (its capability) and is the live participant in
 // the reporting graph. Reporting lines (who reports to whom) are a
 // separate many-to-many relation - see reportingLineRow - so a Node
-// carries no parent column.
-type nodeRow struct {
-	ID              string   `gorm:"primaryKey;type:text"`
-	OrgID           string   `gorm:"primaryKey;type:text;index"`
-	AgentID         *string  `gorm:"column:agent_app_id;type:text;index"`
-	Name            string   `gorm:"not null;default:''"`
-	Content         string   `gorm:"not null"`
-	Tools           []string `gorm:"serializer:json"`
-	ProjectIDs      []string `gorm:"serializer:json"`
-	PreserveContext bool     `gorm:"not null;default:false"`
-	SandboxRuntime  string   `gorm:"not null;default:''"`
-	SandboxVCPUs    int      `gorm:"column:sandbox_vcpus;not null;default:0"`
-	SandboxMemoryMB int      `gorm:"column:sandbox_memory_mb;not null;default:0"`
+// carries no parent column. LegacyAppID is the remaining compatibility link
+// to the Helix App while its instructions and tools are migrated. Execution
+// configuration is already owned by this model through CodeAgentConfig.
+//
+// Human placeholders currently share the physical org_bots table and are
+// distinguished by Kind. Separating that storage is independent of removing
+// the legacy App link.
+type OrgBots struct {
+	ID              string                          `json:"id" gorm:"column:id;primaryKey;type:text"`
+	OrganizationID  string                          `json:"organization_id" gorm:"column:org_id;primaryKey;type:text;index"`
+	LegacyAppID     *string                         `json:"legacy_app_id,omitempty" gorm:"column:agent_app_id;type:text;index"`
+	CodeAgentConfig *types.CodeAgentExecutionConfig `json:"code_agent_config,omitempty" gorm:"column:code_agent_config;type:jsonb;serializer:json"`
+	Name            string                          `json:"name" gorm:"column:name;not null;default:''"`
+	Content         string                          `json:"content" gorm:"column:content;not null"`
+	Tools           []string                        `json:"tools,omitempty" gorm:"column:tools;serializer:json"`
+	ProjectIDs      []string                        `json:"project_ids,omitempty" gorm:"column:project_ids;serializer:json"`
+	PreserveContext bool                            `json:"preserve_context" gorm:"column:preserve_context;not null;default:false"`
+	SandboxRuntime  string                          `json:"sandbox_runtime,omitempty" gorm:"column:sandbox_runtime;not null;default:''"`
+	SandboxVCPUs    int                             `json:"sandbox_vcpus,omitempty" gorm:"column:sandbox_vcpus;not null;default:0"`
+	SandboxMemoryMB int                             `json:"sandbox_memory_mb,omitempty" gorm:"column:sandbox_memory_mb;not null;default:0"`
 	// Kind is "" (agent) or "human". HelixUserID / Identity are only
 	// populated for human placeholder rows.
-	Kind        string            `gorm:"not null;default:'';index"`
-	HelixUserID string            `gorm:"not null;default:''"`
-	Identity    map[string]string `gorm:"serializer:json"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	Kind        string            `json:"kind,omitempty" gorm:"column:kind;not null;default:'';index"`
+	HelixUserID string            `json:"helix_user_id,omitempty" gorm:"column:helix_user_id;not null;default:''"`
+	Identity    map[string]string `json:"identity,omitempty" gorm:"column:identity;serializer:json"`
+	CreatedAt   time.Time         `json:"created_at" gorm:"column:created_at"`
+	UpdatedAt   time.Time         `json:"updated_at" gorm:"column:updated_at"`
 }
 
 // org_bots is the legacy physical name retained for existing Node rows.
-func (nodeRow) TableName() string { return "org_bots" }
+func (OrgBots) TableName() string { return "org_bots" }
 
 type nodeMapper struct{}
 
-func (nodeMapper) ToRow(node orgchart.Node) (nodeRow, error) {
+func (nodeMapper) ToRow(node orgchart.Node) (OrgBots, error) {
 	tools := make([]string, 0, len(node.Tools))
 	for _, t := range node.Tools {
 		tools = append(tools, string(t))
@@ -64,10 +73,11 @@ func (nodeMapper) ToRow(node orgchart.Node) (nodeRow, error) {
 	if node.AgentID != "" {
 		agentID = &node.AgentID
 	}
-	return nodeRow{
+	return OrgBots{
 		ID:              string(node.ID),
-		OrgID:           node.OrganizationID,
-		AgentID:         agentID,
+		OrganizationID:  node.OrganizationID,
+		LegacyAppID:     agentID,
+		CodeAgentConfig: node.CodeAgentConfig,
 		Name:            node.Name,
 		Content:         node.Content,
 		Tools:           tools,
@@ -84,7 +94,7 @@ func (nodeMapper) ToRow(node orgchart.Node) (nodeRow, error) {
 	}, nil
 }
 
-func (nodeMapper) ToDomain(row nodeRow) (orgchart.Node, error) {
+func (nodeMapper) ToDomain(row OrgBots) (orgchart.Node, error) {
 	var tools []tool.Name
 	if len(row.Tools) > 0 {
 		tools = make([]tool.Name, 0, len(row.Tools))
@@ -93,13 +103,14 @@ func (nodeMapper) ToDomain(row nodeRow) (orgchart.Node, error) {
 		}
 	}
 	var agentID string
-	if row.AgentID != nil {
-		agentID = *row.AgentID
+	if row.LegacyAppID != nil {
+		agentID = *row.LegacyAppID
 	}
 	return orgchart.Node{
 		ID:              orgchart.NodeID(row.ID),
-		OrganizationID:  row.OrgID,
+		OrganizationID:  row.OrganizationID,
 		AgentID:         agentID,
+		CodeAgentConfig: row.CodeAgentConfig,
 		Name:            row.Name,
 		Content:         row.Content,
 		Tools:           tools,
@@ -117,13 +128,13 @@ func (nodeMapper) ToDomain(row nodeRow) (orgchart.Node, error) {
 }
 
 type nodesRepo struct {
-	*Repository[orgchart.Node, nodeRow]
+	*Repository[orgchart.Node, OrgBots]
 	db *gorm.DB
 }
 
 func newNodesRepo(db *gorm.DB) *nodesRepo {
 	return &nodesRepo{
-		Repository: NewRepository[orgchart.Node, nodeRow](db, nodeMapper{}, "node"),
+		Repository: NewRepository[orgchart.Node, OrgBots](db, nodeMapper{}, "node"),
 		db:         db,
 	}
 }
@@ -171,16 +182,21 @@ func (r *nodesRepo) Update(ctx context.Context, node orgchart.Node) error {
 	if err != nil {
 		return fmt.Errorf("marshal identity: %w", err)
 	}
+	codeAgentConfigJSON, err := json.Marshal(row.CodeAgentConfig)
+	if err != nil {
+		return fmt.Errorf("marshal code agent config: %w", err)
+	}
 	return r.Repository.Update(ctx,
-		store.WithOrg(row.OrgID),
+		store.WithOrg(row.OrganizationID),
 		store.WithID(row.ID),
 		store.WithUpdates(map[string]any{
-			"name":             row.Name,
-			"agent_app_id":     row.AgentID,
-			"content":          row.Content,
-			"tools":            string(toolsJSON),
-			"project_ids":      string(projectIDsJSON),
-			"preserve_context": row.PreserveContext,
+			"name":              row.Name,
+			"agent_app_id":      row.LegacyAppID,
+			"code_agent_config": string(codeAgentConfigJSON),
+			"content":           row.Content,
+			"tools":             string(toolsJSON),
+			"project_ids":       string(projectIDsJSON),
+			"preserve_context":  row.PreserveContext,
 			// Sandbox config columns. This map is the complete column list an
 			// Update writes; a field mapped in ToRow but missing here is
 			// silently dropped on every PATCH.
@@ -195,13 +211,17 @@ func (r *nodesRepo) Update(ctx context.Context, node orgchart.Node) error {
 	)
 }
 
-func (r *nodesRepo) ClaimAgentApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string) (bool, error) {
+func (r *nodesRepo) ClaimLegacyApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string, config *types.CodeAgentExecutionConfig) (bool, error) {
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return false, fmt.Errorf("marshal code agent config: %w", err)
+	}
 	res := r.db.WithContext(ctx).
-		Model(&nodeRow{}).
+		Model(&OrgBots{}).
 		Where("org_id = ? AND id = ? AND agent_app_id IS NULL", orgID, string(id)).
-		Update("agent_app_id", appID)
+		Updates(map[string]any{"agent_app_id": appID, "code_agent_config": string(configJSON)})
 	if res.Error != nil {
-		return false, fmt.Errorf("claim agent app: %w", res.Error)
+		return false, fmt.Errorf("claim legacy app: %w", res.Error)
 	}
 	return res.RowsAffected == 1, nil
 }
@@ -214,7 +234,7 @@ func (r *nodesRepo) ClaimAgentApp(ctx context.Context, orgID string, id orgchart
 // the association tables.
 func (r *nodesRepo) Delete(ctx context.Context, orgID string, id orgchart.NodeID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&nodeRow{})
+		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&OrgBots{})
 		if res.Error != nil {
 			return fmt.Errorf("delete node: %w", res.Error)
 		}

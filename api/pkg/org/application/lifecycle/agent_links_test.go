@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type lifecycleRuntime struct {
@@ -127,8 +128,16 @@ type fixedAgentCreator struct {
 	id string
 }
 
-func (c fixedAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (string, error) {
-	return c.id, nil
+func (c fixedAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
+	return lifecycle.CreatedAgent{LegacyAppID: c.id}, nil
+}
+
+type fixedAgentConfigReader struct {
+	config *types.CodeAgentExecutionConfig
+}
+
+func (r fixedAgentConfigReader) ReadAgentExecutionConfig(context.Context, string) (*types.CodeAgentExecutionConfig, error) {
+	return r.config, nil
 }
 
 type cancellingReconciler struct {
@@ -150,11 +159,11 @@ type failingClaimBots struct {
 	err error
 }
 
-func (b failingClaimBots) ClaimAgentApp(context.Context, string, orgchart.NodeID, string) (bool, error) {
+func (b failingClaimBots) ClaimLegacyApp(context.Context, string, orgchart.NodeID, string, *types.CodeAgentExecutionConfig) (bool, error) {
 	return false, b.err
 }
 
-func (b losingClaimBots) ClaimAgentApp(ctx context.Context, orgID string, id orgchart.NodeID, _ string) (bool, error) {
+func (b losingClaimBots) ClaimLegacyApp(ctx context.Context, orgID string, id orgchart.NodeID, _ string, _ *types.CodeAgentExecutionConfig) (bool, error) {
 	current, err := b.Nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return false, err
@@ -202,6 +211,39 @@ func TestReconcileAgentLinksPreservesReplicaWinner(t *testing.T) {
 	if len(runtime.deletedApps) != 1 || runtime.deletedApps[0] != "app-loser" {
 		t.Fatalf("discarded apps = %v", runtime.deletedApps)
 	}
+}
+
+func TestReconcileAgentLinksBackfillsExecutionConfig(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	ctx := context.Background()
+	node, err := orgchart.NewNode("b-agent", "instructions", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	node = node.WithAgentID("app-legacy")
+	require.NoError(t, st.Nodes.Create(ctx, node))
+
+	config := &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeCodexCLI,
+		CredentialType: types.CodeAgentCredentialTypeSubscription,
+		Model:          "gpt-5.6",
+	}
+	svc := &lifecycle.Service{
+		Store:        st,
+		Agents:       fixedAgentCreator{id: "unused"},
+		AgentConfigs: fixedAgentConfigReader{config: config},
+		Nodes: nodes.New(nodes.Deps{
+			Nodes: st.Nodes,
+			Now:   func() time.Time { return time.Now().UTC() },
+			NewID: func() string { return "unused" },
+		}),
+		Now: func() time.Time { return time.Date(2026, 9, 9, 14, 0, 0, 0, time.UTC) },
+	}
+
+	require.NoError(t, svc.ReconcileAgentLinks(ctx, "org-test"))
+	got, err := st.Nodes.Get(ctx, "org-test", node.ID)
+	require.NoError(t, err)
+	require.Equal(t, config, got.CodeAgentConfig)
+	require.Equal(t, svc.Now(), got.UpdatedAt)
 }
 
 func TestReconcileAgentLinksReportsClaimAndCleanupFailures(t *testing.T) {

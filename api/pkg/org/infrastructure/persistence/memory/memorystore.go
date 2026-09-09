@@ -31,6 +31,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/trigger"
 	"github.com/helixml/helix/api/pkg/org/domain/workersecret"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // New returns a fresh *store.Store backed by in-memory repos. Use
@@ -314,7 +315,7 @@ func (r *nodesRepo) Update(_ context.Context, b orgchart.Node) error {
 	return nil
 }
 
-func (r *nodesRepo) ClaimAgentApp(_ context.Context, orgID string, id orgchart.NodeID, appID string) (bool, error) {
+func (r *nodesRepo) ClaimLegacyApp(_ context.Context, orgID string, id orgchart.NodeID, appID string, config *types.CodeAgentExecutionConfig) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := orgKey{OrgID: orgID, ID: string(id)}
@@ -325,7 +326,7 @@ func (r *nodesRepo) ClaimAgentApp(_ context.Context, orgID string, id orgchart.N
 	if b.AgentID != "" {
 		return false, nil
 	}
-	r.rows[k] = b.WithAgentID(appID)
+	r.rows[k] = b.WithAgentID(appID).WithCodeAgentConfig(config)
 	return true, nil
 }
 

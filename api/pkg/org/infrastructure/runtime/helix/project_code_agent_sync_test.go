@@ -25,12 +25,9 @@ func codingApp(runtime types.CodeAgentRuntime, provider, model string) types.App
 	}
 }
 
-// The bug this fixes: a Worker project's task defaults were written once at
-// provisioning and never refreshed, so a Bot switched to opencode kept filing
-// tasks on whatever harness its project was born with. project.CodeAgentConfig
-// is what a task inherits when created without an explicit one, so the two must
-// converge.
-func TestEnsureSyncsProjectTaskDefaultsFromBotApp(t *testing.T) {
+// Legacy rows without a materialized org-agent config retain their App
+// fallback until startup reconciliation backfills them.
+func TestEnsureSyncsProjectTaskDefaultsFromLegacyBotApp(t *testing.T) {
 	st, wid := newProjectTestStore(t, "# Role")
 	ctx := context.Background()
 	bot, err := st.Nodes.Get(ctx, "org-test", wid)
@@ -71,6 +68,51 @@ func TestEnsureSyncsProjectTaskDefaultsFromBotApp(t *testing.T) {
 	}
 	if got.Model != "qwen3.8-27b" || got.ProviderRef != "pe_test" {
 		t.Fatalf("project model/provider = %q/%q, want qwen3.8-27b/pe_test", got.Model, got.ProviderRef)
+	}
+}
+
+func TestEnsureSyncsProjectTaskDefaultsFromOrgAgentConfig(t *testing.T) {
+	t.Parallel()
+	st, wid := newProjectTestStore(t, "# Role")
+	ctx := context.Background()
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot = bot.WithAgentID("app-eng").WithCodeAgentConfig(&types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeCodexCLI,
+		CredentialType: types.CodeAgentCredentialTypeSubscription,
+		Model:          "gpt-5.6",
+	})
+	if err := st.Nodes.Update(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-eng", "repo_existing"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := newFakeProjectService()
+	// Deliberately disagree: materialized org-agent state must win over the
+	// compatibility App once it exists.
+	svc.appConfig = codingApp(types.CodeAgentRuntimeOpenCode, "pe_test", "qwen3.8-27b")
+	svc.getProjectResp = types.Project{
+		ID: "prj_existing", OrganizationID: "org-test",
+		DefaultHelixAppID: "app-eng", DefaultRepoID: "repo_existing",
+		Metadata: types.ProjectMetadata{OrgMembersAccess: true},
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime:        types.CodeAgentRuntimeDeepSeekHarness,
+			CredentialType: types.CodeAgentCredentialTypeAPIKey,
+			ProviderRef:    "pe_test",
+			Model:          "qwen3.8-27b",
+		},
+	}
+
+	if _, _, _, err := newApplierGit(svc, newFakeGitForProject(), st).Ensure(ctx, "org-test", wid); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	got := svc.getProjectResp.CodeAgentConfig
+	if got == nil || got.Runtime != types.CodeAgentRuntimeCodexCLI || got.Model != "gpt-5.6" {
+		t.Fatalf("project config = %+v, want org-agent-owned codex config", got)
 	}
 }
 

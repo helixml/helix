@@ -254,10 +254,11 @@ func TestInProcClient_CreateAgentUsesOrganizationOwnerWithoutRequestUser(t *test
 	)
 
 	client := NewInProcHelixClient(&HelixAPIServer{Store: st})
-	appID, err := client.CreateAgent(context.Background(), "org_test", "Chief of Staff", "Lead", lifecycle.AgentConfig{})
+	created, err := client.CreateAgent(context.Background(), "org_test", "Chief of Staff", "Lead", lifecycle.AgentConfig{})
 
 	require.NoError(t, err)
-	require.Equal(t, "app_test", appID)
+	require.Equal(t, "app_test", created.LegacyAppID)
+	require.Equal(t, types.CodeAgentRuntimeZedAgent, created.CodeAgentConfig.Runtime)
 }
 
 func TestInProcClient_CreateAgentUsesConfiguredOrgDefaults(t *testing.T) {
