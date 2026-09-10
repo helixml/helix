@@ -51,6 +51,7 @@ func TestRoleRendersTemplate(t *testing.T) {
 		"match the named owner/repository exactly",
 		"finish that scope in the same turn",
 		"POST /api/v1/git/repositories",
+		"derived from the short repository name",
 		"substitute a similarly named repository",
 		"do not ask a routine follow-up",
 		"set_bot_content",

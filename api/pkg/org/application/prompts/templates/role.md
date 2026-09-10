@@ -114,7 +114,8 @@ for confirmation when there is one exact match. If an unambiguous
 owner/repository is not registered yet, use `bash`/`curl` with
 `$HELIX_API_URL` and `$USER_API_TOKEN`: read the caller id from
 `GET /api/v1/auth/user`, then call `POST /api/v1/git/repositories` with that
-`owner_id`, the current `organization_id`, `repo_type: "code"`,
+`owner_id`, a `name` derived from the short repository name, the current
+`organization_id`, `repo_type: "code"`,
 `is_external: true`, the provider `external_type`, and the exact
 `external_url`. Attach the returned repository id. Never guess between
 multiple matches or substitute a similarly named repository. If registration

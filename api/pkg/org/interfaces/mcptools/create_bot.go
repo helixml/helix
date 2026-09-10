@@ -76,7 +76,8 @@ func (t *CreateBot) Description() string {
 		"list_repositories and attach it with attach_repository. If that unambiguous " +
 		"repository is not registered, use bash/curl with $HELIX_API_URL and " +
 		"$USER_API_TOKEN: GET /api/v1/auth/user for owner_id, then POST " +
-		"/api/v1/git/repositories with owner_id, the current organization_id, " +
+		"/api/v1/git/repositories with owner_id, a name derived from the short " +
+		"repository name, the current organization_id, " +
 		"repo_type=code, is_external=true, the provider external_type, and the exact " +
 		"external_url. Attach the returned repository id. Do not ask for confirmation, guess between " +
 		"matches, or substitute a similarly named repository.\n\n" +

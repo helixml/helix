@@ -255,11 +255,16 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	existing, err := a.deps.Queries.GetBot(ctx, orgID, id)
+	if err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get bot for update: %w", err))
+		return
+	}
 	var toolsPatch *[]tool.Name
 	if req.Tools != nil {
 		t := toToolNames(req.Tools)
-		if mcptools.HasNonDefaultBotTool(t) && !helixorgserver.CanManageOrganization(ctx) {
-			writeError(w, http.StatusForbidden, errors.New("only organization owners and administrators can grant organization-management tools"))
+		if (mcptools.HasNonDefaultBotTool(t) || mcptools.HasNonDefaultBotTool(existing.Tools)) && !helixorgserver.CanManageOrganization(ctx) {
+			writeError(w, http.StatusForbidden, errors.New("only organization owners and administrators can modify organization-management tools"))
 			return
 		}
 		toolsPatch = &t
@@ -272,11 +277,6 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		Provider:                req.Provider,
 		Model:                   req.Model,
 		ReasoningEffort:         req.ReasoningEffort,
-	}
-	existing, err := a.deps.Queries.GetBot(ctx, orgID, id)
-	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get bot for update: %w", err))
-		return
 	}
 	canonicalChange := !configPatch.Empty() || namePatch != nil || contentPatch != nil
 	if existing.AgentID != "" && canonicalChange && a.deps.AgentUpdater == nil {

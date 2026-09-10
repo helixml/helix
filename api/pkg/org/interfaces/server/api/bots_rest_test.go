@@ -530,6 +530,29 @@ func TestRESTUpdateBot_MemberCannotGrantManagerTools(t *testing.T) {
 			t.Fatal("rejected manager tool was persisted")
 		}
 	}
+
+	seedBot(t, st, ctx, "b-manager", "# Manager")
+	managerTools := mcptools.OwnerBotTools()
+	if _, err := deps.Nodes.Update(ctx, "org-test", "b-manager", nodes.UpdateParams{Tools: &managerTools}); err != nil {
+		t.Fatalf("seed manager tools: %v", err)
+	}
+	defaultsOnly := make([]string, 0, len(mcptools.DefaultBotTools()))
+	for _, name := range mcptools.DefaultBotTools() {
+		defaultsOnly = append(defaultsOnly, string(name))
+	}
+	downgrade := doAsRole(t, h, http.MethodPatch, "/bots/b-manager", orgapi.UpdateBotRequest{
+		Tools: defaultsOnly,
+	}, types.OrganizationRoleMember, false)
+	if downgrade.Code != http.StatusForbidden {
+		t.Fatalf("manager downgrade status = %d, want 403; body=%s", downgrade.Code, downgrade.Body)
+	}
+	manager, err := st.Nodes.Get(ctx, "org-test", "b-manager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mcptools.HasNonDefaultBotTool(manager.Tools) {
+		t.Fatal("rejected downgrade stripped manager tools")
+	}
 }
 
 // TestRESTCreateBot_UnionWithCallerTools pins the union semantics for the

@@ -28,7 +28,8 @@ owner/repository match and attaches it to the new Bot as primary in the same
 turn. For an unregistered but unambiguous owner/repository, the prompt names
 the concrete authenticated Helix REST path: resolve the caller through
 `GET /api/v1/auth/user`, create the external repository through
-`POST /api/v1/git/repositories`, then attach its returned id. A similarly
+`POST /api/v1/git/repositories` with a name derived from the repository's
+short name, then attach its returned id. A similarly
 named repository is never substituted, and failures are reported rather than
 hidden. Successful creation is reported without a routine post-creation
 question.
