@@ -324,7 +324,8 @@ func (c Config) attachmentsService() *attachments.Service {
 // the MCP surface. The create semantics (reporting line, topology
 // reconcile, create dispatch) live in exactly one place — shared with
 // the REST POST /bots handler. The bots service is wired so the row
-// creation applies the base-read-tool union.
+// creation applies the base-read-tool union. User-facing entry points add the
+// standard worker capability set before calling the lifecycle service.
 func (c Config) lifecycleService() *lifecycle.Service {
 	if c.Lifecycle != nil {
 		return c.Lifecycle

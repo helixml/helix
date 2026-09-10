@@ -364,4 +364,14 @@ func TestMCPGetPromptReturnsSeedMessages(t *testing.T) {
 	if !strings.Contains(text.Text, "create_bot") {
 		t.Errorf("template missing create_bot reference")
 	}
+	for _, want := range []string{
+		"human-readable **name or role title**",
+		"concrete **purpose**",
+		"stop and wait for the answer",
+		"generic placeholder",
+	} {
+		if !strings.Contains(text.Text, want) {
+			t.Errorf("MCP role prompt missing creation safeguard %q", want)
+		}
+	}
 }

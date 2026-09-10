@@ -116,12 +116,10 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("content is required"))
 		return
 	}
-	// A manager Bot gets the canonical owner tool set (all mutations +
-	// read baseline) so it can hire and manage other Nodes; otherwise the
-	// caller's tools are used. Either way the bots service unions the
-	// base read tools, so a "New Bot" dialog with no tools picker still
-	// gets a usable MCP surface.
-	tools := toToolNames(req.Tools)
+	// A standard Bot receives the complete worker set plus any explicitly
+	// requested additions. A manager receives that set plus the organization
+	// control-plane mutations used to hire and manage other Nodes.
+	tools := mcptools.MergeDefaultBotTools(toToolNames(req.Tools))
 	if req.Owner {
 		tools = mcptools.OwnerBotTools()
 	}

@@ -436,13 +436,11 @@ func sameNames(a, b []tool.Name) bool {
 	return true
 }
 
-// TestRESTCreateBot_EmptyToolsGetsBaseline pins the bug fix discovered
+// TestRESTCreateBot_EmptyToolsGetsDefaultWorkerSet pins the default granted
 // during the in-browser demo of helixml/helix#2546: the chart UI's "New
-// Bot" dialog only collects ID + content (no tools picker) and posts to
-// POST /bots with an empty tools list. The REST handler unions
-// BaseReadTools the same way the MCP create_bot tool does, so the
-// resulting Bot still has a usable MCP surface.
-func TestRESTCreateBot_EmptyToolsGetsBaseline(t *testing.T) {
+// Bot" dialog may post an empty additions list. The REST handler unions
+// DefaultBotTools the same way the MCP create_bot tool does.
+func TestRESTCreateBot_EmptyToolsGetsDefaultWorkerSet(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
 
@@ -467,15 +465,15 @@ func TestRESTCreateBot_EmptyToolsGetsBaseline(t *testing.T) {
 	for _, name := range bot.Tools {
 		got[name] = true
 	}
-	for _, name := range mcptools.BaseReadTools {
+	for _, name := range mcptools.DefaultBotTools() {
 		if !got[name] {
-			t.Errorf("baseline tool %q missing from REST-created bot; got: %v", name, bot.Tools)
+			t.Errorf("default tool %q missing from REST-created bot; got: %v", name, bot.Tools)
 		}
 	}
 }
 
 // TestRESTCreateBot_UnionWithCallerTools pins the union semantics for the
-// REST path — caller-supplied tools are preserved alongside the baseline,
+// REST path — caller-supplied tools are preserved alongside the worker set,
 // deduped.
 func TestRESTCreateBot_UnionWithCallerTools(t *testing.T) {
 	deps, st, _ := newDeps(t)
@@ -511,16 +509,16 @@ func TestRESTCreateBot_UnionWithCallerTools(t *testing.T) {
 			t.Errorf("caller tool %q missing; got: %v", name, bot.Tools)
 		}
 	}
-	for _, name := range mcptools.BaseReadTools {
+	for _, name := range mcptools.DefaultBotTools() {
 		if !got[name] {
-			t.Errorf("baseline tool %q missing from union; got: %v", name, bot.Tools)
+			t.Errorf("default tool %q missing from union; got: %v", name, bot.Tools)
 		}
 	}
 }
 
 // TestCreateBotParity_RESTvsMCP: the REST POST /bots handler and the MCP
 // create_bot tool both go through lifecycle.Create, so both must produce
-// identical bot rows — same content, same baseline-unioned tools.
+// identical bot rows — same content, same default-unioned tools.
 func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 	clock := func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 	newID := func() string { return "fixed" }

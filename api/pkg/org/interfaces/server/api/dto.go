@@ -145,8 +145,9 @@ type CreateBotRequest struct {
 	ID string `json:"id,omitempty"`
 	// Name is the human-readable display label (e.g. "Chief of Staff").
 	// Optional; the ID stays the immutable handle.
-	Name            string   `json:"name,omitempty"`
-	Content         string   `json:"content"`
+	Name    string `json:"name,omitempty"`
+	Content string `json:"content"`
+	// Tools contains additions to the standard worker tool set.
 	Tools           []string `json:"tools,omitempty"`
 	Triggers        []string `json:"triggers,omitempty"`
 	ParentID        string   `json:"parent_id,omitempty"`
@@ -161,10 +162,10 @@ type CreateBotRequest struct {
 	Model                    string                          `json:"model,omitempty"`
 	ReasoningEffort          string                          `json:"reasoning_effort,omitempty"`
 	// Owner makes this a manager Bot: it receives the canonical owner
-	// tool set (every org-graph mutation - create_bot, delete_bot,
-	// set_bot_content, subscribe, ... - plus the read baseline) so it can
-	// hire and manage other Nodes. When true, Tools is ignored in favour
-	// of that set. Used to seed a starter/root Bot for a new org.
+	// tool set (standard worker tools plus org-management mutations such as
+	// create_bot, delete_bot, and set_bot_content) so it can hire and manage
+	// other Nodes. When true, Tools is ignored in favour of that set. Used to
+	// seed a starter/root Bot for a new org.
 	Owner bool `json:"owner,omitempty"`
 }
 

@@ -129,3 +129,79 @@ func TestMergeBaseReadToolsIdempotent(t *testing.T) {
 		t.Fatalf("merge is not idempotent.\n once: %v\ntwice: %v", once, twice)
 	}
 }
+
+// TestDefaultBotToolsGolden pins the operational surface granted to every
+// newly created standard Bot. Organization-management mutations must remain
+// an explicit manager capability.
+func TestDefaultBotToolsGolden(t *testing.T) {
+	t.Parallel()
+	want := []tool.Name{
+		ChatName,
+		DMName,
+		ListProjectsName,
+		GetProjectName,
+		ListRepositoriesName,
+		ListBotRepositoriesName,
+		ListAssetsName,
+		GetAssetName,
+		CreateSpecTaskName,
+		ListSpecTasksName,
+		GetSpecTaskName,
+		UpdateSpecTaskName,
+		StartSpecTaskPlanningName,
+		SendSpecTaskAgentMessageName,
+		ListSpecTaskAgentMessagesName,
+		StartSpecTaskAgentName,
+		StopSpecTaskAgentName,
+		RestartSpecTaskAgentName,
+		ReviewSpecTaskSpecName,
+		ApproveSpecTaskSpecName,
+		RequestSpecTaskChangesName,
+		CreateSpecTaskPRsName,
+		ManagersName,
+		ReportsName,
+		ListBotsName,
+		GetBotName,
+		ListTriggersName,
+		GetTriggerName,
+		ListTriggerEventsName,
+		ReadEventsName,
+		BotLogName,
+		GetSecretName,
+		ListSecretsName,
+		ListProcessorsName,
+		GetProcessorName,
+	}
+	if got := DefaultBotTools(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("DefaultBotTools drifted from golden list.\n got: %v\nwant: %v", got, want)
+	}
+}
+
+func TestMergeDefaultBotToolsPreservesAdditionsAndDedups(t *testing.T) {
+	t.Parallel()
+	in := []tool.Name{AttachWorkerName, ChatName, AttachWorkerName}
+	got := MergeDefaultBotTools(in)
+	want := append([]tool.Name{AttachWorkerName}, DefaultBotTools()...)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("default merge drifted.\n got: %v\nwant: %v", got, want)
+	}
+}
+
+func TestOwnerBotToolsContainsStandardAndManagementCapabilities(t *testing.T) {
+	t.Parallel()
+	got := OwnerBotTools()
+	counts := make(map[tool.Name]int, len(got))
+	for _, name := range got {
+		counts[name]++
+	}
+	for _, name := range DefaultBotTools() {
+		if counts[name] != 1 {
+			t.Errorf("standard tool %q appears %d times in owner set", name, counts[name])
+		}
+	}
+	for _, name := range []tool.Name{CreateBotName, AttachToolName, AttachRepositoryName, CreateSandboxName} {
+		if counts[name] != 1 {
+			t.Errorf("management tool %q appears %d times in owner set", name, counts[name])
+		}
+	}
+}

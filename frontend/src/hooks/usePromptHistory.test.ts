@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { reconcileEntry, type PromptHistoryEntry } from './usePromptHistory'
+import { beforeEach, describe, it, expect } from 'vitest'
+import { appendPromptDraft, reconcileEntry, type PromptHistoryEntry } from './usePromptHistory'
 
 const make = (over: Partial<PromptHistoryEntry> = {}): PromptHistoryEntry => ({
   id: 'p1',
@@ -56,5 +56,30 @@ describe('reconcileEntry — the local↔backend dirty-flag invariant', () => {
 
     expect(r.interrupt).toBe(true)
     expect(r.content).toBe('local')
+  })
+})
+
+describe('appendPromptDraft', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('seeds an empty session draft', () => {
+    appendPromptDraft('ses-new', 'I would like to create a new bot')
+
+    expect(JSON.parse(localStorage.getItem('helix_prompt_draft_ses-new') ?? '{}')).toEqual({
+      content: 'I would like to create a new bot',
+      sessionId: 'ses-new',
+    })
+  })
+
+  it('preserves and appends to an existing draft', () => {
+    localStorage.setItem('helix_prompt_draft_ses-existing', JSON.stringify({
+      content: 'Existing thought',
+      sessionId: 'ses-existing',
+    }))
+
+    appendPromptDraft('ses-existing', 'I would like to create a new bot')
+
+    expect(JSON.parse(localStorage.getItem('helix_prompt_draft_ses-existing') ?? '{}').content)
+      .toBe('Existing thought I would like to create a new bot')
   })
 })

@@ -8,13 +8,17 @@
 // without it the workspace degrades to a plain session viewer, which is what
 // non-org external-agent sessions get.
 
-import { FC, ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { FC, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
+import { PanelLeft, PanelRight } from 'lucide-react'
 import {
   Group as PanelGroup,
   Panel,
   Separator as PanelResizeHandle,
 } from 'react-resizable-panels'
+import type { PanelImperativeHandle } from 'react-resizable-panels'
 
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -26,7 +30,7 @@ import DiffViewer from '../tasks/DiffViewer'
 import SandboxBrowser from '../tasks/SandboxBrowser'
 import { SandboxIndicatorState } from '../tasks/SandboxStatusIndicator'
 import SpecTaskTerminalDrawer from '../tasks/SpecTaskTerminalDrawer'
-import SpecTaskViewToolbar, { TaskView } from '../tasks/SpecTaskViewToolbar'
+import SpecTaskViewToolbar, { TaskView, toolbarIconButtonSx } from '../tasks/SpecTaskViewToolbar'
 import TaskSessionPlaceholder from '../tasks/TaskSessionPlaceholder'
 import OrgAgentSettingsPane from './OrgAgentSettingsPane'
 
@@ -94,6 +98,9 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   const viewKey = organizationId ? `${VIEW_STORAGE_PREFIX}${organizationId}` : ''
   const terminalKey = organizationId ? `${TERMINAL_STORAGE_PREFIX}${organizationId}` : ''
   const savedLayout = loadPanelLayout(layoutKey, panelIds)
+  const lastExpandedContentSizeRef = useRef(savedLayout?.['org-agent-session-desktop'] ?? 62)
+  const contentPanelRef = useRef<PanelImperativeHandle>(null)
+  const collapseContentAfterSplitRef = useRef(false)
   const dividerColor = lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
 
   const isHeadless = bot?.effective_sandbox_runtime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu
@@ -105,6 +112,8 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   const [view, setView] = useState<TaskView>(() => loadView(viewKey) ?? defaultView)
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [terminalHeight, setTerminalHeight] = useState(() => loadTerminalHeight(terminalKey))
+  const [chatCollapsed, setChatCollapsed] = useState(false)
+  const [contentCollapsed, setContentCollapsed] = useState(false)
 
   // A headless bot has no desktop; if the stored view is desktop, fall back.
   // On a big screen chat has its own panel, so "chat" as a right-panel view
@@ -129,7 +138,31 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     }
   }, [terminalKey])
 
-  const toolbar = (
+  const collapseContentPanel = useCallback(() => {
+    if (chatCollapsed) {
+      collapseContentAfterSplitRef.current = true
+      setContentCollapsed(true)
+      setChatCollapsed(false)
+      return
+    }
+    const currentSize = contentPanelRef.current?.getSize().asPercentage
+    if (currentSize && currentSize > 0) {
+      lastExpandedContentSizeRef.current = currentSize
+    }
+    contentPanelRef.current?.collapse()
+    setContentCollapsed(true)
+  }, [chatCollapsed])
+
+  const showContentPanel = useCallback(() => {
+    const panel = contentPanelRef.current
+    if (!panel) return
+    const restoredSize = lastExpandedContentSizeRef.current || 62
+    panel.expand()
+    panel.resize(`${restoredSize}%`)
+    setContentCollapsed(false)
+  }, [])
+
+  const toolbar = (singlePanel: boolean) => (
     <SpecTaskViewToolbar
       currentView={view}
       onViewChange={handleViewChange}
@@ -148,6 +181,8 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
       onRestart={onRestart}
       restartBusy={lifecycleBusy}
       detailsLabel="Settings"
+      onRestoreSplit={singlePanel ? () => setChatCollapsed(false) : undefined}
+      onCollapsePanel={isBigScreen ? collapseContentPanel : undefined}
     />
   )
 
@@ -204,10 +239,10 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, sessionId, organizationId, desktopRunning, starting, lifecycleBusy, isHeadless, indicatorState, bot?.sandbox_status_message, bot?.sandbox_id, bot?.sandbox_status, bot?.restart_required, bot?.effective_sandbox_runtime, bot?.effective_sandbox_resource_overrides?.vcpus, children])
 
-  const content = (
+  const content = (singlePanel = false) => (
     <Box sx={{ height: '100%', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Box sx={{ flexShrink: 0, borderBottom: `1px solid ${dividerColor}` }}>
-        {toolbar}
+        {toolbar(singlePanel)}
       </Box>
       <Box
         sx={{
@@ -221,6 +256,54 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
         }}
       >
         {surface}
+      </Box>
+    </Box>
+  )
+
+  const chat = (
+    <Box sx={{ height: '100%', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <Box
+        sx={{
+          minHeight: 53,
+          px: 1,
+          pt: 1,
+          pb: 0.5,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: 0.25,
+          flexShrink: 0,
+          borderBottom: `1px solid ${dividerColor}`,
+          backgroundColor: 'background.paper',
+          boxSizing: 'border-box',
+        }}
+      >
+        {contentCollapsed ? (
+          <Tooltip title="Show task panel">
+            <IconButton
+              size="small"
+              aria-label="Show task panel"
+              onClick={showContentPanel}
+              sx={toolbarIconButtonSx('comfortable')}
+            >
+              <PanelRight size={18} />
+            </IconButton>
+          </Tooltip>
+        ) : (
+          <Tooltip title="Collapse chat panel">
+            <IconButton
+              size="small"
+              aria-label="Collapse chat panel"
+              onClick={() => setChatCollapsed(true)}
+              sx={toolbarIconButtonSx('comfortable')}
+            >
+              <PanelLeft size={18} />
+            </IconButton>
+          </Tooltip>
+        )}
+      </Box>
+      <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
+        {children}
       </Box>
     </Box>
   )
@@ -242,7 +325,18 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     return (
       <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {content}
+          {content()}
+        </Box>
+        {terminalDrawer}
+      </Box>
+    )
+  }
+
+  if (chatCollapsed) {
+    return (
+      <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {content(true)}
         </Box>
         {terminalDrawer}
       </Box>
@@ -254,39 +348,55 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     <PanelGroup
       id="org-agent-session-workspace"
       orientation="horizontal"
-      defaultLayout={savedLayout ?? {
-        'org-agent-session-chat': 38,
-        'org-agent-session-desktop': 62,
+      defaultLayout={collapseContentAfterSplitRef.current
+        ? { 'org-agent-session-chat': 100, 'org-agent-session-desktop': 0 }
+        : savedLayout ?? {
+            'org-agent-session-chat': 38,
+            'org-agent-session-desktop': 62,
+          }}
+      onLayoutChange={(layout) => {
+        if (layout['org-agent-session-desktop'] === 0) {
+          collapseContentAfterSplitRef.current = false
+        }
+        if (layout['org-agent-session-chat'] > 0 && layout['org-agent-session-desktop'] > 0) {
+          lastExpandedContentSizeRef.current = layout['org-agent-session-desktop']
+          savePanelLayout(layoutKey, layout, panelIds)
+        }
       }}
-      onLayoutChange={(layout) => savePanelLayout(layoutKey, layout, panelIds)}
       style={{ flex: 1, minHeight: 0, width: '100%' }}
     >
       <Panel
         id="org-agent-session-chat"
         defaultSize="38%"
         minSize="25%"
-        maxSize="70%"
         style={{ overflow: 'hidden', minWidth: 0, minHeight: 0 }}
       >
-        {children}
+        {chat}
       </Panel>
       <PanelResizeHandle
         id="org-agent-session-resize"
         style={{
-          width: 6,
-          flex: '0 0 6px',
+          width: contentCollapsed ? 0 : 6,
+          flexGrow: 0,
+          flexShrink: 0,
+          flexBasis: contentCollapsed ? 0 : 6,
           background: dividerColor,
-          cursor: 'col-resize',
+          cursor: contentCollapsed ? 'default' : 'col-resize',
           outline: 'none',
+          overflow: 'hidden',
         }}
       />
       <Panel
         id="org-agent-session-desktop"
         defaultSize="62%"
         minSize="30%"
+        collapsible
+        collapsedSize={0}
+        panelRef={contentPanelRef}
+        onResize={(size) => setContentCollapsed(size.asPercentage === 0)}
         style={{ overflow: 'hidden', minWidth: 0, minHeight: 0 }}
       >
-        {content}
+        {content()}
       </Panel>
     </PanelGroup>
     {terminalDrawer}

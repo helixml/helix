@@ -19,6 +19,7 @@ import {
 
 const HISTORY_STORAGE_KEY = 'helix_prompt_history'
 const DRAFT_STORAGE_KEY = 'helix_prompt_draft'
+const DRAFT_UPDATED_EVENT = 'helix-prompt-draft-updated'
 const LAST_SYNC_KEY = 'helix_prompt_last_sync'
 const MAX_HISTORY_SIZE = 100
 const SYNC_DEBOUNCE_MS = 100 // Debounce for batching rapid changes (100ms feels instant)
@@ -134,6 +135,15 @@ function saveDraft(sessionId: string, content: string): void {
   } catch (e) {
     console.warn('Failed to save draft:', e)
   }
+}
+
+export function appendPromptDraft(sessionId: string, content: string): void {
+  const current = loadDraft(sessionId)
+  const needsSpace = current.length > 0 && !/\s$/.test(current)
+  saveDraft(sessionId, current + (needsSpace ? ' ' : '') + content)
+  window.dispatchEvent(new CustomEvent(DRAFT_UPDATED_EVENT, {
+    detail: { sessionId },
+  }))
 }
 
 function clearDraftStorage(sessionId: string): void {
@@ -534,6 +544,15 @@ export function usePromptHistory({
   useEffect(() => {
     const loaded = loadDraft(sessionId)
     setDraftState(loaded)
+  }, [sessionId])
+
+  useEffect(() => {
+    const reloadAppendedDraft = (event: Event) => {
+      if ((event as CustomEvent<{ sessionId: string }>).detail.sessionId !== sessionId) return
+      setDraftState(loadDraft(sessionId))
+    }
+    window.addEventListener(DRAFT_UPDATED_EVENT, reloadAppendedDraft)
+    return () => window.removeEventListener(DRAFT_UPDATED_EVENT, reloadAppendedDraft)
   }, [sessionId])
 
   // Reload history when specTaskId changes

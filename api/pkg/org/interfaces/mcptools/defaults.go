@@ -11,7 +11,7 @@ import (
 // introspect its reporting line, look up peers, or read the sources it
 // has been attached to).
 //
-// `create_bot` unions this list into the caller-supplied tools so that
+// New-bot entry points include this list through DefaultBotTools so that
 // new Nodes can never miss the baseline. The bots Reconcile backfill
 // unions this list into every existing Bot's tools so that pre-existing
 // Nodes get backfilled at API server start.
@@ -60,8 +60,8 @@ var AssetManagementTools = []tool.Name{
 }
 
 // OwnerBotTools is the canonical tool set the bootstrap owner Bot
-// (Chief of Staff) receives: every mutation in the system plus the
-// universal base read set (via MergeBaseReadTools). It lives here —
+// (Chief of Staff) receives: every organization-management mutation plus
+// the standard worker tool set. It lives here —
 // beside the tool name constants and BaseReadTools — so the owner-seed
 // policy references the typed names directly and bootstrap can be handed
 // the list without importing this package. get_secret arrives
@@ -106,7 +106,7 @@ func OwnerBotTools() []tool.Name {
 	}
 	// Org assets: create/configure inventory and grant/revoke Bot access.
 	ownerMutations = append(ownerMutations, AssetManagementTools...)
-	return MergeBaseReadTools(ownerMutations)
+	return MergeDefaultBotTools(ownerMutations)
 }
 
 // MergeBaseReadTools returns the union of `existing` and BaseReadTools.
@@ -114,13 +114,35 @@ func OwnerBotTools() []tool.Name {
 // already present are appended in BaseReadTools order. Duplicates within
 // `existing` are also dropped, so the result is fully deduped.
 //
-// Used by every entry point that creates a Bot — the MCP create_bot
-// tool, the REST POST /orgs/{org}/bots handler, and the bots Reconcile
-// backfill. Keeping the merge in one place ensures all paths agree on
-// order and dedup semantics, and adding a new entry point only requires
-// a single call to this helper.
+// Used directly by the bots service and its Reconcile backfill. New-bot
+// entry points reach it through MergeDefaultBotTools.
 func MergeBaseReadTools(existing []tool.Name) []tool.Name {
 	return nodes.MergeTools(existing, BaseReadTools)
+}
+
+// DefaultBotTools is the capability set every newly created non-manager Bot
+// receives. It covers normal collaboration, scoped project/repository/asset
+// discovery, and the complete spec-task lifecycle. Organization control-plane
+// mutations remain exclusive to OwnerBotTools.
+func DefaultBotTools() []tool.Name {
+	standard := []tool.Name{
+		ChatName,
+		DMName,
+		ListProjectsName,
+		GetProjectName,
+		ListRepositoriesName,
+		ListBotRepositoriesName,
+		ListAssetsName,
+		GetAssetName,
+	}
+	standard = append(standard, SpecTaskAgentTools...)
+	return MergeBaseReadTools(standard)
+}
+
+// MergeDefaultBotTools preserves explicitly requested additions while
+// guaranteeing the complete standard worker capability set.
+func MergeDefaultBotTools(existing []tool.Name) []tool.Name {
+	return nodes.MergeTools(existing, DefaultBotTools())
 }
 
 // SpecTaskAgentTools is the catalogue offered to a spec task's coding agent —

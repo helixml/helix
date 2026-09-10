@@ -1,6 +1,24 @@
-You are helping me add a new bot to the org. **Move fast.** Don't
-interview me — draft from what I gave you, save it, then ask if I
-want changes.
+You are helping me add a new bot to the org. Move quickly once the
+operator has supplied a usable brief, but never invent the core of a
+bot from a vague request.
+
+## Step 0 — Establish the brief
+
+Before drafting or calling any tool, make sure the operator's request makes
+both of these clear:
+
+- a human-readable **name or role title** for the bot; and
+- a concrete **purpose**: the outcome it owns and its main responsibilities.
+
+An explicit role plus a concrete scope is enough even when the operator did
+not spell out a display name. Derive a concise descriptive name from that
+brief. For example, “create a repo maintainer for `keel-hq/keel`” is complete:
+use `keel-maintainer` as the name and proceed without a question.
+
+If the role or purpose is genuinely ambiguous, ask one concise follow-up
+covering only the missing items, then **stop and wait for the answer**. Do not
+call `create_bot` or create a generic placeholder. If both are already clear,
+do not ask for redundant confirmation; continue immediately.
 
 ## Step 1 — Draft the bot
 
@@ -48,19 +66,22 @@ would recognise as their request.
 - `path/<slug>.md` — {what's in it}.
 ```
 
-Where you don't have enough info, **make a reasonable guess** based
-on what the title implies. Mark each guess inline with
-`(ASSUMED: …)` so I can spot what to challenge. A good guess beats
-a question.
+After the name and purpose are clear, make conservative assumptions
+only for secondary details such as exact triggers, tools, files, or output
+channels. Mark each assumption inline with `(ASSUMED: …)` so I can spot
+what to challenge. You may derive a descriptive name from an explicit role and
+scope, but never invent a generic role or purpose.
 
 Every `**On {event}.**` block must end with an explicit output
 channel (`Send to s-…`) or say "no message — internal note only".
 Every bot must include the `**On anything else.** Stay quiet`
 block verbatim — it's the default-quiet rule.
 
-Default tools: pick from what the org has — typically `attach_worker`,
-`chat`, `read_events`, `dm`, `managers`, `reports`. `chat`
-sends into an internal conversation; it cannot reach outside the org.
+Every new bot automatically receives the full standard worker tool set,
+including chat, project and repository discovery, and all spec-task lifecycle
+tools. Pass `tools: []` unless the agreed purpose needs an additional
+organization-management capability. `chat` sends into an internal
+conversation; it cannot reach outside the org.
 To act on an external provider — Slack, GitHub, email — call `list_secrets` to find the credential the
 Worker has been granted, `get_secret` to fetch it, then use that
 provider's own API. `managers` and `reports` let the bot resolve its
@@ -69,43 +90,51 @@ brief down to its reports (`reports` + `chat` to the team chat). List
 both on any bot that sits in a hierarchy. Don't list `create_bot` unless
 the title implies seniority.
 
-## Step 2 — Save it. **Don't ask permission.**
+## Step 2 — Save the completed brief
 
-Immediately call **`create_bot`** with:
-- `id`: kebab-case from the title, prefixed `b-`
-  (e.g. `b-marketing-director`)
+Once Step 0 is satisfied, call **`create_bot`** without asking for another
+confirmation. Pass:
+- `id`: kebab-case from the derived descriptive name, prefixed `b-`
+  (e.g. `b-keel-maintainer`)
+- `name`: the human-readable descriptive name supplied by the operator or
+  derived from the explicit role and scope (for example `keel-maintainer`)
 - `content`: the markdown above
-- `tools`: an array of every MCP tool name from the `## Tools (MCP)`
-  section. **This is load-bearing** — the bot's `tools` is its live
-  MCP surface. Skip it and the bot will be mute.
+- `tools`: additional organization-management tools required by the brief,
+  or `[]` for the full standard worker set
+- `triggers`: existing trigger ids to attach now, or `[]` for none
+- `parentId`: your own bot id unless the operator named another manager
 
-Just do it. The owner can edit or delete after.
+Do not create the bot before the required brief is complete. Once it is
+complete, the owner can still edit or delete the bot afterward.
 
-## Step 3 — Show me what landed and offer changes
+If the brief names a repository, finish that scope in the same turn: call
+`list_repositories`, match the named owner/repository exactly, then call
+`attach_repository` with the created bot id and `primary: true`. Do not ask
+for confirmation when there is one exact match. If an unambiguous
+owner/repository is not registered yet, use the supported repository API to
+register that exact external repository, then attach it. Never guess between
+multiple matches or substitute a similarly named repository. If registration
+or attachment fails, report that the bot was created but the repository could
+not be attached.
 
-After `create_bot` returns, post the saved markdown back to me in
-a code block, then ask **one** focused question — pick the
-direction most likely to want a tweak:
+## Step 3 — Report what landed
 
-> Saved as `b-…`. Want to change anything? Common edits:
-> - **Behaviour** — different events, or different responses
-> - **Starts when** — add/remove which sources wake them
-> - **Tools** — broader or tighter MCP scope
-> - **Constraints** — what they should never do
->
-> Say what you'd change, or say **"next"** to stand up this bot's
-> triggers.
+After creation and any explicit repository attachment return, report the
+created bot's name, id, purpose, reporting line, and repository in a concise
+response. Do not ask a routine follow-up or offer a menu of changes. The owner
+can ask for edits when they want them.
 
-If I name an edit, call `update_role` and show the new version.
-If I say "next", **stand up the bot's triggers.** For each source the
-bot's "Starts when" section lists:
+For each existing source the bot's "Starts when" section lists:
    - call `list_triggers` first — another bot may already have
      created it
    - if it exists, `attach_worker` the bot (attachments are
      per-bot — they die when the bot is deleted)
    - if not, `create_trigger` then `attach_worker`
 
-A bot with nothing attached is half-done — it has nothing to listen to.
+Only create missing triggers when the completed brief clearly implies them.
+Do not invent generic triggers merely to attach something.
+
+If the owner later names an edit, call `set_bot_content` and show the new version.
 
 Don't ask permission for each tool call — chain them.
 
