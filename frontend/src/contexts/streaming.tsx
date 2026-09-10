@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import ReconnectingWebSocket from "reconnecting-websocket";
 import {
+  IEntryPatch,
   IWebsocketEvent,
   WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE,
   WEBSOCKET_EVENT_TYPE_INTERACTION_PATCH,
@@ -17,7 +18,22 @@ import {
   ISessionType,
   IAgentType,
 } from "../types";
-import { applyPatch } from "../utils/patchUtils";
+import {
+  applyPatch,
+  hasLostBaseline,
+  isTerminalToolStatus,
+} from "../utils/patchUtils";
+import useAccount from "../hooks/useAccount";
+
+/**
+ * An embedded agent can signal its host; a top-level one has nobody to tell.
+ *
+ * Evaluated per call rather than once at module load: the answer is fixed for
+ * a real document, but pinning it at import time makes it unobservable to a
+ * test, and this gate decides whether the host is told anything at all.
+ */
+const isEmbedded = () =>
+  typeof window !== "undefined" && window.parent !== window;
 import { TypesInteraction, TypesInteractionState, TypesMessage, TypesSession } from "../api/api";
 import { ResponseEntry } from "../components/session/InteractionInference";
 import {
@@ -91,6 +107,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
   const queryClient = useQueryClient();
+  const account = useAccount();
   const [currentResponses, setCurrentResponses] = useState<
     Map<string, StreamingInteraction>
   >(new Map());
@@ -107,6 +124,45 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
   // Keyed by interactionId, stores the current ResponseEntry[] built from entry_patches.
   const patchEntriesRef = useRef<Map<string, ResponseEntry[]>>(new Map());
   const patchPendingRef = useRef<boolean>(false);
+  // Interaction ids we have already pulled into the rendered list.
+  //
+  // Streaming patches deliberately do NOT invalidate the interactions query —
+  // they are high-frequency and the owner's own client already inserted the
+  // interaction optimistically when it sent the prompt. But a VIEWER of someone
+  // else's session never ran that insert, so without this the interaction never
+  // reaches their list: no spinner (nothing is in the `waiting` state to render
+  // as live), no streaming, and the whole reply appearing at once on completion.
+  // Reported by Leah watching Luke's session, 9 Sept 2026.
+  //
+  // So: refetch ONCE per interaction we have not seen, and keep the
+  // high-frequency path allocation-free after that.
+  //
+  // Gated on NOT being the owner. Whoever submitted the message gets their
+  // interaction into the list through the debounced invalidation that every
+  // non-patch event already triggers; refetching for them here is one wasted
+  // LIST_INTERACTIONS fetch per turn, which is exactly the per-patch cache
+  // churn the note at the bottom of this file says never to introduce.
+  const seenInteractionsRef = useRef<Set<string>>(new Set());
+  // Interactions whose baseline we have given up on until they complete.
+  //
+  // A lost baseline cannot be repaired by more deltas — the missing bytes are
+  // only in the database. Without this, the resync in the patch branch deletes
+  // patchEntriesRef, the next patch re-grows an empty array, the invariant
+  // fires again, and we invalidate again — at a 50ms publish interval that is
+  // ~20 refetches per second for the rest of the interaction, while the render
+  // stays frozen regardless. So: resync once, then stay quiet until the
+  // completed interaction arrives with the authoritative content.
+  const resyncingRef = useRef<Set<string>>(new Set());
+  // Tool-call notifications already posted to an embedding host, keyed
+  // `interaction:message:status`. The server re-sends a tool_call entry's
+  // metadata on every patch that touches it, so without this a host gets one
+  // message per patch and re-renders on each.
+  const notifiedToolsRef = useRef<Set<string>>(new Set());
+  // The signed-in user, read through a ref so the websocket callback keeps a
+  // stable identity (it is a dependency of the connection effect — putting the
+  // id in its dep array would tear down and reopen the socket when the account
+  // loads).
+  const currentUserIdRef = useRef<string | undefined>(undefined);
   // Track whether the WebSocket has experienced a disconnect since last connect.
   // Used to detect reconnection events (vs initial connection) so we can refresh
   // stale state missed during the outage.
@@ -142,6 +198,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
       // Clear all patch state (not session-keyed, so clear everything)
       patchEntriesRef.current.clear();
       patchPendingRef.current = false;
+      seenInteractionsRef.current.clear();
+      resyncingRef.current.clear();
+      notifiedToolsRef.current.clear();
 
       // Also clear stepInfos for the new session (fresh start)
       if (sessionId) {
@@ -156,6 +215,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
     },
     [currentSessionId],
   );
+
+  // Kept current every render so the websocket callback can read it without
+  // taking a dependency on it.
+  currentUserIdRef.current = account.user?.id;
 
   // Function to flush message buffer to state
   const flushMessageBuffer = useCallback((sessionId: string) => {
@@ -204,6 +267,62 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
       scheduleFlush(sessionId);
     },
     [scheduleFlush],
+  );
+
+  // Is this interaction already in a rendered interactions list?
+  //
+  // The query key carries pagination (`["interactions", id, page, perPage,
+  // order]`), so getQueryData with a partial key would miss every cached page.
+  // getQueriesData prefix-matches, the same way invalidateQueries does.
+  const isInRenderedList = useCallback(
+    (interactionId: string): boolean =>
+      queryClient
+        .getQueriesData<{ data?: { interactions?: { id?: string }[] } }>({
+          queryKey: ["interactions", currentSessionId],
+        })
+        .some(([, cached]) =>
+          cached?.data?.interactions?.some((i) => i.id === interactionId),
+        ),
+    [currentSessionId, queryClient],
+  );
+
+  // Tell an embedding page when the agent finishes a tool call.
+  //
+  // An embedded agent cannot render into its host — it is cross-origin — so a
+  // host that wants to show the RESULT of a tool call (job cards, a chart,
+  // anything) has no way to know one happened. This is the signal.
+  //
+  // It carries the tool NAME and STATUS only, never the result. The host
+  // fetches its own data from its own API; nothing here is a channel for data
+  // the host would then have to trust. `"*"` as the target origin is safe for
+  // the same reason — there is nothing sensitive in the message.
+  //
+  // Once per completed call, not once per patch. The server repeats a
+  // tool_call entry's metadata on every patch that touches it, so posting
+  // unconditionally means a host re-renders ~20 times a second while a tool
+  // runs. Deduped on the entry's message_id so a status that changes twice is
+  // announced twice, but the same status never is.
+  const notifyHostOfToolCalls = useCallback(
+    (interactionId: string, entryPatches: IEntryPatch[]) => {
+      if (!isEmbedded()) return;
+      for (const ep of entryPatches) {
+        if (ep.type !== "tool_call" || !ep.tool_name) continue;
+        if (!isTerminalToolStatus(ep.tool_status)) continue;
+        const key = `${interactionId}:${ep.message_id}:${ep.tool_status}`;
+        if (notifiedToolsRef.current.has(key)) continue;
+        notifiedToolsRef.current.add(key);
+        window.parent.postMessage(
+          {
+            type: "helix-agent-tool",
+            tool: ep.tool_name,
+            status: ep.tool_status,
+            session_id: currentSessionId,
+          },
+          "*",
+        );
+      }
+    },
+    [currentSessionId],
   );
 
   const handleWebsocketEvent = useCallback(
@@ -390,6 +509,13 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           TypesInteractionState.InteractionStateComplete
         ) {
           patchPendingRef.current = false;
+          // The authoritative content has arrived, so a baseline we gave up on
+          // is no longer relevant. Releasing the suppression here (rather than
+          // on any interaction_update) keeps a mid-turn update from restarting
+          // the resync cycle it exists to stop.
+          if (updatedInteraction.id) {
+            resyncingRef.current.delete(updatedInteraction.id);
+          }
         }
 
         // Surgically update just this interaction in the React Query cache
@@ -486,11 +612,54 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         const entryPatches = parsedData.entry_patches;
         const entryCount = parsedData.entry_count;
 
+        // An interaction we have never rendered needs to enter the list before
+        // any of this can show. See seenInteractionsRef.
+        //
+        // Only for someone who is NOT the owner: the sender's own client gets
+        // this interaction through the debounced invalidation below, so doing
+        // it here as well is a wasted fetch on every turn for every user. The
+        // cache check covers the rest — a viewer who already refetched, or a
+        // second tab that is already rendering it.
+        if (
+          !seenInteractionsRef.current.has(interactionId) &&
+          parsedData.owner !== currentUserIdRef.current &&
+          !isInRenderedList(interactionId)
+        ) {
+          seenInteractionsRef.current.add(interactionId);
+          queryClient.invalidateQueries({
+            queryKey: ["interactions", currentSessionId],
+          });
+        }
+
         if (entryPatches && entryCount) {
+          // Tool notifications go out BEFORE the baseline checks below. They
+          // carry no streamed content, so they stay correct even when the
+          // entries we hold do not — and a tool completing inside a resync
+          // window is exactly when a host most needs to know to refetch.
+          notifyHostOfToolCalls(interactionId, entryPatches);
+
+          // Baseline already given up on for this interaction — see
+          // resyncingRef. Nothing below can succeed until the completed
+          // interaction arrives, and retrying it every 50ms is a refetch storm.
+          if (resyncingRef.current.has(interactionId)) return;
+
           const currentEntries = patchEntriesRef.current.get(interactionId) || [];
           // Grow array to entry_count if new entries appeared
           while (currentEntries.length < entryCount) {
             currentEntries.push({ type: "text", content: "", message_id: "" });
+          }
+
+          // Deltas are only meaningful against the baseline they were computed
+          // from, and a baseline that is gone cannot be rebuilt from more
+          // deltas — only from the database. hasLostBaseline documents the
+          // three ways it goes bad; all three render a wrong reply silently.
+          if (hasLostBaseline(currentEntries, entryPatches)) {
+            resyncingRef.current.add(interactionId);
+            patchEntriesRef.current.delete(interactionId);
+            queryClient.invalidateQueries({
+              queryKey: ["interactions", currentSessionId],
+            });
+            return;
           }
           // Apply each entry patch
           for (const ep of entryPatches) {
@@ -608,6 +777,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           return next;
         });
         patchEntriesRef.current.clear();
+        // A reconnect is the one event that can restore a lost baseline: the
+        // server sends a catch-up snapshot on the new connection. So give up
+        // giving up — let the invariant judge the next patch on its merits.
+        resyncingRef.current.clear();
         queryClient.invalidateQueries({ queryKey: ["interactions", currentSessionId] });
         queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId!) });
       }
