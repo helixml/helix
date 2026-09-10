@@ -11,14 +11,14 @@ func IsTerminalOutput(o types.SessionOutputResponse) bool {
 	return o.Status == "complete" || o.Status == "error" || o.Status == "interrupted"
 }
 
-// ServerStatus mirrors the slice of /api/v1/config helix-org reads.
+// ServerStatus reports the resolved desktop quota for the activation context.
 type ServerStatus struct {
 	MaxConcurrentDesktops    int `json:"max_concurrent_desktops"`
 	ActiveConcurrentDesktops int `json:"active_concurrent_desktops"`
 }
 
 // HasDesktopRoom reports whether at least one desktop slot is free.
-// Max=0 means "unlimited" at the server level.
+// The quota manager uses -1 for unlimited; any non-positive maximum is treated as unlimited here.
 func (s ServerStatus) HasDesktopRoom() bool {
 	if s.MaxConcurrentDesktops <= 0 {
 		return true
