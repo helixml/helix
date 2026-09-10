@@ -7,8 +7,18 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   refetch: vi.fn(),
   navigateReplace: vi.fn(),
+  consumeDraft: vi.fn(),
+  appendDraft: vi.fn(),
   bots: [] as Array<{ id: string; name?: string; session_id?: string }>,
   listError: false,
+}))
+
+vi.mock('../components/helix-org/orgBotChatDraft', () => ({
+  consumeOrgBotChatDraft: mocks.consumeDraft,
+}))
+
+vi.mock('../hooks/usePromptHistory', () => ({
+  appendPromptDraft: mocks.appendDraft,
 }))
 
 vi.mock('../hooks/useRouter', () => ({
@@ -38,6 +48,24 @@ describe('OrgBotSessionResolver', () => {
     mocks.listError = false
     mocks.activate.mockResolvedValue({})
     mocks.refetch.mockResolvedValue({})
+    mocks.consumeDraft.mockReturnValue('')
+  })
+
+  it('moves a queued draft into the durable session before opening it', async () => {
+    mocks.bots = [{ id: 'chief-of-staff', session_id: 'ses-existing' }]
+    mocks.consumeDraft.mockReturnValue('I would like to create a new bot')
+
+    render(<OrgBotSessionResolver />)
+
+    await waitFor(() => expect(mocks.navigateReplace).toHaveBeenCalled())
+    expect(mocks.consumeDraft).toHaveBeenCalledWith('my-org', 'chief-of-staff')
+    expect(mocks.appendDraft).toHaveBeenCalledWith(
+      'ses-existing',
+      'I would like to create a new bot',
+    )
+    expect(mocks.appendDraft.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.navigateReplace.mock.invocationCallOrder[0],
+    )
   })
 
   it('opens an existing durable session without activating the bot', async () => {

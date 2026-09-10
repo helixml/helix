@@ -436,13 +436,11 @@ func sameNames(a, b []tool.Name) bool {
 	return true
 }
 
-// TestRESTCreateBot_EmptyToolsGetsBaseline pins the bug fix discovered
+// TestRESTCreateBot_EmptyToolsGetsDefaultWorkerSet pins the default granted
 // during the in-browser demo of helixml/helix#2546: the chart UI's "New
-// Bot" dialog only collects ID + content (no tools picker) and posts to
-// POST /bots with an empty tools list. The REST handler unions
-// BaseReadTools the same way the MCP create_bot tool does, so the
-// resulting Bot still has a usable MCP surface.
-func TestRESTCreateBot_EmptyToolsGetsBaseline(t *testing.T) {
+// Bot" dialog may post an empty additions list. The REST handler unions
+// DefaultBotTools the same way the MCP create_bot tool does.
+func TestRESTCreateBot_EmptyToolsGetsDefaultWorkerSet(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
 
@@ -467,15 +465,98 @@ func TestRESTCreateBot_EmptyToolsGetsBaseline(t *testing.T) {
 	for _, name := range bot.Tools {
 		got[name] = true
 	}
-	for _, name := range mcptools.BaseReadTools {
+	for _, name := range mcptools.DefaultBotTools() {
 		if !got[name] {
-			t.Errorf("baseline tool %q missing from REST-created bot; got: %v", name, bot.Tools)
+			t.Errorf("default tool %q missing from REST-created bot; got: %v", name, bot.Tools)
 		}
 	}
 }
 
+func TestRESTCreateBot_MemberCannotGrantManagerTools(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	h := orgapi.Handler(deps)
+
+	standard := doAsRole(t, h, http.MethodPost, "/bots", orgapi.CreateBotRequest{
+		ID:      "b-member-worker",
+		Content: "# Worker",
+	}, types.OrganizationRoleMember, false)
+	if standard.Code != http.StatusCreated {
+		t.Fatalf("standard create status = %d, want 201; body=%s", standard.Code, standard.Body)
+	}
+
+	for _, request := range []orgapi.CreateBotRequest{
+		{ID: "b-owner", Content: "# Owner", Owner: true},
+		{ID: "b-custom", Content: "# Custom", Tools: []string{string(mcptools.CreateBotName)}},
+	} {
+		rec := doAsRole(t, h, http.MethodPost, "/bots", request, types.OrganizationRoleMember, false)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("request %+v status = %d, want 403; body=%s", request, rec.Code, rec.Body)
+		}
+		if _, err := st.Nodes.Get(context.Background(), "org-test", orgchart.NodeID(request.ID)); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("rejected create %s left a bot row: %v", request.ID, err)
+		}
+	}
+}
+
+func TestRESTUpdateBot_MemberCannotGrantManagerTools(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedBot(t, st, ctx, "b-member-worker", "# Worker")
+	h := orgapi.Handler(deps)
+
+	updatedContent := "# Updated worker"
+	contentOnly := doAsRole(t, h, http.MethodPatch, "/bots/b-member-worker", orgapi.UpdateBotRequest{
+		Content: &updatedContent,
+	}, types.OrganizationRoleMember, false)
+	if contentOnly.Code != http.StatusOK {
+		t.Fatalf("content-only update status = %d, want 200; body=%s", contentOnly.Code, contentOnly.Body)
+	}
+
+	rec := doAsRole(t, h, http.MethodPatch, "/bots/b-member-worker", orgapi.UpdateBotRequest{
+		Tools: []string{string(mcptools.ChatName), string(mcptools.CreateBotName)},
+	}, types.OrganizationRoleMember, false)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("privileged tools update status = %d, want 403; body=%s", rec.Code, rec.Body)
+	}
+	bot, err := st.Nodes.Get(ctx, "org-test", "b-member-worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bot.Content != updatedContent {
+		t.Fatalf("content = %q, want prior successful update %q", bot.Content, updatedContent)
+	}
+	for _, name := range bot.Tools {
+		if name == mcptools.CreateBotName {
+			t.Fatal("rejected manager tool was persisted")
+		}
+	}
+
+	seedBot(t, st, ctx, "b-manager", "# Manager")
+	managerTools := mcptools.OwnerBotTools()
+	if _, err := deps.Nodes.Update(ctx, "org-test", "b-manager", nodes.UpdateParams{Tools: &managerTools}); err != nil {
+		t.Fatalf("seed manager tools: %v", err)
+	}
+	defaultsOnly := make([]string, 0, len(mcptools.DefaultBotTools()))
+	for _, name := range mcptools.DefaultBotTools() {
+		defaultsOnly = append(defaultsOnly, string(name))
+	}
+	downgrade := doAsRole(t, h, http.MethodPatch, "/bots/b-manager", orgapi.UpdateBotRequest{
+		Tools: defaultsOnly,
+	}, types.OrganizationRoleMember, false)
+	if downgrade.Code != http.StatusForbidden {
+		t.Fatalf("manager downgrade status = %d, want 403; body=%s", downgrade.Code, downgrade.Body)
+	}
+	manager, err := st.Nodes.Get(ctx, "org-test", "b-manager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mcptools.HasNonDefaultBotTool(manager.Tools) {
+		t.Fatal("rejected downgrade stripped manager tools")
+	}
+}
+
 // TestRESTCreateBot_UnionWithCallerTools pins the union semantics for the
-// REST path — caller-supplied tools are preserved alongside the baseline,
+// REST path — caller-supplied tools are preserved alongside the worker set,
 // deduped.
 func TestRESTCreateBot_UnionWithCallerTools(t *testing.T) {
 	deps, st, _ := newDeps(t)
@@ -511,16 +592,16 @@ func TestRESTCreateBot_UnionWithCallerTools(t *testing.T) {
 			t.Errorf("caller tool %q missing; got: %v", name, bot.Tools)
 		}
 	}
-	for _, name := range mcptools.BaseReadTools {
+	for _, name := range mcptools.DefaultBotTools() {
 		if !got[name] {
-			t.Errorf("baseline tool %q missing from union; got: %v", name, bot.Tools)
+			t.Errorf("default tool %q missing from union; got: %v", name, bot.Tools)
 		}
 	}
 }
 
 // TestCreateBotParity_RESTvsMCP: the REST POST /bots handler and the MCP
 // create_bot tool both go through lifecycle.Create, so both must produce
-// identical bot rows — same content, same baseline-unioned tools.
+// identical bot rows — same content, same default-unioned tools.
 func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 	clock := func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 	newID := func() string { return "fixed" }

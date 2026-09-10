@@ -8,12 +8,13 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import InputBase from '@mui/material/InputBase'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { Archive, FolderPlus, Search, SquarePen } from 'lucide-react'
+import { Archive, FolderPlus, Plus, Search, SquarePen } from 'lucide-react'
 
 import {
   TypesExternalRepositoryType,
@@ -33,6 +34,7 @@ import { useListProjects } from '../../services/projectService'
 import { useArchiveSession } from '../../services/sessionService'
 import { useArchiveSpecTask } from '../../services/specTaskService'
 import { usePinnedChats } from '../../services/chatPinService'
+import NewBotDialog from '../helix-org/NewBotDialog'
 import CreateProjectDialog from '../project/CreateProjectDialog'
 import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import {
@@ -142,6 +144,7 @@ const ProjectChatSidebar: FC<{
   const [projectContextMenuPosition, setProjectContextMenuPosition] = useState<ProjectChatContextMenuPosition | null>(null)
   const [archivingItemId, setArchivingItemId] = useState<string | null>(null)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
+  const [newBotOpen, setNewBotOpen] = useState(false)
   const [newChatPickerOpen, setNewChatPickerOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [chatShortcutsVisible, setChatShortcutsVisible] = useState(false)
@@ -186,7 +189,7 @@ const ProjectChatSidebar: FC<{
   // list keeps its identity for the sort memo and drag handlers downstream.
   const sidebarBots = useMemo(() => toSidebarBots(orgAgents), [orgAgents])
   // An agent's own project is its chat; it is listed under Org agents, not Projects.
-  const projects = useMemo(() => withoutBotProjects(allProjects, sidebarBots), [allProjects, sidebarBots])
+  const sidebarProjects = useMemo(() => withoutBotProjects(allProjects, sidebarBots), [allProjects, sidebarBots])
   const {
     preferences,
     sortedProjects,
@@ -194,8 +197,7 @@ const ProjectChatSidebar: FC<{
     setThreadSortOrder,
     setVisibleThreadCount,
     setManualProjectOrder,
-  } = useProjectChatSidebarPreferences(preferencesStorageKey, projects)
-  const sidebarProjects = projects
+  } = useProjectChatSidebarPreferences(preferencesStorageKey, sidebarProjects)
   const focusedProject = projectFilter === ALL_PROJECTS_FILTER
     ? undefined
     : sidebarProjects.find((project) => project.id === projectFilter)
@@ -611,7 +613,7 @@ const ProjectChatSidebar: FC<{
   // view is only about threads, so agents stay out of it. Searching keeps
   // every section so a query can land on an agent, a thread, or a
   // colleague; each agent hides itself when nothing of its own matches.
-  const showBotsSection = !focusMode && !showArchived && sidebarBots.length > 0
+  const showBotsSection = !focusMode && !showArchived
   const groupByPerson = groupBy === 'person'
   const showSectionHeaders = showBotsSection || groupByPerson
 
@@ -782,6 +784,29 @@ const ProjectChatSidebar: FC<{
                   label="Org bots"
                   collapsed={collapsedGroups.has('bots')}
                   onToggle={() => toggleGroup('bots')}
+                  actions={(
+                    <Button
+                      size="small"
+                      variant="text"
+                      startIcon={<Plus size={12} strokeWidth={1.8} />}
+                      onClick={() => setNewBotOpen(true)}
+                      disabled={!groupsEnabled}
+                      sx={{
+                        minWidth: 0,
+                        minHeight: 24,
+                        height: 24,
+                        px: 0.5,
+                        py: 0,
+                        color: 'inherit',
+                        fontSize: '10.5px',
+                        lineHeight: 1,
+                        textTransform: 'none',
+                        '& .MuiButton-startIcon': { mr: 0.25 },
+                      }}
+                    >
+                      New bot
+                    </Button>
+                  )}
                 />
                 {!collapsedGroups.has('bots') && (
                   <ProjectChatBotsGroup
@@ -940,10 +965,12 @@ const ProjectChatSidebar: FC<{
 
       <NewChatProjectDialog
         open={newChatPickerOpen}
-        projects={projects}
+        projects={allProjects}
         onClose={() => setNewChatPickerOpen(false)}
         onSelect={startNewChat}
       />
+
+      <NewBotDialog open={newBotOpen} onClose={() => setNewBotOpen(false)} />
 
       <ProjectChatItemContextMenu
         item={contextMenuItem}

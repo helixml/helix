@@ -6,7 +6,9 @@ import Typography from '@mui/material/Typography'
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 
 import useRouter from '../hooks/useRouter'
+import { appendPromptDraft } from '../hooks/usePromptHistory'
 import { useActivateBot, useListHelixOrgBots } from '../services/helixOrgService'
+import { consumeOrgBotChatDraft } from '../components/helix-org/orgBotChatDraft'
 
 export default function OrgBotSessionResolver() {
   const router = useRouter()
@@ -35,6 +37,8 @@ export default function OrgBotSessionResolver() {
 
   useEffect(() => {
     if (!orgID || !sessionID) return
+    const queuedDraft = consumeOrgBotChatDraft(orgID, botID)
+    if (queuedDraft) appendPromptDraft(sessionID, queuedDraft)
     router.navigateReplace('org_session', {
       org_id: orgID,
       session_id: sessionID,

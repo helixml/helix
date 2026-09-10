@@ -191,6 +191,47 @@ func TestHelixOrgDefaultRuntimeMutationRequiresOwner(t *testing.T) {
 	}
 }
 
+func TestWithHelixOrgIdentityThreadsOrganizationAuthorization(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		role          types.OrganizationRole
+		platformAdmin bool
+		wantManage    bool
+	}{
+		{name: "member", role: types.OrganizationRoleMember, wantManage: false},
+		{name: "owner", role: types.OrganizationRoleOwner, wantManage: true},
+		{name: "platform admin", role: types.OrganizationRoleMember, platformAdmin: true, wantManage: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				auth, ok := helixorgserver.OrgAuthorizationFromContext(r.Context())
+				if !ok {
+					t.Fatal("organization authorization missing from context")
+				}
+				if auth.MembershipRole != tt.role || auth.PlatformAdmin != tt.platformAdmin {
+					t.Fatalf("authorization = %+v, want role=%q admin=%v", auth, tt.role, tt.platformAdmin)
+				}
+				if got := helixorgserver.CanManageOrganization(r.Context()); got != tt.wantManage {
+					t.Fatalf("CanManageOrganization() = %v, want %v", got, tt.wantManage)
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})
+			server := &HelixAPIServer{Store: &helixOrgRouteTestStore{role: tt.role}}
+			handler := server.withHelixOrgIdentity(api)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/orgs/acme/bots", nil)
+			req = mux.SetURLVars(req, map[string]string{"org": "acme"})
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1", Admin: tt.platformAdmin}))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want 204", rec.Code)
+			}
+		})
+	}
+}
+
 func helixOrgRouteRequest(handler http.Handler, method, path string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, nil)
 	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1"}))
