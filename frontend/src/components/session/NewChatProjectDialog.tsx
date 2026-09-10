@@ -252,7 +252,7 @@ const NewChatProjectDialog: FC<NewChatProjectDialogProps> = ({
             role="button"
             tabIndex={-1}
             data-new-chat-row={row.key}
-            aria-label={`New chat in ${row.name}`}
+            aria-label={row.standalone ? 'New chat without a project' : `New task in ${row.name}`}
             onMouseEnter={() => setSelectedIndex(index)}
             onClick={() => choose(row)}
             sx={{

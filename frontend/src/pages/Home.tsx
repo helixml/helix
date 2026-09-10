@@ -544,7 +544,7 @@ const Home: FC = () => {
   return (
     <Page
       breadcrumbs={[{ title: selectedProject?.name || 'No project' }]}
-      breadcrumbTitle={isProjectContext ? 'New Task' : 'New thread'}
+      breadcrumbTitle={isProjectContext ? 'New task' : 'New thread'}
       breadcrumbShowHome={false}
       disableContentScroll
       px={2}
