@@ -37,18 +37,26 @@ export function usersQueryKey(query?: UserListQuery) {
     return ["users", query];
 }
 
-export const adminOrgsQueryKey = () => ["admin-orgs"];
+export interface AdminOrgsListQuery {
+    page?: number;
+    per_page?: number;
+    query?: string;
+}
 
-export function useListAdminOrgs() {
+export const adminOrgsQueryKey = (query?: AdminOrgsListQuery) =>
+    query ? ["admin-orgs", query] : ["admin-orgs"];
+
+export function useListAdminOrgs(query?: AdminOrgsListQuery) {
     const api = useApi();
     const apiClient = api.getApiClient();
 
     return useQuery({
-        queryKey: adminOrgsQueryKey(),
+        queryKey: adminOrgsQueryKey(query),
         queryFn: async () => {
-            const response = await apiClient.v1AdminOrgsList();
+            const response = await apiClient.v1AdminOrgsList(query);
             return response.data;
         },
+        placeholderData: (previousData) => previousData,
     });
 }
 
