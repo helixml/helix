@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -121,15 +120,11 @@ func (apiServer *HelixAPIServer) adminListOrganizations(rw http.ResponseWriter, 
 		organizations = filtered
 	}
 
-	page := positiveQueryInt(r, "page", 1)
-	perPage := positiveQueryInt(r, "per_page", defaultAdminOrgsPerPage)
-	if perPage > maxAdminOrgsPerPage {
-		perPage = maxAdminOrgsPerPage
-	}
+	page, perPage := parsePagination(r, 1, defaultAdminOrgsPerPage, maxAdminOrgsPerPage)
 	totalCount := len(organizations)
 	totalPages := (totalCount + perPage - 1) / perPage
 	start := (page - 1) * perPage
-	if start > totalCount {
+	if start < 0 || start > totalCount {
 		start = totalCount
 	}
 	end := min(start+perPage, totalCount)
@@ -219,12 +214,4 @@ func organizationSearchName(org *types.Organization) string {
 		name = org.Name
 	}
 	return strings.ToLower(name)
-}
-
-func positiveQueryInt(r *http.Request, key string, fallback int) int {
-	value, err := strconv.Atoi(r.URL.Query().Get(key))
-	if err != nil || value < 1 {
-		return fallback
-	}
-	return value
 }

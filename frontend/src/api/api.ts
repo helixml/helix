@@ -2381,14 +2381,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
+  KindWebhook = "webhook",
+  KindHelixEvents = "helix_events",
   KindLocal = "local",
+  KindGitHub = "github",
+  KindSlack = "slack",
+  KindGitLab = "gitlab",
   KindEmail = "email",
   KindCron = "cron",
-  KindSlack = "slack",
-  KindGitHub = "github",
-  KindHelixEvents = "helix_events",
-  KindGitLab = "gitlab",
-  KindWebhook = "webhook",
 }
 
 export interface TransportResolvedActivation {

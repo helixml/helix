@@ -28660,24 +28660,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "local",
-                "email",
-                "cron",
-                "slack",
-                "github",
+                "webhook",
                 "helix_events",
+                "local",
+                "github",
+                "slack",
                 "gitlab",
-                "webhook"
+                "email",
+                "cron"
             ],
             "x-enum-varnames": [
-                "KindLocal",
-                "KindEmail",
-                "KindCron",
-                "KindSlack",
-                "KindGitHub",
+                "KindWebhook",
                 "KindHelixEvents",
+                "KindLocal",
+                "KindGitHub",
+                "KindSlack",
                 "KindGitLab",
-                "KindWebhook"
+                "KindEmail",
+                "KindCron"
             ]
         },
         "transport.ResolvedActivation": {
