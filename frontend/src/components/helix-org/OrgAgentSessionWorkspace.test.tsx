@@ -31,7 +31,20 @@ vi.mock('./OrgAgentSettingsPane', () => ({
 }))
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  Panel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Panel: ({ children, panelRef }: {
+    children: ReactNode
+    panelRef?: { current: unknown }
+  }) => {
+    if (panelRef) {
+      panelRef.current = {
+        getSize: () => ({ asPercentage: 62 }),
+        collapse: () => {},
+        expand: () => {},
+        resize: () => {},
+      }
+    }
+    return <div>{children}</div>
+  },
   Separator: () => <div />,
 }))
 
@@ -57,6 +70,27 @@ describe('OrgAgentSessionWorkspace', () => {
 
     expect(screen.getByText('Session chat')).toBeInTheDocument()
     expect(screen.getByText('Desktop for session-one')).toBeInTheDocument()
+  })
+
+  it('collapses and restores both sides of the desktop split', () => {
+    render(
+      <OrgAgentSessionWorkspace sessionId="session-panels" organizationId="acme">
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse task panel' }))
+    expect(screen.getByRole('button', { name: 'Show task panel' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show task panel' }))
+    expect(screen.getByRole('button', { name: 'Collapse chat panel' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse chat panel' }))
+    expect(screen.queryByText('Session chat')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Restore split view' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore split view' }))
+    expect(screen.getByText('Session chat')).toBeInTheDocument()
   })
 
   it('lets smaller screens switch between chat and desktop', () => {

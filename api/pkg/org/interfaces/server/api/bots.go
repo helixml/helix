@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -116,12 +117,15 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("content is required"))
 		return
 	}
-	// A manager Bot gets the canonical owner tool set (all mutations +
-	// read baseline) so it can hire and manage other Nodes; otherwise the
-	// caller's tools are used. Either way the bots service unions the
-	// base read tools, so a "New Bot" dialog with no tools picker still
-	// gets a usable MCP surface.
-	tools := toToolNames(req.Tools)
+	requestedTools := toToolNames(req.Tools)
+	if (req.Owner || mcptools.HasNonDefaultBotTool(requestedTools)) && !helixorgserver.CanManageOrganization(ctx) {
+		writeError(w, http.StatusForbidden, errors.New("only organization owners and administrators can grant organization-management tools"))
+		return
+	}
+	// A standard Bot receives the complete worker set plus any explicitly
+	// requested additions. A manager receives that set plus the organization
+	// control-plane mutations used to hire and manage other Nodes.
+	tools := mcptools.MergeDefaultBotTools(requestedTools)
 	if req.Owner {
 		tools = mcptools.OwnerBotTools()
 	}
@@ -251,9 +255,18 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	existing, err := a.deps.Queries.GetBot(ctx, orgID, id)
+	if err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get bot for update: %w", err))
+		return
+	}
 	var toolsPatch *[]tool.Name
 	if req.Tools != nil {
 		t := toToolNames(req.Tools)
+		if (mcptools.HasNonDefaultBotTool(t) || mcptools.HasNonDefaultBotTool(existing.Tools)) && !helixorgserver.CanManageOrganization(ctx) {
+			writeError(w, http.StatusForbidden, errors.New("only organization owners and administrators can modify organization-management tools"))
+			return
+		}
 		toolsPatch = &t
 	}
 	namePatch := req.Name
@@ -264,11 +277,6 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		Provider:                req.Provider,
 		Model:                   req.Model,
 		ReasoningEffort:         req.ReasoningEffort,
-	}
-	existing, err := a.deps.Queries.GetBot(ctx, orgID, id)
-	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get bot for update: %w", err))
-		return
 	}
 	canonicalChange := !configPatch.Empty() || namePatch != nil || contentPatch != nil
 	if existing.AgentID != "" && canonicalChange && a.deps.AgentUpdater == nil {
