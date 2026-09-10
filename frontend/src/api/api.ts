@@ -1136,6 +1136,14 @@ export interface ServerAddDomainRequest {
   hostname?: string;
 }
 
+export interface ServerAdminOrganizationsResponse {
+  organizations?: TypesOrgDetails[];
+  page?: number;
+  pageSize?: number;
+  totalCount?: number;
+  totalPages?: number;
+}
+
 export interface ServerAgentConfigAppliedResponse {
   status?: string;
 }
@@ -9227,7 +9235,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List all organizations
+     * @description List organizations with server-side pagination and name search
      *
      * @tags organizations
      * @name V1AdminOrgsList
@@ -9235,10 +9243,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/admin/orgs
      * @secure
      */
-    v1AdminOrgsList: (params: RequestParams = {}) =>
-      this.request<TypesOrgDetails[], any>({
+    v1AdminOrgsList: (
+      query?: {
+        /** Page number (default: 1) */
+        page?: number;
+        /** Organizations per page (default: 25, max: 100) */
+        per_page?: number;
+        /** Search organization display name or name */
+        query?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerAdminOrganizationsResponse, any>({
         path: `/api/v1/admin/orgs`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),

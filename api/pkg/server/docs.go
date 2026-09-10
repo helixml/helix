@@ -725,19 +725,36 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List all organizations",
+                "description": "List organizations with server-side pagination and name search",
                 "tags": [
                     "organizations"
                 ],
                 "summary": "List organizations with wallets (admin only)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Organizations per page (default: 25, max: 100)",
+                        "name": "per_page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search organization display name or name",
+                        "name": "query",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.OrgDetails"
-                            }
+                            "$ref": "#/definitions/server.AdminOrganizationsResponse"
                         }
                     }
                 }
@@ -25302,6 +25319,29 @@ const docTemplate = `{
             "properties": {
                 "hostname": {
                     "type": "string"
+                }
+            }
+        },
+        "server.AdminOrganizationsResponse": {
+            "type": "object",
+            "properties": {
+                "organizations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.OrgDetails"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "pageSize": {
+                    "type": "integer"
+                },
+                "totalCount": {
+                    "type": "integer"
+                },
+                "totalPages": {
+                    "type": "integer"
                 }
             }
         },

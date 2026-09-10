@@ -854,21 +854,44 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List all organizations",
+                "description": "List organizations with server-side pagination and name search",
                 "tags": [
                     "organizations"
                 ],
                 "summary": "List organizations with wallets (admin only)",
+                "parameters": [
+                    {
+                        "description": "Page number (default: 1)",
+                        "name": "page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Organizations per page (default: 25, max: 100)",
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Search organization display name or name",
+                        "name": "query",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/types.OrgDetails"
-                                    }
+                                    "$ref": "#/components/schemas/server.AdminOrganizationsResponse"
                                 }
                             }
                         }
@@ -29760,6 +29783,29 @@
                 "properties": {
                     "hostname": {
                         "type": "string"
+                    }
+                }
+            },
+            "server.AdminOrganizationsResponse": {
+                "type": "object",
+                "properties": {
+                    "organizations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.OrgDetails"
+                        }
+                    },
+                    "page": {
+                        "type": "integer"
+                    },
+                    "pageSize": {
+                        "type": "integer"
+                    },
+                    "totalCount": {
+                        "type": "integer"
+                    },
+                    "totalPages": {
+                        "type": "integer"
                     }
                 }
             },
