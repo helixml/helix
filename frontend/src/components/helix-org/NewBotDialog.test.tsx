@@ -11,11 +11,16 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   queueDraft: vi.fn(),
   appendDraft: vi.fn(),
+  isOrgAdmin: true,
   bots: [{ id: 'chief-of-staff', name: 'Chief of Staff', session_id: 'ses-chief' }] as Array<{
     id: string
     name?: string
     session_id?: string
   }>,
+}))
+
+vi.mock('../../hooks/useAccount', () => ({
+  default: () => ({ isOrgAdmin: mocks.isOrgAdmin }),
 }))
 
 vi.mock('../../hooks/useRouter', () => ({
@@ -80,6 +85,7 @@ vi.mock('./ToolPickerDialog', () => ({
 describe('NewBotDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.isOrgAdmin = true
     mocks.bots = [{ id: 'chief-of-staff', name: 'Chief of Staff', session_id: 'ses-chief' }]
   })
 
@@ -167,5 +173,19 @@ describe('NewBotDialog', () => {
       model: 'gpt-5',
       reasoning_effort: 'high',
     })))
+  })
+
+  it('keeps manager permissions and custom tools unavailable to members', async () => {
+    mocks.isOrgAdmin = false
+    render(<NewBotDialog open onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }))
+
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Permission level' }))
+    expect(await screen.findByRole('option', { name: 'Organization manager' }))
+      .toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(screen.getByRole('option', { name: 'Standard' }))
+    expect(screen.getByRole('button', { name: 'Configure tools' })).toBeDisabled()
+    expect(screen.getByText(/Only organization owners and platform administrators can grant additional tools/i)).toBeInTheDocument()
   })
 })

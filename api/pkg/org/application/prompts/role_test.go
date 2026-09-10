@@ -50,7 +50,7 @@ func TestRoleRendersTemplate(t *testing.T) {
 		"full standard worker tool set",
 		"match the named owner/repository exactly",
 		"finish that scope in the same turn",
-		"register that exact external repository",
+		"POST /api/v1/git/repositories",
 		"substitute a similarly named repository",
 		"do not ask a routine follow-up",
 		"set_bot_content",

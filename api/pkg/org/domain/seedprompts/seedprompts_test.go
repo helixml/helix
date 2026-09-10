@@ -32,7 +32,7 @@ func TestChiefOfStaffRequiresBotNameAndPurposeBeforeCreation(t *testing.T) {
 		"proceed immediately",
 		"full standard worker tool set",
 		"attach that repository in the same turn",
-		"register that exact external repository",
+		"POST /api/v1/git/repositories",
 		"Never substitute a similarly named repository",
 		"without asking a routine follow-up",
 	} {

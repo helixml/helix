@@ -139,8 +139,10 @@ function saveDraft(sessionId: string, content: string): void {
 
 export function appendPromptDraft(sessionId: string, content: string): void {
   const current = loadDraft(sessionId)
+  const addition = content.trim()
+  if (!addition || current.trimEnd().endsWith(addition)) return
   const needsSpace = current.length > 0 && !/\s$/.test(current)
-  saveDraft(sessionId, current + (needsSpace ? ' ' : '') + content)
+  saveDraft(sessionId, current + (needsSpace ? ' ' : '') + addition)
   window.dispatchEvent(new CustomEvent(DRAFT_UPDATED_EVENT, {
     detail: { sessionId },
   }))

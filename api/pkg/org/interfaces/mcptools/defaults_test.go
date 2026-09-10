@@ -187,6 +187,16 @@ func TestMergeDefaultBotToolsPreservesAdditionsAndDedups(t *testing.T) {
 	}
 }
 
+func TestHasNonDefaultBotTool(t *testing.T) {
+	t.Parallel()
+	if HasNonDefaultBotTool(DefaultBotTools()) {
+		t.Fatal("standard worker tools must not require organization-manager access")
+	}
+	if !HasNonDefaultBotTool([]tool.Name{ChatName, CreateBotName}) {
+		t.Fatal("create_bot must require organization-manager access")
+	}
+}
+
 func TestOwnerBotToolsContainsStandardAndManagementCapabilities(t *testing.T) {
 	t.Parallel()
 	got := OwnerBotTools()

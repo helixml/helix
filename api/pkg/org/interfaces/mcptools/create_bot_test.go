@@ -82,7 +82,7 @@ func TestCreateBotDescriptionRequiresConfirmedNameAndPurpose(t *testing.T) {
 		"full standard worker set",
 		"same turn",
 		"exact owner/repository match",
-		"register the exact external repository",
+		"POST /api/v1/git/repositories",
 		"substitute a similarly named repository",
 	} {
 		if !strings.Contains(description, want) {

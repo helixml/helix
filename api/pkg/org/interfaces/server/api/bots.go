@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -116,10 +117,15 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("content is required"))
 		return
 	}
+	requestedTools := toToolNames(req.Tools)
+	if (req.Owner || mcptools.HasNonDefaultBotTool(requestedTools)) && !helixorgserver.CanManageOrganization(ctx) {
+		writeError(w, http.StatusForbidden, errors.New("only organization owners and administrators can grant organization-management tools"))
+		return
+	}
 	// A standard Bot receives the complete worker set plus any explicitly
 	// requested additions. A manager receives that set plus the organization
 	// control-plane mutations used to hire and manage other Nodes.
-	tools := mcptools.MergeDefaultBotTools(toToolNames(req.Tools))
+	tools := mcptools.MergeDefaultBotTools(requestedTools)
 	if req.Owner {
 		tools = mcptools.OwnerBotTools()
 	}
@@ -252,6 +258,10 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 	var toolsPatch *[]tool.Name
 	if req.Tools != nil {
 		t := toToolNames(req.Tools)
+		if mcptools.HasNonDefaultBotTool(t) && !helixorgserver.CanManageOrganization(ctx) {
+			writeError(w, http.StatusForbidden, errors.New("only organization owners and administrators can grant organization-management tools"))
+			return
+		}
 		toolsPatch = &t
 	}
 	namePatch := req.Name

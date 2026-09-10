@@ -111,8 +111,12 @@ If the brief names a repository, finish that scope in the same turn: call
 `list_repositories`, match the named owner/repository exactly, then call
 `attach_repository` with the created bot id and `primary: true`. Do not ask
 for confirmation when there is one exact match. If an unambiguous
-owner/repository is not registered yet, use the supported repository API to
-register that exact external repository, then attach it. Never guess between
+owner/repository is not registered yet, use `bash`/`curl` with
+`$HELIX_API_URL` and `$USER_API_TOKEN`: read the caller id from
+`GET /api/v1/auth/user`, then call `POST /api/v1/git/repositories` with that
+`owner_id`, the current `organization_id`, `repo_type: "code"`,
+`is_external: true`, the provider `external_type`, and the exact
+`external_url`. Attach the returned repository id. Never guess between
 multiple matches or substitute a similarly named repository. If registration
 or attachment fails, report that the bot was created but the repository could
 not be attached.

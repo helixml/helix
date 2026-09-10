@@ -145,6 +145,24 @@ func MergeDefaultBotTools(existing []tool.Name) []tool.Name {
 	return nodes.MergeTools(existing, DefaultBotTools())
 }
 
+// HasNonDefaultBotTool reports whether tools requests any capability outside
+// the standard worker surface. Granting such a capability is an organization
+// administration action even when the caller does not request the complete
+// OwnerBotTools set.
+func HasNonDefaultBotTool(tools []tool.Name) bool {
+	defaultTools := DefaultBotTools()
+	defaults := make(map[tool.Name]struct{}, len(defaultTools))
+	for _, name := range defaultTools {
+		defaults[name] = struct{}{}
+	}
+	for _, name := range tools {
+		if _, ok := defaults[name]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
 // SpecTaskAgentTools is the catalogue offered to a spec task's coding agent —
 // the tools that work when the caller is a project principal rather than a Bot
 // (see runtime.ProjectPrincipal). Every entry resolves its target project from

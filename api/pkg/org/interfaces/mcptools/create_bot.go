@@ -74,8 +74,11 @@ func (t *CreateBot) Description() string {
 		"reports to — omit it only for the org owner. If the request names a repository, " +
 		"finish the request in the same turn: resolve an exact owner/repository match with " +
 		"list_repositories and attach it with attach_repository. If that unambiguous " +
-		"repository is not registered, use the supported repository API to register the " +
-		"exact external repository first. Do not ask for confirmation, guess between " +
+		"repository is not registered, use bash/curl with $HELIX_API_URL and " +
+		"$USER_API_TOKEN: GET /api/v1/auth/user for owner_id, then POST " +
+		"/api/v1/git/repositories with owner_id, the current organization_id, " +
+		"repo_type=code, is_external=true, the provider external_type, and the exact " +
+		"external_url. Attach the returned repository id. Do not ask for confirmation, guess between " +
 		"matches, or substitute a similarly named repository.\n\n" +
 		"Derive `id` from the agreed role and scope as a concise lowercase kebab-case " +
 		"handle prefixed with `b-`, e.g. `b-keel-maintainer`. Do NOT pass a UUID and do " +

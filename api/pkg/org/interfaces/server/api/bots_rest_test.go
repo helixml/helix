@@ -472,6 +472,66 @@ func TestRESTCreateBot_EmptyToolsGetsDefaultWorkerSet(t *testing.T) {
 	}
 }
 
+func TestRESTCreateBot_MemberCannotGrantManagerTools(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	h := orgapi.Handler(deps)
+
+	standard := doAsRole(t, h, http.MethodPost, "/bots", orgapi.CreateBotRequest{
+		ID:      "b-member-worker",
+		Content: "# Worker",
+	}, types.OrganizationRoleMember, false)
+	if standard.Code != http.StatusCreated {
+		t.Fatalf("standard create status = %d, want 201; body=%s", standard.Code, standard.Body)
+	}
+
+	for _, request := range []orgapi.CreateBotRequest{
+		{ID: "b-owner", Content: "# Owner", Owner: true},
+		{ID: "b-custom", Content: "# Custom", Tools: []string{string(mcptools.CreateBotName)}},
+	} {
+		rec := doAsRole(t, h, http.MethodPost, "/bots", request, types.OrganizationRoleMember, false)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("request %+v status = %d, want 403; body=%s", request, rec.Code, rec.Body)
+		}
+		if _, err := st.Nodes.Get(context.Background(), "org-test", orgchart.NodeID(request.ID)); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("rejected create %s left a bot row: %v", request.ID, err)
+		}
+	}
+}
+
+func TestRESTUpdateBot_MemberCannotGrantManagerTools(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedBot(t, st, ctx, "b-member-worker", "# Worker")
+	h := orgapi.Handler(deps)
+
+	updatedContent := "# Updated worker"
+	contentOnly := doAsRole(t, h, http.MethodPatch, "/bots/b-member-worker", orgapi.UpdateBotRequest{
+		Content: &updatedContent,
+	}, types.OrganizationRoleMember, false)
+	if contentOnly.Code != http.StatusOK {
+		t.Fatalf("content-only update status = %d, want 200; body=%s", contentOnly.Code, contentOnly.Body)
+	}
+
+	rec := doAsRole(t, h, http.MethodPatch, "/bots/b-member-worker", orgapi.UpdateBotRequest{
+		Tools: []string{string(mcptools.ChatName), string(mcptools.CreateBotName)},
+	}, types.OrganizationRoleMember, false)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("privileged tools update status = %d, want 403; body=%s", rec.Code, rec.Body)
+	}
+	bot, err := st.Nodes.Get(ctx, "org-test", "b-member-worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bot.Content != updatedContent {
+		t.Fatalf("content = %q, want prior successful update %q", bot.Content, updatedContent)
+	}
+	for _, name := range bot.Tools {
+		if name == mcptools.CreateBotName {
+			t.Fatal("rejected manager tool was persisted")
+		}
+	}
+}
+
 // TestRESTCreateBot_UnionWithCallerTools pins the union semantics for the
 // REST path — caller-supplied tools are preserved alongside the worker set,
 // deduped.

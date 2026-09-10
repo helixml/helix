@@ -82,4 +82,12 @@ describe('appendPromptDraft', () => {
     expect(JSON.parse(localStorage.getItem('helix_prompt_draft_ses-existing') ?? '{}').content)
       .toBe('Existing thought I would like to create a new bot')
   })
+
+  it('does not duplicate a handoff already present at the end of the draft', () => {
+    appendPromptDraft('ses-repeat', 'I would like to create a new bot')
+    appendPromptDraft('ses-repeat', 'I would like to create a new bot')
+
+    expect(JSON.parse(localStorage.getItem('helix_prompt_draft_ses-repeat') ?? '{}').content)
+      .toBe('I would like to create a new bot')
+  })
 })

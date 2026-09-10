@@ -21,6 +21,7 @@ import {
   ApiCreateBotRequest,
   TypesCodeAgentExecutionConfig,
 } from '../../api/api'
+import useAccount from '../../hooks/useAccount'
 import useSnackbar from '../../hooks/useSnackbar'
 import useRouter from '../../hooks/useRouter'
 import { appendPromptDraft } from '../../hooks/usePromptHistory'
@@ -59,6 +60,7 @@ const uniqueSlug = (base: string, existingIds: Set<string>): string => {
 const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, onCreated, presetParentId }) => {
   const snackbar = useSnackbar()
   const router = useRouter()
+  const account = useAccount()
   const create = useCreateBot()
   const { data: botsData } = useListHelixOrgBots({ enabled: open })
 
@@ -133,7 +135,9 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, onCreated, presetP
         name: name.trim(),
         content,
         ...(parentId ? { parent_id: parentId } : {}),
-        ...(permissionLevel === 'manager' ? { owner: true } : { tools }),
+        ...(permissionLevel === 'manager' && account.isOrgAdmin
+          ? { owner: true }
+          : { tools: account.isOrgAdmin ? tools : [] }),
         ...(preserveContext ? { preserve_context: true } : {}),
         ...(sandbox.runtime
           ? { sandbox_runtime: sandbox.runtime as ApiCreateBotRequest['sandbox_runtime'] }
@@ -288,19 +292,21 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, onCreated, presetP
                     onChange={(event) => setPermissionLevel(event.target.value as 'standard' | 'manager')}
                     helperText={permissionLevel === 'manager'
                       ? 'Adds every organization-management capability to the standard worker tool set. Custom tool selection is ignored.'
-                      : 'Includes chat, project and repository discovery, and the complete spec-task tool set, plus additions selected below.'}
+                      : account.isOrgAdmin
+                        ? 'Includes chat, project and repository discovery, and the complete spec-task tool set, plus additions selected below.'
+                        : 'Includes chat, project and repository discovery, and the complete spec-task tool set. Only organization owners and platform administrators can grant additional tools.'}
                     fullWidth
                     size="small"
                   >
                     <MenuItem value="standard">Standard</MenuItem>
-                    <MenuItem value="manager">Organization manager</MenuItem>
+                    <MenuItem value="manager" disabled={!account.isOrgAdmin}>Organization manager</MenuItem>
                   </TextField>
                   <Button
                     size="small"
                     variant="outlined"
                     startIcon={<Wrench size={16} />}
                     onClick={() => setToolPickerOpen(true)}
-                    disabled={permissionLevel === 'manager'}
+                    disabled={permissionLevel === 'manager' || !account.isOrgAdmin}
                     sx={{ mt: 1.5, textTransform: 'none' }}
                   >
                     {tools.length > 0
