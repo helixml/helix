@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { applyPatch, hasPatchGap } from './patchUtils'
+import {
+  applyPatch,
+  hasLostBaseline,
+  hasPatchGap,
+  isTerminalToolStatus,
+} from './patchUtils'
 
 describe('applyPatch', () => {
   it('takes the patch directly as the first chunk', () => {
@@ -87,10 +92,110 @@ describe('a lost baseline, as a viewer of someone else’s session sees it', () 
       { content: '' },   // never received
       { content: 'the last segment, which is all anyone saw' },
     ]
-    const patchedNow = new Set([2])
-    const lostBaseline = entriesAfterGrowingFromNothing.some(
-      (entry, i) => !patchedNow.has(i) && entry.content === '',
-    )
-    expect(lostBaseline).toBe(true)
+    expect(
+      hasLostBaseline(entriesAfterGrowingFromNothing, [
+        { index: 2, patch_offset: 0 },
+      ]),
+    ).toBe(true)
+  })
+})
+
+describe('hasLostBaseline', () => {
+  it('passes ordinary streaming: one entry growing, the rest already filled', () => {
+    const entries = [
+      { content: 'I looked at the repository.' },
+      { content: 'Reading transform.go' },
+      { content: 'The advert fields are' },
+    ]
+    expect(
+      hasLostBaseline(entries, [{ index: 2, patch_offset: 21 }]),
+    ).toBe(false)
+  })
+
+  it('passes the very first patch of the very first entry', () => {
+    // Empty, but it is the entry being patched right now — that is a start,
+    // not a hole.
+    expect(hasLostBaseline([{ content: '' }], [{ index: 0, patch_offset: 0 }]))
+      .toBe(false)
+  })
+
+  it('flags a patch reaching past the end of what we hold', () => {
+    expect(
+      hasLostBaseline([{ content: 'Hello' }], [{ index: 0, patch_offset: 500 }]),
+    ).toBe(true)
+  })
+
+  it('flags an entry the server says exists that we never received', () => {
+    // Entry 0 is not in this patch message and has no content: the server only
+    // patches what changed, so we should already be holding it. We are not.
+    expect(
+      hasLostBaseline(
+        [{ content: '' }, { content: 'second' }],
+        [{ index: 1, patch_offset: 0 }],
+      ),
+    ).toBe(true)
+  })
+
+  it('flags index drift when a patch lands on a different message', () => {
+    // The accumulator omits empty-content entries, so entry_count can SHRINK
+    // and shift every later index. Our array only grows, so without this check
+    // the patch would overwrite the wrong entry with a plausible-looking offset.
+    expect(
+      hasLostBaseline(
+        [{ content: 'first', message_id: 'msg-a' }],
+        [{ index: 0, patch_offset: 5, message_id: 'msg-b' }],
+      ),
+    ).toBe(true)
+  })
+
+  it('does not cry drift when a message_id is not yet known on either side', () => {
+    // Freshly grown entries carry an empty message_id until their first patch.
+    expect(
+      hasLostBaseline(
+        [{ content: 'first', message_id: '' }],
+        [{ index: 0, patch_offset: 5, message_id: 'msg-a' }],
+      ),
+    ).toBe(false)
+  })
+
+  it('ignores a patch for an entry beyond the array', () => {
+    // The caller grows the array to entry_count first, so this only happens
+    // when a patch names an index the server did not count. Not our failure.
+    expect(hasLostBaseline([{ content: 'a' }], [{ index: 7, patch_offset: 0 }]))
+      .toBe(false)
+  })
+})
+
+describe('isTerminalToolStatus', () => {
+  // The status is a human-readable label from Zed, not an enum this repo
+  // controls, so the check is an in-progress denylist rather than a terminal
+  // allowlist — see the note in patchUtils.ts.
+  it('treats the known in-progress labels as not finished', () => {
+    for (const status of ['In Progress', 'Running', 'Pending', 'Started']) {
+      expect(isTerminalToolStatus(status)).toBe(false)
+    }
+  })
+
+  it('is case and whitespace insensitive, because the label is prose', () => {
+    expect(isTerminalToolStatus('  in progress  ')).toBe(false)
+    expect(isTerminalToolStatus('RUNNING')).toBe(false)
+  })
+
+  it('treats finished labels as finished, however they are spelled', () => {
+    for (const status of ['Completed', 'completed', 'failed', 'Error']) {
+      expect(isTerminalToolStatus(status)).toBe(true)
+    }
+  })
+
+  it('treats an unrecognised label as finished rather than swallowing it', () => {
+    // Failing this way round means a host might refetch early. Failing the
+    // other way means it is never told the tool finished at all.
+    expect(isTerminalToolStatus('Finished with warnings')).toBe(true)
+  })
+
+  it('says nothing at all about a missing or empty status', () => {
+    expect(isTerminalToolStatus(undefined)).toBe(false)
+    expect(isTerminalToolStatus('')).toBe(false)
+    expect(isTerminalToolStatus('   ')).toBe(false)
   })
 })
