@@ -905,18 +905,27 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 
 // ---- runtimehelix.SpawnerClient ----
 
-// ServerStatus returns the desktop-quota slice of /api/v1/config. We
-// read directly from the same sources as
-// HelixAPIServer.getConfig — the Free-tier quota env value and the
-// in-memory active-desktop count.
+// ServerStatus returns the desktop quota for the activation's organization.
 func (c *inProcHelixClient) ServerStatus(ctx context.Context) (runtimehelix.ServerStatus, error) {
-	st := runtimehelix.ServerStatus{
-		MaxConcurrentDesktops: c.server.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops,
+	req := &types.QuotaRequest{OrganizationID: helixorgserver.OrgIDFromContext(ctx)}
+	if req.OrganizationID == "" {
+		req.OrganizationID = runtimehelix.OrganizationIDFromContext(ctx)
 	}
-	if c.server.externalAgentExecutor != nil {
-		st.ActiveConcurrentDesktops = len(c.server.externalAgentExecutor.ListSessions())
+	if req.OrganizationID == "" {
+		user, err := c.resolveUser(ctx)
+		if err != nil {
+			return runtimehelix.ServerStatus{}, err
+		}
+		req.UserID = user.ID
 	}
-	return st, nil
+	quotas, err := c.server.quotaManager.GetQuotas(ctx, req)
+	if err != nil {
+		return runtimehelix.ServerStatus{}, err
+	}
+	return runtimehelix.ServerStatus{
+		MaxConcurrentDesktops:    quotas.MaxConcurrentDesktops,
+		ActiveConcurrentDesktops: quotas.ActiveConcurrentDesktops,
+	}, nil
 }
 
 // GetOutput returns the latest output snapshot for a session.

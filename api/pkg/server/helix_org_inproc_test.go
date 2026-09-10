@@ -7,20 +7,24 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/stripe/stripe-go/v76"
 	"go.uber.org/mock/gomock"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/server/helixorg"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
@@ -60,6 +64,42 @@ func newInProcTestSetup(t *testing.T) (*HelixAPIServer, *memorystore.MemoryStore
 	client := NewInProcHelixClient(server)
 	ctx := runtimehelix.WithUser(context.Background(), user)
 	return server, store, client, user, ctx
+}
+
+func TestInProcClient_ServerStatusUsesOrganizationQuota(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := helixstore.NewMockStore(ctrl)
+	executor := external_agent.NewMockExecutor(ctrl)
+	cfg := &config.ServerConfig{}
+	cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops = 2
+	cfg.SubscriptionQuotas.Projects.Pro.MaxConcurrentDesktops = 30
+	orgID := "org_trialing"
+
+	st.EXPECT().GetWalletByOrg(gomock.Any(), orgID).Return(&types.Wallet{
+		OrgID:                orgID,
+		StripeSubscriptionID: "sub_trialing",
+		SubscriptionStatus:   stripe.SubscriptionStatusTrialing,
+	}, nil)
+	st.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{EnforceQuotas: true}, nil)
+	executor.EXPECT().ListSessions().Return([]*external_agent.ZedSession{
+		{OrganizationID: "org_other_1"},
+		{OrganizationID: "org_other_2"},
+	})
+	st.EXPECT().GetProjectsCount(gomock.Any(), &helixstore.GetProjectsCountQuery{OrganizationID: orgID}).Return(int64(0), nil)
+	st.EXPECT().GetRepositoriesCount(gomock.Any(), &helixstore.GetRepositoriesCountQuery{OrganizationID: orgID}).Return(int64(0), nil)
+	st.EXPECT().GetSpecTasksCount(gomock.Any(), &helixstore.GetSpecTasksCountQuery{OrganizationID: orgID}).Return(int64(0), nil)
+	st.EXPECT().ListSandboxes(gomock.Any(), &helixstore.ListSandboxesQuery{OrganizationID: orgID}).Return(nil, nil)
+
+	server := &HelixAPIServer{Cfg: cfg, Store: st, externalAgentExecutor: executor}
+	server.quotaManager = quota.NewDefaultQuotaManager(st, cfg, executor)
+	client := NewInProcHelixClient(server)
+	ctx := helixorgserver.WithOrgID(context.Background(), orgID)
+
+	status, err := client.ServerStatus(ctx)
+
+	require.NoError(t, err)
+	require.Equal(t, 30, status.MaxConcurrentDesktops)
+	require.Zero(t, status.ActiveConcurrentDesktops)
 }
 
 func TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentID(t *testing.T) {
