@@ -279,7 +279,15 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 		UserID:           user.ID,
 		Amount:           s.Cfg.Stripe.InitialBalance,
 		ReturnURL:        returnURL,
+		TrialPeriodDays:  onboardingTrialPeriodDays(returnURL),
 	})
+}
+
+func onboardingTrialPeriodDays(returnURL string) int64 {
+	if returnURL == "/onboarding" || strings.HasPrefix(returnURL, "/onboarding?") {
+		return 3
+	}
+	return 0
 }
 
 // subscriptionManage godoc

@@ -223,3 +223,25 @@ func (s *GetOrganizationStatusSuite) TestMissingOrgGets404() {
 
 	s.Equal(http.StatusNotFound, s.do("ghost-org").Code)
 }
+
+func TestOnboardingTrialPeriodDays(t *testing.T) {
+	tests := []struct {
+		name      string
+		returnURL string
+		want      int64
+	}{
+		{name: "onboarding", returnURL: "/onboarding?org_id=org_123", want: 3},
+		{name: "onboarding without query", returnURL: "/onboarding", want: 3},
+		{name: "similar path", returnURL: "/onboarding-complete", want: 0},
+		{name: "account billing", returnURL: "/account", want: 0},
+		{name: "default checkout", returnURL: "", want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := onboardingTrialPeriodDays(tt.returnURL); got != tt.want {
+				t.Fatalf("onboardingTrialPeriodDays(%q) = %d, want %d", tt.returnURL, got, tt.want)
+			}
+		})
+	}
+}
