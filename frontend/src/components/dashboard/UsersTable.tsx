@@ -468,7 +468,7 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
                 {isCloud && !trialActiveOrStashed(menuUser) && (
                     <MenuItem onClick={handleActivateTrial}>
                         <ListItemIcon><CardGiftcardIcon fontSize="small" /></ListItemIcon>
-                        <ListItemText>Activate</ListItemText>
+                        <ListItemText>Activate trial</ListItemText>
                     </MenuItem>
                 )}
                 {isCloud && trialActiveOrStashed(menuUser) && (
@@ -480,7 +480,7 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
                 {isCloud && (
                     <MenuItem onClick={handleGrantCredits}>
                         <ListItemIcon><AttachMoneyIcon fontSize="small" /></ListItemIcon>
-                        <ListItemText>Grant credits</ListItemText>
+                        <ListItemText>Give them credits</ListItemText>
                     </MenuItem>
                 )}
                 <MenuItem onClick={handleResetPassword}>

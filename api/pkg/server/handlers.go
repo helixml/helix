@@ -1197,10 +1197,11 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 		trialDays = *targetUser.TrialDaysOnFirstOrg
 	}
 	notifyErr := apiServer.Controller.Options.Notifier.Notify(ctx, &types.Notification{
-		Event:     types.EventWaitlistApproved,
-		Email:     targetUser.Email,
-		FirstName: firstName,
-		TrialDays: trialDays,
+		Event:        types.EventWaitlistApproved,
+		Email:        targetUser.Email,
+		FirstName:    firstName,
+		TrialDays:    trialDays,
+		TrialPending: trialDays > 0,
 	})
 	if notifyErr != nil {
 		log.Error().
