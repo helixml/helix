@@ -66,7 +66,7 @@ import type { TypesCodeAgentExecutionConfig } from "../api/api";
 
 const ACCENT = "#00e891";
 const ACCENT_DIM = "rgba(0, 232, 145, 0.08)";
-const CARD_BORDER_ACTIVE = ACCENT;
+const CARD_BORDER_ACTIVE = "rgba(0, 232, 145, 0.25)";
 
 function getOnboardingPalette(isLight: boolean) {
   return {
