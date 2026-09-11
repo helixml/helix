@@ -14,6 +14,11 @@ func checkoutReturnURLs(appURL, returnURL, defaultSuccessURL, defaultCancelURL s
 	if err != nil {
 		return "", "", err
 	}
+	query := parsed.Query()
+	query.Del("success")
+	query.Del("canceled")
+	query.Del("session_id")
+	parsed.RawQuery = query.Encode()
 
 	success := *parsed
 	success.RawQuery = appendRawQuery(success.RawQuery, "success=true&session_id={CHECKOUT_SESSION_ID}")

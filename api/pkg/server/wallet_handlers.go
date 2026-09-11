@@ -161,8 +161,8 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 	if _, err := stripe.ValidateCheckoutReturnURL(requestBody.ReturnURL); err != nil {
 		return "", err
 	}
-	if requestBody.Amount <= 0 {
-		return "", fmt.Errorf("amount must be greater than 0")
+	if requestBody.Amount < 0.50 || requestBody.Amount > 999999.99 {
+		return "", fmt.Errorf("amount must be between $0.50 and $999,999.99")
 	}
 
 	if requestBody.OrgID != "" {

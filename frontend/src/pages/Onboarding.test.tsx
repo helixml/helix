@@ -510,14 +510,14 @@ describe('Onboarding', () => {
     window.history.replaceState(
       {},
       '',
-      '/onboarding?org_id=org-1&step=provider&success=true&session_id=cs_1',
+      '/onboarding?org_id=org-1&step=provider&created_org=true&success=true&session_id=cs_1',
     )
     renderOnboarding()
 
     await screen.findByText('Choose how to run coding agents')
     expect(screen.getByRole('button', { name: 'Meet your Chief of Staff' })).toBeEnabled()
     expect(mockRefetchWallet).toHaveBeenCalled()
-    expect(window.location.search).toBe('')
+    expect(window.location.search).toBe('?org_id=org-1&step=provider&created_org=true')
   })
 
   it('requires a non-owner to ask the owner before changing subscription policy', async () => {

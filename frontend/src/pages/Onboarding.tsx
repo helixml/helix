@@ -387,7 +387,14 @@ export default function Onboarding() {
       || searchParams.has("canceled")
       || searchParams.has("session_id")
     ) {
-      window.history.replaceState({}, "", window.location.pathname);
+      searchParams.delete("success");
+      searchParams.delete("canceled");
+      searchParams.delete("session_id");
+      window.history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}?${searchParams.toString()}`,
+      );
     }
   }, [account.user?.id, createdOrg, existingOrgs, getStepIndexByType]);
 

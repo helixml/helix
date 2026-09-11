@@ -76,6 +76,29 @@ func TestCreateTopUpAcceptsArbitraryPositiveAmount(t *testing.T) {
 	}
 }
 
+func TestCreateTopUpRejectsStripeAmountBoundsBeforeStoreCalls(t *testing.T) {
+	for _, amount := range []string{"0.49", "1000000"} {
+		t.Run(amount, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			cfg := &config.ServerConfig{}
+			cfg.Stripe.BillingEnabled = true
+			server := &HelixAPIServer{Cfg: cfg, Store: mockStore}
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/api/v1/top-ups/new",
+				bytes.NewBufferString(`{"amount":`+amount+`,"org_id":"org_1"}`),
+			)
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_1"}))
+
+			_, err := server.createTopUp(httptest.NewRecorder(), req)
+			if err == nil || !strings.Contains(err.Error(), "amount must be between") {
+				t.Fatalf("expected amount %s to be rejected before store calls, got %v", amount, err)
+			}
+		})
+	}
+}
+
 type LookupOrgSuite struct {
 	suite.Suite
 
