@@ -22,8 +22,6 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import BusinessIcon from "@mui/icons-material/Business";
 import PersonIcon from "@mui/icons-material/Person";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
-import CloseIcon from "@mui/icons-material/Close";
-import IconButton from "@mui/material/IconButton";
 import { Server } from "lucide-react";
 
 import useAccount from "../hooks/useAccount";
@@ -68,14 +66,14 @@ import type { TypesCodeAgentExecutionConfig } from "../api/api";
 
 const ACCENT = "#00e891";
 const ACCENT_DIM = "rgba(0, 232, 145, 0.08)";
-const CARD_BORDER_ACTIVE = "rgba(0, 232, 145, 0.25)";
+const CARD_BORDER_ACTIVE = ACCENT;
 
 function getOnboardingPalette(isLight: boolean) {
   return {
     BG: isLight ? "#f5f5f7" : "#0d0d1a",
     CARD_BG: isLight ? "#ffffff" : "#0f0f1e",
     CARD_BG_ACTIVE: isLight ? "#fafafa" : "#101024",
-    CARD_BORDER: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.04)",
+    CARD_BORDER: isLight ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.14)",
 
     MENU_BG: isLight ? "#ffffff" : "#1a1a2e",
     MENU_TEXT: isLight ? "#1a1a2e" : "#fff",
@@ -83,10 +81,10 @@ function getOnboardingPalette(isLight: boolean) {
     STEP_INACTIVE: isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.15)",
 
     TEXT_PRIMARY: isLight ? "#1a1a2e" : "#fff",
-    TEXT_SECONDARY: isLight ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.6)",
-    TEXT_MUTED: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.5)",
-    TEXT_FADED: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.4)",
-    TEXT_DIM: isLight ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.3)",
+    TEXT_SECONDARY: isLight ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.85)",
+    TEXT_MUTED: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.75)",
+    TEXT_FADED: isLight ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)",
+    TEXT_DIM: isLight ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.6)",
 
     BORDER_SUBTLE: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)",
     BORDER_HOVER: isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.15)",
@@ -105,8 +103,8 @@ function getOnboardingPalette(isLight: boolean) {
       "&:hover fieldset": { borderColor: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.2)" },
       "&.Mui-focused fieldset": { borderColor: ACCENT },
     },
-    labelSx: { color: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.4)", fontSize: "0.82rem" },
-    helperSx: { color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.25)", fontSize: "0.72rem" },
+    labelSx: { color: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.7)", fontSize: "0.82rem" },
+    helperSx: { color: isLight ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)", fontSize: "0.8rem" },
     selectSx: {
       color: isLight ? "#1a1a2e" : "#fff",
       fontSize: "0.82rem",
@@ -641,19 +639,6 @@ export default function Onboarding() {
     }
   }, [api, createdOrg, createdOrgDuringOnboarding, snackbar, topUpAmount]);
 
-  const handleDismiss = useCallback(async () => {
-    account.dismissOnboarding();
-    try {
-      await api.getApiClient().v1UsersMeOnboardingCreate();
-    } catch (err) {
-      console.error("Failed to mark onboarding complete on dismiss:", err);
-    }
-    const org = account.organizationTools.organization;
-    if (org) {
-      router.navigateReplace("org_projects", { org_id: org.name });
-    }
-  }, [api, router]);
-
   const userName =
     account.user?.name?.trim() ||
     account.user?.email?.split("@")[0] ||
@@ -731,7 +716,7 @@ export default function Onboarding() {
                         sx={{
                           color: palette.TEXT_PRIMARY,
                           fontWeight: 500,
-                          fontSize: "0.78rem",
+                          fontSize: "0.82rem",
                         }}
                       >
                         Existing organization
@@ -740,7 +725,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.7rem",
+                        fontSize: "0.8rem",
                       }}
                     >
                       Use one of your organizations
@@ -781,7 +766,7 @@ export default function Onboarding() {
                         sx={{
                           color: palette.TEXT_PRIMARY,
                           fontWeight: 500,
-                          fontSize: "0.78rem",
+                          fontSize: "0.82rem",
                         }}
                       >
                         New organization
@@ -790,7 +775,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.7rem",
+                        fontSize: "0.8rem",
                       }}
                     >
                       Create a new organization
@@ -938,7 +923,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        fontSize: "0.8rem",
                         mb: 0.5,
                       }}
                     >
@@ -947,7 +932,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        fontSize: "0.8rem",
                         mb: 0.5,
                       }}
                     >
@@ -957,7 +942,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        fontSize: "0.8rem",
                         mb: 0.5,
                       }}
                     >
@@ -969,7 +954,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        fontSize: "0.8rem",
                         mb: 0.5,
                       }}
                     >
@@ -981,7 +966,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        fontSize: "0.8rem",
                       }}
                     >
                       Current balance: ${wallet.balance?.toFixed(2) || "0.00"}{" "}
@@ -1053,7 +1038,7 @@ export default function Onboarding() {
                   sx={{
                     color: palette.TEXT_DIM,
                     textTransform: "none",
-                    fontSize: "0.78rem",
+                    fontSize: "0.82rem",
                     "&:hover": { color: palette.TEXT_SECONDARY },
                   }}
                 >
@@ -1116,7 +1101,7 @@ export default function Onboarding() {
               <Typography
                 sx={{
                   color: palette.TEXT_SECONDARY,
-                  fontSize: "0.78rem",
+                  fontSize: "0.85rem",
                   mb: 2,
                 }}
               >
@@ -1128,7 +1113,7 @@ export default function Onboarding() {
                 <Typography
                   sx={{
                     color: palette.TEXT_SECONDARY,
-                    fontSize: "0.78rem",
+                    fontSize: "0.85rem",
                     mb: 2,
                   }}
                 >
@@ -1137,12 +1122,12 @@ export default function Onboarding() {
                 </Typography>
               )}
               {codingAccessOption === "helix" && !inventoryLoading && helixProvider && helixModel && !helixDefaultAvailable && (
-                <Typography color="error" sx={{ fontSize: "0.78rem", mb: 2 }}>
+                <Typography color="error" sx={{ fontSize: "0.82rem", mb: 2 }}>
                   The selected Helix model is not available for Zed Agent in this organization.
                 </Typography>
               )}
               {!inventoryLoading && !createdOrg?.viewer_is_owner && (
-                <Typography color="error" sx={{ fontSize: "0.78rem", mb: 2 }}>
+                <Typography color="error" sx={{ fontSize: "0.82rem", mb: 2 }}>
                   Ask an organization owner to set the Default Runtime.
                 </Typography>
               )}
@@ -1164,18 +1149,25 @@ export default function Onboarding() {
                     <ButtonBase
                       key={option.id}
                       onClick={() => setCodingAccessOption(option.id)}
+                      aria-pressed={selected}
                       sx={{
-                        display: "block",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "stretch",
                         textAlign: "left",
-                        p: 1.5,
-                        minHeight: 126,
+                        p: 2,
+                        minHeight: 150,
                         borderRadius: 1.5,
                         border: `1px solid ${
                           selected ? CARD_BORDER_ACTIVE : palette.CARD_BORDER
                         }`,
                         bgcolor: selected ? ACCENT_DIM : "transparent",
                         transition: "all 0.2s",
-                        "&:hover": { borderColor: palette.BORDER_HOVER },
+                        "&:hover": { borderColor: ACCENT },
+                        "&.Mui-focusVisible": {
+                          outline: `2px solid ${ACCENT}`,
+                          outlineOffset: 2,
+                        },
                       }}
                     >
                       <Box
@@ -1211,7 +1203,7 @@ export default function Onboarding() {
                           sx={{
                             color: palette.TEXT_PRIMARY,
                             fontWeight: 600,
-                            fontSize: "0.78rem",
+                            fontSize: "0.85rem",
                           }}
                         >
                           {option.title}
@@ -1220,7 +1212,7 @@ export default function Onboarding() {
                       <Typography
                         sx={{
                           color: palette.TEXT_FADED,
-                          fontSize: "0.68rem",
+                          fontSize: "0.8rem",
                           lineHeight: 1.45,
                         }}
                       >
@@ -1232,7 +1224,7 @@ export default function Onboarding() {
                             color: option.connected
                               ? ACCENT
                               : palette.TEXT_DIM,
-                            fontSize: "0.65rem",
+                            fontSize: "0.8rem",
                             fontWeight: 600,
                             mt: 0.75,
                           }}
@@ -1240,6 +1232,17 @@ export default function Onboarding() {
                           {option.connected ? "Connected" : "Not connected"}
                         </Typography>
                       )}
+                      <Typography
+                        sx={{
+                          color: ACCENT,
+                          fontSize: "0.8rem",
+                          fontWeight: 700,
+                          mt: "auto",
+                          pt: 1,
+                        }}
+                      >
+                        {selected ? "Selected" : "Select"}
+                      </Typography>
                     </ButtonBase>
                   );
                 })}
@@ -1256,10 +1259,10 @@ export default function Onboarding() {
                         bgcolor: palette.OVERLAY_FAINT,
                       }}
                     >
-                      <Typography sx={{ color: palette.TEXT_PRIMARY, fontSize: "0.78rem", fontWeight: 600 }}>
+                      <Typography sx={{ color: palette.TEXT_PRIMARY, fontSize: "0.85rem", fontWeight: 600 }}>
                         Recommended model: {helixModel}
                       </Typography>
-                      <Typography sx={{ color: palette.TEXT_FADED, fontSize: "0.68rem", mt: 0.5 }}>
+                      <Typography sx={{ color: palette.TEXT_FADED, fontSize: "0.8rem", mt: 0.5 }}>
                         Helix has selected the provider and reasoning settings for you.
                       </Typography>
                     </Box>
@@ -1330,7 +1333,7 @@ export default function Onboarding() {
                   <Typography
                     sx={{
                       color: palette.TEXT_SECONDARY,
-                      fontSize: "0.75rem",
+                      fontSize: "0.8rem",
                       mb: 1,
                     }}
                   >
@@ -1373,7 +1376,7 @@ export default function Onboarding() {
                   <Typography
                     sx={{
                       color: palette.TEXT_SECONDARY,
-                      fontSize: "0.75rem",
+                      fontSize: "0.8rem",
                       mb: 1,
                     }}
                   >
@@ -1469,20 +1472,6 @@ export default function Onboarding() {
         pb: 6,
       }}
     >
-      {/* Dismiss button */}
-      <IconButton
-        onClick={handleDismiss}
-        sx={{
-          position: "fixed",
-          top: 16,
-          right: 16,
-          color: palette.TEXT_DIM,
-          "&:hover": { color: palette.TEXT_SECONDARY },
-          zIndex: 1301,
-        }}
-      >
-        <CloseIcon />
-      </IconButton>
       <Box
         sx={{
           width: "100%",
@@ -1574,7 +1563,7 @@ export default function Onboarding() {
                       <Typography
                         sx={{
                           color: completed || active ? palette.TEXT_SECONDARY : palette.TEXT_DIM,
-                          fontSize: "0.76rem",
+                          fontSize: "0.82rem",
                           mt: 0.2,
                         }}
                       >
