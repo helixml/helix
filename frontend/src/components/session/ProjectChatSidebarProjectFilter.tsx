@@ -8,6 +8,8 @@ import { Check, ChevronDown } from 'lucide-react'
 
 import type { TypesProject } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { TYPOGRAPHY } from '../../styles/typography'
 import { ALL_PROJECTS_FILTER } from './ProjectChatSidebar.logic'
 
 type ProjectChatSidebarProjectFilterProps = {
@@ -24,6 +26,7 @@ const ProjectChatSidebarProjectFilter: FC<ProjectChatSidebarProjectFilterProps> 
   onChange,
 }) => {
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const selectedProject = projects.find((project) => project.id === selectedProjectId)
   const selectedLabel = selectedProject?.name || 'All projects'
@@ -50,16 +53,16 @@ const ProjectChatSidebarProjectFilter: FC<ProjectChatSidebarProjectFilterProps> 
           height: 30,
           px: 0.75,
           justifyContent: 'space-between',
-          color: lightTheme.isLight ? 'rgba(113,113,122,0.80)' : 'rgba(163,163,163,0.80)',
+          color: sidebarColors.mutedForeground,
           fontFamily: 'inherit',
-          fontSize: '12px',
+          fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
           fontWeight: 500,
           lineHeight: 1,
           textTransform: 'none',
           '& .MuiButton-endIcon': { ml: 0.5, flexShrink: 0 },
           '&:hover': {
-            color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-            backgroundColor: lightTheme.isLight ? 'rgba(39,39,42,0.04)' : 'rgba(241,243,247,0.08)',
+            color: sidebarColors.foreground,
+            backgroundColor: sidebarColors.rowHover,
           },
         }}
       >
@@ -91,7 +94,7 @@ const ProjectChatSidebarProjectFilter: FC<ProjectChatSidebarProjectFilterProps> 
         <MenuItem
           selected={selectedProjectId === ALL_PROJECTS_FILTER}
           onClick={() => selectProject(ALL_PROJECTS_FILTER)}
-          sx={{ gap: 1, fontSize: '13px' }}
+          sx={{ gap: 1, fontSize: TYPOGRAPHY.sidebar.controlFontSize }}
         >
           <Box sx={{ width: 16, display: 'inline-flex' }}>
             {selectedProjectId === ALL_PROJECTS_FILTER && <Check size={14} />}
@@ -105,14 +108,18 @@ const ProjectChatSidebarProjectFilter: FC<ProjectChatSidebarProjectFilterProps> 
               key={project.id}
               selected={selectedProjectId === project.id}
               onClick={() => selectProject(project.id!)}
-              sx={{ gap: 1, fontSize: '13px' }}
+              sx={{ gap: 1, fontSize: TYPOGRAPHY.sidebar.controlFontSize }}
             >
               <Box sx={{ width: 16, display: 'inline-flex' }}>
                 {selectedProjectId === project.id && <Check size={14} />}
               </Box>
               <Typography
                 component="span"
-                sx={{ overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '13px' }}
+                sx={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  fontSize: TYPOGRAPHY.sidebar.controlFontSize,
+                }}
               >
                 {project.name || 'Untitled project'}
               </Typography>

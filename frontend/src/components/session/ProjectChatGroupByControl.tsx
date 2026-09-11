@@ -12,6 +12,8 @@ import Typography from '@mui/material/Typography'
 import { Check, Folder, LayoutList, Users } from 'lucide-react'
 
 import useLightTheme from '../../hooks/useLightTheme'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { TYPOGRAPHY } from '../../styles/typography'
 import type { SidebarGroupBy } from './ProjectChatSidebar.logic'
 
 type ProjectChatGroupByControlProps = {
@@ -28,6 +30,7 @@ const OPTIONS: Array<{ value: SidebarGroupBy; label: string; description: string
 // sidebar shows exactly one of them, never both.
 const ProjectChatGroupByControl: FC<ProjectChatGroupByControlProps> = ({ value, onChange }) => {
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const open = !!anchorEl
   const surface = lightTheme.isLight ? '#ffffff' : '#191919'
@@ -48,8 +51,8 @@ const ProjectChatGroupByControl: FC<ProjectChatGroupByControlProps> = ({ value, 
           onClick={openPicker}
           sx={{
             color: value === 'person'
-              ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
-              : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
+              ? sidebarColors.foreground
+              : sidebarColors.subtleForeground,
           }}
         >
           <LayoutList size={15} strokeWidth={1.7} />
@@ -86,11 +89,11 @@ const ProjectChatGroupByControl: FC<ProjectChatGroupByControlProps> = ({ value, 
                 px: 1.5,
                 pt: 1.25,
                 pb: 0.5,
-                fontSize: '10.5px',
+                fontSize: TYPOGRAPHY.sidebar.sectionFontSize,
                 fontWeight: 600,
                 letterSpacing: '0.08em',
                 textTransform: 'uppercase',
-                color: lightTheme.isLight ? 'rgba(113,113,122,0.9)' : 'rgba(163,163,163,0.7)',
+                color: sidebarColors.subtleForeground,
               }}
             >
               Group by
@@ -122,8 +125,8 @@ const ProjectChatGroupByControl: FC<ProjectChatGroupByControlProps> = ({ value, 
                     <ListItemText
                       primary={option.label}
                       secondary={option.description}
-                      primaryTypographyProps={{ fontSize: '13px', fontWeight: 500 }}
-                      secondaryTypographyProps={{ fontSize: '11px' }}
+                      primaryTypographyProps={{ fontSize: TYPOGRAPHY.sidebar.primaryFontSize, fontWeight: 500 }}
+                      secondaryTypographyProps={{ fontSize: TYPOGRAPHY.sidebar.metadataFontSize }}
                     />
                     <Box sx={{ width: 16, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
                       {selected && <Check size={14} />}

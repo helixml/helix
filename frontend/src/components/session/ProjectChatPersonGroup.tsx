@@ -10,6 +10,8 @@ import useIsPhone from '../../hooks/useIsPhone'
 import useLightTheme from '../../hooks/useLightTheme'
 import { useListSessions } from '../../services/sessionService'
 import { useSpecTasks } from '../../services/specTaskService'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { TYPOGRAPHY } from '../../styles/typography'
 import { getUserInitials } from '../../utils/user'
 import PresenceDot from '../widgets/PresenceDot'
 import ProjectChatItemRow from './ProjectChatItemRow'
@@ -79,6 +81,7 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
   onArchiveItem,
 }) => {
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   const isPhone = useIsPhone()
   const searching = !!query.trim()
   const open = expanded || searching
@@ -157,11 +160,11 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
           alignItems: 'center',
           gap: 0.65,
           borderRadius: '6px',
-          color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
+          color: sidebarColors.foreground,
           cursor: 'pointer',
           outline: 'none',
           '&:hover, &:focus-visible': {
-            backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
+            backgroundColor: sidebarColors.rowHover,
           },
         }}
       >
@@ -200,8 +203,8 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
             fontFamily: 'inherit',
-            fontSize: '14px',
-            lineHeight: '20px',
+            fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
+            lineHeight: TYPOGRAPHY.sidebar.primaryLineHeight,
             fontWeight: 500,
           }}
         >
@@ -213,7 +216,7 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
       {open && (
         <Box sx={{ pl: 1.15 }}>
           {hasError && (
-            <Typography color="error" sx={{ px: 1, py: 0.75, fontSize: '0.7rem' }}>
+            <Typography color="error" sx={{ px: 1, py: 0.75, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
               Failed to load their work
             </Typography>
           )}
@@ -222,8 +225,9 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
               sx={{
                 px: 1,
                 py: 0.75,
-                fontSize: '12px',
-                color: lightTheme.isLight ? 'rgba(113,113,122,0.8)' : 'rgba(163,163,163,0.65)',
+                fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+                lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
+                color: sidebarColors.subtleForeground,
               }}
             >
               {searching ? 'No matching work' : 'Nothing you can see yet'}

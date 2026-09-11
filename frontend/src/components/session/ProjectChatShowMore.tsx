@@ -2,6 +2,8 @@ import { FC } from 'react'
 import Box from '@mui/material/Box'
 
 import useLightTheme from '../../hooks/useLightTheme'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { TYPOGRAPHY } from '../../styles/typography'
 import type { SidebarItemPagination } from './useSidebarItemPagination'
 
 type ProjectChatShowMoreProps = {
@@ -13,6 +15,7 @@ type ProjectChatShowMoreProps = {
 // The "Show more / Show less" footer under a sidebar group.
 const ProjectChatShowMore: FC<ProjectChatShowMoreProps> = ({ pagination, hasMore, fetching }) => {
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   if (!pagination.canShowLess && !hasMore) return null
   const buttonSx = {
     appearance: 'none',
@@ -20,13 +23,13 @@ const ProjectChatShowMore: FC<ProjectChatShowMoreProps> = ({ pagination, hasMore
     height: 30,
     px: 1,
     backgroundColor: 'transparent',
-    color: lightTheme.isLight ? 'rgba(113,113,122,0.75)' : 'rgba(163,163,163,0.75)',
+    color: sidebarColors.subtleForeground,
     cursor: fetching ? 'default' : 'pointer',
     font: 'inherit',
-    fontSize: '12px',
+    fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
     '&:hover': {
-      color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-      backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
+      color: sidebarColors.foreground,
+      backgroundColor: sidebarColors.rowHover,
     },
   }
   return (

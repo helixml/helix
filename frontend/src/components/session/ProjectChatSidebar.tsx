@@ -34,6 +34,8 @@ import { useListProjects } from '../../services/projectService'
 import { useArchiveSession } from '../../services/sessionService'
 import { useArchiveSpecTask } from '../../services/specTaskService'
 import { usePinnedChats } from '../../services/chatPinService'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { APP_FONT_FAMILY, TYPOGRAPHY } from '../../styles/typography'
 import NewBotDialog from '../helix-org/NewBotDialog'
 import CreateProjectDialog from '../project/CreateProjectDialog'
 import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
@@ -79,7 +81,6 @@ import type { NewChatTarget } from './NewChatProjectDialog'
 import ProjectChatSidebarMobileBar, { MOBILE_BAR_CLEARANCE } from './ProjectChatSidebarMobileBar'
 
 const RELATIVE_TIME_REFRESH_MS = 15000
-const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
 
 const readCollapsedGroups = (storageKey: string): Set<string> => {
   try {
@@ -121,6 +122,7 @@ const ProjectChatSidebar: FC<{
   const router = useRouter()
   const isPhone = useIsPhone()
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   const snackbar = useSnackbar()
   const { openDialog } = useSettingsDialog()
   const orgSlug = router.params.org_id || ''
@@ -579,8 +581,8 @@ const ProjectChatSidebar: FC<{
             aria-pressed={showArchived}
             sx={{
               color: showArchived
-                ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
-                : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
+                ? sidebarColors.foreground
+                : sidebarColors.subtleForeground,
             }}
           >
             <Archive size={15} strokeWidth={1.7} />
@@ -594,11 +596,7 @@ const ProjectChatSidebar: FC<{
                 onClick={() => setCreateProjectOpen(true)}
                 disabled={!account.user?.id || !orgId}
                 aria-label="New project"
-                sx={{
-                  color: lightTheme.isLight
-                    ? 'rgba(113,113,122,0.65)'
-                    : 'rgba(163,163,163,0.55)',
-                }}
+                sx={{ color: sidebarColors.subtleForeground }}
               >
                 <FolderPlus size={15} strokeWidth={1.7} />
               </IconButton>
@@ -628,9 +626,9 @@ const ProjectChatSidebar: FC<{
         flexDirection: 'column',
         // Positioning context for the phone's floating bottom bar.
         position: 'relative',
-        fontFamily: T3_FONT_FAMILY,
-        color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-        backgroundColor: lightTheme.isLight ? '#fafafa' : '#000000',
+        fontFamily: APP_FONT_FAMILY,
+        color: sidebarColors.foreground,
+        backgroundColor: sidebarColors.background,
         '& .MuiTypography-root': { fontFamily: 'inherit' },
         '&[data-chat-shortcuts-visible="true"] .project-chat-item[data-chat-shortcut]::after': {
           content: 'attr(data-chat-shortcut)',
@@ -643,9 +641,9 @@ const ProjectChatSidebar: FC<{
           alignItems: 'center',
           justifyContent: 'center',
           borderRadius: '4px',
-          color: lightTheme.isLight ? '#52525b' : '#d4d4d8',
-          backgroundColor: lightTheme.isLight ? 'rgba(39,39,42,0.08)' : 'rgba(241,243,247,0.12)',
-          fontSize: '10px',
+          color: sidebarColors.primaryLabel,
+          backgroundColor: sidebarColors.rowSelected,
+          fontSize: TYPOGRAPHY.sidebar.statusFontSize,
           fontWeight: 600,
           lineHeight: 1,
           fontVariantNumeric: 'tabular-nums',
@@ -682,10 +680,10 @@ const ProjectChatSidebar: FC<{
               minWidth: 0,
               color: 'inherit',
               fontFamily: 'inherit',
-              fontSize: '14px',
+              fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
               fontWeight: 500,
               '& input::placeholder': {
-                color: lightTheme.isLight ? '#71717a' : '#a3a3a3',
+                color: sidebarColors.mutedForeground,
                 opacity: 1,
               },
             }}
@@ -727,8 +725,8 @@ const ProjectChatSidebar: FC<{
               aria-pressed={showArchived}
               sx={{
                 color: showArchived
-                  ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
-                  : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
+                  ? sidebarColors.foreground
+                  : sidebarColors.subtleForeground,
               }}
             >
               <Archive size={15} strokeWidth={1.7} />
@@ -743,9 +741,7 @@ const ProjectChatSidebar: FC<{
                   disabled={!account.user?.id || !orgId}
                   aria-label="New project"
                   sx={{
-                    color: lightTheme.isLight
-                      ? 'rgba(113,113,122,0.65)'
-                      : 'rgba(163,163,163,0.55)',
+                    color: sidebarColors.subtleForeground,
                   }}
                 >
                   <FolderPlus size={15} strokeWidth={1.7} />
@@ -798,8 +794,8 @@ const ProjectChatSidebar: FC<{
                         px: 0.5,
                         py: 0,
                         color: 'inherit',
-                        fontSize: '10.5px',
-                        lineHeight: 1,
+                        fontSize: TYPOGRAPHY.sidebar.sectionFontSize,
+                        lineHeight: TYPOGRAPHY.sidebar.sectionLineHeight,
                         textTransform: 'none',
                         '& .MuiButton-startIcon': { mr: 0.25 },
                       }}

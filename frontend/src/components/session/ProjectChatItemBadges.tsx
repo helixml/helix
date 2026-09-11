@@ -6,6 +6,7 @@ import { keyframes } from '@mui/material/styles'
 import { Folder, GitPullRequest } from 'lucide-react'
 
 import { useGetProjectRepositories } from '../../services/projectService'
+import { TYPOGRAPHY } from '../../styles/typography'
 import { githubOrgAvatarUrl } from './ProjectChatSidebar.logic'
 import type { SidebarPullRequestIcon, SidebarStatus } from './ProjectChatSidebar.logic'
 
@@ -36,11 +37,11 @@ export const ProjectRowIcon: FC<{ projectId?: string }> = ({ projectId }) => {
         src={avatarUrl}
         alt=""
         onError={() => setFailedUrl(avatarUrl)}
-        sx={{ width: 14, height: 14, borderRadius: '3px', flexShrink: 0, display: 'block' }}
+        sx={{ width: 16, height: 16, borderRadius: '3px', flexShrink: 0, display: 'block' }}
       />
     )
   }
-  return <Folder size={12} style={{ opacity: 0.72, flexShrink: 0 }} />
+  return <Folder size={14} style={{ opacity: 0.72, flexShrink: 0 }} />
 }
 
 // Workflow badges for a task row in the dense single-line layout: the PR
@@ -93,7 +94,14 @@ export const TaskStatusIcons: FC<{
               },
             }}
           />
-          <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
+          <Typography
+            component="span"
+            sx={{
+              fontSize: TYPOGRAPHY.sidebar.statusFontSize,
+              color: status.color,
+              lineHeight: TYPOGRAPHY.sidebar.statusLineHeight,
+            }}
+          >
             {status.label}
           </Typography>
         </Box>
@@ -147,7 +155,14 @@ export const StackedTaskStatusIcons: FC<{
             }}
           />
           {showLabel && (
-            <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
+            <Typography
+              component="span"
+              sx={{
+                fontSize: TYPOGRAPHY.sidebar.statusFontSize,
+                color: status.color,
+                lineHeight: TYPOGRAPHY.sidebar.statusLineHeight,
+              }}
+            >
               {status.label}
             </Typography>
           )}
