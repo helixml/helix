@@ -25697,6 +25697,9 @@ const docTemplate = `{
                 },
                 "org_id": {
                     "type": "string"
+                },
+                "return_url": {
+                    "type": "string"
                 }
             }
         },

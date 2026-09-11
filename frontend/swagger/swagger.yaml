@@ -1985,6 +1985,8 @@ definitions:
         type: number
       org_id:
         type: string
+      return_url:
+        type: string
     type: object
   server.DeployWebServiceRequest:
     properties:

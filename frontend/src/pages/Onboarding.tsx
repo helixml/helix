@@ -33,19 +33,22 @@ import useSnackbar from "../hooks/useSnackbar";
 import useRouter from "../hooks/useRouter";
 import { SELECTED_ORG_STORAGE_KEY } from "../utils/localStorage";
 import { useCreateOrg } from "../services/orgService";
-import ClaudeSubscriptionConnect, {
-  useClaudeSubscriptions,
-} from "../components/account/ClaudeSubscriptionConnect";
+import ClaudeSubscriptionConnect from "../components/account/ClaudeSubscriptionConnect";
 import AnthropicLogo from "../components/providers/logos/anthropic";
 import AgentHarness from "../components/agent/AgentHarness";
 import CodexSubscriptionConnect from "../components/account/CodexSubscriptionConnect";
 import { useGetConfig } from "../services/userService";
-import { useGetWallet } from "../services/useBilling";
+import {
+  DEFAULT_TOP_UP_AMOUNT,
+  TOP_UP_AMOUNTS,
+  useGetWallet,
+} from "../services/useBilling";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
-import { useCodexSubscriptions } from "../services/codexSubscriptionsService";
 import {
   CLAUDE_SUBSCRIPTION_MODELS,
   CODEX_SUBSCRIPTION_MODELS,
+  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
+  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
 } from "../components/agent/CodingAgentForm";
 import {
   findHarnessStatus,
@@ -205,6 +208,8 @@ export default function Onboarding() {
   const { data: serverConfig, isLoading: isLoadingServerConfig } =
     useGetConfig();
   const [isSubscribing, setIsSubscribing] = useState(false);
+  const [isToppingUp, setIsToppingUp] = useState(false);
+  const [topUpAmount, setTopUpAmount] = useState<number>(DEFAULT_TOP_UP_AMOUNT);
 
   // Step 1: Organization
   const [orgMode, setOrgMode] = useState<"select" | "create">("select");
@@ -284,10 +289,29 @@ export default function Onboarding() {
   const hasExistingOrgs = existingOrgs.length > 0;
 
   // External coding subscription state
-  const { data: claudeSubscriptions } = useClaudeSubscriptions();
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0;
-  const { data: codexSubscriptions } = useCodexSubscriptions();
-  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0;
+  const hasClaudeSubscription = !!findHarnessStatus(
+    harnesses,
+    TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+  )?.viewer_has_subscription;
+  const hasCodexSubscription = !!findHarnessStatus(
+    harnesses,
+    TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+  )?.viewer_has_subscription;
+
+  useEffect(() => {
+    if (codingAccessOption === "claude" && hasClaudeSubscription && !claudeModel) {
+      setClaudeModel(DEFAULT_CLAUDE_SUBSCRIPTION_MODEL);
+    }
+    if (codingAccessOption === "codex" && hasCodexSubscription && !codexModel) {
+      setCodexModel(DEFAULT_CODEX_SUBSCRIPTION_MODEL);
+    }
+  }, [
+    claudeModel,
+    codexModel,
+    codingAccessOption,
+    hasClaudeSubscription,
+    hasCodexSubscription,
+  ]);
 
   // Billing is optional on self-hosted installations; coding access is always
   // shown because it is the final onboarding choice.
@@ -322,26 +346,13 @@ export default function Onboarding() {
     }
   }, [createdOrg?.id, serverConfig?.billing_enabled, refetchWallet]);
 
-  // Check for successful payment return from Stripe
+  // Refresh billing state after Stripe returns.
   useEffect(() => {
     const url = new URL(window.location.href);
-    const success = url.searchParams.get("success");
-    if (success === "true") {
+    if (url.searchParams.get("success") === "true") {
       refetchWallet();
-      const subscriptionStepIndex = getStepIndexByType("subscription");
-      if (subscriptionStepIndex >= 0) {
-        setActiveStep(subscriptionStepIndex);
-        setCompletedSteps((prev) => {
-          const next = new Set(prev);
-          next.delete(subscriptionStepIndex);
-          return next;
-        });
-      }
-      url.searchParams.delete("success");
-      const nextUrl = `${url.pathname}${url.searchParams.toString() ? `?${url.searchParams.toString()}` : ""}`;
-      window.history.replaceState({}, "", nextUrl);
     }
-  }, [refetchWallet, getStepIndexByType]);
+  }, [refetchWallet]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -362,8 +373,22 @@ export default function Onboarding() {
     });
     setCreatedOrgDuringOnboarding(searchParams.get("created_org") === "true");
     const orgStepIndex = getStepIndexByType("organization");
-    setCompletedSteps((prev) => new Set([...prev, orgStepIndex]));
-    setActiveStep(orgStepIndex + 1);
+    const requestedStep = searchParams.get("step") === "provider"
+      ? getStepIndexByType("provider")
+      : orgStepIndex + 1;
+    setCompletedSteps((prev) => {
+      const next = new Set(prev);
+      for (let index = 0; index < requestedStep; index += 1) next.add(index);
+      return next;
+    });
+    setActiveStep(requestedStep);
+    if (
+      searchParams.has("success")
+      || searchParams.has("canceled")
+      || searchParams.has("session_id")
+    ) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, [account.user?.id, createdOrg, existingOrgs, getStepIndexByType]);
 
   useEffect(() => {
@@ -581,6 +606,33 @@ export default function Onboarding() {
       setIsSubscribing(false);
     }
   }, [api, createdOrg, createdOrgDuringOnboarding, snackbar]);
+
+  const handleTopUp = useCallback(async () => {
+    if (!createdOrg?.id) {
+      snackbar.error("Organization not found");
+      return;
+    }
+
+    try {
+      setIsToppingUp(true);
+      const params = new URLSearchParams({
+        org_id: createdOrg.id,
+        step: "provider",
+      });
+      if (createdOrgDuringOnboarding) params.set("created_org", "true");
+      const resp = await api.getApiClient().v1TopUpsNewCreate({
+        amount: topUpAmount,
+        org_id: createdOrg.id,
+        return_url: `/onboarding?${params.toString()}`,
+      });
+      if (resp.data) document.location = resp.data;
+    } catch (error) {
+      console.error("Top-up error:", error);
+      snackbar.error("Failed to start top-up process");
+    } finally {
+      setIsToppingUp(false);
+    }
+  }, [api, createdOrg, createdOrgDuringOnboarding, snackbar, topUpAmount]);
 
   const handleDismiss = useCallback(async () => {
     account.dismissOnboarding();
@@ -1007,9 +1059,14 @@ export default function Onboarding() {
 
       case "provider": {
         const inventoryLoading = providersLoading || harnessesLoading;
+        const hasHelixCredits = !serverConfig?.billing_enabled || (wallet?.balance ?? 0) > 0;
+        const hasSelectedAccess =
+          (codingAccessOption === "helix" && hasHelixCredits && helixDefaultAvailable) ||
+          (codingAccessOption === "claude" && hasClaudeSubscription) ||
+          (codingAccessOption === "codex" && hasCodexSubscription);
         const canFinish =
           !inventoryLoading && !!createdOrg?.viewer_is_owner && (
-            (codingAccessOption === "helix" && helixDefaultAvailable) ||
+            (codingAccessOption === "helix" && hasHelixCredits && helixDefaultAvailable) ||
             (codingAccessOption === "claude" && hasClaudeSubscription && !!claudeModel) ||
             (codingAccessOption === "codex" && hasCodexSubscription && !!codexModel)
           );
@@ -1272,7 +1329,10 @@ export default function Onboarding() {
                   >
                     Connect your personal Claude subscription before continuing.
                   </Typography>
-                  <ClaudeSubscriptionConnect variant="button" />
+                  <ClaudeSubscriptionConnect
+                    variant="button"
+                    enableForOrgId={createdOrg?.id}
+                  />
                 </Box>
               )}
 
@@ -1312,7 +1372,7 @@ export default function Onboarding() {
                   >
                     Connect your personal ChatGPT subscription before continuing.
                   </Typography>
-                  <CodexSubscriptionConnect />
+                  <CodexSubscriptionConnect enableForOrgId={createdOrg?.id} />
                 </Box>
               )}
 
@@ -1333,23 +1393,50 @@ export default function Onboarding() {
                 </FormControl>
               )}
 
-              <Button
-                variant="contained"
-                onClick={handleComplete}
-                disabled={!canFinish || finishingOnboarding}
-                sx={btnSx}
-                startIcon={
-                  finishingOnboarding ? (
-                    <CircularProgress size={14} sx={{ color: "#000" }} />
-                  ) : undefined
-                }
-              >
-                {finishingOnboarding
-                  ? "Finishing setup..."
-                  : shouldMeetChiefOfStaff
-                    ? "Meet your Chief of Staff"
-                    : continueLabel}
-              </Button>
+              {codingAccessOption === "helix" && !hasHelixCredits ? (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <FormControl size="small" sx={{ minWidth: 100 }}>
+                    <InputLabel id="onboarding-topup-amount-label">Top-up amount</InputLabel>
+                    <Select
+                      labelId="onboarding-topup-amount-label"
+                      label="Top-up amount"
+                      value={topUpAmount}
+                      onChange={(event) => setTopUpAmount(Number(event.target.value))}
+                    >
+                      {TOP_UP_AMOUNTS.map((amount) => (
+                        <MenuItem key={amount} value={amount}>${amount}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Button
+                    variant="contained"
+                    onClick={handleTopUp}
+                    disabled={isToppingUp}
+                    sx={btnSx}
+                    startIcon={isToppingUp ? <CircularProgress size={14} sx={{ color: "#000" }} /> : undefined}
+                  >
+                    {isToppingUp ? "Opening checkout..." : "Add credits"}
+                  </Button>
+                </Box>
+              ) : hasSelectedAccess ? (
+                <Button
+                  variant="contained"
+                  onClick={handleComplete}
+                  disabled={!canFinish || finishingOnboarding}
+                  sx={btnSx}
+                  startIcon={
+                    finishingOnboarding ? (
+                      <CircularProgress size={14} sx={{ color: "#000" }} />
+                    ) : undefined
+                  }
+                >
+                  {finishingOnboarding
+                    ? "Finishing setup..."
+                    : shouldMeetChiefOfStaff
+                      ? "Meet your Chief of Staff"
+                      : continueLabel}
+                </Button>
+              ) : null}
             </Box>
           </Fade>
         );

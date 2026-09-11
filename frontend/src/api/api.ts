@@ -1311,6 +1311,7 @@ export interface ServerConfigurePendingSessionRequest {
 export interface ServerCreateTopUpRequest {
   amount?: number;
   org_id?: string;
+  return_url?: string;
 }
 
 export interface ServerDeployWebServiceRequest {
