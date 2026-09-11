@@ -1142,7 +1142,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Clears any stashed trial intent on the user and cancels a trialing Stripe subscription on an owned org. Paid (active) subscriptions are never cancelled.",
+                "description": "Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the oldest owned org whose readable wallet is trialing. At most one subscription is cancelled per call. Paid (active) subscriptions are never cancelled.",
                 "produces": [
                     "application/json"
                 ],

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -95,6 +96,24 @@ func TestAdminActivateTrial_RequiresOwnedOrgSelection(t *testing.T) {
 	}
 }
 
+func TestAdminActivateTrial_ApprovesBeforePlanSideEffects(t *testing.T) {
+	for _, plan := range []string{"", types.PlanOverridePro} {
+		t.Run(plan, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			db := store.NewMockStore(ctrl)
+			user := &types.User{ID: "target", Waitlisted: true}
+
+			db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(user, nil)
+			db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{{ID: "org-owned"}}, nil)
+			db.EXPECT().UpdateUser(gomock.Any(), user).Return(nil, fmt.Errorf("write failed"))
+
+			s := &HelixAPIServer{Store: db, Cfg: cloudBillingCfg()}
+			_, err := s.adminActivateTrial(httptest.NewRecorder(), activateTrialRequest(t, ActivateTrialRequest{OrgID: "org-owned", Plan: plan}))
+			require.ErrorContains(t, err, "failed to activate user")
+		})
+	}
+}
+
 func TestSendActivationEmail_UsesApprovalEventForWaitlistedUser(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	notifier := notification.NewMockNotifier(ctrl)
@@ -105,6 +124,30 @@ func TestSendActivationEmail_UsesApprovalEventForWaitlistedUser(t *testing.T) {
 	})
 	s := &HelixAPIServer{Controller: &controller.Controller{Options: controller.Options{Notifier: notifier}}}
 	s.sendActivationEmail(context.Background(), &types.User{Email: "target@example.com"}, 30, false, true)
+}
+
+func TestAdminApproveUser_MarksStashedTrialPendingInEmail(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	notifier := notification.NewMockNotifier(ctrl)
+	days := 30
+	user := &types.User{ID: "target", Email: "target@example.com", Waitlisted: true, TrialDaysOnFirstOrg: &days}
+
+	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(user, nil)
+	db.EXPECT().UpdateUser(gomock.Any(), user).Return(user, nil)
+	notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, got *types.Notification) error {
+		require.Equal(t, types.EventWaitlistApproved, got.Event)
+		require.Equal(t, days, got.TrialDays)
+		require.True(t, got.TrialPending)
+		return nil
+	})
+
+	s := &HelixAPIServer{Store: db, Controller: &controller.Controller{Options: controller.Options{Notifier: notifier}}}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/target/approve", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": "target"})
+	req = req.WithContext(setTestRequestUser(req.Context(), &types.User{ID: "admin", Admin: true}))
+	_, err := s.adminApproveUser(httptest.NewRecorder(), req)
+	require.NoError(t, err)
 }
 
 func TestEnrichUserTrialDisplay_FindsTrialOnNonFirstOrg(t *testing.T) {
@@ -197,15 +240,14 @@ func TestAdminActivateTrial_AppliesStripeTrialToSelectedOrgAndApprovesUser(t *te
 	require.False(t, resp.User.Waitlisted)
 }
 
-func TestAdminRevokeTrial_FindsTrialOnNonFirstOrg(t *testing.T) {
+func TestAdminRevokeTrial_CancelsOldestTrialingOrg(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	db := store.NewMockStore(ctrl)
-	orgA := &types.Organization{ID: "org-a"}
-	orgB := &types.Organization{ID: "org-b"}
+	oldOrg := &types.Organization{ID: "org-b", CreatedAt: time.Unix(1000, 0)}
+	newOrg := &types.Organization{ID: "org-c", CreatedAt: time.Unix(2000, 0)}
 
 	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(&types.User{ID: "target"}, nil)
-	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{orgA, orgB}, nil)
-	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-a").Return(&types.Wallet{SubscriptionStatus: stripeapi.SubscriptionStatusActive}, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{newOrg, oldOrg}, nil)
 	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(&types.Wallet{StripeSubscriptionID: "sub-b", SubscriptionStatus: stripeapi.SubscriptionStatusTrialing}, nil)
 
 	originalBackend := stripeapi.GetBackend(stripeapi.APIBackend)
@@ -219,6 +261,34 @@ func TestAdminRevokeTrial_FindsTrialOnNonFirstOrg(t *testing.T) {
 		Cfg:    cfg,
 		Stripe: helixstripe.NewStripe(cfg.Stripe, db),
 	}
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/users/target/trial-activate", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": "target"})
+	req = req.WithContext(setTestRequestUser(req.Context(), &types.User{ID: "admin", Admin: true}))
+
+	resp, err := s.adminRevokeTrial(httptest.NewRecorder(), req)
+	require.NoError(t, err)
+	require.Equal(t, "cancelled", resp.Status)
+	require.Equal(t, "org-b", resp.OrgID)
+}
+
+func TestAdminRevokeTrial_ContinuesAfterWalletReadError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	oldOrg := &types.Organization{ID: "org-a", CreatedAt: time.Unix(1000, 0)}
+	laterOrg := &types.Organization{ID: "org-b", CreatedAt: time.Unix(2000, 0)}
+
+	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(&types.User{ID: "target"}, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{oldOrg, laterOrg}, nil)
+	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-a").Return(nil, fmt.Errorf("read failed"))
+	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(&types.Wallet{StripeSubscriptionID: "sub-b", SubscriptionStatus: stripeapi.SubscriptionStatusTrialing}, nil)
+
+	originalBackend := stripeapi.GetBackend(stripeapi.APIBackend)
+	stripeapi.SetBackend(stripeapi.APIBackend, &adminTrialStripeBackend{t: t})
+	t.Cleanup(func() { stripeapi.SetBackend(stripeapi.APIBackend, originalBackend) })
+	cfg := cloudBillingCfg()
+	cfg.Stripe.SecretKey = "sk_test"
+	cfg.Stripe.WebhookSigningSecret = "whsec_test"
+	s := &HelixAPIServer{Store: db, Cfg: cfg, Stripe: helixstripe.NewStripe(cfg.Stripe, db)}
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/users/target/trial-activate", nil)
 	req = mux.SetURLVars(req, map[string]string{"id": "target"})
 	req = req.WithContext(setTestRequestUser(req.Context(), &types.User{ID: "admin", Admin: true}))

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -233,15 +234,17 @@ func (apiServer *HelixAPIServer) adminActivateTrial(_ http.ResponseWriter, req *
 		return nil, system.NewHTTPError400(fmt.Sprintf("org_id is required: user owns %d organisation(s), pick which one to activate", len(ownedOrgs)))
 	}
 
-	var selectedOrg *types.Organization
-	for _, org := range ownedOrgs {
-		if org.ID == body.OrgID {
-			selectedOrg = org
-			break
-		}
-	}
+	selectedOrg := findOwnedOrg(ownedOrgs, body.OrgID)
 	if len(ownedOrgs) > 0 && selectedOrg == nil {
 		return nil, system.NewHTTPError400(fmt.Sprintf("user does not own organisation %s", body.OrgID))
+	}
+	if selectedOrg != nil && targetUser.Waitlisted {
+		targetUser.Waitlisted = false
+		updated, err := apiServer.Store.UpdateUser(ctx, targetUser)
+		if err != nil {
+			return nil, system.NewHTTPError500("failed to activate user: " + err.Error())
+		}
+		targetUser = updated
 	}
 
 	// Paid plan granted out-of-band (e.g. bank transfer): set a PlanOverride,
@@ -282,14 +285,6 @@ func (apiServer *HelixAPIServer) adminActivateTrial(_ http.ResponseWriter, req *
 			}); bErr != nil {
 				log.Warn().Err(bErr).Str("wallet_id", wallet.ID).Msg("failed to top up wallet with credits")
 			}
-		}
-		if targetUser.Waitlisted {
-			targetUser.Waitlisted = false
-			updated, uErr := apiServer.Store.UpdateUser(ctx, targetUser)
-			if uErr != nil {
-				return nil, system.NewHTTPError500("failed to activate user: " + uErr.Error())
-			}
-			targetUser = updated
 		}
 		log.Info().Str("admin_id", adminUser.ID).Str("target_user_id", targetUserID).Str("org_id", selectedOrg.ID).
 			Msg("admin granted paid plan (PlanOverride=pro) on selected owned org")
@@ -351,14 +346,6 @@ func (apiServer *HelixAPIServer) adminActivateTrial(_ http.ResponseWriter, req *
 			log.Warn().Err(err).Str("wallet_id", wallet.ID).Float64("credits", body.Credits).Msg("failed to top up wallet with trial credits")
 		}
 	}
-	if targetUser.Waitlisted {
-		targetUser.Waitlisted = false
-		updated, err := apiServer.Store.UpdateUser(ctx, targetUser)
-		if err != nil {
-			return nil, system.NewHTTPError500("failed to activate user: " + err.Error())
-		}
-		targetUser = updated
-	}
 	log.Info().
 		Str("admin_id", adminUser.ID).
 		Str("target_user_id", targetUserID).
@@ -400,13 +387,13 @@ func (apiServer *HelixAPIServer) sendActivationEmail(ctx context.Context, user *
 		log.Warn().Err(err).
 			Str("user_id", user.ID).
 			Str("email", user.Email).
-			Msg("failed to send trial activated email")
+			Msg("failed to send activation email")
 	}
 }
 
 // adminRevokeTrial godoc
 // @Summary Revoke an admin-granted trial (Admin, cloud only)
-// @Description Clears any stashed trial intent on the user and cancels a trialing Stripe subscription on an owned org. Paid (active) subscriptions are never cancelled.
+// @Description Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the oldest owned org whose readable wallet is trialing. At most one subscription is cancelled per call. Paid (active) subscriptions are never cancelled.
 // @Tags    users
 // @Produce json
 // @Param id path string true "User ID"
@@ -447,12 +434,21 @@ func (apiServer *HelixAPIServer) adminRevokeTrial(_ http.ResponseWriter, req *ht
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to list user organizations: " + err.Error())
 	}
+	sort.Slice(ownedOrgs, func(i, j int) bool {
+		if ownedOrgs[i].CreatedAt.Equal(ownedOrgs[j].CreatedAt) {
+			return ownedOrgs[i].ID < ownedOrgs[j].ID
+		}
+		return ownedOrgs[i].CreatedAt.Before(ownedOrgs[j].CreatedAt)
+	})
 
 	cancelledOrgID := ""
 	for _, org := range ownedOrgs {
 		wallet, err := apiServer.Store.GetWalletByOrg(ctx, org.ID)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			return nil, system.NewHTTPError500("failed to read org wallet: " + err.Error())
+		if err != nil {
+			if !errors.Is(err, store.ErrNotFound) {
+				log.Warn().Err(err).Str("user_id", targetUserID).Str("org_id", org.ID).Msg("failed to read org wallet while revoking trial")
+			}
+			continue
 		}
 		// Only cancel a subscription that is currently trialing. Never touch a
 		// paid subscription via this endpoint.

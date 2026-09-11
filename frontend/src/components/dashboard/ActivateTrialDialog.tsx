@@ -44,20 +44,18 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
     const activateTrial = useAdminActivateTrial();
     const snackbar = useSnackbar();
     const { data: ownedOrgs, isLoading: isLoadingOrgs } = useAdminUserOwnedOrgs(user?.id, open);
+    const soleOwnedOrgId = ownedOrgs?.length === 1 ? ownedOrgs[0].id : '';
+    const effectiveOrgId = orgId || soleOwnedOrgId;
 
     useEffect(() => {
         if (open) {
             setDays(String(DEFAULT_DAYS));
             setCredits(String(DEFAULT_CREDITS));
+            setOrgId('');
             setPlan('');
             setError('');
         }
-    }, [open]);
-
-    useEffect(() => {
-        if (!ownedOrgs) return;
-        setOrgId(ownedOrgs.length === 1 ? ownedOrgs[0].id : '');
-    }, [ownedOrgs]);
+    }, [open, user?.id]);
 
     const hasOrgs = (ownedOrgs?.length ?? 0) > 0;
 
@@ -74,14 +72,14 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
             setError('Credits must be zero or positive');
             return;
         }
-        if (hasOrgs && !orgId) {
+        if (hasOrgs && !effectiveOrgId) {
             setError('Pick which organisation to activate');
             return;
         }
         try {
             const result = await activateTrial.mutateAsync({
                 userId: user.id,
-                orgId: hasOrgs ? orgId : undefined,
+                orgId: hasOrgs ? effectiveOrgId : undefined,
                 days: isPaid ? 0 : daysNum,
                 credits: creditsNum,
                 plan,
@@ -136,7 +134,7 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
                             <Select
                                 labelId="activate-trial-org-label"
                                 label="Organisation"
-                                value={orgId}
+                                value={effectiveOrgId}
                                 onChange={(e) => setOrgId(e.target.value as string)}
                             >
                                 {ownedOrgs!.map((org) => (
@@ -201,7 +199,7 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
                     onClick={handleSubmit}
                     color="secondary"
                     variant="contained"
-                    disabled={activateTrial.isPending || isLoadingOrgs || (hasOrgs && !orgId)}
+                    disabled={activateTrial.isPending || isLoadingOrgs || (hasOrgs && !effectiveOrgId)}
                     startIcon={activateTrial.isPending ? <CircularProgress size={20} /> : null}
                 >
                     {activateTrial.isPending ? 'Activating…' : plan === 'pro' ? 'Activate paid plan' : 'Activate trial'}
