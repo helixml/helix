@@ -195,7 +195,14 @@ func (*adminTrialStripeBackend) CallStreaming(string, string, string, stripeapi.
 func (b *adminTrialStripeBackend) CallRaw(method, path, _ string, _ *form.Values, _ *stripeapi.Params, out stripeapi.LastResponseSetter) error {
 	require.Equal(b.t, http.MethodGet, method)
 	require.Equal(b.t, "/v1/prices", path)
-	*out.(*stripeapi.PriceList) = stripeapi.PriceList{Data: []*stripeapi.Price{{ID: "price-trial"}}}
+	*out.(*stripeapi.PriceList) = stripeapi.PriceList{Data: []*stripeapi.Price{{
+		ID:         "price-trial",
+		Currency:   stripeapi.CurrencyUSD,
+		UnitAmount: 49900,
+		Recurring: &stripeapi.PriceRecurring{
+			Interval: stripeapi.PriceRecurringIntervalMonth,
+		},
+	}}}
 	return nil
 }
 func (*adminTrialStripeBackend) CallMultipart(string, string, string, string, *bytes.Buffer, *stripeapi.Params, stripeapi.LastResponseSetter) error {
