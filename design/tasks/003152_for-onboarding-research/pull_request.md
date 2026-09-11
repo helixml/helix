@@ -20,7 +20,7 @@ Keep onboarding in its Stripe confirmation state when wallet reconciliation exce
 - `go test ./api/pkg/stripe -count=1` — passed
 - `go test ./api/pkg/store -run '^$' -count=1` — compiled successfully
 - `go test ./api/pkg/server -run 'TestOnboardingTrialPeriodDays|TestAdmin.*Trial' -count=1` — passed
-- `yarn --cwd frontend test Onboarding.test.tsx` — 22 tests passed
+- `yarn --cwd frontend test Onboarding.test.tsx` — 23 tests passed after merging current `main`
 - `yarn --cwd frontend tsc` — passed
 - `docker compose -f docker-compose.dev.yaml config --quiet` — passed
 - `git diff --check` — passed
