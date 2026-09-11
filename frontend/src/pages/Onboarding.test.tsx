@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Onboarding from './Onboarding'
 
@@ -248,6 +248,31 @@ describe('Onboarding', () => {
     expect(screen.queryByText(/create your first project/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/create your first task/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/where is your code/i)).not.toBeInTheDocument()
+  })
+
+  it('shows provider cards as selectable actions without a dismiss control', async () => {
+    renderOnboarding()
+
+    expect(screen.queryByTestId('CloseIcon')).not.toBeInTheDocument()
+    await goToCodingAccessStep()
+
+    const helix = screen.getByRole('button', { name: /helix providers/i })
+    const claude = screen.getByRole('button', { name: /claude subscription/i })
+    const codex = screen.getByRole('button', { name: /chatgpt subscription/i })
+
+    expect(helix).toHaveAttribute('aria-pressed', 'true')
+    expect(claude).toHaveAttribute('aria-pressed', 'false')
+    expect(codex).toHaveAttribute('aria-pressed', 'false')
+    expect(within(helix).getByText('Selected')).toBeVisible()
+    expect(within(claude).getByText('Select')).toBeVisible()
+    expect(within(codex).getByText('Select')).toBeVisible()
+
+    fireEvent.click(claude)
+
+    expect(helix).toHaveAttribute('aria-pressed', 'false')
+    expect(claude).toHaveAttribute('aria-pressed', 'true')
+    expect(within(helix).getByText('Select')).toBeVisible()
+    expect(within(claude).getByText('Selected')).toBeVisible()
   })
 
   it('saves the selected Helix runtime and opens the Chief of Staff on cloud', async () => {
