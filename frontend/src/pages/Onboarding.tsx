@@ -229,6 +229,10 @@ export default function Onboarding() {
   const { data: serverConfig, isLoading: isLoadingServerConfig } =
     useGetConfig();
   const [isSubscribing, setIsSubscribing] = useState(false);
+  const [isConfirmingSubscription, setIsConfirmingSubscription] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("success") === "true" && params.get("step") !== "provider";
+  });
   const [isToppingUp, setIsToppingUp] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState<number>(DEFAULT_TOP_UP_AMOUNT);
 
@@ -508,13 +512,34 @@ export default function Onboarding() {
     }
   }, [createdOrg?.id, serverConfig?.billing_enabled, refetchWallet]);
 
-  // Refresh billing state after Stripe returns.
+  // Stripe can redirect before its subscription webhook updates our wallet.
+  // Retry briefly after the organization has been restored from the return URL.
   useEffect(() => {
-    const url = new URL(window.location.href);
-    if (url.searchParams.get("success") === "true") {
-      refetchWallet();
-    }
-  }, [refetchWallet]);
+    if (!isConfirmingSubscription || !createdOrg?.id || isSubscriptionActive) return;
+
+    let cancelled = false;
+    let timeout: number | undefined;
+    let attempts = 0;
+    const refresh = async () => {
+      attempts += 1;
+      const result = await refetchWallet();
+      if (cancelled) return;
+      const status = result?.data?.subscription_status;
+      if (status === "trialing" || status === "active") {
+        setIsConfirmingSubscription(false);
+      } else if (attempts < 15) {
+        timeout = window.setTimeout(refresh, 2000);
+      } else {
+        setIsConfirmingSubscription(false);
+      }
+    };
+    void refresh();
+
+    return () => {
+      cancelled = true;
+      if (timeout) window.clearTimeout(timeout);
+    };
+  }, [createdOrg?.id, isConfirmingSubscription, isSubscriptionActive, refetchWallet]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -1083,7 +1108,9 @@ export default function Onboarding() {
                     ? "Your free trial is active. Click Continue to proceed."
                     : isSubscriptionActive
                       ? "Your subscription is active. Click Continue to proceed."
-                      : "Your card will not be charged for 72 hours. After that, your subscription automatically continues for $499/month. Cancel before the trial ends to avoid the first charge."}
+                      : isConfirmingSubscription
+                        ? "Confirming your free trial with Stripe..."
+                        : "Your card will not be charged for 72 hours. After that, your subscription automatically continues for $499/month. Cancel before the trial ends to avoid the first charge."}
                 </Typography>
                 {isSubscriptionActive && wallet ? (
                   <Box sx={{ mb: 2 }}>
@@ -1183,7 +1210,7 @@ export default function Onboarding() {
                   <Button
                     variant="contained"
                     onClick={handleSubscribe}
-                    disabled={isSubscribing}
+                    disabled={isSubscribing || isConfirmingSubscription}
                     sx={btnSx}
                     startIcon={
                       isSubscribing ? (
@@ -1195,7 +1222,9 @@ export default function Onboarding() {
                   >
                     {isSubscribing
                       ? "Redirecting to payment..."
-                      : "Start 72-hour free trial"}
+                      : isConfirmingSubscription
+                        ? "Confirming your trial..."
+                        : "Start 72-hour free trial"}
                   </Button>
                 )}
                 <Button

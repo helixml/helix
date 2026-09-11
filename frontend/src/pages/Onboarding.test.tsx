@@ -578,6 +578,23 @@ describe('Onboarding', () => {
     expect(window.location.search).toBe('?org_id=org-1&step=provider&created_org=true')
   })
 
+  it('shows confirmation and refreshes the wallet after returning from subscription checkout', async () => {
+    mockState.walletStatus = 'not_subscribed'
+    setAccountWithOrgs([
+      { id: 'org-1', name: 'my-org', display_name: 'My Org', owner: 'user-1' },
+    ])
+    window.history.replaceState(
+      {},
+      '',
+      '/onboarding?org_id=org-1&success=true&session_id=cs_1',
+    )
+
+    renderOnboarding()
+
+    expect(await screen.findByText('Confirming your free trial with Stripe...')).toBeInTheDocument()
+    await waitFor(() => expect(mockRefetchWallet).toHaveBeenCalled())
+  })
+
   it('requires a non-owner to ask the owner before changing subscription policy', async () => {
     setAccountWithOrgs([
       { id: 'org-1', name: 'my-org', display_name: 'My Org', owner: 'another-user' },
