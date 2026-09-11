@@ -285,12 +285,12 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 		UserID:           user.ID,
 		Amount:           s.Cfg.Stripe.InitialBalance,
 		ReturnURL:        returnURL,
-		TrialPeriodDays:  onboardingTrialPeriodDays(returnURL),
+		TrialPeriodDays:  onboardingTrialPeriodDays(user, wallet),
 	})
 }
 
-func onboardingTrialPeriodDays(returnURL string) int64 {
-	if returnURL == "/onboarding" || strings.HasPrefix(returnURL, "/onboarding?") {
+func onboardingTrialPeriodDays(user *types.User, wallet *types.Wallet) int64 {
+	if !user.OnboardingCompleted && wallet.StripeSubscriptionID == "" {
 		return 3
 	}
 	return 0
