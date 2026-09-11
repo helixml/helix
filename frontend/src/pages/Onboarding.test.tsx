@@ -14,6 +14,7 @@ const mockV1TopUpsNewCreate = vi.fn()
 const mockRefetchWallet = vi.fn()
 const mockCreateOrgMutateAsync = vi.fn()
 const mockUpdateHarnesses = vi.fn()
+const onboardingDraftKey = 'helix_onboarding_draft:v1:user-1'
 
 const mockState = vi.hoisted(() => ({
   edition: 'cloud',
@@ -291,6 +292,8 @@ describe('Onboarding', () => {
     renderOnboarding()
     await goToCodingAccessStep()
 
+    await waitFor(() => expect(localStorage.getItem(onboardingDraftKey)).not.toBeNull())
+
     await act(async () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'Meet your Chief of Staff' }),
@@ -311,11 +314,41 @@ describe('Onboarding', () => {
       }),
     })
     expect(localStorage.getItem('selected_org')).toBe('my-org')
+    expect(localStorage.getItem(onboardingDraftKey)).toBeNull()
     expect(mockNavigateReplace).toHaveBeenCalledWith('org_bot_session', {
       org_id: 'my-org',
       bot_id: 'chief-of-staff',
     })
     expect(mockUpdateHarnesses).not.toHaveBeenCalled()
+  })
+
+  it('restores onboarding progress and choices after remounting', async () => {
+    const firstRender = renderOnboarding()
+    await goToCodingAccessStep()
+
+    fireEvent.click(screen.getByRole('button', { name: /claude subscription/i }))
+    fireEvent.mouseDown(screen.getByLabelText('Claude model'))
+    fireEvent.click(screen.getByRole('option', { name: /Claude Fable 5/i }))
+
+    await waitFor(() => {
+      expect(JSON.parse(localStorage.getItem(onboardingDraftKey) || '{}')).toMatchObject({
+        activeStepType: 'provider',
+        completedStepTypes: ['signin', 'organization', 'subscription'],
+        createdOrgId: 'org-1',
+        codingAccessOption: 'claude',
+        claudeModel: 'claude-fable-5',
+      })
+    })
+    firstRender.unmount()
+
+    renderOnboarding()
+
+    await screen.findByText('Choose how to run coding agents')
+    expect(screen.getByRole('button', { name: /claude subscription/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByLabelText('Claude model')).toHaveTextContent('Claude Fable 5')
   })
 
   it('requires a Claude connection only when Claude is selected', async () => {
