@@ -29,6 +29,7 @@ type TopUpSessionParams struct {
 	OrgName          string // Used for redirect URL (for example 'acme-org' for 'orgs/acme-org/billing')
 	UserID           string
 	Amount           float64
+	ReturnURL        string
 }
 
 func (s *Stripe) GetTopUpSessionURL(
@@ -43,14 +44,23 @@ func (s *Stripe) GetTopUpSessionURL(
 	amountInCents := int64(math.Round(params.Amount * 100))
 	metadata := topUpMetadata(params.UserID, params.OrgID, amountInCents)
 
-	successURL := s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
+	defaultSuccessURL := s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
 	if params.OrgID != "" {
-		successURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
+		defaultSuccessURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
 	}
 
-	cancelURL := s.cfg.AppURL + "/account?canceled=true"
+	defaultCancelURL := s.cfg.AppURL + "/account?canceled=true"
 	if params.OrgID != "" {
-		cancelURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
+		defaultCancelURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
+	}
+	successURL, cancelURL, err := checkoutReturnURLs(
+		s.cfg.AppURL,
+		params.ReturnURL,
+		defaultSuccessURL,
+		defaultCancelURL,
+	)
+	if err != nil {
+		return "", err
 	}
 
 	checkoutParams := &stripe.CheckoutSessionParams{

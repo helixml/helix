@@ -126,6 +126,7 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
                         label="Plan"
                         value={plan}
                         onChange={(e) => setPlan(e.target.value)}
+                        SelectProps={{ displayEmpty: true }}
                         margin="normal"
                         disabled={activateTrial.isPending}
                         helperText={
