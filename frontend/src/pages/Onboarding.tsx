@@ -1394,7 +1394,7 @@ export default function Onboarding() {
               )}
 
               {codingAccessOption === "helix" && !hasHelixCredits ? (
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Box sx={{ display: "flex", alignItems: "flex-end", gap: 1 }}>
                   <FormControl size="small" sx={{ minWidth: 100 }}>
                     <InputLabel id="onboarding-topup-amount-label">Top-up amount</InputLabel>
                     <Select
