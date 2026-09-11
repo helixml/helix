@@ -59,13 +59,13 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -99,13 +99,13 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "501": {
                         "description": "Not Implemented",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -3363,7 +3363,7 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -4120,13 +4120,13 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -4170,13 +4170,13 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -4283,13 +4283,13 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -4336,31 +4336,31 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -4416,31 +4416,31 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -4537,31 +4537,31 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -4665,25 +4665,25 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -4810,25 +4810,25 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -4862,25 +4862,25 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -4914,25 +4914,25 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -15077,19 +15077,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -15222,19 +15222,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -15292,19 +15292,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -18390,25 +18390,25 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -30903,6 +30903,10 @@ const docTemplate = `{
                 "prompt": {
                     "type": "string"
                 },
+                "sandbox_host_id": {
+                    "description": "SandboxHostID optionally pins the task's desktop container to a specific\nsandbox host (SandboxInstance.ID). The host must be online and satisfy\nthe runtime's display requirement, or task creation fails.",
+                    "type": "string"
+                },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
                 },
@@ -31409,6 +31413,10 @@ const docTemplate = `{
                 },
                 "resolution": {
                     "description": "Display resolution - either use Resolution preset or explicit dimensions",
+                    "type": "string"
+                },
+                "sandbox_host_id": {
+                    "description": "SandboxHostID pins the session's dev container to a specific sandbox\nhost (SandboxInstance.ID). Empty means the dispatcher chooses.",
                     "type": "string"
                 },
                 "video_mode": {
@@ -38275,6 +38283,10 @@ const docTemplate = `{
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
                 },
+                "sandbox_host_id": {
+                    "description": "SandboxHostID pins this task's desktop container to a specific sandbox\nhost (SandboxInstance.ID). Empty means the dispatcher chooses. Also\nhonoured on resume, so the task returns to the host that has its\nworkspace on disk.",
+                    "type": "string"
+                },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
                 },
@@ -39138,6 +39150,10 @@ const docTemplate = `{
                 },
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
+                    "type": "string"
+                },
+                "sandbox_host_id": {
+                    "description": "SandboxHostID pins this task's desktop container to a specific sandbox\nhost (SandboxInstance.ID). Empty means the dispatcher chooses. Also\nhonoured on resume, so the task returns to the host that has its\nworkspace on disk.",
                     "type": "string"
                 },
                 "sandbox_resource_overrides": {

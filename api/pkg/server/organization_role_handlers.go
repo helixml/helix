@@ -5,6 +5,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // listOrganizationRoles godoc
@@ -30,7 +32,8 @@ func (apiServer *HelixAPIServer) listOrganizationRoles(rw http.ResponseWriter, r
 		return
 	}
 
-	roles, err := apiServer.Store.ListRoles(r.Context(), orgID)
+	var roles []*types.Role
+	roles, err = apiServer.Store.ListRoles(r.Context(), orgID)
 	if err != nil {
 		log.Err(err).Msg("error listing roles")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)

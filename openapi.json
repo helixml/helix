@@ -53,7 +53,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -63,7 +63,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -99,7 +99,7 @@
                         "content": {
                             "text/event-stream": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -109,7 +109,7 @@
                         "content": {
                             "text/event-stream": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -3962,7 +3962,7 @@
                         "content": {
                             "application/octet-stream": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -4840,7 +4840,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -4850,7 +4850,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -4899,7 +4899,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -4909,7 +4909,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5028,7 +5028,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5038,7 +5038,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5095,7 +5095,7 @@
                         "content": {
                             "application/octet-stream": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5105,7 +5105,7 @@
                         "content": {
                             "application/octet-stream": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5115,7 +5115,7 @@
                         "content": {
                             "application/octet-stream": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5125,7 +5125,7 @@
                         "content": {
                             "application/octet-stream": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5135,7 +5135,7 @@
                         "content": {
                             "application/octet-stream": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5210,7 +5210,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5220,7 +5220,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5230,7 +5230,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5240,7 +5240,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5250,7 +5250,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5360,7 +5360,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5370,7 +5370,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5380,7 +5380,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5390,7 +5390,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5400,7 +5400,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5524,7 +5524,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5534,7 +5534,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5544,7 +5544,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5554,7 +5554,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5700,7 +5700,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5710,7 +5710,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5720,7 +5720,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5730,7 +5730,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5770,7 +5770,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5780,7 +5780,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5790,7 +5790,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5800,7 +5800,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5840,7 +5840,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5850,7 +5850,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5860,7 +5860,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -5870,7 +5870,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -17877,7 +17877,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -17887,7 +17887,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -17897,7 +17897,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -18054,7 +18054,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -18064,7 +18064,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -18074,7 +18074,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -18140,7 +18140,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -18150,7 +18150,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -18160,7 +18160,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -21852,7 +21852,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -21862,7 +21862,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -21872,7 +21872,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -21882,7 +21882,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -35367,6 +35367,10 @@
                     "prompt": {
                         "type": "string"
                     },
+                    "sandbox_host_id": {
+                        "description": "SandboxHostID optionally pins the task's desktop container to a specific\nsandbox host (SandboxInstance.ID). The host must be online and satisfy\nthe runtime's display requirement, or task creation fails.",
+                        "type": "string"
+                    },
                     "sandbox_resource_overrides": {
                         "$ref": "#/components/schemas/types.SandboxResourceOverrides"
                     },
@@ -35873,6 +35877,10 @@
                     },
                     "resolution": {
                         "description": "Display resolution - either use Resolution preset or explicit dimensions",
+                        "type": "string"
+                    },
+                    "sandbox_host_id": {
+                        "description": "SandboxHostID pins the session's dev container to a specific sandbox\nhost (SandboxInstance.ID). Empty means the dispatcher chooses.",
                         "type": "string"
                     },
                     "video_mode": {
@@ -42739,6 +42747,10 @@
                         "description": "User stories + EARS acceptance criteria (markdown)",
                         "type": "string"
                     },
+                    "sandbox_host_id": {
+                        "description": "SandboxHostID pins this task's desktop container to a specific sandbox\nhost (SandboxInstance.ID). Empty means the dispatcher chooses. Also\nhonoured on resume, so the task returns to the host that has its\nworkspace on disk.",
+                        "type": "string"
+                    },
                     "sandbox_resource_overrides": {
                         "$ref": "#/components/schemas/types.SandboxResourceOverrides"
                     },
@@ -43602,6 +43614,10 @@
                     },
                     "requirements_spec": {
                         "description": "User stories + EARS acceptance criteria (markdown)",
+                        "type": "string"
+                    },
+                    "sandbox_host_id": {
+                        "description": "SandboxHostID pins this task's desktop container to a specific sandbox\nhost (SandboxInstance.ID). Empty means the dispatcher chooses. Also\nhonoured on resume, so the task returns to the host that has its\nworkspace on disk.",
                         "type": "string"
                     },
                     "sandbox_resource_overrides": {

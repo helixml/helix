@@ -1273,9 +1273,9 @@ func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.
 // @Param   from query string false "Start date"
 // @Param   to query string false "End date"
 // @Success 200 {array} types.AggregatedUsageMetric
-// @Failure 400 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
 // @Router /api/v1/provider-endpoints/{id}/daily-usage [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.Request) {
@@ -1340,9 +1340,9 @@ func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.R
 // @Param   to query string false "End date"
 // @Param   aggregation_level query string false "Aggregation level" Enums(30min,hourly) default(30min)
 // @Success 200 {array} types.AggregatedUsageMetric
-// @Failure 400 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
+// @Failure 400 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Failure 500 {object} types.APIError
 // @Router /api/v1/provider-endpoints/{id}/throughput-usage [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getProviderThroughputUsage(rw http.ResponseWriter, r *http.Request) {
@@ -1418,9 +1418,9 @@ func (s *HelixAPIServer) getProviderThroughputUsage(rw http.ResponseWriter, r *h
 // @Param   from query string false "Start date"
 // @Param   to query string false "End date"
 // @Success 200 {array} types.UsersAggregatedUsageMetric
-// @Failure 400 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
 // @Router /api/v1/provider-endpoints/{id}/users-daily-usage [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *http.Request) {
