@@ -26,6 +26,19 @@ type SubscriptionSessionParams struct {
 	TrialPeriodDays  int64  // Optional card-backed trial; zero creates the subscription without a trial
 }
 
+const orgSubscriptionMonthlyPriceCents int64 = 49900
+
+func validateOrgSubscriptionPrice(p *stripe.Price) error {
+	if p.UnitAmount != orgSubscriptionMonthlyPriceCents || p.Currency != stripe.CurrencyUSD ||
+		p.Recurring == nil || p.Recurring.Interval != stripe.PriceRecurringIntervalMonth {
+		return fmt.Errorf(
+			"organization subscription price must be USD $499/month; Stripe price %s does not match",
+			p.ID,
+		)
+	}
+	return nil
+}
+
 func (s *Stripe) GetCheckoutSessionURL(
 	params SubscriptionSessionParams,
 ) (string, error) {
@@ -56,17 +69,26 @@ func (s *Stripe) GetCheckoutSessionURL(
 	}
 
 	priceParams := &stripe.PriceListParams{
+		Active: stripe.Bool(true),
 		LookupKeys: stripe.StringSlice([]string{
 			priceLookupKey,
 		}),
 	}
 	priceResult := price.List(priceParams)
 	var price *stripe.Price
-	for priceResult.Next() {
+	if priceResult.Next() {
 		price = priceResult.Price()
 	}
+	if err := priceResult.Err(); err != nil {
+		return "", fmt.Errorf("failed to find price for lookup key %s: %w", priceLookupKey, err)
+	}
 	if price == nil {
-		return "", fmt.Errorf("price not found")
+		return "", fmt.Errorf("price not found for lookup key %s", priceLookupKey)
+	}
+	if params.OrgID != "" {
+		if err := validateOrgSubscriptionPrice(price); err != nil {
+			return "", err
+		}
 	}
 
 	checkoutParams := &stripe.CheckoutSessionParams{

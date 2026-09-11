@@ -29,14 +29,21 @@ func (s *Stripe) CreateTrialSubscription(_ context.Context, wallet *types.Wallet
 	}
 
 	priceList := price.List(&stripe.PriceListParams{
+		Active:     stripe.Bool(true),
 		LookupKeys: stripe.StringSlice([]string{s.cfg.OrgPriceLookupKey}),
 	})
 	var p *stripe.Price
-	for priceList.Next() {
+	if priceList.Next() {
 		p = priceList.Price()
+	}
+	if err := priceList.Err(); err != nil {
+		return nil, fmt.Errorf("failed to find price for lookup key %s: %w", s.cfg.OrgPriceLookupKey, err)
 	}
 	if p == nil {
 		return nil, fmt.Errorf("price not found for lookup key %s", s.cfg.OrgPriceLookupKey)
+	}
+	if err := validateOrgSubscriptionPrice(p); err != nil {
+		return nil, err
 	}
 
 	params := &stripe.SubscriptionParams{

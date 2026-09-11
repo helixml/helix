@@ -4,7 +4,32 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/stretchr/testify/require"
+	stripeapi "github.com/stripe/stripe-go/v76"
 )
+
+func TestValidateOrgSubscriptionPrice(t *testing.T) {
+	t.Run("accepts the advertised monthly price", func(t *testing.T) {
+		err := validateOrgSubscriptionPrice(&stripeapi.Price{
+			ID:         "price_499",
+			Currency:   stripeapi.CurrencyUSD,
+			UnitAmount: 49900,
+			Recurring: &stripeapi.PriceRecurring{
+				Interval: stripeapi.PriceRecurringIntervalMonth,
+			},
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("rejects a stale Stripe price", func(t *testing.T) {
+		err := validateOrgSubscriptionPrice(&stripeapi.Price{
+			ID:         "price_399",
+			Currency:   stripeapi.CurrencyUSD,
+			UnitAmount: 39900,
+		})
+		require.EqualError(t, err, "organization subscription price must be USD $499/month; Stripe price price_399 does not match")
+	})
+}
 
 func TestCheckoutReturnURLsPreserveQuery(t *testing.T) {
 	success, canceled, err := checkoutReturnURLs(
