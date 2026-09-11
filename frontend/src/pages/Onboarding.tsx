@@ -22,7 +22,7 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import BusinessIcon from "@mui/icons-material/Business";
 import PersonIcon from "@mui/icons-material/Person";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
-import { Server } from "lucide-react";
+import { Coins, Server } from "lucide-react";
 
 import useAccount from "../hooks/useAccount";
 import useApi from "../hooks/useApi";
@@ -264,6 +264,7 @@ export default function Onboarding() {
   const selectedHelixProvider = helixProviders.find((provider) => providerRef(provider) === helixProvider);
   const helixModels = (selectedHelixProvider?.available_models || []).filter((model) =>
     model.id && model.enabled && (!model.type || model.type === "chat" || model.type === "text"));
+  const selectedHelixModel = helixModels.find((model) => model.id === helixModel);
   const helixDefaultAvailable = !!selectedHelixProvider
     && helixModels.some((model) => model.id === helixModel);
   const hasConfiguredHelixDefault = !!serverConfig?.onboarding_helix_model_provider
@@ -1105,21 +1106,42 @@ export default function Onboarding() {
                   mb: 2,
                 }}
               >
-                Helix Providers is selected by default. You can instead connect
-                Claude Code or Codex to use your own subscription; those runs do
-                not use Helix credits.
+                Helix Providers is selected by default. You can also connect
+                Claude Code or Codex and use your own subscription. Those runs
+                do not use Helix credits.
               </Typography>
-              {wallet && (
-                <Typography
+              {codingAccessOption === "helix" && wallet && (
+                <Box
+                  aria-label="Helix credit balance"
                   sx={{
-                    color: palette.TEXT_SECONDARY,
-                    fontSize: "0.85rem",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.25,
+                    p: 1.5,
+                    borderRadius: 1.5,
+                    border: `1px solid ${palette.CARD_BORDER}`,
+                    bgcolor: palette.OVERLAY_FAINT,
                     mb: 2,
                   }}
                 >
-                  You have {wallet.balance?.toFixed(2) || "0.00"} Helix credits.
-                  Helix credits pay for AI model usage through Helix Providers.
-                </Typography>
+                  <Box sx={{ color: hasHelixCredits ? ACCENT : "warning.main", display: "flex" }}>
+                    <Coins size={22} />
+                  </Box>
+                  <Box>
+                    <Typography
+                      sx={{
+                        color: hasHelixCredits ? palette.TEXT_PRIMARY : "warning.main",
+                        fontSize: "1.1rem",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {wallet.balance?.toFixed(2) || "0.00"} Helix credits
+                    </Typography>
+                    <Typography sx={{ color: palette.TEXT_FADED, fontSize: "0.8rem", mt: 0.25 }}>
+                      Helix credits pay for AI model usage when your coding agents run through Helix Providers.
+                    </Typography>
+                  </Box>
+                </Box>
               )}
               {codingAccessOption === "helix" && !inventoryLoading && helixProvider && helixModel && !helixDefaultAvailable && (
                 <Typography color="error" sx={{ fontSize: "0.82rem", mb: 2 }}>
@@ -1234,7 +1256,9 @@ export default function Onboarding() {
                       )}
                       <Typography
                         sx={{
-                          color: ACCENT,
+                          color: selected && lightTheme.isLight
+                            ? palette.TEXT_PRIMARY
+                            : ACCENT,
                           fontSize: "0.8rem",
                           fontWeight: 700,
                           mt: "auto",
@@ -1259,11 +1283,11 @@ export default function Onboarding() {
                         bgcolor: palette.OVERLAY_FAINT,
                       }}
                     >
-                      <Typography sx={{ color: palette.TEXT_PRIMARY, fontSize: "0.85rem", fontWeight: 600 }}>
-                        Recommended model: {helixModel}
+                      <Typography component="h3" sx={{ color: palette.TEXT_PRIMARY, fontSize: "0.85rem", fontWeight: 600 }}>
+                        Meet your Chief of Staff
                       </Typography>
                       <Typography sx={{ color: palette.TEXT_FADED, fontSize: "0.8rem", mt: 0.5 }}>
-                        Helix has selected the provider and reasoning settings for you.
+                        Your Chief of Staff will use {selectedHelixModel?.model_info?.name || selectedHelixModel?.name || helixModel} by default. You can change this later in organization settings.
                       </Typography>
                     </Box>
                   ) : (

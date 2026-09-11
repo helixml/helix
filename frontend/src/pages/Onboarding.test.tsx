@@ -24,7 +24,7 @@ const mockState = vi.hoisted(() => ({
   harnesses: [] as any[],
   onboardingHelixDefault: {
     provider: 'pe_helix',
-    model: 'helix-model',
+    model: 'qwen3.8-flash-next',
     effort: 'high',
   },
 }))
@@ -154,6 +154,7 @@ vi.mock('../components/account/CodexSubscriptionConnect', () => ({
 
 vi.mock('lucide-react', () => ({
   Bot: () => <span data-testid="bot-icon" />,
+  Coins: () => <span data-testid="coins-icon" />,
   Server: () => <span data-testid="server-icon" />,
 }))
 
@@ -200,14 +201,19 @@ describe('Onboarding', () => {
     mockState.walletBalance = 42.5
     mockState.onboardingHelixDefault = {
       provider: 'pe_helix',
-      model: 'helix-model',
+      model: 'qwen3.8-flash-next',
       effort: 'high',
     }
     mockState.providers = [{
       id: 'pe_helix',
       name: 'helix',
       status: 'ok',
-      available_models: [{ id: 'helix-model', enabled: true, type: 'chat' }],
+      available_models: [{
+        id: 'qwen3.8-flash-next',
+        model_info: { name: 'Qwen: Qwen3.8 Flash Next' },
+        enabled: true,
+        type: 'chat',
+      }],
     }]
     mockState.harnesses = [
       { runtime: 'zed_agent', enabled: true, subscription_enabled: false },
@@ -240,10 +246,16 @@ describe('Onboarding', () => {
     expect(screen.getByRole('button', { name: /helix providers/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /claude subscription/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /chatgpt subscription/i })).toBeInTheDocument()
-    expect(screen.getByText(/You have 42.50 Helix credits/)).toBeInTheDocument()
-    expect(screen.getByText(/Claude Code or Codex to use your own subscription/)).toBeInTheDocument()
-    expect(screen.getByText(/those runs do not use Helix credits/)).toBeInTheDocument()
-    expect(screen.getByText('Recommended model: helix-model')).toBeInTheDocument()
+    const balance = screen.getByLabelText('Helix credit balance')
+    expect(within(balance).getByText('42.50 Helix credits')).toBeVisible()
+    expect(within(balance).getByText(/pay for AI model usage when your coding agents run through Helix Providers/)).toBeVisible()
+    expect(screen.getByText(
+      'Helix Providers is selected by default. You can also connect Claude Code or Codex and use your own subscription. Those runs do not use Helix credits.',
+    )).toBeVisible()
+    expect(screen.queryByText(/Recommended model:/)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Meet your Chief of Staff' })).toBeVisible()
+    expect(screen.getByText(/use Qwen: Qwen3.8 Flash Next by default/)).toBeVisible()
+    expect(screen.getByText(/change this later in organization settings/)).toBeVisible()
     expect(screen.queryByLabelText('Helix provider')).not.toBeInTheDocument()
     expect(screen.queryByText(/create your first project/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/create your first task/i)).not.toBeInTheDocument()
@@ -263,7 +275,7 @@ describe('Onboarding', () => {
     expect(helix).toHaveAttribute('aria-pressed', 'true')
     expect(claude).toHaveAttribute('aria-pressed', 'false')
     expect(codex).toHaveAttribute('aria-pressed', 'false')
-    expect(within(helix).getByText('Selected')).toBeVisible()
+    expect(within(helix).getByText('Selected')).toHaveStyle({ color: '#1a1a2e' })
     expect(within(claude).getByText('Select')).toBeVisible()
     expect(within(codex).getByText('Select')).toBeVisible()
 
@@ -294,7 +306,7 @@ describe('Onboarding', () => {
         code_agent_runtime: 'zed_agent',
         code_agent_credential_type: 'api_key',
         provider: 'pe_helix',
-        model: 'helix-model',
+        model: 'qwen3.8-flash-next',
         reasoning_effort: 'high',
       }),
     })
@@ -432,6 +444,9 @@ describe('Onboarding', () => {
     await goToCodingAccessStep()
 
     expect(screen.queryByRole('button', { name: 'Meet your Chief of Staff' })).not.toBeInTheDocument()
+    const balance = screen.getByLabelText('Helix credit balance')
+    expect(within(balance).getByText('0.00 Helix credits')).toBeVisible()
+    expect(within(balance).getByTestId('coins-icon')).toBeVisible()
     expect(screen.getByRole('button', { name: 'Add credits' })).toBeEnabled()
     expect(screen.getByRole('combobox', { name: 'Top-up amount' })).toHaveTextContent('$5')
     expect(screen.getByRole('button', { name: /claude subscription/i })).toBeInTheDocument()
