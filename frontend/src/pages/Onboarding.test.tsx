@@ -28,6 +28,7 @@ const mockState = vi.hoisted(() => ({
     model: 'qwen3.8-flash-next',
     effort: 'high',
   },
+  isLight: true,
 }))
 
 let mockAccountValue: any
@@ -89,6 +90,10 @@ vi.mock('../hooks/useRouter', () => ({
     replaceParams: vi.fn(),
     removeParams: vi.fn(),
   }),
+}))
+
+vi.mock('../hooks/useLightTheme', () => ({
+  default: () => ({ isLight: mockState.isLight }),
 }))
 
 vi.mock('../services/orgService', () => ({
@@ -156,7 +161,6 @@ vi.mock('../components/account/CodexSubscriptionConnect', () => ({
 vi.mock('lucide-react', () => ({
   Bot: () => <span data-testid="bot-icon" />,
   Coins: () => <span data-testid="coins-icon" />,
-  Server: () => <span data-testid="server-icon" />,
 }))
 
 function renderOnboarding() {
@@ -187,7 +191,7 @@ async function goToCodingAccessStep() {
   }
 
   await waitFor(() => {
-    expect(screen.getByText('Choose how to run coding agents')).toBeInTheDocument()
+    expect(screen.getByText('Choose how to run your agents')).toBeInTheDocument()
   })
 }
 
@@ -200,6 +204,7 @@ describe('Onboarding', () => {
     mockState.billingEnabled = true
     mockState.walletStatus = 'active'
     mockState.walletBalance = 42.5
+    mockState.isLight = true
     mockState.onboardingHelixDefault = {
       provider: 'pe_helix',
       model: 'qwen3.8-flash-next',
@@ -243,20 +248,23 @@ describe('Onboarding', () => {
     renderOnboarding()
     await goToCodingAccessStep()
 
-    expect(screen.getByRole('button', { name: 'Meet your Chief of Staff' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /helix providers/i })).toBeInTheDocument()
+    expect(screen.getByText('Helix needs an LLM to run your agents.')).toBeVisible()
+    expect(screen.getByText(
+      'Use a Helix model or connect your Claude or ChatGPT subscription. Helix models require credits.',
+    )).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Launch Helix' })).toBeEnabled()
+    const helix = screen.getByRole('button', { name: /helix models/i })
+    expect(helix).toBeInTheDocument()
+    expect(within(helix).getByText('Use a Helix model. Add credits to get started.')).toBeVisible()
+    expect(helix.querySelector('img[src="/img/logo.png"]')).toHaveAttribute('alt', '')
     expect(screen.getByRole('button', { name: /claude subscription/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /chatgpt subscription/i })).toBeInTheDocument()
-    const balance = screen.getByLabelText('Helix credit balance')
+    const balance = screen.getByRole('group', { name: 'Helix credit balance' })
     expect(within(balance).getByText('42.50 Helix credits')).toBeVisible()
-    expect(within(balance).getByText(/pay for AI model usage when your coding agents run through Helix Providers/)).toBeVisible()
-    expect(screen.getByText(
-      'Helix Providers is selected by default. You can also connect Claude Code or Codex and use your own subscription. Those runs do not use Helix credits.',
-    )).toBeVisible()
+    expect(within(balance).queryByText(/pay for AI model usage/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Recommended model:/)).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Meet your Chief of Staff' })).toBeVisible()
-    expect(screen.getByText(/use Qwen: Qwen3.8 Flash Next by default/)).toBeVisible()
-    expect(screen.getByText(/change this later in organization settings/)).toBeVisible()
+    expect(screen.queryByRole('heading', { name: 'Meet your Chief of Staff' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Qwen: Qwen3.8 Flash Next/)).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Helix provider')).not.toBeInTheDocument()
     expect(screen.queryByText(/create your first project/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/create your first task/i)).not.toBeInTheDocument()
@@ -269,7 +277,7 @@ describe('Onboarding', () => {
     expect(screen.queryByTestId('CloseIcon')).not.toBeInTheDocument()
     await goToCodingAccessStep()
 
-    const helix = screen.getByRole('button', { name: /helix providers/i })
+    const helix = screen.getByRole('button', { name: /helix models/i })
     const claude = screen.getByRole('button', { name: /claude subscription/i })
     const codex = screen.getByRole('button', { name: /chatgpt subscription/i })
 
@@ -277,6 +285,7 @@ describe('Onboarding', () => {
     expect(claude).toHaveAttribute('aria-pressed', 'false')
     expect(codex).toHaveAttribute('aria-pressed', 'false')
     expect(within(helix).getByText('Selected')).toHaveStyle({ color: '#1a1a2e' })
+    expect(within(claude).getByText('Connected')).toHaveStyle({ color: '#1a1a2e' })
     expect(within(claude).getByText('Select')).toBeVisible()
     expect(within(codex).getByText('Select')).toBeVisible()
 
@@ -296,7 +305,7 @@ describe('Onboarding', () => {
 
     await act(async () => {
       fireEvent.click(
-        screen.getByRole('button', { name: 'Meet your Chief of Staff' }),
+        screen.getByRole('button', { name: 'Launch Helix' }),
       )
     })
 
@@ -343,7 +352,7 @@ describe('Onboarding', () => {
 
     renderOnboarding()
 
-    await screen.findByText('Choose how to run coding agents')
+    await screen.findByText('Choose how to run your agents')
     expect(screen.getByRole('button', { name: /claude subscription/i })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -362,7 +371,7 @@ describe('Onboarding', () => {
     fireEvent.click(screen.getByRole('button', { name: /claude subscription/i }))
 
     expect(screen.getByRole('button', { name: 'Connect Claude' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Meet your Chief of Staff' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Launch Helix' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Connect Claude' })).toHaveAttribute(
       'data-enable-for-org-id',
       'org-1',
@@ -376,7 +385,7 @@ describe('Onboarding', () => {
     fireEvent.click(screen.getByRole('button', { name: /chatgpt subscription/i }))
 
     expect(screen.getByRole('button', { name: 'Connect ChatGPT' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Meet your Chief of Staff' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Launch Helix' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Connect ChatGPT' })).toHaveAttribute(
       'data-enable-for-org-id',
       'org-1',
@@ -395,7 +404,7 @@ describe('Onboarding', () => {
     fireEvent.mouseDown(screen.getByLabelText('Codex model'))
     fireEvent.click(screen.getByRole('option', { name: 'GPT-5.6 Terra' }))
     const continueButton = screen.getByRole('button', {
-      name: 'Meet your Chief of Staff',
+      name: 'Launch Helix',
     })
     expect(continueButton).toBeEnabled()
 
@@ -464,7 +473,9 @@ describe('Onboarding', () => {
     renderOnboarding()
     await goToCodingAccessStep()
 
-    expect(screen.queryByRole('button', { name: 'Meet your Chief of Staff' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Launch Helix' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Meet your Chief of Staff' })).not.toBeInTheDocument()
+    expect(screen.getByText(/selected Helix model is not available/)).toBeVisible()
   })
 
   it('offers credits and provider connections instead of Chief of Staff when balance is zero', async () => {
@@ -476,10 +487,11 @@ describe('Onboarding', () => {
     renderOnboarding()
     await goToCodingAccessStep()
 
-    expect(screen.queryByRole('button', { name: 'Meet your Chief of Staff' })).not.toBeInTheDocument()
-    const balance = screen.getByLabelText('Helix credit balance')
-    expect(within(balance).getByText('0.00 Helix credits')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Launch Helix' })).not.toBeInTheDocument()
+    const balance = screen.getByRole('group', { name: 'Helix credit balance' })
+    expect(within(balance).getByText('0.00 Helix credits')).toHaveStyle({ color: '#c2410c' })
     expect(within(balance).getByTestId('coins-icon')).toBeVisible()
+    expect(within(balance).getByTestId('coins-icon').parentElement).toHaveStyle({ color: '#c2410c' })
     expect(screen.getByRole('button', { name: 'Add credits' })).toBeEnabled()
     expect(screen.getByRole('combobox', { name: 'Top-up amount' })).toHaveTextContent('$5')
     expect(screen.getByRole('button', { name: /claude subscription/i })).toBeInTheDocument()
@@ -494,6 +506,17 @@ describe('Onboarding', () => {
       return_url: '/onboarding?org_id=org-1&step=provider',
     })
     expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('retains accent labels in dark mode', async () => {
+    mockState.isLight = false
+    renderOnboarding()
+    await goToCodingAccessStep()
+
+    const helix = screen.getByRole('button', { name: /helix models/i })
+    const claude = screen.getByRole('button', { name: /claude subscription/i })
+    expect(within(helix).getByText('Selected')).toHaveStyle({ color: '#00e891' })
+    expect(within(claude).getByText('Connected')).toHaveStyle({ color: '#00e891' })
   })
 
   it('preserves newly-created organization context through top-up checkout', async () => {
@@ -538,7 +561,7 @@ describe('Onboarding', () => {
     await goToCodingAccessStep()
 
     fireEvent.click(screen.getByRole('button', { name: /claude subscription/i }))
-    const button = await screen.findByRole('button', { name: 'Meet your Chief of Staff' })
+    const button = await screen.findByRole('button', { name: 'Launch Helix' })
     fireEvent.click(button)
 
     await waitFor(() => expect(mockV1OrgsSettingsUpdate).toHaveBeenCalledWith(
@@ -563,7 +586,7 @@ describe('Onboarding', () => {
     await goToCodingAccessStep()
 
     fireEvent.click(screen.getByRole('button', { name: /chatgpt subscription/i }))
-    const button = await screen.findByRole('button', { name: 'Meet your Chief of Staff' })
+    const button = await screen.findByRole('button', { name: 'Launch Helix' })
     fireEvent.click(button)
 
     await waitFor(() => expect(mockV1OrgsSettingsUpdate).toHaveBeenCalledWith(
@@ -587,8 +610,8 @@ describe('Onboarding', () => {
     )
     renderOnboarding()
 
-    await screen.findByText('Choose how to run coding agents')
-    expect(screen.getByRole('button', { name: 'Meet your Chief of Staff' })).toBeEnabled()
+    await screen.findByText('Choose how to run your agents')
+    expect(screen.getByRole('button', { name: 'Launch Helix' })).toBeEnabled()
     expect(mockRefetchWallet).toHaveBeenCalled()
     expect(window.location.search).toBe('?org_id=org-1&step=provider&created_org=true')
   })
@@ -607,7 +630,7 @@ describe('Onboarding', () => {
     expect(screen.getByText(
       'Ask an organization owner to set the Default Runtime.',
     )).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Meet your Chief of Staff' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Launch Helix' })).toBeDisabled()
     expect(mockUpdateHarnesses).not.toHaveBeenCalled()
   })
 
@@ -622,7 +645,7 @@ describe('Onboarding', () => {
     fireEvent.click(screen.getByRole('button', { name: /claude subscription/i }))
     fireEvent.mouseDown(screen.getByLabelText('Claude model'))
     fireEvent.click(screen.getByRole('option', { name: /Claude Fable 5/i }))
-    fireEvent.click(screen.getByRole('button', { name: 'Meet your Chief of Staff' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Launch Helix' }))
 
     await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
       'org_bot_session',
@@ -648,9 +671,9 @@ describe('Onboarding', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create organization' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Meet your Chief of Staff' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'Launch Helix' })).toBeEnabled()
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Meet your Chief of Staff' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Launch Helix' }))
 
     await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
       'org_bot_session',
@@ -700,9 +723,9 @@ describe('Onboarding', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /^continue$/i }))
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Meet your Chief of Staff' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'Launch Helix' })).toBeEnabled()
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Meet your Chief of Staff' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Launch Helix' }))
 
     await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
       'org_bot_session',
