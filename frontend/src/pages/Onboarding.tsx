@@ -23,7 +23,7 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import BusinessIcon from "@mui/icons-material/Business";
 import PersonIcon from "@mui/icons-material/Person";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
-import { Server } from "lucide-react";
+import { Coins } from "lucide-react";
 
 import useAccount from "../hooks/useAccount";
 import useApi from "../hooks/useApi";
@@ -105,7 +105,7 @@ function getOnboardingPalette(isLight: boolean) {
       "&.Mui-focused fieldset": { borderColor: ACCENT },
     },
     labelSx: { color: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.7)", fontSize: "0.82rem" },
-    helperSx: { color: isLight ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)", fontSize: "0.8rem" },
+    helperSx: { color: isLight ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)", fontSize: "0.72rem" },
     selectSx: {
       color: isLight ? "#1a1a2e" : "#fff",
       fontSize: "0.82rem",
@@ -200,9 +200,9 @@ const ALL_STEPS: StepConfig[] = [
   },
   {
     type: "provider",
-    icon: <Server size={20} />,
-    title: "Choose how to run coding agents",
-    subtitle: "Use Helix credits or connect an existing coding subscription.",
+    icon: <img src="/img/logo.png" alt="" width={20} height={20} />,
+    title: "Choose how to run your agents",
+    subtitle: "Helix needs an LLM to run your agents.",
   },
 ];
 
@@ -909,7 +909,7 @@ export default function Onboarding() {
                         sx={{
                           color: palette.TEXT_PRIMARY,
                           fontWeight: 500,
-                          fontSize: "0.82rem",
+                          fontSize: "0.78rem",
                         }}
                       >
                         Existing organization
@@ -918,7 +918,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.8rem",
+                        fontSize: "0.7rem",
                       }}
                     >
                       Use one of your organizations
@@ -959,7 +959,7 @@ export default function Onboarding() {
                         sx={{
                           color: palette.TEXT_PRIMARY,
                           fontWeight: 500,
-                          fontSize: "0.82rem",
+                          fontSize: "0.78rem",
                         }}
                       >
                         New organization
@@ -968,7 +968,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.8rem",
+                        fontSize: "0.7rem",
                       }}
                     >
                       Create a new organization
@@ -1118,7 +1118,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.8rem",
+                        fontSize: "0.75rem",
                         mb: 0.5,
                       }}
                     >
@@ -1127,7 +1127,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.8rem",
+                        fontSize: "0.75rem",
                         mb: 0.5,
                       }}
                     >
@@ -1137,7 +1137,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.8rem",
+                        fontSize: "0.75rem",
                         mb: 0.5,
                       }}
                     >
@@ -1149,7 +1149,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.8rem",
+                        fontSize: "0.75rem",
                         mb: 0.5,
                       }}
                     >
@@ -1161,7 +1161,7 @@ export default function Onboarding() {
                     <Typography
                       sx={{
                         color: palette.TEXT_DIM,
-                        fontSize: "0.8rem",
+                        fontSize: "0.75rem",
                       }}
                     >
                       Current balance: ${wallet.balance?.toFixed(2) || "0.00"}{" "}
@@ -1235,7 +1235,7 @@ export default function Onboarding() {
                   sx={{
                     color: palette.TEXT_DIM,
                     textTransform: "none",
-                    fontSize: "0.82rem",
+                    fontSize: "0.78rem",
                     "&:hover": { color: palette.TEXT_SECONDARY },
                   }}
                 >
@@ -1249,6 +1249,7 @@ export default function Onboarding() {
       case "provider": {
         const inventoryLoading = providersLoading || harnessesLoading;
         const hasHelixCredits = !serverConfig?.billing_enabled || (wallet?.balance ?? 0) > 0;
+        const zeroCreditColor = lightTheme.isLight ? "#c2410c" : "warning.main";
         const hasSelectedAccess =
           (codingAccessOption === "helix" && hasHelixCredits && helixDefaultAvailable) ||
           (codingAccessOption === "claude" && hasClaudeSubscription) ||
@@ -1274,9 +1275,8 @@ export default function Onboarding() {
         }> = [
           {
             id: "helix",
-            title: "Helix Providers",
-            description:
-              "Use Helix credits for coding models. No external account required.",
+            title: "Helix Models",
+            description: "Use a Helix model. Add credits to get started.",
           },
           {
             id: "claude",
@@ -1298,33 +1298,49 @@ export default function Onboarding() {
               <Typography
                 sx={{
                   color: palette.TEXT_SECONDARY,
-                  fontSize: "0.85rem",
+                  fontSize: "0.78rem",
                   mb: 2,
                 }}
               >
-                Helix Providers is selected by default. You can instead connect
-                Claude Code or Codex to use your own subscription; those runs do
-                not use Helix credits.
+                Use a Helix model or connect your Claude or ChatGPT subscription.
+                Helix models require credits.
               </Typography>
-              {wallet && (
-                <Typography
+              {codingAccessOption === "helix" && wallet && (
+                <Box
+                  role="group"
+                  aria-label="Helix credit balance"
                   sx={{
-                    color: palette.TEXT_SECONDARY,
-                    fontSize: "0.85rem",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.25,
+                    p: 1.5,
+                    borderRadius: 1.5,
+                    border: `1px solid ${palette.CARD_BORDER}`,
+                    bgcolor: palette.OVERLAY_FAINT,
                     mb: 2,
                   }}
                 >
-                  You have {wallet.balance?.toFixed(2) || "0.00"} Helix credits.
-                  Helix credits pay for AI model usage through Helix Providers.
-                </Typography>
+                  <Box sx={{ color: hasHelixCredits ? ACCENT : zeroCreditColor, display: "flex" }}>
+                    <Coins size={22} />
+                  </Box>
+                  <Typography
+                    sx={{
+                      color: hasHelixCredits ? palette.TEXT_PRIMARY : zeroCreditColor,
+                      fontSize: "1.1rem",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {wallet.balance?.toFixed(2) || "0.00"} Helix credits
+                  </Typography>
+                </Box>
               )}
               {codingAccessOption === "helix" && !inventoryLoading && helixProvider && helixModel && !helixDefaultAvailable && (
-                <Typography color="error" sx={{ fontSize: "0.82rem", mb: 2 }}>
+                <Typography color="error" sx={{ fontSize: "0.78rem", mb: 2 }}>
                   The selected Helix model is not available for Zed Agent in this organization.
                 </Typography>
               )}
               {!inventoryLoading && !createdOrg?.viewer_is_owner && (
-                <Typography color="error" sx={{ fontSize: "0.82rem", mb: 2 }}>
+                <Typography color="error" sx={{ fontSize: "0.78rem", mb: 2 }}>
                   Ask an organization owner to set the Default Runtime.
                 </Typography>
               )}
@@ -1376,9 +1392,11 @@ export default function Onboarding() {
                         }}
                       >
                         {option.id === "helix" ? (
-                          <Server
-                            size={18}
-                            color={selected ? ACCENT : palette.TEXT_FADED}
+                          <Box
+                            component="img"
+                            src="/img/logo.png"
+                            alt=""
+                            sx={{ width: 18, height: 18, objectFit: "contain" }}
                           />
                         ) : option.id === "claude" ? (
                           <AnthropicLogo
@@ -1400,7 +1418,7 @@ export default function Onboarding() {
                           sx={{
                             color: palette.TEXT_PRIMARY,
                             fontWeight: 600,
-                            fontSize: "0.85rem",
+                            fontSize: "0.78rem",
                           }}
                         >
                           {option.title}
@@ -1409,7 +1427,7 @@ export default function Onboarding() {
                       <Typography
                         sx={{
                           color: palette.TEXT_FADED,
-                          fontSize: "0.8rem",
+                          fontSize: "0.68rem",
                           lineHeight: 1.45,
                         }}
                       >
@@ -1419,9 +1437,11 @@ export default function Onboarding() {
                         <Typography
                           sx={{
                             color: option.connected
-                              ? ACCENT
+                              ? lightTheme.isLight
+                                ? palette.TEXT_PRIMARY
+                                : ACCENT
                               : palette.TEXT_DIM,
-                            fontSize: "0.8rem",
+                            fontSize: "0.65rem",
                             fontWeight: 600,
                             mt: 0.75,
                           }}
@@ -1431,8 +1451,10 @@ export default function Onboarding() {
                       )}
                       <Typography
                         sx={{
-                          color: ACCENT,
-                          fontSize: "0.8rem",
+                          color: selected && lightTheme.isLight
+                            ? palette.TEXT_PRIMARY
+                            : ACCENT,
+                          fontSize: "0.65rem",
                           fontWeight: 700,
                           mt: "auto",
                           pt: 1,
@@ -1445,26 +1467,8 @@ export default function Onboarding() {
                 })}
               </Box>
 
-              {codingAccessOption === "helix" && (
+              {codingAccessOption === "helix" && !hasConfiguredHelixDefault && (
                 <Stack spacing={2} sx={{ mb: 2 }}>
-                  {hasConfiguredHelixDefault ? (
-                    <Box
-                      sx={{
-                        p: 1.5,
-                        borderRadius: 1.5,
-                        border: `1px solid ${palette.BORDER_SUBTLE}`,
-                        bgcolor: palette.OVERLAY_FAINT,
-                      }}
-                    >
-                      <Typography sx={{ color: palette.TEXT_PRIMARY, fontSize: "0.85rem", fontWeight: 600 }}>
-                        Recommended model: {helixModel}
-                      </Typography>
-                      <Typography sx={{ color: palette.TEXT_FADED, fontSize: "0.8rem", mt: 0.5 }}>
-                        Helix has selected the provider and reasoning settings for you.
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <>
                   <FormControl fullWidth>
                     <InputLabel id="onboarding-helix-provider-label">Helix provider</InputLabel>
                     <Select
@@ -1512,8 +1516,6 @@ export default function Onboarding() {
                       <MenuItem value="high">High</MenuItem>
                     </Select>
                   </FormControl>
-                    </>
-                  )}
                 </Stack>
               )}
 
@@ -1530,7 +1532,7 @@ export default function Onboarding() {
                   <Typography
                     sx={{
                       color: palette.TEXT_SECONDARY,
-                      fontSize: "0.8rem",
+                      fontSize: "0.75rem",
                       mb: 1,
                     }}
                   >
@@ -1573,7 +1575,7 @@ export default function Onboarding() {
                   <Typography
                     sx={{
                       color: palette.TEXT_SECONDARY,
-                      fontSize: "0.8rem",
+                      fontSize: "0.75rem",
                       mb: 1,
                     }}
                   >
@@ -1640,7 +1642,7 @@ export default function Onboarding() {
                   {finishingOnboarding
                     ? "Finishing setup..."
                     : shouldMeetChiefOfStaff
-                      ? "Meet your Chief of Staff"
+                      ? "Launch Helix"
                       : continueLabel}
                 </Button>
               ) : null}
@@ -1760,7 +1762,7 @@ export default function Onboarding() {
                       <Typography
                         sx={{
                           color: completed || active ? palette.TEXT_SECONDARY : palette.TEXT_DIM,
-                          fontSize: "0.82rem",
+                          fontSize: "0.76rem",
                           mt: 0.2,
                         }}
                       >
