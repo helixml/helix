@@ -485,7 +485,7 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 		}
 		readyByID[r.ID] = r
 		readyCount++
-		if isReadyAndOnline(r) && r.CanHostDesktop() && r.MaxSandboxes > 0 && r.ActiveSandboxes >= r.MaxSandboxes {
+		if isReadyAndOnline(r) && r.CanHostDesktop() && r.AtMaxCapacity() {
 			fleetAtCap = true
 		}
 	}
