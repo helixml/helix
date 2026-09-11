@@ -91,6 +91,14 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 		}
 	}
 
+	// Whether a message sent right now would reach the agent.
+	//
+	// agentStatus above answers "is the container up", which is the question
+	// that has been silently standing in for this one. They come apart exactly
+	// when it matters: container running, Zed never connected, every message
+	// the customer sends dies in a stuck interaction.
+	session.Metadata.ExternalAgentConnected = apiServer.isExternalAgentConnected(session.ID)
+
 	// Compute a lightweight ETag from cheap metadata — avoids loading full interactions
 	// on cache hits (the expensive part). Components: session row updated_at, interaction
 	// count + max updated_at (single aggregate query), and runtime agent status.
@@ -100,12 +108,13 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 		return
 	}
 
-	etag := fmt.Sprintf(`"%x-%x-%d-%x-%s"`,
+	etag := fmt.Sprintf(`"%x-%x-%d-%x-%s-%t"`,
 		session.Updated.UnixNano(),
 		maxInteractionUpdated.UnixNano(),
 		interactionCount,
 		session.GenerationID,
 		agentStatus,
+		session.Metadata.ExternalAgentConnected,
 	)
 
 	rw.Header().Set("ETag", etag)
@@ -3390,4 +3399,74 @@ func (s *HelixAPIServer) triggerSummaryGeneration(session *types.Session, intera
 
 	// Update session title based on TOC
 	s.summaryService.UpdateSessionTitleAsync(ctx, session.ID, ownerID)
+}
+
+// EnsureAgentResponse reports whether the agent can receive a message right now,
+// and whether a boot was started on this call.
+type EnsureAgentResponse struct {
+	Connected bool `json:"connected"`
+	Starting  bool `json:"starting"`
+}
+
+// ensureSessionAgent godoc
+// @Summary Ensure this session's agent is connected, starting it if not
+// @Description Reports whether the agent currently holds a live sync WebSocket — whether
+// @Description a message sent now would actually reach it — and kicks the canonical
+// @Description dev-container auto-start when it does not.
+// @Description
+// @Description For EMBEDDERS. GET /sessions/{id} reports external_agent_status "running"
+// @Description as soon as the container is up, which is not the same as reachable: a
+// @Description container can run for hours with Zed never having dialled home
+// @Description (helixml/helix#2397). Find AI presented a chat box to candidates on the
+// @Description strength of "running"; messages died in stuck interactions and the customer
+// @Description was shown "The system has encountered an error". An embedder needs to ask
+// @Description "can I send?" and to be able to do something about "no".
+// @Description
+// @Description Idempotent and cheap: connected sessions return immediately without
+// @Description touching the container. Returns promptly rather than waiting for boot —
+// @Description poll until connected is true.
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} EnsureAgentResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/ensure-agent [post]
+func (s *HelixAPIServer) ensureSessionAgent(_ http.ResponseWriter, r *http.Request) (*EnsureAgentResponse, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	sessionID := mux.Vars(r)["id"]
+	if sessionID == "" {
+		return nil, system.NewHTTPError400("session id is required")
+	}
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil || session == nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if s.isExternalAgentConnected(sessionID) {
+		return &EnsureAgentResponse{Connected: true}, nil
+	}
+
+	// A paused session is paused deliberately; booting it from here would
+	// override a human decision with a page load.
+	if err := requireUnpaused(session); err != nil {
+		return &EnsureAgentResponse{}, nil
+	}
+
+	// Same canonical path waitForExternalAgentReady uses. Detached, because the
+	// caller is polling rather than waiting on this request.
+	go s.autoStartDevContainerForSession(sessionID)
+
+	return &EnsureAgentResponse{Starting: true}, nil
 }

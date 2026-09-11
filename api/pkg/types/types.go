@@ -502,6 +502,16 @@ type SessionMetadata struct {
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
+	// ExternalAgentConnected reports whether the agent currently holds a live
+	// sync WebSocket — i.e. whether a message sent now would actually reach it.
+	//
+	// SEPARATE FROM ExternalAgentStatus ON PURPOSE. That field is "running" as
+	// soon as the CONTAINER is up, which is not the same thing: a container can
+	// be running for hours with Zed never having dialled home (helixml/helix#2397).
+	// Anything embedding a session — Find AI presented a chat box to candidates
+	// on this basis — needs to know it can send, not merely that a machine
+	// exists. Computed per request, never stored.
+	ExternalAgentConnected  bool                 `json:"external_agent_connected"`
 	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
