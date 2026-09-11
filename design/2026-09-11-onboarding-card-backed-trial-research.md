@@ -9,8 +9,8 @@ Stripe supports both options:
 
 | Duration | Stripe configuration | Assessment |
 | --- | --- | --- |
-| 48 hours | `subscription_data.trial_period_days=2` | Supported, but it sits on Checkout's minimum boundary for an exact `trial_end` timestamp and gives users little time to evaluate Helix. |
-| 72 hours | `subscription_data.trial_period_days=3` | Recommended. It is still a short trial, avoids the 48-hour boundary, and gives users 50% more evaluation time. |
+| 48 hours | `subscription_data.trial_period_days=2` | Supported, but gives users little time to evaluate Helix. The 48-hour minimum applies only when using an exact `trial_end` timestamp. |
+| 72 hours | `subscription_data.trial_period_days=3` | Recommended. It is still a short trial and gives users 50% more evaluation time. |
 
 This is a product recommendation, not a Stripe limitation or a claim that 72
 hours will convert better. Measure checkout completion, trial activation,
@@ -35,8 +35,9 @@ or follows the account's configured retry and final-action settings.
 Automatic conversion therefore requires no Helix timer or scheduled job.
 Stripe remains the source of truth and Helix continues syncing subscription
 state from `customer.subscription.created`, `.updated`, and `.deleted`
-webhooks. The existing `invoice.paid` handler continues applying the paid
-subscription credit when the first charge succeeds.
+webhooks. The `invoice.paid` handler skips the zero-value
+`subscription_create` invoice while the subscription is `trialing`, then apply
+the paid subscription credit when the first real charge succeeds.
 
 ## Smallest implementation in Helix
 

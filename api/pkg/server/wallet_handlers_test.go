@@ -310,34 +310,45 @@ func (s *GetOrganizationStatusSuite) TestMissingOrgGets404() {
 
 func TestOnboardingTrialPeriodDays(t *testing.T) {
 	tests := []struct {
-		name   string
-		user   *types.User
-		wallet *types.Wallet
-		want   int64
+		name      string
+		user      *types.User
+		wallet    *types.Wallet
+		returnURL string
+		want      int64
 	}{
 		{
-			name:   "new user without subscription",
-			user:   &types.User{},
-			wallet: &types.Wallet{},
-			want:   3,
+			name:      "new user entering from onboarding",
+			user:      &types.User{},
+			wallet:    &types.Wallet{},
+			returnURL: "/onboarding?org_id=org_123",
+			want:      3,
 		},
 		{
-			name:   "completed onboarding",
-			user:   &types.User{OnboardingCompleted: true},
-			wallet: &types.Wallet{},
-			want:   0,
+			name:      "completed onboarding",
+			user:      &types.User{OnboardingCompleted: true},
+			wallet:    &types.Wallet{},
+			returnURL: "/onboarding",
+			want:      0,
 		},
 		{
-			name:   "existing subscription",
-			user:   &types.User{},
-			wallet: &types.Wallet{StripeSubscriptionID: "sub_123"},
-			want:   0,
+			name:      "existing subscription",
+			user:      &types.User{},
+			wallet:    &types.Wallet{StripeSubscriptionID: "sub_123"},
+			returnURL: "/onboarding",
+			want:      0,
+		},
+		{
+			name:      "organization billing entry point",
+			user:      &types.User{},
+			wallet:    &types.Wallet{},
+			returnURL: "",
+			want:      0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := onboardingTrialPeriodDays(tt.user, tt.wallet); got != tt.want {
+			if got := onboardingTrialPeriodDays(tt.user, tt.wallet, tt.returnURL); got != tt.want {
 				t.Fatalf("onboardingTrialPeriodDays() = %d, want %d", got, tt.want)
 			}
 		})

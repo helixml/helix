@@ -518,7 +518,7 @@ export default function Onboarding() {
     if (!isConfirmingSubscription || !createdOrg?.id || isSubscriptionActive) return;
 
     let cancelled = false;
-    let timeout: number | undefined;
+    let interval: number | undefined;
     let attempts = 0;
     const refresh = async () => {
       attempts += 1;
@@ -527,17 +527,18 @@ export default function Onboarding() {
       const status = result?.data?.subscription_status;
       if (status === "trialing" || status === "active") {
         setIsConfirmingSubscription(false);
-      } else if (attempts < 15) {
-        timeout = window.setTimeout(refresh, 2000);
-      } else {
+        if (interval) window.clearInterval(interval);
+      } else if (attempts >= 15) {
         setIsConfirmingSubscription(false);
+        if (interval) window.clearInterval(interval);
       }
     };
     void refresh();
+    interval = window.setInterval(refresh, 2000);
 
     return () => {
       cancelled = true;
-      if (timeout) window.clearTimeout(timeout);
+      if (interval) window.clearInterval(interval);
     };
   }, [createdOrg?.id, isConfirmingSubscription, isSubscriptionActive, refetchWallet]);
 

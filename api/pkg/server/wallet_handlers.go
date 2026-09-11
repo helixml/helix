@@ -285,12 +285,14 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 		UserID:           user.ID,
 		Amount:           s.Cfg.Stripe.InitialBalance,
 		ReturnURL:        returnURL,
-		TrialPeriodDays:  onboardingTrialPeriodDays(user, wallet),
+		TrialPeriodDays:  onboardingTrialPeriodDays(user, wallet, returnURL),
 	})
 }
 
-func onboardingTrialPeriodDays(user *types.User, wallet *types.Wallet) int64 {
-	if !user.OnboardingCompleted && wallet.StripeSubscriptionID == "" {
+func onboardingTrialPeriodDays(user *types.User, wallet *types.Wallet, returnURL string) int64 {
+	parsedReturnURL, err := stripe.ValidateCheckoutReturnURL(returnURL)
+	if err == nil && parsedReturnURL != nil && parsedReturnURL.Path == "/onboarding" &&
+		!user.OnboardingCompleted && wallet.StripeSubscriptionID == "" {
 		return 3
 	}
 	return 0

@@ -253,7 +253,7 @@ const OrgBilling: FC = () => {
                             ) : isTrialing ? (
                               <>
                                 <Typography variant="body2" gutterBottom>
-                                  Free trial active. No payment method required - add one before the trial ends to keep your subscription.
+                                  Free trial active. Manage your subscription to review or update payment details before the trial ends.
                                 </Typography>
                                 {extendedWallet?.subscription_current_period_end && (
                                   <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>

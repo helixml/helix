@@ -727,5 +727,8 @@ describe('Onboarding', () => {
     })
     expect(screen.queryByText(/status: not_subscribed/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/current balance:/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/card will not be charged for 72 hours/i)).toBeInTheDocument()
+    expect(screen.getByText(/automatically continues for \$499\/month/i)).toBeInTheDocument()
+    expect(screen.getByText(/cancel before the trial ends/i)).toBeInTheDocument()
   })
 })
