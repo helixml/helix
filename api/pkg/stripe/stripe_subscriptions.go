@@ -27,6 +27,8 @@ type SubscriptionSessionParams struct {
 }
 
 const orgSubscriptionMonthlyPriceCents int64 = 49900
+const onboardingTrialCredits = 1.0
+const trialSourceOnboarding = "onboarding"
 
 func validateOrgSubscriptionPrice(p *stripe.Price) error {
 	if p.UnitAmount != orgSubscriptionMonthlyPriceCents || p.Currency != stripe.CurrencyUSD ||
@@ -114,6 +116,7 @@ func (s *Stripe) GetCheckoutSessionURL(
 	if params.TrialPeriodDays > 0 {
 		checkoutParams.PaymentMethodCollection = stripe.String("always")
 		checkoutParams.SubscriptionData.TrialPeriodDays = stripe.Int64(params.TrialPeriodDays)
+		checkoutParams.SubscriptionData.Metadata["trial_source"] = trialSourceOnboarding
 	}
 
 	newSession, err := session.New(checkoutParams)
@@ -178,6 +181,7 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 		return err
 	}
 
+	wasTrialing := wallet.SubscriptionStatus == stripe.SubscriptionStatusTrialing
 	wallet.StripeSubscriptionID = subscription.ID
 	wallet.SubscriptionCurrentPeriodStart = subscription.CurrentPeriodStart
 	wallet.SubscriptionCurrentPeriodEnd = subscription.CurrentPeriodEnd
@@ -193,6 +197,28 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 	_, err = s.store.UpdateWallet(ctx, wallet)
 	if err != nil {
 		return fmt.Errorf("failed to update wallet: %w", err)
+	}
+
+	if subscription.Metadata["trial_source"] == trialSourceOnboarding {
+		meta := types.TransactionMetadata{
+			StripeSubscriptionID: subscription.ID,
+			UserID:               subscription.Metadata["user_id"],
+		}
+		trialCanceled := (eventType == types.SubscriptionEventTypeDeleted && wasTrialing) ||
+			(subscription.Status == stripe.SubscriptionStatusTrialing && subscription.CancelAtPeriodEnd)
+		if trialCanceled {
+			meta.TransactionType = types.TransactionTypeTrialRevoke
+			meta.IdempotencyKey = "trial-credit-revoke:" + subscription.ID
+			if _, err := s.store.UpdateWalletBalance(ctx, wallet.ID, -onboardingTrialCredits, meta); err != nil {
+				return fmt.Errorf("failed to revoke trial credits: %w", err)
+			}
+		} else if subscription.Status == stripe.SubscriptionStatusTrialing {
+			meta.TransactionType = types.TransactionTypeTrialCredit
+			meta.IdempotencyKey = "trial-credit-grant:" + subscription.ID
+			if _, err := s.store.UpdateWalletBalance(ctx, wallet.ID, onboardingTrialCredits, meta); err != nil {
+				return fmt.Errorf("failed to grant trial credits: %w", err)
+			}
+		}
 	}
 
 	return nil

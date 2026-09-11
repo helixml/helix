@@ -75,6 +75,82 @@ func Test_handleSubscriptionEvent_NotFound(t *testing.T) {
 
 }
 
+func onboardingSubscriptionEvent(t *testing.T, eventType stripe.EventType, status stripe.SubscriptionStatus, cancelAtPeriodEnd bool) stripe.Event {
+	t.Helper()
+	sub := stripe.Subscription{
+		ID:                "sub_onboarding_trial",
+		Customer:          &stripe.Customer{ID: "cus_onboarding_trial"},
+		Status:            status,
+		CancelAtPeriodEnd: cancelAtPeriodEnd,
+		Metadata: map[string]string{
+			"trial_source": trialSourceOnboarding,
+			"user_id":      "user_trial",
+			"org_id":       "org_trial",
+		},
+	}
+	raw, err := json.Marshal(sub)
+	require.NoError(t, err)
+	return stripe.Event{Type: eventType, Data: &stripe.EventData{Raw: raw}}
+}
+
+func TestHandleSubscriptionEventGrantsOnboardingTrialCredit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{}, db)
+	wallet := &types.Wallet{ID: "wallet_trial"}
+
+	db.EXPECT().GetWalletByStripeCustomerID(gomock.Any(), "cus_onboarding_trial").Return(wallet, nil)
+	db.EXPECT().UpdateWallet(gomock.Any(), wallet).Return(wallet, nil)
+	db.EXPECT().UpdateWalletBalance(gomock.Any(), "wallet_trial", 1.0, types.TransactionMetadata{
+		TransactionType:      types.TransactionTypeTrialCredit,
+		StripeSubscriptionID: "sub_onboarding_trial",
+		UserID:               "user_trial",
+		IdempotencyKey:       "trial-credit-grant:sub_onboarding_trial",
+	}).Return(wallet, nil)
+
+	err := s.handleSubscriptionEvent(onboardingSubscriptionEvent(t, stripe.EventType("customer.subscription.created"), stripe.SubscriptionStatusTrialing, false))
+	require.NoError(t, err)
+}
+
+func TestHandleSubscriptionEventRevokesCanceledOnboardingTrialCredit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{}, db)
+	wallet := &types.Wallet{ID: "wallet_trial", SubscriptionStatus: stripe.SubscriptionStatusTrialing}
+
+	db.EXPECT().GetWalletByStripeCustomerID(gomock.Any(), "cus_onboarding_trial").Return(wallet, nil)
+	db.EXPECT().UpdateWallet(gomock.Any(), wallet).Return(wallet, nil)
+	db.EXPECT().UpdateWalletBalance(gomock.Any(), "wallet_trial", -1.0, types.TransactionMetadata{
+		TransactionType:      types.TransactionTypeTrialRevoke,
+		StripeSubscriptionID: "sub_onboarding_trial",
+		UserID:               "user_trial",
+		IdempotencyKey:       "trial-credit-revoke:sub_onboarding_trial",
+	}).Return(wallet, nil)
+
+	err := s.handleSubscriptionEvent(onboardingSubscriptionEvent(t, stripe.EventType("customer.subscription.deleted"), stripe.SubscriptionStatusCanceled, false))
+	require.NoError(t, err)
+}
+
+func TestHandleSubscriptionEventRevokesTrialCreditWhenCancellationScheduled(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{}, db)
+	wallet := &types.Wallet{ID: "wallet_trial", SubscriptionStatus: stripe.SubscriptionStatusTrialing}
+
+	db.EXPECT().GetWalletByStripeCustomerID(gomock.Any(), "cus_onboarding_trial").Return(wallet, nil)
+	db.EXPECT().UpdateWallet(gomock.Any(), wallet).Return(wallet, nil)
+	db.EXPECT().UpdateWalletBalance(gomock.Any(), "wallet_trial", -1.0, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ float64, meta types.TransactionMetadata) (*types.Wallet, error) {
+			require.Equal(t, types.TransactionTypeTrialRevoke, meta.TransactionType)
+			require.Equal(t, "sub_onboarding_trial", meta.StripeSubscriptionID)
+			return wallet, nil
+		},
+	)
+
+	err := s.handleSubscriptionEvent(onboardingSubscriptionEvent(t, stripe.EventType("customer.subscription.updated"), stripe.SubscriptionStatusTrialing, true))
+	require.NoError(t, err)
+}
+
 type mockSubscriptionBackend struct {
 	t            *testing.T
 	expectedPath string

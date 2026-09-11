@@ -1112,7 +1112,7 @@ export default function Onboarding() {
                       ? "Your subscription is active. Click Continue to proceed."
                       : isConfirmingSubscription
                         ? "Confirming your free trial with Stripe..."
-                        : "Your card will not be charged for 72 hours. After that, your subscription automatically continues for $499/month. Cancel before the trial ends to avoid the first charge."}
+                        : "Your 72-hour trial includes $1 in AI credits. Your card will not be charged during the trial. After that, your subscription automatically continues for $499/month. Cancel before the trial ends to avoid the first charge."}
                 </Typography>
                 {isSubscriptionActive && wallet ? (
                   <Box sx={{ mb: 2 }}>

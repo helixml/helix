@@ -501,6 +501,68 @@ func (suite *WalletTestSuite) TestUpdateWalletBalance_TopUpIdempotency() {
 	suite.Len(topUps, 1)
 }
 
+func (suite *WalletTestSuite) TestTrialCreditOncePerUserAndRevokedIdempotently() {
+	userID := system.GenerateID()
+	walletA, err := suite.db.CreateWallet(suite.ctx, &types.Wallet{OrgID: system.GenerateID()})
+	suite.NoError(err)
+	walletB, err := suite.db.CreateWallet(suite.ctx, &types.Wallet{OrgID: system.GenerateID()})
+	suite.NoError(err)
+
+	subscriptionA := "sub_" + system.GenerateID()
+	subscriptionB := "sub_" + system.GenerateID()
+	grant := types.TransactionMetadata{
+		TransactionType:      types.TransactionTypeTrialCredit,
+		UserID:               userID,
+		StripeSubscriptionID: subscriptionA,
+		IdempotencyKey:       "trial-credit-grant:" + subscriptionA,
+	}
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, walletA.ID, 1, grant)
+	suite.NoError(err)
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, walletA.ID, 1, grant)
+	suite.NoError(err)
+
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, walletB.ID, 1, types.TransactionMetadata{
+		TransactionType:      types.TransactionTypeTrialCredit,
+		UserID:               userID,
+		StripeSubscriptionID: subscriptionB,
+		IdempotencyKey:       "trial-credit-grant:" + subscriptionB,
+	})
+	suite.NoError(err)
+
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, walletA.ID, -0.4, types.TransactionMetadata{
+		TransactionType: types.TransactionTypeUsage,
+	})
+	suite.NoError(err)
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, walletA.ID, 5, types.TransactionMetadata{
+		TransactionType: types.TransactionTypeTopUp,
+		TopUpID:         "topup_" + system.GenerateID(),
+	})
+	suite.NoError(err)
+	revoke := types.TransactionMetadata{
+		TransactionType:      types.TransactionTypeTrialRevoke,
+		StripeSubscriptionID: subscriptionA,
+		IdempotencyKey:       "trial-credit-revoke:" + subscriptionA,
+	}
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, walletA.ID, -1, revoke)
+	suite.NoError(err)
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, walletA.ID, -1, revoke)
+	suite.NoError(err)
+
+	gotA, err := suite.db.GetWallet(suite.ctx, walletA.ID)
+	suite.NoError(err)
+	suite.InDelta(5, gotA.Balance, 0.0001, "revocation must preserve separately purchased credits")
+	gotB, err := suite.db.GetWallet(suite.ctx, walletB.ID)
+	suite.NoError(err)
+	suite.Zero(gotB.Balance)
+
+	transactions, err := suite.db.ListTransactions(suite.ctx, &ListTransactionsQuery{WalletID: walletA.ID})
+	suite.NoError(err)
+	suite.Len(transactions, 4)
+	suite.InDelta(-0.6, transactions[0].Amount, 0.0001)
+	suite.Equal(types.TransactionTypeTrialRevoke, transactions[0].Type)
+	suite.Equal(subscriptionA, transactions[0].StripeSubscriptionID)
+}
+
 func (suite *WalletTestSuite) TestUpdateWalletBalance_Negative() {
 	userID := system.GenerateID()
 	wallet := &types.Wallet{
