@@ -19,6 +19,7 @@ import {
 } from '../api/api'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import RobustPromptInput from '../components/common/RobustPromptInput'
+import ChatWelcome, { WELCOME_FONT_FAMILY } from '../components/session/ChatWelcome'
 import CodeAgentExecutionControls from '../components/agent/CodeAgentExecutionControls'
 import { useSeedProjectCodeAgentConfig } from '../hooks/useSeedProjectCodeAgentConfig'
 import { CodeAgentConfigChangeSource } from '../utils/codeAgentExecutionConfig'
@@ -64,7 +65,7 @@ import {
   saveSpecTaskSandboxRuntimePreference,
 } from '../utils/specTaskSandboxRuntime'
 
-const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
+const T3_FONT_FAMILY = WELCOME_FONT_FAMILY
 const TASK_ATTACHMENT_ACCEPT = Object.entries(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME)
   .flatMap(([mime, extensions]) => [mime, ...extensions])
   .join(',')
@@ -549,48 +550,38 @@ const Home: FC = () => {
       disableContentScroll
       px={2}
     >
-      <Box
-        sx={{
-          height: '100%',
-          minHeight: 0,
-          display: 'flex',
-          // A phone fills the screen and works top-down; a wide screen keeps
-          // the centred card.
-          alignItems: isPhone ? 'stretch' : 'center',
-          justifyContent: 'center',
-          px: { xs: 2, sm: 3 },
-          // The shell already carries the safe-area inset.
-          pb: isPhone ? 1 : { xs: 4, md: 12 },
-          pt: isPhone ? 1 : 0,
-          backgroundColor: lightTheme.isLight ? '#f7f7f8' : '#080808',
-          fontFamily: T3_FONT_FAMILY,
-          '& .MuiTypography-root, & .MuiButton-root': { fontFamily: 'inherit' },
-        }}
-      >
-        <Box
-          sx={{
-            width: '100%',
-            maxWidth: 768,
-            ...(isPhone && { display: 'flex', flexDirection: 'column', minHeight: 0 }),
-          }}
-        >
-          {!isPhone && (
-            <Typography
-              component="h1"
-              sx={{
-                mb: 3.5,
-                color: 'text.primary',
-                fontSize: { xs: '1.65rem', sm: '1.9rem' },
-                fontWeight: 560,
-                lineHeight: 1.2,
-                letterSpacing: '-0.025em',
-                textAlign: 'center',
-              }}
-            >
-              {newChatHeading(selectedProject?.name)}
-            </Typography>
-          )}
-
+      <ChatWelcome heading={newChatHeading(selectedProject?.name)} footer={(
+        <>
+              <Button
+                startIcon={isProjectContext ? <Folder size={14} /> : <MessageCircle size={14} />}
+                endIcon={<ChevronDown size={12} />}
+                onClick={(event) => setProjectMenuAnchor(event.currentTarget)}
+                sx={{ ...selectorButtonSx, fontSize: isPhone ? '0.8rem' : '0.7rem' }}
+              >
+                {selectedProject?.name || 'No project'}
+              </Button>
+              <Menu
+                anchorEl={projectMenuAnchor}
+                open={!!projectMenuAnchor}
+                onClose={() => setProjectMenuAnchor(null)}
+              >
+                <MenuItem selected={!isProjectContext} onClick={() => openProject()}>
+                  <ListItemIcon><MessageCircle size={16} /></ListItemIcon>
+                  <ListItemText primary="None" secondary="Start a normal chat" />
+                </MenuItem>
+                {projects.map((project) => (
+                  <MenuItem
+                    key={project.id}
+                    selected={project.id === selectedProjectId}
+                    onClick={() => openProject(project.id)}
+                  >
+                    <ListItemIcon><Folder size={16} /></ListItemIcon>
+                    <ListItemText primary={project.name || 'Untitled project'} />
+                  </MenuItem>
+                ))}
+              </Menu>
+        </>
+      )}>
           {requestedProjectId && projectsLoading ? (
             <Box sx={{ height: 150, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <CircularProgress size={22} />
@@ -615,39 +606,7 @@ const Home: FC = () => {
               onSend={isProjectContext ? handleProjectTask : handleNormalChat}
             />
           )}
-
-          <Box sx={isPhone ? { order: -1, mb: 0.5, flexShrink: 0 } : { mt: 1, px: 2 }}>
-            <Button
-              startIcon={isProjectContext ? <Folder size={14} /> : <MessageCircle size={14} />}
-              endIcon={<ChevronDown size={12} />}
-              onClick={(event) => setProjectMenuAnchor(event.currentTarget)}
-              sx={{ ...selectorButtonSx, fontSize: isPhone ? '0.8rem' : '0.7rem' }}
-            >
-              {selectedProject?.name || 'No project'}
-            </Button>
-            <Menu
-              anchorEl={projectMenuAnchor}
-              open={!!projectMenuAnchor}
-              onClose={() => setProjectMenuAnchor(null)}
-            >
-              <MenuItem selected={!isProjectContext} onClick={() => openProject()}>
-                <ListItemIcon><MessageCircle size={16} /></ListItemIcon>
-                <ListItemText primary="None" secondary="Start a normal chat" />
-              </MenuItem>
-              {projects.map((project) => (
-                <MenuItem
-                  key={project.id}
-                  selected={project.id === selectedProjectId}
-                  onClick={() => openProject(project.id)}
-                >
-                  <ListItemIcon><Folder size={16} /></ListItemIcon>
-                  <ListItemText primary={project.name || 'Untitled project'} />
-                </MenuItem>
-              ))}
-            </Menu>
-          </Box>
-        </Box>
-      </Box>
+      </ChatWelcome>
     </Page>
   )
 }
