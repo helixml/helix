@@ -195,8 +195,8 @@ const ALL_STEPS: StepConfig[] = [
   {
     type: "subscription",
     icon: <CreditCardIcon />,
-    title: "Activate subscription",
-    subtitle: "Add payment method to activate your organization subscription.",
+    title: "Start your free trial",
+    subtitle: "Try Helix free for 72 hours, then continue for $499/month.",
   },
   {
     type: "provider",
@@ -1080,10 +1080,10 @@ export default function Onboarding() {
                   }}
                 >
                   {isTrialing
-                    ? "Your free trial is active. No payment method required - you have full access for the duration of the trial. Click Continue to proceed."
+                    ? "Your free trial is active. Click Continue to proceed."
                     : isSubscriptionActive
                       ? "Your subscription is active. Click Continue to proceed."
-                      : "Subscribe to activate your organization and unlock everything Helix offers."}
+                      : "Your card will not be charged for 72 hours. After that, your subscription automatically continues for $499/month. Cancel before the trial ends to avoid the first charge."}
                 </Typography>
                 {isSubscriptionActive && wallet ? (
                   <Box sx={{ mb: 2 }}>
@@ -1195,7 +1195,7 @@ export default function Onboarding() {
                   >
                     {isSubscribing
                       ? "Redirecting to payment..."
-                      : "Start Subscription ($499/m)"}
+                      : "Start 72-hour free trial"}
                   </Button>
                 )}
                 <Button
@@ -1682,7 +1682,7 @@ export default function Onboarding() {
                 ? `Selected organization: ${createdOrg.display_name || createdOrg.name}`
                 : step.type === "subscription" && isSubscriptionActive
                   ? isTrialing
-                    ? "Free trial is active - no payment method required."
+                    ? "Free trial is active."
                     : "Subscription is active."
                   : step.subtitle;
             const stepTitle =

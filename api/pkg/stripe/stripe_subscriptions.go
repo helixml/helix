@@ -23,6 +23,7 @@ type SubscriptionSessionParams struct {
 	UserID           string
 	Amount           float64
 	ReturnURL        string // Optional custom return URL (overrides default success/cancel URLs)
+	TrialPeriodDays  int64  // Optional card-backed trial; zero creates the subscription without a trial
 }
 
 func (s *Stripe) GetCheckoutSessionURL(
@@ -87,6 +88,10 @@ func (s *Stripe) GetCheckoutSessionURL(
 		Customer:   stripe.String(params.StripeCustomerID),
 		SuccessURL: stripe.String(successURL),
 		CancelURL:  stripe.String(cancelURL),
+	}
+	if params.TrialPeriodDays > 0 {
+		checkoutParams.PaymentMethodCollection = stripe.String("always")
+		checkoutParams.SubscriptionData.TrialPeriodDays = stripe.Int64(params.TrialPeriodDays)
 	}
 
 	newSession, err := session.New(checkoutParams)
