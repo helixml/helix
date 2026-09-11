@@ -86,7 +86,9 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   const details = isPhone || stacked
     ? getProjectChatItemDetails({ item, apps, repository: repositoryName, branch })
     : undefined
-  const hasSubLineDetails = !!(details?.branch || details?.harness)
+  const branchUnavailable = item.kind === 'spec-task' && !details?.branch
+  const branchLabel = details?.branch || (branchUnavailable ? 'n/a' : undefined)
+  const hasSubLineDetails = !!(branchLabel || details?.harness)
 
   // Active tasks trade their timestamp for the live status label (t3-style):
   // "24 minutes ago" says nothing while the agent is mid-implementation, and
@@ -228,6 +230,46 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     </Tooltip>
   )
 
+  const branchMetadataNode = branchLabel && (
+    <Box
+      data-testid="sidebar-item-branch"
+      data-branch-state={branchUnavailable ? 'unavailable' : 'available'}
+      onMouseOver={(event) => event.stopPropagation()}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0.5,
+        minWidth: 0,
+        flex: 1,
+      }}
+    >
+      <Box sx={{ display: 'inline-flex', flexShrink: 0 }}>
+        <GitBranch size={11} />
+      </Box>
+      <Typography
+        component="span"
+        sx={{
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+          lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
+        }}
+      >
+        {branchLabel}
+      </Typography>
+    </Box>
+  )
+
+  const branchNode = branchUnavailable
+    ? (
+        <Tooltip title="Task is in planning mode; no branch yet." placement="bottom-start">
+          {branchMetadataNode}
+        </Tooltip>
+      )
+    : branchMetadataNode
+
   const subLineNode = (stacked || (isPhone && hasSubLineDetails)) && (
     <Box
       data-testid="sidebar-item-metadata"
@@ -241,34 +283,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         color: sidebarColors.subtleForeground,
       }}
     >
-      {details?.branch && (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 0.5,
-            minWidth: 0,
-            flex: 1,
-          }}
-        >
-          <Box sx={{ display: 'inline-flex', flexShrink: 0 }}>
-            <GitBranch size={11} />
-          </Box>
-          <Typography
-            component="span"
-            sx={{
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
-              lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
-            }}
-          >
-            {details.branch}
-          </Typography>
-        </Box>
-      )}
+      {branchNode}
       {details?.harness && (
         <Box
           data-testid="sidebar-item-harness"

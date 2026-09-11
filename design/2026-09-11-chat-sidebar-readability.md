@@ -17,6 +17,8 @@ lines while T3 uses a stable three-line card.
 - Stacked cross-project rows: 78px with project, task title, and branch lines.
 - Branch metadata truncates on the left while the harness mark stays aligned to
   the right edge of the row.
+- Pre-implementation tasks without an assigned branch show `n/a`; its tooltip
+  explains that the task is still in planning mode.
 - Primary, secondary, and surface colors come from shared sidebar theme tokens.
 - Sidebar font sizes come from `styles/typography.ts` and remain rem-based.
 

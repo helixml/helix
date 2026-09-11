@@ -101,6 +101,28 @@ describe('ProjectChatItemRow', () => {
     expect(screen.getByText('Implementation')).toBeInTheDocument()
   })
 
+  it('explains why a planning task has no branch yet', async () => {
+    renderRow({
+      ...quietTask,
+      id: 'task-planning',
+      task: {
+        ...quietTask.task,
+        id: 'task-planning',
+        status: 'spec_generation',
+        branch_name: undefined,
+        base_branch: undefined,
+      } as any,
+    })
+
+    const branch = screen.getByTestId('sidebar-item-branch')
+    expect(branch).toHaveAttribute('data-branch-state', 'unavailable')
+    expect(branch).toHaveTextContent('n/a')
+
+    fireEvent.mouseOver(branch)
+    expect(await screen.findByText('Task is in planning mode; no branch yet.')).toBeInTheDocument()
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1)
+  })
+
   it('renders the GitHub owner avatar and falls back to the folder glyph on load failure', () => {
     mocks.repositories = [{ external_type: 'github', external_url: 'https://github.com/keel-hq/keel' }]
     const { container } = renderRow(quietTask)
