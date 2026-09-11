@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
 } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -160,6 +161,23 @@ interface StepConfig {
   subtitle: string;
 }
 
+interface OnboardingDraft {
+  activeStepType: StepType;
+  completedStepTypes: StepType[];
+  orgMode: "select" | "create";
+  selectedOrgId: string;
+  orgDisplayName: string;
+  createdOrgId: string;
+  createdOrgDuringOnboarding: boolean;
+  codingAccessOption: CodingAccessOption;
+  claudeModel: string;
+  codexModel: string;
+  helixProvider: string;
+  helixModel: string;
+  helixReasoningEffort: string;
+  topUpAmount: number;
+}
+
 const ALL_STEPS: StepConfig[] = [
   {
     type: "signin",
@@ -195,6 +213,11 @@ export default function Onboarding() {
   const router = useRouter();
   const lightTheme = useLightTheme();
   const palette = getOnboardingPalette(lightTheme.isLight);
+  const onboardingDraftKey = account.user?.id
+    ? `helix_onboarding_draft:v1:${account.user.id}`
+    : "";
+  const restoredDraftUserRef = useRef<string | null>(null);
+  const skipDraftWriteRef = useRef(false);
 
   // Step tracking
   const [activeStep, setActiveStep] = useState(1);
@@ -337,6 +360,147 @@ export default function Onboarding() {
     [visibleSteps],
   );
 
+  useEffect(() => {
+    const userId = account.user?.id;
+    if (
+      !userId
+      || account.organizationTools.loading
+      || isLoadingServerConfig
+      || restoredDraftUserRef.current === userId
+    ) return;
+
+    try {
+      const rawDraft = localStorage.getItem(onboardingDraftKey);
+      if (!rawDraft) return;
+
+      const draft = JSON.parse(rawDraft) as Partial<OnboardingDraft>;
+      if (!draft || typeof draft !== "object") return;
+
+      const selectedOrg = typeof draft.selectedOrgId === "string"
+        ? existingOrgs.find((org) => org.id === draft.selectedOrgId)
+        : undefined;
+      const restoredOrg = typeof draft.createdOrgId === "string"
+        ? existingOrgs.find((org) => org.id === draft.createdOrgId)
+        : undefined;
+
+      if (draft.orgMode === "select" || draft.orgMode === "create") {
+        setOrgMode(draft.orgMode);
+      }
+      if (selectedOrg?.id) setSelectedOrgId(selectedOrg.id);
+      if (typeof draft.orgDisplayName === "string") {
+        setOrgDisplayName(draft.orgDisplayName);
+      }
+      if (restoredOrg?.id && restoredOrg.name) {
+        setCreatedOrg({
+          id: restoredOrg.id,
+          name: restoredOrg.name,
+          display_name: restoredOrg.display_name,
+          viewer_is_owner: restoredOrg.owner === userId
+            || !!restoredOrg.memberships?.some((membership) =>
+              membership.user_id === userId && membership.role === "owner"),
+        });
+        setCreatedOrgDuringOnboarding(draft.createdOrgDuringOnboarding === true);
+      }
+
+      if (
+        draft.codingAccessOption === "helix"
+        || draft.codingAccessOption === "claude"
+        || draft.codingAccessOption === "codex"
+      ) setCodingAccessOption(draft.codingAccessOption);
+      if (typeof draft.claudeModel === "string") setClaudeModel(draft.claudeModel);
+      if (typeof draft.codexModel === "string") setCodexModel(draft.codexModel);
+      if (typeof draft.helixProvider === "string") setHelixProvider(draft.helixProvider);
+      if (typeof draft.helixModel === "string") setHelixModel(draft.helixModel);
+      if (typeof draft.helixReasoningEffort === "string") {
+        setHelixReasoningEffort(draft.helixReasoningEffort);
+      }
+      if (
+        typeof draft.topUpAmount === "number"
+        && (TOP_UP_AMOUNTS as readonly number[]).includes(draft.topUpAmount)
+      ) setTopUpAmount(draft.topUpAmount);
+
+      if (restoredOrg) {
+        const completed = new Set<number>([0]);
+        if (Array.isArray(draft.completedStepTypes)) {
+          draft.completedStepTypes.forEach((type) => {
+            const index = visibleSteps.findIndex((step) => step.type === type);
+            if (index >= 0) completed.add(index);
+          });
+        }
+        setCompletedSteps(completed);
+
+        const activeStepIndex = visibleSteps.findIndex(
+          (step) => step.type === draft.activeStepType,
+        );
+        if (activeStepIndex >= 0) setActiveStep(activeStepIndex);
+      }
+    } catch {
+      // localStorage is optional convenience state.
+    } finally {
+      restoredDraftUserRef.current = userId;
+      skipDraftWriteRef.current = true;
+    }
+  }, [
+    account.organizationTools.loading,
+    account.user?.id,
+    existingOrgs,
+    isLoadingServerConfig,
+    onboardingDraftKey,
+    visibleSteps,
+  ]);
+
+  useEffect(() => {
+    if (!onboardingDraftKey || restoredDraftUserRef.current !== account.user?.id) return;
+    if (skipDraftWriteRef.current) {
+      skipDraftWriteRef.current = false;
+      return;
+    }
+
+    const draft: OnboardingDraft = {
+      activeStepType: getStepTypeByIndex(activeStep) || "organization",
+      completedStepTypes: visibleSteps
+        .filter((_, index) => completedSteps.has(index))
+        .map((step) => step.type),
+      orgMode,
+      selectedOrgId,
+      orgDisplayName,
+      createdOrgId: createdOrg?.id || "",
+      createdOrgDuringOnboarding,
+      codingAccessOption,
+      claudeModel,
+      codexModel,
+      helixProvider,
+      helixModel,
+      helixReasoningEffort,
+      topUpAmount,
+    };
+
+    try {
+      localStorage.setItem(onboardingDraftKey, JSON.stringify(draft));
+    } catch {
+      // localStorage is optional convenience state.
+    }
+  }, [
+    account.user?.id,
+    activeStep,
+    claudeModel,
+    codexModel,
+    codingAccessOption,
+    completedSteps,
+    createdOrg?.id,
+    createdOrgDuringOnboarding,
+    getStepTypeByIndex,
+    helixModel,
+    helixProvider,
+    helixReasoningEffort,
+    onboardingDraftKey,
+    orgDisplayName,
+    orgMode,
+    selectedOrgId,
+    topUpAmount,
+    visibleSteps,
+  ]);
+
   // Refetch wallet when organization is selected/created
   useEffect(() => {
     if (createdOrg?.id && serverConfig?.billing_enabled) {
@@ -398,10 +562,7 @@ export default function Onboarding() {
 
   useEffect(() => {
     if (hasExistingOrgs) {
-      setOrgMode("select");
-      if (!selectedOrgId && existingOrgs[0]?.id) {
-        setSelectedOrgId(existingOrgs[0].id);
-      }
+      setSelectedOrgId((current) => current || existingOrgs[0]?.id || "");
     } else {
       setOrgMode("create");
     }
@@ -495,7 +656,12 @@ export default function Onboarding() {
           console.error("Failed to mark onboarding complete:", err);
         }
         account.dismissOnboarding();
-        localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name);
+        try {
+          localStorage.removeItem(onboardingDraftKey);
+          localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name);
+        } catch {
+          // localStorage is optional convenience state.
+        }
         if (shouldMeetChiefOfStaff) {
           router.navigateReplace("org_bot_session", {
             org_id: createdOrg.name,
@@ -526,6 +692,7 @@ export default function Onboarding() {
       helixProvider,
       helixReasoningEffort,
       helixDefaultAvailable,
+      onboardingDraftKey,
       router,
       shouldMeetChiefOfStaff,
       snackbar,
