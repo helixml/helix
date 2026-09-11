@@ -11,11 +11,14 @@ import {
     CircularProgress,
     IconButton,
     Typography,
+    FormControl,
+    InputLabel,
+    Select,
     MenuItem,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { TypesUser } from '../../api/api';
-import { useAdminActivateTrial } from '../../services/dashboardService';
+import { useAdminActivateTrial, useAdminUserOwnedOrgs } from '../../services/dashboardService';
 import useSnackbar from '../../hooks/useSnackbar';
 
 interface ActivateTrialDialogProps {
@@ -34,11 +37,13 @@ const DEFAULT_CREDITS = 0;
 const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user }) => {
     const [days, setDays] = useState(String(DEFAULT_DAYS));
     const [credits, setCredits] = useState(String(DEFAULT_CREDITS));
+    const [orgId, setOrgId] = useState('');
     // '' = Stripe trial (uses days); 'pro' = paid plan via PlanOverride (no Stripe).
     const [plan, setPlan] = useState('');
     const [error, setError] = useState('');
     const activateTrial = useAdminActivateTrial();
     const snackbar = useSnackbar();
+    const { data: ownedOrgs, isLoading: isLoadingOrgs } = useAdminUserOwnedOrgs(user?.id, open);
 
     useEffect(() => {
         if (open) {
@@ -48,6 +53,13 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
             setError('');
         }
     }, [open]);
+
+    useEffect(() => {
+        if (!ownedOrgs) return;
+        setOrgId(ownedOrgs.length === 1 ? ownedOrgs[0].id : '');
+    }, [ownedOrgs]);
+
+    const hasOrgs = (ownedOrgs?.length ?? 0) > 0;
 
     const handleSubmit = async () => {
         if (!user?.id) return;
@@ -62,9 +74,14 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
             setError('Credits must be zero or positive');
             return;
         }
+        if (hasOrgs && !orgId) {
+            setError('Pick which organisation to activate');
+            return;
+        }
         try {
             const result = await activateTrial.mutateAsync({
                 userId: user.id,
+                orgId: hasOrgs ? orgId : undefined,
                 days: isPaid ? 0 : daysNum,
                 credits: creditsNum,
                 plan,
@@ -98,7 +115,7 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
                 }}
             >
                 <Typography variant="h6" component="div">
-                    Activate
+                    Activate trial or plan
                 </Typography>
                 <IconButton aria-label="close" onClick={handleClose} disabled={activateTrial.isPending}>
                     <CloseIcon />
@@ -108,10 +125,27 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
                 <Box sx={{ mt: 2 }}>
                     {user && (
                         <Alert severity="info" sx={{ mb: 2 }}>
-                            Granting trial to <strong>{user.email || user.username}</strong>. If the user has no
-                            organization yet, the trial is parked on the user and applied when they create their
-                            first org. Otherwise it is applied to their oldest owned org immediately.
+                            This approves <strong>{user.email || user.username}</strong> and applies the selected
+                            trial or plan. If they own no organisation yet, it is applied to their first one.
                         </Alert>
+                    )}
+
+                    {hasOrgs && (
+                        <FormControl fullWidth margin="normal" disabled={activateTrial.isPending}>
+                            <InputLabel id="activate-trial-org-label">Organisation</InputLabel>
+                            <Select
+                                labelId="activate-trial-org-label"
+                                label="Organisation"
+                                value={orgId}
+                                onChange={(e) => setOrgId(e.target.value as string)}
+                            >
+                                {ownedOrgs!.map((org) => (
+                                    <MenuItem key={org.id} value={org.id}>
+                                        {org.display_name || org.name} ({org.id})
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
                     )}
 
                     {error && (
@@ -167,10 +201,10 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
                     onClick={handleSubmit}
                     color="secondary"
                     variant="contained"
-                    disabled={activateTrial.isPending}
+                    disabled={activateTrial.isPending || isLoadingOrgs || (hasOrgs && !orgId)}
                     startIcon={activateTrial.isPending ? <CircularProgress size={20} /> : null}
                 >
-                    {activateTrial.isPending ? 'Activating…' : 'Activate'}
+                    {activateTrial.isPending ? 'Activating…' : plan === 'pro' ? 'Activate paid plan' : 'Activate trial'}
                 </Button>
             </DialogActions>
         </Dialog>
