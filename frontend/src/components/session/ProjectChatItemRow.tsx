@@ -1,4 +1,4 @@
-import { FC, MouseEvent, ReactElement } from 'react'
+import { FC, MouseEvent } from 'react'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
@@ -86,17 +86,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   const details = isPhone || stacked
     ? getProjectChatItemDetails({ item, apps, repository: repositoryName, branch })
     : undefined
-  const subLine = details
-    ? [
-        details.branch && { key: 'branch', icon: <GitBranch size={11} />, value: details.branch },
-        // Icon only — the mark identifies the harness, the name just
-        // ate horizontal space on a phone.
-        details.harness && {
-          key: 'harness',
-          icon: <AgentHarness runtime={details.runtime || ''} variant="short" size={11} />,
-        },
-      ].filter(Boolean) as Array<{ key: string; icon: ReactElement; value?: string }>
-    : []
+  const hasSubLineDetails = !!(details?.branch || details?.harness)
 
   // Active tasks trade their timestamp for the live status label (t3-style):
   // "24 minutes ago" says nothing while the agent is mid-implementation, and
@@ -238,49 +228,55 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     </Tooltip>
   )
 
-  const subLineNode = (stacked || (isPhone && subLine.length > 0)) && (
+  const subLineNode = (stacked || (isPhone && hasSubLineDetails)) && (
     <Box
       data-testid="sidebar-item-metadata"
       sx={{
         display: 'flex',
         alignItems: 'center',
-        gap: 1.25,
+        gap: 1,
         minWidth: 0,
+        width: '100%',
         ...(stacked && { height: 16, mt: 0.25 }),
         color: sidebarColors.subtleForeground,
       }}
     >
-      {subLine.map((entry) => (
+      {details?.branch && (
         <Box
-          key={entry.key}
           sx={{
             display: 'flex',
             alignItems: 'center',
             gap: 0.5,
             minWidth: 0,
-            // The branch takes the slack; the other entries are
-            // icon-sized and should stay whole.
-            flexShrink: entry.key === 'branch' ? 1 : 0,
+            flex: 1,
           }}
         >
-          <Box sx={{ display: 'inline-flex', flexShrink: 0 }}>{entry.icon}</Box>
-          {entry.value && (
-            <Typography
-              component="span"
-              sx={{
-                minWidth: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
-                lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
-              }}
-            >
-              {entry.value}
-            </Typography>
-          )}
+          <Box sx={{ display: 'inline-flex', flexShrink: 0 }}>
+            <GitBranch size={11} />
+          </Box>
+          <Typography
+            component="span"
+            sx={{
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+              lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
+            }}
+          >
+            {details.branch}
+          </Typography>
         </Box>
-      ))}
+      )}
+      {details?.harness && (
+        <Box
+          data-testid="sidebar-item-harness"
+          sx={{ ml: 'auto', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
+        >
+          <AgentHarness runtime={details.runtime || ''} variant="short" size={11} />
+        </Box>
+      )}
     </Box>
   )
 

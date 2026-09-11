@@ -15,6 +15,8 @@ lines while T3 uses a stable three-line card.
 - Project metadata and time: 12px/16px, medium weight where it identifies the row.
 - Section labels and compact status text: 11px.
 - Stacked cross-project rows: 78px with project, task title, and branch lines.
+- Branch metadata truncates on the left while the harness mark stays aligned to
+  the right edge of the row.
 - Primary, secondary, and surface colors come from shared sidebar theme tokens.
 - Sidebar font sizes come from `styles/typography.ts` and remain rem-based.
 

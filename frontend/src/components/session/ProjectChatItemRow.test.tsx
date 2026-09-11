@@ -60,6 +60,7 @@ const quietTask: SidebarItem = {
     status: 'done',
     sandbox_state: 'absent',
     branch_name: 'fix/installer',
+    code_agent_config: { runtime: 'qwen_code' },
   } as any,
 }
 
@@ -80,6 +81,8 @@ describe('ProjectChatItemRow', () => {
     })
     expect(container.querySelector('.project-chat-item')).toHaveStyle({ minHeight: '78px' })
     expect(screen.getByTestId('sidebar-item-metadata')).toHaveTextContent('fix/installer')
+    expect(screen.getByTestId('sidebar-item-harness')).toHaveStyle({ marginLeft: 'auto' })
+    expect(screen.getByRole('img', { name: 'Qwen Code' })).toBeInTheDocument()
 
     renderRow({ ...quietTask, id: 'task-2', projectName: undefined })
     expect(screen.getAllByText('keel')).toHaveLength(1)
