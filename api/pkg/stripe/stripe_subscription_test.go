@@ -76,10 +76,10 @@ func Test_handleSubscriptionEvent_NotFound(t *testing.T) {
 }
 
 type mockSubscriptionBackend struct {
-	t             *testing.T
-	expectedPath  string
-	subscription  *stripe.Subscription
-	callInvoked   bool
+	t            *testing.T
+	expectedPath string
+	subscription *stripe.Subscription
+	callInvoked  bool
 }
 
 func (m *mockSubscriptionBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
@@ -108,12 +108,46 @@ func (m *mockSubscriptionBackend) CallMultipart(string, string, string, string, 
 
 func (m *mockSubscriptionBackend) SetMaxNetworkRetries(int64) {}
 
+type mockSubscriptionListBackend struct {
+	t            *testing.T
+	subscription *stripe.Subscription
+	callInvoked  bool
+}
+
+func (m *mockSubscriptionListBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
+	return m.setList(method, path, v)
+}
+
+func (m *mockSubscriptionListBackend) setList(method, path string, v stripe.LastResponseSetter) error {
+	require.Equal(m.t, http.MethodGet, method)
+	require.Equal(m.t, "/v1/subscriptions", path)
+	list, ok := v.(*stripe.SubscriptionList)
+	require.True(m.t, ok)
+	list.Data = []*stripe.Subscription{m.subscription}
+	m.callInvoked = true
+	return nil
+}
+
+func (m *mockSubscriptionListBackend) CallStreaming(string, string, string, stripe.ParamsContainer, stripe.StreamingLastResponseSetter) error {
+	return fmt.Errorf("unexpected CallStreaming invocation")
+}
+
+func (m *mockSubscriptionListBackend) CallRaw(method, path, _ string, _ *form.Values, _ *stripe.Params, v stripe.LastResponseSetter) error {
+	return m.setList(method, path, v)
+}
+
+func (m *mockSubscriptionListBackend) CallMultipart(string, string, string, string, *bytes.Buffer, *stripe.Params, stripe.LastResponseSetter) error {
+	return fmt.Errorf("unexpected CallMultipart invocation")
+}
+
+func (m *mockSubscriptionListBackend) SetMaxNetworkRetries(int64) {}
+
 type mockProductBackend struct {
-	t               *testing.T
-	expectedPath    string
-	product         *stripe.Product
-	err             error
-	callInvoked     bool
+	t            *testing.T
+	expectedPath string
+	product      *stripe.Product
+	err          error
+	callInvoked  bool
 }
 
 func (m *mockProductBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
@@ -187,11 +221,46 @@ func TestSyncSubscription_UpdatesAndPersistsWallet(t *testing.T) {
 		return got, nil
 	})
 
-	s.SyncSubscription(context.Background(), wallet)
+	s.SyncSubscription(context.Background(), wallet, false)
 
 	require.True(t, mockBackend.callInvoked)
 	require.Equal(t, stripe.SubscriptionStatusPastDue, wallet.SubscriptionStatus)
 	require.Equal(t, int64(1111), wallet.SubscriptionCurrentPeriodStart)
 	require.Equal(t, int64(2222), wallet.SubscriptionCurrentPeriodEnd)
 	require.True(t, wallet.SubscriptionCancelAtPeriodEnd)
+}
+
+func TestSyncSubscription_DiscoversSubscriptionWhenWebhookIsDelayed(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	store := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{SecretKey: "sk_test_sync"}, store)
+	wallet := &types.Wallet{
+		ID:               "wallet_123",
+		StripeCustomerID: "cus_123",
+	}
+
+	mockBackend := &mockSubscriptionListBackend{
+		t: t,
+		subscription: &stripe.Subscription{
+			ID:                 "sub_trial_123",
+			Status:             stripe.SubscriptionStatusTrialing,
+			Created:            1000,
+			CurrentPeriodStart: 1000,
+			CurrentPeriodEnd:   2000,
+		},
+	}
+	originalAPIBackend := stripe.GetBackend(stripe.APIBackend)
+	stripe.SetBackend(stripe.APIBackend, mockBackend)
+	t.Cleanup(func() { stripe.SetBackend(stripe.APIBackend, originalAPIBackend) })
+
+	store.EXPECT().UpdateWallet(gomock.Any(), wallet).Return(wallet, nil)
+
+	s.SyncSubscription(context.Background(), wallet, true)
+
+	require.True(t, mockBackend.callInvoked)
+	require.Equal(t, "sub_trial_123", wallet.StripeSubscriptionID)
+	require.Equal(t, stripe.SubscriptionStatusTrialing, wallet.SubscriptionStatus)
+	require.Equal(t, int64(1000), wallet.SubscriptionCreated)
 }

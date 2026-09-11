@@ -12,6 +12,7 @@ const mockV1OrgsSettingsUpdate = vi.fn()
 const mockV1SubscriptionNewCreate = vi.fn()
 const mockV1TopUpsNewCreate = vi.fn()
 const mockRefetchWallet = vi.fn()
+const mockUseGetWallet = vi.fn()
 const mockCreateOrgMutateAsync = vi.fn()
 const mockUpdateHarnesses = vi.fn()
 const onboardingDraftKey = 'helix_onboarding_draft:v1:user-1'
@@ -128,17 +129,20 @@ vi.mock('../services/providersService', () => ({
 vi.mock('../services/useBilling', () => ({
   TOP_UP_AMOUNTS: [5, 10, 20, 50, 100],
   DEFAULT_TOP_UP_AMOUNT: 5,
-  useGetWallet: () => ({
-    data: {
-      subscription_status: mockState.walletStatus,
-      subscription_created: 0,
-      subscription_current_period_start: 0,
-      subscription_current_period_end: 0,
-      balance: mockState.walletBalance,
-    },
-    refetch: mockRefetchWallet,
-    isFetching: false,
-  }),
+  useGetWallet: (...args: unknown[]) => {
+    mockUseGetWallet(...args)
+    return {
+      data: {
+        subscription_status: mockState.walletStatus,
+        subscription_created: 0,
+        subscription_current_period_start: 0,
+        subscription_current_period_end: 0,
+        balance: mockState.walletBalance,
+      },
+      refetch: mockRefetchWallet,
+      isFetching: false,
+    }
+  },
 }))
 
 vi.mock('../components/account/ClaudeSubscriptionConnect', () => ({
@@ -592,6 +596,7 @@ describe('Onboarding', () => {
     renderOnboarding()
 
     expect(await screen.findByText('Confirming your free trial with Stripe...')).toBeInTheDocument()
+    expect(mockUseGetWallet).toHaveBeenCalledWith('org-1', true, true)
     await waitFor(() => expect(mockRefetchWallet).toHaveBeenCalled())
   })
 

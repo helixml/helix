@@ -20,6 +20,7 @@ import (
 // @Tags    wallets
 // @Success 200 {object} types.Wallet
 // @Param   org_id query string false "Organization ID"
+// @Param   discover_subscription query bool false "Discover a subscription after returning from Checkout"
 // @Router /api/v1/wallet [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Request) (*types.Wallet, *system.HTTPError) {
@@ -60,7 +61,7 @@ func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Reque
 	}
 
 	// Sync latest subscription state from Stripe (cancel_at_period_end, status, etc.)
-	s.Stripe.SyncSubscription(ctx, wallet)
+	s.Stripe.SyncSubscription(ctx, wallet, req.URL.Query().Get("discover_subscription") == "true")
 
 	return wallet, nil
 }

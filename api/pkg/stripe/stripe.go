@@ -90,22 +90,31 @@ func (s *Stripe) ListSubscriptions(stripeCustomerID string) ([]*stripe.Subscript
 		sub := subscriptions.Subscription()
 		subs = append(subs, sub)
 	}
-	return subs, nil
+	return subs, subscriptions.Err()
 }
 
 // SyncSubscription fetches the current subscription state from Stripe and updates the wallet.
 // This ensures the wallet always reflects the latest Stripe state (e.g. cancel_at_period_end)
 // even if a webhook was missed or the field was added after the webhook fired.
-func (s *Stripe) SyncSubscription(ctx context.Context, wallet *types.Wallet) {
-	if wallet.StripeSubscriptionID == "" {
-		return
-	}
-
+func (s *Stripe) SyncSubscription(ctx context.Context, wallet *types.Wallet, discover bool) {
 	if s.cfg.SecretKey == "" {
 		return
 	}
 
-	sub, err := subscription.Get(wallet.StripeSubscriptionID, nil)
+	var sub *stripe.Subscription
+	var err error
+	if wallet.StripeSubscriptionID == "" {
+		if !discover || wallet.StripeCustomerID == "" {
+			return
+		}
+		var subscriptions []*stripe.Subscription
+		subscriptions, err = s.ListSubscriptions(wallet.StripeCustomerID)
+		if err == nil && len(subscriptions) > 0 {
+			sub = subscriptions[0]
+		}
+	} else {
+		sub, err = subscription.Get(wallet.StripeSubscriptionID, nil)
+	}
 	if err != nil {
 		log.Warn().Err(err).
 			Str("subscription_id", wallet.StripeSubscriptionID).
@@ -113,10 +122,15 @@ func (s *Stripe) SyncSubscription(ctx context.Context, wallet *types.Wallet) {
 			Msg("failed to fetch subscription from Stripe for sync")
 		return
 	}
+	if sub == nil {
+		return
+	}
 
+	wallet.StripeSubscriptionID = sub.ID
 	wallet.SubscriptionStatus = sub.Status
 	wallet.SubscriptionCurrentPeriodStart = sub.CurrentPeriodStart
 	wallet.SubscriptionCurrentPeriodEnd = sub.CurrentPeriodEnd
+	wallet.SubscriptionCreated = sub.Created
 	wallet.SubscriptionCancelAtPeriodEnd = sub.CancelAtPeriodEnd
 
 	_, err = s.store.UpdateWallet(context.Background(), wallet)

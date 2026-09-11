@@ -257,6 +257,7 @@ export default function Onboarding() {
   } = useGetWallet(
     createdOrg?.id,
     !!createdOrg?.id && !isLoadingServerConfig && serverConfig?.billing_enabled,
+    isConfirmingSubscription,
   );
   const isTrialing = wallet?.subscription_status === "trialing";
   const isSubscriptionActive =

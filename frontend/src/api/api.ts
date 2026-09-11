@@ -208,10 +208,10 @@ export interface ApiCreateBotRequest {
   name?: string;
   /**
    * Owner makes this a manager Bot: it receives the canonical owner
-   * tool set (every org-graph mutation - create_bot, delete_bot,
-   * set_bot_content, subscribe, ... - plus the read baseline) so it can
-   * hire and manage other Nodes. When true, Tools is ignored in favour
-   * of that set. Used to seed a starter/root Bot for a new org.
+   * tool set (standard worker tools plus org-management mutations such as
+   * create_bot, delete_bot, and set_bot_content) so it can hire and manage
+   * other Nodes. When true, Tools is ignored in favour of that set. Used to
+   * seed a starter/root Bot for a new org.
    */
   owner?: boolean;
   parent_id?: string;
@@ -224,6 +224,7 @@ export interface ApiCreateBotRequest {
    * Only vcpus is read from the overrides — memory follows the preset.
    */
   sandbox_runtime?: TypesSandboxRuntime;
+  /** Tools contains additions to the standard worker tool set. */
   tools?: string[];
   triggers?: string[];
 }
@@ -2286,13 +2287,13 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindCron = "cron",
   KindEmail = "email",
   KindWebhook = "webhook",
-  KindLocal = "local",
   KindGitLab = "gitlab",
-  KindSlack = "slack",
+  KindLocal = "local",
   KindHelixEvents = "helix_events",
+  KindSlack = "slack",
+  KindCron = "cron",
   KindGitHub = "github",
 }
 
@@ -19446,6 +19447,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Organization ID */
         org_id?: string;
+        /** Discover a subscription after returning from Checkout */
+        discover_subscription?: boolean;
       },
       params: RequestParams = {},
     ) =>
