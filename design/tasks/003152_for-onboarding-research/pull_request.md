@@ -6,6 +6,8 @@ Add a Stripe Checkout trial to the onboarding subscription flow. New onboarding 
 
 Keep existing non-onboarding subscription checkout behavior unchanged, update onboarding copy to clearly disclose the trial and automatic conversion, and document the Stripe integration decision and operational requirements.
 
+Validate that the Stripe organization lookup key resolves to an active USD $499 monthly Price before creating Checkout or admin trial subscriptions, preventing stale Stripe configuration from silently presenting a different renewal price.
+
 ## Testing
 
 - `go test ./api/pkg/server -run 'TestOnboardingTrialPeriodDays$' -count=1` — passed
