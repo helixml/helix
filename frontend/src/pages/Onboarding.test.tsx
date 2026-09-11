@@ -674,9 +674,9 @@ describe('Onboarding', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Create organization' }))
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /start subscription/i })).toBeEnabled()
+      expect(screen.getByRole('button', { name: /start 72-hour free trial/i })).toBeEnabled()
     })
-    fireEvent.click(screen.getByRole('button', { name: /start subscription/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start 72-hour free trial/i }))
 
     await waitFor(() => expect(mockV1SubscriptionNewCreate).toHaveBeenCalledWith({
       org_id: 'org-2',
