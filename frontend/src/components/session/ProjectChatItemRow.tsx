@@ -10,6 +10,8 @@ import type { TypesOrganizationMembership, TypesUser } from '../../api/api'
 import useApps from '../../hooks/useApps'
 import useIsPhone from '../../hooks/useIsPhone'
 import useLightTheme from '../../hooks/useLightTheme'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { TYPOGRAPHY } from '../../styles/typography'
 import AgentHarness from '../agent/AgentHarness'
 import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
@@ -59,6 +61,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   onArchiveItem,
 }) => {
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   const { apps } = useApps()
   // No hover on a phone, so the facts the tooltip carries have to live on the
   // row itself. That makes the row two lines, and taller.
@@ -78,9 +81,9 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   const taskPerson = resolveOrganizationUser(taskPersonId, organizationMembers, currentUser)
   const taskPersonRole = item.kind === 'session' ? 'Started by' : item.task?.assignee_id ? 'Assigned to' : 'Created by'
   const branch = resolveProjectChatItemBranch(item, defaultBranch)
-  // Only resolved for the phone layout — on desktop the tooltip does
-  // its own lookup when it actually opens.
-  const details = isPhone
+  // Stacked rows expose stable context without requiring hover; dense desktop
+  // rows keep the details in the tooltip.
+  const details = isPhone || stacked
     ? getProjectChatItemDetails({ item, apps, repository: repositoryName, branch })
     : undefined
   const subLine = details
@@ -115,8 +118,8 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
           // Without hover the overlay would hide the time forever, so
           // touch devices get the phone treatment: side by side.
           ? {
-              minWidth: 28,
-              height: 16,
+              minWidth: 32,
+              height: 20,
               flexShrink: 0,
               position: 'relative',
               display: 'flex',
@@ -124,7 +127,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
               justifyContent: 'flex-end',
               '@media (hover: none)': { gap: 0.5 },
             }
-          : { width: 28, height: 28, flexShrink: 0, position: 'relative' }}
+          : { width: 32, height: 28, flexShrink: 0, position: 'relative' }}
     >
       <Typography
         className="sidebar-item-time"
@@ -140,11 +143,9 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
           whiteSpace: 'nowrap',
           color: showStatusAsTime
             ? status!.color
-            : active
-              ? (lightTheme.isLight ? 'rgba(39,39,42,0.58)' : 'rgba(241,243,247,0.72)')
-              : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
-          fontSize: '10px',
-          lineHeight: 1,
+            : sidebarColors.mutedForeground,
+          fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+          lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
           fontVariantNumeric: 'tabular-nums',
           transition: 'opacity 100ms ease',
           ...(showStatusAsTime && isAgentWorking && {
@@ -169,7 +170,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
           sx={{
             ...(isPhone
               ? { position: 'static', width: 28, height: 28 }
-              : { position: 'absolute', top: stacked ? -6 : 0, right: 0, bottom: stacked ? -6 : 0, width: 20, height: 28 }),
+              : { position: 'absolute', top: stacked ? -4 : 0, right: 0, bottom: stacked ? -4 : 0, width: 24, height: 28 }),
             ...(!isPhone && stacked && {
               '@media (hover: none)': { position: 'static', top: 'auto', bottom: 'auto', height: 20 },
             }),
@@ -203,14 +204,10 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
-        fontSize: '14px',
-        lineHeight: '20px',
-        fontWeight: active ? 500 : 400,
-        // The stacked row's hierarchy is carried by contrast: the title
-        // reads brighter than the muted project line above it.
-        ...(stacked && !active && {
-          color: lightTheme.isLight ? '#52525b' : 'rgba(212,212,216,0.88)',
-        }),
+        color: active ? sidebarColors.foreground : sidebarColors.primaryLabel,
+        fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
+        lineHeight: TYPOGRAPHY.sidebar.primaryLineHeight,
+        fontWeight: 500,
       }}
     >
       {item.title}
@@ -241,16 +238,16 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     </Tooltip>
   )
 
-  const subLineNode = isPhone && subLine.length > 0 && (
+  const subLineNode = (stacked || (isPhone && subLine.length > 0)) && (
     <Box
+      data-testid="sidebar-item-metadata"
       sx={{
         display: 'flex',
         alignItems: 'center',
         gap: 1.25,
         minWidth: 0,
-        color: lightTheme.isLight
-          ? 'rgba(113,113,122,0.85)'
-          : 'rgba(163,163,163,0.72)',
+        ...(stacked && { height: 16, mt: 0.25 }),
+        color: sidebarColors.subtleForeground,
       }}
     >
       {subLine.map((entry) => (
@@ -275,8 +272,8 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                fontSize: '11px',
-                lineHeight: '15px',
+                fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+                lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
               }}
             >
               {entry.value}
@@ -302,8 +299,8 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
           alignItems: 'center',
           justifyContent: 'center',
           color: active
-            ? (lightTheme.isLight ? 'rgba(39,39,42,0.68)' : 'rgba(241,243,247,0.78)')
-            : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.62)'),
+            ? sidebarColors.foreground
+            : sidebarColors.subtleForeground,
           transition: 'opacity 100ms ease',
         }}
       >
@@ -336,31 +333,25 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
       sx={{
         width: '100%',
         minWidth: 0,
-        // Stacked (cross-project) and phone rows are two lines; project
-        // groups on desktop keep the dense single-line row.
+        // Cross-project rows use a stable three-line card; project groups on
+        // desktop keep the dense single-line row.
         ...(stacked
-          ? { py: 0.75, flexDirection: 'column', alignItems: 'stretch', gap: 0.4 }
+          ? { minHeight: 78, py: 1, flexDirection: 'column', alignItems: 'stretch' }
           : isPhone
             ? { minHeight: 52, py: 0.75, flexDirection: 'column', alignItems: 'stretch', gap: 0.25 }
             : { height: 32, flexDirection: 'row', alignItems: 'center', gap: 0.75 }),
         px: 1,
         borderRadius: '6px',
         display: 'flex',
-        color: active
-          ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
-          : (lightTheme.isLight ? '#71717a' : 'rgba(163,163,163,0.80)'),
-        backgroundColor: active
-          ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
-          : 'transparent',
+        color: active ? sidebarColors.foreground : sidebarColors.primaryLabel,
+        backgroundColor: active ? sidebarColors.rowSelected : 'transparent',
         cursor: 'pointer',
         textAlign: 'left',
         outline: 'none',
         position: 'relative',
         '&:hover, &:focus-visible': {
-          color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-          backgroundColor: active
-            ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
-            : (lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)'),
+          color: sidebarColors.foreground,
+          backgroundColor: active ? sidebarColors.rowSelected : sidebarColors.rowHover,
         },
         '&:hover .sidebar-item-time, &:focus-within .sidebar-item-time': { opacity: 0 },
         '&:hover .sidebar-item-archive, &:focus-within .sidebar-item-archive': { opacity: 1 },
@@ -387,7 +378,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     >
       {stacked ? (
         <>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, minWidth: 0, width: '100%' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%', height: 20 }}>
             <ProjectRowIcon projectId={item.projectId} />
             <Typography
               component="span"
@@ -397,19 +388,17 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                fontSize: '11px',
-                lineHeight: '14px',
-                fontWeight: 400,
-                color: active
-                  ? (lightTheme.isLight ? 'rgba(39,39,42,0.68)' : 'rgba(241,243,247,0.72)')
-                  : (lightTheme.isLight ? 'rgba(113,113,122,0.8)' : 'rgba(200,200,206,0.8)'),
+                fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+                lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
+                fontWeight: 500,
+                color: sidebarColors.mutedForeground,
               }}
             >
               {projectName}
             </Typography>
             {timeAndArchive}
           </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%', mt: 0.5 }}>
             {titleNode}
             {avatarNode}
             {pinNode}

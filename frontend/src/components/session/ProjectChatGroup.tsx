@@ -19,6 +19,8 @@ import { useListSessions } from '../../services/sessionService'
 import { useSpecTasks } from '../../services/specTaskService'
 import type { SpecTask } from '../../services/specTaskService'
 import { useGetProjectRepositories } from '../../services/projectService'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { TYPOGRAPHY } from '../../styles/typography'
 import {
   buildProjectChatGroups,
   filterProjectChatGroups,
@@ -95,6 +97,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
 }) => {
   const api = useApi()
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   const isPhone = useIsPhone()
   const [visibility, setVisibility] = useState<GroupVisibility>('unknown')
   const projectId = project?.id
@@ -266,14 +269,14 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
           gap: 0.65,
           borderRadius: '6px',
           backgroundColor: 'transparent',
-          color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
+          color: sidebarColors.foreground,
           cursor: manualSorting ? 'grab' : 'pointer',
           '&:active': manualSorting ? { cursor: 'grabbing' } : undefined,
           textAlign: 'left',
           font: 'inherit',
           outline: 'none',
           '&:hover': {
-            backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
+            backgroundColor: sidebarColors.rowHover,
           },
         }}
       >
@@ -321,8 +324,8 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
             fontFamily: 'inherit',
-            fontSize: '14px',
-            lineHeight: '20px',
+            fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
+            lineHeight: TYPOGRAPHY.sidebar.primaryLineHeight,
             fontWeight: 500,
           }}
         >
@@ -354,10 +357,10 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
               border: 0,
               p: 0,
               backgroundColor: 'transparent',
-              color: lightTheme.isLight ? '#52525b' : 'rgba(212,212,216,0.82)',
+              color: sidebarColors.mutedForeground,
               cursor: 'pointer',
               font: 'inherit',
-              fontSize: '10px',
+              fontSize: TYPOGRAPHY.sidebar.statusFontSize,
               fontWeight: 500,
               opacity: 1,
               display: 'flex',
@@ -376,7 +379,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
       {!collapsed && (
         <Box sx={{ pl: 1.15 }}>
           {hasError && (
-            <Typography color="error" sx={{ px: 1, py: 0.75, fontSize: '0.7rem' }}>
+            <Typography color="error" sx={{ px: 1, py: 0.75, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
               Failed to load chats
             </Typography>
           )}
