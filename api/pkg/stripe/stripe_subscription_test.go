@@ -306,6 +306,30 @@ func TestSyncSubscription_UpdatesAndPersistsWallet(t *testing.T) {
 	require.True(t, wallet.SubscriptionCancelAtPeriodEnd)
 }
 
+func TestGetCheckoutSessionURLRejectsSecondTrialForLiveSubscription(t *testing.T) {
+	backend := &mockSubscriptionListBackend{
+		t: t,
+		subscription: &stripe.Subscription{
+			ID:     "sub_existing",
+			Status: stripe.SubscriptionStatusTrialing,
+		},
+	}
+	originalAPIBackend := stripe.GetBackend(stripe.APIBackend)
+	stripe.SetBackend(stripe.APIBackend, backend)
+	t.Cleanup(func() { stripe.SetBackend(stripe.APIBackend, originalAPIBackend) })
+
+	s := NewStripe(config.Stripe{
+		SecretKey:            "sk_test",
+		WebhookSigningSecret: "whsec_test",
+	}, nil)
+	_, err := s.GetCheckoutSessionURL(SubscriptionSessionParams{
+		StripeCustomerID: "cus_existing",
+		TrialPeriodDays:  3,
+	})
+	require.EqualError(t, err, "customer already has a live subscription")
+	require.True(t, backend.callInvoked)
+}
+
 func TestSyncSubscription_DiscoversSubscriptionWhenWebhookIsDelayed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

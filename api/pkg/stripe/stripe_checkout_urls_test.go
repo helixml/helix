@@ -17,7 +17,7 @@ func TestValidateOrgSubscriptionPrice(t *testing.T) {
 			Recurring: &stripeapi.PriceRecurring{
 				Interval: stripeapi.PriceRecurringIntervalMonth,
 			},
-		})
+		}, config.Stripe{OrgPriceCents: 49900, OrgPriceCurrency: "usd", OrgPriceInterval: "month"})
 		require.NoError(t, err)
 	})
 
@@ -26,8 +26,8 @@ func TestValidateOrgSubscriptionPrice(t *testing.T) {
 			ID:         "price_399",
 			Currency:   stripeapi.CurrencyUSD,
 			UnitAmount: 39900,
-		})
-		require.EqualError(t, err, "organization subscription price must be USD $499/month; Stripe price price_399 does not match")
+		}, config.Stripe{OrgPriceCents: 49900, OrgPriceCurrency: "usd", OrgPriceInterval: "month"})
+		require.EqualError(t, err, "organization subscription price price_399 does not match configured 49900 usd/month")
 	})
 }
 

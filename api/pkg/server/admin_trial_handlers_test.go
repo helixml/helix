@@ -239,6 +239,9 @@ func TestAdminActivateTrial_AppliesStripeTrialToSelectedOrgAndApprovesUser(t *te
 	cfg.Stripe.SecretKey = "sk_test"
 	cfg.Stripe.WebhookSigningSecret = "whsec_test"
 	cfg.Stripe.OrgPriceLookupKey = "org-trial"
+	cfg.Stripe.OrgPriceCents = 49900
+	cfg.Stripe.OrgPriceCurrency = "usd"
+	cfg.Stripe.OrgPriceInterval = "month"
 	s := &HelixAPIServer{Store: db, Cfg: cfg, Stripe: helixstripe.NewStripe(cfg.Stripe, db)}
 
 	resp, err := s.adminActivateTrial(httptest.NewRecorder(), activateTrialRequest(t, ActivateTrialRequest{Days: 30, OrgID: "org-b"}))

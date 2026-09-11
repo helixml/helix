@@ -600,6 +600,31 @@ describe('Onboarding', () => {
     await waitFor(() => expect(mockRefetchWallet).toHaveBeenCalled())
   })
 
+  it('never offers a second trial after successful checkout confirmation times out', async () => {
+    mockState.walletStatus = 'not_subscribed'
+    window.history.replaceState(
+      {},
+      '',
+      '/onboarding?org_id=org-1&success=true&session_id=cs_slow_webhook',
+    )
+    let refresh: (() => Promise<void>) | undefined
+    const intervalSpy = vi.spyOn(window, 'setInterval').mockImplementation((function mockInterval(callback: TimerHandler) {
+      refresh = callback as () => Promise<void>
+      return 1
+    }) as typeof window.setInterval)
+
+    renderOnboarding()
+    expect(await screen.findByText('Confirming your free trial with Stripe...')).toBeInTheDocument()
+    expect(refresh).toBeDefined()
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      await act(async () => refresh?.())
+    }
+
+    expect(screen.getByRole('button', { name: /confirming your trial/i })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /start 72-hour free trial/i })).not.toBeInTheDocument()
+    intervalSpy.mockRestore()
+  })
+
   it('requires a non-owner to ask the owner before changing subscription policy', async () => {
     setAccountWithOrgs([
       { id: 'org-1', name: 'my-org', display_name: 'My Org', owner: 'another-user' },

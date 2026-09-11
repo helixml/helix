@@ -530,7 +530,6 @@ export default function Onboarding() {
         setIsConfirmingSubscription(false);
         if (interval) window.clearInterval(interval);
       } else if (attempts >= 15) {
-        setIsConfirmingSubscription(false);
         if (interval) window.clearInterval(interval);
       }
     };

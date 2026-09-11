@@ -33,6 +33,8 @@ func (s *Stripe) CreateTrialSubscription(_ context.Context, wallet *types.Wallet
 		LookupKeys: stripe.StringSlice([]string{s.cfg.OrgPriceLookupKey}),
 	})
 	var p *stripe.Price
+	// Lookup keys should be unique; if Stripe returns more than one active
+	// match, consistently use the first result.
 	if priceList.Next() {
 		p = priceList.Price()
 	}
@@ -42,7 +44,7 @@ func (s *Stripe) CreateTrialSubscription(_ context.Context, wallet *types.Wallet
 	if p == nil {
 		return nil, fmt.Errorf("price not found for lookup key %s", s.cfg.OrgPriceLookupKey)
 	}
-	if err := validateOrgSubscriptionPrice(p); err != nil {
+	if err := validateOrgSubscriptionPrice(p, s.cfg); err != nil {
 		return nil, err
 	}
 

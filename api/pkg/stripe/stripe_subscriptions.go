@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -26,16 +27,20 @@ type SubscriptionSessionParams struct {
 	TrialPeriodDays  int64  // Optional card-backed trial; zero creates the subscription without a trial
 }
 
-const orgSubscriptionMonthlyPriceCents int64 = 49900
 const onboardingTrialCredits = 1.0
 const trialSourceOnboarding = "onboarding"
 
-func validateOrgSubscriptionPrice(p *stripe.Price) error {
-	if p.UnitAmount != orgSubscriptionMonthlyPriceCents || p.Currency != stripe.CurrencyUSD ||
-		p.Recurring == nil || p.Recurring.Interval != stripe.PriceRecurringIntervalMonth {
+func subscriptionIsLive(sub *stripe.Subscription) bool {
+	return sub != nil && sub.Status != stripe.SubscriptionStatusCanceled &&
+		sub.Status != stripe.SubscriptionStatusIncompleteExpired
+}
+
+func validateOrgSubscriptionPrice(p *stripe.Price, cfg config.Stripe) error {
+	if p.UnitAmount != cfg.OrgPriceCents || string(p.Currency) != cfg.OrgPriceCurrency ||
+		p.Recurring == nil || string(p.Recurring.Interval) != cfg.OrgPriceInterval {
 		return fmt.Errorf(
-			"organization subscription price must be USD $499/month; Stripe price %s does not match",
-			p.ID,
+			"organization subscription price %s does not match configured %d %s/%s",
+			p.ID, cfg.OrgPriceCents, cfg.OrgPriceCurrency, cfg.OrgPriceInterval,
 		)
 	}
 	return nil
@@ -47,6 +52,17 @@ func (s *Stripe) GetCheckoutSessionURL(
 	err := s.EnabledError()
 	if err != nil {
 		return "", err
+	}
+	if params.TrialPeriodDays > 0 {
+		subscriptions, err := s.ListSubscriptions(params.StripeCustomerID)
+		if err != nil {
+			return "", fmt.Errorf("failed to check existing subscriptions: %w", err)
+		}
+		for _, sub := range subscriptions {
+			if subscriptionIsLive(sub) {
+				return "", fmt.Errorf("customer already has a live subscription")
+			}
+		}
 	}
 
 	defaultSuccessURL := s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
@@ -78,6 +94,8 @@ func (s *Stripe) GetCheckoutSessionURL(
 	}
 	priceResult := price.List(priceParams)
 	var price *stripe.Price
+	// Lookup keys should be unique; if Stripe returns more than one active
+	// match, consistently use the first result.
 	if priceResult.Next() {
 		price = priceResult.Price()
 	}
@@ -88,7 +106,7 @@ func (s *Stripe) GetCheckoutSessionURL(
 		return "", fmt.Errorf("price not found for lookup key %s", priceLookupKey)
 	}
 	if params.OrgID != "" {
-		if err := validateOrgSubscriptionPrice(price); err != nil {
+		if err := validateOrgSubscriptionPrice(price, s.cfg); err != nil {
 			return "", err
 		}
 	}
