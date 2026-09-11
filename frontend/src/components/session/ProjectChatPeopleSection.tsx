@@ -4,6 +4,8 @@ import Typography from '@mui/material/Typography'
 
 import type { TypesOrganizationMembership, TypesPinnedChat, TypesProject, TypesUser } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { TYPOGRAPHY } from '../../styles/typography'
 import ProjectChatPersonGroup from './ProjectChatPersonGroup'
 import { visibleSidebarMembers } from './ProjectChatSidebar.logic'
 import type { SidebarItem, SidebarMember, SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
@@ -58,14 +60,14 @@ const ProjectChatPeopleSection: FC<ProjectChatPeopleSectionProps> = ({
   onArchiveItem,
 }) => {
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   const [showAll, setShowAll] = useState(false)
   const selected = new Set(selectedUserIds)
   const visible = visibleSidebarMembers(members, selected, query, showAll)
-  const mutedColor = lightTheme.isLight ? 'rgba(113,113,122,0.8)' : 'rgba(163,163,163,0.65)'
 
   if (members.length === 0) {
     return (
-      <Typography sx={{ px: 1.25, py: 0.75, fontSize: '12px', color: mutedColor }}>
+      <Typography sx={{ px: 1.25, py: 0.75, fontSize: TYPOGRAPHY.sidebar.metadataFontSize, color: sidebarColors.subtleForeground }}>
         No one else in this organization yet
       </Typography>
     )
@@ -99,7 +101,7 @@ const ProjectChatPeopleSection: FC<ProjectChatPeopleSectionProps> = ({
         />
       ))}
       {query && visible.members.length === 0 && (
-        <Typography sx={{ px: 1.25, py: 0.75, fontSize: '12px', color: mutedColor }}>
+        <Typography sx={{ px: 1.25, py: 0.75, fontSize: TYPOGRAPHY.sidebar.metadataFontSize, color: sidebarColors.subtleForeground }}>
           No members match
         </Typography>
       )}
@@ -114,11 +116,11 @@ const ProjectChatPeopleSection: FC<ProjectChatPeopleSectionProps> = ({
             height: 30,
             px: 1,
             backgroundColor: 'transparent',
-            color: mutedColor,
+            color: sidebarColors.subtleForeground,
             cursor: 'pointer',
             font: 'inherit',
-            fontSize: '12px',
-            '&:hover': { color: lightTheme.isLight ? '#27272a' : '#f1f3f7' },
+            fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+            '&:hover': { color: sidebarColors.foreground },
           }}
         >
           {showAll ? 'Show fewer' : `Show ${visible.hiddenCount} more offline`}

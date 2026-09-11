@@ -132,8 +132,9 @@ func (s *HelixAPIServer) getOrCreateWallet(ctx context.Context, user *types.User
 }
 
 type CreateTopUpRequest struct {
-	Amount float64 `json:"amount"`
-	OrgID  string  `json:"org_id"`
+	Amount    float64 `json:"amount"`
+	OrgID     string  `json:"org_id"`
+	ReturnURL string  `json:"return_url"`
 }
 
 // createTopUp godoc
@@ -157,6 +158,12 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 	if err := json.NewDecoder(req.Body).Decode(&requestBody); err != nil {
 		return "", fmt.Errorf("failed to decode request body: %w", err)
 	}
+	if _, err := stripe.ValidateCheckoutReturnURL(requestBody.ReturnURL); err != nil {
+		return "", err
+	}
+	if requestBody.Amount < 0.50 || requestBody.Amount > 999999.99 {
+		return "", fmt.Errorf("amount must be between $0.50 and $999,999.99")
+	}
 
 	if requestBody.OrgID != "" {
 		org, err := s.lookupOrg(req.Context(), requestBody.OrgID)
@@ -172,11 +179,6 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 		requestBody.OrgID = org.ID
 	}
 
-	// Validate amount
-	if requestBody.Amount <= 0 {
-		return "", fmt.Errorf("amount must be greater than 0")
-	}
-
 	// Get wallet
 	wallet, err := s.getOrCreateWallet(req.Context(), user, requestBody.OrgID)
 	if err != nil {
@@ -188,6 +190,7 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 		OrgID:            requestBody.OrgID,
 		UserID:           user.ID,
 		Amount:           requestBody.Amount,
+		ReturnURL:        requestBody.ReturnURL,
 	}
 
 	if requestBody.OrgID != "" {
@@ -251,6 +254,9 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 	var orgName string
 	orgID := req.URL.Query().Get("org_id")
 	returnURL := req.URL.Query().Get("return_url")
+	if _, err := stripe.ValidateCheckoutReturnURL(returnURL); err != nil {
+		return "", err
+	}
 
 	if orgID != "" {
 		org, err := s.lookupOrg(req.Context(), orgID)

@@ -30,6 +30,8 @@ import {
   useStopBotAgent,
 } from '../../services/helixOrgService'
 import { useSpecTasks } from '../../services/specTaskService'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { TYPOGRAPHY } from '../../styles/typography'
 import { PRESENCE_OFFLINE_COLOR, PRESENCE_ONLINE_COLOR } from '../widgets/PresenceDot'
 import ProjectChatItemRow from './ProjectChatItemRow'
 import ProjectChatShowMore from './ProjectChatShowMore'
@@ -267,6 +269,7 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   onArchiveItem,
 }) => {
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   const isPhone = useIsPhone()
   const searching = !!query.trim()
   const open = !collapsed || searching
@@ -326,17 +329,11 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
           cursor: 'pointer',
           position: 'relative',
           outline: 'none',
-          color: active
-            ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
-            : (lightTheme.isLight ? '#71717a' : 'rgba(163,163,163,0.80)'),
-          backgroundColor: active
-            ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
-            : 'transparent',
+          color: active ? sidebarColors.foreground : sidebarColors.primaryLabel,
+          backgroundColor: active ? sidebarColors.rowSelected : 'transparent',
           '&:hover, &:focus-visible': {
-            color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-            backgroundColor: active
-              ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
-              : (lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)'),
+            color: sidebarColors.foreground,
+            backgroundColor: active ? sidebarColors.rowSelected : sidebarColors.rowHover,
           },
           '&:hover .sidebar-bot-settings, &:focus-within .sidebar-bot-settings': { opacity: 1 },
           '@media (hover: none)': { '& .sidebar-bot-settings': { opacity: 1 } },
@@ -398,9 +395,9 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            fontSize: '14px',
-            lineHeight: '20px',
-            fontWeight: active ? 500 : 400,
+            fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
+            lineHeight: TYPOGRAPHY.sidebar.primaryLineHeight,
+            fontWeight: 500,
           }}
         >
           {bot.name}
@@ -429,7 +426,7 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
         )}
       </Box>
       {open && tasksQuery.isError && (
-        <Typography color="error" sx={{ pl: 2.15, py: 0.5, fontSize: '0.7rem' }}>
+        <Typography color="error" sx={{ pl: 2.15, py: 0.5, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
           Failed to load tasks
         </Typography>
       )}

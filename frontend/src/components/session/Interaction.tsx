@@ -184,6 +184,13 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     return false;
   }
 
+  // In practice this is fixed for the life of an interaction, but it decides
+  // whether a system prompt is on screen — too consequential to leave to a
+  // comparator that happens not to look at it.
+  if (prevProps.hidePrompt !== nextProps.hidePrompt) {
+    return false;
+  }
+
   if (
     prevProps.nextInteraction?.id !== nextProps.nextInteraction?.id ||
     prevProps.nextInteraction?.state !== nextProps.nextInteraction?.state ||
@@ -292,6 +299,16 @@ interface InteractionProps {
    * THIS one has been overtaken by events. See lastSuccessfulInteractionIndex.
    */
   recoveredLater?: boolean;
+  /**
+   * Suppress the user-prompt bubble, keeping the agent's reply.
+   *
+   * For customer-facing embeds, where the opening "user" turn is not something
+   * the customer said — it is the agent's own briefing, sent as the session's
+   * first prompt. Rendering it verbatim showed a candidate on the job board the
+   * whole system prompt, its tool list, and the sandbox scaffolding
+   * (repository paths, the branch to push to) before they had said a word.
+   */
+  hidePrompt?: boolean;
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -307,6 +324,7 @@ export const Interaction: FC<InteractionProps> = ({
   enableDebugCopy = false,
   nextInteraction,
   recoveredLater = false,
+  hidePrompt = false,
 }) => {
   // Memoize computed values
   const displayData = useMemo(() => {
@@ -441,7 +459,7 @@ export const Interaction: FC<InteractionProps> = ({
       onMouseLeave={() => setIsHovering(false)}
     >
       {/* User Message Container */}
-      {userMessage && interaction.trigger !== "org_hire" && (
+      {userMessage && !hidePrompt && interaction.trigger !== "org_hire" && (
         <Box
           sx={{
             display: "flex",

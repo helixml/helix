@@ -65,11 +65,23 @@ import {
 } from "./ChatTurnNavigator.logic";
 import { splitSystemPrefix } from "./CollapsibleSystemPrefix";
 import { isSandboxOffline } from "../external-agent/sandboxState";
+import { seedPromptIndex } from "./minimalChatLogic";
 
 interface EmbeddedSessionViewProps {
   sessionId: string;
   onScrollToBottom?: () => void;
   enableInteractionDebugCopy?: boolean;
+  /**
+   * Customer-facing mode: hide the session's opening prompt.
+   *
+   * The first turn of an agent session is not something the customer said — it
+   * is the agent's briefing, sent as the session's first prompt, and it renders
+   * as a user message like any other. On an embed that meant a candidate on the
+   * job board was shown the entire system prompt, the tool list, and the
+   * sandbox scaffolding (repository paths, the branch to push to) before they
+   * had typed a word. The agent's REPLY to it is kept: that is the greeting.
+   */
+  minimal?: boolean;
 }
 
 export interface EmbeddedSessionViewHandle {
@@ -89,7 +101,7 @@ export interface EmbeddedSessionViewHandle {
 const EmbeddedSessionView = forwardRef<
   EmbeddedSessionViewHandle,
   EmbeddedSessionViewProps
->(({ sessionId, onScrollToBottom, enableInteractionDebugCopy }, ref) => {
+>(({ sessionId, onScrollToBottom, enableInteractionDebugCopy, minimal = false }, ref) => {
   const account = useAccount();
   const api = useApi();
   const lightTheme = useLightTheme();
@@ -527,6 +539,8 @@ const EmbeddedSessionView = forwardRef<
   const totalPages = paginatedData?.totalPages || 1;
   const totalCount = paginatedData?.totalCount || 0;
   const hasOlderInteractions = oldestPageLoaded < totalPages - 1;
+  // The session's opening prompt, or -1 when it is not on screen.
+  const seedIndex = seedPromptIndex(minimal, hasOlderInteractions);
   const remainingOlderCount = Math.max(0, totalCount - totalInteractions);
 
   const isOwner = account.user?.id === session?.owner;
@@ -729,6 +743,7 @@ const EmbeddedSessionView = forwardRef<
                 session_id={sessionId}
                 sessionSteps={sessionSteps?.data || []}
                 enableDebugCopy={enableInteractionDebugCopy}
+                hidePrompt={index === seedIndex}
               >
                 {isLive && (isOwner || account.admin) && (
                   <InteractionLiveStream

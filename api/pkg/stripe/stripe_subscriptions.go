@@ -34,6 +34,22 @@ func (s *Stripe) GetCheckoutSessionURL(
 		return "", err
 	}
 
+	defaultSuccessURL := s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
+	defaultCancelURL := s.cfg.AppURL + "/account?canceled=true"
+	if params.OrgID != "" {
+		defaultSuccessURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
+		defaultCancelURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
+	}
+	successURL, cancelURL, err := checkoutReturnURLs(
+		s.cfg.AppURL,
+		params.ReturnURL,
+		defaultSuccessURL,
+		defaultCancelURL,
+	)
+	if err != nil {
+		return "", err
+	}
+
 	priceLookupKey := s.cfg.PriceLookupKey
 	if params.OrgID != "" {
 		priceLookupKey = s.cfg.OrgPriceLookupKey
@@ -51,24 +67,6 @@ func (s *Stripe) GetCheckoutSessionURL(
 	}
 	if price == nil {
 		return "", fmt.Errorf("price not found")
-	}
-
-	var successURL, cancelURL string
-	if params.ReturnURL != "" {
-		// Use custom return URL if provided
-		successURL = s.cfg.AppURL + params.ReturnURL + "?success=true&session_id={CHECKOUT_SESSION_ID}"
-		cancelURL = s.cfg.AppURL + params.ReturnURL + "?canceled=true"
-	} else {
-		// Use default return URLs
-		successURL = s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
-		if params.OrgID != "" {
-			successURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
-		}
-
-		cancelURL = s.cfg.AppURL + "/account?canceled=true"
-		if params.OrgID != "" {
-			cancelURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
-		}
 	}
 
 	checkoutParams := &stripe.CheckoutSessionParams{
