@@ -13,6 +13,7 @@ import {
   Typography,
 } from "@mui/material";
 import {
+  Bot,
   CloudUpload,
   EllipsisVertical,
   Files,
@@ -37,6 +38,7 @@ import useIsPhone from "../../hooks/useIsPhone";
 
 export type TaskView =
   | "chat"
+  | "agents"
   | "desktop"
   | "browser"
   | "changes"
@@ -125,6 +127,7 @@ const VIEW_TABS: ViewTab[] = [
     sessionOnly: true,
     chatOnly: true,
   },
+  { value: "agents", label: "Agents", icon: Bot, sessionOnly: true },
   { value: "desktop", label: "Desktop", icon: MonitorPlay, sessionOnly: true, foldOnPhone: true },
   { value: "browser", label: "Browser", icon: Globe2, sessionOnly: true },
   { value: "changes", label: "Diff", icon: GitCompare, sessionOnly: true },

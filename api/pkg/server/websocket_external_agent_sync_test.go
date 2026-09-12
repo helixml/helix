@@ -365,9 +365,15 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 	)
 
 	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, lastZedMessageID string) error {
+		func(_ context.Context, _ string, _ int, responseMessage string, responseEntries datatypes.JSON, _ int, lastZedMessageID string) error {
 			s.Equal("Hello from AI", responseMessage)
 			s.Equal("msg-1", lastZedMessageID)
+			var entries []wsprotocol.ResponseEntry
+			s.Require().NoError(json.Unmarshal(responseEntries, &entries))
+			s.Require().Len(entries, 1)
+			s.Equal("call-1", entries[0].ToolCallID)
+			s.Equal("spawn_agent", entries[0].ToolCallName)
+			s.Equal("child-session-1", entries[0].SubagentID)
 			return nil
 		},
 	)
@@ -381,10 +387,14 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 	syncMsg := &types.SyncMessage{
 		EventType: "message_added",
 		Data: map[string]interface{}{
-			"acp_thread_id": "thread-1",
-			"message_id":    "msg-1",
-			"content":       "Hello from AI",
-			"role":          "assistant",
+			"acp_thread_id":  "thread-1",
+			"message_id":     "msg-1",
+			"content":        "Hello from AI",
+			"role":           "assistant",
+			"entry_type":     "tool_call",
+			"tool_call_id":   "call-1",
+			"tool_call_name": "spawn_agent",
+			"subagent_id":    "child-session-1",
 		},
 	}
 
