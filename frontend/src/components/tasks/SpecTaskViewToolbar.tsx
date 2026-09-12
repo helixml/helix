@@ -113,7 +113,7 @@ interface ViewTab {
   chatOnly?: boolean;
   /**
    * Folded into the overflow menu on a phone. Six tabs plus the lifecycle
-   * controls do not fit across 390px, and these three are the ones you visit
+   * controls do not fit across 390px, and these views are the ones you visit
    * deliberately rather than flick between.
    */
   foldOnPhone?: boolean;
@@ -127,11 +127,11 @@ const VIEW_TABS: ViewTab[] = [
     sessionOnly: true,
     chatOnly: true,
   },
-  { value: "agents", label: "Agents", icon: Bot, sessionOnly: true },
   { value: "desktop", label: "Desktop", icon: MonitorPlay, sessionOnly: true, foldOnPhone: true },
   { value: "browser", label: "Browser", icon: Globe2, sessionOnly: true },
   { value: "changes", label: "Diff", icon: GitCompare, sessionOnly: true },
   { value: "files", label: "Files", icon: Files, sessionOnly: true, foldOnPhone: true },
+  { value: "agents", label: "Agents", icon: Bot, sessionOnly: true, foldOnPhone: true },
   {
     value: "details",
     label: "Details",

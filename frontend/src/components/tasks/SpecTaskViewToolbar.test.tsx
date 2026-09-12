@@ -36,9 +36,22 @@ describe("SpecTaskViewToolbar", () => {
       <SpecTaskViewToolbar currentView="chat" onViewChange={vi.fn()} hasSession showChatTab />,
     );
 
-    for (const label of ["Chat", "Agents", "Desktop", "Browser", "Diff", "Files", "Details"]) {
+    for (const label of ["Chat", "Desktop", "Browser", "Diff", "Files", "Agents", "Details"]) {
       expect(screen.getByRole("button", { name: `${label} view` })).toBeInTheDocument();
     }
+    expect(
+      screen.getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label"))
+        .filter((label) => label?.endsWith(" view")),
+    ).toEqual([
+      "Chat view",
+      "Desktop view",
+      "Browser view",
+      "Diff view",
+      "Files view",
+      "Agents view",
+      "Details view",
+    ]);
   });
 
   it("folds the deliberate views into the menu on a phone", () => {
@@ -54,17 +67,17 @@ describe("SpecTaskViewToolbar", () => {
     );
 
     // Only the views you flick between stay inline.
-    for (const label of ["Chat", "Agents", "Browser", "Diff"]) {
+    for (const label of ["Chat", "Browser", "Diff"]) {
       expect(screen.getByRole("button", { name: `${label} view` })).toBeInTheDocument();
     }
-    for (const label of ["Desktop", "Files", "Details"]) {
+    for (const label of ["Desktop", "Files", "Agents", "Details"]) {
       expect(screen.queryByRole("button", { name: `${label} view` })).not.toBeInTheDocument();
     }
 
     fireEvent.click(screen.getByRole("button", { name: "More actions" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Files" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Agents" }));
 
-    expect(onViewChange).toHaveBeenCalledWith("files");
+    expect(onViewChange).toHaveBeenCalledWith("agents");
   });
 
   it("drops the close button on a phone, where the panel is the whole screen", () => {
