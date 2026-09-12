@@ -675,6 +675,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
                 message_id: ep.message_id,
                 tool_name: ep.tool_name || currentEntries[ep.index].tool_name,
                 tool_status: ep.tool_status || currentEntries[ep.index].tool_status,
+                tool_call_id: ep.tool_call_id || currentEntries[ep.index].tool_call_id,
+                tool_call_name: ep.tool_call_name || currentEntries[ep.index].tool_call_name,
+                subagent_id: ep.subagent_id || currentEntries[ep.index].subagent_id,
               };
             }
           }

@@ -102,6 +102,8 @@ import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import AgentChat from "../session/AgentChat";
+import SubagentsPanel from "../session/SubagentsPanel";
+import { mergeStreamingInteraction } from "../session/subagentActivity";
 import { getChatColors } from "../session/chatStyles";
 import type { WorkspaceReviewComment } from "../workspace-inspector/workspaceReviewComments";
 import CodeAgentExecutionControls from "../agent/CodeAgentExecutionControls";
@@ -466,6 +468,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     const viewParam = router.params.view;
     if (
       viewParam === "chat" ||
+      viewParam === "agents" ||
       viewParam === "desktop" ||
       viewParam === "browser" ||
       viewParam === "changes" ||
@@ -492,6 +495,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (
       viewParam &&
       (viewParam === "chat" ||
+        viewParam === "agents" ||
         viewParam === "desktop" ||
         viewParam === "browser" ||
         viewParam === "changes" ||
@@ -736,19 +740,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       ? "starting"
       : "stopped";
 
-  // Subscribe to WebSocket updates for the active session when chat is visible
-  // On big screens: chat is visible unless collapsed
-  // On mobile: chat is visible when currentView === 'chat'
-  const isChatVisible = isBigScreen ? !chatCollapsed : currentView === "chat";
+  // Keep session events flowing while either the chat or agents view is visible.
+  const shouldSubscribeToSession = isBigScreen
+    ? !chatCollapsed || currentView === "agents"
+    : currentView === "chat" || currentView === "agents";
 
   useEffect(() => {
-    if (activeSessionId && isChatVisible) {
+    if (activeSessionId && shouldSubscribeToSession) {
       streaming.setCurrentSessionId(activeSessionId);
     } else {
       // Clear subscription when chat is hidden to disconnect WebSocket
       streaming.setCurrentSessionId(null);
     }
-  }, [activeSessionId, isChatVisible]);
+  }, [activeSessionId, shouldSubscribeToSession]);
 
   // Optimistic UI hook fired the moment the user hits Send: flips the cached
   // session config to external_agent_status="starting" so a paused desktop
@@ -784,6 +788,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     refetchInterval: 3000,
   });
   const sessionData = sessionResponse?.data;
+  const subagentInteractions = mergeStreamingInteraction(
+    sessionData?.interactions || [],
+    activeSessionId ? streaming.currentResponses.get(activeSessionId) : undefined,
+  );
 
   // Keep the streamed Zed desktop foregrounded on the thread of the session the
   // user is actually viewing. A spec task can have multiple sessions/threads
@@ -2681,6 +2689,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
                 {/* In split-view layout, "chat" falls through to desktop since chat
                     is already visible in the left panel */}
+                {currentView === "agents" && (
+                  <SubagentsPanel interactions={subagentInteractions} />
+                )}
                 {!isHeadless && (currentView === "desktop" || currentView === "chat") &&
                   (isTaskCompleted && isDesktopPaused ? (
                     <TaskSessionPlaceholder
@@ -2916,6 +2927,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   onReviewCommentsSent={clearWorkspaceComments}
                 />
               </Box>
+            )}
+
+            {/* Agents View - mobile */}
+            {activeSessionId && currentView === "agents" && (
+              <SubagentsPanel interactions={subagentInteractions} />
             )}
 
             {/* Desktop View - mobile */}

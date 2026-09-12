@@ -11,6 +11,8 @@ import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
 import WorkLog from "./WorkLog";
 import ActivitySummary from "./ActivitySummary";
+import SubagentActivityCard from "./SubagentActivityCard";
+import { parseSubagentEntry } from "./subagentActivity";
 import { SessionPlanProgress } from "./PlanProgress";
 import { getInteractionDurationMs } from "./interactionDuration";
 import ImageLightbox, { LightboxImage } from "./ImageLightbox";
@@ -25,6 +27,9 @@ export interface ResponseEntry {
   message_id: string;
   tool_name?: string;
   tool_status?: string;
+  tool_call_id?: string;
+  tool_call_name?: string;
+  subagent_id?: string;
 }
 
 interface TextActivitySegment {
@@ -46,7 +51,13 @@ interface ToolActivitySegment {
   }>;
 }
 
-type ActivitySegment = TextActivitySegment | ToolActivitySegment;
+interface SubagentActivitySegment {
+  type: "subagent";
+  index: number;
+  entry: ResponseEntry;
+}
+
+type ActivitySegment = TextActivitySegment | ToolActivitySegment | SubagentActivitySegment;
 
 const hasThinking = (content: string) => /<(?:think|thinking)>/i.test(content);
 
@@ -93,6 +104,14 @@ export function buildActivityTimeline(
 
   responseEntries.forEach((entry, index) => {
     if (entry.type === "tool_call") {
+      const subagent = parseSubagentEntry(entry);
+      if (subagent) {
+        currentToolSegment = undefined;
+        if (subagent.action === "start") {
+          activitySegments.push({ type: "subagent", index, entry });
+        }
+        return;
+      }
       const toolEntry = toolActivityEntry(
         entry,
         index,
@@ -244,10 +263,19 @@ export const MessageWithToolCalls: FC<{
       responseEntries,
       isStreaming,
     );
-    const hasActivity = activitySegments.length > 0;
-    const activity = activitySegments.map((segment, segmentIndex) => {
+    const renderActivitySegment = (segment: ActivitySegment, segmentIndex: number) => {
       if (segment.type === "tools") {
         return <WorkLog key={`tool-run-${segmentIndex}`} entries={segment.entries} />;
+      }
+
+      if (segment.type === "subagent") {
+        return (
+          <SubagentActivityCard
+            key={`subagent-${segment.entry.message_id || segment.index}`}
+            entry={segment.entry}
+            isStreaming={isStreaming}
+          />
+        );
       }
 
       return (
@@ -264,7 +292,15 @@ export const MessageWithToolCalls: FC<{
           renderContent={segment.renderContent}
         />
       );
-    });
+    };
+    const subagentActivity = activitySegments
+      .filter((segment) => segment.type === "subagent")
+      .map(renderActivitySegment);
+    const collapsibleActivity = activitySegments
+      .filter((segment) => segment.type !== "subagent")
+      .map(renderActivitySegment);
+    const hasCollapsibleActivity = collapsibleActivity.length > 0;
+    const streamingActivity = activitySegments.map(renderActivitySegment);
     const finalEntry = finalTextIndex === undefined ? undefined : responseEntries[finalTextIndex];
     const finalContent = finalEntry ? (
       <Markdown
@@ -281,7 +317,7 @@ export const MessageWithToolCalls: FC<{
 
     return isStreaming ? (
       <>
-        {activity}
+        {streamingActivity}
         {planProgress}
         <ActivitySummary
           durationMs={durationMs}
@@ -292,13 +328,14 @@ export const MessageWithToolCalls: FC<{
       </>
     ) : (
       <>
+        {subagentActivity}
         <ActivitySummary
           durationMs={durationMs}
-          hasActivity={hasActivity}
+          hasActivity={hasCollapsibleActivity}
           isStreaming={false}
           startedAt={activityStartedAt}
         >
-          {activity}
+          {collapsibleActivity}
         </ActivitySummary>
         {planProgress}
         {finalContent}

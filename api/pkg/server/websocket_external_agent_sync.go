@@ -1238,6 +1238,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	// Structured tool call metadata — sent by Zed for tool_call entries.
 	toolName, _ := syncMsg.Data["tool_name"].(string)
 	toolStatus, _ := syncMsg.Data["tool_status"].(string)
+	toolCallID, _ := syncMsg.Data["tool_call_id"].(string)
+	toolCallName, _ := syncMsg.Data["tool_call_name"].(string)
+	subagentID, _ := syncMsg.Data["subagent_id"].(string)
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -1437,7 +1440,16 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				sctx.previousEntries = currentEntries
 			}
 
-			acc.AddMessageWithToolInfo(messageID, content, entryType, toolName, toolStatus)
+			acc.AddMessageWithMetadata(
+				messageID,
+				content,
+				entryType,
+				toolName,
+				toolStatus,
+				toolCallID,
+				toolCallName,
+				subagentID,
+			)
 
 			if prevMessageID != "" && prevMessageID != messageID {
 				log.Info().
@@ -5017,19 +5029,25 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 			previousEntries[i].Type == entry.Type &&
 			previousEntries[i].MessageID == entry.MessageID &&
 			previousEntries[i].ToolName == entry.ToolName &&
-			previousEntries[i].ToolStatus == entry.ToolStatus {
+			previousEntries[i].ToolStatus == entry.ToolStatus &&
+			previousEntries[i].ToolCallID == entry.ToolCallID &&
+			previousEntries[i].ToolCallName == entry.ToolCallName &&
+			previousEntries[i].SubagentID == entry.SubagentID {
 			continue
 		}
 		epOffset, epPatch, epTotalLen := computePatch(prevContent, entry.Content)
 		entryPatches = append(entryPatches, types.EntryPatch{
-			Index:       i,
-			MessageID:   entry.MessageID,
-			Type:        entry.Type,
-			Patch:       epPatch,
-			PatchOffset: epOffset,
-			TotalLength: epTotalLen,
-			ToolName:    entry.ToolName,
-			ToolStatus:  entry.ToolStatus,
+			Index:        i,
+			MessageID:    entry.MessageID,
+			Type:         entry.Type,
+			Patch:        epPatch,
+			PatchOffset:  epOffset,
+			TotalLength:  epTotalLen,
+			ToolName:     entry.ToolName,
+			ToolStatus:   entry.ToolStatus,
+			ToolCallID:   entry.ToolCallID,
+			ToolCallName: entry.ToolCallName,
+			SubagentID:   entry.SubagentID,
 		})
 	}
 
@@ -5087,14 +5105,17 @@ func buildFullStatePatchEvent(sessionID, owner, interactionID string, entries []
 		// previousContent="" → computePatch returns patchOffset=0, patch=full content
 		epOffset, epPatch, epTotalLen := computePatch("", entry.Content)
 		entryPatches = append(entryPatches, types.EntryPatch{
-			Index:       i,
-			MessageID:   entry.MessageID,
-			Type:        entry.Type,
-			Patch:       epPatch,
-			PatchOffset: epOffset,
-			TotalLength: epTotalLen,
-			ToolName:    entry.ToolName,
-			ToolStatus:  entry.ToolStatus,
+			Index:        i,
+			MessageID:    entry.MessageID,
+			Type:         entry.Type,
+			Patch:        epPatch,
+			PatchOffset:  epOffset,
+			TotalLength:  epTotalLen,
+			ToolName:     entry.ToolName,
+			ToolStatus:   entry.ToolStatus,
+			ToolCallID:   entry.ToolCallID,
+			ToolCallName: entry.ToolCallName,
+			SubagentID:   entry.SubagentID,
 		})
 	}
 	event.EntryPatches = entryPatches

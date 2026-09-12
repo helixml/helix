@@ -36,7 +36,7 @@ describe("SpecTaskViewToolbar", () => {
       <SpecTaskViewToolbar currentView="chat" onViewChange={vi.fn()} hasSession showChatTab />,
     );
 
-    for (const label of ["Chat", "Desktop", "Browser", "Diff", "Files", "Details"]) {
+    for (const label of ["Chat", "Agents", "Desktop", "Browser", "Diff", "Files", "Details"]) {
       expect(screen.getByRole("button", { name: `${label} view` })).toBeInTheDocument();
     }
   });
@@ -54,7 +54,7 @@ describe("SpecTaskViewToolbar", () => {
     );
 
     // Only the views you flick between stay inline.
-    for (const label of ["Chat", "Browser", "Diff"]) {
+    for (const label of ["Chat", "Agents", "Browser", "Diff"]) {
       expect(screen.getByRole("button", { name: `${label} view` })).toBeInTheDocument();
     }
     for (const label of ["Desktop", "Files", "Details"]) {

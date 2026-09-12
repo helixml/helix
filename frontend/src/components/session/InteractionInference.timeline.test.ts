@@ -177,4 +177,26 @@ describe("buildActivityTimeline", () => {
       { type: "tools", entries: [{ toolName: "read_file" }] },
     ]);
   });
+
+  it("keeps subagent work as a dedicated activity card", () => {
+    const entries = [
+      entry("1", "tool_call", "", "read_file"),
+      entry("2", "tool_call", "Reviewing the change", "Start subagent reviewer"),
+      entry("3", "tool_call", "", "Interact with subagent reviewer"),
+      entry("4", "tool_call", "", "bash"),
+      entry("5", "text", "Done"),
+    ];
+
+    const timeline = buildActivityTimeline(entries, false);
+
+    expect(timeline.activitySegments.map((segment) => segment.type)).toEqual([
+      "tools",
+      "subagent",
+      "tools",
+    ]);
+    expect(timeline.activitySegments[1]).toMatchObject({
+      type: "subagent",
+      entry: { tool_name: "Start subagent reviewer" },
+    });
+  });
 });
