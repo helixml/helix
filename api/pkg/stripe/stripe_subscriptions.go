@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -23,6 +24,26 @@ type SubscriptionSessionParams struct {
 	UserID           string
 	Amount           float64
 	ReturnURL        string // Optional custom return URL (overrides default success/cancel URLs)
+	TrialPeriodDays  int64  // Optional card-backed trial; zero creates the subscription without a trial
+}
+
+const onboardingTrialCredits = 1.0
+const trialSourceOnboarding = "onboarding"
+
+func subscriptionIsLive(sub *stripe.Subscription) bool {
+	return sub != nil && sub.Status != stripe.SubscriptionStatusCanceled &&
+		sub.Status != stripe.SubscriptionStatusIncompleteExpired
+}
+
+func validateOrgSubscriptionPrice(p *stripe.Price, cfg config.Stripe) error {
+	if p.UnitAmount != cfg.OrgPriceCents || string(p.Currency) != cfg.OrgPriceCurrency ||
+		p.Recurring == nil || string(p.Recurring.Interval) != cfg.OrgPriceInterval {
+		return fmt.Errorf(
+			"organization subscription price %s does not match configured %d %s/%s",
+			p.ID, cfg.OrgPriceCents, cfg.OrgPriceCurrency, cfg.OrgPriceInterval,
+		)
+	}
+	return nil
 }
 
 func (s *Stripe) GetCheckoutSessionURL(
@@ -31,6 +52,17 @@ func (s *Stripe) GetCheckoutSessionURL(
 	err := s.EnabledError()
 	if err != nil {
 		return "", err
+	}
+	if params.TrialPeriodDays > 0 {
+		subscriptions, err := s.ListSubscriptions(params.StripeCustomerID)
+		if err != nil {
+			return "", fmt.Errorf("failed to check existing subscriptions: %w", err)
+		}
+		for _, sub := range subscriptions {
+			if subscriptionIsLive(sub) {
+				return "", fmt.Errorf("customer already has a live subscription")
+			}
+		}
 	}
 
 	defaultSuccessURL := s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
@@ -55,17 +87,28 @@ func (s *Stripe) GetCheckoutSessionURL(
 	}
 
 	priceParams := &stripe.PriceListParams{
+		Active: stripe.Bool(true),
 		LookupKeys: stripe.StringSlice([]string{
 			priceLookupKey,
 		}),
 	}
 	priceResult := price.List(priceParams)
 	var price *stripe.Price
-	for priceResult.Next() {
+	// Lookup keys should be unique; if Stripe returns more than one active
+	// match, consistently use the first result.
+	if priceResult.Next() {
 		price = priceResult.Price()
 	}
+	if err := priceResult.Err(); err != nil {
+		return "", fmt.Errorf("failed to find price for lookup key %s: %w", priceLookupKey, err)
+	}
 	if price == nil {
-		return "", fmt.Errorf("price not found")
+		return "", fmt.Errorf("price not found for lookup key %s", priceLookupKey)
+	}
+	if params.OrgID != "" {
+		if err := validateOrgSubscriptionPrice(price, s.cfg); err != nil {
+			return "", err
+		}
 	}
 
 	checkoutParams := &stripe.CheckoutSessionParams{
@@ -87,6 +130,11 @@ func (s *Stripe) GetCheckoutSessionURL(
 		Customer:   stripe.String(params.StripeCustomerID),
 		SuccessURL: stripe.String(successURL),
 		CancelURL:  stripe.String(cancelURL),
+	}
+	if params.TrialPeriodDays > 0 {
+		checkoutParams.PaymentMethodCollection = stripe.String("always")
+		checkoutParams.SubscriptionData.TrialPeriodDays = stripe.Int64(params.TrialPeriodDays)
+		checkoutParams.SubscriptionData.Metadata["trial_source"] = trialSourceOnboarding
 	}
 
 	newSession, err := session.New(checkoutParams)
@@ -151,6 +199,7 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 		return err
 	}
 
+	wasTrialing := wallet.SubscriptionStatus == stripe.SubscriptionStatusTrialing
 	wallet.StripeSubscriptionID = subscription.ID
 	wallet.SubscriptionCurrentPeriodStart = subscription.CurrentPeriodStart
 	wallet.SubscriptionCurrentPeriodEnd = subscription.CurrentPeriodEnd
@@ -166,6 +215,28 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 	_, err = s.store.UpdateWallet(ctx, wallet)
 	if err != nil {
 		return fmt.Errorf("failed to update wallet: %w", err)
+	}
+
+	if subscription.Metadata["trial_source"] == trialSourceOnboarding {
+		meta := types.TransactionMetadata{
+			StripeSubscriptionID: subscription.ID,
+			UserID:               subscription.Metadata["user_id"],
+		}
+		trialCanceled := (eventType == types.SubscriptionEventTypeDeleted && wasTrialing) ||
+			(subscription.Status == stripe.SubscriptionStatusTrialing && subscription.CancelAtPeriodEnd)
+		if trialCanceled {
+			meta.TransactionType = types.TransactionTypeTrialRevoke
+			meta.IdempotencyKey = "trial-credit-revoke:" + subscription.ID
+			if _, err := s.store.UpdateWalletBalance(ctx, wallet.ID, -onboardingTrialCredits, meta); err != nil {
+				return fmt.Errorf("failed to revoke trial credits: %w", err)
+			}
+		} else if subscription.Status == stripe.SubscriptionStatusTrialing {
+			meta.TransactionType = types.TransactionTypeTrialCredit
+			meta.IdempotencyKey = "trial-credit-grant:" + subscription.ID
+			if _, err := s.store.UpdateWalletBalance(ctx, wallet.ID, onboardingTrialCredits, meta); err != nil {
+				return fmt.Errorf("failed to grant trial credits: %w", err)
+			}
+		}
 	}
 
 	return nil

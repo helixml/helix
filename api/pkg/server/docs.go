@@ -22550,6 +22550,12 @@ const docTemplate = `{
                         "description": "Organization ID",
                         "name": "org_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Discover a subscription after returning from Checkout",
+                        "name": "discover_subscription",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -23388,7 +23394,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "owner": {
-                    "description": "Owner makes this a manager Bot: it receives the canonical owner\ntool set (every org-graph mutation - create_bot, delete_bot,\nset_bot_content, subscribe, ... - plus the read baseline) so it can\nhire and manage other Nodes. When true, Tools is ignored in favour\nof that set. Used to seed a starter/root Bot for a new org.",
+                    "description": "Owner makes this a manager Bot: it receives the canonical owner\ntool set (standard worker tools plus org-management mutations such as\ncreate_bot, delete_bot, and set_bot_content) so it can hire and manage\nother Nodes. When true, Tools is ignored in favour of that set. Used to\nseed a starter/root Bot for a new org.",
                     "type": "boolean"
                 },
                 "parent_id": {
@@ -23415,6 +23421,7 @@ const docTemplate = `{
                     ]
                 },
                 "tools": {
+                    "description": "Tools contains additions to the standard worker tool set.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -27943,23 +27950,23 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "cron",
                 "email",
                 "webhook",
-                "local",
                 "gitlab",
-                "slack",
+                "local",
                 "helix_events",
+                "slack",
+                "cron",
                 "github"
             ],
             "x-enum-varnames": [
-                "KindCron",
                 "KindEmail",
                 "KindWebhook",
-                "KindLocal",
                 "KindGitLab",
-                "KindSlack",
+                "KindLocal",
                 "KindHelixEvents",
+                "KindSlack",
+                "KindCron",
                 "KindGitHub"
             ]
         },

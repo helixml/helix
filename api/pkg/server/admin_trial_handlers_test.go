@@ -195,7 +195,14 @@ func (*adminTrialStripeBackend) CallStreaming(string, string, string, stripeapi.
 func (b *adminTrialStripeBackend) CallRaw(method, path, _ string, _ *form.Values, _ *stripeapi.Params, out stripeapi.LastResponseSetter) error {
 	require.Equal(b.t, http.MethodGet, method)
 	require.Equal(b.t, "/v1/prices", path)
-	*out.(*stripeapi.PriceList) = stripeapi.PriceList{Data: []*stripeapi.Price{{ID: "price-trial"}}}
+	*out.(*stripeapi.PriceList) = stripeapi.PriceList{Data: []*stripeapi.Price{{
+		ID:         "price-trial",
+		Currency:   stripeapi.CurrencyUSD,
+		UnitAmount: 49900,
+		Recurring: &stripeapi.PriceRecurring{
+			Interval: stripeapi.PriceRecurringIntervalMonth,
+		},
+	}}}
 	return nil
 }
 func (*adminTrialStripeBackend) CallMultipart(string, string, string, string, *bytes.Buffer, *stripeapi.Params, stripeapi.LastResponseSetter) error {
@@ -232,6 +239,9 @@ func TestAdminActivateTrial_AppliesStripeTrialToSelectedOrgAndApprovesUser(t *te
 	cfg.Stripe.SecretKey = "sk_test"
 	cfg.Stripe.WebhookSigningSecret = "whsec_test"
 	cfg.Stripe.OrgPriceLookupKey = "org-trial"
+	cfg.Stripe.OrgPriceCents = 49900
+	cfg.Stripe.OrgPriceCurrency = "usd"
+	cfg.Stripe.OrgPriceInterval = "month"
 	s := &HelixAPIServer{Store: db, Cfg: cfg, Stripe: helixstripe.NewStripe(cfg.Stripe, db)}
 
 	resp, err := s.adminActivateTrial(httptest.NewRecorder(), activateTrialRequest(t, ActivateTrialRequest{Days: 30, OrgID: "org-b"}))

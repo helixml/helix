@@ -12,6 +12,7 @@ const mockV1OrgsSettingsUpdate = vi.fn()
 const mockV1SubscriptionNewCreate = vi.fn()
 const mockV1TopUpsNewCreate = vi.fn()
 const mockRefetchWallet = vi.fn()
+const mockUseGetWallet = vi.fn()
 const mockCreateOrgMutateAsync = vi.fn()
 const mockUpdateHarnesses = vi.fn()
 const onboardingDraftKey = 'helix_onboarding_draft:v1:user-1'
@@ -133,17 +134,20 @@ vi.mock('../services/providersService', () => ({
 vi.mock('../services/useBilling', () => ({
   TOP_UP_AMOUNTS: [5, 10, 20, 50, 100],
   DEFAULT_TOP_UP_AMOUNT: 5,
-  useGetWallet: () => ({
-    data: {
-      subscription_status: mockState.walletStatus,
-      subscription_created: 0,
-      subscription_current_period_start: 0,
-      subscription_current_period_end: 0,
-      balance: mockState.walletBalance,
-    },
-    refetch: mockRefetchWallet,
-    isFetching: false,
-  }),
+  useGetWallet: (...args: unknown[]) => {
+    mockUseGetWallet(...args)
+    return {
+      data: {
+        subscription_status: mockState.walletStatus,
+        subscription_created: 0,
+        subscription_current_period_start: 0,
+        subscription_current_period_end: 0,
+        balance: mockState.walletBalance,
+      },
+      refetch: mockRefetchWallet,
+      isFetching: false,
+    }
+  },
 }))
 
 vi.mock('../components/account/ClaudeSubscriptionConnect', () => ({
@@ -616,6 +620,49 @@ describe('Onboarding', () => {
     expect(window.location.search).toBe('?org_id=org-1&step=provider&created_org=true')
   })
 
+  it('shows confirmation and refreshes the wallet after returning from subscription checkout', async () => {
+    mockState.walletStatus = 'not_subscribed'
+    setAccountWithOrgs([
+      { id: 'org-1', name: 'my-org', display_name: 'My Org', owner: 'user-1' },
+    ])
+    window.history.replaceState(
+      {},
+      '',
+      '/onboarding?org_id=org-1&success=true&session_id=cs_1',
+    )
+
+    renderOnboarding()
+
+    expect(await screen.findByText('Confirming your free trial with Stripe...')).toBeInTheDocument()
+    expect(mockUseGetWallet).toHaveBeenCalledWith('org-1', true, true)
+    await waitFor(() => expect(mockRefetchWallet).toHaveBeenCalled())
+  })
+
+  it('never offers a second trial after successful checkout confirmation times out', async () => {
+    mockState.walletStatus = 'not_subscribed'
+    window.history.replaceState(
+      {},
+      '',
+      '/onboarding?org_id=org-1&success=true&session_id=cs_slow_webhook',
+    )
+    let refresh: (() => Promise<void>) | undefined
+    const intervalSpy = vi.spyOn(window, 'setInterval').mockImplementation((function mockInterval(callback: TimerHandler) {
+      refresh = callback as () => Promise<void>
+      return 1
+    }) as typeof window.setInterval)
+
+    renderOnboarding()
+    expect(await screen.findByText('Confirming your free trial with Stripe...')).toBeInTheDocument()
+    expect(refresh).toBeDefined()
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      await act(async () => refresh?.())
+    }
+
+    expect(screen.getByRole('button', { name: /confirming your trial/i })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /start 72-hour free trial/i })).not.toBeInTheDocument()
+    intervalSpy.mockRestore()
+  })
+
   it('requires a non-owner to ask the owner before changing subscription policy', async () => {
     setAccountWithOrgs([
       { id: 'org-1', name: 'my-org', display_name: 'My Org', owner: 'another-user' },
@@ -697,9 +744,9 @@ describe('Onboarding', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Create organization' }))
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /start subscription/i })).toBeEnabled()
+      expect(screen.getByRole('button', { name: /start 72-hour free trial/i })).toBeEnabled()
     })
-    fireEvent.click(screen.getByRole('button', { name: /start subscription/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start 72-hour free trial/i }))
 
     await waitFor(() => expect(mockV1SubscriptionNewCreate).toHaveBeenCalledWith({
       org_id: 'org-2',
@@ -748,5 +795,9 @@ describe('Onboarding', () => {
     })
     expect(screen.queryByText(/status: not_subscribed/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/current balance:/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/72-hour trial includes \$1 in AI credits/i)).toBeInTheDocument()
+    expect(screen.getByText(/card will not be charged during the trial/i)).toBeInTheDocument()
+    expect(screen.getByText(/automatically continues for \$499\/month/i)).toBeInTheDocument()
+    expect(screen.getByText(/cancel before the trial ends/i)).toBeInTheDocument()
   })
 })

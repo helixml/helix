@@ -10,7 +10,7 @@ export const userWalletQueryKey = (orgId?: string) => [
   orgId
 ];
 
-export function useGetWallet(orgId?: string, enabled?: boolean) {
+export function useGetWallet(orgId?: string, enabled?: boolean, discoverSubscription?: boolean) {
   const api = useApi()
   const apiClient = api.getApiClient()  
 
@@ -18,7 +18,8 @@ export function useGetWallet(orgId?: string, enabled?: boolean) {
     queryKey: userWalletQueryKey(orgId),
     queryFn: async () => {
       const response = await apiClient.v1WalletList({
-        org_id: orgId
+        org_id: orgId,
+        discover_subscription: discoverSubscription,
       })
       return response.data
     },

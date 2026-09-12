@@ -202,6 +202,55 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 			}
 		}
 
+		if meta.IdempotencyKey != "" {
+			var count int64
+			if err := tx.Model(&types.Transaction{}).Where("idempotency_key = ?", meta.IdempotencyKey).Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				return nil
+			}
+		}
+
+		if meta.TransactionType == types.TransactionTypeTrialCredit {
+			if meta.UserID == "" || meta.StripeSubscriptionID == "" || meta.IdempotencyKey == "" {
+				return fmt.Errorf("trial credit requires user_id, stripe_subscription_id, and idempotency_key")
+			}
+			var count int64
+			if err := tx.Model(&types.Transaction{}).
+				Where("trial_credit_user_id = ?", meta.UserID).
+				Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				return nil
+			}
+		}
+
+		if meta.TransactionType == types.TransactionTypeTrialRevoke {
+			if meta.StripeSubscriptionID == "" || meta.IdempotencyKey == "" {
+				return fmt.Errorf("trial credit revoke requires stripe_subscription_id and idempotency_key")
+			}
+			var grant types.Transaction
+			err := tx.Where("type = ? AND stripe_subscription_id = ?", types.TransactionTypeTrialCredit, meta.StripeSubscriptionID).
+				First(&grant).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				amount = 0
+			} else if err != nil {
+				return err
+			} else {
+				var spent float64
+				if err := tx.Model(&types.Transaction{}).
+					Select("COALESCE(SUM(-amount), 0)").
+					Where("wallet_id = ? AND created_at >= ? AND amount < 0", grant.WalletID, grant.CreatedAt).
+					Scan(&spent).Error; err != nil {
+					return err
+				}
+				remaining := max(grant.Amount-spent, 0)
+				amount = -min(remaining, wallet.Balance)
+			}
+		}
+
 		currentBalance := wallet.Balance
 		if currentBalance+amount < 0 {
 			return fmt.Errorf("insufficient balance: current balance %.2f, attempted to deduct %.2f",
@@ -222,21 +271,33 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 			return ErrNotFound
 		}
 
+		var idempotencyKey *string
+		if meta.IdempotencyKey != "" {
+			idempotencyKey = &meta.IdempotencyKey
+		}
+		var trialCreditUserID *string
+		if meta.TransactionType == types.TransactionTypeTrialCredit {
+			trialCreditUserID = &meta.UserID
+		}
 		transaction := &types.Transaction{
-			ID:                 system.GenerateTransactionID(),
-			CreatedAt:          time.Now(),
-			UpdatedAt:          time.Now(),
-			WalletID:           walletID,
-			Amount:             amount,
-			BalanceBefore:      currentBalance,
-			BalanceAfter:       currentBalance + amount,
-			Type:               meta.TransactionType,
-			InteractionID:      meta.InteractionID,
-			LLMCallID:          meta.LLMCallID,
-			SandboxID:          meta.SandboxID,
-			SandboxRuntime:     meta.SandboxRuntime,
-			SandboxPricingType: meta.SandboxPricingType,
-			TopUpID:            meta.TopUpID,
+			ID:                   system.GenerateTransactionID(),
+			CreatedAt:            time.Now(),
+			UpdatedAt:            time.Now(),
+			WalletID:             walletID,
+			Amount:               amount,
+			BalanceBefore:        currentBalance,
+			BalanceAfter:         currentBalance + amount,
+			Type:                 meta.TransactionType,
+			InteractionID:        meta.InteractionID,
+			LLMCallID:            meta.LLMCallID,
+			SandboxID:            meta.SandboxID,
+			SandboxRuntime:       meta.SandboxRuntime,
+			SandboxPricingType:   meta.SandboxPricingType,
+			TopUpID:              meta.TopUpID,
+			StripeSubscriptionID: meta.StripeSubscriptionID,
+			UserID:               meta.UserID,
+			IdempotencyKey:       idempotencyKey,
+			TrialCreditUserID:    trialCreditUserID,
 		}
 
 		if err := tx.Create(transaction).Error; err != nil {

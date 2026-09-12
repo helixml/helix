@@ -60,6 +60,9 @@ type TransactionMetadata struct {
 	TopUpID                 string          `json:"top_up_id"`
 	StripePaymentIntentID   string          `json:"stripe_payment_intent_id"`
 	StripeCheckoutSessionID string          `json:"stripe_checkout_session_id"`
+	StripeSubscriptionID    string          `json:"stripe_subscription_id"`
+	UserID                  string          `json:"user_id"`
+	IdempotencyKey          string          `json:"idempotency_key"`
 	TransactionType         TransactionType `json:"transaction_type"`
 }
 
@@ -69,6 +72,8 @@ const (
 	TransactionTypeUsage        TransactionType = "usage"
 	TransactionTypeTopUp        TransactionType = "top_up"
 	TransactionTypeSubscription TransactionType = "subscription"
+	TransactionTypeTrialCredit  TransactionType = "trial_credit"
+	TransactionTypeTrialRevoke  TransactionType = "trial_credit_revoke"
 	// TransactionTypeAdminGrant marks a balance change written by an admin
 	// outside of any Stripe flow (e.g. comping a customer with credits when
 	// they already have an active subscription). Carries no Stripe ids.
@@ -95,6 +100,11 @@ type Transaction struct {
 	SandboxPricingType string         `json:"sandbox_pricing_type"`
 
 	TopUpID string `json:"top_up_id"` // For top-ups
+
+	StripeSubscriptionID string  `json:"stripe_subscription_id" gorm:"index"`
+	UserID               string  `json:"user_id" gorm:"index"`
+	IdempotencyKey       *string `json:"idempotency_key,omitempty" gorm:"uniqueIndex"`
+	TrialCreditUserID    *string `json:"-" gorm:"uniqueIndex"`
 }
 
 type TopUp struct {
