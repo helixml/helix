@@ -48,6 +48,51 @@ describe("subagent activity", () => {
     });
   });
 
+  it("recognizes the legacy Codex spawnAgent tool name", () => {
+    expect(parseSubagentEntry({
+      type: "tool_call",
+      message_id: "6",
+      tool_call_id: "exec-3bb6759f",
+      tool_name: "spawnAgent",
+      tool_status: "In Progress",
+      content: "**Tool Call: spawnAgent**\nStatus: In Progress\n\n",
+    })).toEqual({
+      id: "exec-3bb6759f",
+      name: "Subagent",
+      action: "start",
+      label: "spawnAgent",
+      detail: "",
+      status: "running",
+    });
+  });
+
+  it("recognizes OpenCode task envelopes from Qwen and GLM", () => {
+    expect(parseSubagentEntry({
+      type: "tool_call",
+      message_id: "2",
+      tool_call_id: "tool-1",
+      tool_name: "Calculate 17 times 19",
+      tool_status: "Completed",
+      content: [
+        "**Tool Call: Calculate 17 times 19**",
+        "Status: Completed",
+        "",
+        '<task id="ses_child_1" state="completed">',
+        "<task_result>",
+        "323",
+        "</task_result>",
+        "</task>",
+      ].join("\n"),
+    })).toEqual({
+      id: "ses_child_1",
+      name: "Calculate 17 times 19",
+      action: "start",
+      label: "Calculate 17 times 19",
+      detail: "323",
+      status: "completed",
+    });
+  });
+
   it("hides empty terminal output", () => {
     expect(subagentEntryDetail(
       "**Tool Call: pwd**\nStatus: Completed\n\nTerminal:\n```\n\n```\n",
@@ -101,6 +146,25 @@ describe("subagent activity", () => {
         { label: "Run cargo test", detail: "All tests passed" },
       ],
     });
+  });
+
+  it("keeps legacy Codex spawns distinct and completes them after matching closes", () => {
+    const runs = collectSubagentRuns([{
+      ...interaction([], "legacy-codex-turn"),
+      state: "complete",
+      response_entries: [
+        { type: "tool_call", message_id: "6", tool_call_id: "spawn-1", tool_name: "spawnAgent", tool_status: "In Progress" },
+        { type: "tool_call", message_id: "7", tool_call_id: "spawn-2", tool_name: "spawnAgent", tool_status: "In Progress" },
+        { type: "tool_call", message_id: "17", tool_call_id: "close-1", tool_name: "closeAgent", tool_status: "Completed" },
+        { type: "tool_call", message_id: "18", tool_call_id: "close-2", tool_name: "closeAgent", tool_status: "Completed" },
+      ],
+    } as unknown as TypesInteraction]);
+
+    expect(runs).toHaveLength(2);
+    expect(runs.map((run) => ({ name: run.name, status: run.status }))).toEqual([
+      { name: "Subagent 1", status: "completed" },
+      { name: "Subagent 2", status: "completed" },
+    ]);
   });
 
   it("lets streamed entries replace the persisted interaction", () => {

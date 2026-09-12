@@ -60,6 +60,25 @@ export interface ParsedSubagentEntry {
 const START_PATTERN = /^(?:start|spawn|launch)(?:ing)?\s+(?:a\s+)?sub-?agent(?:\s+|:\s*)(.+)$/i;
 const INTERACT_PATTERN = /^(?:interact with|resume|steer|message|wait for|stop)\s+(?:the\s+)?sub-?agent(?:\s+|:\s*)(.+)$/i;
 
+const normalizeToolName = (value?: string) =>
+  value?.replace(/[^a-z0-9]/gi, "").toLocaleLowerCase() || "";
+
+const isGenericSpawnEntry = (entry: SubagentResponseEntry) =>
+  normalizeToolName(entry.tool_call_name || entry.tool_name) === "spawnagent";
+
+const isGenericCloseEntry = (entry: SubagentResponseEntry) =>
+  normalizeToolName(entry.tool_call_name || entry.tool_name) === "closeagent";
+
+const parseTaskEnvelope = (content?: string) => {
+  const task = content?.match(/<task\b([^>]*)>([\s\S]*?)(?:<\/task>|$)/i);
+  if (!task) return null;
+  const id = task[1].match(/\bid=["']([^"']+)["']/i)?.[1];
+  if (!id) return null;
+  const state = task[1].match(/\bstate=["']([^"']+)["']/i)?.[1];
+  const result = task[2].match(/<task_result>([\s\S]*?)(?:<\/task_result>|$)/i)?.[1]?.trim() || "";
+  return { id, state, result };
+};
+
 const cleanAgentName = (value: string) => value
   .replace(/\\([_\-*`])/g, "$1")
   .replace(/^['"`]+|['"`]+$/g, "")
@@ -75,6 +94,8 @@ const statusFromTool = (value?: string): SubagentStatus => {
 
 export const subagentEntryDetail = (content?: string): string => {
   if (!content) return "";
+  const task = parseTaskEnvelope(content);
+  if (task) return task.result;
   const detail = content
     .replace(/^\*\*Tool Call:[\s\S]*?\*\*\s*\n?/i, "")
     .replace(/^Status:\s*[^\n]*\n?/i, "")
@@ -90,23 +111,31 @@ export const parseSubagentEntry = (
   const start = label.match(START_PATTERN);
   const interact = label.match(INTERACT_PATTERN);
   const match = start || interact;
-  const structuredSpawn = entry.tool_call_name === "spawn_agent";
+  const task = parseTaskEnvelope(entry.content);
+  const structuredSpawn = isGenericSpawnEntry(entry);
   const childActivity = entry.message_id?.startsWith("subagent:") || false;
-  if (!match && !entry.subagent_id && !structuredSpawn) return null;
+  if (!match && !entry.subagent_id && !structuredSpawn && !task) return null;
 
-  const name = cleanAgentName(match?.[1] || label || entry.subagent_id || "");
+  const name = cleanAgentName(
+    match?.[1]
+      || (structuredSpawn && normalizeToolName(label) === "spawnagent" ? "Subagent" : label)
+      || entry.subagent_id
+      || "",
+  );
   if (!name) return null;
   return {
-    id: entry.subagent_id || name.toLocaleLowerCase(),
+    id: entry.subagent_id || task?.id
+      || (!match && structuredSpawn ? entry.tool_call_id || entry.message_id : "")
+      || name.toLocaleLowerCase(),
     name,
     action: childActivity
       ? "activity"
-      : start || structuredSpawn
+      : start || structuredSpawn || task
         ? "start"
         : "interact",
     label,
-    detail: subagentEntryDetail(entry.content),
-    status: statusFromTool(entry.tool_status),
+    detail: task?.result || subagentEntryDetail(entry.content),
+    status: statusFromTool(task?.state || entry.tool_status),
   };
 };
 
@@ -114,6 +143,8 @@ export const collectSubagentRuns = (
   interactions: readonly TypesInteraction[],
 ): SubagentRun[] => {
   const runs = new Map<string, SubagentRun>();
+  const unnamedRunNames = new Map<string, string>();
+  let unnamedRunCount = 0;
 
   for (const interaction of interactions) {
     const entries = interaction.response_entries as unknown as SubagentResponseEntry[] | undefined;
@@ -121,14 +152,26 @@ export const collectSubagentRuns = (
     const createdAt = interaction.created || interaction.updated || new Date(0).toISOString();
     const updatedAt = interaction.updated || createdAt;
     const interactionIsLive = interaction.state === "waiting" || interaction.state === "editing";
+    const genericSpawnCount = entries.filter(isGenericSpawnEntry).length;
+    const allGenericSpawnsClosed = interaction.state === "complete"
+      && genericSpawnCount > 0
+      && entries.filter(isGenericCloseEntry).length >= genericSpawnCount;
 
     for (const entry of entries) {
       const parsed = parseSubagentEntry(entry);
       if (!parsed) continue;
       const key = parsed.id.toLocaleLowerCase();
-      const status = interactionIsLive && parsed.status === "completed"
-        ? "running"
-        : parsed.status;
+      const unnamedGenericSpawn = parsed.name === "Subagent" && isGenericSpawnEntry(entry);
+      if (unnamedGenericSpawn && !unnamedRunNames.has(key)) {
+        unnamedRunCount += 1;
+        unnamedRunNames.set(key, `Subagent ${unnamedRunCount}`);
+      }
+      const name = unnamedRunNames.get(key) || parsed.name;
+      const status = allGenericSpawnsClosed && unnamedGenericSpawn
+        ? "completed"
+        : interactionIsLive && parsed.status === "completed"
+          ? "running"
+          : parsed.status;
       const action: SubagentAction = {
         id: entry.tool_call_id || `${interaction.id || "interaction"}:${entry.message_id || parsed.label}`,
         label: parsed.label,
@@ -144,7 +187,7 @@ export const collectSubagentRuns = (
         else actions.push(action);
         runs.set(key, {
           ...existing,
-          name: parsed.action === "start" ? parsed.name : existing.name,
+          name: parsed.action === "start" ? name : existing.name,
           status,
           updatedAt,
           actions,
@@ -152,7 +195,7 @@ export const collectSubagentRuns = (
       } else {
         runs.set(key, {
           id: key,
-          name: parsed.name,
+          name,
           status,
           startedAt: createdAt,
           updatedAt,
