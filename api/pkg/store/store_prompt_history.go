@@ -81,6 +81,14 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 			}
 			synced++
 		} else {
+			// Now that the queue is readable by every viewer of the task, a client
+			// caches other people's entries too and would push them straight back.
+			// Someone else's prompt is read-only to us: skip it rather than let one
+			// viewer rewrite another's queued content or ordering.
+			if existingEntry.UserID != userID {
+				continue
+			}
+
 			// Entry exists - only update frontend-owned fields
 			// Preserve backend-owned fields: status, retryCount, nextRetryAt
 			updateFields := map[string]interface{}{
@@ -103,8 +111,13 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 	// Return all non-deleted entries so the client can merge. Scope by spec_task
 	// (spec-task queue) or by session (org-chat / bot session queue with no spec
 	// task) depending on which the request carries.
+	//
+	// NOT scoped by user_id, deliberately and necessarily: this set must match
+	// what ListPromptHistory returns. usePromptHistory treats a locally-known
+	// entry that is absent from the authoritative list as failed, so if the two
+	// disagree the client marks other people's live prompts failed.
 	scoped := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND deleted_at IS NULL", userID)
+		Where("deleted_at IS NULL")
 	if req.SpecTaskID != "" {
 		scoped = scoped.Where("spec_task_id = ?", req.SpecTaskID)
 	} else {
@@ -381,6 +394,29 @@ func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string,
 		Error
 }
 
+// RevertPromptToPending returns a claimed prompt to the queue after a defer that
+// is NOT a failure — the session was mid-turn, so the prompt was never dispatched
+// and nothing went wrong. Clears next_retry_at (a stale backoff from an earlier
+// genuine failure would otherwise gate re-selection) and error_message (so the UI
+// stops showing "Failed - retrying" for a prompt that is merely waiting).
+//
+// retry_count is deliberately left untouched: it bounds genuine failures, and a
+// defer must neither charge nor forgive that budget. Charging it is how a queued
+// message used to be silently dropped forever — every user interrupt fires
+// processAnyPendingPrompt, each busy-defer burnt one of the 20 retries, and at 20
+// the selectors stop seeing the row. See design/tasks/003021_queued-agent-messages.
+func (s *PostgresStore) RevertPromptToPending(ctx context.Context, promptID string) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.PromptHistoryEntry{}).
+		Where("id = ?", promptID).
+		Updates(map[string]interface{}{
+			"status":        "pending",
+			"next_retry_at": nil,
+			"error_message": "",
+		}).
+		Error
+}
+
 // MarkPromptAsCrashed marks a prompt as failed but pins next_retry_at to a
 // far-future sentinel so the queue's auto-retry never picks it back up. Used
 // for terminal failures (the Claude Agent process inside Zed exited and Helix
@@ -505,10 +541,30 @@ func (s *PostgresStore) ResetCrashedPromptsForSession(ctx context.Context, sessi
 	return int(result.RowsAffected), nil
 }
 
-// ListPromptHistory returns prompt history entries for a user
-func (s *PostgresStore) ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error) {
+// ListPromptHistory returns prompt history entries for a spec task or session.
+//
+// The queue belongs to the AGENT, not to whoever typed the message: a prompt
+// queued by a teammate or by an org bot under a different account is still going
+// to run on this session, so it must be visible. Callers therefore scope by
+// spec task / session and authorize the caller against THAT, and only set
+// req.UserID when they deliberately want one user's rows.
+func (s *PostgresStore) ListPromptHistory(ctx context.Context, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error) {
+	// Refuse to run unscoped: without this an empty request would return every
+	// prompt in the table. The handler already requires spec_task_id or
+	// session_id; this is the backstop for any future caller.
+	if req.SpecTaskID == "" && req.SessionID == "" && req.UserID == "" {
+		return nil, fmt.Errorf("ListPromptHistory: one of SpecTaskID, SessionID or UserID is required")
+	}
+
+	// Soft-deleted prompts must stay deleted — matches ListPromptHistoryBySpecTask
+	// and ListPromptHistoryBySession. Applied before the count so Total agrees.
 	query := s.gdb.WithContext(ctx).
-		Where("user_id = ?", userID)
+		Where("deleted_at IS NULL")
+
+	// Filter by owner only when the caller explicitly asks for it.
+	if req.UserID != "" {
+		query = query.Where("user_id = ?", req.UserID)
+	}
 
 	// Filter by spec task (required - history is per-spec-task)
 	if req.SpecTaskID != "" {
