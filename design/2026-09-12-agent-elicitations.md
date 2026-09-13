@@ -96,8 +96,8 @@ Key facts verified in the shipped artifacts:
   https://github.com/pingdotgg/t3code/pull/6432.
 - The current Zed registry installs `@agentclientprotocol/codex-acp` 1.11.0,
   whose `CodexElicitationHandler` already converts the App Server request to
-  ACP form elicitation. Support landed upstream in July 2026:
-  https://github.com/agentclientprotocol/codex-acp/commit/bd213acc9932d3015633cb071d38cab472b11560.
+  ACP form elicitation. Support landed upstream in April 2026:
+  https://github.com/agentclientprotocol/codex-acp/commit/2798159140a128ef2375eca1c9336cb2179b6960.
   Helix enables the Default-mode feature in Codex's generated config. Zed also
   recognizes codex-acp's `_meta.codex.isOtherAnswer` companion property so it
   renders one question and returns custom text through the correct field.
@@ -374,6 +374,10 @@ gates; their state transitions are covered by focused tests.
   `default_mode_request_user_input` under development, and the App Server marks
   Default-mode requests non-blocking. Keep the live timeout/resume behavior in
   the provider test matrix. Plan mode remains the stable blocking path.
+- **Invalid Codex feature configuration**: settings-sync-daemon merge-preserves
+  an existing `[features]` table, but fails closed if `features` is a scalar or
+  array. In that case the Codex agent server is withheld instead of replacing
+  malformed user configuration; its log names the setting that must be fixed.
 - **Auto-wake vs legit pauses**: the 180s "agent went quiet = stuck" heuristic
   is now wrong in a new way; the pending-question check must cover both
   elicitation- and permission-sourced pauses.

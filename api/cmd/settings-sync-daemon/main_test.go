@@ -836,6 +836,36 @@ func TestEnsureCodexConfig(t *testing.T) {
 	assert.NotContains(t, providers, "helix")
 }
 
+func TestEnsureCodexConfigEnablesDefaultModeUserInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "codex", "config.toml")
+	existing := []byte("[features]\napps = true\ndefault_mode_request_user_input = false\n")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, os.WriteFile(path, existing, 0644))
+
+	require.NoError(t, ensureCodexConfig(path, "", ""))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var config map[string]interface{}
+	require.NoError(t, toml.Unmarshal(data, &config))
+	features, ok := config["features"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, true, features["apps"])
+	assert.Equal(t, true, features["default_mode_request_user_input"])
+}
+
+func TestEnsureCodexConfigRejectsNonTableFeatures(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "codex", "config.toml")
+	existing := []byte("model = \"gpt-5.6-sol\"\nfeatures = false\n")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, os.WriteFile(path, existing, 0644))
+
+	err := ensureCodexConfig(path, "http://api:8080/v1", "gpt-5.6-terra")
+	require.EqualError(t, err, `Codex setting "features" must be a table`)
+	data, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, existing, data)
+}
+
 func TestCodexAgentServerUsesFullAccess(t *testing.T) {
 	originalPath := CodexConfigPath
 	CodexConfigPath = filepath.Join(t.TempDir(), "config.toml")
