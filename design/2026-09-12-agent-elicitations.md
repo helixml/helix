@@ -258,9 +258,11 @@ request ids in question history cannot be resurrected by a stale replay.
   multi-select submit action in the banner because its busy composer still owns
   follow-up/interrupt semantics; this is a behavioral difference, not a new
   visual language.
-- **Timeline history**: answered questions render inline (t3code
-  QuestionAnswerHistory) — from the tool-call entry content the agent emits
-  after the tool completes, plus the resolved payload.
+- **Timeline history**: resolved questions replace their matching raw tool call
+  with the t3code work-log treatment (`User input submitted · <answer>` or
+  `User input dismissed`). Expanding the row shows `QuestionAnswerHistory`.
+  Providers that do not emit a matching tool call get the same synthesized
+  work-log row from the resolved payload.
 - **Composer stays usable**: sending a message while a question is pending
   cancels the pending question (Zed's InterruptedByFollowUp path) — same as
   t3code. Show the pending badge.

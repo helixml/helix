@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   CollapsibleToolCall,
+  getQuestionAnswerPresentation,
   getToolCallExpandedBody,
   getToolCallPresentation,
 } from './CollapsibleToolCall'
@@ -77,5 +78,35 @@ describe('CollapsibleToolCall', () => {
 
     expect(screen.getByText('topic details')).toBeInTheDocument()
     expect(container.firstElementChild).toHaveAttribute('data-preserve-disclosure-expansion', 'true')
+  })
+
+  it('renders answered questions as T3-style expandable work rows', () => {
+    const questionAnswer = {
+      request_id: 'request-1',
+      outcome: 'answered',
+      questions: [{ id: 'deploy', question: 'Deploy now?' }],
+      answers: { deploy: 'No' },
+    }
+
+    expect(getQuestionAnswerPresentation(questionAnswer)).toEqual({
+      kind: 'question',
+      label: 'User input submitted',
+      preview: 'No',
+    })
+
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <CollapsibleToolCall
+          toolName="User input"
+          status="Completed"
+          body=""
+          questionAnswer={questionAnswer}
+        />
+      </ThemeProvider>,
+    )
+
+    expect(screen.queryByText('Deploy now?')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'User input submitted No' }))
+    expect(screen.getByText('Deploy now?')).toBeInTheDocument()
   })
 })

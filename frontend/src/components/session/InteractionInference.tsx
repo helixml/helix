@@ -10,6 +10,7 @@ import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
 import WorkLog from "./WorkLog";
+import { CollapsibleToolCall } from "./CollapsibleToolCall";
 import ActivitySummary from "./ActivitySummary";
 import SubagentActivityCard from "./SubagentActivityCard";
 import { parseSubagentEntry } from "./subagentActivity";
@@ -57,7 +58,17 @@ interface SubagentActivitySegment {
   entry: ResponseEntry;
 }
 
-type ActivitySegment = TextActivitySegment | ToolActivitySegment | SubagentActivitySegment;
+interface QuestionActivitySegment {
+  type: "question";
+  index: number;
+  answer: TypesResolvedQuestion;
+}
+
+type ActivitySegment =
+  | TextActivitySegment
+  | ToolActivitySegment
+  | SubagentActivitySegment
+  | QuestionActivitySegment;
 
 const hasThinking = (content: string) => /<(?:think|thinking)>/i.test(content);
 
@@ -85,6 +96,7 @@ const toolActivityEntry = (
 export function buildActivityTimeline(
   responseEntries: ResponseEntry[],
   isStreaming: boolean,
+  questionHistory: TypesResolvedQuestion[] = [],
 ): { activitySegments: ActivitySegment[]; finalTextIndex: number | undefined } {
   let finalTextIndex: number | undefined;
   if (!isStreaming) {
@@ -101,6 +113,7 @@ export function buildActivityTimeline(
 
   const activitySegments: ActivitySegment[] = [];
   let currentToolSegment: ToolActivitySegment | undefined;
+  const remainingQuestions = [...questionHistory];
 
   responseEntries.forEach((entry, index) => {
     if (entry.type === "tool_call") {
@@ -110,6 +123,17 @@ export function buildActivityTimeline(
         if (subagent.action === "start") {
           activitySegments.push({ type: "subagent", index, entry });
         }
+        return;
+      }
+      const questionIndex = remainingQuestions.findIndex(
+        (question) =>
+          Boolean(question.tool_call_id) &&
+          question.tool_call_id === entry.tool_call_id,
+      );
+      if (questionIndex >= 0) {
+        const [answer] = remainingQuestions.splice(questionIndex, 1);
+        currentToolSegment = undefined;
+        activitySegments.push({ type: "question", index, answer });
         return;
       }
       const toolEntry = toolActivityEntry(
@@ -162,6 +186,14 @@ export function buildActivityTimeline(
     }
   });
 
+  remainingQuestions.forEach((answer, index) => {
+    activitySegments.push({
+      type: "question",
+      index: responseEntries.length + index,
+      answer,
+    });
+  });
+
   return {
     activitySegments,
     finalTextIndex,
@@ -194,6 +226,7 @@ import {
   TypesFeedback,
   TypesInteraction,
   TypesInteractionState,
+  TypesResolvedQuestion,
   TypesSession,
 } from "../../api/api";
 import {
@@ -211,6 +244,7 @@ import {
 export const MessageWithToolCalls: FC<{
   text: string;
   responseEntries?: ResponseEntry[];
+  questionHistory?: TypesResolvedQuestion[];
   session: TypesSession;
   getFileURL: (url: string) => string;
   showBlinker: boolean;
@@ -224,6 +258,7 @@ export const MessageWithToolCalls: FC<{
 }> = ({
   text,
   responseEntries,
+  questionHistory = [],
   session,
   getFileURL,
   showBlinker,
@@ -262,6 +297,7 @@ export const MessageWithToolCalls: FC<{
     const { activitySegments, finalTextIndex } = buildActivityTimeline(
       responseEntries,
       isStreaming,
+      questionHistory,
     );
     const renderActivitySegment = (segment: ActivitySegment, segmentIndex: number) => {
       if (segment.type === "tools") {
@@ -274,6 +310,19 @@ export const MessageWithToolCalls: FC<{
             key={`subagent-${segment.entry.message_id || segment.index}`}
             entry={segment.entry}
             isStreaming={isStreaming}
+          />
+        );
+      }
+
+      if (segment.type === "question") {
+        return (
+          <CollapsibleToolCall
+            key={`question-${segment.answer.request_id || segment.index}`}
+            toolName="User input"
+            status="Completed"
+            body=""
+            questionAnswer={segment.answer}
+            dense
           />
         );
       }
@@ -370,9 +419,20 @@ export const MessageWithToolCalls: FC<{
       renderContent={false}
     />
   ) : null;
+  const questionActivity = questionHistory.map((answer, index) => (
+    <CollapsibleToolCall
+      key={`question-${answer.request_id || index}`}
+      toolName="User input"
+      status="Completed"
+      body=""
+      questionAnswer={answer}
+      dense
+    />
+  ));
 
   return isStreaming ? (
     <>
+      {questionActivity}
       {finalContent}
       {planProgress}
       <ActivitySummary
@@ -383,6 +443,20 @@ export const MessageWithToolCalls: FC<{
       >
         {activityContent}
       </ActivitySummary>
+    </>
+  ) : questionActivity.length > 0 ? (
+    <>
+      <ActivitySummary
+        durationMs={durationMs}
+        hasActivity
+        isStreaming={false}
+        startedAt={activityStartedAt}
+      >
+        {activityContent}
+        {questionActivity}
+      </ActivitySummary>
+      {planProgress}
+      {finalContent}
     </>
   ) : (
     <>
@@ -776,6 +850,7 @@ export const InteractionInference: FC<{
                       <MessageWithToolCalls
                         text={message || ""}
                         responseEntries={isFromAssistant ? (interaction as any)?.response_entries : undefined}
+                        questionHistory={isFromAssistant ? interaction.question_history : undefined}
                         session={session}
                         getFileURL={getFileURL}
                         showBlinker={false}
