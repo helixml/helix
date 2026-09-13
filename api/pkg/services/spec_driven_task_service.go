@@ -35,6 +35,10 @@ type DesktopExecFunc func(ctx context.Context, sessionID string, command []strin
 // Injected by the server so this service doesn't need to import the controller package.
 type AttachmentBlobReader func(ctx context.Context, absolutePath string) ([]byte, error)
 
+// SpecTaskPhaseTransitioner moves the existing task session to a new ACP
+// thread using the implementation configuration and delivers the first prompt.
+type SpecTaskPhaseTransitioner func(ctx context.Context, task *types.SpecTask, prompt string) error
+
 // SpecDrivenTaskService manages the spec-driven development workflow:
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
@@ -42,21 +46,22 @@ type SpecDrivenTaskService struct {
 	store    store.Store
 	notifier notification.Notifier
 	// controller               *controller.Controller
-	externalAgentExecutor    external_agent.Executor   // Wolf executor for launching external agents
-	gitRepositoryService     *GitRepositoryService     // Service for git repository operations
-	RegisterRequestMapping   RequestMappingRegistrar   // Callback to register request-to-session mappings
-	EnqueueMessageToAgent    SpecTaskMessageEnqueuer   // Callback to enqueue messages onto the session-scoped prompt queue (the single sender path)
-	helixAgentID             string                    // ID of Helix agent for spec generation
-	zedAgentPool             []string                  // Pool of available Zed agents
-	testMode                 bool                      // If true, skip async operations for testing
-	ZedIntegrationService    *ZedIntegrationService    // Service for Zed instance and thread management
-	ZedToHelixSessionService *ZedToHelixSessionService // Service for Zed→Helix session creation
-	SessionContextService    *SessionContextService    // Service for inter-session coordination
-	auditLogService          *AuditLogService          // Service for audit logging
-	koditService             KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
-	ExecInDesktop            DesktopExecFunc           // Callback to exec commands in running desktop containers
-	ReadAttachmentBlob       AttachmentBlobReader      // Callback to load attachment bytes from filestore
-	wg                       sync.WaitGroup
+	externalAgentExecutor      external_agent.Executor   // Wolf executor for launching external agents
+	gitRepositoryService       *GitRepositoryService     // Service for git repository operations
+	RegisterRequestMapping     RequestMappingRegistrar   // Callback to register request-to-session mappings
+	EnqueueMessageToAgent      SpecTaskMessageEnqueuer   // Callback to enqueue messages onto the session-scoped prompt queue (the single sender path)
+	helixAgentID               string                    // ID of Helix agent for spec generation
+	zedAgentPool               []string                  // Pool of available Zed agents
+	testMode                   bool                      // If true, skip async operations for testing
+	ZedIntegrationService      *ZedIntegrationService    // Service for Zed instance and thread management
+	ZedToHelixSessionService   *ZedToHelixSessionService // Service for Zed→Helix session creation
+	SessionContextService      *SessionContextService    // Service for inter-session coordination
+	auditLogService            *AuditLogService          // Service for audit logging
+	koditService               KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
+	ExecInDesktop              DesktopExecFunc           // Callback to exec commands in running desktop containers
+	ReadAttachmentBlob         AttachmentBlobReader      // Callback to load attachment bytes from filestore
+	TransitionToImplementation SpecTaskPhaseTransitioner // Callback owned by the API server's live agent-switching machinery
+	wg                         sync.WaitGroup
 }
 
 // NewSpecDrivenTaskService creates a new service instance
@@ -180,6 +185,13 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	if codeAgentConfig == nil && (project == nil || project.DefaultHelixAppID == "") {
 		return nil, fmt.Errorf("project has no code-agent configuration")
 	}
+	planningCodeAgentConfig := cloneCodeAgentExecutionConfig(req.PlanningCodeAgentConfig)
+	if planningCodeAgentConfig == nil && project != nil {
+		planningCodeAgentConfig = cloneCodeAgentExecutionConfig(project.PlanningCodeAgentConfig)
+	}
+	if planningCodeAgentConfig == nil {
+		planningCodeAgentConfig = cloneCodeAgentExecutionConfig(codeAgentConfig)
+	}
 
 	// Default branch mode to "new" if not specified
 	branchMode := req.BranchMode
@@ -202,8 +214,12 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		organizationID = project.OrganizationID
 	}
 	credentialOwnerID := req.CredentialOwnerID
-	if credentialOwnerID == "" && organizationID != "" && codeAgentConfig != nil &&
-		codeAgentConfig.Runtime == types.CodeAgentRuntimeClaudeCode && codeAgentConfig.CredentialType.IsSubscription() {
+	implementationUsesDelegatedClaude := codeAgentConfig != nil &&
+		codeAgentConfig.Runtime == types.CodeAgentRuntimeClaudeCode && codeAgentConfig.CredentialType.IsSubscription()
+	planningUsesDelegatedClaude := planningCodeAgentConfig != nil &&
+		planningCodeAgentConfig.Runtime == types.CodeAgentRuntimeClaudeCode && planningCodeAgentConfig.CredentialType.IsSubscription()
+	if credentialOwnerID == "" && organizationID != "" &&
+		(implementationUsesDelegatedClaude || planningUsesDelegatedClaude) {
 		delegated, err := s.store.GetDelegatedClaudeSubscriptionForOrg(ctx, organizationID)
 		if err == nil {
 			credentialOwnerID = delegated.OwnerID
@@ -244,6 +260,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		CreatedByOrgBot:          req.CreatedByOrgBot,
 		PlanningStartedBy:        planningStartedBy,
 		CodeAgentConfig:          codeAgentConfig,
+		PlanningCodeAgentConfig:  planningCodeAgentConfig,
 		SandboxResourceOverrides: sandboxResources,
 		SandboxRuntime:           sandboxRuntime,
 		JustDoItMode:             req.JustDoItMode, // Set Just Do It mode from request
@@ -370,7 +387,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	log.Info().
 		Str("task_id", task.ID).
 		Str("original_prompt", task.OriginalPrompt).
-		Str("code_agent_runtime", string(task.CodeAgentConfig.Runtime)).
+		Str("code_agent_runtime", string(task.ActiveCodeAgentConfig().Runtime)).
 		Msg("Starting spec generation")
 
 	// Note: Task number and design doc path are now assigned at creation time
@@ -427,6 +444,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SystemPrompt:     "",             // Don't override agent's system prompt
 		AgentType:        "zed_external", // Use Zed agent for git access
 		Stream:           false,
+		Phase:            string(types.SpecTaskPhasePlanning),
 		SpecTaskID:       task.ID,          // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
 		CodeAgentRuntime: codeAgentRuntime, // For open_thread on resume
 		// Whose Claude subscription authenticates this session's agent, when the
@@ -751,7 +769,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	log.Info().
 		Str("task_id", task.ID).
 		Str("user_prompt", userPrompt).
-		Str("code_agent_runtime", string(task.CodeAgentConfig.Runtime)).
+		Str("code_agent_runtime", string(task.ActiveCodeAgentConfig().Runtime)).
 		Msg("Starting Just Do It mode - skipping spec generation")
 
 	// Note: Task number and design doc path are now assigned at creation time
@@ -811,6 +829,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		SystemPrompt:     "",             // Don't override agent's system prompt
 		AgentType:        "zed_external", // Use Zed agent for git access
 		Stream:           false,
+		Phase:            string(types.SpecTaskPhaseImplementation),
 		SpecTaskID:       task.ID,             // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
 		CodeAgentRuntime: codeAgentRuntimeJDI, // For open_thread on resume
 		// Whose Claude subscription authenticates this session's agent, when the
@@ -1241,7 +1260,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		}
 
 		if task.CodeAgentConfig == nil {
-			return fmt.Errorf("task has no code-agent configuration")
+			return fmt.Errorf("task has no implementation code-agent configuration")
 		}
 
 		if project.DefaultRepoID == "" {
@@ -1392,20 +1411,21 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			}
 		}
 
-		// Send instruction to existing agent session (reuse planning session)
+		// Start implementation in the existing task session and sandbox, but on
+		// a clean ACP thread owned by the implementation configuration.
 		if sessionID != "" && !s.testMode {
-			// Create agent instruction service
 			agentInstructionService := NewAgentInstructionService(s.store, s.EnqueueMessageToAgent, s.koditService)
-
-			err := agentInstructionService.SendApprovalInstruction(
-				context.Background(),
-				sessionID,
-				task.CreatedBy, // User who created the task
-				task,
-				branchName,
-				effectiveBaseBranch,
-				repo.Name,
+			message := agentInstructionService.BuildApprovalInstruction(
+				context.Background(), task, branchName, effectiveBaseBranch, repo.Name,
 			)
+			var err error
+			if s.TransitionToImplementation != nil {
+				err = s.TransitionToImplementation(context.Background(), task, message)
+			} else {
+				err = agentInstructionService.SendApprovalInstructionMessage(
+					context.Background(), sessionID, task.CreatedBy, task, message,
+				)
+			}
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -1420,7 +1440,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				Str("session_id", sessionID).
 				Str("branch_name", branchName).
 				Str("base_branch", effectiveBaseBranch).
-				Msg("Specs approved - sent implementation instruction to existing agent")
+				Msg("Specs approved - started implementation on a fresh agent thread")
 		} else {
 			log.Warn().
 				Str("task_id", task.ID).
@@ -1434,8 +1454,8 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		task.StatusUpdatedAt = &now
 		task.SpecRevisionCount++
 
-		if task.CodeAgentConfig == nil {
-			return fmt.Errorf("task has no code-agent configuration")
+		if task.CodeAgentConfigForPhase(types.SpecTaskPhasePlanning) == nil {
+			return fmt.Errorf("task has no planning code-agent configuration")
 		}
 
 		err = s.store.UpdateSpecTask(ctx, task)
@@ -2048,7 +2068,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 			}
 		}
 	}
-	if task.CodeAgentConfig == nil || task.HelixAppID != "" || task.CodeAgentOverrides != nil || session.ParentApp != "" || session.Metadata.CodeAgentOverrides != nil {
+	if task.CodeAgentConfig == nil || task.PlanningCodeAgentConfig == nil || task.HelixAppID != "" || task.CodeAgentOverrides != nil || session.ParentApp != "" || session.Metadata.CodeAgentOverrides != nil {
 		if project == nil {
 			return fmt.Errorf("project is required to migrate task code-agent configuration")
 		}

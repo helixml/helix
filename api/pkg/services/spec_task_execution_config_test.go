@@ -55,6 +55,7 @@ func TestMigrateSpecTaskCodeAgentConfigMaterializesAndClearsLegacyIDs(t *testing
 	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).DoAndReturn(func(_ context.Context, got *types.SpecTask) error {
 		require.Empty(t, got.HelixAppID)
 		require.Nil(t, got.CodeAgentOverrides)
+		require.NotNil(t, got.PlanningCodeAgentConfig)
 		require.Equal(t, "provider-new", got.CodeAgentConfig.ProviderRef)
 		require.Equal(t, "gpt-5.6-sol", got.CodeAgentConfig.Model)
 		require.Equal(t, "xhigh", got.CodeAgentConfig.ReasoningEffort)
@@ -103,7 +104,12 @@ func TestMigrateSpecTaskCodeAgentConfigIsIdempotent(t *testing.T) {
 		Model: "claude-opus-5",
 	}
 	project := &types.Project{ID: "project-1", CodeAgentConfig: config}
-	task := &types.SpecTask{ID: "task-1", ProjectID: project.ID, CodeAgentConfig: config}
+	task := &types.SpecTask{
+		ID:                      "task-1",
+		ProjectID:               project.ID,
+		CodeAgentConfig:         config,
+		PlanningCodeAgentConfig: config,
+	}
 
 	require.NoError(t, service.migrateSpecTaskCodeAgentConfig(context.Background(), task, project))
 }
@@ -116,7 +122,10 @@ func TestMigrateSpecTaskCodeAgentConfigClearsProjectAppAfterPartialMigration(t *
 		Runtime: types.CodeAgentRuntimeCodexCLI, CredentialType: types.CodeAgentCredentialTypeSubscription, Model: "gpt-5.6-sol",
 	}
 	project := &types.Project{ID: "project-1", DefaultHelixAppID: "app-legacy", CodeAgentConfig: config}
-	task := &types.SpecTask{ID: "task-1", ProjectID: project.ID, CodeAgentConfig: config}
+	task := &types.SpecTask{
+		ID: "task-1", ProjectID: project.ID,
+		CodeAgentConfig: config, PlanningCodeAgentConfig: config,
+	}
 	mockStore.EXPECT().GetApp(gomock.Any(), "app-legacy").Return(&types.App{
 		ID: "app-legacy", AgentKind: types.AgentKindCoding,
 	}, nil)
@@ -136,7 +145,10 @@ func TestMigrateSpecTaskCodeAgentConfigRecoversTaskConfigFromMissingProjectApp(t
 		Runtime: types.CodeAgentRuntimeCodexCLI, CredentialType: types.CodeAgentCredentialTypeSubscription, Model: "gpt-5.6-sol",
 	}
 	project := &types.Project{ID: "project-1", DefaultHelixAppID: "app-missing"}
-	task := &types.SpecTask{ID: "task-1", ProjectID: project.ID, CodeAgentConfig: config}
+	task := &types.SpecTask{
+		ID: "task-1", ProjectID: project.ID,
+		CodeAgentConfig: config, PlanningCodeAgentConfig: config,
+	}
 
 	mockStore.EXPECT().GetApp(gomock.Any(), "app-missing").Return(nil, store.ErrNotFound)
 	mockStore.EXPECT().UpdateProject(gomock.Any(), project).DoAndReturn(func(_ context.Context, got *types.Project) error {
@@ -165,6 +177,7 @@ func TestMigrateSpecTaskCodeAgentConfigRecoversProjectConfigFromMissingProjectAp
 	})
 	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).DoAndReturn(func(_ context.Context, got *types.SpecTask) error {
 		require.Equal(t, config, got.CodeAgentConfig)
+		require.Equal(t, config, got.PlanningCodeAgentConfig)
 		return nil
 	})
 
@@ -188,6 +201,7 @@ func TestMigrateSpecTaskCodeAgentConfigRecoversLegacyTaskAppFromMissingProjectAp
 	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).DoAndReturn(func(_ context.Context, got *types.SpecTask) error {
 		require.Empty(t, got.HelixAppID)
 		require.NotNil(t, got.CodeAgentConfig)
+		require.NotNil(t, got.PlanningCodeAgentConfig)
 		return nil
 	})
 

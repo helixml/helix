@@ -475,6 +475,18 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		}
 		defaultApp = external_agent.AppFromCodeAgentConfig(req.CodeAgentConfig, user.ID, req.OrganizationID)
 	}
+	if req.PlanningCodeAgentConfig == nil {
+		if req.CodeAgentConfig != nil {
+			planningConfig := *req.CodeAgentConfig
+			planningConfig.GooseRecipes = append([]types.AssistantGooseRecipe(nil), req.CodeAgentConfig.GooseRecipes...)
+			req.PlanningCodeAgentConfig = &planningConfig
+		}
+	}
+	if req.PlanningCodeAgentConfig != nil {
+		if err := s.validateProjectCodeAgentConfig(r.Context(), req.PlanningCodeAgentConfig, user.ID, user.ID, req.OrganizationID); err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("invalid planning code-agent config: %v", err))
+		}
+	}
 
 	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
 	if err != nil {
@@ -525,6 +537,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		StartupScript:                   req.StartupScript,
 		DefaultHelixAppID:               req.DefaultHelixAppID,
 		CodeAgentConfig:                 req.CodeAgentConfig,
+		PlanningCodeAgentConfig:         req.PlanningCodeAgentConfig,
 		DefaultSandboxRuntime:           types.EffectiveSpecTaskSandboxRuntime(req.DefaultSandboxRuntime),
 		DefaultSandboxResourceOverrides: req.DefaultSandboxResourceOverrides,
 		Guidelines:                      req.Guidelines,
@@ -736,6 +749,11 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 			return nil, system.NewHTTPError400(err.Error())
 		}
 	}
+	if req.PlanningCodeAgentConfig != nil {
+		if err := s.validateProjectCodeAgentConfig(r.Context(), req.PlanningCodeAgentConfig, user.ID, project.UserID, project.OrganizationID); err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("invalid planning code-agent config: %v", err))
+		}
+	}
 
 	// Apply updates
 	if req.Name != nil {
@@ -782,6 +800,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	}
 	if req.CodeAgentConfig != nil {
 		project.CodeAgentConfig = req.CodeAgentConfig
+	}
+	if req.PlanningCodeAgentConfig != nil {
+		project.PlanningCodeAgentConfig = req.PlanningCodeAgentConfig
 	}
 	if req.DefaultSandboxRuntime != nil {
 		if !types.ValidSpecTaskSandboxRuntime(*req.DefaultSandboxRuntime) {

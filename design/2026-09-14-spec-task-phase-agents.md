@@ -1,0 +1,84 @@
+# Spec task planning and implementation agents
+
+## Decision
+
+A spec task owns two complete coding-agent configurations:
+
+- `PlanningCodeAgentConfig` generates and revises the specification.
+- `CodeAgentConfig` implements the approved specification.
+
+Projects store the same pair as defaults. New tasks snapshot both so later
+project-setting changes do not alter work already in progress. When no planning
+configuration exists on a historical project or task, Helix copies the
+implementation configuration at the existing start-time migration boundary.
+
+## What we learned from fx
+
+The premise needs one correction: as of `vercel-labs/fx` main at
+`2bd8460fc08dc15793480ee734bcd0cc28140b13`, fx does not expose a native
+planner/implementer split with separate phase models. Its
+[model selection](https://fx.sh/docs/configure-fx/models) is a user/session
+preference, and [subagents](https://fx.sh/docs/capabilities/subagents) inherit
+the parent's model and reasoning effort.
+
+The transferable ideas are the lifecycle boundaries around those features:
+
+- fx is model-agnostic and can run as an
+  [ACP server](https://fx.sh/docs/using-fx/acp), so harness and model are
+  independent choices rather than an Agent identity.
+- `/clear` starts a fresh conversation while preserving workspace background
+  processes. ACP `session/resume` reconnects without replaying history. Both
+  distinguish conversational state from workspace state.
+- Subagents have isolated conversations but share the workspace, making their
+  state visible without polluting the parent conversation.
+- [Project instructions](https://fx.sh/docs/configure-fx/project-instructions)
+  are assembled as bounded, target-scoped context instead of copying an entire
+  prior transcript into every request.
+- fx keeps a model preference per provider. Switching providers restores the
+  last compatible model instead of treating provider and model as unrelated
+  text fields.
+
+Helix already owns a stronger planning primitive than fx: durable requirements,
+design, and task documents with a human approval gate. We combine that with
+fx's clean separation of conversation, workspace, harness, and model. We do not
+model planning as a subagent, because it needs an independently selectable
+harness/model and durable project/task defaults.
+
+## Phase boundary
+
+Planning and implementation keep the same Helix session, sandbox, and working
+tree. Approval clears the ACP thread, applies the implementation configuration,
+and sends the implementation prompt as the first turn on a fresh thread. The
+planner transcript is not injected. The handoff consists of the original
+request, approved `requirements.md`, `design.md`, and `tasks.md`, approval
+comments, repository instructions, and the existing workspace.
+
+Task status determines the active configuration. Spec generation, review, and
+revision use planning; queued implementation and every later state use
+implementation. Zed configuration, usage attribution, subscription preflight,
+session forks, and task execution controls all resolve through this same phase
+mapping.
+
+Changing the inactive phase only updates its task snapshot. Changing the active
+phase keeps the existing behavior: cancel the current turn and open a fresh ACP
+thread when the sandbox is live.
+
+## Product surface
+
+Project Settings shows separate Planning and Implementation selectors. The new
+task form starts from those defaults and permits a per-task override for either
+phase.
+
+The task page keeps the normal `AgentChat` in the left pane. The right workspace
+adds Plan beside Desktop, Browser, Diff, Files, Agents, and Details. Plan embeds
+the existing design-review document surface, so reading, commenting, revising,
+and approving the plan no longer opens a separate workspace tab. Diff, files,
+and subagents remain available throughout planning.
+
+## Compatibility
+
+The API adds `planning_code_agent_config` to project and task create/update
+payloads and `phase` to task execution-configuration updates. Omitting `phase`
+continues to edit the currently active configuration. Existing clients that
+only send `code_agent_config` retain the old behavior because planning defaults
+to the same configuration.

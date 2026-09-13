@@ -148,6 +148,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const missingCodeAgents = !loadingCodeAgents && !hasCodeAgents;
 
   const [codeAgentConfig, setCodeAgentConfig] = useState<TypesCodeAgentExecutionConfig>();
+  const [planningCodeAgentConfig, setPlanningCodeAgentConfig] =
+    useState<TypesCodeAgentExecutionConfig>();
   const [sandboxResourceOverrides, setSandboxResourceOverrides] =
     useState<TypesSandboxResourceOverrides | undefined>();
   const [sandboxRuntime, setSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
@@ -343,6 +345,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const projectCodeAgentConfigKey = JSON.stringify(
     project?.code_agent_config ?? null,
   );
+  const projectPlanningCodeAgentConfigKey = JSON.stringify(
+    project?.planning_code_agent_config ?? project?.code_agent_config ?? null,
+  );
 
   useEffect(() => {
     setSandboxResourceOverrides(
@@ -369,7 +374,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
   useEffect(() => {
     setCodeAgentConfig(project?.code_agent_config);
-  }, [projectId, projectCodeAgentConfigKey]);
+    setPlanningCodeAgentConfig(
+      project?.planning_code_agent_config || project?.code_agent_config,
+    );
+  }, [projectId, projectCodeAgentConfigKey, projectPlanningCodeAgentConfigKey]);
 
   // Focus text field on mount
   useEffect(() => {
@@ -414,6 +422,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
     setCodeAgentConfig(project?.code_agent_config);
+    setPlanningCodeAgentConfig(
+      project?.planning_code_agent_config || project?.code_agent_config,
+    );
     setSandboxResourceOverrides(
       projectDefaultSandboxVCPUs && projectDefaultSandboxMemoryMB
         ? { vcpus: projectDefaultSandboxVCPUs, memory_mb: projectDefaultSandboxMemoryMB }
@@ -441,6 +452,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     currentUserId,
     projectId,
     projectCodeAgentConfigKey,
+    projectPlanningCodeAgentConfigKey,
     project?.default_sandbox_runtime,
     projectDefaultSandboxVCPUs,
     projectDefaultSandboxMemoryMB,
@@ -466,12 +478,18 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         setIsCreating(false);
         return;
       }
+      if (!justDoItMode && !planningCodeAgentConfig) {
+        snackbar.error("Select a planning runtime and model");
+        setIsCreating(false);
+        return;
+      }
 
       const createTaskRequest: TypesCreateTaskRequest = {
         prompt: taskPrompt,
         priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId,
         code_agent_config: codeAgentConfig,
+        planning_code_agent_config: planningCodeAgentConfig,
         assignee_id: assigneeId || undefined,
         just_do_it_mode: justDoItMode,
         auto_start: autoStart,
@@ -563,7 +581,15 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [taskPrompt, justDoItMode, codeAgentConfig?.runtime, codeAgentConfig?.model, selectedDependencyTaskIds]);
+  }, [
+    taskPrompt,
+    justDoItMode,
+    codeAgentConfig?.runtime,
+    codeAgentConfig?.model,
+    planningCodeAgentConfig?.runtime,
+    planningCodeAgentConfig?.model,
+    selectedDependencyTaskIds,
+  ]);
 
   // Keyboard shortcut: Ctrl/Cmd+J to toggle Just Do It mode
   useEffect(() => {
@@ -1126,30 +1152,55 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             </Box>
           )}
 
-          {/* Coding agent and execution configuration */}
-          <Box>
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              <CodeAgentExecutionControls
-                value={codeAgentConfig}
-                onChange={handleCodeAgentConfigChange}
-                sandboxResourceOverrides={sandboxResourceOverrides}
-                sandboxRuntime={sandboxRuntime}
-                onSandboxResourceOverridesChange={setSandboxResourceOverrides}
-                onSandboxRuntimeChange={handleSandboxRuntimeChange}
-                autoSelectDefault
-              />
-              {selectedAgentIsGoose && (
-                <GooseRecipeSelector
-                  projectId={projectId}
-                  selectedRecipeName={selectedRecipeName}
-                  onSelectedRecipeNameChange={setSelectedRecipeName}
-                  params={recipeParams}
-                  onParamsChange={setRecipeParams}
-                  pendingAttachments={pendingAttachments}
+          {/* Phase-owned agent and execution configuration */}
+          <Stack spacing={1.5}>
+            {!justDoItMode && (
+              <Box>
+                <Typography
+                  variant="subtitle2"
+                  color="text.secondary"
+                  sx={{ mb: 0.5 }}
+                >
+                  Planning agent
+                </Typography>
+                <CodeAgentExecutionControls
+                  value={planningCodeAgentConfig}
+                  onChange={setPlanningCodeAgentConfig}
+                  autoSelectDefault
                 />
-              )}
+              </Box>
+            )}
+            <Box>
+              <Typography
+                variant="subtitle2"
+                color="text.secondary"
+                sx={{ mb: 0.5 }}
+              >
+                {justDoItMode ? "Agent" : "Implementation agent"}
+              </Typography>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                <CodeAgentExecutionControls
+                  value={codeAgentConfig}
+                  onChange={handleCodeAgentConfigChange}
+                  sandboxResourceOverrides={sandboxResourceOverrides}
+                  sandboxRuntime={sandboxRuntime}
+                  onSandboxResourceOverridesChange={setSandboxResourceOverrides}
+                  onSandboxRuntimeChange={handleSandboxRuntimeChange}
+                  autoSelectDefault
+                />
+                {selectedAgentIsGoose && (
+                  <GooseRecipeSelector
+                    projectId={projectId}
+                    selectedRecipeName={selectedRecipeName}
+                    onSelectedRecipeNameChange={setSelectedRecipeName}
+                    params={recipeParams}
+                    onParamsChange={setRecipeParams}
+                    pendingAttachments={pendingAttachments}
+                  />
+                )}
+              </Box>
             </Box>
-          </Box>
+          </Stack>
 
           {/* Skip Spec Checkbox */}
           <FormControl fullWidth>
@@ -1261,6 +1312,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             isCreating ||
             missingCodeAgents ||
             !codeAgentConfig?.model ||
+            (!justDoItMode && !planningCodeAgentConfig?.model) ||
             (branchMode === TypesBranchMode.BranchModeExisting &&
               !workingBranch)
           }

@@ -638,6 +638,7 @@ func NewServer(
 	// sender path (session-scoped prompt queue). Delivery is deferred until idle
 	// for interrupt=false, or cancel-then-send for interrupt=true.
 	apiServer.specDrivenTaskService.EnqueueMessageToAgent = apiServer.enqueueSpecTaskAgentMessage
+	apiServer.specDrivenTaskService.TransitionToImplementation = apiServer.transitionSpecTaskToImplementation
 	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
 	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
 	// Wire project-secret injection into HydraExecutor so every desktop container

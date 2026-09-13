@@ -77,6 +77,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 			assert.Equal(t, "feature", task.Type)
 			assert.Equal(t, types.SpecTaskPriorityHigh, task.Priority)
 			assert.Equal(t, req.CodeAgentConfig, task.CodeAgentConfig)
+			assert.Equal(t, req.CodeAgentConfig, task.PlanningCodeAgentConfig)
 			assert.Equal(t, req.SandboxResourceOverrides, task.SandboxResourceOverrides)
 			assert.Equal(t, types.SandboxRuntimeHeadlessUbuntu, task.SandboxRuntime)
 			// Task number and design doc path should be assigned at creation
@@ -104,6 +105,40 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	assert.NotEmpty(t, task.DesignDocPath)
 
 	// Note: Goroutine will fail gracefully, we only test the synchronous part
+}
+
+func TestSpecDrivenTaskService_SnapshotsProjectPhaseAgents(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(
+		mockStore, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+	ctx := context.Background()
+	planner := &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription, Model: "planner",
+	}
+	implementer := &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeCodexCLI, CredentialType: types.CodeAgentCredentialTypeSubscription, Model: "implementer",
+	}
+	mockStore.EXPECT().GetProject(ctx, "project_1").Return(&types.Project{
+		ID: "project_1", PlanningCodeAgentConfig: planner, CodeAgentConfig: implementer,
+	}, nil)
+	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
+	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			require.Equal(t, planner, task.PlanningCodeAgentConfig)
+			require.Equal(t, implementer, task.CodeAgentConfig)
+			require.NotSame(t, planner, task.PlanningCodeAgentConfig)
+			require.NotSame(t, implementer, task.CodeAgentConfig)
+			return nil
+		},
+	)
+
+	_, err := service.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
+		ProjectID: "project_1", UserID: "user_1", Prompt: "Do work",
+	})
+	require.NoError(t, err)
 }
 
 func TestSpecDrivenTaskService_SnapshotsDelegatedClaudeOwner(t *testing.T) {

@@ -3547,23 +3547,23 @@ definitions:
   transport.Kind:
     enum:
     - email
-    - gitlab
-    - local
     - webhook
-    - cron
     - helix_events
-    - github
     - slack
+    - local
+    - github
+    - gitlab
+    - cron
     type: string
     x-enum-varnames:
     - KindEmail
-    - KindGitLab
-    - KindLocal
     - KindWebhook
-    - KindCron
     - KindHelixEvents
-    - KindGitHub
     - KindSlack
+    - KindLocal
+    - KindGitHub
+    - KindGitLab
+    - KindCron
   transport.ResolvedActivation:
     properties:
       address:
@@ -5757,6 +5757,8 @@ definitions:
       name:
         description: Name is the task title. Empty means derive it from the prompt.
         type: string
+      planning_code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       priority:
         $ref: '#/definitions/types.SpecTaskPriority'
       project_id:
@@ -8491,6 +8493,12 @@ definitions:
         type: integer
       organization_id:
         type: string
+      planning_code_agent_config:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        description: |-
+          PlanningCodeAgentConfig is the planning-phase default copied into each new
+          SpecTask. Nil preserves the historical behaviour by using CodeAgentConfig.
       project_manager_helix_app_id:
         type: string
       pull_request_reviewer_helix_app_id:
@@ -8687,6 +8695,8 @@ definitions:
         type: string
       organization_id:
         type: string
+      planning_code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       skills:
         allOf:
         - $ref: '#/definitions/types.AssistantSkills'
@@ -8854,6 +8864,8 @@ definitions:
         $ref: '#/definitions/types.ProjectMetadata'
       name:
         type: string
+      planning_code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       project_manager_helix_app_id:
         description: Project manager agent
         type: string
@@ -11175,7 +11187,9 @@ definitions:
         description: Original project
         type: string
       code_agent_config:
-        $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        description: CodeAgentConfig is the implementation-phase execution configuration.
       code_agent_overrides:
         allOf:
         - $ref: '#/definitions/types.CodeAgentOverrides'
@@ -11311,6 +11325,12 @@ definitions:
       original_prompt:
         description: 'Kiro''s actual approach: simple, human-readable artifacts'
         type: string
+      planning_code_agent_config:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        description: |-
+          PlanningCodeAgentConfig is independently snapshotted when the task is
+          created so project-default changes cannot alter an existing planning run.
       planning_options:
         $ref: '#/definitions/types.StartPlanningOptions'
       planning_session_id:
@@ -11684,6 +11704,12 @@ definitions:
     properties:
       code_agent_config:
         $ref: '#/definitions/types.CodeAgentExecutionConfig'
+      phase:
+        allOf:
+        - $ref: '#/definitions/types.SpecTaskPhase'
+        enum:
+        - planning
+        - implementation
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
     type: object
@@ -11846,7 +11872,9 @@ definitions:
         description: Original project
         type: string
       code_agent_config:
-        $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        description: CodeAgentConfig is the implementation-phase execution configuration.
       code_agent_overrides:
         allOf:
         - $ref: '#/definitions/types.CodeAgentOverrides'
@@ -11982,6 +12010,12 @@ definitions:
       original_prompt:
         description: 'Kiro''s actual approach: simple, human-readable artifacts'
         type: string
+      planning_code_agent_config:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        description: |-
+          PlanningCodeAgentConfig is independently snapshotted when the task is
+          created so project-default changes cannot alter an existing planning run.
       planning_options:
         $ref: '#/definitions/types.StartPlanningOptions'
       planning_session_id:
@@ -27191,9 +27225,9 @@ paths:
       - SpecTasks
   /api/v1/spec-tasks/{taskId}/execution-config:
     get:
-      description: Returns the task-owned code-agent configuration. Unmigrated historical
-        tasks are resolved through their legacy App until task start materializes
-        the configuration.
+      description: Returns the task-owned code-agent configuration for the active
+        planning or implementation phase. Unmigrated historical tasks are resolved
+        through their legacy App until task start materializes the configuration.
       parameters:
       - description: SpecTask ID
         in: path
@@ -27219,10 +27253,10 @@ paths:
     patch:
       consumes:
       - application/json
-      description: Replaces a task's complete code-agent configuration or sandbox
-        resource preset. Running sandboxes are resized in place and code-agent changes
-        start a fresh ACP thread; stopped sandboxes record code-agent changes for
-        the next start.
+      description: Replaces a task's planning or implementation code-agent configuration,
+        or its sandbox resource preset. Omitting phase updates the active phase. Running
+        sandboxes are resized in place and active code-agent changes start a fresh
+        ACP thread; stopped sandboxes and inactive phases record changes for later.
       parameters:
       - description: SpecTask ID
         in: path

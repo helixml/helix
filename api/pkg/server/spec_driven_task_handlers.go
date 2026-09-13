@@ -195,15 +195,23 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
-	if req.CodeAgentConfig != nil {
+	if req.CodeAgentConfig != nil || req.PlanningCodeAgentConfig != nil {
 		project, err := s.Store.GetProject(ctx, req.ProjectID)
 		if err != nil {
 			http.Error(w, "project not found", http.StatusBadRequest)
 			return
 		}
-		if err := s.validateCodeAgentExecutionConfig(ctx, req.CodeAgentConfig, user.ID, user.ID, project.OrganizationID); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+		if req.CodeAgentConfig != nil {
+			if err := s.validateCodeAgentExecutionConfig(ctx, req.CodeAgentConfig, user.ID, user.ID, project.OrganizationID); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		if req.PlanningCodeAgentConfig != nil {
+			if err := s.validateCodeAgentExecutionConfig(ctx, req.PlanningCodeAgentConfig, user.ID, user.ID, project.OrganizationID); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 	}
 
@@ -671,7 +679,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		// Refuse to queue implementation if the agent's provider/model
 		// snapshot is stale or empty — same backstop as start-planning, so
 		// post-spec approval can't sneak past with a broken config.
-		if reason, vErr := s.validateSpecTaskAgentConfig(ctx, existingTask, user.ID); vErr != nil {
+		if reason, vErr := s.validateSpecTaskAgentConfig(ctx, existingTask, user.ID, types.SpecTaskPhaseImplementation); vErr != nil {
 			log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with approval")
 		} else if reason != "" {
 			writeResponse(w, map[string]interface{}{
@@ -1104,7 +1112,11 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	// empty — otherwise the orchestrator would spawn a desktop that boots
 	// fine but can't reach a routable model, and the user has to dig
 	// through API logs to find the cause.
-	if reason, vErr := s.validateSpecTaskAgentConfig(ctx, task, user.ID); vErr != nil {
+	phase := types.SpecTaskPhasePlanning
+	if task.JustDoItMode {
+		phase = types.SpecTaskPhaseImplementation
+	}
+	if reason, vErr := s.validateSpecTaskAgentConfig(ctx, task, user.ID, phase); vErr != nil {
 		log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with planning")
 	} else if reason != "" {
 		writeResponse(w, map[string]interface{}{

@@ -20560,7 +20560,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the task-owned code-agent configuration. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.",
+                "description": "Returns the task-owned code-agent configuration for the active planning or implementation phase. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.",
                 "produces": [
                     "application/json"
                 ],
@@ -20598,7 +20598,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Replaces a task's complete code-agent configuration or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.",
+                "description": "Replaces a task's planning or implementation code-agent configuration, or its sandbox resource preset. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.",
                 "consumes": [
                     "application/json"
                 ],
@@ -28039,23 +28039,23 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "email",
-                "gitlab",
-                "local",
                 "webhook",
-                "cron",
                 "helix_events",
+                "slack",
+                "local",
                 "github",
-                "slack"
+                "gitlab",
+                "cron"
             ],
             "x-enum-varnames": [
                 "KindEmail",
-                "KindGitLab",
-                "KindLocal",
                 "KindWebhook",
-                "KindCron",
                 "KindHelixEvents",
+                "KindSlack",
+                "KindLocal",
                 "KindGitHub",
-                "KindSlack"
+                "KindGitLab",
+                "KindCron"
             ]
         },
         "transport.ResolvedActivation": {
@@ -30994,6 +30994,9 @@ const docTemplate = `{
                 "name": {
                     "description": "Name is the task title. Empty means derive it from the prompt.",
                     "type": "string"
+                },
+                "planning_code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
                 },
                 "priority": {
                     "$ref": "#/definitions/types.SpecTaskPriority"
@@ -34758,6 +34761,14 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "planning_code_agent_config": {
+                    "description": "PlanningCodeAgentConfig is the planning-phase default copied into each new\nSpecTask. Nil preserves the historical behaviour by using CodeAgentConfig.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
+                },
                 "project_manager_helix_app_id": {
                     "type": "string"
                 },
@@ -35045,6 +35056,9 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "planning_code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
                 "skills": {
                     "description": "Project-level skills",
                     "allOf": [
@@ -35299,6 +35313,9 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "planning_code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
                 },
                 "project_manager_helix_app_id": {
                     "description": "Project manager agent",
@@ -38277,7 +38294,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "code_agent_config": {
-                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                    "description": "CodeAgentConfig is the implementation-phase execution configuration.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
                 },
                 "code_agent_overrides": {
                     "description": "Legacy migration source; cleared together with HelixAppID on task start.",
@@ -38422,6 +38444,14 @@ const docTemplate = `{
                 "original_prompt": {
                     "description": "Kiro's actual approach: simple, human-readable artifacts",
                     "type": "string"
+                },
+                "planning_code_agent_config": {
+                    "description": "PlanningCodeAgentConfig is independently snapshotted when the task is\ncreated so project-default changes cannot alter an existing planning run.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
                 },
                 "planning_options": {
                     "$ref": "#/definitions/types.StartPlanningOptions"
@@ -38931,6 +38961,17 @@ const docTemplate = `{
                 "code_agent_config": {
                     "$ref": "#/definitions/types.CodeAgentExecutionConfig"
                 },
+                "phase": {
+                    "enum": [
+                        "planning",
+                        "implementation"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskPhase"
+                        }
+                    ]
+                },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
                 }
@@ -39139,7 +39180,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "code_agent_config": {
-                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                    "description": "CodeAgentConfig is the implementation-phase execution configuration.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
                 },
                 "code_agent_overrides": {
                     "description": "Legacy migration source; cleared together with HelixAppID on task start.",
@@ -39284,6 +39330,14 @@ const docTemplate = `{
                 "original_prompt": {
                     "description": "Kiro's actual approach: simple, human-readable artifacts",
                     "type": "string"
+                },
+                "planning_code_agent_config": {
+                    "description": "PlanningCodeAgentConfig is independently snapshotted when the task is\ncreated so project-default changes cannot alter an existing planning run.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
                 },
                 "planning_options": {
                     "$ref": "#/definitions/types.StartPlanningOptions"

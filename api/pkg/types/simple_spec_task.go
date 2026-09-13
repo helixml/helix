@@ -244,6 +244,7 @@ type CreateTaskRequest struct {
 	AssigneeID   string   `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
 
 	CodeAgentConfig          *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	PlanningCodeAgentConfig  *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty"`
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" swaggerignore:"true"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
 	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty"`
@@ -309,7 +310,11 @@ type SpecTask struct {
 	// project's list. The effective surface is the union of the two.
 	AgentTools []string `json:"agent_tools,omitempty" gorm:"type:jsonb;serializer:json"`
 
+	// CodeAgentConfig is the implementation-phase execution configuration.
 	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty" gorm:"type:jsonb;serializer:json"`
+	// PlanningCodeAgentConfig is independently snapshotted when the task is
+	// created so project-default changes cannot alter an existing planning run.
+	PlanningCodeAgentConfig *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty" gorm:"type:jsonb;serializer:json"`
 	// Legacy migration source; cleared together with HelixAppID on task start.
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
@@ -578,6 +583,7 @@ type SpecTaskUpdateRequest struct {
 // code-agent config or its sandbox resource preset.
 type SpecTaskExecutionConfigUpdateRequest struct {
 	AgentID                  string                    `json:"agent_id,omitempty" swaggerignore:"true"` // Rejected legacy field
+	Phase                    SpecTaskPhase             `json:"phase,omitempty" validate:"omitempty,oneof=planning implementation"`
 	CodeAgentConfig          *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" swaggerignore:"true"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`

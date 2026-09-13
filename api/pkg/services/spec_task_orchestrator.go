@@ -956,8 +956,9 @@ func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *t
 		return nil
 	}
 
-	// Since we reuse the planning agent, external agents are already running
-	// No need to queue or create new agents - just verify agent is still active
+	// Planning and implementation reuse the same sandbox and Helix session. The
+	// approval handoff has already switched the ACP thread when configurations
+	// differ, so only verify that the external agent is still active here.
 
 	// Check if external agent exists and is running
 	if task.ExternalAgentID != "" {

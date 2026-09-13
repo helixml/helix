@@ -54,6 +54,22 @@ describe("SpecTaskViewToolbar", () => {
     ]);
   });
 
+  it("shows the plan alongside the task workspace once documents exist", () => {
+    render(
+      <SpecTaskViewToolbar
+        currentView="plan"
+        onViewChange={vi.fn()}
+        hasSession
+        showPlan
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Plan view" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Files view" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Agents view" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Diff view" })).toBeInTheDocument();
+  });
+
   it("folds the deliberate views into the menu on a phone", () => {
     isPhone = true;
     const onViewChange = vi.fn();

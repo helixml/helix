@@ -21,8 +21,10 @@ func cloneCodeAgentExecutionConfig(config *types.CodeAgentExecutionConfig) *type
 }
 
 func codeAgentRuntimeForSpecTask(task *types.SpecTask) types.CodeAgentRuntime {
-	if task != nil && task.CodeAgentConfig != nil && task.CodeAgentConfig.Runtime != "" {
-		return task.CodeAgentConfig.Runtime
+	if task != nil {
+		if config := task.ActiveCodeAgentConfig(); config != nil && config.Runtime != "" {
+			return config.Runtime
+		}
 	}
 	return types.CodeAgentRuntimeZedAgent
 }
@@ -90,7 +92,7 @@ func (s *SpecDrivenTaskService) migrateSpecTaskCodeAgentConfig(
 	config := cloneCodeAgentExecutionConfig(task.CodeAgentConfig)
 	legacyTaskAppID := task.HelixAppID
 	legacyOverrides := task.CodeAgentOverrides != nil
-	taskNeedsMigration := config == nil || legacyTaskAppID != "" || legacyOverrides
+	taskNeedsMigration := config == nil || task.PlanningCodeAgentConfig == nil || legacyTaskAppID != "" || legacyOverrides
 	if config == nil && legacyTaskAppID != "" {
 		app, err := s.store.GetApp(ctx, legacyTaskAppID)
 		if err != nil {
@@ -117,8 +119,16 @@ func (s *SpecDrivenTaskService) migrateSpecTaskCodeAgentConfig(
 	if config == nil {
 		return fmt.Errorf("no coding agent is configured; select one for this task or project and retry")
 	}
+	planningConfig := cloneCodeAgentExecutionConfig(task.PlanningCodeAgentConfig)
+	if planningConfig == nil && project != nil {
+		planningConfig = cloneCodeAgentExecutionConfig(project.PlanningCodeAgentConfig)
+	}
+	if planningConfig == nil {
+		planningConfig = cloneCodeAgentExecutionConfig(config)
+	}
 
 	task.CodeAgentConfig = config
+	task.PlanningCodeAgentConfig = planningConfig
 	task.HelixAppID = ""
 	task.CodeAgentOverrides = nil
 	if taskNeedsMigration {
@@ -132,11 +142,12 @@ func (s *SpecDrivenTaskService) migrateSpecTaskCodeAgentConfig(
 		if err != nil {
 			return fmt.Errorf("load task session while clearing legacy App link: %w", err)
 		}
+		activeConfig := task.ActiveCodeAgentConfig()
 		if session.ParentApp != "" || session.Metadata.CodeAgentOverrides != nil ||
-			session.Metadata.CodeAgentRuntime != config.Runtime {
+			session.Metadata.CodeAgentRuntime != activeConfig.Runtime {
 			session.ParentApp = ""
 			session.Metadata.CodeAgentOverrides = nil
-			session.Metadata.CodeAgentRuntime = config.Runtime
+			session.Metadata.CodeAgentRuntime = activeConfig.Runtime
 			if _, err := s.store.UpdateSession(ctx, *session); err != nil {
 				return fmt.Errorf("clear task session legacy App link: %w", err)
 			}

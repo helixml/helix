@@ -148,6 +148,48 @@ func sessionUsesAgentRuntime(session *types.Session, runtime types.CodeAgentRunt
 		(runtime == types.CodeAgentRuntimeZedAgent && session.Metadata.ZedAgentName == "")
 }
 
+// transitionSpecTaskToImplementation preserves the task's Helix session and
+// sandbox while starting a clean ACP thread with the implementation agent. The
+// approved documents, not the planner transcript, are the phase handoff.
+func (apiServer *HelixAPIServer) transitionSpecTaskToImplementation(
+	ctx context.Context,
+	task *types.SpecTask,
+	prompt string,
+) error {
+	if task == nil || task.PlanningSessionID == "" {
+		return fmt.Errorf("task planning session is required for implementation")
+	}
+	config := task.CodeAgentConfigForPhase(types.SpecTaskPhaseImplementation)
+	if config == nil {
+		return fmt.Errorf("task implementation code-agent configuration is required")
+	}
+	session, err := apiServer.Store.GetSession(ctx, task.PlanningSessionID)
+	if err != nil {
+		return fmt.Errorf("load task session for implementation transition: %w", err)
+	}
+
+	live := apiServer.hasRunningAgentContainer(ctx, session.ID)
+	if live {
+		if err := apiServer.cancelTurnsForSwitch(ctx, session.ID); err != nil {
+			return fmt.Errorf("stop planning turn before implementation: %w", err)
+		}
+	} else if err := apiServer.cancelOfflineTurnsForSwitch(ctx, session); err != nil {
+		return fmt.Errorf("clear queued planning turns before implementation: %w", err)
+	}
+
+	session.Metadata.Phase = string(types.SpecTaskPhaseImplementation)
+	if switchErr := apiServer.switchAgentInPlaceForNextTurn(ctx, session, config.Runtime, "", agentSwitchOptions{
+		createHandoff:  true,
+		handoffPrompt:  prompt,
+		omitTranscript: true,
+		deliverLive:    live,
+		clearParentApp: true,
+	}); switchErr != nil {
+		return fmt.Errorf("switch task to implementation agent: %s", switchErr.Message)
+	}
+	return nil
+}
+
 // switchAgentInPlace performs the in-place switch for App-backed general and
 // org-agent sessions: snapshot the current transcript, repoint the session's
 // agent fields, clear the Zed thread binding,
@@ -173,6 +215,8 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 type agentSwitchOptions struct {
 	createHandoff  bool
 	handoffReason  string
+	handoffPrompt  string
+	omitTranscript bool
 	deliverLive    bool
 	clearParentApp bool
 }
@@ -233,7 +277,10 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 		return system.NewHTTPError500(fmt.Sprintf("failed to load interactions: %v", err))
 	}
 
-	transcript := serializeTranscript(interactions, maxTranscriptBytes)
+	transcript := ""
+	if !options.omitTranscript {
+		transcript = serializeTranscript(interactions, maxTranscriptBytes)
+	}
 	completedCount := 0
 	for _, in := range interactions {
 		if in == nil || in.Trigger == types.InteractionTriggerForkSeed {
@@ -310,14 +357,17 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 		}
 		prevLabel := apiServer.agentDescriptor(ctx, prevAppID, prevRuntime, session.ModelName, "the previous agent")
 		newLabel := apiServer.agentDescriptor(ctx, childAppID, targetRuntime, session.ModelName, "the new agent")
-		handoffPrompt := fmt.Sprintf(
-			"[System: you are now %s, taking over this session from %s. The environment, "+
-				"files, and workspace are unchanged, and the prior conversation is included above "+
-				"for context. Do not summarise or restate it — just reply with a single short line "+
-				"confirming you're ready, then wait for the user's next message.]",
-			newLabel, prevLabel,
-		)
-		if options.handoffReason != "" {
+		handoffPrompt := options.handoffPrompt
+		if handoffPrompt == "" {
+			handoffPrompt = fmt.Sprintf(
+				"[System: you are now %s, taking over this session from %s. The environment, "+
+					"files, and workspace are unchanged, and the prior conversation is included above "+
+					"for context. Do not summarise or restate it — just reply with a single short line "+
+					"confirming you're ready, then wait for the user's next message.]",
+				newLabel, prevLabel,
+			)
+		}
+		if options.handoffPrompt == "" && options.handoffReason != "" {
 			handoffPrompt = fmt.Sprintf(
 				"[System: %s The environment, files, and workspace are unchanged, and the prior "+
 					"conversation is included above for context. Do not summarise or restate it — "+

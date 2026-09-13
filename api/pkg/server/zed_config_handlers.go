@@ -66,8 +66,12 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		}
 	}
 	appID := session.ParentApp
-	if specTask != nil && specTask.CodeAgentConfig != nil {
-		app = external_agent.AppFromCodeAgentConfig(specTask.CodeAgentConfig, specTask.UserID, specTask.OrganizationID)
+	var activeTaskConfig *types.CodeAgentExecutionConfig
+	if specTask != nil {
+		activeTaskConfig = specTask.ActiveCodeAgentConfig()
+	}
+	if specTask != nil && activeTaskConfig != nil {
+		app = external_agent.AppFromCodeAgentConfig(activeTaskConfig, specTask.UserID, specTask.OrganizationID)
 		appID = ""
 	} else if specTask != nil && specTask.HelixAppID != "" {
 		// Pre-start legacy task. Start-time migration clears this path before a
@@ -92,9 +96,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			Config: types.AppConfig{},
 		}
 	}
-	if (specTask == nil || specTask.CodeAgentConfig == nil) && session.Metadata.CodeAgentConfig != nil {
+	if (specTask == nil || activeTaskConfig == nil) && session.Metadata.CodeAgentConfig != nil {
 		app = external_agent.ApplyCodeAgentExecutionConfig(app, session.Metadata.CodeAgentConfig)
-	} else if specTask == nil || specTask.CodeAgentConfig == nil {
+	} else if specTask == nil || activeTaskConfig == nil {
 		app = external_agent.ApplyCodeAgentOverrides(app, effectiveCodeAgentOverrides(session, specTask))
 	}
 	if app.OrganizationID == "" {
@@ -324,8 +328,8 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			sessionProjectID = specTask.ProjectID
 		}
 		codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL, sessionProjectID)
-		if codeAgentConfig != nil && specTask.CodeAgentConfig != nil {
-			codeAgentConfig.ServiceTier = specTask.CodeAgentConfig.ServiceTier
+		if codeAgentConfig != nil && activeTaskConfig != nil {
+			codeAgentConfig.ServiceTier = activeTaskConfig.ServiceTier
 		} else if codeAgentConfig != nil && specTask.CodeAgentOverrides != nil {
 			codeAgentConfig.ServiceTier = specTask.CodeAgentOverrides.ServiceTier
 		}
@@ -569,8 +573,8 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 		source = "session"
 	} else if session.Metadata.SpecTaskID != "" {
 		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil {
-			if specTask.CodeAgentConfig != nil {
-				runtimeApp = external_agent.AppFromCodeAgentConfig(specTask.CodeAgentConfig, specTask.UserID, specTask.OrganizationID)
+			if activeConfig := specTask.ActiveCodeAgentConfig(); activeConfig != nil {
+				runtimeApp = external_agent.AppFromCodeAgentConfig(activeConfig, specTask.UserID, specTask.OrganizationID)
 				source = "spec_task"
 			} else if specTask.HelixAppID != "" {
 				if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
@@ -1241,18 +1245,19 @@ func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorI
 //
 // Unmigrated historical tasks temporarily fall back through the task and
 // project App links. Startup migration removes those links.
-func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context, task *types.SpecTask, actorID string) (string, error) {
-	if task.CodeAgentConfig != nil {
+func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context, task *types.SpecTask, actorID string, phase types.SpecTaskPhase) (string, error) {
+	config := task.CodeAgentConfigForPhase(phase)
+	if config != nil {
 		if err := apiServer.validateOrgCodeAgentHarness(
 			ctx,
 			task.OrganizationID,
-			task.CodeAgentConfig.Runtime,
-			task.CodeAgentConfig.CredentialType,
-			task.CodeAgentConfig.ProviderRef,
+			config.Runtime,
+			config.CredentialType,
+			config.ProviderRef,
 		); err != nil {
 			return err.Error(), nil
 		}
-		app := external_agent.AppFromCodeAgentConfig(task.CodeAgentConfig, task.UserID, task.OrganizationID)
+		app := external_agent.AppFromCodeAgentConfig(config, task.UserID, task.OrganizationID)
 		snapshot, err := apiServer.getProviderSnapshot(ctx, actorID, app)
 		if err != nil {
 			log.Warn().Err(err).Str("task_id", task.ID).Msg("spec-task: failed to list providers; skipping code-agent config validation")

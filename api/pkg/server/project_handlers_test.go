@@ -228,6 +228,27 @@ func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectAcceptsCodeAgentConfig
 	s.Require().NotNil(resp.CodeAgentConfig)
 }
 
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectAcceptsPlanningCodeAgentConfig() {
+	project := s.makeProject("proj-planning-agent-config", "repo-1")
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.Project) error {
+			s.Require().NotNil(updated.PlanningCodeAgentConfig)
+			s.Equal(types.CodeAgentRuntimeClaudeCode, updated.PlanningCodeAgentConfig.Runtime)
+			s.Equal("claude-opus-5", updated.PlanningCodeAgentConfig.Model)
+			return nil
+		},
+	)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"planning_code_agent_config":{"runtime":"claude_code","credential_type":"subscription","model":"claude-opus-5"}}`),
+	)
+	s.Nil(httpErr)
+	s.Require().NotNil(resp)
+	s.Require().NotNil(resp.PlanningCodeAgentConfig)
+}
+
 // ---------------------------------------------------------------------------
 // Attach tests
 // ---------------------------------------------------------------------------

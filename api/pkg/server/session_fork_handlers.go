@@ -176,10 +176,11 @@ func (apiServer *HelixAPIServer) resolveForkTarget(
 		if err != nil {
 			return "", "", fmt.Errorf("failed to load SpecTask execution config: %w", err)
 		}
-		if task.CodeAgentConfig == nil {
+		config := task.ActiveCodeAgentConfig()
+		if config == nil {
 			return "", "", fmt.Errorf("SpecTask has no code_agent_config")
 		}
-		return task.CodeAgentConfig.Runtime, "", nil
+		return config.Runtime, "", nil
 	}
 	appID := body.HelixAppID
 	if appID == "" {

@@ -191,8 +191,7 @@ func (s *HelixAPIServer) codeAgentConfigSnapshot(ctx context.Context, session *t
 			return nil, fmt.Errorf("failed to get spec task %s for ACP usage: %w", session.Metadata.SpecTaskID, err)
 		}
 		task = loaded
-		if task.CodeAgentConfig != nil {
-			config := task.CodeAgentConfig
+		if config := task.ActiveCodeAgentConfig(); config != nil {
 			return &types.InteractionCodeAgentConfigSnapshot{
 				Provider:       config.ProviderRef,
 				Model:          config.Model,

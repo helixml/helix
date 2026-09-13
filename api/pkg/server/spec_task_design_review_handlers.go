@@ -318,6 +318,17 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 		switch specTask.Status {
 		case types.TaskStatusSpecReview, types.TaskStatusSpecRevision, types.TaskStatusSpecGeneration:
+			if reason, validationErr := s.validateSpecTaskAgentConfig(ctx, specTask, user.ID, types.SpecTaskPhaseImplementation); validationErr != nil {
+				http.Error(w, validationErr.Error(), http.StatusInternalServerError)
+				return
+			} else if reason != "" {
+				writeResponse(w, map[string]interface{}{
+					"error":   "agent_config_invalid",
+					"message": reason,
+				}, http.StatusUnprocessableEntity)
+				return
+			}
+
 			// Before advancing to implementation, validate the approver has
 			// provider OAuth so their credentials can be used for commits and
 			// push. Mirrors the check in approveSpecs/approveImplementation —

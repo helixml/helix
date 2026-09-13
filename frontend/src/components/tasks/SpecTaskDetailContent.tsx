@@ -27,8 +27,6 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
-  ToggleButton,
-  ToggleButtonGroup,
   Switch,
   Autocomplete,
   ClickAwayListener,
@@ -46,6 +44,7 @@ import {
   TypesSandboxResourceOverrides,
   TypesSandboxRuntime,
   TypesSpecTaskStatus,
+  TypesSpecTaskExecutionConfigUpdateRequest,
 } from "../../api/api";
 import ExternalAgentDesktopViewer, {
   useSandboxState,
@@ -102,6 +101,7 @@ import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import AgentChat from "../session/AgentChat";
+import DesignReviewContent from "../spec-tasks/DesignReviewContent";
 import SubagentsPanel from "../session/SubagentsPanel";
 import { mergeStreamingInteraction } from "../session/subagentActivity";
 import { getChatColors } from "../session/chatStyles";
@@ -127,7 +127,6 @@ import useIsBigScreen from "../../hooks/useIsBigScreen";
 import useIsPhone from "../../hooks/useIsPhone";
 import useLightTheme from "../../hooks/useLightTheme";
 import {
-  FileText,
   ChartNoAxesCombined,
   PanelLeft,
   PanelRight,
@@ -159,6 +158,7 @@ import {
   loadSpecTaskTerminalDrawerState,
   saveSpecTaskTerminalDrawerState,
 } from "./specTaskTerminalDrawerState";
+import { useDesignReviews } from "../../services/designReviewService";
 
 const SPEC_TASK_CHAT_PANEL_IDS = ["spec-task-chat", "spec-task-content"] as const;
 const SPEC_TASK_CHAT_LAYOUT_KEY = "helix.specTaskChat.layout";
@@ -207,6 +207,7 @@ type TaskTextSaveStatus = "idle" | "saving" | "saved" | "error";
 
 interface SpecTaskDetailContentProps {
   taskId: string;
+  initialView?: TaskView;
   /** Keep standalone task content inset while allowing sibling drawers to span the workspace. */
   padContent?: boolean;
   /** Whether tasks awaiting spec review should open the review automatically. */
@@ -216,12 +217,6 @@ interface SpecTaskDetailContentProps {
   /** Poll GitHub while this task is visible. Disabled for read-only embeds. */
   enableForegroundPRRefresh?: boolean;
   onClose?: () => void;
-  /** Called when user clicks "Review Spec" - if provided, opens in workspace pane instead of navigating */
-  onOpenReview?: (
-    taskId: string,
-    reviewId: string,
-    reviewTitle?: string,
-  ) => void;
   /** Called when task is archived - parent should close all tabs showing this task */
   onTaskArchived?: (taskId: string) => void;
   /**
@@ -235,12 +230,12 @@ interface SpecTaskDetailContentProps {
 
 const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
+  initialView,
   padContent = false,
   autoOpenReview = true,
   allowContentCollapse = false,
   enableForegroundPRRefresh = true,
   onClose,
-  onOpenReview,
   onTaskArchived,
   syncViewWithUrl = true,
 }) => {
@@ -287,6 +282,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     enabled: !!taskId,
     refetchInterval: 2300, // 2.3s - prime to avoid sync with other polling
   });
+  const { data: designReviewsData } = useDesignReviews(
+    task?.design_docs_pushed_at ? taskId : "",
+  );
+  const designReviews = designReviewsData?.reviews || [];
+  const latestDesignReview =
+    designReviews.find((review) => review.status !== "superseded") || designReviews[0];
   useForegroundSpecTaskPRRefresh(
     taskId,
     enableForegroundPRRefresh && task?.status === TypesSpecTaskStatus.TaskStatusPullRequest,
@@ -443,6 +444,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     : undefined;
 
   const handleAgentModelChange = useCodeAgentConfigChange(updateExecutionConfig.mutateAsync);
+  const updatePhaseAgentConfig = async (
+    phase: NonNullable<TypesSpecTaskExecutionConfigUpdateRequest["phase"]>,
+    codeAgentConfig: NonNullable<typeof task>["code_agent_config"],
+  ) => {
+    if (!codeAgentConfig) return;
+    const result = await updateExecutionConfig.mutateAsync({
+      phase,
+      code_agent_config: codeAgentConfig,
+    });
+    snackbar.success(
+      result.agent_thread_restarted
+        ? "Agent updated on a fresh thread"
+        : `${phase === "planning" ? "Planning" : "Implementation"} agent updated`,
+    );
+  };
 
   const handleSandboxResourcesChange = useCallback(async (sandboxResourceOverrides: TypesSandboxResourceOverrides) => {
     const result = await updateExecutionConfig.mutateAsync({
@@ -463,11 +479,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Initialize from URL query param 'view' if present (only when syncing with URL)
   const getInitialView = (): TaskView => {
     if (!syncViewWithUrl) {
-      return "desktop";
+      return initialView || "desktop";
     }
     const viewParam = router.params.view;
     if (
       viewParam === "chat" ||
+      viewParam === "plan" ||
       viewParam === "agents" ||
       viewParam === "desktop" ||
       viewParam === "browser" ||
@@ -495,6 +512,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (
       viewParam &&
       (viewParam === "chat" ||
+        viewParam === "plan" ||
         viewParam === "agents" ||
         viewParam === "desktop" ||
         viewParam === "browser" ||
@@ -1187,44 +1205,23 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   };
 
-  // Handle review spec navigation
-  const handleReviewSpec = useCallback(async () => {
+  // Keep planning review inside the task workspace so the normal AgentChat
+  // remains visible beside the documents, files, diff, and subagents.
+  const handleReviewSpec = () => {
     if (!task?.id) return;
 
-    // Mark immediately (before async) so the auto-open effect won't re-trigger
-    // if the user returns to the chat view after visiting spec.
-    addAutoOpenedSpecTask(task.id);
-
-    try {
-      const response = await api
-        .getApiClient()
-        .v1SpecTasksDesignReviewsDetail(task.id);
-      const reviews = response.data?.reviews || [];
-      if (reviews.length > 0) {
-        const latestReview =
-          reviews.find((r: any) => r.status !== "superseded") || reviews[0];
-        if (onOpenReview) {
-          onOpenReview(task.id, latestReview.id, task.name || "Spec Review");
-        } else {
-          account.orgNavigate("project-task-review", {
-            id: task.project_id,
-            taskId: task.id,
-            reviewId: latestReview.id,
-          });
-        }
-      } else {
-        snackbar.error("No design review found");
-      }
-    } catch (error) {
-      console.error("Failed to fetch design reviews:", error);
-      snackbar.error("Failed to load design review");
+    if (!latestDesignReview?.id) {
+      snackbar.error("No design review found");
+      return;
     }
-  }, [task?.id, task?.name, task?.project_id, onOpenReview, account]);
+    addAutoOpenedSpecTask(task.id);
+    handleViewChange("plan");
+  };
 
   // Auto-open spec review when enabled and the task is ready for review.
   // The Chat task route disables this so selecting a task preserves the Chat context.
-  // handleReviewSpec writes to sessionStorage before the async call, limiting auto-open
-  // to once per SPA session per task ID in views where it remains enabled.
+  // handleReviewSpec records the task in sessionStorage once the review exists,
+  // limiting auto-open to once per SPA session per task ID.
   // The spec_approved_at guard prevents bouncing the user back to the review page in the
   // brief window between approval and the cached task.status transitioning away from spec_review.
   useEffect(() => {
@@ -1234,13 +1231,27 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       !getAutoOpenedSpecTasks().has(task.id) &&
       !task?.spec_approved_at &&
       task?.design_docs_pushed_at &&
+      latestDesignReview?.id &&
       account.organizationTools.organization?.name &&
       (task?.status === TypesSpecTaskStatus.TaskStatusSpecReview ||
         task?.status === TypesSpecTaskStatus.TaskStatusSpecRevision)
     ) {
-      handleReviewSpec();
+      addAutoOpenedSpecTask(task.id);
+      setCurrentView("plan");
+      if (syncViewWithUrl) {
+        router.mergeParams({ view: "plan" });
+      }
     }
-  }, [autoOpenReview, task?.id, task?.status, task?.spec_approved_at, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
+  }, [
+    autoOpenReview,
+    syncViewWithUrl,
+    task?.id,
+    task?.status,
+    task?.spec_approved_at,
+    task?.design_docs_pushed_at,
+    latestDesignReview?.id,
+    account.organizationTools.organization?.name,
+  ]);
 
   // Handle file upload to sandbox
   const handleUploadClick = useCallback(() => {
@@ -1902,17 +1913,33 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         />
       </Box>
 
-      {/* Agent Selection */}
+      {/* Phase agent selection */}
       <Box sx={{ mb: 2 }}>
         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-          Execution
+          Planning agent
         </Typography>
         <CodeAgentExecutionControls
-          value={currentExecutionConfig?.code_agent_config || task?.code_agent_config}
+          value={task?.planning_code_agent_config || task?.code_agent_config}
           sandboxResourceOverrides={task?.sandbox_resource_overrides}
           sandboxRuntime={task?.sandbox_runtime}
-          onChange={(config) => handleAgentModelChange("", {}, config)}
+          onChange={(config) =>
+            updatePhaseAgentConfig("planning", config)
+          }
           onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+          disabled={updateExecutionConfig.isPending || !!task?.archived}
+          grouped
+        />
+      </Box>
+
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Implementation agent
+        </Typography>
+        <CodeAgentExecutionControls
+          value={task?.code_agent_config}
+          onChange={(config) =>
+            updatePhaseAgentConfig("implementation", config)
+          }
           disabled={updateExecutionConfig.isPending || !!task?.archived}
           grouped
         />
@@ -2469,39 +2496,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   }}
                 >
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
-                    {/* Spec is the only alternate view; the surrounding panel is already chat. */}
-                    {task?.design_docs_pushed_at && (
-                      <ToggleButtonGroup
-                        value={null}
-                        exclusive
-                        onChange={(_, val) => {
-                          if (val === "spec") handleReviewSpec();
-                        }}
-                        size="small"
-                        sx={{
-                          flexShrink: 0,
-                          "& .MuiToggleButton-root": {
-                            px: 1.25,
-                            py: 0.25,
-                            fontSize: "0.8rem",
-                            fontWeight: 500,
-                            textTransform: "none",
-                            border: "1px solid",
-                            borderColor: "divider",
-                            color: "text.secondary",
-                            "&.Mui-selected": {
-                              color: "text.primary",
-                              backgroundColor: "action.selected",
-                            },
-                          },
-                        }}
-                      >
-                        <ToggleButton value="spec" disableRipple={false}>
-                          <FileText size={14} style={{ marginRight: 4 }} />
-                          Spec
-                        </ToggleButton>
-                      </ToggleButtonGroup>
-                    )}
                     {/* Thread selector (shown alongside tabs when multiple threads exist) */}
                     {(() => {
                       // Filter out threads that point to the same session as planning (they're the same conversation)
@@ -2658,6 +2652,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   currentView={currentView}
                   onViewChange={handleViewChange}
                   hasSession
+                  showPlan={!!latestDesignReview?.id}
                   showDesktop={!isHeadless}
                   renderActions={(density) =>
                     renderTaskActions("inline", density)
@@ -2691,6 +2686,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     is already visible in the left panel */}
                 {currentView === "agents" && (
                   <SubagentsPanel interactions={subagentInteractions} />
+                )}
+                {currentView === "plan" && latestDesignReview?.id && (
+                  <DesignReviewContent
+                    specTaskId={task.id}
+                    reviewId={latestDesignReview.id}
+                    onClose={() => handleViewChange(isHeadless ? "changes" : "desktop")}
+                    onImplementationStarted={() => {
+                      void queryClient.invalidateQueries({ queryKey: ["spec-tasks", task.id] });
+                      handleViewChange(isHeadless ? "changes" : "desktop");
+                    }}
+                    hideTitle
+                  />
                 )}
                 {!isHeadless && (currentView === "desktop" || currentView === "chat") &&
                   (isTaskCompleted && isDesktopPaused ? (
@@ -2793,6 +2800,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 onViewChange={handleViewChange}
                 hasSession
                 showChatTab
+                showPlan={!!latestDesignReview?.id}
                 showDesktop={!isHeadless}
                 renderActions={(density) =>
                   renderTaskActions("inline", density)
@@ -2932,6 +2940,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             {/* Agents View - mobile */}
             {activeSessionId && currentView === "agents" && (
               <SubagentsPanel interactions={subagentInteractions} />
+            )}
+
+            {activeSessionId && currentView === "plan" && latestDesignReview?.id && (
+              <Box sx={{ flex: 1, overflow: "hidden" }}>
+                <DesignReviewContent
+                  specTaskId={task.id}
+                  reviewId={latestDesignReview.id}
+                  onClose={() => handleViewChange("chat")}
+                  onImplementationStarted={() => {
+                    void queryClient.invalidateQueries({ queryKey: ["spec-tasks", task.id] });
+                    handleViewChange("chat");
+                  }}
+                  hideTitle
+                />
+              </Box>
             )}
 
             {/* Desktop View - mobile */}

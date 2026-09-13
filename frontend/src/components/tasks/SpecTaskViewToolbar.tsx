@@ -17,6 +17,7 @@ import {
   CloudUpload,
   EllipsisVertical,
   Files,
+  FileText,
   Globe2,
   Lock,
   LockOpen,
@@ -38,6 +39,7 @@ import useIsPhone from "../../hooks/useIsPhone";
 
 export type TaskView =
   | "chat"
+  | "plan"
   | "agents"
   | "desktop"
   | "browser"
@@ -127,6 +129,7 @@ const VIEW_TABS: ViewTab[] = [
     sessionOnly: true,
     chatOnly: true,
   },
+  { value: "plan", label: "Plan", icon: FileText, sessionOnly: true },
   { value: "desktop", label: "Desktop", icon: MonitorPlay, sessionOnly: true, foldOnPhone: true },
   { value: "browser", label: "Browser", icon: Globe2, sessionOnly: true },
   { value: "changes", label: "Diff", icon: GitCompare, sessionOnly: true },
@@ -162,6 +165,8 @@ export interface SpecTaskViewToolbarProps {
   hasSession: boolean;
   /** Show the Chat tab (single-column layouts where chat has no panel). */
   showChatTab?: boolean;
+  /** Show approved/in-progress planning documents in the task workspace. */
+  showPlan?: boolean;
   /** Headless tasks have no stream and cannot be converted to a desktop. */
   showDesktop?: boolean;
   /** Status-specific action buttons (Open PR / …). */
@@ -216,6 +221,7 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   onViewChange,
   hasSession,
   showChatTab = false,
+  showPlan = false,
   showDesktop = true,
   renderActions,
   onToggleTerminal,
@@ -255,9 +261,10 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   const iconButtonSx = toolbarIconButtonSx(density);
   const controlIconSize = ICON_BUTTON_METRICS[density].icon;
 
+  const availableViewTabs = VIEW_TABS.filter((tab) => tab.value !== "plan" || showPlan);
   const viewTabs = detailsLabel
-    ? VIEW_TABS.map((t) => (t.value === "details" ? { ...t, label: detailsLabel } : t))
-    : VIEW_TABS;
+    ? availableViewTabs.map((t) => (t.value === "details" ? { ...t, label: detailsLabel } : t))
+    : availableViewTabs;
   const availableTabs = viewTabs.filter(
     (t) => (!t.sessionOnly || hasSession)
       && (!t.chatOnly || showChatTab)
