@@ -29,7 +29,7 @@ export default function QuestionAnswerHistory({
               {question.id && resolved.answers?.[question.id] && (
                 <Typography
                   variant="body2"
-                  color="text.secondary"
+                  color="text.primary"
                   sx={{ pl: 1.5, whiteSpace: "pre-line" }}
                 >
                   {resolved.answers[question.id]}
