@@ -73,12 +73,14 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ReapSettlesPendingQuestio
 	interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
 		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
 		GenerationID: 1, State: types.InteractionStateWaiting,
-		PendingQuestion: &types.PendingQuestion{
-			RequestID: "question-reap", ThreadID: "thread-reap", TurnRequestID: "turn-reap", Source: "elicitation",
-			Questions: []types.UserQuestion{{ID: "choice", Question: "Choose one"}},
-		},
 	})
 	suite.Require().NoError(err)
+	_, changed, err := suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, interaction.GenerationID, &types.PendingQuestion{
+		RequestID: "question-reap", ThreadID: "thread-reap", TurnRequestID: "turn-reap", Source: "elicitation",
+		Questions: []types.UserQuestion{{ID: "choice", Question: "Choose one"}},
+	})
+	suite.Require().NoError(err)
+	suite.True(changed)
 
 	reaped, err := suite.db.ReapWaitingInteractions(ctx, session.ID, types.InteractionStateInterrupted, "test reap")
 	suite.Require().NoError(err)

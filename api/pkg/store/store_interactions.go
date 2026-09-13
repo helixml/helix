@@ -543,18 +543,19 @@ func (s *PostgresStore) ReapWaitingInteractions(ctx context.Context, sessionID s
 			return nil
 		}
 		for _, interaction := range candidates {
+			settledHistory := interaction.QuestionHistory
 			updates := map[string]interface{}{
 				"state":     newState,
 				"completed": now,
 				"updated":   now,
 			}
 			if interaction.PendingQuestion != nil {
-				interaction.QuestionHistory = append(interaction.QuestionHistory, types.ResolvedQuestion{
+				settledHistory = append(settledHistory, types.ResolvedQuestion{
 					PendingQuestion: *interaction.PendingQuestion,
 					Outcome:         "cancelled",
 					ResolvedAt:      now,
 				})
-				historyJSON, err := json.Marshal(interaction.QuestionHistory)
+				historyJSON, err := json.Marshal(settledHistory)
 				if err != nil {
 					return fmt.Errorf("marshal reaped question history: %w", err)
 				}
@@ -563,7 +564,12 @@ func (s *PostgresStore) ReapWaitingInteractions(ctx context.Context, sessionID s
 			}
 
 			result := tx.Model(&types.Interaction{}).
-				Where("id = ? AND state = ?", interaction.ID, types.InteractionStateWaiting).
+				Where(
+					"id = ? AND generation_id = ? AND state = ?",
+					interaction.ID,
+					interaction.GenerationID,
+					types.InteractionStateWaiting,
+				).
 				Updates(updates)
 			if result.Error != nil {
 				return result.Error
@@ -575,6 +581,7 @@ func (s *PostgresStore) ReapWaitingInteractions(ctx context.Context, sessionID s
 			interaction.Completed = now
 			interaction.Updated = now
 			interaction.PendingQuestion = nil
+			interaction.QuestionHistory = settledHistory
 			reaped = append(reaped, interaction)
 		}
 		return nil
