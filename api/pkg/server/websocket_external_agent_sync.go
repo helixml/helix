@@ -769,6 +769,10 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		err = apiServer.handleAgentReady(sessionID, syncMsg)
 	case "turn_cancelled":
 		err = apiServer.handleTurnCancelled(sessionID, syncMsg)
+	case "question_requested":
+		err = apiServer.handleQuestionRequested(sessionID, syncMsg)
+	case "question_resolved":
+		err = apiServer.handleQuestionResolved(sessionID, syncMsg)
 	case "ping":
 		// no-op
 	default:

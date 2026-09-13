@@ -223,6 +223,9 @@ func (apiServer *HelixAPIServer) scanAndAutoWakeStuckInteractions(ctx context.Co
 
 // maybeAutoWake handles a single stuck interaction after the safety gates pass.
 func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types.Interaction) {
+	if stuck.PendingQuestion != nil {
+		return
+	}
 	threshold := autoWakeStuckThreshold()
 
 	// Gate 1 — WebSocket connection AND grace period since connect.

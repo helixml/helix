@@ -20,6 +20,8 @@ import ToolStepsWidget from "./ToolStepsWidget";
 import ActivitySummary from "./ActivitySummary";
 import AgentOfflineNotice from "./AgentOfflineNotice";
 import { getInteractionRequestTimeMs } from "./interactionDuration";
+import PendingQuestionCard from "./PendingQuestionCard";
+import QuestionAnswerHistory from "./QuestionAnswerHistory";
 
 export const InteractionLiveStream: FC<{
   session_id: string;
@@ -115,6 +117,7 @@ export const InteractionLiveStream: FC<{
 
   // Trigger scroll on either message or entries change
   const hasContent = !!(message || (responseEntries && responseEntries.length > 0));
+  const hasPendingQuestion = !!interaction.pending_question;
 
   useEffect(() => {
     if (!hasContent || !onMessageUpdate) return;
@@ -154,9 +157,18 @@ export const InteractionLiveStream: FC<{
         <ToolStepsWidget steps={toolSteps} isLiveStreaming={isStreaming} />
       )}
 
+      <QuestionAnswerHistory history={interaction.question_history} />
+
+      {interaction.pending_question && interaction.id && (
+        <PendingQuestionCard
+          interactionId={interaction.id}
+          pendingQuestion={interaction.pending_question}
+        />
+      )}
+
       {/* Show thinking indicator when waiting and no content yet. Suppressed
           once the sandbox is gone: there is no agent left to be working. */}
-      {interaction.state === "waiting" && !hasContent && !agentOffline && (
+      {interaction.state === "waiting" && !hasContent && !hasPendingQuestion && !agentOffline && (
         <ActivitySummary
           hasActivity={false}
           isStreaming

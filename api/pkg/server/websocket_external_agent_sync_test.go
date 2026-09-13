@@ -2849,6 +2849,71 @@ func (s *WebSocketSyncSuite) TestProcessSyncMessage_SyncEventHookFires() {
 	s.Equal("ping", hookEventType)
 }
 
+func (s *WebSocketSyncSuite) TestQuestionRequested_AttachesToWaitingInteraction() {
+	interaction := &types.Interaction{
+		ID: "int-question", SessionID: "agent-1", GenerationID: 2,
+		State: types.InteractionStateWaiting,
+	}
+	s.server.requestToInteractionMapping["turn-1"] = interaction.ID
+	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil)
+	s.store.EXPECT().SetInteractionPendingQuestion(gomock.Any(), interaction.ID, 2, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ int, question *types.PendingQuestion) (*types.Interaction, bool, error) {
+			s.Equal("question-1", question.RequestID)
+			s.Equal("elicitation", question.Source)
+			updated := *interaction
+			updated.PendingQuestion = question
+			return &updated, true, nil
+		})
+	s.store.EXPECT().GetSession(gomock.Any(), "agent-1").Return(&types.Session{ID: "agent-1", Owner: "user-1"}, nil)
+	recorder := &recordingPubSub{NoopPubSub: pubsub.NewNoop()}
+	s.server.pubsub = recorder
+
+	err := s.server.processExternalAgentSyncMessage("agent-1", &types.SyncMessage{
+		EventType: "question_requested",
+		Data: map[string]interface{}{
+			"thread_id": "thread-1", "request_id": "question-1", "turn_request_id": "turn-1",
+			"source": "elicitation",
+			"questions": []interface{}{map[string]interface{}{
+				"id": "framework", "header": "Framework", "question": "Which framework?",
+				"options":      []interface{}{map[string]interface{}{"label": "React"}},
+				"multi_select": false, "allow_custom_answer": true,
+			}},
+		},
+	})
+
+	s.NoError(err)
+	s.Len(recorder.payloads, 1)
+}
+
+func (s *WebSocketSyncSuite) TestQuestionResolved_ClearsAndArchivesQuestion() {
+	interaction := &types.Interaction{
+		ID: "int-question", SessionID: "agent-1", GenerationID: 2,
+		State:           types.InteractionStateWaiting,
+		PendingQuestion: &types.PendingQuestion{RequestID: "question-1"},
+	}
+	s.server.requestToInteractionMapping["turn-1"] = interaction.ID
+	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil)
+	s.store.EXPECT().ResolveInteractionPendingQuestion(
+		gomock.Any(), interaction.ID, 2, "question-1", "answered", map[string]string{"framework": "React"},
+	).DoAndReturn(func(_ context.Context, _ string, _ int, _ string, _ string, answers map[string]string) (*types.Interaction, bool, error) {
+		updated := *interaction
+		updated.PendingQuestion = nil
+		updated.QuestionHistory = []types.ResolvedQuestion{{Answers: answers, Outcome: "answered"}}
+		return &updated, true, nil
+	})
+	s.store.EXPECT().GetSession(gomock.Any(), "agent-1").Return(&types.Session{ID: "agent-1", Owner: "user-1"}, nil)
+
+	err := s.server.processExternalAgentSyncMessage("agent-1", &types.SyncMessage{
+		EventType: "question_resolved",
+		Data: map[string]interface{}{
+			"thread_id": "thread-1", "request_id": "question-1", "turn_request_id": "turn-1",
+			"outcome": "answered", "answers": map[string]interface{}{"framework": "React"},
+		},
+	})
+
+	s.NoError(err)
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Streaming context cache tests
 // ──────────────────────────────────────────────────────────────────────────────

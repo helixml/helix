@@ -8,6 +8,9 @@ import { InteractionLiveStream } from "./InteractionLiveStream";
 vi.mock("../../hooks/useLiveInteraction", () => ({
   default: vi.fn(),
 }));
+vi.mock("./PendingQuestionCard", () => ({
+  default: ({ pendingQuestion }: any) => <div>{pendingQuestion.questions?.[0]?.question}</div>,
+}));
 
 const mockedUseLiveInteraction = vi.mocked(useLiveInteraction);
 
@@ -43,6 +46,28 @@ describe("InteractionLiveStream", () => {
         agentOffline={agentOffline}
       />,
     );
+
+  it("shows a pending question instead of the working timer", () => {
+    render(
+      <InteractionLiveStream
+        session_id="session-1"
+        interaction={{
+          id: "interaction-1",
+          created: "2026-08-03T00:00:00.000Z",
+          state: TypesInteractionState.InteractionStateWaiting,
+          pending_question: {
+            request_id: "question-1",
+            questions: [{ id: "choice", question: "Choose one", options: [{ label: "A" }] }],
+          },
+        }}
+        session={{ id: "session-1" }}
+        serverConfig={{ filestore_prefix: "/api/v1/filestore" }}
+      />,
+    );
+
+    expect(screen.getByText("Choose one")).toBeInTheDocument();
+    expect(screen.queryByText(/Working for/)).not.toBeInTheDocument();
+  });
 
   it("keeps counting from the persisted request time after mounting", () => {
     renderStream();

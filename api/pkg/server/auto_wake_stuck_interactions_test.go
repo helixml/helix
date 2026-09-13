@@ -62,6 +62,14 @@ func stuckInteraction(id, sessionID string, autoWakeCount int) *types.Interactio
 	}
 }
 
+func (s *AutoWakeColdStartSuite) TestSkipsInteractionWithPendingQuestion() {
+	stuck := stuckInteraction("int-question", "ses-question", 0)
+	stuck.PendingQuestion = &types.PendingQuestion{RequestID: "question-1"}
+
+	// No store, executor, or WebSocket calls are expected.
+	s.server.maybeAutoWake(context.Background(), stuck)
+}
+
 // TestKicksAutoStartWhenNoWS: stuck interaction on a session with no live
 // WS triggers a goroutine call to autoStartDevContainerForSession (which
 // in turn calls StartDesktop) and increments AutoWakeCount via a targeted

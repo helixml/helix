@@ -13,6 +13,7 @@ import CollapsibleSystemPrefix, {
   splitSystemPrefix,
 } from "./CollapsibleSystemPrefix";
 import ChangedFilesCard from "./ChangedFilesCard";
+import QuestionAnswerHistory from "./QuestionAnswerHistory";
 import { parseMessageWithAttachments } from "../common/chatAttachments";
 import { resolveChatTurnAssistantPreview } from "./ChatTurnNavigator.logic";
 import { workspaceReviewMessageCopyText } from "./workspaceReviewMessage";
@@ -601,6 +602,7 @@ export const Interaction: FC<InteractionProps> = ({
       {/* Assistant Response Container */}
       {(assistantMessage ||
         (interaction as any)?.response_entries?.length > 0 ||
+        (interaction.question_history?.length ?? 0) > 0 ||
         isLive ||
         visibleError) && (
         <Box
@@ -643,6 +645,7 @@ export const Interaction: FC<InteractionProps> = ({
                   sessionSteps={sessionSteps}
                   enableDebugCopy={enableDebugCopy}
                 />
+                <QuestionAnswerHistory history={interaction.question_history} />
                 <ChangedFilesCard
                   interaction={interaction}
                   isLatest={isLastInteraction}
