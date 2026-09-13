@@ -1,7 +1,7 @@
 # Agent elicitations: agent asks the user a question mid-turn
 
 Date: 2026-09-12
-Status: implemented and live-validated on `feat/agent-elicitations`
+Status: base transport implemented and live-validated; Codex adapter integration in progress
 
 ## Problem
 
@@ -47,14 +47,14 @@ agent can use to ask:
    `ToolCallStatus::WaitingForConfirmation { options, respond_tx, kind }` →
    `authorize_tool_call` (:3482).
 
-What's missing in Zed is only the **external-websocket-sync bridge**:
+The implementation gap in Zed was the **external-websocket-sync bridge**:
 `crates/external_websocket_sync/src/thread_service.rs` subscribes only to
 `NewEntry/EntryUpdated/Stopped/Error` (:898, :1035, :1087) — it never observes
 `ElicitationRequested` or `ToolAuthorizationRequested`, and its `NewEntry`
 mapper explicitly `_ => return`s on `Elicitation` entries (:905-913).
-`SyncEvent` (src/types.rs:179-280) has no question event; the command set
-(websocket_sync.rs:399-407) has no answer command. So headless external threads
-stall on any question today (confirmed in `portingguide.md:820-821` —
+`SyncEvent` (src/types.rs:179-280) had no question event; the command set
+(websocket_sync.rs:399-407) had no answer command. Consequently, headless external threads
+stalled on any question (confirmed in `portingguide.md:820-821` —
 `_request_elicitation_subscription = None`).
 
 MCP-server elicitation is **not** supported by Zed's MCP client at all
@@ -67,7 +67,7 @@ for v1.
 |---|---|---|---|
 | **Claude Code** (`claude-agent-acp` ≥ ~0.76) | ACP `elicitation/create` **form** | AskUserQuestion converted to form fields (enum per option, `const=label`, `title`, `description`; single question carried in `message`, multi-question one field per question; `multiSelect` → array field) | `ElicitationResponse {action: "accept", content: {field_key: label}}`; wrapper maps back to SDK `behavior:"allow", updatedInput:{questions, answers:{questionText: label}}` |
 | **Qwen Code** (bundled `qwen-code-build`) | `session/request_permission` with `toolCall._meta: {toolName:"ask_user_question", qwenInteractionKind:"user_question", qwenQuestions:[{header, question, options[{label,description}], multiSelect}]}`; offered options are only `Submit(proceed_once)` / `Cancel` | full structured questions; `getDefaultPermission()` returns `"ask"` in ACP mode **regardless of yolo** | response `{outcome:{outcome:"selected",optionId:"proceed_once"}, answers:{<index>: "<answer>"}}` — the top-level `answers` map is a Qwen extension keyed by question index |
-| **Codex** (`codex-acp` 0.16) | Codex core `RequestUserInput`, available in Plan mode (or behind the under-development `default_mode_request_user_input` flag) | structured questions exist inside Codex | **not bridged**: `codex-acp` currently logs the event as unexpected and drops it |
+| **Codex** (`codex-acp` 0.16) | Codex App Server `item/tool/requestUserInput`, available in Plan mode (or behind the under-development `default_mode_request_user_input` flag) | one to three structured questions with options and custom answers | **adapter work required**: `codex-acp` currently logs the event as unexpected instead of translating it to ACP elicitation |
 | opencode / goose | approvals only, no ask-user tool verified in the current adapters | — | — |
 
 Key facts verified in the shipped artifacts:
@@ -84,16 +84,20 @@ Key facts verified in the shipped artifacts:
   mode without ACP support…"`). Helix's `--yolo` + `default_mode: yolo`
   (settings-sync-daemon main.go:248-275) does NOT suppress it: the "ask"
   permission is per-tool. The request is emitted with
-  `_meta.qwenInteractionKind = "user_question"`; Zed currently ignores that
-  meta (renders a generic approval card), and nothing can answer it headlessly.
-- Codex itself now has a structured `request_user_input` protocol and answer
-  operation. The blocker is the current ACP adapter, not the model or Helix:
-  `codex-acp` 0.16 explicitly treats `EventMsg::RequestUserInput` as unexpected
-  and does not translate it into ACP. Helix also starts Codex in Default mode,
-  where the tool is disabled unless Codex's under-development
-  `default_mode_request_user_input` feature is enabled. Enabling that flag
-  alone would only turn the current clean rejection into a stalled turn; the
-  adapter must first forward the request and its `UserInputAnswer` response.
+  `_meta.qwenInteractionKind = "user_question"`; before
+  https://github.com/helixml/zed/pull/95 Zed ignored that metadata and nothing
+  could answer it headlessly.
+- Codex itself has a structured `request_user_input` protocol and answer
+  operation. T3 Code demonstrates the working host architecture by integrating
+  directly with Codex App Server: it renders `item/tool/requestUserInput`, sends
+  answers back to the server request, and resumes the turn. In Plan mode this is
+  native; Default mode additionally requires Codex's under-development
+  `default_mode_request_user_input` feature and host-side tool exposure. The
+  blocker in Helix is therefore the current ACP adapter, not Codex or the Helix
+  question UI: `codex-acp` 0.16 treats `EventMsg::RequestUserInput` as
+  unexpected instead of translating it into ACP form elicitation. Sources:
+  https://developers.openai.com/codex/app-server/ and
+  https://github.com/pingdotgg/t3code/pull/6432.
 
 ### t3code reference (pingdotgg/t3code) — the model to copy
 
@@ -283,9 +287,6 @@ cancelled before re-delivering the turn.
 - Generic tool-approval cards (allow/reject for shell commands etc.) — can
   reuse this pipe later (`source: "permission"` non-question kinds), but
   approval policy is a separate product decision.
-- Codex ask-user until `codex-acp` forwards Codex's existing
-  `RequestUserInput`/`UserInputAnswer` protocol as ACP. This should be fixed in
-  the adapter, not by parsing assistant prose in Helix.
 - opencode/goose ask-user (no structured ask-user path was verified in the
   current adapters).
 
@@ -294,6 +295,8 @@ cancelled before re-delivering the turn.
 **PR 1 — Zed: sync protocol plumbing**
 
 https://github.com/helixml/zed/pull/95
+
+Merged as `baff1b4a4a33364538e9bf8957988faf515cf266`.
 
 - `external_websocket_sync`: subscribe `ElicitationRequested` (+ resolved),
   emit `question_requested`/`question_resolved`; parse Qwen
@@ -328,7 +331,7 @@ real providers through `http://localhost:8080`:
 | Qwen Code | Two-question permission request (single + multi-select) answered; turn resumed and persisted the Q&A history. Cancellation also settled the agent turn and persisted `outcome: cancelled`. |
 | GLM | Same Qwen ACP permission transport answered; turn resumed and persisted the Q&A history. |
 | Claude Code | Form elicitation answered through `claude-agent-acp` 0.76; turn resumed and persisted the Q&A history. |
-| Codex | Reported `request_user_input` unavailable and completed without a pending question, matching the explicit v1 limitation above. |
+| Codex | Default-mode baseline reported `request_user_input` unavailable because the tool was not exposed. This does not imply that Codex lacks the capability; Plan mode and the adapter translation require follow-up validation. |
 
 Automated validation includes the focused Go store/server tests, frontend
 component tests, Rust normalization/serialization tests, production builds,
@@ -352,6 +355,11 @@ gates; their state transitions are covered by focused tests.
   capabilities negotiation — confirm `elicitation.form` reaches
   claude-agent-acp over the negotiated connection in a live session before
   building the Helix side against it.
+- **Codex adapter translation**: Codex App Server owns the pending request and
+  answer lifecycle, while Helix consumes ACP. Implement the conversion in
+  `codex-acp` (Codex request → ACP form elicitation → Codex answer) so the
+  existing Zed/Helix transport remains provider-neutral. Do not add Codex
+  protocol parsing to Helix or infer questions from assistant prose.
 - **Auto-wake vs legit pauses**: the 180s "agent went quiet = stuck" heuristic
   is now wrong in a new way; the pending-question check must cover both
   elicitation- and permission-sourced pauses.
