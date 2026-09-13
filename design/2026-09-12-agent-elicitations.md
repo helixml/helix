@@ -1,7 +1,7 @@
 # Agent elicitations: agent asks the user a question mid-turn
 
 Date: 2026-09-12
-Status: base transport implemented and live-validated; Codex adapter integration in progress
+Status: implemented; Codex integration awaiting live validation
 
 ## Problem
 
@@ -67,7 +67,7 @@ for v1.
 |---|---|---|---|
 | **Claude Code** (`claude-agent-acp` ≥ ~0.76) | ACP `elicitation/create` **form** | AskUserQuestion converted to form fields (enum per option, `const=label`, `title`, `description`; single question carried in `message`, multi-question one field per question; `multiSelect` → array field) | `ElicitationResponse {action: "accept", content: {field_key: label}}`; wrapper maps back to SDK `behavior:"allow", updatedInput:{questions, answers:{questionText: label}}` |
 | **Qwen Code** (bundled `qwen-code-build`) | `session/request_permission` with `toolCall._meta: {toolName:"ask_user_question", qwenInteractionKind:"user_question", qwenQuestions:[{header, question, options[{label,description}], multiSelect}]}`; offered options are only `Submit(proceed_once)` / `Cancel` | full structured questions; `getDefaultPermission()` returns `"ask"` in ACP mode **regardless of yolo** | response `{outcome:{outcome:"selected",optionId:"proceed_once"}, answers:{<index>: "<answer>"}}` — the top-level `answers` map is a Qwen extension keyed by question index |
-| **Codex** (`codex-acp` 0.16) | Codex App Server `item/tool/requestUserInput`, available in Plan mode (or behind the under-development `default_mode_request_user_input` flag) | one to three structured questions with options and custom answers | **adapter work required**: `codex-acp` currently logs the event as unexpected instead of translating it to ACP elicitation |
+| **Codex** (`@agentclientprotocol/codex-acp` 1.11.0) | Codex App Server `item/tool/requestUserInput`, native in Plan mode and feature-gated in Default mode | one to three structured questions with options and an optional free-form answer | ACP form elicitation; accepted content is converted back to Codex `{answers: {question_id: {answers: [...]}}}` |
 | opencode / goose | approvals only, no ask-user tool verified in the current adapters | — | — |
 
 Key facts verified in the shipped artifacts:
@@ -87,17 +87,20 @@ Key facts verified in the shipped artifacts:
   `_meta.qwenInteractionKind = "user_question"`; before
   https://github.com/helixml/zed/pull/95 Zed ignored that metadata and nothing
   could answer it headlessly.
-- Codex itself has a structured `request_user_input` protocol and answer
-  operation. T3 Code demonstrates the working host architecture by integrating
-  directly with Codex App Server: it renders `item/tool/requestUserInput`, sends
-  answers back to the server request, and resumes the turn. In Plan mode this is
-  native; Default mode additionally requires Codex's under-development
-  `default_mode_request_user_input` feature and host-side tool exposure. The
-  blocker in Helix is therefore the current ACP adapter, not Codex or the Helix
-  question UI: `codex-acp` 0.16 treats `EventMsg::RequestUserInput` as
-  unexpected instead of translating it into ACP form elicitation. Sources:
+- Codex has a structured `request_user_input` protocol and answer operation.
+  T3 Code demonstrates the direct App Server architecture: render
+  `item/tool/requestUserInput`, answer the server request, and resume the turn.
+  In Plan mode this is native; Default mode additionally requires the
+  under-development `default_mode_request_user_input` feature. Sources:
   https://developers.openai.com/codex/app-server/ and
   https://github.com/pingdotgg/t3code/pull/6432.
+- The current Zed registry installs `@agentclientprotocol/codex-acp` 1.11.0,
+  whose `CodexElicitationHandler` already converts the App Server request to
+  ACP form elicitation. Support landed upstream in July 2026:
+  https://github.com/agentclientprotocol/codex-acp/commit/bd213acc9932d3015633cb071d38cab472b11560.
+  Helix enables the Default-mode feature in Codex's generated config. Zed also
+  recognizes codex-acp's `_meta.codex.isOtherAnswer` companion property so it
+  renders one question and returns custom text through the correct field.
 
 ### t3code reference (pingdotgg/t3code) — the model to copy
 
@@ -321,6 +324,13 @@ https://github.com/helixml/helix/pull/3220
 - Pin the Zed commit in `sandbox-versions.txt` per the two-repository merge
   order.
 
+**Codex follow-up**
+
+- Enable `features.default_mode_request_user_input` in the Codex config written
+  by settings-sync-daemon.
+- Normalize codex-acp's form metadata for free-form `Other` answers in Zed.
+- Keep the provider-neutral Helix question API and frontend unchanged.
+
 ## Validation
 
 The feature was built into the inner desktop image and exercised against the
@@ -331,7 +341,7 @@ real providers through `http://localhost:8080`:
 | Qwen Code | Two-question permission request (single + multi-select) answered; turn resumed and persisted the Q&A history. Cancellation also settled the agent turn and persisted `outcome: cancelled`. |
 | GLM | Same Qwen ACP permission transport answered; turn resumed and persisted the Q&A history. |
 | Claude Code | Form elicitation answered through `claude-agent-acp` 0.76; turn resumed and persisted the Q&A history. |
-| Codex | Default-mode baseline reported `request_user_input` unavailable because the tool was not exposed. This does not imply that Codex lacks the capability; Plan mode and the adapter translation require follow-up validation. |
+| Codex | Default-mode baseline reported `request_user_input` unavailable before feature exposure. Automated adapter-schema coverage passes; live answer/resume validation is pending the rebuilt desktop image. |
 
 Automated validation includes the focused Go store/server tests, frontend
 component tests, Rust normalization/serialization tests, production builds,
@@ -355,11 +365,10 @@ gates; their state transitions are covered by focused tests.
   capabilities negotiation — confirm `elicitation.form` reaches
   claude-agent-acp over the negotiated connection in a live session before
   building the Helix side against it.
-- **Codex adapter translation**: Codex App Server owns the pending request and
-  answer lifecycle, while Helix consumes ACP. Implement the conversion in
-  `codex-acp` (Codex request → ACP form elicitation → Codex answer) so the
-  existing Zed/Helix transport remains provider-neutral. Do not add Codex
-  protocol parsing to Helix or infer questions from assistant prose.
+- **Codex Default-mode maturity**: OpenAI still marks
+  `default_mode_request_user_input` under development, and the App Server marks
+  Default-mode requests non-blocking. Keep the live timeout/resume behavior in
+  the provider test matrix. Plan mode remains the stable blocking path.
 - **Auto-wake vs legit pauses**: the 180s "agent went quiet = stuck" heuristic
   is now wrong in a new way; the pending-question check must cover both
   elicitation- and permission-sourced pauses.
