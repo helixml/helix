@@ -102,6 +102,9 @@ type Interaction struct {
 	// The frontend uses this to render entries with the correct component in the correct order.
 	ResponseEntries datatypes.JSON `json:"response_entries,omitempty" gorm:"type:jsonb"`
 
+	PendingQuestion *PendingQuestion   `json:"pending_question,omitempty" gorm:"type:jsonb;serializer:json"`
+	QuestionHistory []ResolvedQuestion `json:"question_history,omitempty" gorm:"type:jsonb;serializer:json"`
+
 	// CodeChanges is the immutable before/after workspace checkpoint summary for
 	// this turn. The full patch remains in hidden Git checkpoint refs.
 	CodeChanges *InteractionCodeChanges `json:"code_changes,omitempty" gorm:"type:jsonb;serializer:json"`

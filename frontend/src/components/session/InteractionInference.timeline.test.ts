@@ -199,4 +199,59 @@ describe("buildActivityTimeline", () => {
       entry: { tool_name: "Start subagent reviewer" },
     });
   });
+
+  it("replaces a matching question tool call with a resolved question row", () => {
+    const entries = [
+      {
+        ...entry(
+          "1",
+          "tool_call",
+          "raw question payload",
+          "Ask user 1 question",
+        ),
+        tool_call_id: "call-1",
+      },
+      entry("2", "text", "Done"),
+    ];
+
+    const timeline = buildActivityTimeline(entries, false, [
+      {
+        request_id: "request-1",
+        tool_call_id: "call-1",
+        outcome: "answered",
+        questions: [{ id: "deploy", question: "Deploy now?" }],
+        answers: { deploy: "No" },
+      },
+    ]);
+
+    expect(timeline.activitySegments).toMatchObject([
+      {
+        type: "question",
+        answer: { request_id: "request-1", answers: { deploy: "No" } },
+      },
+    ]);
+  });
+
+  it("adds a question row when the provider did not emit a matching tool call", () => {
+    const timeline = buildActivityTimeline(
+      [entry("1", "text", "Done")],
+      false,
+      [
+        {
+          request_id: "request-1",
+          outcome: "answered",
+          questions: [{ id: "deploy", question: "Deploy now?" }],
+          answers: { deploy: "No" },
+        },
+      ],
+    );
+
+    expect(timeline.finalTextIndex).toBe(0);
+    expect(timeline.activitySegments).toMatchObject([
+      {
+        type: "question",
+        answer: { request_id: "request-1" },
+      },
+    ]);
+  });
 });

@@ -114,7 +114,13 @@ export const InteractionLiveStream: FC<{
   const pendingScrollRef = useRef(false);
 
   // Trigger scroll on either message or entries change
-  const hasContent = !!(message || (responseEntries && responseEntries.length > 0));
+  const questionHistoryCount = interaction.question_history?.length ?? 0;
+  const hasContent = !!(
+    message ||
+    (responseEntries && responseEntries.length > 0) ||
+    questionHistoryCount > 0
+  );
+  const hasPendingQuestion = !!interaction.pending_question;
 
   useEffect(() => {
     if (!hasContent || !onMessageUpdate) return;
@@ -131,7 +137,7 @@ export const InteractionLiveStream: FC<{
     } else {
       pendingScrollRef.current = true;
     }
-  }, [hasContent, message, responseEntries, onMessageUpdate]);
+  }, [hasContent, message, responseEntries, questionHistoryCount, onMessageUpdate]);
 
   useEffect(() => {
     return () => {
@@ -156,7 +162,7 @@ export const InteractionLiveStream: FC<{
 
       {/* Show thinking indicator when waiting and no content yet. Suppressed
           once the sandbox is gone: there is no agent left to be working. */}
-      {interaction.state === "waiting" && !hasContent && !agentOffline && (
+      {interaction.state === "waiting" && !hasContent && !hasPendingQuestion && !agentOffline && (
         <ActivitySummary
           hasActivity={false}
           isStreaming
@@ -173,6 +179,7 @@ export const InteractionLiveStream: FC<{
           <MessageWithToolCalls
             text={message}
             responseEntries={responseEntries}
+            questionHistory={interaction.question_history}
             session={session}
             getFileURL={useClientURL}
             showBlinker={!agentOffline}
