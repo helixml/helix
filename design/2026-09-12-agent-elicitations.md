@@ -326,6 +326,10 @@ https://github.com/helixml/helix/pull/3220
 
 **Codex follow-up**
 
+https://github.com/helixml/zed/pull/96
+
+https://github.com/helixml/helix/pull/3221
+
 - Enable `features.default_mode_request_user_input` in the Codex config written
   by settings-sync-daemon.
 - Normalize codex-acp's form metadata for free-form `Other` answers in Zed.
