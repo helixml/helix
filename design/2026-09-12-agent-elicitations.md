@@ -67,7 +67,8 @@ for v1.
 |---|---|---|---|
 | **Claude Code** (`claude-agent-acp` ≥ ~0.76) | ACP `elicitation/create` **form** | AskUserQuestion converted to form fields (enum per option, `const=label`, `title`, `description`; single question carried in `message`, multi-question one field per question; `multiSelect` → array field) | `ElicitationResponse {action: "accept", content: {field_key: label}}`; wrapper maps back to SDK `behavior:"allow", updatedInput:{questions, answers:{questionText: label}}` |
 | **Qwen Code** (bundled `qwen-code-build`) | `session/request_permission` with `toolCall._meta: {toolName:"ask_user_question", qwenInteractionKind:"user_question", qwenQuestions:[{header, question, options[{label,description}], multiSelect}]}`; offered options are only `Submit(proceed_once)` / `Cancel` | full structured questions; `getDefaultPermission()` returns `"ask"` in ACP mode **regardless of yolo** | response `{outcome:{outcome:"selected",optionId:"proceed_once"}, answers:{<index>: "<answer>"}}` — the top-level `answers` map is a Qwen extension keyed by question index |
-| Codex / opencode / goose | approvals only, no ask-user tool | — | — |
+| **Codex** (`codex-acp` 0.16) | Codex core `RequestUserInput`, available in Plan mode (or behind the under-development `default_mode_request_user_input` flag) | structured questions exist inside Codex | **not bridged**: `codex-acp` currently logs the event as unexpected and drops it |
+| opencode / goose | approvals only, no ask-user tool verified in the current adapters | — | — |
 
 Key facts verified in the shipped artifacts:
 - `claude-agent-acp` 0.23.1 hard-disabled AskUserQuestion
@@ -85,6 +86,14 @@ Key facts verified in the shipped artifacts:
   permission is per-tool. The request is emitted with
   `_meta.qwenInteractionKind = "user_question"`; Zed currently ignores that
   meta (renders a generic approval card), and nothing can answer it headlessly.
+- Codex itself now has a structured `request_user_input` protocol and answer
+  operation. The blocker is the current ACP adapter, not the model or Helix:
+  `codex-acp` 0.16 explicitly treats `EventMsg::RequestUserInput` as unexpected
+  and does not translate it into ACP. Helix also starts Codex in Default mode,
+  where the tool is disabled unless Codex's under-development
+  `default_mode_request_user_input` feature is enabled. Enabling that flag
+  alone would only turn the current clean rejection into a stalled turn; the
+  adapter must first forward the request and its `UserInputAnswer` response.
 
 ### t3code reference (pingdotgg/t3code) — the model to copy
 
@@ -125,10 +134,11 @@ Projection: pending approvals/questions persist in the thread projection
 connect.
 
 Frontend (`apps/web/src/components/chat/`):
-- `ComposerPendingUserInputPanel.tsx` — question card above the composer:
-  one question at a time, option buttons, single-select auto-advance +
-  auto-submit, multi-select, custom "Other" answer, collapsible, 1/N counter,
-  per-question attachments (≤8 files), optimistic UI.
+- `ComposerPendingUserInputPanel.tsx` — compact collapsible banner attached to
+  the composer: one question at a time, flat option rows, numeric shortcuts,
+  a 200ms optimistic single-select auto-advance, multi-select, and a 1/N
+  counter. Current t3code uses the main composer for custom answer text and
+  per-question attachments (≤8 files).
 - `ComposerPendingApprovalPanel.tsx` — compact approval strip (kind label,
   detail, 1/N counter) for the approval flow.
 - `MessagesTimeline.tsx` — answered questions render inline in the thread
@@ -240,14 +250,14 @@ request ids in question history cannot be resurrected by a stale replay.
 ### Frontend (mirror t3code)
 
 - New `PendingQuestion` state from the `interaction_update` event.
-- **Question card** (new component, e.g.
-  `components/session/PendingQuestionCard.tsx`) shown while the last
-  interaction has a pending question — where the streaming spinner area is
-  today (`InteractionLiveStream.tsx` / `useInteraction.ts`): header chip,
-  question text, option buttons (single-select submits on click with the
-  t3code auto-advance behavior; multi-select → checkboxes + submit), "Other"
-  free-text input, Submit/Cancel buttons, collapsible, 1/N counter when
-  multiple questions.
+- **Question banner** (`components/session/PendingQuestionCard.tsx`) attached
+  immediately above the composer while the latest interaction has a pending
+  question. It uses the same compact disclosure header, flat option rows,
+  number-key shortcuts, optimistic 200ms single-select advance, multi-select,
+  dismiss action, and 1/N counter as t3code. Helix v1 keeps custom text and the
+  multi-select submit action in the banner because its busy composer still owns
+  follow-up/interrupt semantics; this is a behavioral difference, not a new
+  visual language.
 - **Timeline history**: answered questions render inline (t3code
   QuestionAnswerHistory) — from the tool-call entry content the agent emits
   after the tool completes, plus the resolved payload.
@@ -266,8 +276,11 @@ request ids in question history cannot be resurrected by a stale replay.
 - Generic tool-approval cards (allow/reject for shell commands etc.) — can
   reuse this pipe later (`source: "permission"` non-question kinds), but
   approval policy is a separate product decision.
-- Codex/opencode/goose ask-user (they have no such tool; they'd benefit from
-  the approval-card flow above instead).
+- Codex ask-user until `codex-acp` forwards Codex's existing
+  `RequestUserInput`/`UserInputAnswer` protocol as ACP. This should be fixed in
+  the adapter, not by parsing assistant prose in Helix.
+- opencode/goose ask-user (no structured ask-user path was verified in the
+  current adapters).
 
 ## Implementation plan (PRs)
 

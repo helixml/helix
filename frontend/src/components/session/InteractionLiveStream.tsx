@@ -20,7 +20,6 @@ import ToolStepsWidget from "./ToolStepsWidget";
 import ActivitySummary from "./ActivitySummary";
 import AgentOfflineNotice from "./AgentOfflineNotice";
 import { getInteractionRequestTimeMs } from "./interactionDuration";
-import PendingQuestionCard from "./PendingQuestionCard";
 import QuestionAnswerHistory from "./QuestionAnswerHistory";
 
 export const InteractionLiveStream: FC<{
@@ -158,13 +157,6 @@ export const InteractionLiveStream: FC<{
       )}
 
       <QuestionAnswerHistory history={interaction.question_history} />
-
-      {interaction.pending_question && interaction.id && (
-        <PendingQuestionCard
-          interactionId={interaction.id}
-          pendingQuestion={interaction.pending_question}
-        />
-      )}
 
       {/* Show thinking indicator when waiting and no content yet. Suppressed
           once the sandbox is gone: there is no agent left to be working. */}

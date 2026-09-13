@@ -236,6 +236,10 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     prevProps.interaction?.completed !== nextProps.interaction?.completed ||
     prevProps.interaction?.error !== nextProps.interaction?.error ||
     prevProps.interaction?.state !== nextProps.interaction?.state ||
+    prevProps.interaction?.pending_question?.request_id !==
+      nextProps.interaction?.pending_question?.request_id ||
+    prevProps.interaction?.question_history?.length !==
+      nextProps.interaction?.question_history?.length ||
     prevProps.interaction?.code_changes?.status !==
       nextProps.interaction?.code_changes?.status ||
     prevProps.interaction?.code_changes?.patch_hash !==

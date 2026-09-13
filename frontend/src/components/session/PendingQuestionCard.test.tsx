@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import PendingQuestionCard from "./PendingQuestionCard";
 
@@ -20,8 +20,13 @@ vi.mock("../../hooks/useSnackbar", () => ({
 
 describe("PendingQuestionCard", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     respondMutate.mockClear();
     cancelMutate.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("advances through single-select questions and submits all answers", () => {
@@ -48,9 +53,11 @@ describe("PendingQuestionCard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /React/ }));
+    fireEvent.keyDown(document, { key: "1" });
+    act(() => vi.advanceTimersByTime(200));
     expect(screen.getByText("Which database?")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Postgres/ }));
+    act(() => vi.advanceTimersByTime(200));
 
     expect(respondMutate).toHaveBeenCalledWith(
       {
@@ -91,5 +98,38 @@ describe("PendingQuestionCard", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("does not submit an auto-advancing option after dismissal", () => {
+    render(
+      <PendingQuestionCard
+        interactionId="interaction-1"
+        pendingQuestion={{
+          request_id: "question-3",
+          questions: [
+            {
+              id: "framework",
+              header: "Framework",
+              question: "Which framework?",
+              options: [{ label: "React" }],
+            },
+          ],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /React/ }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Dismiss question without answering",
+      }),
+    );
+    act(() => vi.advanceTimersByTime(200));
+
+    expect(cancelMutate).toHaveBeenCalledWith(
+      { interactionId: "interaction-1", requestId: "question-3" },
+      expect.any(Object),
+    );
+    expect(respondMutate).not.toHaveBeenCalled();
   });
 });

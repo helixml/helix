@@ -8,10 +8,6 @@ import { InteractionLiveStream } from "./InteractionLiveStream";
 vi.mock("../../hooks/useLiveInteraction", () => ({
   default: vi.fn(),
 }));
-vi.mock("./PendingQuestionCard", () => ({
-  default: ({ pendingQuestion }: any) => <div>{pendingQuestion.questions?.[0]?.question}</div>,
-}));
-
 const mockedUseLiveInteraction = vi.mocked(useLiveInteraction);
 
 describe("InteractionLiveStream", () => {
@@ -47,7 +43,7 @@ describe("InteractionLiveStream", () => {
       />,
     );
 
-  it("shows a pending question instead of the working timer", () => {
+  it("suppresses the working timer while a question is attached to the composer", () => {
     render(
       <InteractionLiveStream
         session_id="session-1"
@@ -65,7 +61,6 @@ describe("InteractionLiveStream", () => {
       />,
     );
 
-    expect(screen.getByText("Choose one")).toBeInTheDocument();
     expect(screen.queryByText(/Working for/)).not.toBeInTheDocument();
   });
 
