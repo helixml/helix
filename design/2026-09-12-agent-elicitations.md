@@ -1,7 +1,7 @@
 # Agent elicitations: agent asks the user a question mid-turn
 
 Date: 2026-09-12
-Status: implemented; Codex integration awaiting live validation
+Status: implemented and live-validated across Qwen, GLM, Claude, and Codex
 
 ## Problem
 
@@ -315,6 +315,8 @@ Merged as `baff1b4a4a33364538e9bf8957988faf515cf266`.
 
 https://github.com/helixml/helix/pull/3220
 
+Merged as `d583d519bfc131a914214dd1a7b45c1dcd572881`.
+
 - Protocol types + handler switch entries; `PendingQuestion` on interaction;
   persistence + websocket publish; REST respond/cancel endpoints; auto-wake
   carve-out; and resume re-attach. Teams progress remains unchanged because it
@@ -345,7 +347,7 @@ real providers through `http://localhost:8080`:
 | Qwen Code | Two-question permission request (single + multi-select) answered; turn resumed and persisted the Q&A history. Cancellation also settled the agent turn and persisted `outcome: cancelled`. |
 | GLM | Same Qwen ACP permission transport answered; turn resumed and persisted the Q&A history. |
 | Claude Code | Form elicitation answered through `claude-agent-acp` 0.76; turn resumed and persisted the Q&A history. |
-| Codex | Default-mode baseline reported `request_user_input` unavailable before feature exposure. Automated adapter-schema coverage passes; live answer/resume validation is pending the rebuilt desktop image. |
+| Codex | `@agentclientprotocol/codex-acp` 1.11.0 on desktop image `d86af2` emitted a two-question Default-mode form elicitation. Selecting `Vue` and `On-prem` resumed the turn with `FRAMEWORK=Vue; TARGET=On-prem`. A second request answered through Codex's custom `Other` companion field with `SQLite`; the bridge exposed one question (not a duplicate helper question), resumed with `DATABASE=SQLite`, and persisted both resolved histories. Session: `ses_01m2dhtb34s52fmpw3cwek4sn5`. |
 
 Automated validation includes the focused Go store/server tests, frontend
 component tests, Rust normalization/serialization tests, production builds,
@@ -365,10 +367,9 @@ gates; their state transitions are covered by focused tests.
   response type and serializes `answers` at the response top level. Putting it
   under `_meta` does not satisfy the shipped client.
 - **ACP version negotiation**: Zed's Rust crate is ACP 2.0.0-unstable; the npm
-  wrappers speak protocolVersion 1 at initialize. Elicitation rides
-  capabilities negotiation — confirm `elicitation.form` reaches
-  claude-agent-acp over the negotiated connection in a live session before
-  building the Helix side against it.
+  wrappers speak protocolVersion 1 at initialize. Live Claude and Codex sessions
+  confirmed that `elicitation.form` survives the negotiated connection, so keep
+  those checks in the provider matrix when either wrapper or ACP is upgraded.
 - **Codex Default-mode maturity**: OpenAI still marks
   `default_mode_request_user_input` under development, and the App Server marks
   Default-mode requests non-blocking. Keep the live timeout/resume behavior in
