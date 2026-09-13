@@ -75,6 +75,9 @@ func validatePendingQuestion(question *types.PendingQuestion) error {
 			if option.Label == "" {
 				return fmt.Errorf("question %q has an option without a label", item.ID)
 			}
+			if strings.ContainsAny(option.Label, "\r\n") {
+				return fmt.Errorf("question %q has an option label containing a newline", item.ID)
+			}
 			if strings.ContainsRune(option.Label, '\x00') || strings.ContainsRune(option.Description, '\x00') {
 				return fmt.Errorf("question %q has option text containing an invalid null character", item.ID)
 			}
@@ -84,6 +87,32 @@ func validatePendingQuestion(question *types.PendingQuestion) error {
 		}
 	}
 	return nil
+}
+
+func (apiServer *HelixAPIServer) settlePendingQuestionAsCancelled(
+	ctx context.Context,
+	interaction *types.Interaction,
+) (*types.Interaction, bool, error) {
+	if interaction == nil || interaction.PendingQuestion == nil {
+		return interaction, false, nil
+	}
+	requestID := interaction.PendingQuestion.RequestID
+	updated, changed, err := apiServer.Store.ResolveInteractionPendingQuestion(
+		ctx,
+		interaction.ID,
+		interaction.GenerationID,
+		requestID,
+		"cancelled",
+		nil,
+	)
+	if err != nil {
+		return interaction, false, fmt.Errorf("settle pending question as cancelled: %w", err)
+	}
+	if updated == nil {
+		return interaction, false, errors.New("settle pending question returned no interaction")
+	}
+	apiServer.finishQuestionAction(interaction.ID, requestID)
+	return updated, changed, nil
 }
 
 func (apiServer *HelixAPIServer) handleQuestionRequested(sessionID string, syncMsg *types.SyncMessage) error {
@@ -121,6 +150,10 @@ func (apiServer *HelixAPIServer) handleQuestionRequested(sessionID string, syncM
 	}
 	if !changed {
 		if updated.PendingQuestion != nil && updated.PendingQuestion.RequestID == question.RequestID {
+			// A replay proves the agent is still waiting. Release any action that
+			// was accepted by the API but lost with the previous connection so the
+			// user can submit it again.
+			apiServer.finishQuestionAction(interaction.ID, question.RequestID)
 			return apiServer.publishQuestionInteractionUpdate(updated)
 		}
 		for _, resolved := range updated.QuestionHistory {
@@ -158,6 +191,7 @@ func (apiServer *HelixAPIServer) handleQuestionResolved(sessionID string, syncMs
 	if err != nil {
 		return fmt.Errorf("resolve pending question: %w", err)
 	}
+	apiServer.finishQuestionAction(interaction.ID, event.RequestID)
 	if !changed {
 		return nil
 	}

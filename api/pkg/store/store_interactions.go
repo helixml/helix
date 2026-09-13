@@ -324,6 +324,9 @@ func (s *PostgresStore) SetInteractionPendingQuestion(ctx context.Context, inter
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false, ErrNotFound
+		}
 		return nil, false, err
 	}
 	return &interaction, changed, nil
@@ -370,6 +373,9 @@ func (s *PostgresStore) ResolveInteractionPendingQuestion(ctx context.Context, i
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false, ErrNotFound
+		}
 		return nil, false, err
 	}
 	return &interaction, changed, nil
@@ -526,27 +532,50 @@ func (s *PostgresStore) ReapWaitingInteractions(ctx context.Context, sessionID s
 	now := time.Now()
 	var reaped []*types.Interaction
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.
+		var candidates []*types.Interaction
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("session_id = ? AND state = ?", sessionID, types.InteractionStateWaiting).
-			Find(&reaped).Error; err != nil {
+			Order("created ASC, id ASC").
+			Find(&candidates).Error; err != nil {
 			return err
 		}
-		if len(reaped) == 0 {
+		if len(candidates) == 0 {
 			return nil
 		}
-		if err := tx.Model(&types.Interaction{}).
-			Where("session_id = ? AND state = ?", sessionID, types.InteractionStateWaiting).
-			Updates(map[string]interface{}{
+		for _, interaction := range candidates {
+			updates := map[string]interface{}{
 				"state":     newState,
 				"completed": now,
 				"updated":   now,
-			}).Error; err != nil {
-			return err
-		}
-		for _, in := range reaped {
-			in.State = newState
-			in.Completed = now
-			in.Updated = now
+			}
+			if interaction.PendingQuestion != nil {
+				interaction.QuestionHistory = append(interaction.QuestionHistory, types.ResolvedQuestion{
+					PendingQuestion: *interaction.PendingQuestion,
+					Outcome:         "cancelled",
+					ResolvedAt:      now,
+				})
+				historyJSON, err := json.Marshal(interaction.QuestionHistory)
+				if err != nil {
+					return fmt.Errorf("marshal reaped question history: %w", err)
+				}
+				updates["pending_question"] = nil
+				updates["question_history"] = datatypes.JSON(historyJSON)
+			}
+
+			result := tx.Model(&types.Interaction{}).
+				Where("id = ? AND state = ?", interaction.ID, types.InteractionStateWaiting).
+				Updates(updates)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				continue
+			}
+			interaction.State = newState
+			interaction.Completed = now
+			interaction.Updated = now
+			interaction.PendingQuestion = nil
+			reaped = append(reaped, interaction)
 		}
 		return nil
 	})

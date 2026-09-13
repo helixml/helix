@@ -62,12 +62,36 @@ func stuckInteraction(id, sessionID string, autoWakeCount int) *types.Interactio
 	}
 }
 
-func (s *AutoWakeColdStartSuite) TestSkipsInteractionWithPendingQuestion() {
+func (s *AutoWakeColdStartSuite) TestKicksDisconnectedInteractionWithPendingQuestion() {
 	stuck := stuckInteraction("int-question", "ses-question", 0)
 	stuck.PendingQuestion = &types.PendingQuestion{RequestID: "question-1"}
 
-	// No store, executor, or WebSocket calls are expected.
+	s.store.EXPECT().IncrementInteractionAutoWakeCount(gomock.Any(), "int-question").Return(1, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses-question").Return(&types.Session{
+		ID:    "ses-question",
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+			ProjectID: "prj_x",
+		},
+	}, nil).AnyTimes()
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
+	startCalled := make(chan struct{}, 1)
+	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
+			startCalled <- struct{}{}
+			return &types.DesktopAgentResponse{DevContainerID: "dev_1"}, nil
+		},
+	).Times(1)
+
 	s.server.maybeAutoWake(context.Background(), stuck)
+
+	select {
+	case <-startCalled:
+	case <-time.After(2 * time.Second):
+		s.FailNow("pending question suppressed disconnected cold-start recovery")
+	}
 }
 
 // TestKicksAutoStartWhenNoWS: stuck interaction on a session with no live
@@ -397,4 +421,16 @@ func (s *AutoWakeConnectedSuite) TestLeavesQuiescentInteractionWaitingWithoutRep
 	s.Equal(types.InteractionStateWaiting, stuck.State)
 	s.Zero(stuck.AutoWakeCount)
 	s.Empty(sendChan)
+}
+
+func (s *AutoWakeConnectedSuite) TestPendingQuestionSuppressesConnectedWake() {
+	s.server.externalAgentWSManager.registerConnection("ses_question", &ExternalAgentWSConnection{
+		SessionID:   "ses_question",
+		ConnectedAt: time.Now().Add(-10 * time.Minute),
+		SendChan:    make(chan types.ExternalAgentCommand, 1),
+	})
+	stuck := stuckInteraction("int-question", "ses_question", 0)
+	stuck.PendingQuestion = &types.PendingQuestion{RequestID: "question-1"}
+
+	s.server.maybeAutoWake(context.Background(), stuck)
 }

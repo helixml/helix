@@ -336,6 +336,14 @@ func (apiServer *HelixAPIServer) applyResumeDecision(resume *pendingResume, repo
 
 	switch action {
 	case resumeDeliver:
+		interaction, err = apiServer.settlePendingQuestionBeforeRedelivery(ctx, interaction)
+		if err != nil {
+			log.Error().Err(err).
+				Str("interaction_id", resume.interactionID).
+				Msg("[RESUME] Refusing to redeliver while stale pending question could not be settled")
+			apiServer.releaseInteractionDispatch(resume.interactionID)
+			return
+		}
 		apiServer.deliverResumedTurn(ctx, resume, interaction)
 	case resumeAttach:
 		// Nothing to send. Routing was restored by resolveWaitingInteraction, so
@@ -343,6 +351,22 @@ func (apiServer *HelixAPIServer) applyResumeDecision(resume *pendingResume, repo
 	case resumeAttachAndVerify:
 		go apiServer.verifyResumedTurn(resume)
 	}
+}
+
+func (apiServer *HelixAPIServer) settlePendingQuestionBeforeRedelivery(
+	ctx context.Context,
+	interaction *types.Interaction,
+) (*types.Interaction, error) {
+	updated, changed, err := apiServer.settlePendingQuestionAsCancelled(ctx, interaction)
+	if err != nil || !changed {
+		return updated, err
+	}
+	if err := apiServer.publishQuestionInteractionUpdate(updated); err != nil {
+		log.Warn().Err(err).
+			Str("interaction_id", updated.ID).
+			Msg("[RESUME] Stale pending question settled but frontend update failed")
+	}
+	return updated, nil
 }
 
 // deliverWaitingInteractionNow resolves and immediately decides a session's
@@ -528,6 +552,13 @@ func (apiServer *HelixAPIServer) verifyResumedTurn(resume *pendingResume) {
 
 	logger.Warn().
 		Msg("💤 [RESUME] Attached turn stayed silent for the full budget — re-delivering (agent could not report active turns)")
+	interaction, err = apiServer.settlePendingQuestionBeforeRedelivery(ctx, interaction)
+	if err != nil {
+		logger.Error().Err(err).
+			Msg("[RESUME] Refusing verified re-delivery while stale pending question could not be settled")
+		apiServer.releaseInteractionDispatch(resume.interactionID)
+		return
+	}
 	apiServer.deliverResumedTurn(ctx, resume, interaction)
 }
 

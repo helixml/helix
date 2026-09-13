@@ -2506,6 +2506,10 @@ func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *
 	if interaction == nil {
 		return fmt.Errorf("resolve interaction for acknowledged cancellation %s: interaction not found", requestID)
 	}
+	interaction, _, err = apiServer.settlePendingQuestionAsCancelled(context.Background(), interaction)
+	if err != nil {
+		return fmt.Errorf("settle pending question for acknowledged cancellation %s: %w", interaction.ID, err)
+	}
 
 	transitioned, err := apiServer.Store.MarkInteractionInterruptedIfWaiting(context.Background(), interaction.ID, interaction.GenerationID)
 	if err != nil {
@@ -3194,6 +3198,10 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("response_preview", targetInteraction.ResponseMessage).
 		Str("state_before", string(targetInteraction.State)).
 		Msg("🔄 [HELIX] Reloaded interaction with latest response content")
+	targetInteraction, _, err = apiServer.settlePendingQuestionAsCancelled(context.Background(), targetInteraction)
+	if err != nil {
+		return fmt.Errorf("settle pending question for completed interaction %s: %w", targetInteraction.ID, err)
+	}
 
 	// If the interaction was already completed (e.g. auto-completed by the streaming
 	// context transition logic during an interrupt), skip redundant completion.
@@ -3239,7 +3247,6 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		targetInteraction.State = types.InteractionStateError
 		targetInteraction.Error = "Agent unresponsive: it returned an empty response. Retrying automatically."
 		targetInteraction.Updated = time.Now()
-
 		if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction); err != nil {
 			return fmt.Errorf("failed to update bounced interaction %s: %w", targetInteraction.ID, err)
 		}
@@ -3314,7 +3321,6 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	if err := apiServer.applyACPTotalProcessedUsage(context.Background(), targetInteraction); err != nil {
 		return err
 	}
-
 	// A completed turn proves any latched launch failure on the owning spec task
 	// is no longer true. Work can resume through session inference (the chat's
 	// Retry, or just a message), which never touches the task, leaving it at
@@ -4555,6 +4561,17 @@ func (apiServer *HelixAPIServer) commitThreadLoadFailure(ctx context.Context, he
 	target.Error = fmt.Sprintf("Thread load failed: %s", errorMsg)
 	target.Updated = time.Now()
 	target.Completed = time.Now()
+	if updated, _, err := apiServer.settlePendingQuestionAsCancelled(ctx, target); err != nil {
+		log.Error().Err(err).
+			Str("interaction_id", target.ID).
+			Msg("Failed to settle pending question on thread-load failure")
+	} else {
+		target = updated
+		target.State = types.InteractionStateError
+		target.Error = fmt.Sprintf("Thread load failed: %s", errorMsg)
+		target.Updated = time.Now()
+		target.Completed = time.Now()
+	}
 	apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), target)
 
 	// If this interaction came from a queue prompt that's still

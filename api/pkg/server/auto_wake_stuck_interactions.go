@@ -223,9 +223,6 @@ func (apiServer *HelixAPIServer) scanAndAutoWakeStuckInteractions(ctx context.Co
 
 // maybeAutoWake handles a single stuck interaction after the safety gates pass.
 func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types.Interaction) {
-	if stuck.PendingQuestion != nil {
-		return
-	}
 	threshold := autoWakeStuckThreshold()
 
 	// Gate 1 — WebSocket connection AND grace period since connect.
@@ -260,6 +257,14 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 			return
 		}
 		apiServer.maybeKickColdStart(ctx, stuck)
+		return
+	}
+
+	// A connected agent owns the live question and must not receive the generic
+	// continue wake while it waits for the user. A disconnected agent still
+	// needs the cold-start recovery above so it can reconnect and reconcile the
+	// pending turn.
+	if stuck.PendingQuestion != nil {
 		return
 	}
 

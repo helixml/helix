@@ -2914,6 +2914,32 @@ func (s *WebSocketSyncSuite) TestQuestionResolved_ClearsAndArchivesQuestion() {
 	s.NoError(err)
 }
 
+func (s *WebSocketSyncSuite) TestResumeRedeliverySettlesStalePendingQuestion() {
+	interaction := &types.Interaction{
+		ID: "int-stale-question", SessionID: "ses-stale-question", GenerationID: 2,
+		State:           types.InteractionStateWaiting,
+		PendingQuestion: &types.PendingQuestion{RequestID: "question-stale"},
+	}
+	updated := *interaction
+	updated.PendingQuestion = nil
+	updated.QuestionHistory = []types.ResolvedQuestion{{
+		PendingQuestion: *interaction.PendingQuestion,
+		Outcome:         "cancelled",
+	}}
+	s.store.EXPECT().ResolveInteractionPendingQuestion(
+		gomock.Any(), interaction.ID, 2, "question-stale", "cancelled", map[string]string(nil),
+	).Return(&updated, true, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), interaction.SessionID).
+		Return(&types.Session{ID: interaction.SessionID, Owner: "user-1"}, nil)
+
+	got, err := s.server.settlePendingQuestionBeforeRedelivery(context.Background(), interaction)
+
+	s.NoError(err)
+	s.Nil(got.PendingQuestion)
+	s.Require().Len(got.QuestionHistory, 1)
+	s.Equal("cancelled", got.QuestionHistory[0].Outcome)
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Streaming context cache tests
 // ──────────────────────────────────────────────────────────────────────────────
@@ -3758,6 +3784,48 @@ func (s *WebSocketSyncSuite) TestCancelActiveTurn_AfterRestartUsesDurableRequest
 	s.Equal("cancelled", got.status)
 	s.Equal(session.ID, s.server.requestToSessionMapping["req_restart_cancel"])
 	s.Equal(waiting.ID, s.server.requestToInteractionMapping["req_restart_cancel"])
+}
+
+func (s *WebSocketSyncSuite) TestTurnCancelledSettlesPendingQuestion() {
+	session := &types.Session{ID: "ses_question_cancel", Owner: "usr_test", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_question_cancel", SessionID: session.ID, GenerationID: 1,
+		State:                  types.InteractionStateWaiting,
+		ExternalAgentRequestID: "req_question_cancel",
+		PendingQuestion:        &types.PendingQuestion{RequestID: "question-1"},
+	}
+	settled := *waiting
+	settled.PendingQuestion = nil
+	settled.QuestionHistory = []types.ResolvedQuestion{{
+		PendingQuestion: *waiting.PendingQuestion,
+		Outcome:         "cancelled",
+	}}
+	interrupted := settled
+	interrupted.State = types.InteractionStateInterrupted
+	s.server.requestToInteractionMapping[waiting.ExternalAgentRequestID] = waiting.ID
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil)
+	s.store.EXPECT().ResolveInteractionPendingQuestion(
+		gomock.Any(), waiting.ID, waiting.GenerationID, "question-1", "cancelled", map[string]string(nil),
+	).Return(&settled, true, nil)
+	s.store.EXPECT().MarkInteractionInterruptedIfWaiting(
+		gomock.Any(), waiting.ID, waiting.GenerationID,
+	).Return(true, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(&interrupted, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), session.ID).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), session.ID).Return(nil, nil).AnyTimes()
+
+	err := s.server.handleTurnCancelled(session.ID, &types.SyncMessage{
+		EventType: "turn_cancelled",
+		Data: map[string]interface{}{
+			"request_id": waiting.ExternalAgentRequestID,
+			"status":     "cancelled",
+		},
+	})
+
+	s.NoError(err)
+	s.Nil(interrupted.PendingQuestion)
+	s.Require().Len(interrupted.QuestionHistory, 1)
 }
 
 func (s *WebSocketSyncSuite) TestCancelActiveTurn_LegacyMemoryMappingRequiresAgentAck() {

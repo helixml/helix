@@ -155,6 +155,7 @@ type HelixAPIServer struct {
 	pendingCancelChannels       map[string]chan string // request_id -> channel that receives turn_cancelled status
 	cancelTurnMutexes           sync.Map               // session_id -> *sync.Mutex; serializes concurrent cancel requests
 	pendingCancelRetries        sync.Map               // interaction_id -> struct{}; dedupes durable cancel retries
+	pendingQuestionActions      sync.Map               // interaction_id/request_id -> struct{}; dedupes answer/cancel races
 	autoRestartInflight         sync.Map               // session_id -> struct{}: dedupes concurrent auto-restart triggers (zero value ready)
 	promptDrainMutexes          sync.Map               // session_id -> *sync.Mutex: serialises queue-drain dispatch per session (zero value ready). See lockPromptDrain.
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)

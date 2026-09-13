@@ -47,6 +47,9 @@ func (s *HelixAPIServer) respondToInteractionQuestion(w http.ResponseWriter, req
 	if err := validateQuestionAnswers(question, body.Answers); err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
+	if !s.beginQuestionAction(interaction.ID, question.RequestID) {
+		return &types.QuestionActionResponse{Status: "accepted"}, nil
+	}
 	if err := s.sendCommandToExternalAgent(interaction.SessionID, types.ExternalAgentCommand{
 		Type: "respond_question",
 		Data: map[string]interface{}{
@@ -54,6 +57,7 @@ func (s *HelixAPIServer) respondToInteractionQuestion(w http.ResponseWriter, req
 			"answers":    body.Answers,
 		},
 	}); err != nil {
+		s.finishQuestionAction(interaction.ID, question.RequestID)
 		return nil, system.NewHTTPError409("agent is not available to receive the answer")
 	}
 	return &types.QuestionActionResponse{Status: "accepted"}, nil
@@ -74,15 +78,35 @@ func (s *HelixAPIServer) cancelInteractionQuestion(_ http.ResponseWriter, req *h
 	if httpErr != nil || response != nil {
 		return response, httpErr
 	}
+	if !s.beginQuestionAction(interaction.ID, question.RequestID) {
+		return &types.QuestionActionResponse{Status: "accepted"}, nil
+	}
 	if err := s.sendCommandToExternalAgent(interaction.SessionID, types.ExternalAgentCommand{
 		Type: "cancel_question",
 		Data: map[string]interface{}{
 			"request_id": question.RequestID,
 		},
 	}); err != nil {
+		s.finishQuestionAction(interaction.ID, question.RequestID)
 		return nil, system.NewHTTPError409("agent is not available to cancel the question")
 	}
 	return &types.QuestionActionResponse{Status: "accepted"}, nil
+}
+
+func questionActionKey(interactionID, requestID string) string {
+	return interactionID + "\x00" + requestID
+}
+
+func (s *HelixAPIServer) beginQuestionAction(interactionID, requestID string) bool {
+	_, loaded := s.pendingQuestionActions.LoadOrStore(
+		questionActionKey(interactionID, requestID),
+		struct{}{},
+	)
+	return !loaded
+}
+
+func (s *HelixAPIServer) finishQuestionAction(interactionID, requestID string) {
+	s.pendingQuestionActions.Delete(questionActionKey(interactionID, requestID))
 }
 
 func (s *HelixAPIServer) loadAuthorizedPendingQuestion(req *http.Request) (*types.Interaction, *types.PendingQuestion, *types.QuestionActionResponse, *system.HTTPError) {

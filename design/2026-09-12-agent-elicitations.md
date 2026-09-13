@@ -212,7 +212,10 @@ thread when a reconnect overlaps a follow-up turn.
 Reconnect/resume: Zed keeps native pending responders in its thread service and
 re-emits `question_requested` for all still-pending requests after the external
 WebSocket reconnects. Helix re-attaches idempotently by `request_id`; resolved
-request ids in question history cannot be resurrected by a stale replay.
+request ids in question history cannot be resurrected by a stale replay. If
+`agent_ready.active_turns` authoritatively reports that the turn was lost (for
+example after a Zed process restart), Helix archives the stale question as
+cancelled before re-delivering the turn.
 
 ### Helix API
 
@@ -236,12 +239,14 @@ request ids in question history cannot be resurrected by a stale replay.
    - `POST .../cancel` → forwards `cancel_question`.
    Auth via existing `loadAuthorizedInteraction`-style checks. Idempotent:
    answering an already-resolved question is a no-op 200.
-4. **Auto-wake carve-out** (`auto_wake_stuck_interactions.go`): skip poking
-   when the interaction has a pending question. This is the fix for the
-   "auto-wake cancels questions" failure mode.
-5. **Orphan/reaper**: unchanged — if Zed reconnects, resume re-delivers the
-   question; if the agent is gone, the existing orphan path reaps the
-   interaction to `interrupted` as today.
+4. **Auto-wake carve-out** (`auto_wake_stuck_interactions.go`): a pending
+   question suppresses only the generic continue wake sent to a connected
+   agent. A disconnected session still takes the bounded cold-start recovery
+   path so Zed can reconnect and report whether it owns the turn.
+5. **Terminal cleanup**: cancellation, agent errors, completion, and orphan
+   reaping archive any remaining pending question as cancelled. The orphan
+   reaper performs that update in the same transaction that moves the turn to
+   `interrupted`, so terminal interactions never expose a phantom prompt.
 6. **Teams progress** is unchanged. `AgentProgressUpdate` has presentation
    fields for input, but there is no producer for that type anywhere in the
    current tree; introducing a separate Teams progress pipeline is not part of
