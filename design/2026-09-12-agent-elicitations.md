@@ -330,6 +330,8 @@ Merged as `d583d519bfc131a914214dd1a7b45c1dcd572881`.
 
 https://github.com/helixml/zed/pull/96
 
+Merged as `7c315e2021232258fa3781d0105610e2a2be290a`.
+
 https://github.com/helixml/helix/pull/3221
 
 - Enable `features.default_mode_request_user_input` in the Codex config written
