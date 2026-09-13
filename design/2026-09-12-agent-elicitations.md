@@ -284,7 +284,10 @@ request ids in question history cannot be resurrected by a stale replay.
 
 ## Implementation plan (PRs)
 
-**PR 1 — Zed: sync protocol plumbing** (helixml/zed branch)
+**PR 1 — Zed: sync protocol plumbing**
+
+https://github.com/helixml/zed/pull/95
+
 - `external_websocket_sync`: subscribe `ElicitationRequested` (+ resolved),
   emit `question_requested`/`question_resolved`; parse Qwen
   `_meta.qwenInteractionKind` in permission handling (acp.rs) into the same
@@ -296,11 +299,14 @@ request ids in question history cannot be resurrected by a stale replay.
   smoke test must pass with the resulting Zed binary.
 
 **PR 2 — Helix: API, frontend, and Zed pin**
+
+https://github.com/helixml/helix/pull/3220
+
 - Protocol types + handler switch entries; `PendingQuestion` on interaction;
   persistence + websocket publish; REST respond/cancel endpoints; auto-wake
   carve-out; and resume re-attach. Teams progress remains unchanged because it
   has no producer in the current runtime.
-- Question card, timeline history, respond/cancel wiring, and pending-state
+- Question banner, timeline history, respond/cancel wiring, and pending-state
   behavior.
 - Pin the Zed commit in `sandbox-versions.txt` per the two-repository merge
   order.
