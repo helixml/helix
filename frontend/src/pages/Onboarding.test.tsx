@@ -254,7 +254,7 @@ describe('Onboarding', () => {
 
     expect(screen.getByText('Helix needs an LLM to run your agents.')).toBeVisible()
     expect(screen.getByText(
-      'Use a Helix model or connect your Claude or ChatGPT subscription. Helix models require credits.',
+      'Choose how to power your AI agents: use Helix credits, or connect your Claude or ChatGPT subscription.',
     )).toBeVisible()
     expect(screen.getByRole('button', { name: 'Launch Helix' })).toBeEnabled()
     const helix = screen.getByRole('button', { name: /helix models/i })

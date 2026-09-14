@@ -1302,8 +1302,7 @@ export default function Onboarding() {
                   mb: 2,
                 }}
               >
-                Use a Helix model or connect your Claude or ChatGPT subscription.
-                Helix models require credits.
+                Choose how to power your AI agents: use Helix credits, or connect your Claude or ChatGPT subscription.
               </Typography>
               {codingAccessOption === "helix" && wallet && (
                 <Box
