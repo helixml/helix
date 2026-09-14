@@ -31,4 +31,19 @@ describe("buildPlanReviewComment", () => {
       text: "Be specific",
     }).filePath).toBe("design/tasks/spt_2/requirements.md");
   });
+
+  it("does not claim the start of the document when rendered text is absent from markdown", () => {
+    expect(buildPlanReviewComment({
+      id: "plan-3",
+      specTaskId: "spt_3",
+      documentType: "requirements",
+      documentContent: "Source text",
+      selectedText: "Rendered-only text",
+      text: "Clarify this",
+    })).toMatchObject({
+      startIndex: -1,
+      endIndex: -1,
+      contents: "Rendered-only text",
+    });
+  });
 });

@@ -391,8 +391,8 @@ func (s *PostgresStore) GetPendingCommentByPlanningSessionID(ctx context.Context
 // This is the PRIMARY mechanism for the comment queue (database-backed, restart-resilient).
 // A comment is queued if:
 // - queued_at IS NOT NULL (was submitted for processing)
-// - request_id IS NULL OR ” (not currently being processed)
-// - agent_response IS NULL OR ” (no response received yet)
+// - request_id IS NULL OR empty (not currently being processed)
+// - agent_response IS NULL OR empty (no response received yet)
 // Returns oldest queued comment (FIFO order by queued_at).
 func (s *PostgresStore) GetNextQueuedCommentForSession(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error) {
 	var comment types.SpecTaskDesignReviewComment

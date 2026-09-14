@@ -798,6 +798,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HelixAPIServer) persistSpecApprovalError(ctx context.Context, taskID string, approvalErr error) {
+	ctx = context.WithoutCancel(ctx)
 	task, err := s.Store.GetSpecTask(ctx, taskID)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to load task for approval error")
