@@ -2288,12 +2288,12 @@ export enum TransportFieldType {
 
 export enum TransportKind {
   KindCron = "cron",
-  KindSlack = "slack",
   KindWebhook = "webhook",
-  KindEmail = "email",
-  KindGitLab = "gitlab",
   KindLocal = "local",
   KindHelixEvents = "helix_events",
+  KindSlack = "slack",
+  KindGitLab = "gitlab",
+  KindEmail = "email",
   KindGitHub = "github",
 }
 
@@ -19589,6 +19589,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Organization ID */
         org_id?: string;
+        /** Discover a subscription after returning from Checkout */
+        discover_subscription?: boolean;
       },
       params: RequestParams = {},
     ) =>

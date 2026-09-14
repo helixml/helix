@@ -3547,22 +3547,22 @@ definitions:
   transport.Kind:
     enum:
     - cron
-    - slack
     - webhook
-    - email
-    - gitlab
     - local
     - helix_events
+    - slack
+    - gitlab
+    - email
     - github
     type: string
     x-enum-varnames:
     - KindCron
-    - KindSlack
     - KindWebhook
-    - KindEmail
-    - KindGitLab
     - KindLocal
     - KindHelixEvents
+    - KindSlack
+    - KindGitLab
+    - KindEmail
     - KindGitHub
   transport.ResolvedActivation:
     properties:
@@ -28722,6 +28722,10 @@ paths:
         in: query
         name: org_id
         type: string
+      - description: Discover a subscription after returning from Checkout
+        in: query
+        name: discover_subscription
+        type: boolean
       responses:
         "200":
           description: OK
