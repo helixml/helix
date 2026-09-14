@@ -208,10 +208,10 @@ export interface ApiCreateBotRequest {
   name?: string;
   /**
    * Owner makes this a manager Bot: it receives the canonical owner
-   * tool set (every org-graph mutation - create_bot, delete_bot,
-   * set_bot_content, subscribe, ... - plus the read baseline) so it can
-   * hire and manage other Nodes. When true, Tools is ignored in favour
-   * of that set. Used to seed a starter/root Bot for a new org.
+   * tool set (standard worker tools plus org-management mutations such as
+   * create_bot, delete_bot, and set_bot_content) so it can hire and manage
+   * other Nodes. When true, Tools is ignored in favour of that set. Used to
+   * seed a starter/root Bot for a new org.
    */
   owner?: boolean;
   parent_id?: string;
@@ -224,6 +224,7 @@ export interface ApiCreateBotRequest {
    * Only vcpus is read from the overrides — memory follows the preset.
    */
   sandbox_runtime?: TypesSandboxRuntime;
+  /** Tools contains additions to the standard worker tool set. */
   tools?: string[];
   triggers?: string[];
 }
@@ -2287,12 +2288,12 @@ export enum TransportFieldType {
 
 export enum TransportKind {
   KindCron = "cron",
-  KindEmail = "email",
-  KindWebhook = "webhook",
-  KindLocal = "local",
-  KindGitLab = "gitlab",
-  KindSlack = "slack",
   KindHelixEvents = "helix_events",
+  KindEmail = "email",
+  KindLocal = "local",
+  KindWebhook = "webhook",
+  KindSlack = "slack",
+  KindGitLab = "gitlab",
   KindGitHub = "github",
 }
 
@@ -4340,6 +4341,7 @@ export interface TypesInteraction {
    */
   last_zed_message_offset?: number;
   mode?: TypesSessionMode;
+  pending_question?: TypesPendingQuestion;
   /**
    * PromptID links this interaction back to the prompt_history_entry that
    * created it (when the interaction was dispatched by the queue, as opposed
@@ -4354,6 +4356,7 @@ export interface TypesInteraction {
   prompt_message?: string;
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
+  question_history?: TypesResolvedQuestion[];
   rag_results?: TypesSessionRAGResult[];
   /**
    * ResponseEntries holds the structured response as an ordered list of typed entries.
@@ -5227,6 +5230,16 @@ export interface TypesPasswordUpdateRequest {
   new_password?: string;
 }
 
+export interface TypesPendingQuestion {
+  asked_at?: string;
+  questions?: TypesUserQuestion[];
+  request_id?: string;
+  source?: string;
+  thread_id?: string;
+  tool_call_id?: string;
+  turn_request_id?: string;
+}
+
 export interface TypesPinnedChat {
   id?: string;
   kind?: string;
@@ -5824,6 +5837,14 @@ export interface TypesPushResponse {
   success?: boolean;
 }
 
+export interface TypesQuestionActionResponse {
+  status?: string;
+}
+
+export interface TypesQuestionRespondRequest {
+  answers?: Record<string, string>;
+}
+
 export interface TypesQuotaResponse {
   active_concurrent_desktops?: number;
   /**
@@ -5968,6 +5989,19 @@ export interface TypesRepositoryInfo {
   html_url?: string;
   name?: string;
   private?: boolean;
+}
+
+export interface TypesResolvedQuestion {
+  answers?: Record<string, string>;
+  asked_at?: string;
+  outcome?: string;
+  questions?: TypesUserQuestion[];
+  request_id?: string;
+  resolved_at?: string;
+  source?: string;
+  thread_id?: string;
+  tool_call_id?: string;
+  turn_request_id?: string;
 }
 
 export enum TypesResource {
@@ -8453,6 +8487,20 @@ export interface TypesUserModelUsage {
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
+}
+
+export interface TypesUserQuestion {
+  allow_custom_answer?: boolean;
+  header?: string;
+  id?: string;
+  multi_select?: boolean;
+  options?: TypesUserQuestionOption[];
+  question?: string;
+}
+
+export interface TypesUserQuestionOption {
+  description?: string;
+  label?: string;
 }
 
 export interface TypesUserResponse {
@@ -11107,6 +11155,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Streams a complete, binary-safe workspace file from the task desktop.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceFileDownloadDetail
+     * @summary Download a workspace file
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-file/download
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceFileDownloadDetail: (
+      sessionId: string,
+      query: {
+        /** Workspace name */
+        workspace?: string;
+        /** Repository-relative file path */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-file/download`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "blob",
+        ...params,
+      }),
+
+    /**
      * @description Returns a bounded flat list of tracked and non-ignored untracked workspace entries.
      *
      * @tags ExternalAgents
@@ -12521,6 +12597,49 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Cancels the agent question currently pending on an interaction
+     *
+     * @tags interactions
+     * @name V1InteractionsQuestionsCancelCreate
+     * @summary Cancel an agent question
+     * @request POST:/api/v1/interactions/{interaction_id}/questions/{request_id}/cancel
+     * @secure
+     */
+    v1InteractionsQuestionsCancelCreate: (interactionId: string, requestId: string, params: RequestParams = {}) =>
+      this.request<TypesQuestionActionResponse, any>({
+        path: `/api/v1/interactions/${interactionId}/questions/${requestId}/cancel`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Sends answers to the agent question currently pending on an interaction
+     *
+     * @tags interactions
+     * @name V1InteractionsQuestionsRespondCreate
+     * @summary Respond to an agent question
+     * @request POST:/api/v1/interactions/{interaction_id}/questions/{request_id}/respond
+     * @secure
+     */
+    v1InteractionsQuestionsRespondCreate: (
+      interactionId: string,
+      requestId: string,
+      request: TypesQuestionRespondRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesQuestionActionResponse, any>({
+        path: `/api/v1/interactions/${interactionId}/questions/${requestId}/respond`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -19446,6 +19565,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Organization ID */
         org_id?: string;
+        /** Discover a subscription after returning from Checkout */
+        discover_subscription?: boolean;
       },
       params: RequestParams = {},
     ) =>

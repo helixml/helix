@@ -9,6 +9,94 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_InteractionQuestionLifecycle() {
+	ctx := context.Background()
+	userID := "user-question-test"
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: userID, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+	question := &types.PendingQuestion{
+		RequestID: "question-1", ThreadID: "thread-1", TurnRequestID: "turn-1", Source: "elicitation",
+		Questions: []types.UserQuestion{{ID: "choice", Question: "Choose one"}},
+	}
+
+	updated, changed, err := suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, 1, question)
+	suite.Require().NoError(err)
+	suite.True(changed)
+	suite.Require().NotNil(updated.PendingQuestion)
+
+	interaction.ResponseMessage = "still working"
+	_, err = suite.db.UpdateInteraction(ctx, interaction)
+	suite.Require().NoError(err)
+	updated, err = suite.db.GetInteraction(ctx, interaction.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(updated.PendingQuestion)
+
+	updated, changed, err = suite.db.ResolveInteractionPendingQuestion(
+		ctx, interaction.ID, 1, question.RequestID, "answered", map[string]string{"choice": "A"},
+	)
+	suite.Require().NoError(err)
+	suite.True(changed)
+	suite.Nil(updated.PendingQuestion)
+	suite.Require().Len(updated.QuestionHistory, 1)
+	suite.Equal("A", updated.QuestionHistory[0].Answers["choice"])
+
+	updated, changed, err = suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, 1, question)
+	suite.Require().NoError(err)
+	suite.False(changed)
+	suite.Nil(updated.PendingQuestion)
+	suite.Len(updated.QuestionHistory, 1)
+
+	_, _, err = suite.db.SetInteractionPendingQuestion(ctx, "missing-interaction", 1, question)
+	suite.ErrorIs(err, ErrNotFound)
+	_, _, err = suite.db.ResolveInteractionPendingQuestion(ctx, "missing-interaction", 1, question.RequestID, "cancelled", nil)
+	suite.ErrorIs(err, ErrNotFound)
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ReapSettlesPendingQuestion() {
+	ctx := context.Background()
+	userID := "user-reap-question-test"
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: userID, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+	_, changed, err := suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, interaction.GenerationID, &types.PendingQuestion{
+		RequestID: "question-reap", ThreadID: "thread-reap", TurnRequestID: "turn-reap", Source: "elicitation",
+		Questions: []types.UserQuestion{{ID: "choice", Question: "Choose one"}},
+	})
+	suite.Require().NoError(err)
+	suite.True(changed)
+
+	reaped, err := suite.db.ReapWaitingInteractions(ctx, session.ID, types.InteractionStateInterrupted, "test reap")
+	suite.Require().NoError(err)
+	suite.Require().Len(reaped, 1)
+	suite.Nil(reaped[0].PendingQuestion)
+	suite.Require().Len(reaped[0].QuestionHistory, 1)
+	suite.Equal("cancelled", reaped[0].QuestionHistory[0].Outcome)
+
+	updated, err := suite.db.GetInteraction(ctx, interaction.ID)
+	suite.Require().NoError(err)
+	suite.Equal(types.InteractionStateInterrupted, updated.State)
+	suite.Nil(updated.PendingQuestion)
+	suite.Require().Len(updated.QuestionHistory, 1)
+	suite.Equal("question-reap", updated.QuestionHistory[0].RequestID)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_GetInteractionsSummary() {
 	userID := "user-summary-test"
 	ctx := context.Background()

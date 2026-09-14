@@ -740,6 +740,9 @@ type Stripe struct {
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET" description:"The webhook signing secret for stripe."`
 	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY" default:"helix-subscription" description:"The lookup key for the stripe price."`
 	OrgPriceLookupKey    string `envconfig:"STRIPE_ORG_PRICE_LOOKUP_KEY" default:"helix-org-subscription" description:"The lookup key for the stripe price."`
+	OrgPriceCents        int64  `envconfig:"STRIPE_ORG_PRICE_CENTS" default:"49900" description:"Expected organization subscription price in the smallest currency unit."`
+	OrgPriceCurrency     string `envconfig:"STRIPE_ORG_PRICE_CURRENCY" default:"usd" description:"Expected organization subscription price currency."`
+	OrgPriceInterval     string `envconfig:"STRIPE_ORG_PRICE_INTERVAL" default:"month" description:"Expected organization subscription billing interval."`
 }
 
 type DataPrepText struct {

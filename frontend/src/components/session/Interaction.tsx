@@ -235,6 +235,10 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     prevProps.interaction?.completed !== nextProps.interaction?.completed ||
     prevProps.interaction?.error !== nextProps.interaction?.error ||
     prevProps.interaction?.state !== nextProps.interaction?.state ||
+    prevProps.interaction?.pending_question?.request_id !==
+      nextProps.interaction?.pending_question?.request_id ||
+    prevProps.interaction?.question_history?.length !==
+      nextProps.interaction?.question_history?.length ||
     prevProps.interaction?.code_changes?.status !==
       nextProps.interaction?.code_changes?.status ||
     prevProps.interaction?.code_changes?.patch_hash !==
@@ -601,6 +605,7 @@ export const Interaction: FC<InteractionProps> = ({
       {/* Assistant Response Container */}
       {(assistantMessage ||
         (interaction as any)?.response_entries?.length > 0 ||
+        (interaction.question_history?.length ?? 0) > 0 ||
         isLive ||
         visibleError) && (
         <Box

@@ -195,8 +195,8 @@ const ALL_STEPS: StepConfig[] = [
   {
     type: "subscription",
     icon: <CreditCardIcon />,
-    title: "Activate subscription",
-    subtitle: "Add payment method to activate your organization subscription.",
+    title: "Start your free trial",
+    subtitle: "Try Helix free for 72 hours, then continue for $499/month.",
   },
   {
     type: "provider",
@@ -229,6 +229,10 @@ export default function Onboarding() {
   const { data: serverConfig, isLoading: isLoadingServerConfig } =
     useGetConfig();
   const [isSubscribing, setIsSubscribing] = useState(false);
+  const [isConfirmingSubscription, setIsConfirmingSubscription] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("success") === "true" && params.get("step") !== "provider";
+  });
   const [isToppingUp, setIsToppingUp] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState<number>(DEFAULT_TOP_UP_AMOUNT);
 
@@ -253,10 +257,17 @@ export default function Onboarding() {
   } = useGetWallet(
     createdOrg?.id,
     !!createdOrg?.id && !isLoadingServerConfig && serverConfig?.billing_enabled,
+    isConfirmingSubscription,
   );
   const isTrialing = wallet?.subscription_status === "trialing";
   const isSubscriptionActive =
     wallet?.subscription_status === "active" || isTrialing;
+
+  // Mirror the backend's trial eligibility (onboardingTrialPeriodDays): the
+  // 72-hour trial applies only to users who have not completed onboarding
+  // and hold no subscription. Everyone else subscribes and is charged today.
+  const trialEligible =
+    !account.user?.onboarding_completed && !wallet?.stripe_subscription_id;
 
   // Final step: choose Helix credits or an external coding subscription.
   const [codingAccessOption, setCodingAccessOption] =
@@ -508,13 +519,34 @@ export default function Onboarding() {
     }
   }, [createdOrg?.id, serverConfig?.billing_enabled, refetchWallet]);
 
-  // Refresh billing state after Stripe returns.
+  // Stripe can redirect before its subscription webhook updates our wallet.
+  // Retry briefly after the organization has been restored from the return URL.
   useEffect(() => {
-    const url = new URL(window.location.href);
-    if (url.searchParams.get("success") === "true") {
-      refetchWallet();
-    }
-  }, [refetchWallet]);
+    if (!isConfirmingSubscription || !createdOrg?.id || isSubscriptionActive) return;
+
+    let cancelled = false;
+    let interval: number | undefined;
+    let attempts = 0;
+    const refresh = async () => {
+      attempts += 1;
+      const result = await refetchWallet();
+      if (cancelled) return;
+      const status = result?.data?.subscription_status;
+      if (status === "trialing" || status === "active") {
+        setIsConfirmingSubscription(false);
+        if (interval) window.clearInterval(interval);
+      } else if (attempts >= 15) {
+        if (interval) window.clearInterval(interval);
+      }
+    };
+    void refresh();
+    interval = window.setInterval(refresh, 2000);
+
+    return () => {
+      cancelled = true;
+      if (interval) window.clearInterval(interval);
+    };
+  }, [createdOrg?.id, isConfirmingSubscription, isSubscriptionActive, refetchWallet]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -1080,10 +1112,16 @@ export default function Onboarding() {
                   }}
                 >
                   {isTrialing
-                    ? "Your free trial is active. No payment method required - you have full access for the duration of the trial. Click Continue to proceed."
+                    ? "Your free trial is active. Click Continue to proceed."
                     : isSubscriptionActive
                       ? "Your subscription is active. Click Continue to proceed."
-                      : "Subscribe to activate your organization and unlock everything Helix offers."}
+                      : isConfirmingSubscription
+                        ? trialEligible
+                          ? "Confirming your free trial with Stripe..."
+                          : "Confirming your subscription with Stripe..."
+                        : trialEligible
+                          ? "Your card will not be charged for 72 hours. After that, your subscription automatically continues for $499/month. Cancel before the trial ends to avoid the first charge."
+                          : "Subscribe to Helix Business for $499/month, charged today."}
                 </Typography>
                 {isSubscriptionActive && wallet ? (
                   <Box sx={{ mb: 2 }}>
@@ -1183,7 +1221,7 @@ export default function Onboarding() {
                   <Button
                     variant="contained"
                     onClick={handleSubscribe}
-                    disabled={isSubscribing}
+                    disabled={isSubscribing || isConfirmingSubscription}
                     sx={btnSx}
                     startIcon={
                       isSubscribing ? (
@@ -1195,7 +1233,13 @@ export default function Onboarding() {
                   >
                     {isSubscribing
                       ? "Redirecting to payment..."
-                      : "Start Subscription ($499/m)"}
+                      : isConfirmingSubscription
+                        ? trialEligible
+                          ? "Confirming your trial..."
+                          : "Confirming your subscription..."
+                        : trialEligible
+                          ? "Start 72-hour free trial"
+                          : "Subscribe"}
                   </Button>
                 )}
                 <Button
@@ -1272,8 +1316,7 @@ export default function Onboarding() {
                   mb: 2,
                 }}
               >
-                Use a Helix model or connect your Claude or ChatGPT subscription.
-                Helix models require credits.
+                Choose how to power your AI agents: use Helix credits, or connect your Claude or ChatGPT subscription.
               </Typography>
               {codingAccessOption === "helix" && wallet && (
                 <Box
@@ -1684,15 +1727,19 @@ export default function Onboarding() {
                 ? `Selected organization: ${createdOrg.display_name || createdOrg.name}`
                 : step.type === "subscription" && isSubscriptionActive
                   ? isTrialing
-                    ? "Free trial is active - no payment method required."
+                    ? "Free trial is active."
                     : "Subscription is active."
-                  : step.subtitle;
+                  : step.type === "subscription" && !trialEligible
+                    ? "Subscribe for $499/month, charged today."
+                    : step.subtitle;
             const stepTitle =
               step.type === "subscription" && isSubscriptionActive
                 ? isTrialing
                   ? "Trial active"
                   : "Subscription active"
-                : step.title;
+                : step.type === "subscription" && !trialEligible
+                  ? "Subscribe to Helix Business"
+                  : step.title;
 
             return (
               <Fade in timeout={600 + index * 150} key={index}>
