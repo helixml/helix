@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,17 +35,19 @@ func signBody(t *testing.T, secret string, body []byte) string {
 }
 
 // newReviewPayload returns a pull_request_review event body for review 77 on
-// owner/repo#42 with a body and reviewer.
+// owner/repo#42 with a body and reviewer (association COLLABORATOR = passes
+// the trust gate).
 func newReviewPayload(t *testing.T) []byte {
 	t.Helper()
 	payload := githubReviewWebhookPayload{
 		Action: "submitted",
 		Review: githubWebhookReview{
-			ID:      77,
-			State:   "changes_requested",
-			User:    githubWebhookUser{Login: "alice", Type: "User"},
-			Body:    "please fix the nil check",
-			HTMLURL: "https://github.com/owner/repo/pull/42#pullrequestreview-77",
+			ID:                77,
+			State:             "changes_requested",
+			User:              githubWebhookUser{Login: "alice", Type: "User"},
+			Body:              "please fix the nil check",
+			HTMLURL:           "https://github.com/owner/repo/pull/42#pullrequestreview-77",
+			AuthorAssociation: "COLLABORATOR",
 		},
 		PullRequest: githubWebhookPullRequest{
 			Number:  42,
@@ -95,19 +98,42 @@ func TestFormatGitHubReviewFeedback(t *testing.T) {
 	}
 
 	msg := formatGitHubReviewFeedback(&payload, comments)
+	// Metadata outside the fence (Helix-generated, non-attacker-controlled).
 	for _, want := range []string{
-		`owner/repo#42 "add nil check"`,
-		"@alice",
-		"CHANGES REQUESTED",
-		"please fix the nil check",
-		"api/pkg/foo.go:42 @alice: this can nil-deref",
-		"https://github.com/owner/repo/pull/42#pullrequestreview-77",
+		"PR #42 on owner/repo",
+		"reviewer @alice",
+		"verdict: CHANGES REQUESTED",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("message missing %q:\n%s", want, msg)
 		}
 	}
+	// Fenced untrusted content: title, body, comments all inside the markers.
+	begin := strings.Index(msg, "--- BEGIN UNTRUSTED GITHUB REVIEW CONTENT ---")
+	end := strings.Index(msg, "--- END UNTRUSTED GITHUB REVIEW CONTENT ---")
+	if begin < 0 || end < 0 || end < begin {
+		t.Fatalf("fence markers missing/misordered:\n%s", msg)
+	}
+	inside := msg[begin:end]
+	for _, want := range []string{
+		"PR title: add nil check",
+		"please fix the nil check",
+		"api/pkg/foo.go:42 @alice: this can nil-deref",
+	} {
+		if !strings.Contains(inside, want) {
+			t.Fatalf("fenced content missing %q:\n%s", want, inside)
+		}
+	}
+	// Title must NOT appear outside the fence (it is attacker text).
+	outside := msg[:begin] + msg[end:]
+	if strings.Contains(outside, "add nil check") {
+		t.Fatalf("attacker-controlled title leaked outside the fence:\n%s", outside)
+	}
+	if !strings.Contains(msg, "Review link: https://github.com/owner/repo/pull/42#pullrequestreview-77") {
+		t.Fatalf("review link missing:\n%s", msg)
+	}
 
+	// Bodyless review with no comments still names the verdict inside a fence.
 	payload.Review.Body = ""
 	bare := formatGitHubReviewFeedback(&payload, nil)
 	if !strings.Contains(bare, "verdict: CHANGES REQUESTED") {
@@ -126,6 +152,9 @@ func TestGitHubRepoFullName(t *testing.T) {
 		{"https://ghes.corp.com/owner/repo", "owner/repo"},
 		{"git@github.com:owner/repo.git", "owner/repo"},
 		{"https://gitlab.com/owner/repo", "owner/repo"},
+		// Mixed-case row: delivery matching must be case-insensitive, so the
+		// parse result preserving row casing is expected here.
+		{"https://github.com/Owner/Repo", "Owner/Repo"},
 	}
 	for _, tc := range cases {
 		got, err := githubRepoFullName(tc.url)
@@ -157,6 +186,7 @@ func (s *SpecTaskGitHubReviewWebhookSuite) SetupTest() {
 	s.server = &HelixAPIServer{
 		Cfg: &config.ServerConfig{
 			WebServer: config.WebServer{URL: "http://localhost:0", Host: "localhost", Port: 0, RunnerToken: "test"},
+			GitHub:    config.GitHub{ReviewWebhooks: true},
 		},
 		Store:                s.store,
 		gitRepositoryService: s.gitRepo,
@@ -179,9 +209,10 @@ func (s *SpecTaskGitHubReviewWebhookSuite) webhookRepo() *types.GitRepository {
 	}
 }
 
-// expectRepoLoad mocks the repo row lookup the endpoint does first.
+// expectRepoLoad mocks the repo row lookup the endpoint does first. AnyTimes:
+// some tests issue several deliveries against one repo.
 func (s *SpecTaskGitHubReviewWebhookSuite) expectRepoLoad(repoID string, repo *types.GitRepository, err error) {
-	s.store.EXPECT().GetGitRepository(gomock.Any(), repoID).Return(repo, err)
+	s.store.EXPECT().GetGitRepository(gomock.Any(), repoID).Return(repo, err).AnyTimes()
 }
 
 // post delivers a signed (or unsigned when signature is empty) request to the
@@ -267,7 +298,14 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TestEndToEndEnqueuesNormalizedFeedbac
 	s.Equal("spt_1", captured.SpecTaskID)
 	s.True(captured.Interrupt, "review feedback interrupts like CI results")
 	s.Equal("pending", captured.Status)
-	for _, want := range []string{"owner/repo#42", "@alice", "CHANGES REQUESTED", "api/pkg/foo.go:42 @alice: this can nil-deref"} {
+	for _, want := range []string{
+		"PR #42 on owner/repo",
+		"reviewer @alice",
+		"verdict: CHANGES REQUESTED",
+		"--- BEGIN UNTRUSTED GITHUB REVIEW CONTENT ---",
+		"api/pkg/foo.go:42 @alice: this can nil-deref",
+		"--- END UNTRUSTED GITHUB REVIEW CONTENT ---",
+	} {
 		s.Require().Contains(captured.Content, want)
 	}
 
@@ -387,4 +425,63 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TestNoCorrelatedTaskAcks() {
 	body := newReviewPayload(s.T())
 	rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
 	s.Require().Equal(http.StatusOK, rr.Code, "no matching task = nothing to do, ack so GitHub stops retrying")
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestFeatureOffIsKillSwitch() {
+	// The route stays registered when the feature is disabled; flipping the
+	// flag off must stop validating already-provisioned repo hooks immediately.
+	s.server.Cfg.GitHub.ReviewWebhooks = false
+	s.store.EXPECT().GetGitRepository(gomock.Any(), gomock.Any()).Times(0)
+
+	body := newReviewPayload(s.T())
+	rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
+	s.Require().Equal(http.StatusNotFound, rr.Code)
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestTrustGateDropsOutsiders() {
+	// Any GitHub user can review a public repo; only OWNER/MEMBER/COLLABORATOR
+	// reviews may reach the task agent. Signed deliveries from others are
+	// acked without correlating.
+	s.expectRepoLoad(testWebhookRepoID, s.webhookRepo(), nil)
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Times(0)
+	s.gitRepo.listReviewCommentsFunc = func(_ context.Context, _, _ string, _ int64) ([]*types.PRReviewComment, error) {
+		s.Fail("comment fetch must not run for untrusted reviews")
+		return nil, nil
+	}
+
+	for _, association := range []string{"NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "MANNEQUIN", ""} {
+		var payload githubReviewWebhookPayload
+		s.Require().NoError(json.Unmarshal(newReviewPayload(s.T()), &payload))
+		payload.Review.AuthorAssociation = association
+		body, err := json.Marshal(payload)
+		s.Require().NoError(err)
+
+		rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
+		s.Require().Equal(http.StatusOK, rr.Code, "association=%q must ack-drop", association)
+	}
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestTransientStoreErrorIsRetryable() {
+	// A DB blip must 500 so GitHub retries the delivery, not 404 (drop).
+	s.expectRepoLoad(testWebhookRepoID, nil, errors.New("connection reset"))
+
+	body := newReviewPayload(s.T())
+	rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
+	s.Require().Equal(http.StatusInternalServerError, rr.Code)
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestPayloadRepoMatchIsCaseInsensitive() {
+	// Row saved as github.com/Owner/Repo must match GitHub's canonical
+	// owner/repo casing — a strict compare silently kills the feature.
+	repo := s.webhookRepo()
+	repo.ExternalURL = "https://github.com/Owner/Repo"
+	s.expectRepoLoad(testWebhookRepoID, repo, nil)
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{}, nil)
+	s.gitRepo.listReviewCommentsFunc = func(_ context.Context, _, _ string, _ int64) ([]*types.PRReviewComment, error) {
+		return nil, nil
+	}
+
+	body := newReviewPayload(s.T())
+	rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
+	s.Require().Equal(http.StatusOK, rr.Code, "mixed-case repo row must still correlate")
 }
