@@ -263,6 +263,12 @@ export default function Onboarding() {
   const isSubscriptionActive =
     wallet?.subscription_status === "active" || isTrialing;
 
+  // Mirror the backend's trial eligibility (onboardingTrialPeriodDays): the
+  // 72-hour trial applies only to users who have not completed onboarding
+  // and hold no subscription. Everyone else subscribes and is charged today.
+  const trialEligible =
+    !account.user?.onboarding_completed && !wallet?.stripe_subscription_id;
+
   // Final step: choose Helix credits or an external coding subscription.
   const [codingAccessOption, setCodingAccessOption] =
     useState<CodingAccessOption>("helix");
@@ -1110,8 +1116,12 @@ export default function Onboarding() {
                     : isSubscriptionActive
                       ? "Your subscription is active. Click Continue to proceed."
                       : isConfirmingSubscription
-                        ? "Confirming your free trial with Stripe..."
-                        : "Your card will not be charged for 72 hours. After that, your subscription automatically continues for $499/month. Cancel before the trial ends to avoid the first charge."}
+                        ? trialEligible
+                          ? "Confirming your free trial with Stripe..."
+                          : "Confirming your subscription with Stripe..."
+                        : trialEligible
+                          ? "Your card will not be charged for 72 hours. After that, your subscription automatically continues for $499/month. Cancel before the trial ends to avoid the first charge."
+                          : "Subscribe to Helix Business for $499/month, charged today."}
                 </Typography>
                 {isSubscriptionActive && wallet ? (
                   <Box sx={{ mb: 2 }}>
@@ -1224,8 +1234,12 @@ export default function Onboarding() {
                     {isSubscribing
                       ? "Redirecting to payment..."
                       : isConfirmingSubscription
-                        ? "Confirming your trial..."
-                        : "Start 72-hour free trial"}
+                        ? trialEligible
+                          ? "Confirming your trial..."
+                          : "Confirming your subscription..."
+                        : trialEligible
+                          ? "Start 72-hour free trial"
+                          : "Subscribe"}
                   </Button>
                 )}
                 <Button
@@ -1715,13 +1729,17 @@ export default function Onboarding() {
                   ? isTrialing
                     ? "Free trial is active."
                     : "Subscription is active."
-                  : step.subtitle;
+                  : step.type === "subscription" && !trialEligible
+                    ? "Subscribe for $499/month, charged today."
+                    : step.subtitle;
             const stepTitle =
               step.type === "subscription" && isSubscriptionActive
                 ? isTrialing
                   ? "Trial active"
                   : "Subscription active"
-                : step.title;
+                : step.type === "subscription" && !trialEligible
+                  ? "Subscribe to Helix Business"
+                  : step.title;
 
             return (
               <Fade in timeout={600 + index * 150} key={index}>
