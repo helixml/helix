@@ -750,6 +750,18 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 				continue
 			}
 		}
+		if filters != nil && filters.PRMatch != nil {
+			matched := false
+			for _, repoPR := range t.RepoPullRequests {
+				if repoPR.RepositoryName == filters.PRMatch.RepositoryName && repoPR.PRNumber == filters.PRMatch.PRNumber {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
 		cp := *t
 		if filters != nil && filters.SortBy == "last_message" {
 			for _, interaction := range m.interactions {

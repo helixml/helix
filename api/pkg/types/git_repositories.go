@@ -321,6 +321,18 @@ type CIStatus struct {
 	HeadSHA string `json:"head_sha,omitempty"`
 }
 
+// PRReviewComment is a normalized inline pull request review comment.
+// Used by the GitHub review webhook to build PR feedback messages for
+// spec task agents.
+type PRReviewComment struct {
+	ReviewID int64  `json:"review_id"`
+	Author   string `json:"author"`
+	Body     string `json:"body"`
+	Path     string `json:"path"`
+	Line     int    `json:"line"`
+	URL      string `json:"url,omitempty"`
+}
+
 type PullRequestState string
 
 const (

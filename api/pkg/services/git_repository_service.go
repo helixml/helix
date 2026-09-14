@@ -76,6 +76,13 @@ type GitRepositoryService struct {
 	// concurrent handler hits) so we don't hammer GitHub and trip its 5000 req/hr
 	// rate limit. Set on construction; safe for concurrent use.
 	prListCache *prListCache
+
+	// githubWebhookURL/Secret enable PR review feedback for spec tasks: when
+	// both are set, creating a GitHub pull request also installs (idempotently)
+	// a pull_request_review webhook on the external repo so Helix gets review
+	// deliveries. Set via SetGitHubWebhookConfig from server wiring.
+	githubWebhookURL    string
+	githubWebhookSecret string
 }
 
 // NewGitRepositoryService creates a new git repository service
@@ -145,6 +152,17 @@ func (s *GitRepositoryService) SetKoditService(koditService KoditServicer) {
 // This may differ from serverBaseURL in containerized environments
 func (s *GitRepositoryService) SetKoditGitURL(url string) {
 	s.koditGitURL = strings.TrimSuffix(url, "/")
+}
+
+// SetGitHubWebhookConfig enables PR review webhooks on external GitHub repos.
+// url is the full payload URL GitHub should POST to; secret is the HMAC
+// shared secret deliveries are signed with. Both empty/absent = feature off.
+func (s *GitRepositoryService) SetGitHubWebhookConfig(url, secret string) {
+	if url == "" || secret == "" {
+		return
+	}
+	s.githubWebhookURL = strings.TrimSuffix(url, "/")
+	s.githubWebhookSecret = secret
 }
 
 // GetGitHomePath returns the path where git stores its global config (.gitconfig).

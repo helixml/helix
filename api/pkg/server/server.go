@@ -678,6 +678,13 @@ func NewServer(
 	apiServer.specTaskOrchestrator.SetAttentionService(apiServer.attentionService)
 	apiServer.specTaskOrchestrator.SetCINotifier(services.NewEnqueueCINotifier(apiServer.enqueueSpecTaskAgentMessage))
 
+	// GitHub PR review feedback: when the webhook secret is configured, PR
+	// creations install a pull_request_review webhook on external repos and
+	// /api/v1/webhooks/github/reviews correlates deliveries to spec tasks.
+	gitRepositoryService.SetGitHubWebhookConfig(
+		fmt.Sprintf("%s/api/v1/webhooks/github/reviews", strings.TrimSuffix(cfg.WebServer.URL, "/")),
+		cfg.GitHub.WebhookSecret)
+
 	// Recover golden builds that were in progress when the API last restarted.
 	// Re-attaches monitoring goroutines for still-running builds, resets stale ones.
 	go apiServer.goldenBuildService.RecoverStaleBuilds(context.Background())
@@ -956,6 +963,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	insecureRouter.HandleFunc("/oauth/flow/callback", apiServer.handleOAuthCallback).Methods("GET")
 
 	insecureRouter.HandleFunc("/webhooks/{id}", apiServer.webhookTriggerHandler).Methods(http.MethodPost, http.MethodPut)
+
+	// GitHub PR review feedback for spec tasks - auth handled by webhook
+	// signature validation (X-Hub-Signature-256, GITHUB_INTEGRATION_WEBHOOK_SECRET)
+	insecureRouter.HandleFunc("/webhooks/github/reviews", apiServer.specTaskGitHubReviewWebhook).Methods(http.MethodPost)
 
 	// Teams Bot Framework webhook - auth handled by Bot Framework JWT validation
 	insecureRouter.HandleFunc("/teams/webhook/{appID}", apiServer.teamsWebhookHandler).Methods(http.MethodPost)

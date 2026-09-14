@@ -483,6 +483,12 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		labelJSON := `["` + label + `"]`
 		db = db.Where("labels @> ?::jsonb", labelJSON)
 	}
+	// PRMatch filter - tasks tracking this repo + PR (GitHub webhook correlation
+	// via JSONB containment against the RepoPullRequests array)
+	if filters.PRMatch != nil {
+		db = db.Where("repo_pull_requests @> ?::jsonb",
+			fmt.Sprintf(`[{"repository_name":%q,"pr_number":%d}]`, filters.PRMatch.RepositoryName, filters.PRMatch.PRNumber))
+	}
 
 	if filters.Limit > 0 {
 		db = db.Limit(filters.Limit)

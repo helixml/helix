@@ -688,7 +688,81 @@ func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo
 		return "", fmt.Errorf("failed to create pull request: %w", err)
 	}
 
+	s.ensureGitHubReviewWebhook(ctx, client, owner, repoName)
+
 	return strconv.Itoa(pr.GetNumber()), nil
+}
+
+// ensureGitHubReviewWebhook installs (idempotently) a pull_request_review
+// webhook on the external repo so review feedback flows back to the spec task.
+// Best-effort: a failed install must not fail PR creation. No-op when the
+// feature is not configured (SetGitHubWebhookConfig).
+func (s *GitRepositoryService) ensureGitHubReviewWebhook(ctx context.Context, client *github.Client, owner, repoName string) {
+	if s.githubWebhookURL == "" || s.githubWebhookSecret == "" {
+		return
+	}
+	if err := client.UpsertWebhook(ctx, owner, repoName, "helix-spec-task-reviews",
+		s.githubWebhookURL, []string{"pull_request_review"}, s.githubWebhookSecret); err != nil {
+		// Reviews are a nice-to-have; CI feedback still arrives via the poller.
+		log.Warn().Err(err).Str("owner", owner).Str("repo", repoName).
+			Msg("failed to install GitHub review webhook on repo; PR review feedback will not reach the task agent")
+		return
+	}
+	log.Info().Str("owner", owner).Str("repo", repoName).
+		Msg("GitHub review webhook installed on repo")
+}
+
+// ListPullRequestReviewComments returns the inline review comments belonging
+// to one review on a pull request. GitHub only in v1 — other providers return
+// an error (the review webhook only exists for GitHub repos anyway).
+func (s *GitRepositoryService) ListPullRequestReviewComments(ctx context.Context, repoID, prID string, reviewID int64) ([]*types.PRReviewComment, error) {
+	// Metadata read only: this runs from a webhook handler, so it must never
+	// clone/sync the repo (GetRepository would, and a broken clone would
+	// block review delivery).
+	repo, err := s.GetRepositoryMetadata(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.ExternalType != types.ExternalRepositoryTypeGitHub {
+		return nil, fmt.Errorf("pull request review comments not supported for repository type %s", repo.ExternalType)
+	}
+
+	client, err := s.getGitHubClient(ctx, repo, "")
+	if err != nil {
+		return nil, err
+	}
+
+	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse GitHub URL: %w", err)
+	}
+
+	prNumber, err := strconv.Atoi(prID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid pull request ID %q: %w", prID, err)
+	}
+
+	comments, err := client.ListPullRequestReviewComments(ctx, owner, repoName, prNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pull request review comments: %w", err)
+	}
+
+	out := make([]*types.PRReviewComment, 0, len(comments))
+	for _, c := range comments {
+		if c.GetPullRequestReviewID() != reviewID {
+			continue
+		}
+		out = append(out, &types.PRReviewComment{
+			ReviewID: reviewID,
+			Author:   c.GetUser().GetLogin(),
+			Body:     c.GetBody(),
+			Path:     c.GetPath(),
+			Line:     c.GetLine(),
+			URL:      c.GetHTMLURL(),
+		})
+	}
+	return out, nil
 }
 
 func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
