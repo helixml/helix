@@ -5408,6 +5408,112 @@
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/workspace-file/download": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Streams a complete, binary-safe workspace file from the task desktop.",
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Download a workspace file",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Repository-relative file path",
+                        "name": "path",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "image/*": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            },
+                            "application/octet-stream": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "image/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            },
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "image/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            },
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "content": {
+                            "image/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            },
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/external-agents/{sessionID}/workspace-files": {
             "get": {
                 "security": [

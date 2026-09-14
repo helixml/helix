@@ -17031,6 +17031,49 @@ paths:
       summary: Update a workspace file
       tags:
       - ExternalAgents
+  /api/v1/external-agents/{sessionID}/workspace-file/download:
+    get:
+      description: Streams a complete, binary-safe workspace file from the task desktop.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Workspace name
+        in: query
+        name: workspace
+        type: string
+      - description: Repository-relative file path
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - image/*
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Download a workspace file
+      tags:
+      - ExternalAgents
   /api/v1/external-agents/{sessionID}/workspace-files:
     get:
       description: Returns a bounded flat list of tracked and non-ignored untracked

@@ -11188,6 +11188,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Streams a complete, binary-safe workspace file from the task desktop.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceFileDownloadDetail
+     * @summary Download a workspace file
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-file/download
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceFileDownloadDetail: (
+      sessionId: string,
+      query: {
+        /** Workspace name */
+        workspace?: string;
+        /** Repository-relative file path */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-file/download`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "blob",
+        ...params,
+      }),
+
+    /**
      * @description Returns a bounded flat list of tracked and non-ignored untracked workspace entries.
      *
      * @tags ExternalAgents
