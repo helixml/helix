@@ -168,7 +168,8 @@ func TestEnrichUserTrialDisplay_FindsTrialOnNonFirstOrg(t *testing.T) {
 }
 
 type adminTrialStripeBackend struct {
-	t *testing.T
+	t         *testing.T
+	cancelErr error
 }
 
 func (b *adminTrialStripeBackend) Call(method, path, _ string, _ stripeapi.ParamsContainer, out stripeapi.LastResponseSetter) error {
@@ -183,6 +184,7 @@ func (b *adminTrialStripeBackend) Call(method, path, _ string, _ stripeapi.Param
 		}
 	case http.MethodDelete:
 		require.Equal(b.t, "/v1/subscriptions/sub-b", path)
+		return b.cancelErr
 	default:
 		return fmt.Errorf("unexpected call: %s %s", method, path)
 	}
@@ -248,7 +250,12 @@ func TestAdminRevokeTrial_CancelsOldestTrialingOrg(t *testing.T) {
 
 	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(&types.User{ID: "target"}, nil)
 	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{newOrg, oldOrg}, nil)
-	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(&types.Wallet{StripeSubscriptionID: "sub-b", SubscriptionStatus: stripeapi.SubscriptionStatusTrialing}, nil)
+	wallet := &types.Wallet{ID: "wallet-b", StripeSubscriptionID: "sub-b", SubscriptionStatus: stripeapi.SubscriptionStatusTrialing}
+	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(wallet, nil)
+	db.EXPECT().UpdateWallet(gomock.Any(), wallet).DoAndReturn(func(_ context.Context, got *types.Wallet) (*types.Wallet, error) {
+		require.Equal(t, stripeapi.SubscriptionStatusCanceled, got.SubscriptionStatus)
+		return got, nil
+	})
 
 	originalBackend := stripeapi.GetBackend(stripeapi.APIBackend)
 	stripeapi.SetBackend(stripeapi.APIBackend, &adminTrialStripeBackend{t: t})
@@ -271,6 +278,38 @@ func TestAdminRevokeTrial_CancelsOldestTrialingOrg(t *testing.T) {
 	require.Equal(t, "org-b", resp.OrgID)
 }
 
+func TestAdminRevokeTrial_AlreadyMissingSubscription(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	wallet := &types.Wallet{ID: "wallet-b", StripeSubscriptionID: "sub-b", SubscriptionStatus: stripeapi.SubscriptionStatusTrialing}
+
+	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(&types.User{ID: "target"}, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{{ID: "org-b"}}, nil)
+	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(wallet, nil)
+	db.EXPECT().UpdateWallet(gomock.Any(), wallet).DoAndReturn(func(_ context.Context, got *types.Wallet) (*types.Wallet, error) {
+		require.Equal(t, stripeapi.SubscriptionStatusCanceled, got.SubscriptionStatus)
+		return got, nil
+	})
+
+	originalBackend := stripeapi.GetBackend(stripeapi.APIBackend)
+	stripeapi.SetBackend(stripeapi.APIBackend, &adminTrialStripeBackend{
+		t:         t,
+		cancelErr: &stripeapi.Error{Code: stripeapi.ErrorCodeResourceMissing},
+	})
+	t.Cleanup(func() { stripeapi.SetBackend(stripeapi.APIBackend, originalBackend) })
+	cfg := cloudBillingCfg()
+	cfg.Stripe.SecretKey = "sk_test"
+	cfg.Stripe.WebhookSigningSecret = "whsec_test"
+	s := &HelixAPIServer{Store: db, Cfg: cfg, Stripe: helixstripe.NewStripe(cfg.Stripe, db)}
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/users/target/trial-activate", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": "target"})
+	req = req.WithContext(setTestRequestUser(req.Context(), &types.User{ID: "admin", Admin: true}))
+
+	resp, err := s.adminRevokeTrial(httptest.NewRecorder(), req)
+	require.NoError(t, err)
+	require.Equal(t, "cancelled", resp.Status)
+}
+
 func TestAdminRevokeTrial_ContinuesAfterWalletReadError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	db := store.NewMockStore(ctrl)
@@ -280,7 +319,12 @@ func TestAdminRevokeTrial_ContinuesAfterWalletReadError(t *testing.T) {
 	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(&types.User{ID: "target"}, nil)
 	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{oldOrg, laterOrg}, nil)
 	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-a").Return(nil, fmt.Errorf("read failed"))
-	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(&types.Wallet{StripeSubscriptionID: "sub-b", SubscriptionStatus: stripeapi.SubscriptionStatusTrialing}, nil)
+	wallet := &types.Wallet{ID: "wallet-b", StripeSubscriptionID: "sub-b", SubscriptionStatus: stripeapi.SubscriptionStatusTrialing}
+	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(wallet, nil)
+	db.EXPECT().UpdateWallet(gomock.Any(), wallet).DoAndReturn(func(_ context.Context, got *types.Wallet) (*types.Wallet, error) {
+		require.Equal(t, stripeapi.SubscriptionStatusCanceled, got.SubscriptionStatus)
+		return got, nil
+	})
 
 	originalBackend := stripeapi.GetBackend(stripeapi.APIBackend)
 	stripeapi.SetBackend(stripeapi.APIBackend, &adminTrialStripeBackend{t: t})

@@ -2,6 +2,7 @@ package stripe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -72,7 +73,10 @@ func (s *Stripe) CancelTrialSubscription(_ context.Context, subscriptionID strin
 		return fmt.Errorf("subscription id is required")
 	}
 	if _, err := subscription.Cancel(subscriptionID, nil); err != nil {
-		return fmt.Errorf("failed to cancel subscription: %w", err)
+		var stripeErr *stripe.Error
+		if !errors.As(err, &stripeErr) || stripeErr.Code != stripe.ErrorCodeResourceMissing {
+			return fmt.Errorf("failed to cancel subscription: %w", err)
+		}
 	}
 	return nil
 }

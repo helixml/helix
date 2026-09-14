@@ -131,6 +131,7 @@ const NotificationCard: React.FC<NotificationCardProps> = ({
           fontSize: '0.84rem',
           fontWeight: 500,
           lineHeight: 1.45,
+          overflowWrap: 'anywhere',
         }}
       >
         {notification.message}

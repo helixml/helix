@@ -70,4 +70,12 @@ describe('Snackbar', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('Save failed')
   })
+
+  it('wraps long error text within the notification', () => {
+    renderSnackbar([
+      { id: 'error', message: 'No such subscription: sub_1UEciwFNNvjhkCqz9c27O4mb', severity: 'error' },
+    ])
+
+    expect(screen.getByText(/No such subscription/)).toHaveStyle({ overflowWrap: 'anywhere' })
+  })
 })
