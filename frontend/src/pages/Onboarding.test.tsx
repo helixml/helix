@@ -40,9 +40,12 @@ function setAccountWithOrgs(orgs: Array<{
   display_name: string
   owner?: string
   memberships?: Array<{ user_id: string; role: string }>
-}>) {
+}>, userOverrides: Record<string, unknown> = {}) {
   mockAccountValue = {
-    user: { id: 'user-1', name: 'Test User', email: 'test@example.com' },
+    user: {
+      id: 'user-1', name: 'Test User', email: 'test@example.com',
+      ...userOverrides,
+    },
     organizationTools: {
       organizations: orgs,
       organization: orgs[0],
@@ -799,5 +802,43 @@ describe('Onboarding', () => {
     expect(screen.getByText(/card will not be charged for 72 hours/i)).toBeInTheDocument()
     expect(screen.getByText(/automatically continues for \$499\/month/i)).toBeInTheDocument()
     expect(screen.getByText(/cancel before the trial ends/i)).toBeInTheDocument()
+  })
+
+  it('offers the 72-hour trial CTA to a user who has not completed onboarding', async () => {
+    mockState.walletStatus = 'not_subscribed'
+    setAccountWithOrgs(
+      [{ id: 'org-1', name: 'my-org', display_name: 'My Org', owner: 'user-1' }],
+      { onboarding_completed: false },
+    )
+    renderOnboarding()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /continue with this organization/i }),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /start 72-hour free trial/i })).toBeEnabled()
+    })
+  })
+
+  it('shows a plain subscribe CTA for an already-onboarded user', async () => {
+    mockState.walletStatus = 'not_subscribed'
+    setAccountWithOrgs(
+      [{ id: 'org-1', name: 'my-org', display_name: 'My Org', owner: 'user-1' }],
+      { onboarding_completed: true },
+    )
+    renderOnboarding()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /continue with this organization/i }),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /subscribe/i })).toBeEnabled()
+    })
+    expect(screen.queryByRole('button', { name: /free trial/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/card will not be charged for 72 hours/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/subscribe to helix business for \$499\/month, charged today/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /subscribe/i })).toBeEnabled()
   })
 })
