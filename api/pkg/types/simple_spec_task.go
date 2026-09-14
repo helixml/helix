@@ -536,26 +536,36 @@ type SpecGeneration struct {
 
 // SpecTaskFilters for filtering spec tasks in queries
 type SpecTaskFilters struct {
-	ProjectID          string         `json:"project_id,omitempty"`
-	Status             SpecTaskStatus `json:"status,omitempty"`
-	UserID             string         `json:"user_id,omitempty"`
-	FilterParticipants bool           `json:"filter_participants,omitempty"`
-	ParticipantIDs     []string       `json:"participant_ids,omitempty"` // Created by or assigned to any selected user
-	FilterProjectIDs   bool           `json:"filter_project_ids,omitempty"`
-	ProjectIDs         []string       `json:"project_ids,omitempty"` // Any of these projects; empty matches nothing when FilterProjectIDs is set
-	CreatedByOrgBot    string         `json:"created_by_org_bot,omitempty"`
-	Type               string         `json:"type,omitempty"`
-	Priority           string         `json:"priority,omitempty"`
-	Limit              int            `json:"limit,omitempty"`
-	Offset             int            `json:"offset,omitempty"`
-	SortBy             string         `json:"sort_by,omitempty"`
-	WithDependsOn      bool           `json:"with_depends_on,omitempty"`
-	IncludeArchived    bool           `json:"include_archived,omitempty"`    // If true, include both archived and non-archived
-	ArchivedOnly       bool           `json:"archived_only,omitempty"`       // If true, show only archived tasks
-	DesignDocPath      string         `json:"design_doc_path,omitempty"`     // Filter by exact DesignDocPath (for git push detection)
-	BranchName         string         `json:"branch_name,omitempty"`         // Filter by exact BranchName (for uniqueness check)
-	PlanningSessionID  string         `json:"planning_session_id,omitempty"` // Filter by PlanningSessionID (reverse lookup)
-	Labels             []string       `json:"labels,omitempty"`              // Filter tasks that have ALL of these labels (AND semantics)
+	ProjectID          string           `json:"project_id,omitempty"`
+	Status             SpecTaskStatus   `json:"status,omitempty"`
+	UserID             string           `json:"user_id,omitempty"`
+	FilterParticipants bool             `json:"filter_participants,omitempty"`
+	ParticipantIDs     []string         `json:"participant_ids,omitempty"` // Created by or assigned to any selected user
+	FilterProjectIDs   bool             `json:"filter_project_ids,omitempty"`
+	ProjectIDs         []string         `json:"project_ids,omitempty"` // Any of these projects; empty matches nothing when FilterProjectIDs is set
+	CreatedByOrgBot    string           `json:"created_by_org_bot,omitempty"`
+	Type               string           `json:"type,omitempty"`
+	Priority           string           `json:"priority,omitempty"`
+	Limit              int              `json:"limit,omitempty"`
+	Offset             int              `json:"offset,omitempty"`
+	SortBy             string           `json:"sort_by,omitempty"`
+	WithDependsOn      bool             `json:"with_depends_on,omitempty"`
+	IncludeArchived    bool             `json:"include_archived,omitempty"`    // If true, include both archived and non-archived
+	ArchivedOnly       bool             `json:"archived_only,omitempty"`       // If true, show only archived tasks
+	DesignDocPath      string           `json:"design_doc_path,omitempty"`     // Filter by exact DesignDocPath (for git push detection)
+	BranchName         string           `json:"branch_name,omitempty"`         // Filter by exact BranchName (for uniqueness check)
+	PlanningSessionID  string           `json:"planning_session_id,omitempty"` // Filter by PlanningSessionID (reverse lookup)
+	Labels             []string         `json:"labels,omitempty"`              // Filter tasks that have ALL of these labels (AND semantics)
+	PRMatch            *SpecTaskPRMatch `json:"pr_match,omitempty"`            // Filter tasks tracking this repo + PR (webhook correlation)
+}
+
+// SpecTaskPRMatch selects tasks whose RepoPullRequests contain an entry with
+// this repository id and PR number. Used by the GitHub review webhook to
+// correlate an inbound PR event to spec tasks; the repository row's org
+// ownership is the tenant boundary.
+type SpecTaskPRMatch struct {
+	RepositoryID string
+	PRNumber     int
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
