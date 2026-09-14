@@ -919,9 +919,9 @@ export default function DesignReviewContent({
   }, []);
 
   useEffect(() => {
-    // On narrow viewports bubbles render inline (position: relative) and
-    // the form is a bottom-sheet (position: fixed). Stacking math is
-    // irrelevant in that mode.
+    // Existing server-side review bubbles stack in the wide side gutter. The
+    // compact composer is anchored directly below the selection on narrower
+    // embedded plan panes, so side-gutter collision math is irrelevant there.
     const formActive =
       !isNarrowViewport && showCommentForm && !!selectedText;
 
@@ -999,10 +999,7 @@ export default function DesignReviewContent({
       });
 
       if (formActive) {
-        // 220 is a sensible default matching the form's typical rendered
-        // height with a 3-line TextField; the real value replaces it once
-        // the form has mounted and the ref callback bumps the tick.
-        const formHeight = commentFormRef.current?.offsetHeight || 220;
+        const formHeight = commentFormRef.current?.offsetHeight || 104;
         positions.push({
           id: NEW_COMMENT_FORM_KEY,
           baseY: commentFormPosition.y,
@@ -1204,7 +1201,7 @@ export default function DesignReviewContent({
 
         if (containerRect) {
           const scrollTop = documentRef.current?.scrollTop || 0;
-          const yPosition = rect.top - containerRect.top + scrollTop;
+          const yPosition = rect.bottom - containerRect.top + scrollTop;
 
           // Clear stale highlight before applying new selection
           removeHighlight();
@@ -1710,7 +1707,8 @@ export default function DesignReviewContent({
                     // Whole-block selection has no precise start point; fall
                     // back to occurrence-ordinal anchoring.
                     setSelectedOffset(null);
-                    setCommentFormPosition({ x: 0, y: hoverButtonPosition.y });
+                    const blockHeight = hoveredElementRef.current?.getBoundingClientRect().height || 0;
+                    setCommentFormPosition({ x: 0, y: hoverButtonPosition.y + blockHeight });
                     setHoverButtonPosition(null);
                     setShowCommentForm(true);
                   }}
@@ -1900,7 +1898,7 @@ export default function DesignReviewContent({
                   setSelectedText("");
                   setSelectedOffset(null);
                 }}
-                isNarrowViewport={isNarrowViewport}
+                isNarrowViewport={!!onQueueComment || isNarrowViewport}
                 isSubmitting={!onQueueComment && createCommentMutation.isPending}
                 outerRef={handleCommentFormRef}
               />}

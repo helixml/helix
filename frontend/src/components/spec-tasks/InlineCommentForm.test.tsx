@@ -23,10 +23,13 @@ describe("InlineCommentForm", () => {
       />,
     );
 
-    expect(container.querySelector(".MuiPaper-root")).toHaveStyle({
+    expect(container.querySelector("[data-plan-comment-draft]")).toHaveStyle({
       position: "absolute",
-      top: "132px",
+      top: "108px",
+      maxWidth: "480px",
     });
+    expect(screen.queryByText("Add Comment")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Selected plan text/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add to chat" }));
     expect(onCreate).toHaveBeenCalledOnce();
   });
