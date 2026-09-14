@@ -484,16 +484,11 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		db = db.Where("labels @> ?::jsonb", labelJSON)
 	}
 	// PRMatch filter - tasks tracking this repo + PR (GitHub webhook correlation
-	// via JSONB containment against the RepoPullRequests array)
+	// via JSONB containment against the RepoPullRequests array; the repository
+	// row's org ownership is the tenant boundary)
 	if filters.PRMatch != nil {
 		db = db.Where("repo_pull_requests @> ?::jsonb",
-			fmt.Sprintf(`[{"repository_name":%q,"pr_number":%d}]`, filters.PRMatch.RepositoryName, filters.PRMatch.PRNumber))
-		// Org repos install an org-scoped webhook URL, so deliveries are only
-		// allowed to reach that org's tasks (a leaked repo webhook secret can't
-		// forge events into other orgs on a shared deployment).
-		if filters.PRMatch.OrganizationID != "" {
-			db = db.Where("organization_id = ?", filters.PRMatch.OrganizationID)
-		}
+			fmt.Sprintf(`[{"repository_id":%q,"pr_number":%d}]`, filters.PRMatch.RepositoryID, filters.PRMatch.PRNumber))
 	}
 
 	if filters.Limit > 0 {

@@ -21,7 +21,10 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-const testWebhookSecret = "shh"
+const (
+	testWebhookSecret = "repo-secret-abc123"
+	testWebhookRepoID = "repo-e2e"
+)
 
 func signBody(t *testing.T, secret string, body []byte) string {
 	t.Helper()
@@ -115,8 +118,26 @@ func TestFormatGitHubReviewFeedback(t *testing.T) {
 	}
 }
 
+func TestGitHubRepoFullName(t *testing.T) {
+	// ParseGitHubURL is host-agnostic by design (GHES support).
+	cases := []struct{ url, want string }{
+		{"https://github.com/owner/repo", "owner/repo"},
+		{"https://github.com/owner/repo.git", "owner/repo"},
+		{"https://ghes.corp.com/owner/repo", "owner/repo"},
+		{"git@github.com:owner/repo.git", "owner/repo"},
+		{"https://gitlab.com/owner/repo", "owner/repo"},
+	}
+	for _, tc := range cases {
+		got, err := githubRepoFullName(tc.url)
+		if err != nil || got != tc.want {
+			t.Fatalf("githubRepoFullName(%q) = %q, %v; want %q", tc.url, got, err, tc.want)
+		}
+	}
+}
+
 // SpecTaskGitHubReviewWebhookSuite tests the full webhook HTTP path:
-// signature validation → PR correlation → comment fetch → agent enqueue.
+// repo lookup → per-repo signature validation → PR correlation → comment
+// fetch → agent enqueue.
 type SpecTaskGitHubReviewWebhookSuite struct {
 	suite.Suite
 	ctrl    *gomock.Controller
@@ -136,7 +157,6 @@ func (s *SpecTaskGitHubReviewWebhookSuite) SetupTest() {
 	s.server = &HelixAPIServer{
 		Cfg: &config.ServerConfig{
 			WebServer: config.WebServer{URL: "http://localhost:0", Host: "localhost", Port: 0, RunnerToken: "test"},
-			GitHub:    config.GitHub{WebhookSecret: testWebhookSecret},
 		},
 		Store:                s.store,
 		gitRepositoryService: s.gitRepo,
@@ -147,22 +167,28 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TearDownTest() {
 	s.ctrl.Finish()
 }
 
-// post delivers a signed (or unsigned when signature is empty) request to the
-// webhook endpoint.
-func (s *SpecTaskGitHubReviewWebhookSuite) post(body []byte, event, signature string) *httptest.ResponseRecorder {
-	return s.postWithOrg("", body, event, signature)
+// webhookRepo is the repo row the endpoint loads for signature validation.
+func (s *SpecTaskGitHubReviewWebhookSuite) webhookRepo() *types.GitRepository {
+	return &types.GitRepository{
+		ID:             testWebhookRepoID,
+		Name:           "repo",
+		OrganizationID: "org_e2e",
+		ExternalURL:    "https://github.com/owner/repo",
+		ExternalType:   types.ExternalRepositoryTypeGitHub,
+		GitHub:         &types.GitHub{WebhookSecret: testWebhookSecret},
+	}
 }
 
-// postWithOrg delivers a request to the org-scoped route (mux vars set), or
-// the unscoped route when org is empty.
-func (s *SpecTaskGitHubReviewWebhookSuite) postWithOrg(org string, body []byte, event, signature string) *httptest.ResponseRecorder {
-	path := "/api/v1/webhooks/github/reviews"
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
-	if org != "" {
-		path += "/" + org
-		req = httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
-		req = mux.SetURLVars(req, map[string]string{"org": org})
-	}
+// expectRepoLoad mocks the repo row lookup the endpoint does first.
+func (s *SpecTaskGitHubReviewWebhookSuite) expectRepoLoad(repoID string, repo *types.GitRepository, err error) {
+	s.store.EXPECT().GetGitRepository(gomock.Any(), repoID).Return(repo, err)
+}
+
+// post delivers a signed (or unsigned when signature is empty) request to the
+// repo-scoped webhook endpoint.
+func (s *SpecTaskGitHubReviewWebhookSuite) post(repoID string, body []byte, event, signature string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/webhooks/github/reviews/"+repoID, bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"repo_id": repoID})
 	req.Header.Set("X-GitHub-Event", event)
 	req.Header.Set("Content-Type", "application/json")
 	if signature != "" {
@@ -173,15 +199,15 @@ func (s *SpecTaskGitHubReviewWebhookSuite) postWithOrg(org string, body []byte, 
 	return rr
 }
 
-// trackingTask returns a task in the given status tracking owner/repo#42.
-func (s *SpecTaskGitHubReviewWebhookSuite) trackingTask(id, status types.SpecTaskStatus) *types.SpecTask {
+// trackingTask returns a task in the given status tracking the webhook repo's PR #42.
+func (s *SpecTaskGitHubReviewWebhookSuite) trackingTask(id string, status types.SpecTaskStatus) *types.SpecTask {
 	return &types.SpecTask{
-		ID:                string(id),
+		ID:                id,
 		Status:            status,
-		PlanningSessionID: "ses_" + string(id),
+		PlanningSessionID: "ses_" + id,
 		RepoPullRequests: []types.RepoPR{
 			{
-				RepositoryID:   "repo-1",
+				RepositoryID:   testWebhookRepoID,
 				RepositoryName: "owner/repo",
 				PRID:           "42",
 				PRNumber:       42,
@@ -192,17 +218,17 @@ func (s *SpecTaskGitHubReviewWebhookSuite) trackingTask(id, status types.SpecTas
 }
 
 func (s *SpecTaskGitHubReviewWebhookSuite) TestEndToEndEnqueuesNormalizedFeedback() {
-	task := s.trackingTask("spt_1", types.TaskStatusPullRequest)
+	s.expectRepoLoad(testWebhookRepoID, s.webhookRepo(), nil)
 
 	// Correlation query with the repo+PR filter.
 	var capturedFilter *types.SpecTaskPRMatch
 	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
 			capturedFilter = filters.PRMatch
-			return []*types.SpecTask{task}, nil
+			return []*types.SpecTask{s.trackingTask("spt_1", types.TaskStatusPullRequest)}, nil
 		})
 
-	// Inline comments fetched through the task's tracked repo credentials.
+	// Inline comments fetched through the repo's own credentials.
 	var gotRepoID, gotPRID string
 	var gotReviewID int64
 	s.gitRepo.listReviewCommentsFunc = func(_ context.Context, repoID, prID string, reviewID int64) ([]*types.PRReviewComment, error) {
@@ -226,13 +252,13 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TestEndToEndEnqueuesNormalizedFeedbac
 	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), "ses_spt_1").Return(nil, nil).AnyTimes()
 
 	body := newReviewPayload(s.T())
-	rr := s.post(body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
+	rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
 	s.Require().Equal(http.StatusOK, rr.Code, "body=%s", rr.Body.String())
 
 	s.Require().NotNil(capturedFilter)
-	s.Equal("owner/repo", capturedFilter.RepositoryName)
+	s.Equal(testWebhookRepoID, capturedFilter.RepositoryID)
 	s.Equal(42, capturedFilter.PRNumber)
-	s.Equal("repo-1", gotRepoID)
+	s.Equal(testWebhookRepoID, gotRepoID)
 	s.Equal("42", gotPRID)
 	s.Equal(int64(77), gotReviewID)
 
@@ -255,6 +281,7 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TestSkipsTasksPastFeedbackWindow() {
 	eligible := s.trackingTask("spt_live", types.TaskStatusPullRequest)
 	done := s.trackingTask("spt_done", types.TaskStatusDone)
 
+	s.expectRepoLoad(testWebhookRepoID, s.webhookRepo(), nil)
 	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{eligible, done}, nil)
 	s.gitRepo.listReviewCommentsFunc = func(_ context.Context, _, _ string, _ int64) ([]*types.PRReviewComment, error) {
 		return nil, nil
@@ -271,91 +298,93 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TestSkipsTasksPastFeedbackWindow() {
 	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	body := newReviewPayload(s.T())
-	rr := s.post(body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
+	rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
 	s.Require().Equal(http.StatusOK, rr.Code)
 	s.Require().Equal(1, enqueued, "done tasks must not be notified")
 
 	time.Sleep(100 * time.Millisecond)
 }
 
-func (s *SpecTaskGitHubReviewWebhookSuite) TestRejectsBadSignature() {
+func (s *SpecTaskGitHubReviewWebhookSuite) TestRejectsWrongRepoSecret() {
+	// The isolation property: a secret from ANOTHER repo's webhook must not
+	// validate deliveries to this repo's endpoint.
+	otherRepoSecret := "other-repos-secret"
+	s.expectRepoLoad(testWebhookRepoID, s.webhookRepo(), nil)
+	s.expectRepoLoad(testWebhookRepoID, s.webhookRepo(), nil)
+
 	body := newReviewPayload(s.T())
-	rr := s.post(body, "pull_request_review", signBody(s.T(), "wrong-secret", body))
+	rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), otherRepoSecret, body))
 	s.Require().Equal(http.StatusUnauthorized, rr.Code)
 
-	rr = s.post(body, "pull_request_review", "")
+	rr = s.post(testWebhookRepoID, body, "pull_request_review", "")
 	s.Require().Equal(http.StatusUnauthorized, rr.Code)
 }
 
-func (s *SpecTaskGitHubReviewWebhookSuite) TestNotConfiguredFailsClosed() {
-	s.server.Cfg.GitHub.WebhookSecret = ""
+func (s *SpecTaskGitHubReviewWebhookSuite) TestRepoWithoutSecretFailsClosed() {
+	repo := s.webhookRepo()
+	repo.GitHub = nil
+	s.expectRepoLoad(testWebhookRepoID, repo, nil)
+
 	body := newReviewPayload(s.T())
-	rr := s.post(body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
-	s.Require().Equal(http.StatusServiceUnavailable, rr.Code)
+	rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
+	s.Require().Equal(http.StatusUnauthorized, rr.Code)
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestUnknownRepoIs404() {
+	s.expectRepoLoad("repo_ghost", nil, store.ErrNotFound)
+
+	body := newReviewPayload(s.T())
+	rr := s.post("repo_ghost", body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
+	s.Require().Equal(http.StatusNotFound, rr.Code)
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestPayloadRepoMismatchIsDropped() {
+	// Valid signature but the payload claims a different repo — misrouting;
+	// must ack without correlating.
+	s.expectRepoLoad(testWebhookRepoID, s.webhookRepo(), nil)
+
+	body := newReviewPayload(s.T())
+	var payload githubReviewWebhookPayload
+	s.Require().NoError(json.Unmarshal(body, &payload))
+	payload.Repository.FullName = "other/tenant"
+	mutated, err := json.Marshal(payload)
+	s.Require().NoError(err)
+
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Times(0)
+	rr := s.post(testWebhookRepoID, mutated, "pull_request_review", signBody(s.T(), testWebhookSecret, mutated))
+	s.Require().Equal(http.StatusOK, rr.Code)
 }
 
 func (s *SpecTaskGitHubReviewWebhookSuite) TestAcksUninterestingEvents() {
-	// ping and unrelated events ack 200 without touching the store; so do
-	// edited/dismissed review actions.
 	for _, tc := range []struct{ event, action string }{
 		{"ping", ""},
 		{"push", ""},
 		{"pull_request_review", "edited"},
 		{"pull_request_review", "dismissed"},
 	} {
-		body := []byte(`{"action":"edited"}`)
-		if tc.action != "" {
+		s.expectRepoLoad(testWebhookRepoID, s.webhookRepo(), nil)
+		var body []byte
+		switch {
+		case tc.event == "ping":
+			body = []byte(`{}`)
+		case tc.action != "":
 			body, _ = json.Marshal(githubReviewWebhookPayload{Action: tc.action})
+		default:
+			body = []byte(`{"action":"pushed"}`)
 		}
-		rr := s.post(body, tc.event, signBody(s.T(), testWebhookSecret, body))
+		rr := s.post(testWebhookRepoID, body, tc.event, signBody(s.T(), testWebhookSecret, body))
 		s.Require().Equal(http.StatusOK, rr.Code, "event=%s action=%s", tc.event, tc.action)
 	}
 }
 
 func (s *SpecTaskGitHubReviewWebhookSuite) TestNoCorrelatedTaskAcks() {
+	s.expectRepoLoad(testWebhookRepoID, s.webhookRepo(), nil)
 	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{}, nil)
+	s.gitRepo.listReviewCommentsFunc = func(_ context.Context, _, _ string, _ int64) ([]*types.PRReviewComment, error) {
+		return nil, nil
+	}
 
 	body := newReviewPayload(s.T())
-	rr := s.post(body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
+	rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
 	s.Require().Equal(http.StatusOK, rr.Code, "no matching task = nothing to do, ack so GitHub stops retrying")
-}
-
-func (s *SpecTaskGitHubReviewWebhookSuite) TestOrgScopedCorrelation() {
-	// Org route: the org segment is resolved to the canonical org id and
-	// passed into the correlation filter alongside repo + PR.
-	s.store.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, query *store.GetOrganizationQuery) (*types.Organization, error) {
-			s.Equal("org_e2e", query.ID)
-			return &types.Organization{ID: "org_e2e"}, nil
-		})
-	var capturedFilter *types.SpecTaskPRMatch
-	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
-			capturedFilter = filters.PRMatch
-			return []*types.SpecTask{}, nil
-		})
-
-	body := newReviewPayload(s.T())
-	rr := s.postWithOrg("org_e2e", body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
-	s.Require().Equal(http.StatusOK, rr.Code)
-	s.Require().NotNil(capturedFilter)
-	s.Equal("org_e2e", capturedFilter.OrganizationID)
-	s.Equal("owner/repo", capturedFilter.RepositoryName)
-	s.Equal(42, capturedFilter.PRNumber)
-}
-
-func (s *SpecTaskGitHubReviewWebhookSuite) TestOrgScopedUnknownOrgIs404() {
-	s.store.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).
-		Return(nil, store.ErrNotFound)
-
-	body := newReviewPayload(s.T())
-	rr := s.postWithOrg("org_ghost", body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
-	s.Require().Equal(http.StatusNotFound, rr.Code)
-}
-
-func (s *SpecTaskGitHubReviewWebhookSuite) TestOrgScopedRejectsBadSignature() {
-	// Signature check must gate before org resolution and correlation.
-	body := newReviewPayload(s.T())
-	rr := s.postWithOrg("org_e2e", body, "pull_request_review", "sha256=deadbeef")
-	s.Require().Equal(http.StatusUnauthorized, rr.Code)
 }

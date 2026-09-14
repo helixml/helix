@@ -696,26 +696,44 @@ func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo
 // ensureGitHubReviewWebhook installs (idempotently) a pull_request_review
 // webhook on the external repo so review feedback flows back to the spec task.
 // Best-effort: a failed install must not fail PR creation. No-op when the
-// feature is not configured (SetGitHubWebhookConfig).
-// Org repos get an org-scoped payload URL (/reviews/{org}) so deliveries can
-// only correlate to that org's tasks; repos without an org (personal) fall
-// back to the deployment-scoped URL.
+// feature is not enabled (SetGitHubReviewWebhooks).
+// Deliveries are signed with a per-repo secret generated on first install and
+// stored on the repo row: one repo's secret can only produce deliveries that
+// correlate to tasks tracking that same repo row, which keeps orgs isolated
+// on shared deployments (org A's repo admin leaking their secret cannot forge
+// events into org B's tasks).
 func (s *GitRepositoryService) ensureGitHubReviewWebhook(ctx context.Context, client *github.Client, repo *types.GitRepository, owner, repoName string) {
-	if s.githubWebhookURL == "" || s.githubWebhookSecret == "" {
+	if s.githubReviewWebhooksURL == "" {
 		return
 	}
-	payloadURL := s.githubWebhookURL
-	if repo.OrganizationID != "" {
-		payloadURL += "/" + repo.OrganizationID
+
+	if repo.GitHub == nil {
+		repo.GitHub = &types.GitHub{}
 	}
+	if repo.GitHub.WebhookSecret == "" {
+		secret, err := generateWebhookSecret()
+		if err != nil {
+			log.Warn().Err(err).Str("repo_id", repo.ID).
+				Msg("failed to generate webhook secret; PR review feedback will not reach the task agent")
+			return
+		}
+		repo.GitHub.WebhookSecret = secret
+		if err := s.store.UpdateGitRepository(ctx, repo); err != nil {
+			log.Warn().Err(err).Str("repo_id", repo.ID).
+				Msg("failed to persist webhook secret; PR review feedback will not reach the task agent")
+			return
+		}
+	}
+
+	payloadURL := fmt.Sprintf("%s/%s", s.githubReviewWebhooksURL, repo.ID)
 	if err := client.UpsertWebhook(ctx, owner, repoName, "helix-spec-task-reviews",
-		payloadURL, []string{"pull_request_review"}, s.githubWebhookSecret); err != nil {
+		payloadURL, []string{"pull_request_review"}, repo.GitHub.WebhookSecret); err != nil {
 		// Reviews are a nice-to-have; CI feedback still arrives via the poller.
 		log.Warn().Err(err).Str("owner", owner).Str("repo", repoName).
 			Msg("failed to install GitHub review webhook on repo; PR review feedback will not reach the task agent")
 		return
 	}
-	log.Info().Str("owner", owner).Str("repo", repoName).Str("payload_url", payloadURL).
+	log.Info().Str("owner", owner).Str("repo", repoName).Str("repo_id", repo.ID).
 		Msg("GitHub review webhook installed on repo")
 }
 

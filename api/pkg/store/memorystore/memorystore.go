@@ -753,15 +753,12 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 		if filters != nil && filters.PRMatch != nil {
 			matched := false
 			for _, repoPR := range t.RepoPullRequests {
-				if repoPR.RepositoryName == filters.PRMatch.RepositoryName && repoPR.PRNumber == filters.PRMatch.PRNumber {
+				if repoPR.RepositoryID == filters.PRMatch.RepositoryID && repoPR.PRNumber == filters.PRMatch.PRNumber {
 					matched = true
 					break
 				}
 			}
 			if !matched {
-				continue
-			}
-			if filters.PRMatch.OrganizationID != "" && t.OrganizationID != filters.PRMatch.OrganizationID {
 				continue
 			}
 		}

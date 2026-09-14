@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os"
@@ -77,12 +79,12 @@ type GitRepositoryService struct {
 	// rate limit. Set on construction; safe for concurrent use.
 	prListCache *prListCache
 
-	// githubWebhookURL/Secret enable PR review feedback for spec tasks: when
-	// both are set, creating a GitHub pull request also installs (idempotently)
-	// a pull_request_review webhook on the external repo so Helix gets review
-	// deliveries. Set via SetGitHubWebhookConfig from server wiring.
-	githubWebhookURL    string
-	githubWebhookSecret string
+	// githubReviewWebhooksURL enables PR review feedback for spec tasks: when
+	// set, creating a GitHub pull request also installs (idempotently) a
+	// pull_request_review webhook on the external repo so Helix gets review
+	// deliveries. Deliveries are signed with a per-repo secret stored on the
+	// repo row. Set via SetGitHubReviewWebhooks from server wiring.
+	githubReviewWebhooksURL string
 }
 
 // NewGitRepositoryService creates a new git repository service
@@ -154,15 +156,22 @@ func (s *GitRepositoryService) SetKoditGitURL(url string) {
 	s.koditGitURL = strings.TrimSuffix(url, "/")
 }
 
-// SetGitHubWebhookConfig enables PR review webhooks on external GitHub repos.
-// url is the full payload URL GitHub should POST to; secret is the HMAC
-// shared secret deliveries are signed with. Both empty/absent = feature off.
-func (s *GitRepositoryService) SetGitHubWebhookConfig(url, secret string) {
-	if url == "" || secret == "" {
-		return
+// SetGitHubReviewWebhooks enables PR review webhooks on external GitHub repos.
+// url is the deployment's base payload URL (…/api/v1/webhooks/github/reviews);
+// per-repo secrets are generated at install time and stored on the repo row.
+// Empty url = feature off.
+func (s *GitRepositoryService) SetGitHubReviewWebhooks(url string) {
+	s.githubReviewWebhooksURL = strings.TrimSuffix(url, "/")
+}
+
+// generateWebhookSecret returns a fresh 256-bit hex secret for a repo's
+// pull_request_review webhook.
+func generateWebhookSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate webhook secret: %w", err)
 	}
-	s.githubWebhookURL = strings.TrimSuffix(url, "/")
-	s.githubWebhookSecret = secret
+	return hex.EncodeToString(buf), nil
 }
 
 // GetGitHomePath returns the path where git stores its global config (.gitconfig).

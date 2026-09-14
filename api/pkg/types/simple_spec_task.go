@@ -560,14 +560,12 @@ type SpecTaskFilters struct {
 }
 
 // SpecTaskPRMatch selects tasks whose RepoPullRequests contain an entry with
-// this repository full name ("owner/repo") and PR number. Used by the GitHub
-// review webhook to correlate an inbound PR event to spec tasks.
-// OrganizationID scopes the match to one org's tasks when the webhook was
-// installed for an org repo (empty = deployment-wide match, personal repos).
+// this repository id and PR number. Used by the GitHub review webhook to
+// correlate an inbound PR event to spec tasks; the repository row's org
+// ownership is the tenant boundary.
 type SpecTaskPRMatch struct {
-	OrganizationID string
-	RepositoryName string
-	PRNumber       int
+	RepositoryID string
+	PRNumber     int
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask

@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	skillgithub "github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/gorilla/mux"
@@ -21,16 +23,24 @@ import (
 // GitHub PR review webhook: closes the feedback loop between GitHub PR
 // reviews (human or bot) and the spec task whose sandbox opened the PR.
 //
-// Flow: GitHub POSTs a signed pull_request_review delivery → we validate the
-// HMAC signature → correlate repository.full_name + PR number to spec tasks
-// via their tracked RepoPullRequests → fetch the review's inline comments
-// through the GitRepositoryService (webhook payloads don't include them) →
-// enqueue one normalized message to each matching task's agent via the same
-// prompt-queue path CI results use (interrupt=true).
+// Flow: GitHub POSTs a signed pull_request_review delivery to
+// /api/v1/webhooks/github/reviews/{repo_id} → we load the repo row and verify
+// the HMAC signature with THAT repo's secret → check the payload names that
+// repo → correlate the PR number to spec tasks via their tracked
+// RepoPullRequests (repository_id + PR number) → fetch the review's inline
+// comments through the GitRepositoryService (webhook payloads don't include
+// them) → enqueue one normalized message to each matching task's agent via
+// the same prompt-queue path CI results use (interrupt=true).
 //
-// Provisioning: when the feature is configured (GITHUB_INTEGRATION_WEBHOOK_SECRET),
-// every GitHub PR creation installs a pull_request_review webhook on the repo
-// (services.ensureGitHubReviewWebhook). Secret unset = endpoint disabled.
+// Isolation: the signing secret is per-repo (generated at webhook install,
+// stored on the repo row). One org's repo secret can only produce deliveries
+// that correlate to tasks tracking that same repo row — leaking it cannot
+// forge events into another org's tasks on a shared deployment. CI feedback
+// has the same property structurally: the orchestrator polls each task's
+// repos with the repo's own credentials (no inbound shared credential).
+//
+// Provisioning: when GITHUB_INTEGRATION_REVIEW_WEBHOOKS is enabled, every
+// GitHub PR creation installs the webhook (services.ensureGitHubReviewWebhook).
 
 // githubWebhookUser is the minimal actor shape of a webhook payload.
 type githubWebhookUser struct {
@@ -83,6 +93,16 @@ func verifyGitHubSignature(secret string, body []byte, signature string) bool {
 	return hmac.Equal(expected, sig)
 }
 
+// githubRepoFullName returns the "owner/repo" full name for a repository's
+// external URL, for comparing against webhook payload claims.
+func githubRepoFullName(externalURL string) (string, error) {
+	owner, name, err := skillgithub.ParseGitHubURL(externalURL)
+	if err != nil {
+		return "", err
+	}
+	return owner + "/" + name, nil
+}
+
 // specTaskReceivesPRFeedback reports whether a task in this status should be
 // notified of PR review feedback. Tasks past PR stage (done/merged) and
 // pre-implementation tasks have nothing actionable.
@@ -94,20 +114,6 @@ func specTaskReceivesPRFeedback(status types.SpecTaskStatus) bool {
 		return true
 	}
 	return false
-}
-
-// findRepoPR locates the tracked RepoPR matching the webhook's repo + PR
-// number, so the comment fetch can reuse the task's own repository credentials.
-func findRepoPR(tasks []*types.SpecTask, repoName string, prNumber int) *types.RepoPR {
-	for _, task := range tasks {
-		for i := range task.RepoPullRequests {
-			repoPR := &task.RepoPullRequests[i]
-			if repoPR.RepositoryName == repoName && repoPR.PRNumber == prNumber {
-				return repoPR
-			}
-		}
-	}
-	return nil
 }
 
 // formatGitHubReviewFeedback renders one review as the normalized message the
@@ -137,19 +143,24 @@ func formatGitHubReviewFeedback(payload *githubReviewWebhookPayload, comments []
 }
 
 // specTaskGitHubReviewWebhook is the HTTP entry point registered on the
-// insecure router:
-//   - /api/v1/webhooks/github/reviews            (deployment-scoped: personal repos)
-//   - /api/v1/webhooks/github/reviews/{org}      (org-scoped: org repos)
-//
-// Signature is the auth; the org segment scopes correlation to that org's
-// tasks, so a leaked repo webhook secret can't forge events into other orgs
-// on a shared deployment. Deliveries are installed with the org's canonical
-// org id in the URL, resolved here via lookupOrg (slug tolerance is free).
+// insecure router at /api/v1/webhooks/github/reviews/{repo_id}. The repo's
+// own webhook secret is the auth; a repo with no secret on file fails closed.
 func (s *HelixAPIServer) specTaskGitHubReviewWebhook(w http.ResponseWriter, r *http.Request) {
-	secret := s.Cfg.GitHub.WebhookSecret
+	repoID := mux.Vars(r)["repo_id"]
+
+	// Load the repo first: its per-repo secret is the HMAC key, so unknown
+	// repos fail closed before anything else happens.
+	repo, err := s.Store.GetGitRepository(r.Context(), repoID)
+	if err != nil {
+		http.Error(w, "unknown repository", http.StatusNotFound)
+		return
+	}
+	secret := ""
+	if repo.GitHub != nil {
+		secret = repo.GitHub.WebhookSecret
+	}
 	if secret == "" {
-		// Feature not configured — fail closed rather than accepting unsigned deliveries.
-		http.Error(w, "github review webhook not configured", http.StatusServiceUnavailable)
+		http.Error(w, "repository has no review webhook secret", http.StatusUnauthorized)
 		return
 	}
 
@@ -163,20 +174,6 @@ func (s *HelixAPIServer) specTaskGitHubReviewWebhook(w http.ResponseWriter, r *h
 	if !verifyGitHubSignature(secret, body, r.Header.Get("X-Hub-Signature-256")) {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
-	}
-
-	// Org-scoped installs carry the org in the URL. Resolve it (id or slug)
-	// to the canonical org before any store lookup; unknown orgs are 404s.
-	// Deliberately AFTER signature validation: garbage requests never touch
-	// the store.
-	orgID := ""
-	if vars := mux.Vars(r); vars["org"] != "" {
-		org, err := s.lookupOrg(r.Context(), vars["org"])
-		if err != nil {
-			http.Error(w, "unknown organization", http.StatusNotFound)
-			return
-		}
-		orgID = org.ID
 	}
 
 	switch event := r.Header.Get("X-GitHub-Event"); event {
@@ -204,7 +201,21 @@ func (s *HelixAPIServer) specTaskGitHubReviewWebhook(w http.ResponseWriter, r *h
 		return
 	}
 
-	if err := s.handleGitHubPRReview(r.Context(), orgID, &payload); err != nil {
+	// Anti-confusion: a delivery signed with this repo's secret must actually
+	// name this repo (valid signature + wrong repo name = misrouting, ack and
+	// drop rather than correlate by body claims).
+	expectedFullName, nameErr := githubRepoFullName(repo.ExternalURL)
+	if nameErr != nil || payload.Repository.FullName != expectedFullName {
+		log.Warn().
+			Str("repo_id", repoID).
+			Str("payload_repository", payload.Repository.FullName).
+			Str("expected_repository", expectedFullName).
+			Msg("GitHub review delivery for a different repo hit this repo's webhook URL; dropping")
+		writeResponse(w, nil, http.StatusOK)
+		return
+	}
+
+	if err := s.handleGitHubPRReview(r.Context(), repo.ID, &payload); err != nil {
 		log.Error().Err(err).
 			Str("repository", payload.Repository.FullName).
 			Int("pr_number", payload.PullRequest.Number).
@@ -218,31 +229,28 @@ func (s *HelixAPIServer) specTaskGitHubReviewWebhook(w http.ResponseWriter, r *h
 }
 
 // handleGitHubPRReview correlates the review to spec tasks tracking this PR
-// and enqueues the normalized feedback to each eligible task's agent. Mirrors
-// the CI notifier path (interrupt=true, best-effort per task). orgID scopes
-// correlation to one org's tasks; empty matches deployment-wide (personal repos).
-func (s *HelixAPIServer) handleGitHubPRReview(ctx context.Context, orgID string, payload *githubReviewWebhookPayload) error {
+// on the delivering repo and enqueues the normalized feedback to each eligible
+// task's agent. Mirrors the CI notifier path (interrupt=true, best-effort per
+// task). repoID is the webhook URL's repo — correlation by repository_id
+// inherits the repo row's org ownership, which is the tenant boundary.
+func (s *HelixAPIServer) handleGitHubPRReview(ctx context.Context, repoID string, payload *githubReviewWebhookPayload) error {
 	tasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
 		PRMatch: &types.SpecTaskPRMatch{
-			OrganizationID: orgID,
-			RepositoryName: payload.Repository.FullName,
-			PRNumber:       payload.PullRequest.Number,
+			RepositoryID: repoID,
+			PRNumber:     payload.PullRequest.Number,
 		},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to find spec tasks for PR: %w", err)
 	}
 
-	// Fetch the review's inline comments once, using the first tracked RepoPR's
-	// repository (all matching tasks share the same repo + PR by definition of
-	// the correlation filter).
-	var comments []*types.PRReviewComment
-	if repoPR := findRepoPR(tasks, payload.Repository.FullName, payload.PullRequest.Number); repoPR != nil {
-		comments, err = s.gitRepositoryService.ListPullRequestReviewComments(
-			ctx, repoPR.RepositoryID, repoPR.PRID, payload.Review.ID)
-		if err != nil {
-			return fmt.Errorf("failed to fetch review comments: %w", err)
-		}
+	// Fetch the review's inline comments once — all matching tasks share the
+	// same repo + PR by definition of the correlation filter, and the repo's
+	// own credentials are the right reader for its PRs.
+	comments, err := s.gitRepositoryService.ListPullRequestReviewComments(
+		ctx, repoID, strconv.Itoa(payload.PullRequest.Number), payload.Review.ID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch review comments: %w", err)
 	}
 
 	message := formatGitHubReviewFeedback(payload, comments)

@@ -678,12 +678,15 @@ func NewServer(
 	apiServer.specTaskOrchestrator.SetAttentionService(apiServer.attentionService)
 	apiServer.specTaskOrchestrator.SetCINotifier(services.NewEnqueueCINotifier(apiServer.enqueueSpecTaskAgentMessage))
 
-	// GitHub PR review feedback: when the webhook secret is configured, PR
-	// creations install a pull_request_review webhook on external repos and
-	// /api/v1/webhooks/github/reviews correlates deliveries to spec tasks.
-	gitRepositoryService.SetGitHubWebhookConfig(
-		fmt.Sprintf("%s/api/v1/webhooks/github/reviews", strings.TrimSuffix(cfg.WebServer.URL, "/")),
-		cfg.GitHub.WebhookSecret)
+	// GitHub PR review feedback: when enabled, PR creations install a
+	// pull_request_review webhook on external repos (per-repo secret generated
+	// at install) and /api/v1/webhooks/github/reviews/{repo_id} correlates
+	// deliveries to spec tasks.
+	reviewWebhookURL := ""
+	if cfg.GitHub.ReviewWebhooks {
+		reviewWebhookURL = fmt.Sprintf("%s/api/v1/webhooks/github/reviews", strings.TrimSuffix(cfg.WebServer.URL, "/"))
+	}
+	gitRepositoryService.SetGitHubReviewWebhooks(reviewWebhookURL)
 
 	// Recover golden builds that were in progress when the API last restarted.
 	// Re-attaches monitoring goroutines for still-running builds, resets stale ones.
@@ -964,12 +967,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	insecureRouter.HandleFunc("/webhooks/{id}", apiServer.webhookTriggerHandler).Methods(http.MethodPost, http.MethodPut)
 
-	// GitHub PR review feedback for spec tasks - auth handled by webhook
-	// signature validation (X-Hub-Signature-256, GITHUB_INTEGRATION_WEBHOOK_SECRET).
-	// {org} routes are org-scoped installs: correlation only matches that org's
-	// tasks. The unscoped route serves personal repos without an org.
-	insecureRouter.HandleFunc("/webhooks/github/reviews", apiServer.specTaskGitHubReviewWebhook).Methods(http.MethodPost)
-	insecureRouter.HandleFunc("/webhooks/github/reviews/{org}", apiServer.specTaskGitHubReviewWebhook).Methods(http.MethodPost)
+	// GitHub PR review feedback for spec tasks - auth is the delivering repo's
+	// own per-repo webhook secret (auto-generated at install, stored on the
+	// repo row), so one org's secret can't forge deliveries into another org's
+	// tasks on a shared deployment.
+	insecureRouter.HandleFunc("/webhooks/github/reviews/{repo_id}", apiServer.specTaskGitHubReviewWebhook).Methods(http.MethodPost)
 
 	// Teams Bot Framework webhook - auth handled by Bot Framework JWT validation
 	insecureRouter.HandleFunc("/teams/webhook/{appID}", apiServer.teamsWebhookHandler).Methods(http.MethodPost)

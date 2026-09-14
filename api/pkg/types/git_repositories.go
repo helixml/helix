@@ -102,6 +102,12 @@ type GitHub struct {
 	PersonalAccessToken string `json:"personal_access_token"`
 	BaseURL             string `json:"base_url"` // For GitHub Enterprise instances (empty for github.com)
 
+	// WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review
+	// deliveries with (spec task PR review feedback). Auto-generated at first
+	// webhook install; one repo's secret never validates another repo's
+	// deliveries, keeping orgs isolated on shared deployments.
+	WebhookSecret string `json:"webhook_secret,omitempty"`
+
 	// GitHub App authentication (service-to-service)
 	// When AppID and PrivateKey are set, uses GitHub App installation tokens
 	AppID          int64  `json:"app_id,omitempty"`          // GitHub App ID

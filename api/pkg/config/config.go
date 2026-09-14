@@ -1049,12 +1049,13 @@ type GitHub struct {
 	ClientSecret string `envconfig:"GITHUB_INTEGRATION_CLIENT_SECRET" description:"The github app client secret."`
 	RepoFolder   string `envconfig:"GITHUB_INTEGRATION_REPO_FOLDER" default:"/filestore/github/repos" description:"What folder do we use to clone github repos."`
 	WebhookURL   string `envconfig:"GITHUB_INTEGRATION_WEBHOOK_URL" description:"The URL to receive github webhooks."`
-	// WebhookSecret turns on GitHub PR review feedback for spec tasks. When
-	// set, PR creation installs a pull_request_review webhook on external
-	// GitHub repos pointing at /api/v1/webhooks/github/reviews, and that
-	// endpoint validates deliveries with this HMAC secret before correlating
-	// the PR to a SpecTask and notifying the task's agent. Empty = feature off.
-	WebhookSecret string `envconfig:"GITHUB_INTEGRATION_WEBHOOK_SECRET" description:"HMAC secret GitHub signs webhook deliveries with (enables PR review feedback for spec tasks)."`
+	// ReviewWebhooks turns on PR review feedback for spec tasks. When enabled,
+	// creating a GitHub pull request installs a pull_request_review webhook on
+	// the external repo pointing at /api/v1/webhooks/github/reviews/{repo_id}.
+	// Each repo gets its own auto-generated HMAC secret (stored on the repo
+	// row), so one org's webhook secret never confers power over another org's
+	// tasks on a shared deployment. Off by default.
+	ReviewWebhooks bool `envconfig:"GITHUB_INTEGRATION_REVIEW_WEBHOOKS" default:"false" description:"Enable per-repo PR review webhooks for spec task feedback."`
 	// AppSlug is the public URL slug of this deployment's Helix GitHub App
 	// (e.g. "helix-agent" → https://github.com/apps/helix-agent). NOT a
 	// secret — just the public app handle used to build the install URL the
