@@ -77,8 +77,15 @@ Browser returns when implementation begins and there is an application to
 preview. Plan embeds the existing design-review document surface, so reading,
 commenting, revising, and approving the plan no longer opens a separate
 workspace tab. Diff, files, and subagents remain available throughout planning.
-Before the first successful publish, Plan explains that documents are pending
-or surfaces the task's actionable repository push error instead of disappearing.
+Before the first successful local push, Plan explains that documents are pending
+instead of disappearing.
+
+`helix-specs` is local-authoritative. Helix creates the review and serves its
+documents from the local bare repository; publishing that branch to the external
+VCS is best-effort and never gates planning on the acting user's repository
+permissions. Failed external publication does not roll back the local branch,
+and later external syncs exclude `helix-specs` so they cannot erase local plans.
+Normal code branches remain mirrored and keep their existing rollback behavior.
 
 Rendered plan documents use the same Markdown component and typography tokens
 as `AgentChat`. A source toggle opens the underlying Markdown as editable plain

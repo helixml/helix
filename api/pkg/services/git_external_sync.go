@@ -10,7 +10,7 @@ import (
 
 // ExternalRepoWriteOptions configures the behavior of WithExternalRepoWrite
 type ExternalRepoWriteOptions struct {
-	// Branch is the branch being written to (required for rollback)
+	// Branch is the branch being written to.
 	Branch string
 
 	// FailOnSyncError if true, returns error if pre-sync fails.
@@ -18,18 +18,26 @@ type ExternalRepoWriteOptions struct {
 	FailOnSyncError bool
 
 	// FailOnPushError if true, returns error if post-push fails (after rollback).
-	// If false, logs warning and continues (use for non-critical paths)
+	// This does not apply to local-authoritative branches such as helix-specs,
+	// where upstream publication is always best-effort.
 	FailOnPushError bool
+}
+
+func isLocalAuthoritativeBranch(branch string) bool {
+	return branch == SpecsBranchName
 }
 
 // WithExternalRepoWrite executes a write operation on an external repo with proper sync semantics.
 //
 // For external repos, this function:
-//  1. Pre-syncs from upstream (fetches latest state)
+//  1. Pre-syncs mirrored branches from upstream (fetches latest state)
 //  2. Captures the current branch ref (for rollback)
 //  3. Executes the write function
 //  4. Pushes to upstream
 //  5. If push fails, rolls back local changes and returns error
+//
+// helix-specs is local-authoritative: it skips pre-sync and retains local
+// changes when best-effort upstream publication fails.
 //
 // For non-external repos, this simply executes the write function.
 //
@@ -53,6 +61,7 @@ func (s *GitRepositoryService) WithExternalRepoWrite(
 	if opts.Branch == "" {
 		return fmt.Errorf("branch is required for external repo write operations")
 	}
+	localAuthoritative := isLocalAuthoritativeBranch(opts.Branch)
 
 	// Acquire repo lock to serialize all git operations.
 	// This prevents race conditions where a concurrent sync could overwrite
@@ -61,20 +70,23 @@ func (s *GitRepositoryService) WithExternalRepoWrite(
 	lock.Lock()
 	defer lock.Unlock()
 
-	// 1. Pre-sync from upstream (force=true to handle non-fast-forward branches)
-	log.Debug().
-		Str("repo_id", repo.ID).
-		Str("branch", opts.Branch).
-		Msg("Pre-syncing from upstream before write")
-
-	if err := s.SyncAllBranches(ctx, repo.ID, true); err != nil {
-		if opts.FailOnSyncError {
-			return fmt.Errorf("failed to sync from upstream before writing (local may be out of sync): %w", err)
-		}
-		log.Warn().
-			Err(err).
+	// Local-authoritative branches must never be overwritten or blocked by the
+	// external provider. Other branches retain strict mirror semantics.
+	if !localAuthoritative {
+		log.Debug().
 			Str("repo_id", repo.ID).
-			Msg("Pre-sync from upstream failed (continuing with write)")
+			Str("branch", opts.Branch).
+			Msg("Pre-syncing from upstream before write")
+
+		if err := s.SyncAllBranches(ctx, repo.ID, true); err != nil {
+			if opts.FailOnSyncError {
+				return fmt.Errorf("failed to sync from upstream before writing (local may be out of sync): %w", err)
+			}
+			log.Warn().
+				Err(err).
+				Str("repo_id", repo.ID).
+				Msg("Pre-sync from upstream failed (continuing with write)")
+		}
 	}
 
 	// 2. Capture current branch ref for rollback (empty if branch doesn't exist yet)
@@ -94,6 +106,15 @@ func (s *GitRepositoryService) WithExternalRepoWrite(
 
 	pushErr := s.PushBranchToRemote(ctx, repo.ID, opts.Branch, false)
 	if pushErr != nil {
+		if localAuthoritative {
+			log.Warn().
+				Err(pushErr).
+				Str("repo_id", repo.ID).
+				Str("branch", opts.Branch).
+				Msg("Upstream publication failed; retained local-authoritative branch")
+			return nil
+		}
+
 		// 5. Rollback on push failure
 		if branchExistedBefore {
 			// Branch existed before - reset to old ref

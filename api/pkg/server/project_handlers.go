@@ -565,15 +565,14 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	// Initialize startup script in the primary code repo
 	// Startup script lives at .helix/startup.sh in the primary repository
 	if primaryRepo.LocalPath != "" {
-		// Use WithExternalRepoWrite with lenient options - don't fail project creation
-		// if startup script sync/push fails. The utility still handles rollback on push failure.
+		// Keep the startup script locally even when best-effort upstream publication fails.
 		writeErr := s.gitRepositoryService.WithExternalRepoWrite(
 			r.Context(),
 			primaryRepo,
 			services.ExternalRepoWriteOptions{
 				Branch:          "helix-specs",
-				FailOnSyncError: false, // Don't fail project creation on sync error
-				FailOnPushError: false, // Don't fail project creation on push error (but still rollback)
+				FailOnSyncError: false,
+				FailOnPushError: false,
 			},
 			func() error {
 				return s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(

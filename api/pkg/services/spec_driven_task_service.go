@@ -2179,8 +2179,7 @@ func (s *SpecDrivenTaskService) prepopulateClonedSpecs(ctx context.Context, task
 	// Base path for design docs
 	basePath := fmt.Sprintf("design/tasks/%s", task.DesignDocPath)
 
-	// Use WithExternalRepoWrite to handle pre-sync, writes, post-push, and rollback
-	// For task cloning, we use lenient options - don't fail task start if push fails
+	// Keep the cloned specs locally even when best-effort upstream publication fails.
 	if s.gitRepositoryService == nil {
 		return fmt.Errorf("gitRepositoryService is required for prepopulateClonedSpecs")
 	}
@@ -2190,8 +2189,8 @@ func (s *SpecDrivenTaskService) prepopulateClonedSpecs(ctx context.Context, task
 		repo,
 		ExternalRepoWriteOptions{
 			Branch:          SpecsBranchName,
-			FailOnSyncError: true,  // Fail if we can't sync - prevents divergence
-			FailOnPushError: false, // Don't fail task start on push error (but still rollback)
+			FailOnSyncError: true,
+			FailOnPushError: false,
 		},
 		func() error {
 			// Write requirements.md
