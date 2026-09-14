@@ -23,6 +23,7 @@ describe("workspace review message", () => {
       { type: "text", text: "Please explain this." },
       {
         type: "comment",
+        sectionTitle: "File comment",
         filePath: "README.md",
         rangeLabel: "L23",
         text: "What does this line do?",
@@ -30,6 +31,11 @@ describe("workspace review message", () => {
         language: "md",
       },
     ]);
+  });
+
+  it("preserves plan comment labels", () => {
+    const plan = message.split("File comment").join("Plan comment");
+    expect(workspaceReviewMessagePreview(plan)).toContain("Plan comment on");
   });
 
   it("creates a readable navigator preview without transport metadata", () => {

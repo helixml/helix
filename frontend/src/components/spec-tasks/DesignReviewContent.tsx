@@ -75,6 +75,8 @@ import { useSpecTask, useArchiveSpecTask } from "../../services/specTaskService"
 import { TypesSpecTaskStatus } from "../../api/api";
 import Markdown from "../session/Markdown";
 import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY, TYPOGRAPHY } from "../../styles/typography";
+import type { WorkspaceReviewComment } from "../workspace-inspector/workspaceReviewComments";
+import { buildPlanReviewComment } from "./planReviewComments";
 
 type DocumentType = "requirements" | "technical_design" | "implementation_plan";
 type DocumentMode = "preview" | "edit";
@@ -89,7 +91,11 @@ interface DesignReviewContentProps {
   hideTitle?: boolean;
   /** If provided, renders a "← Back to task" tab as the first tab in the tab strip */
   onBack?: () => void;
+  onQueueComment?: (comment: WorkspaceReviewComment) => void;
 }
+
+let planCommentSequence = 0;
+const nextPlanCommentId = () => `plan-comment-${Date.now()}-${++planCommentSequence}`;
 
 const DOCUMENT_LABELS = {
   requirements: "Requirements Specification",
@@ -182,6 +188,7 @@ export default function DesignReviewContent({
   initialTab = "requirements",
   hideTitle = false,
   onBack,
+  onQueueComment,
 }: DesignReviewContentProps) {
   const snackbar = useSnackbar();
   const api = useApi();
@@ -1239,6 +1246,25 @@ export default function DesignReviewContent({
       return;
     }
 
+    if (onQueueComment) {
+      onQueueComment(buildPlanReviewComment({
+        id: nextPlanCommentId(),
+        specTaskId,
+        designDocPath: task?.design_doc_path,
+        documentType: activeTab,
+        documentContent: displayedDocumentContent,
+        selectedText,
+        text: commentText,
+      }));
+      snackbar.success("Comment added to chat");
+      removeHighlight();
+      setCommentText("");
+      setSelectedText("");
+      setSelectedOffset(null);
+      setShowCommentForm(false);
+      return;
+    }
+
     try {
       const normalizedLen = selectedText
         ? normalizeQuote(selectedText).length
@@ -1748,11 +1774,11 @@ export default function DesignReviewContent({
                 mx: "auto",
                 position: "relative",
                 "& .markdown-body": {
-                  bgcolor: "background.paper",
+                  bgcolor: "transparent",
                   px: 2.5,
                   py: 1.5,
-                  borderRadius: 1,
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                  borderRadius: 0,
+                  boxShadow: "none",
                   fontFamily: APP_FONT_FAMILY,
                   color: "text.primary",
                   "&::selection": {
@@ -1866,6 +1892,7 @@ export default function DesignReviewContent({
                 commentText={commentText}
                 onCommentChange={setCommentText}
                 onCreate={handleCreateComment}
+                submitLabel={onQueueComment ? "Add to chat" : "Comment"}
                 onCancel={() => {
                   removeHighlight();
                   setShowCommentForm(false);
@@ -1874,7 +1901,7 @@ export default function DesignReviewContent({
                   setSelectedOffset(null);
                 }}
                 isNarrowViewport={isNarrowViewport}
-                isSubmitting={createCommentMutation.isPending}
+                isSubmitting={!onQueueComment && createCommentMutation.isPending}
                 outerRef={handleCommentFormRef}
               />}
             </Box>

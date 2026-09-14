@@ -148,6 +148,16 @@ func (s *SpecTask) ActiveCodeAgentConfig() *CodeAgentExecutionConfig {
 	return s.CodeAgentConfigForPhase(SpecTaskPhaseForStatus(s.Status))
 }
 
+func (s *SpecTask) GooseRecipeForPhase(phase SpecTaskPhase) (string, map[string]string) {
+	if s == nil {
+		return "", nil
+	}
+	if phase == SpecTaskPhasePlanning && s.PlanningCodeAgentConfig != nil {
+		return s.PlanningGooseRecipeName, s.PlanningGooseRecipeParams
+	}
+	return s.GooseRecipeName, s.GooseRecipeParams
+}
+
 type SpecTaskWorkSessionStatus string
 
 const (

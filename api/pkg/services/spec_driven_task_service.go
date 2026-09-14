@@ -25,6 +25,8 @@ const (
 	SpecsTaskDirFormat   = "design/tasks/%s_%s_%s" // Format: tasks/DATE_NAME_ID
 )
 
+var ErrImplementationHandoffAlreadyClaimed = errors.New("implementation handoff is already being started")
+
 // RequestMappingRegistrar is a function type for registering request-to-session mappings
 type RequestMappingRegistrar func(requestID, sessionID string)
 
@@ -275,8 +277,10 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		BranchName:   req.WorkingBranch, // For existing mode, this is the branch to continue on
 		// Goose recipe selection — bakes parameter values into the agent's
 		// recipe at session start. Skipped silently if the agent isn't goose.
-		GooseRecipeName:   req.GooseRecipeName,
-		GooseRecipeParams: req.GooseRecipeParams,
+		GooseRecipeName:           req.GooseRecipeName,
+		GooseRecipeParams:         req.GooseRecipeParams,
+		PlanningGooseRecipeName:   req.PlanningGooseRecipeName,
+		PlanningGooseRecipeParams: req.PlanningGooseRecipeParams,
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -1217,7 +1221,6 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 	// TransitionSpecTaskStatus call below, which is the only thing that prevents
 	// two concurrent callers from both sending the implementation instruction.
 	if task.Status == types.TaskStatusImplementation ||
-		task.Status == types.TaskStatusImplementationQueued ||
 		task.Status == types.TaskStatusQueuedImplementation {
 		log.Info().
 			Str("task_id", task.ID).
@@ -1291,10 +1294,19 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			}
 		}
 
-		// Handle branch configuration based on mode
+		// implementation_queued is a durable pending-handoff marker. Retries
+		// reuse the branch claimed by the first approver.
 		var branchName string
 		effectiveBaseBranch := repo.DefaultBranch
-		if task.BranchMode == types.BranchModeExisting && task.BranchName != "" {
+		if task.Status == types.TaskStatusImplementationQueued {
+			branchName = task.BranchName
+			if branchName == "" {
+				return fmt.Errorf("implementation handoff is missing its branch name")
+			}
+			if task.BaseBranch != "" {
+				effectiveBaseBranch = task.BaseBranch
+			}
+		} else if task.BranchMode == types.BranchModeExisting && task.BranchName != "" {
 			// Existing mode: use the branch name that was set during task creation
 			branchName = task.BranchName
 			log.Info().
@@ -1319,57 +1331,44 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			}
 		}
 
-		// Atomically transition the status from a spec-phase state to
-		// implementation. Only one caller's UPDATE can match the WHERE clause,
-		// so only one caller proceeds to send the implementation instruction.
-		// This is the authoritative race guard — the read-then-check pattern at
-		// the top of this function is just a fast path for the common case.
-		now := time.Now()
-		extraFields := map[string]any{
-			"branch_name": branchName,
-			"started_at":  now,
-			"base_branch": task.BaseBranch,
-		}
-		// Persist the synthesized SpecApproval struct (only set when the
-		// caller arrived with task.SpecApproval == nil). The pre-PR2260
-		// implementation persisted this implicitly via UpdateSpecTask saving
-		// the whole struct; the atomic-update path only writes columns we
-		// list here.
-		if task.SpecApproval != nil {
-			specApprovalJSON, marshalErr := json.Marshal(task.SpecApproval)
-			if marshalErr != nil {
-				return fmt.Errorf("failed to marshal SpecApproval: %w", marshalErr)
+		if task.Status != types.TaskStatusImplementationQueued {
+			// Claim an explicit pending-handoff state before side effects. A
+			// crash or switch failure leaves a state the orchestrator can re-drive.
+			now := time.Now()
+			extraFields := map[string]any{
+				"branch_name": branchName,
+				"base_branch": task.BaseBranch,
 			}
-			extraFields["spec_approval"] = string(specApprovalJSON)
+			if task.SpecApproval != nil {
+				specApprovalJSON, marshalErr := json.Marshal(task.SpecApproval)
+				if marshalErr != nil {
+					return fmt.Errorf("failed to marshal SpecApproval: %w", marshalErr)
+				}
+				extraFields["spec_approval"] = string(specApprovalJSON)
+			}
+			transitioned, transitionErr := s.store.TransitionSpecTaskStatus(
+				ctx,
+				task.ID,
+				[]types.SpecTaskStatus{
+					types.TaskStatusSpecApproved,
+					types.TaskStatusSpecReview,
+					types.TaskStatusSpecRevision,
+					types.TaskStatusSpecGeneration,
+				},
+				types.TaskStatusImplementationQueued,
+				extraFields,
+			)
+			if transitionErr != nil {
+				return fmt.Errorf("failed to claim implementation handoff: %w", transitionErr)
+			}
+			if !transitioned {
+				log.Info().Str("task_id", task.ID).Msg("[ApproveSpecs] Another caller claimed the handoff")
+				return ErrImplementationHandoffAlreadyClaimed
+			}
+			task.Status = types.TaskStatusImplementationQueued
+			task.StatusUpdatedAt = &now
+			task.BranchName = branchName
 		}
-		transitioned, err := s.store.TransitionSpecTaskStatus(
-			ctx,
-			task.ID,
-			[]types.SpecTaskStatus{
-				types.TaskStatusSpecApproved,
-				types.TaskStatusSpecReview,
-				types.TaskStatusSpecRevision,
-				types.TaskStatusSpecGeneration,
-			},
-			types.TaskStatusImplementation,
-			extraFields,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to transition task to implementation: %w", err)
-		}
-		if !transitioned {
-			log.Info().
-				Str("task_id", task.ID).
-				Msg("[ApproveSpecs] Another caller won the race — skipping")
-			return nil
-		}
-
-		// Reflect the transition in the in-memory task so downstream code
-		// (logging, the message sender) sees the new state.
-		task.Status = types.TaskStatusImplementation
-		task.StatusUpdatedAt = &now
-		task.BranchName = branchName
-		task.StartedAt = &now
 
 		// Update git identity in the running container to match the approver,
 		// so implementation commits are attributed to the user who approved specs.
@@ -1396,18 +1395,15 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// the feature branch, so the push is rejected — but we've already
 		// wasted a turn and the agent is in a confused state.
 		//
-		// Make the branch state correct *before* the implementation prompt
-		// arrives. Idempotent: `checkout -B` works whether the branch exists
-		// locally, remotely, or not at all; `push -u` is a no-op if the
-		// remote already has it. Errors are logged but don't block the
-		// transition: the existing pre-receive hook stops genuinely-bad
-		// pushes, and the agent prompt still names the right branch.
+		// Make the branch state correct before the implementation prompt. A
+		// failure leaves implementation_queued so the orchestrator can retry.
 		if task.BranchMode == types.BranchModeNew {
 			if err := s.ensureFeatureBranchInContainer(ctx, sessionID, repo.Name, branchName, effectiveBaseBranch); err != nil {
 				log.Error().Err(err).
 					Str("task_id", task.ID).Str("session_id", sessionID).
 					Str("repo", repo.Name).Str("branch", branchName).Str("base", effectiveBaseBranch).
-					Msg("Failed to check out feature branch in container at approval; agent may start on base branch")
+					Msg("Failed to check out feature branch in container at approval")
+				return fmt.Errorf("prepare implementation branch: %w", err)
 			}
 		}
 
@@ -1441,10 +1437,46 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				Str("branch_name", branchName).
 				Str("base_branch", effectiveBaseBranch).
 				Msg("Specs approved - started implementation on a fresh agent thread")
+		} else if sessionID == "" && !s.testMode {
+			return fmt.Errorf("task has no planning session for implementation handoff")
+		}
+
+		// Only now is it safe to commit the durable implementation status: the
+		// fresh-thread Waiting interaction already exists. If this write fails,
+		// the pending marker remains recoverable and the switch is idempotent.
+		now := time.Now()
+		finalFields := map[string]any{"started_at": now}
+		if task.Metadata != nil {
+			metadata := make(map[string]interface{}, len(task.Metadata))
+			for key, value := range task.Metadata {
+				metadata[key] = value
+			}
+			delete(metadata, "error")
+			delete(metadata, "error_timestamp")
+			finalFields["metadata"] = metadata
+		}
+		transitioned, err := s.store.TransitionSpecTaskStatus(
+			ctx,
+			task.ID,
+			[]types.SpecTaskStatus{types.TaskStatusImplementationQueued},
+			types.TaskStatusImplementation,
+			finalFields,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to finalize task implementation transition: %w", err)
+		}
+		if transitioned {
+			task.Status = types.TaskStatusImplementation
+			task.StatusUpdatedAt = &now
+			task.StartedAt = &now
 		} else {
-			log.Warn().
-				Str("task_id", task.ID).
-				Msg("No planning session ID found - agent will not receive implementation instruction")
+			currentTask, getErr := s.store.GetSpecTask(ctx, task.ID)
+			if getErr != nil {
+				return fmt.Errorf("verify implementation handoff completion: %w", getErr)
+			}
+			if currentTask.Status != types.TaskStatusImplementation {
+				return fmt.Errorf("implementation handoff completed but task status is %s", currentTask.Status)
+			}
 		}
 
 	} else {

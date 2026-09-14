@@ -267,8 +267,10 @@ type CreateTaskRequest struct {
 	// recipes; GooseRecipeParams are substituted into the recipe at session
 	// start. Recipes declared on the agent but not selected here are still
 	// available as runtime slash-commands inside the desktop.
-	GooseRecipeName   string            `json:"goose_recipe_name,omitempty"`
-	GooseRecipeParams map[string]string `json:"goose_recipe_params,omitempty"`
+	GooseRecipeName           string            `json:"goose_recipe_name,omitempty"`
+	GooseRecipeParams         map[string]string `json:"goose_recipe_params,omitempty"`
+	PlanningGooseRecipeName   string            `json:"planning_goose_recipe_name,omitempty"`
+	PlanningGooseRecipeParams map[string]string `json:"planning_goose_recipe_params,omitempty"`
 
 	// Git repositories are now managed at the project level - no task-level repo selection needed
 }
@@ -433,8 +435,10 @@ type SpecTask struct {
 	// API bakes these into a CodeAgentBakedRecipe and pushes it to the
 	// settings-sync-daemon, which writes a single slash_command pointing at
 	// the substituted recipe YAML. Empty when no recipe was selected.
-	GooseRecipeName   string            `json:"goose_recipe_name,omitempty" gorm:"size:255"`
-	GooseRecipeParams map[string]string `json:"goose_recipe_params,omitempty" gorm:"type:jsonb;serializer:json"`
+	GooseRecipeName           string            `json:"goose_recipe_name,omitempty" gorm:"size:255"`
+	GooseRecipeParams         map[string]string `json:"goose_recipe_params,omitempty" gorm:"type:jsonb;serializer:json"`
+	PlanningGooseRecipeName   string            `json:"planning_goose_recipe_name,omitempty" gorm:"size:255"`
+	PlanningGooseRecipeParams map[string]string `json:"planning_goose_recipe_params,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Clone tracking
 	ClonedFromID        string `json:"cloned_from_id,omitempty" gorm:"size:255;index"`         // Original task this was cloned from

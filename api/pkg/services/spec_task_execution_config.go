@@ -120,8 +120,10 @@ func (s *SpecDrivenTaskService) migrateSpecTaskCodeAgentConfig(
 		return fmt.Errorf("no coding agent is configured; select one for this task or project and retry")
 	}
 	planningConfig := cloneCodeAgentExecutionConfig(task.PlanningCodeAgentConfig)
+	hadExplicitPlanningConfig := planningConfig != nil
 	if planningConfig == nil && project != nil {
 		planningConfig = cloneCodeAgentExecutionConfig(project.PlanningCodeAgentConfig)
+		hadExplicitPlanningConfig = planningConfig != nil
 	}
 	if planningConfig == nil {
 		planningConfig = cloneCodeAgentExecutionConfig(config)
@@ -129,6 +131,10 @@ func (s *SpecDrivenTaskService) migrateSpecTaskCodeAgentConfig(
 
 	task.CodeAgentConfig = config
 	task.PlanningCodeAgentConfig = planningConfig
+	if !hadExplicitPlanningConfig && task.PlanningGooseRecipeName == "" {
+		task.PlanningGooseRecipeName = task.GooseRecipeName
+		task.PlanningGooseRecipeParams = cloneStringMap(task.GooseRecipeParams)
+	}
 	task.HelixAppID = ""
 	task.CodeAgentOverrides = nil
 	if taskNeedsMigration {
@@ -161,4 +167,15 @@ func (s *SpecDrivenTaskService) migrateSpecTaskCodeAgentConfig(
 			Msg("Migrated SpecTask coding App to task-owned code-agent config")
 	}
 	return nil
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }

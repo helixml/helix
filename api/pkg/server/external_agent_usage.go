@@ -112,6 +112,13 @@ func (s *HelixAPIServer) recordACPUsage(
 
 	snapshot := interaction.CodeAgentConfigSnapshot
 	if snapshot == nil {
+		if session.Metadata.SpecTaskID != "" {
+			log.Warn().
+				Str("session_id", session.ID).
+				Str("interaction_id", interaction.ID).
+				Msg("Skipping ACP usage attribution without dispatch-time spec-task snapshot")
+			return nil
+		}
 		var err error
 		snapshot, err = s.codeAgentConfigSnapshot(ctx, session)
 		if err != nil {

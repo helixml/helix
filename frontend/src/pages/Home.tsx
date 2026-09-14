@@ -141,11 +141,8 @@ const Home: FC = () => {
   const [selectedModel, setSelectedModel] = useState('')
   const [reasoningEffort, setReasoningEffort] = useState<NewChatReasoningEffort>('medium')
   const [taskCodeAgentConfig, setTaskCodeAgentConfig] = useState<TypesCodeAgentExecutionConfig>()
-  // Undefined until the user picks a size, so the create request omits
-  // sandbox_resource_overrides and the server resolves the live default at
-  // container-create time. Sending the default explicitly would materialize it
-  // onto the row and pin that task to today's value forever. The selector still
-  // displays the default for an undefined value.
+  // Synced below from the per-project preference or project default. It remains
+  // undefined when neither exists so the server can resolve its live default.
   const [taskSandboxResources, setTaskSandboxResources] =
     useState<TypesSandboxResourceOverrides | undefined>()
   const [taskSandboxRuntime, setTaskSandboxRuntime] = useState<TypesSandboxRuntime>(() =>

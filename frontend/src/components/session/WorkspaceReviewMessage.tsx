@@ -101,7 +101,7 @@ const WorkspaceReviewMessage: FC<WorkspaceReviewMessageProps> = ({
                   color="text.secondary"
                   sx={{ display: "block", lineHeight: 1.2 }}
                 >
-                  File comment
+                  {segment.sectionTitle}
                 </Typography>
                 <Typography
                   variant="body2"

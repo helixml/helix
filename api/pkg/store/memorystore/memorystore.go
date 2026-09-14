@@ -806,6 +806,32 @@ func (m *MemoryStore) UpdateSpecTask(_ context.Context, task *types.SpecTask) er
 	return nil
 }
 
+func (m *MemoryStore) UpdateSpecTaskFields(_ context.Context, taskID string, updates map[string]any) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	task, ok := m.specTasks[taskID]
+	if !ok {
+		return store.ErrNotFound
+	}
+	for field, value := range updates {
+		switch field {
+		case "metadata":
+			task.Metadata, _ = value.(map[string]interface{})
+		case "requirements_spec":
+			task.RequirementsSpec, _ = value.(string)
+		case "technical_design":
+			task.TechnicalDesign, _ = value.(string)
+		case "implementation_plan":
+			task.ImplementationPlan, _ = value.(string)
+		case "name":
+			task.Name, _ = value.(string)
+		case "updated_at":
+			task.UpdatedAt, _ = value.(time.Time)
+		}
+	}
+	return nil
+}
+
 // SeedSpecTask is a test helper: install a SpecTask into the store
 // without going through validation. Mirrors SeedApp / SeedSession.
 func (m *MemoryStore) SeedSpecTask(task *types.SpecTask) {

@@ -512,7 +512,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testin
 		ctx,
 		"task-stuck",
 		gomock.Any(),
-		types.TaskStatusImplementation,
+		types.TaskStatusImplementationQueued,
 		gomock.Any(),
 	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, extraFields map[string]any) (bool, error) {
 		// Synthesized SpecApproval must be persisted in the same atomic UPDATE,
@@ -525,6 +525,9 @@ func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testin
 		assert.Contains(t, jsonStr, "user-1")
 		return true, nil
 	})
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx, "task-stuck", gomock.Any(), types.TaskStatusImplementation, gomock.Any(),
+	).Return(true, nil)
 
 	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-stuck"})
 	require.NoError(t, err)
@@ -577,8 +580,11 @@ func TestSpecDrivenTaskService_ApproveSpecs_NilSpecApprovalAndNilApprovedAt(t *t
 		ctx,
 		"task-worst-case",
 		gomock.Any(),
-		types.TaskStatusImplementation,
+		types.TaskStatusImplementationQueued,
 		gomock.Any(),
+	).Return(true, nil)
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx, "task-worst-case", gomock.Any(), types.TaskStatusImplementation, gomock.Any(),
 	).Return(true, nil)
 
 	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-worst-case"})
@@ -634,12 +640,15 @@ func TestSpecDrivenTaskService_ApproveSpecsUsesCustomBaseForNewBranch(t *testing
 		ctx,
 		task.ID,
 		gomock.Any(),
-		types.TaskStatusImplementation,
+		types.TaskStatusImplementationQueued,
 		gomock.Any(),
 	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, fields map[string]any) (bool, error) {
 		assert.Equal(t, "release/2.0", fields["base_branch"])
 		return true, nil
 	})
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx, task.ID, gomock.Any(), types.TaskStatusImplementation, gomock.Any(),
+	).Return(true, nil)
 	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{repo}, nil).Times(2)
 
 	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: task.ID})
@@ -700,8 +709,11 @@ func TestSpecDrivenTaskService_ApproveSpecsDoesNotCheckoutExistingBranch(t *test
 		ctx,
 		task.ID,
 		gomock.Any(),
-		types.TaskStatusImplementation,
+		types.TaskStatusImplementationQueued,
 		gomock.Any(),
+	).Return(true, nil)
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx, task.ID, gomock.Any(), types.TaskStatusImplementation, gomock.Any(),
 	).Return(true, nil)
 	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{repo}, nil).Times(2)
 
@@ -770,13 +782,65 @@ func TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace(t *testing
 		ctx,
 		"task-loser",
 		gomock.Any(),
-		types.TaskStatusImplementation,
+		types.TaskStatusImplementationQueued,
 		gomock.Any(),
 	).Return(false, nil)
 
 	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-loser"})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrImplementationHandoffAlreadyClaimed)
 	assert.Equal(t, 0, sendCalls, "messageSender must not be invoked when atomic transition loses the race")
+}
+
+func TestSpecDrivenTaskService_ApproveSpecsLeavesRecoverableMarkerWhenHandoffFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(mockStore, nil, "agent", nil, nil, nil, nil, nil, NewDisabledKoditService())
+	service.TransitionToImplementation = func(context.Context, *types.SpecTask, string) error {
+		return errors.New("switch failed")
+	}
+	task := &types.SpecTask{
+		ID: "task-retry", ProjectID: "project-1", CreatedBy: "user-1",
+		Status: types.TaskStatusSpecApproved, PlanningSessionID: "session-1",
+		SpecApproval: &types.SpecApprovalResponse{Approved: true},
+		BranchMode:   types.BranchModeExisting, BranchName: "feature/retry",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+	}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{ID: task.ProjectID, DefaultRepoID: "repo-1"}, nil).Times(2)
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-1").Return(&types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}, nil)
+	mockStore.EXPECT().TransitionSpecTaskStatus(gomock.Any(), task.ID, gomock.Any(), types.TaskStatusImplementationQueued, gomock.Any()).Return(true, nil)
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{}, nil).Times(2)
+
+	err := service.ApproveSpecs(context.Background(), task)
+	require.EqualError(t, err, "switch failed")
+	assert.Equal(t, types.TaskStatusImplementationQueued, task.Status)
+}
+
+func TestSpecDrivenTaskService_ApproveSpecsRedrivesPendingHandoff(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(mockStore, nil, "agent", nil, nil, nil, nil, nil, NewDisabledKoditService())
+	handoffCalls := 0
+	service.TransitionToImplementation = func(context.Context, *types.SpecTask, string) error {
+		handoffCalls++
+		return nil
+	}
+	task := &types.SpecTask{
+		ID: "task-retry", ProjectID: "project-1", CreatedBy: "user-1",
+		Status: types.TaskStatusImplementationQueued, PlanningSessionID: "session-1",
+		SpecApproval: &types.SpecApprovalResponse{Approved: true},
+		BranchMode:   types.BranchModeExisting, BranchName: "feature/retry",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+	}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{ID: task.ProjectID, DefaultRepoID: "repo-1"}, nil).Times(2)
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-1").Return(&types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}, nil)
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{}, nil).Times(2)
+	mockStore.EXPECT().TransitionSpecTaskStatus(gomock.Any(), task.ID, []types.SpecTaskStatus{types.TaskStatusImplementationQueued}, types.TaskStatusImplementation, gomock.Any()).Return(true, nil)
+
+	require.NoError(t, service.ApproveSpecs(context.Background(), task))
+	assert.Equal(t, 1, handoffCalls)
+	assert.Equal(t, types.TaskStatusImplementation, task.Status)
 }
 
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {

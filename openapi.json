@@ -32616,24 +32616,24 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
+                    "local",
+                    "slack",
                     "cron",
                     "webhook",
-                    "local",
-                    "helix_events",
-                    "slack",
+                    "github",
                     "gitlab",
-                    "email",
-                    "github"
+                    "helix_events",
+                    "email"
                 ],
                 "x-enum-varnames": [
+                    "KindLocal",
+                    "KindSlack",
                     "KindCron",
                     "KindWebhook",
-                    "KindLocal",
-                    "KindHelixEvents",
-                    "KindSlack",
+                    "KindGitHub",
                     "KindGitLab",
-                    "KindEmail",
-                    "KindGitHub"
+                    "KindHelixEvents",
+                    "KindEmail"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -35575,6 +35575,15 @@
                     },
                     "planning_code_agent_config": {
                         "$ref": "#/components/schemas/types.CodeAgentExecutionConfig"
+                    },
+                    "planning_goose_recipe_name": {
+                        "type": "string"
+                    },
+                    "planning_goose_recipe_params": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
                     },
                     "priority": {
                         "$ref": "#/components/schemas/types.SpecTaskPriority"
@@ -43031,6 +43040,15 @@
                             }
                         ]
                     },
+                    "planning_goose_recipe_name": {
+                        "type": "string"
+                    },
+                    "planning_goose_recipe_params": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
                     "planning_options": {
                         "$ref": "#/components/schemas/types.StartPlanningOptions"
                     },
@@ -43475,6 +43493,7 @@
             "types.SpecTaskDesignReviewDocumentUpdateRequest": {
                 "type": "object",
                 "required": [
+                    "content",
                     "document_type",
                     "original_content"
                 ],
@@ -43939,6 +43958,15 @@
                                 "$ref": "#/components/schemas/types.CodeAgentExecutionConfig"
                             }
                         ]
+                    },
+                    "planning_goose_recipe_name": {
+                        "type": "string"
+                    },
+                    "planning_goose_recipe_params": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
                     },
                     "planning_options": {
                         "$ref": "#/components/schemas/types.StartPlanningOptions"

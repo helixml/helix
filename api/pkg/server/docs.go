@@ -28121,24 +28121,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
+                "local",
+                "slack",
                 "cron",
                 "webhook",
-                "local",
-                "helix_events",
-                "slack",
+                "github",
                 "gitlab",
-                "email",
-                "github"
+                "helix_events",
+                "email"
             ],
             "x-enum-varnames": [
+                "KindLocal",
+                "KindSlack",
                 "KindCron",
                 "KindWebhook",
-                "KindLocal",
-                "KindHelixEvents",
-                "KindSlack",
+                "KindGitHub",
                 "KindGitLab",
-                "KindEmail",
-                "KindGitHub"
+                "KindHelixEvents",
+                "KindEmail"
             ]
         },
         "transport.ResolvedActivation": {
@@ -31080,6 +31080,15 @@ const docTemplate = `{
                 },
                 "planning_code_agent_config": {
                     "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
+                "planning_goose_recipe_name": {
+                    "type": "string"
+                },
+                "planning_goose_recipe_params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "priority": {
                     "$ref": "#/definitions/types.SpecTaskPriority"
@@ -38536,6 +38545,15 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "planning_goose_recipe_name": {
+                    "type": "string"
+                },
+                "planning_goose_recipe_params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "planning_options": {
                     "$ref": "#/definitions/types.StartPlanningOptions"
                 },
@@ -38980,6 +38998,7 @@ const docTemplate = `{
         "types.SpecTaskDesignReviewDocumentUpdateRequest": {
             "type": "object",
             "required": [
+                "content",
                 "document_type",
                 "original_content"
             ],
@@ -39444,6 +39463,15 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.CodeAgentExecutionConfig"
                         }
                     ]
+                },
+                "planning_goose_recipe_name": {
+                    "type": "string"
+                },
+                "planning_goose_recipe_params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "planning_options": {
                     "$ref": "#/definitions/types.StartPlanningOptions"

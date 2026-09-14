@@ -18,16 +18,17 @@ import (
 // fakeGitRepoService implements gitRepositoryServicer for tests.
 // Methods not expected by a test panic to catch unexpected calls.
 type fakeGitRepoService struct {
-	listBranchesFunc      func(ctx context.Context, repoID string) ([]string, error)
-	getRepositoryFunc     func(ctx context.Context, repoID string) (*types.GitRepository, error)
-	getFileContentsFunc   func(ctx context.Context, repoID, path, branch string) (string, error)
-	writeFileContentsFunc func(ctx context.Context, repoID, path, branch string, content []byte, message, authorName, authorEmail string) (string, error)
-	getLocalBranchSHAFunc func(ctx context.Context, repoID, branch string) (string, error)
-	getPullRequestFunc    func(ctx context.Context, repoID, id string) (*types.PullRequest, error)
-	withRepoLockFunc      func(repoID string, fn func() error) error
-	pushBranchFunc        func(ctx context.Context, repoID, branch string, force bool, userID ...string) error
-	listPullRequestsFunc  func(ctx context.Context, repoID string) ([]*types.PullRequest, error)
-	createPRFunc          func(ctx context.Context, repoID, title, desc, src, tgt, userID string) (string, error)
+	listBranchesFunc          func(ctx context.Context, repoID string) ([]string, error)
+	getRepositoryFunc         func(ctx context.Context, repoID string) (*types.GitRepository, error)
+	getFileContentsFunc       func(ctx context.Context, repoID, path, branch string) (string, error)
+	writeFileContentsFunc     func(ctx context.Context, repoID, path, branch string, content []byte, message, authorName, authorEmail string) (string, error)
+	getLocalBranchSHAFunc     func(ctx context.Context, repoID, branch string) (string, error)
+	getPullRequestFunc        func(ctx context.Context, repoID, id string) (*types.PullRequest, error)
+	withRepoLockFunc          func(repoID string, fn func() error) error
+	withExternalRepoWriteFunc func(ctx context.Context, repo *types.GitRepository, opts services.ExternalRepoWriteOptions, fn func() error) error
+	pushBranchFunc            func(ctx context.Context, repoID, branch string, force bool, userID ...string) error
+	listPullRequestsFunc      func(ctx context.Context, repoID string) ([]*types.PullRequest, error)
+	createPRFunc              func(ctx context.Context, repoID, title, desc, src, tgt, userID string) (string, error)
 }
 
 func (f *fakeGitRepoService) ListBranches(ctx context.Context, repoID string) ([]string, error) {
@@ -154,7 +155,11 @@ func (f *fakeGitRepoService) GetRepoLock(_ string) *sync.Mutex { panic("GetRepoL
 func (f *fakeGitRepoService) WithExternalRepoRead(_ context.Context, _ *types.GitRepository, _ func() error) error {
 	panic("WithExternalRepoRead unexpected")
 }
-func (f *fakeGitRepoService) WithExternalRepoWrite(_ context.Context, _ *types.GitRepository, _ services.ExternalRepoWriteOptions, _ func() error) error {
+
+func (f *fakeGitRepoService) WithExternalRepoWrite(ctx context.Context, repo *types.GitRepository, opts services.ExternalRepoWriteOptions, fn func() error) error {
+	if f.withExternalRepoWriteFunc != nil {
+		return f.withExternalRepoWriteFunc(ctx, repo, opts, fn)
+	}
 	panic("WithExternalRepoWrite unexpected")
 }
 

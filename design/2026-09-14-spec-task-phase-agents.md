@@ -53,6 +53,12 @@ planner transcript is not injected. The handoff consists of the original
 request, approved `requirements.md`, `design.md`, and `tasks.md`, approval
 comments, repository instructions, and the existing workspace.
 
+Approval first claims `implementation_queued` as a durable pending-handoff
+marker. The task reaches `implementation` only after the fresh-thread Waiting
+interaction exists. A failed branch checkout or agent switch is returned to the
+approver, recorded on the task, and re-driven by the orchestrator from the
+pending marker; retrying approval cannot write an older status over that claim.
+
 Task status determines the active configuration. Spec generation, review, and
 revision use planning; queued implementation and every later state use
 implementation. Zed configuration, usage attribution, subscription preflight,
@@ -80,12 +86,19 @@ workspace tab. Diff, files, and subagents remain available throughout planning.
 Before the first successful local push, Plan explains that documents are pending
 instead of disappearing.
 
+Headless planning tasks always start with the right workspace expanded and Plan
+selected, including when an old implementation bookmark still says
+`?view=changes`. That initial normalization happens once, so Diff and Files stay
+selectable during planning.
+
 `helix-specs` is local-authoritative. Helix creates the review and serves its
 documents from the local bare repository; publishing that branch to the external
 VCS is best-effort and never gates planning on the acting user's repository
 permissions. Failed external publication does not roll back the local branch,
 and later external syncs exclude `helix-specs` so they cannot erase local plans.
 Normal code branches remain mirrored and keep their existing rollback behavior.
+An interactive document edit still reports an upstream publication failure and
+does not stamp the review as published; the retained local commit can be retried.
 
 Rendered plan documents use the same Markdown component and typography tokens
 as `AgentChat`. A source toggle opens the underlying Markdown as editable plain
@@ -94,6 +107,13 @@ file on `helix-specs` and update the review/task snapshots. The client sends the
 content it started from, and the API returns a conflict if the planning agent
 changed that document in the meantime; reviewer edits never silently overwrite
 an agent push. Inline comments remain anchored and editable from rendered mode.
+In the embedded planning workspace, comments are queued in the normal AgentChat
+composer as removable review chips and are sent together when the reviewer is
+ready. They are not submitted to the legacy per-comment agent queue.
+
+Goose recipe selection is phase-specific as well. Planning and implementation
+each bake their own selected recipe and parameters; historical tasks without a
+planning configuration continue to use the implementation recipe.
 
 The project chat composer remembers Plan versus Build per user and project.
 Selecting Plan switches its single runtime selector to the project's planning

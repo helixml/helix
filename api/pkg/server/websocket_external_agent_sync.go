@@ -1039,21 +1039,26 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Str("helix_session_id", createdSession.ID).
 		Str("request_id", requestID).
 		Msg("🆕 [HELIX] Creating initial interaction for new Zed thread")
+	configSnapshot, err := apiServer.codeAgentConfigSnapshot(context.Background(), createdSession)
+	if err != nil {
+		return fmt.Errorf("snapshot coding configuration for new Zed thread: %w", err)
+	}
 
 	interaction := &types.Interaction{
-		ID:                     "", // Will be generated
-		GenerationID:           0,
-		Created:                time.Now(),
-		Updated:                time.Now(),
-		Scheduled:              time.Now(),
-		Completed:              time.Time{},
-		SessionID:              createdSession.ID,
-		UserID:                 createdSession.Owner,
-		Mode:                   types.SessionModeInference,
-		PromptMessage:          "New conversation started via Zed", // Default message
-		State:                  types.InteractionStateWaiting,
-		ResponseMessage:        "",
-		ExternalAgentRequestID: requestID,
+		ID:                      "", // Will be generated
+		GenerationID:            0,
+		Created:                 time.Now(),
+		Updated:                 time.Now(),
+		Scheduled:               time.Now(),
+		Completed:               time.Time{},
+		SessionID:               createdSession.ID,
+		UserID:                  createdSession.Owner,
+		Mode:                    types.SessionModeInference,
+		PromptMessage:           "New conversation started via Zed", // Default message
+		State:                   types.InteractionStateWaiting,
+		CodeAgentConfigSnapshot: configSnapshot,
+		ResponseMessage:         "",
+		ExternalAgentRequestID:  requestID,
 	}
 	now := time.Now()
 	interaction.ExternalAgentDispatchedAt = &now
@@ -1616,18 +1621,23 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			if err != nil {
 				return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
 			}
+			configSnapshot, err := apiServer.codeAgentConfigSnapshot(context.Background(), helixSession)
+			if err != nil {
+				return fmt.Errorf("snapshot coding configuration for Zed message: %w", err)
+			}
 
 			interaction := &types.Interaction{
-				ID:                     "", // Will be generated
-				Created:                time.Now(),
-				Updated:                time.Now(),
-				SessionID:              helixSessionID,
-				UserID:                 helixSession.Owner,
-				GenerationID:           helixSession.GenerationID, // Must match session's generation for query to find it
-				Mode:                   types.SessionModeInference,
-				PromptMessage:          content,
-				State:                  types.InteractionStateWaiting,
-				ExternalAgentRequestID: messageRequestID,
+				ID:                      "", // Will be generated
+				Created:                 time.Now(),
+				Updated:                 time.Now(),
+				SessionID:               helixSessionID,
+				UserID:                  helixSession.Owner,
+				GenerationID:            helixSession.GenerationID, // Must match session's generation for query to find it
+				Mode:                    types.SessionModeInference,
+				PromptMessage:           content,
+				State:                   types.InteractionStateWaiting,
+				CodeAgentConfigSnapshot: configSnapshot,
+				ExternalAgentRequestID:  messageRequestID,
 			}
 			now := time.Now()
 			interaction.ExternalAgentDispatchedAt = &now
@@ -3308,7 +3318,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// Snapshot the effective model before this interaction becomes idle. A
 	// model switch keeps the same Helix session, so reading the task later would
 	// otherwise attribute this completed turn to the newly selected model.
-	if targetInteraction.CodeAgentConfigSnapshot == nil {
+	if targetInteraction.CodeAgentConfigSnapshot == nil && helixSession.Metadata.SpecTaskID == "" {
 		snapshot, snapshotErr := apiServer.codeAgentConfigSnapshot(context.Background(), helixSession)
 		if snapshotErr != nil {
 			return snapshotErr

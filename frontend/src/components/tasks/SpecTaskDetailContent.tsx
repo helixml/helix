@@ -153,6 +153,7 @@ import {
   loadSpecTaskContentPanelOpen,
   resolveSpecTaskChatDefaultLayout,
   saveSpecTaskContentPanelOpen,
+  shouldStartSpecTaskContentPanelCollapsed,
 } from "./specTaskPanelLayout";
 import {
   isSpecTaskTerminalToggleShortcut,
@@ -509,6 +510,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     return isMobile ? "chat" : "desktop";
   };
   const [currentView, setCurrentView] = useState<TaskView>(getInitialView);
+  const planningDefaultAppliedForTaskRef = useRef<string | null>(null);
   const [clientUniqueId, setClientUniqueId] = useState<string>("");
 
   // Sync currentView with URL query param (only when syncing with URL).
@@ -576,7 +578,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     const panel = contentPanelRef.current;
     if (!panel) return;
     rememberHeadlessContentPanelOpen(true);
-    if (isHeadless) handleViewChange("changes");
+    if (isHeadless) handleViewChange(planningWorkspace ? "plan" : "changes");
     const restoredSize = lastExpandedContentSizeRef.current || 50;
     panel.expand();
     panel.resize(`${restoredSize}%`);
@@ -690,12 +692,28 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = selectedThreadSessionId || task?.planning_session_id;
 
+  // A stale implementation URL (for example ?view=changes) is common when a
+  // headless task moves back into planning. Default the newly opened task to
+  // its plan once, while still allowing the user to select Diff or Files.
+  useEffect(() => {
+    if (!task?.id || !isHeadless || !planningWorkspace) return;
+    if (planningDefaultAppliedForTaskRef.current === task.id) return;
+    planningDefaultAppliedForTaskRef.current = task.id;
+    if (currentView === "plan") return;
+    setCurrentView("plan");
+    if (syncViewWithUrl) router.mergeParams({ view: "plan" });
+  }, [currentView, isHeadless, planningWorkspace, syncViewWithUrl, task?.id]);
+
   useEffect(() => {
     if (!isHeadless || currentView !== "desktop") return;
-    const nextView: TaskView = activeSessionId ? "changes" : "details";
+    const nextView: TaskView = planningWorkspace
+      ? "plan"
+      : activeSessionId
+        ? "changes"
+        : "details";
     setCurrentView(nextView);
     if (syncViewWithUrl) router.mergeParams({ view: nextView });
-  }, [activeSessionId, currentView, isHeadless, syncViewWithUrl]);
+  }, [activeSessionId, currentView, isHeadless, planningWorkspace, syncViewWithUrl]);
   const [workspaceCommentsBySession, setWorkspaceCommentsBySession] = useState<
     Record<string, WorkspaceReviewComment[]>
   >({});
@@ -1227,23 +1245,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   };
 
-  // Keep planning review inside the task workspace so the normal AgentChat
-  // remains visible beside the documents, files, diff, and subagents.
-  const handleReviewSpec = () => {
-    if (!task?.id) return;
-
-    if (!latestDesignReview?.id) {
-      snackbar.error("No design review found");
-      return;
-    }
-    addAutoOpenedSpecTask(task.id);
-    handleViewChange("plan");
-  };
-
   // Auto-open spec review when enabled and the task is ready for review.
   // The Chat task route disables this so selecting a task preserves the Chat context.
-  // handleReviewSpec records the task in sessionStorage once the review exists,
-  // limiting auto-open to once per SPA session per task ID.
+  // The sessionStorage marker limits auto-open to once per SPA session/task.
   // The spec_approved_at guard prevents bouncing the user back to the review page in the
   // brief window between approval and the cached task.status transitioning away from spec_review.
   useEffect(() => {
@@ -1415,7 +1419,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         }}
         variant={variant}
         onStartPlanning={handleStartPlanning}
-        onReviewSpec={handleReviewSpec}
         hasExternalRepo={projectRepositories.some(
           (repository) =>
             repository.is_external ||
@@ -2473,10 +2476,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             orientation="horizontal"
             defaultLayout={resolveSpecTaskChatDefaultLayout(
               savedSpecTaskChatLayout,
-              allowContentCollapse && (
-                collapseContentAfterSplitRef.current
-                || (isHeadless && !headlessContentPanelOpen)
-              ),
+              shouldStartSpecTaskContentPanelCollapsed({
+                allowContentCollapse,
+                collapseAfterSplit: collapseContentAfterSplitRef.current,
+                isHeadless,
+                isPlanningWorkspace: planningWorkspace,
+                headlessPreferenceOpen: headlessContentPanelOpen,
+              }),
             )}
             onLayoutChange={(layout) => {
               if (layout["spec-task-content"] === 0) {
@@ -2721,6 +2727,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         handleViewChange(isHeadless ? "changes" : "desktop");
                       }}
                       hideTitle
+                      onQueueComment={upsertWorkspaceComment}
                     />
                   ) : (
                     <PlanningDocumentsPlaceholder pushError={task.last_push_error} />
@@ -2982,6 +2989,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       handleViewChange("chat");
                     }}
                     hideTitle
+                    onQueueComment={upsertWorkspaceComment}
                   />
                 ) : (
                   <PlanningDocumentsPlaceholder pushError={task.last_push_error} />

@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -277,6 +278,26 @@ func setDesignReviewDocumentContent(review *types.SpecTaskDesignReview, task *ty
 	}
 }
 
+func designReviewDocumentUpdates(documentType, content string) (map[string]any, map[string]any) {
+	reviewUpdates := map[string]any{}
+	taskUpdates := map[string]any{}
+	switch documentType {
+	case "requirements":
+		reviewUpdates["requirements_spec"] = content
+		taskUpdates["requirements_spec"] = content
+		if title := services.SpecTitleFromRequirements(content); title != "" {
+			taskUpdates["name"] = title
+		}
+	case "technical_design":
+		reviewUpdates["technical_design"] = content
+		taskUpdates["technical_design"] = content
+	case "implementation_plan":
+		reviewUpdates["implementation_plan"] = content
+		taskUpdates["implementation_plan"] = content
+	}
+	return reviewUpdates, taskUpdates
+}
+
 // updateDesignReviewDocument persists a reviewer edit to the canonical
 // helix-specs file and refreshes both database snapshots.
 // @Summary Update a design review document
@@ -307,8 +328,8 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 		return
 	}
 	filename, err := designReviewDocumentFilename(req.DocumentType)
-	if err != nil || req.OriginalContent == nil {
-		http.Error(w, "document_type and original_content are required", http.StatusBadRequest)
+	if err != nil || req.OriginalContent == nil || strings.TrimSpace(req.Content) == "" {
+		http.Error(w, "document_type, non-empty content, and original_content are required", http.StatusBadRequest)
 		return
 	}
 
@@ -377,7 +398,7 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 		if readErr != nil {
 			return fmt.Errorf("failed to read current document: %w", readErr)
 		}
-		if currentContent != *req.OriginalContent && currentContent != req.Content {
+		if currentContent != *req.OriginalContent {
 			return errDesignReviewDocumentChanged
 		}
 		if currentContent == req.Content {
@@ -419,21 +440,45 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// Git writes can take seconds. Re-read both rows, revalidate ownership and
+	// editability, then update only document-owned columns.
+	task, err = s.Store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	review, err = s.Store.GetSpecTaskDesignReview(ctx, reviewID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if review.SpecTaskID != task.ID {
+		http.Error(w, "design review does not belong to spec task", http.StatusBadRequest)
+		return
+	}
+	if review.Status == types.SpecTaskDesignReviewStatusApproved || review.Status == types.SpecTaskDesignReviewStatusSuperseded {
+		http.Error(w, "approved or superseded design reviews cannot be edited", http.StatusConflict)
+		return
+	}
+
 	now := time.Now()
+	reviewUpdates, taskUpdates := designReviewDocumentUpdates(req.DocumentType, req.Content)
+	reviewUpdates["git_branch"] = services.SpecsBranchName
+	reviewUpdates["git_commit_hash"] = commitHash
+	reviewUpdates["git_pushed_at"] = now
+	if err := s.Store.UpdateSpecTaskDesignReviewDocument(ctx, review.ID, task.ID, reviewUpdates, taskUpdates); err != nil {
+		if errors.Is(err, store.ErrSpecTaskDesignReviewNotEditable) {
+			http.Error(w, "approved or superseded design reviews cannot be edited", http.StatusConflict)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	setDesignReviewDocumentContent(review, task, req.DocumentType, req.Content)
 	review.GitBranch = services.SpecsBranchName
 	review.GitCommitHash = commitHash
 	review.GitPushedAt = now
 	review.UpdatedAt = now
-	if err := s.Store.UpdateSpecTaskDesignReview(ctx, review); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	task.UpdatedAt = now
-	if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 
 	writeResponse(w, review, http.StatusOK)
 }
@@ -498,7 +543,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 	switch req.Decision {
 	case "approve":
-		if review.Status == types.SpecTaskDesignReviewStatusApproved {
+		if review.Status == types.SpecTaskDesignReviewStatusApproved && specTask.Status == types.TaskStatusImplementation {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(review)
 			return
@@ -567,17 +612,25 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 				s.auditLogService.LogTaskApproved(ctx, specTask, user.ID, user.Email)
 			}
 
-			s.wg.Add(1)
-			go func() {
-				defer s.wg.Done()
-				if err := s.specDrivenTaskService.ApproveSpecs(context.Background(), specTask); err != nil {
-					log.Error().
-						Err(err).
-						Str("spec_task_id", specTask.ID).
-						Str("review_id", review.ID).
-						Msg("[DesignReview] Failed to process spec approval (orchestrator will retry)")
+			if err := s.specDrivenTaskService.ApproveSpecs(ctx, specTask); err != nil {
+				if errors.Is(err, services.ErrImplementationHandoffAlreadyClaimed) {
+					http.Error(w, err.Error(), http.StatusConflict)
+					return
 				}
-			}()
+				s.persistSpecApprovalError(ctx, specTask.ID, err)
+				http.Error(w, fmt.Sprintf("failed to start implementation: %v", err), http.StatusInternalServerError)
+				return
+			}
+		case types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued:
+			if err := s.specDrivenTaskService.ApproveSpecs(ctx, specTask); err != nil {
+				if errors.Is(err, services.ErrImplementationHandoffAlreadyClaimed) {
+					http.Error(w, err.Error(), http.StatusConflict)
+					return
+				}
+				s.persistSpecApprovalError(ctx, specTask.ID, err)
+				http.Error(w, fmt.Sprintf("failed to start implementation: %v", err), http.StatusInternalServerError)
+				return
+			}
 		default:
 			log.Info().
 				Str("spec_task_id", specTask.ID).

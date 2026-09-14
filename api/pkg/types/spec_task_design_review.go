@@ -195,7 +195,7 @@ type SpecTaskDesignReviewUpdateRequest struct {
 
 type SpecTaskDesignReviewDocumentUpdateRequest struct {
 	DocumentType    string  `json:"document_type" validate:"required,oneof=requirements technical_design implementation_plan"`
-	Content         string  `json:"content"`
+	Content         string  `json:"content" validate:"required"`
 	OriginalContent *string `json:"original_content" validate:"required"`
 }
 

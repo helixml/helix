@@ -11,6 +11,7 @@ interface InlineCommentFormProps {
   onCancel: () => void;
   isNarrowViewport?: boolean;
   isSubmitting?: boolean;
+  submitLabel?: string;
   // Optional outer ref used by the parent to measure the rendered form
   // height — needed so the bubble-stacking algorithm can include this form.
   outerRef?: (el: HTMLDivElement | null) => void;
@@ -26,6 +27,7 @@ export default function InlineCommentForm({
   onCancel,
   isNarrowViewport = false,
   isSubmitting = false,
+  submitLabel = "Comment",
   outerRef,
 }: InlineCommentFormProps) {
   const paperRef = useRef<HTMLDivElement>(null);
@@ -60,16 +62,16 @@ export default function InlineCommentForm({
 
   if (!show || !selectedText) return null;
 
-  // On narrow viewports (tablets), render as a bottom sheet style overlay
-  // On wide viewports, keep the original side positioning
+  // Narrow planning panes keep the form anchored to the selected document;
+  // viewport-fixed positioning otherwise makes it appear over AgentChat.
   const narrowStyles = {
-    position: "fixed" as const,
-    left: "50%",
-    bottom: "20px",
-    transform: "translateX(-50%)",
+    position: "absolute" as const,
+    left: "16px",
+    top: `${yPos + 32}px`,
     width: "calc(100% - 32px)",
-    maxWidth: "500px",
-    top: "auto",
+    maxWidth: "none",
+    transform: "none",
+    bottom: "auto",
   };
 
   const wideStyles = {
@@ -151,7 +153,7 @@ export default function InlineCommentForm({
           disabled={!commentText.trim() || isSubmitting}
           startIcon={isSubmitting ? <CircularProgress size={16} color="inherit" /> : undefined}
         >
-          Comment
+          {submitLabel}
         </Button>
       </Box>
     </Paper>

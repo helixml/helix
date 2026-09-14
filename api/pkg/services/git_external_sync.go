@@ -17,9 +17,8 @@ type ExternalRepoWriteOptions struct {
 	// If false, logs warning and continues (use for non-critical paths like project creation)
 	FailOnSyncError bool
 
-	// FailOnPushError if true, returns error if post-push fails (after rollback).
-	// This does not apply to local-authoritative branches such as helix-specs,
-	// where upstream publication is always best-effort.
+	// FailOnPushError if true, returns an error if publication fails. Local-authoritative
+	// branches retain their commit so it can be published by a later retry.
 	FailOnPushError bool
 }
 
@@ -37,7 +36,8 @@ func isLocalAuthoritativeBranch(branch string) bool {
 //  5. If push fails, rolls back local changes and returns error
 //
 // helix-specs is local-authoritative: it skips pre-sync and retains local
-// changes when best-effort upstream publication fails.
+// changes when upstream publication fails. Callers choose whether that
+// publication failure is returned via FailOnPushError.
 //
 // For non-external repos, this simply executes the write function.
 //
@@ -112,6 +112,9 @@ func (s *GitRepositoryService) WithExternalRepoWrite(
 				Str("repo_id", repo.ID).
 				Str("branch", opts.Branch).
 				Msg("Upstream publication failed; retained local-authoritative branch")
+			if opts.FailOnPushError {
+				return fmt.Errorf("failed to publish retained local branch to upstream: %w", pushErr)
+			}
 			return nil
 		}
 

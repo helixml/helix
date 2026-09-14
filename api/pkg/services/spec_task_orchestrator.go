@@ -867,20 +867,14 @@ func (o *SpecTaskOrchestrator) handleSpecRevision(ctx context.Context, task *typ
 	return o.store.UpdateSpecTask(ctx, task)
 }
 
-// handleImplementationQueued handles tasks ready for implementation - reuses external agent
-// This is a legacy state - new flow (design review approval) bypasses this entirely
+// handleImplementationQueued re-drives the durable planning→implementation
+// handoff marker. ApproveSpecs only commits implementation after the Waiting
+// handoff exists, so retries are safe after API restarts or transient failures.
 func (o *SpecTaskOrchestrator) handleImplementationQueued(ctx context.Context, task *types.SpecTask) error {
 	log.Info().
 		Str("task_id", task.ID).
-		Msg("Task in implementation_queued - moving directly to implementation")
-
-	// Just move to implementation status - agent is already running from planning
-	now := time.Now()
-	task.Status = types.TaskStatusImplementation
-	task.StatusUpdatedAt = &now
-	task.UpdatedAt = now
-
-	return o.store.UpdateSpecTask(ctx, task)
+		Msg("Retrying pending implementation handoff")
+	return o.specTaskService.ApproveSpecs(ctx, task)
 }
 
 // NOTE: Implementation prompts are now handled by agent_instruction_service.go:SendApprovalInstruction

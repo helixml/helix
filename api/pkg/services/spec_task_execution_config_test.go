@@ -32,6 +32,7 @@ func TestMigrateSpecTaskCodeAgentConfigMaterializesAndClearsLegacyIDs(t *testing
 	project := &types.Project{ID: "project-1", DefaultHelixAppID: "app-legacy"}
 	task := &types.SpecTask{
 		ID: "task-1", ProjectID: project.ID, HelixAppID: "app-legacy", PlanningSessionID: "session-1",
+		GooseRecipeName: "legacy-recipe", GooseRecipeParams: map[string]string{"scope": "all"},
 		CodeAgentOverrides: &types.CodeAgentOverrides{
 			ProviderRef: "provider-new", Model: "gpt-5.6-sol", ReasoningEffort: "xhigh", ServiceTier: "fast",
 		},
@@ -56,6 +57,8 @@ func TestMigrateSpecTaskCodeAgentConfigMaterializesAndClearsLegacyIDs(t *testing
 		require.Empty(t, got.HelixAppID)
 		require.Nil(t, got.CodeAgentOverrides)
 		require.NotNil(t, got.PlanningCodeAgentConfig)
+		require.Equal(t, "legacy-recipe", got.PlanningGooseRecipeName)
+		require.Equal(t, map[string]string{"scope": "all"}, got.PlanningGooseRecipeParams)
 		require.Equal(t, "provider-new", got.CodeAgentConfig.ProviderRef)
 		require.Equal(t, "gpt-5.6-sol", got.CodeAgentConfig.Model)
 		require.Equal(t, "xhigh", got.CodeAgentConfig.ReasoningEffort)
@@ -110,6 +113,34 @@ func TestMigrateSpecTaskCodeAgentConfigIsIdempotent(t *testing.T) {
 		CodeAgentConfig:         config,
 		PlanningCodeAgentConfig: config,
 	}
+
+	require.NoError(t, service.migrateSpecTaskCodeAgentConfig(context.Background(), task, project))
+}
+
+func TestMigrateSpecTaskCodeAgentConfigDoesNotCopyRecipeToExplicitProjectPlanner(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := &SpecDrivenTaskService{store: mockStore}
+	implementationConfig := &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeGooseCode, CredentialType: types.CodeAgentCredentialTypeAPIKey,
+	}
+	planningConfig := &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeCodexCLI, CredentialType: types.CodeAgentCredentialTypeSubscription,
+	}
+	project := &types.Project{
+		ID: "project-1", CodeAgentConfig: implementationConfig, PlanningCodeAgentConfig: planningConfig,
+	}
+	task := &types.SpecTask{
+		ID: "task-1", ProjectID: project.ID, CodeAgentConfig: implementationConfig,
+		GooseRecipeName: "implementation-recipe",
+	}
+
+	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).DoAndReturn(func(_ context.Context, got *types.SpecTask) error {
+		require.Equal(t, planningConfig, got.PlanningCodeAgentConfig)
+		require.Empty(t, got.PlanningGooseRecipeName)
+		require.Nil(t, got.PlanningGooseRecipeParams)
+		return nil
+	})
 
 	require.NoError(t, service.migrateSpecTaskCodeAgentConfig(context.Background(), task, project))
 }

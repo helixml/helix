@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
@@ -40,11 +42,18 @@ func TestUpdateDesignReviewDocument(t *testing.T) {
 	project := &types.Project{ID: task.ProjectID, DefaultRepoID: "repo_1"}
 	repo := &types.GitRepository{ID: project.DefaultRepoID}
 
-	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
-	mockStore.EXPECT().GetSpecTaskDesignReview(gomock.Any(), review.ID).Return(review, nil)
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil).Times(2)
+	mockStore.EXPECT().GetSpecTaskDesignReview(gomock.Any(), review.ID).Return(review, nil).Times(2)
 	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
-	mockStore.EXPECT().UpdateSpecTaskDesignReview(gomock.Any(), review).Return(nil)
-	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).Return(nil)
+	mockStore.EXPECT().UpdateSpecTaskDesignReviewDocument(
+		gomock.Any(), review.ID, task.ID, gomock.Any(), gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _, _ string, reviewUpdates, taskUpdates map[string]any) error {
+		require.Equal(t, "new-sha", reviewUpdates["git_commit_hash"])
+		require.Equal(t, "# Requirements: New title\n\nUpdated.", reviewUpdates["requirements_spec"])
+		require.Equal(t, "# Requirements: New title\n\nUpdated.", taskUpdates["requirements_spec"])
+		require.Equal(t, "New title", taskUpdates["name"])
+		return nil
+	})
 
 	var writtenPath string
 	var writtenContent string
@@ -116,7 +125,7 @@ func TestUpdateDesignReviewDocumentRejectsConcurrentChange(t *testing.T) {
 		getRepositoryFunc: func(_ context.Context, _ string) (*types.GitRepository, error) { return repo, nil },
 		withRepoLockFunc:  func(_ string, fn func() error) error { return fn() },
 		getFileContentsFunc: func(_ context.Context, _, _, _ string) (string, error) {
-			return "agent changed this document", nil
+			return "reviewer edit", nil
 		},
 	}
 	original := "original document"
@@ -136,6 +145,146 @@ func TestUpdateDesignReviewDocumentRejectsConcurrentChange(t *testing.T) {
 
 	require.Equal(t, http.StatusConflict, response.Code)
 	require.Contains(t, response.Body.String(), "changed since editing started")
+}
+
+func TestUpdateDesignReviewDocumentRejectsEmptyContent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	original := "original"
+	body, err := json.Marshal(types.SpecTaskDesignReviewDocumentUpdateRequest{
+		DocumentType:    "requirements",
+		Content:         " \n\t",
+		OriginalContent: &original,
+	})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/spec-tasks/spt_1/design-reviews/stdr_1/document", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"spec_task_id": "spt_1", "review_id": "stdr_1"})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_1"}))
+	response := httptest.NewRecorder()
+
+	server := &HelixAPIServer{Store: mockStore}
+	server.updateDesignReviewDocument(response, req)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+}
+
+func TestUpdateDesignReviewDocumentRejectsReviewFromAnotherTask(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", CreatedBy: "usr_1"}
+	review := &types.SpecTaskDesignReview{ID: "stdr_1", SpecTaskID: "spt_other", Status: types.SpecTaskDesignReviewStatusInReview}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+	mockStore.EXPECT().GetSpecTaskDesignReview(gomock.Any(), review.ID).Return(review, nil)
+
+	original := "original"
+	body, err := json.Marshal(types.SpecTaskDesignReviewDocumentUpdateRequest{DocumentType: "requirements", Content: "updated", OriginalContent: &original})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/spec-tasks/spt_1/design-reviews/stdr_1/document", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"spec_task_id": task.ID, "review_id": review.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: task.CreatedBy}))
+	response := httptest.NewRecorder()
+
+	server := &HelixAPIServer{Store: mockStore}
+	server.updateDesignReviewDocument(response, req)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+}
+
+func TestUpdateDesignReviewDocumentRejectsFinalizedReview(t *testing.T) {
+	for _, status := range []types.SpecTaskDesignReviewStatus{
+		types.SpecTaskDesignReviewStatusApproved,
+		types.SpecTaskDesignReviewStatusSuperseded,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", CreatedBy: "usr_1"}
+			review := &types.SpecTaskDesignReview{ID: "stdr_1", SpecTaskID: task.ID, Status: status}
+			mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+			mockStore.EXPECT().GetSpecTaskDesignReview(gomock.Any(), review.ID).Return(review, nil)
+
+			original := "original"
+			body, err := json.Marshal(types.SpecTaskDesignReviewDocumentUpdateRequest{DocumentType: "requirements", Content: "updated", OriginalContent: &original})
+			require.NoError(t, err)
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/spec-tasks/spt_1/design-reviews/stdr_1/document", bytes.NewReader(body))
+			req = mux.SetURLVars(req, map[string]string{"spec_task_id": task.ID, "review_id": review.ID})
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: task.CreatedBy}))
+			response := httptest.NewRecorder()
+
+			server := &HelixAPIServer{Store: mockStore}
+			server.updateDesignReviewDocument(response, req)
+
+			require.Equal(t, http.StatusConflict, response.Code)
+		})
+	}
+}
+
+func TestUpdateDesignReviewDocumentRejectsUnauthorizedProjectMember(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", CreatedBy: "usr_creator"}
+	project := &types.Project{ID: task.ProjectID, UserID: task.CreatedBy, OrganizationID: "org_1"}
+	user := types.User{ID: "usr_member"}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: project.OrganizationID,
+		UserID:         user.ID,
+	}).Return(&types.OrganizationMembership{OrganizationID: project.OrganizationID, UserID: user.ID, Role: types.OrganizationRoleMember}, nil)
+	mockStore.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{OrganizationID: project.OrganizationID, UserID: user.ID}).Return([]*types.Team{}, nil)
+	mockStore.EXPECT().ListAccessGrants(gomock.Any(), &store.ListAccessGrantsQuery{
+		OrganizationID: project.OrganizationID,
+		UserID:         user.ID,
+		ResourceID:     project.ID,
+	}).Return([]*types.AccessGrant{}, nil)
+
+	original := "original"
+	body, err := json.Marshal(types.SpecTaskDesignReviewDocumentUpdateRequest{DocumentType: "requirements", Content: "updated", OriginalContent: &original})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/spec-tasks/spt_1/design-reviews/stdr_1/document", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"spec_task_id": task.ID, "review_id": "stdr_1"})
+	req = req.WithContext(setRequestUser(req.Context(), user))
+	response := httptest.NewRecorder()
+
+	server := &HelixAPIServer{Store: mockStore}
+	server.updateDesignReviewDocument(response, req)
+
+	require.Equal(t, http.StatusForbidden, response.Code)
+}
+
+func TestUpdateDesignReviewDocumentSurfacesExternalPublicationFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", CreatedBy: "usr_1", DesignDocPath: "task_1"}
+	review := &types.SpecTaskDesignReview{ID: "stdr_1", SpecTaskID: task.ID, Status: types.SpecTaskDesignReviewStatusInReview}
+	project := &types.Project{ID: task.ProjectID, DefaultRepoID: "repo_1"}
+	repo := &types.GitRepository{ID: project.DefaultRepoID, IsExternal: true, ExternalURL: "https://example.invalid/repo.git"}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+	mockStore.EXPECT().GetSpecTaskDesignReview(gomock.Any(), review.ID).Return(review, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+
+	gitService := &fakeGitRepoService{
+		getRepositoryFunc: func(_ context.Context, _ string) (*types.GitRepository, error) { return repo, nil },
+		withExternalRepoWriteFunc: func(_ context.Context, actualRepo *types.GitRepository, opts services.ExternalRepoWriteOptions, _ func() error) error {
+			require.Same(t, repo, actualRepo)
+			require.True(t, opts.FailOnSyncError)
+			require.True(t, opts.FailOnPushError)
+			return errors.New("publication failed")
+		},
+	}
+	original := "original"
+	body, err := json.Marshal(types.SpecTaskDesignReviewDocumentUpdateRequest{DocumentType: "requirements", Content: "updated", OriginalContent: &original})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/spec-tasks/spt_1/design-reviews/stdr_1/document", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"spec_task_id": task.ID, "review_id": review.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: task.CreatedBy}))
+	response := httptest.NewRecorder()
+
+	server := &HelixAPIServer{Store: mockStore, gitRepositoryService: gitService}
+	server.updateDesignReviewDocument(response, req)
+
+	require.Equal(t, http.StatusInternalServerError, response.Code)
+	require.Contains(t, response.Body.String(), "publication failed")
 }
 
 // CommentTimerSuite pins down the behaviour of the per-comment 2-minute

@@ -3546,24 +3546,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
+    - local
+    - slack
     - cron
     - webhook
-    - local
-    - helix_events
-    - slack
-    - gitlab
-    - email
     - github
+    - gitlab
+    - helix_events
+    - email
     type: string
     x-enum-varnames:
+    - KindLocal
+    - KindSlack
     - KindCron
     - KindWebhook
-    - KindLocal
-    - KindHelixEvents
-    - KindSlack
-    - KindGitLab
-    - KindEmail
     - KindGitHub
+    - KindGitLab
+    - KindHelixEvents
+    - KindEmail
   transport.ResolvedActivation:
     properties:
       address:
@@ -5759,6 +5759,12 @@ definitions:
         type: string
       planning_code_agent_config:
         $ref: '#/definitions/types.CodeAgentExecutionConfig'
+      planning_goose_recipe_name:
+        type: string
+      planning_goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       priority:
         $ref: '#/definitions/types.SpecTaskPriority'
       project_id:
@@ -11331,6 +11337,12 @@ definitions:
         description: |-
           PlanningCodeAgentConfig is independently snapshotted when the task is
           created so project-default changes cannot alter an existing planning run.
+      planning_goose_recipe_name:
+        type: string
+      planning_goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       planning_options:
         $ref: '#/definitions/types.StartPlanningOptions'
       planning_session_id:
@@ -11668,6 +11680,7 @@ definitions:
       original_content:
         type: string
     required:
+    - content
     - document_type
     - original_content
     type: object
@@ -12032,6 +12045,12 @@ definitions:
         description: |-
           PlanningCodeAgentConfig is independently snapshotted when the task is
           created so project-default changes cannot alter an existing planning run.
+      planning_goose_recipe_name:
+        type: string
+      planning_goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       planning_options:
         $ref: '#/definitions/types.StartPlanningOptions'
       planning_session_id:

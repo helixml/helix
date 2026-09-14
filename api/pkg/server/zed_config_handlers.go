@@ -986,19 +986,20 @@ func (apiServer *HelixAPIServer) applySpecTaskGooseRecipe(ctx context.Context, s
 	if cfg.Runtime != types.CodeAgentRuntimeGooseCode {
 		return
 	}
-	if specTask.GooseRecipeName == "" {
+	recipeName, recipeParams := specTask.GooseRecipeForPhase(types.SpecTaskPhaseForStatus(specTask.Status))
+	if recipeName == "" {
 		return
 	}
 
 	var sourcePath string
 	for _, r := range cfg.GooseRecipes {
-		if r.Name == specTask.GooseRecipeName {
+		if r.Name == recipeName {
 			sourcePath = r.Path
 			break
 		}
 	}
 	if sourcePath == "" {
-		log.Warn().Str("spec_task_id", specTask.ID).Str("recipe", specTask.GooseRecipeName).Msg("spec-task references a goose recipe not declared on the agent; baking skipped")
+		log.Warn().Str("spec_task_id", specTask.ID).Str("recipe", recipeName).Msg("spec-task references a goose recipe not declared on the agent; baking skipped")
 		return
 	}
 
@@ -1013,20 +1014,20 @@ func (apiServer *HelixAPIServer) applySpecTaskGooseRecipe(ctx context.Context, s
 	// where that attachment lives inside the agent's workspace (committed
 	// to the helix-specs branch at /home/retro/work/helix-specs/design/
 	// tasks/<dir>/attachments/<filename>).
-	params, err := apiServer.resolveGooseRecipeFileParams(ctx, specTask, content)
+	params, err := apiServer.resolveGooseRecipeFileParams(ctx, specTask, recipeParams, content)
 	if err != nil {
-		log.Warn().Err(err).Str("spec_task_id", specTask.ID).Str("recipe", specTask.GooseRecipeName).Msg("failed to resolve file params for goose recipe; baking skipped")
+		log.Warn().Err(err).Str("spec_task_id", specTask.ID).Str("recipe", recipeName).Msg("failed to resolve file params for goose recipe; baking skipped")
 		return
 	}
 
 	baked, err := goose.Bake(content, params)
 	if err != nil {
-		log.Warn().Err(err).Str("spec_task_id", specTask.ID).Str("recipe", specTask.GooseRecipeName).Msg("failed to bake goose recipe; falling back to unbaked")
+		log.Warn().Err(err).Str("spec_task_id", specTask.ID).Str("recipe", recipeName).Msg("failed to bake goose recipe; falling back to unbaked")
 		return
 	}
 
 	cfg.GooseBakedRecipe = &types.CodeAgentBakedRecipe{
-		Name:    specTask.GooseRecipeName,
+		Name:    recipeName,
 		Content: baked,
 	}
 }
@@ -1037,9 +1038,9 @@ func (apiServer *HelixAPIServer) applySpecTaskGooseRecipe(ctx context.Context, s
 // workspace. Non-file parameters pass through unchanged. The recipe is
 // re-parsed (cheap, the file is already in memory) to discover which params
 // are file-typed — we deliberately don't trust the frontend to tell us.
-func (apiServer *HelixAPIServer) resolveGooseRecipeFileParams(ctx context.Context, specTask *types.SpecTask, recipeContent []byte) (map[string]string, error) {
-	out := make(map[string]string, len(specTask.GooseRecipeParams))
-	for k, v := range specTask.GooseRecipeParams {
+func (apiServer *HelixAPIServer) resolveGooseRecipeFileParams(ctx context.Context, specTask *types.SpecTask, recipeParams map[string]string, recipeContent []byte) (map[string]string, error) {
+	out := make(map[string]string, len(recipeParams))
+	for k, v := range recipeParams {
 		out[k] = v
 	}
 

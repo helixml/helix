@@ -46,4 +46,15 @@ describe("WorkspaceReviewMessage", () => {
     expect(container).not.toHaveTextContent("review_comment");
     expect(container).not.toHaveTextContent("sectionId");
   });
+
+  it("renders a plan comment label", () => {
+    render(
+      <WorkspaceReviewMessage
+        text={message.split("File comment").join("Plan comment")}
+        session={{ id: "ses_1" }}
+        getFileURL={() => ""}
+      />,
+    );
+    expect(screen.getByText("Plan comment")).toBeInTheDocument();
+  });
 });

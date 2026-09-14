@@ -2,11 +2,15 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
 )
+
+var ErrSpecTaskDesignReviewNotEditable = errors.New("design review is no longer editable")
 
 // Design Review methods
 
@@ -28,6 +32,44 @@ func (s *PostgresStore) GetSpecTaskDesignReview(ctx context.Context, id string) 
 
 func (s *PostgresStore) UpdateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error {
 	return s.gdb.WithContext(ctx).Save(review).Error
+}
+
+// UpdateSpecTaskDesignReviewDocument atomically refreshes document snapshots
+// without saving either stale row wholesale. The status predicate closes the
+// final race between the handler's post-git re-read and this write.
+func (s *PostgresStore) UpdateSpecTaskDesignReviewDocument(
+	ctx context.Context,
+	reviewID, taskID string,
+	reviewUpdates, taskUpdates map[string]any,
+) error {
+	if reviewID == "" || taskID == "" {
+		return fmt.Errorf("review ID and task ID are required")
+	}
+	now := time.Now()
+	reviewUpdates["updated_at"] = now
+	taskUpdates["updated_at"] = now
+	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&types.SpecTaskDesignReview{}).
+			Where("id = ? AND spec_task_id = ? AND status NOT IN ?", reviewID, taskID, []types.SpecTaskDesignReviewStatus{
+				types.SpecTaskDesignReviewStatusApproved,
+				types.SpecTaskDesignReviewStatusSuperseded,
+			}).
+			Updates(reviewUpdates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrSpecTaskDesignReviewNotEditable
+		}
+		result = tx.Model(&types.SpecTask{}).Where("id = ?", taskID).Updates(taskUpdates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("spec task not found: %s", taskID)
+		}
+		return nil
+	})
 }
 
 func (s *PostgresStore) DeleteSpecTaskDesignReview(ctx context.Context, id string) error {
@@ -349,8 +391,8 @@ func (s *PostgresStore) GetPendingCommentByPlanningSessionID(ctx context.Context
 // This is the PRIMARY mechanism for the comment queue (database-backed, restart-resilient).
 // A comment is queued if:
 // - queued_at IS NOT NULL (was submitted for processing)
-// - request_id IS NULL OR '' (not currently being processed)
-// - agent_response IS NULL OR '' (no response received yet)
+// - request_id IS NULL OR ” (not currently being processed)
+// - agent_response IS NULL OR ” (no response received yet)
 // Returns oldest queued comment (FIFO order by queued_at).
 func (s *PostgresStore) GetNextQueuedCommentForSession(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error) {
 	var comment types.SpecTaskDesignReviewComment

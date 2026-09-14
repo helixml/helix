@@ -368,7 +368,7 @@ func (s *GitIntegrationSuite) TestSyncAllBranchesPreservesLocalHelixSpecs() {
 	s.Equal(localCommit, s.getMiddleCommit(SpecsBranchName))
 }
 
-func (s *GitIntegrationSuite) TestExternalWriteRetainsLocalHelixSpecsWhenPublicationFails() {
+func (s *GitIntegrationSuite) TestExternalWriteReportsFailedHelixSpecsPublication() {
 	s.testRepo.ExternalURL = "file://" + filepath.Join(s.testDir, "unavailable-upstream")
 	var localCommit string
 	err := s.gitRepoService.WithExternalRepoWrite(
@@ -396,7 +396,7 @@ func (s *GitIntegrationSuite) TestExternalWriteRetainsLocalHelixSpecsWhenPublica
 			return writeErr
 		},
 	)
-	s.Require().NoError(err)
+	s.Require().ErrorContains(err, "failed to publish retained local branch to upstream")
 	s.Equal(localCommit, s.getMiddleCommit(SpecsBranchName))
 }
 

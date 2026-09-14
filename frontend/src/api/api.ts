@@ -2287,14 +2287,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
+  KindLocal = "local",
+  KindSlack = "slack",
   KindCron = "cron",
   KindWebhook = "webhook",
-  KindLocal = "local",
-  KindHelixEvents = "helix_events",
-  KindSlack = "slack",
-  KindGitLab = "gitlab",
-  KindEmail = "email",
   KindGitHub = "github",
+  KindGitLab = "gitlab",
+  KindHelixEvents = "helix_events",
+  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -3689,6 +3689,8 @@ export interface TypesCreateTaskRequest {
   /** Name is the task title. Empty means derive it from the prompt. */
   name?: string;
   planning_code_agent_config?: TypesCodeAgentExecutionConfig;
+  planning_goose_recipe_name?: string;
+  planning_goose_recipe_params?: Record<string, string>;
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   prompt?: string;
@@ -7208,6 +7210,8 @@ export interface TypesSpecTask {
    * created so project-default changes cannot alter an existing planning run.
    */
   planning_code_agent_config?: TypesCodeAgentExecutionConfig;
+  planning_goose_recipe_name?: string;
+  planning_goose_recipe_params?: Record<string, string>;
   planning_options?: TypesStartPlanningOptions;
   /**
    * Session tracking (single Helix session for entire workflow - planning + implementation)
@@ -7403,7 +7407,7 @@ export interface TypesSpecTaskDesignReviewDetailResponse {
 }
 
 export interface TypesSpecTaskDesignReviewDocumentUpdateRequest {
-  content?: string;
+  content: string;
   document_type: "requirements" | "technical_design" | "implementation_plan";
   original_content: string;
 }
@@ -7618,6 +7622,8 @@ export interface TypesSpecTaskWithProject {
    * created so project-default changes cannot alter an existing planning run.
    */
   planning_code_agent_config?: TypesCodeAgentExecutionConfig;
+  planning_goose_recipe_name?: string;
+  planning_goose_recipe_params?: Record<string, string>;
   planning_options?: TypesStartPlanningOptions;
   /**
    * Session tracking (single Helix session for entire workflow - planning + implementation)

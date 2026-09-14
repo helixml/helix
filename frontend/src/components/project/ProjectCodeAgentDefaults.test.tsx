@@ -97,6 +97,25 @@ describe("ProjectCodeAgentDefaults", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the implementation default when a legacy project has no planning default", () => {
+    const implementation = {
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeDeepSeekHarness,
+      credential_type:
+        TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_ref: "provider-1",
+      model: "qwen3.8-27b",
+    };
+    render(
+      <ProjectCodeAgentDefaults
+        project={{ id: "project-1", code_agent_config: implementation }}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    expect(controls.props[0].value).toEqual(implementation);
+    expect(controls.props[1].value).toEqual(implementation);
+  });
+
   it("patches the selected phase when an agent changes", () => {
     const onUpdate = vi.fn().mockResolvedValue(undefined);
     render(

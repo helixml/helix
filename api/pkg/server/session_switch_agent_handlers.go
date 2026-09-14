@@ -167,6 +167,11 @@ func (apiServer *HelixAPIServer) transitionSpecTaskToImplementation(
 	if err != nil {
 		return fmt.Errorf("load task session for implementation transition: %w", err)
 	}
+	if session.Metadata.Phase == string(types.SpecTaskPhaseImplementation) &&
+		sessionUsesAgentRuntime(session, config.Runtime) &&
+		apiServer.hasImplementationHandoff(ctx, session, prompt) {
+		return nil
+	}
 
 	live := apiServer.hasRunningAgentContainer(ctx, session.ID)
 	if live {
@@ -180,6 +185,7 @@ func (apiServer *HelixAPIServer) transitionSpecTaskToImplementation(
 	session.Metadata.Phase = string(types.SpecTaskPhaseImplementation)
 	if switchErr := apiServer.switchAgentInPlaceForNextTurn(ctx, session, config.Runtime, "", agentSwitchOptions{
 		createHandoff:  true,
+		requireHandoff: true,
 		handoffPrompt:  prompt,
 		omitTranscript: true,
 		deliverLive:    live,
@@ -214,11 +220,32 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 
 type agentSwitchOptions struct {
 	createHandoff  bool
+	requireHandoff bool
 	handoffReason  string
 	handoffPrompt  string
 	omitTranscript bool
 	deliverLive    bool
 	clearParentApp bool
+}
+
+func (apiServer *HelixAPIServer) hasImplementationHandoff(ctx context.Context, session *types.Session, prompt string) bool {
+	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: session.GenerationID,
+		PerPage:      10_000,
+	})
+	if err != nil {
+		return false
+	}
+	for _, interaction := range interactions {
+		if interaction != nil &&
+			interaction.Trigger == types.InteractionTriggerForkHandoff &&
+			interaction.PromptMessage == prompt &&
+			interaction.State != types.InteractionStateError {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileSessionAgentWithApp repairs sessions whose persisted ACP binding
@@ -388,8 +415,9 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 			CodeAgentConfigSnapshot: configSnapshot,
 		}
 		if _, err := apiServer.Store.CreateInteraction(ctx, handoffInteraction); err != nil {
-			// Best-effort: a failed handoff just degrades to "cold until the
-			// user's first message after the switch". Don't fail the switch.
+			if options.requireHandoff {
+				return system.NewHTTPError500(fmt.Sprintf("failed to create required handoff interaction: %v", err))
+			}
 			log.Warn().Err(err).
 				Str("session_id", session.ID).
 				Msg("switch-agent: failed to create handoff interaction; agent will warm up on user's first message instead")

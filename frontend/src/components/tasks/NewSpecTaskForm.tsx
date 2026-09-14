@@ -163,6 +163,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   // as runtime /<name> slash commands inside the desktop.
   const [selectedRecipeName, setSelectedRecipeName] = useState<string>("");
   const [recipeParams, setRecipeParams] = useState<Record<string, string>>({});
+  const [planningRecipeName, setPlanningRecipeName] = useState<string>("");
+  const [planningRecipeParams, setPlanningRecipeParams] = useState<Record<string, string>>({});
   const [justDoItMode, setJustDoItMode] = useState<boolean>(() => {
     try {
       return JSON.parse(localStorage.getItem(LAST_JUST_DO_IT_KEY) || "false");
@@ -317,7 +319,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   // the zed_external assistant's code_agent_runtime — without this gate the
   // recipe selector would render for non-goose agents and just show "no
   // recipes" forever, which is noisy.
-  const selectedAgentIsGoose = codeAgentConfig?.runtime === "goose_code";
+  const implementationAgentIsGoose = codeAgentConfig?.runtime === "goose_code";
+  const planningAgentIsGoose = planningCodeAgentConfig?.runtime === "goose_code";
 
   // Reset recipe selection when the chosen agent changes — recipe names are
   // scoped to the agent, so a leftover selection from a previous agent would
@@ -326,6 +329,11 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setSelectedRecipeName("");
     setRecipeParams({});
   }, [codeAgentConfig?.runtime]);
+
+  useEffect(() => {
+    setPlanningRecipeName("");
+    setPlanningRecipeParams({});
+  }, [planningCodeAgentConfig?.runtime]);
 
   useEffect(() => {
     setSandboxRuntime(
@@ -523,6 +531,11 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         goose_recipe_params:
           selectedRecipeName && Object.keys(recipeParams).length > 0
             ? recipeParams
+            : undefined,
+        planning_goose_recipe_name: planningRecipeName || undefined,
+        planning_goose_recipe_params:
+          planningRecipeName && Object.keys(planningRecipeParams).length > 0
+            ? planningRecipeParams
             : undefined,
         sandbox_resource_overrides: sandboxResourceOverrides,
         sandbox_runtime: sandboxRuntime,
@@ -1175,11 +1188,23 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 >
                   Planning agent
                 </Typography>
-                <CodeAgentExecutionControls
-                  value={planningCodeAgentConfig}
-                  onChange={setPlanningCodeAgentConfig}
-                  autoSelectDefault
-                />
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  <CodeAgentExecutionControls
+                    value={planningCodeAgentConfig}
+                    onChange={setPlanningCodeAgentConfig}
+                    autoSelectDefault
+                  />
+                  {planningAgentIsGoose && (
+                    <GooseRecipeSelector
+                      projectId={projectId}
+                      selectedRecipeName={planningRecipeName}
+                      onSelectedRecipeNameChange={setPlanningRecipeName}
+                      params={planningRecipeParams}
+                      onParamsChange={setPlanningRecipeParams}
+                      pendingAttachments={pendingAttachments}
+                    />
+                  )}
+                </Box>
               </Box>
             )}
             <Box>
@@ -1200,7 +1225,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   onSandboxRuntimeChange={handleSandboxRuntimeChange}
                   autoSelectDefault
                 />
-                {selectedAgentIsGoose && (
+                {implementationAgentIsGoose && (
                   <GooseRecipeSelector
                     projectId={projectId}
                     selectedRecipeName={selectedRecipeName}
