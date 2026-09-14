@@ -688,7 +688,7 @@ func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo
 		return "", fmt.Errorf("failed to create pull request: %w", err)
 	}
 
-	s.ensureGitHubReviewWebhook(ctx, client, owner, repoName)
+	s.ensureGitHubReviewWebhook(ctx, client, repo, owner, repoName)
 
 	return strconv.Itoa(pr.GetNumber()), nil
 }
@@ -697,18 +697,25 @@ func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo
 // webhook on the external repo so review feedback flows back to the spec task.
 // Best-effort: a failed install must not fail PR creation. No-op when the
 // feature is not configured (SetGitHubWebhookConfig).
-func (s *GitRepositoryService) ensureGitHubReviewWebhook(ctx context.Context, client *github.Client, owner, repoName string) {
+// Org repos get an org-scoped payload URL (/reviews/{org}) so deliveries can
+// only correlate to that org's tasks; repos without an org (personal) fall
+// back to the deployment-scoped URL.
+func (s *GitRepositoryService) ensureGitHubReviewWebhook(ctx context.Context, client *github.Client, repo *types.GitRepository, owner, repoName string) {
 	if s.githubWebhookURL == "" || s.githubWebhookSecret == "" {
 		return
 	}
+	payloadURL := s.githubWebhookURL
+	if repo.OrganizationID != "" {
+		payloadURL += "/" + repo.OrganizationID
+	}
 	if err := client.UpsertWebhook(ctx, owner, repoName, "helix-spec-task-reviews",
-		s.githubWebhookURL, []string{"pull_request_review"}, s.githubWebhookSecret); err != nil {
+		payloadURL, []string{"pull_request_review"}, s.githubWebhookSecret); err != nil {
 		// Reviews are a nice-to-have; CI feedback still arrives via the poller.
 		log.Warn().Err(err).Str("owner", owner).Str("repo", repoName).
 			Msg("failed to install GitHub review webhook on repo; PR review feedback will not reach the task agent")
 		return
 	}
-	log.Info().Str("owner", owner).Str("repo", repoName).
+	log.Info().Str("owner", owner).Str("repo", repoName).Str("payload_url", payloadURL).
 		Msg("GitHub review webhook installed on repo")
 }
 

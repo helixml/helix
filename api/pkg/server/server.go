@@ -965,8 +965,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	insecureRouter.HandleFunc("/webhooks/{id}", apiServer.webhookTriggerHandler).Methods(http.MethodPost, http.MethodPut)
 
 	// GitHub PR review feedback for spec tasks - auth handled by webhook
-	// signature validation (X-Hub-Signature-256, GITHUB_INTEGRATION_WEBHOOK_SECRET)
+	// signature validation (X-Hub-Signature-256, GITHUB_INTEGRATION_WEBHOOK_SECRET).
+	// {org} routes are org-scoped installs: correlation only matches that org's
+	// tasks. The unscoped route serves personal repos without an org.
 	insecureRouter.HandleFunc("/webhooks/github/reviews", apiServer.specTaskGitHubReviewWebhook).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/webhooks/github/reviews/{org}", apiServer.specTaskGitHubReviewWebhook).Methods(http.MethodPost)
 
 	// Teams Bot Framework webhook - auth handled by Bot Framework JWT validation
 	insecureRouter.HandleFunc("/teams/webhook/{appID}", apiServer.teamsWebhookHandler).Methods(http.MethodPost)

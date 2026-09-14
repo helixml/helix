@@ -761,6 +761,9 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 			if !matched {
 				continue
 			}
+			if filters.PRMatch.OrganizationID != "" && t.OrganizationID != filters.PRMatch.OrganizationID {
+				continue
+			}
 		}
 		cp := *t
 		if filters != nil && filters.SortBy == "last_message" {

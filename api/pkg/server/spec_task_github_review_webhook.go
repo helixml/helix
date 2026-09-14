@@ -14,6 +14,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/types"
 
+	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 )
 
@@ -136,7 +137,14 @@ func formatGitHubReviewFeedback(payload *githubReviewWebhookPayload, comments []
 }
 
 // specTaskGitHubReviewWebhook is the HTTP entry point registered on the
-// insecure router at /api/v1/webhooks/github/reviews (signature is the auth).
+// insecure router:
+//   - /api/v1/webhooks/github/reviews            (deployment-scoped: personal repos)
+//   - /api/v1/webhooks/github/reviews/{org}      (org-scoped: org repos)
+//
+// Signature is the auth; the org segment scopes correlation to that org's
+// tasks, so a leaked repo webhook secret can't forge events into other orgs
+// on a shared deployment. Deliveries are installed with the org's canonical
+// org id in the URL, resolved here via lookupOrg (slug tolerance is free).
 func (s *HelixAPIServer) specTaskGitHubReviewWebhook(w http.ResponseWriter, r *http.Request) {
 	secret := s.Cfg.GitHub.WebhookSecret
 	if secret == "" {
@@ -155,6 +163,20 @@ func (s *HelixAPIServer) specTaskGitHubReviewWebhook(w http.ResponseWriter, r *h
 	if !verifyGitHubSignature(secret, body, r.Header.Get("X-Hub-Signature-256")) {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
+	}
+
+	// Org-scoped installs carry the org in the URL. Resolve it (id or slug)
+	// to the canonical org before any store lookup; unknown orgs are 404s.
+	// Deliberately AFTER signature validation: garbage requests never touch
+	// the store.
+	orgID := ""
+	if vars := mux.Vars(r); vars["org"] != "" {
+		org, err := s.lookupOrg(r.Context(), vars["org"])
+		if err != nil {
+			http.Error(w, "unknown organization", http.StatusNotFound)
+			return
+		}
+		orgID = org.ID
 	}
 
 	switch event := r.Header.Get("X-GitHub-Event"); event {
@@ -182,7 +204,7 @@ func (s *HelixAPIServer) specTaskGitHubReviewWebhook(w http.ResponseWriter, r *h
 		return
 	}
 
-	if err := s.handleGitHubPRReview(r.Context(), &payload); err != nil {
+	if err := s.handleGitHubPRReview(r.Context(), orgID, &payload); err != nil {
 		log.Error().Err(err).
 			Str("repository", payload.Repository.FullName).
 			Int("pr_number", payload.PullRequest.Number).
@@ -197,10 +219,12 @@ func (s *HelixAPIServer) specTaskGitHubReviewWebhook(w http.ResponseWriter, r *h
 
 // handleGitHubPRReview correlates the review to spec tasks tracking this PR
 // and enqueues the normalized feedback to each eligible task's agent. Mirrors
-// the CI notifier path (interrupt=true, best-effort per task).
-func (s *HelixAPIServer) handleGitHubPRReview(ctx context.Context, payload *githubReviewWebhookPayload) error {
+// the CI notifier path (interrupt=true, best-effort per task). orgID scopes
+// correlation to one org's tasks; empty matches deployment-wide (personal repos).
+func (s *HelixAPIServer) handleGitHubPRReview(ctx context.Context, orgID string, payload *githubReviewWebhookPayload) error {
 	tasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
 		PRMatch: &types.SpecTaskPRMatch{
+			OrganizationID: orgID,
 			RepositoryName: payload.Repository.FullName,
 			PRNumber:       payload.PullRequest.Number,
 		},

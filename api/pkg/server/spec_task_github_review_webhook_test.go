@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -149,7 +150,19 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TearDownTest() {
 // post delivers a signed (or unsigned when signature is empty) request to the
 // webhook endpoint.
 func (s *SpecTaskGitHubReviewWebhookSuite) post(body []byte, event, signature string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/webhooks/github/reviews", bytes.NewReader(body))
+	return s.postWithOrg("", body, event, signature)
+}
+
+// postWithOrg delivers a request to the org-scoped route (mux vars set), or
+// the unscoped route when org is empty.
+func (s *SpecTaskGitHubReviewWebhookSuite) postWithOrg(org string, body []byte, event, signature string) *httptest.ResponseRecorder {
+	path := "/api/v1/webhooks/github/reviews"
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	if org != "" {
+		path += "/" + org
+		req = httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+		req = mux.SetURLVars(req, map[string]string{"org": org})
+	}
 	req.Header.Set("X-GitHub-Event", event)
 	req.Header.Set("Content-Type", "application/json")
 	if signature != "" {
@@ -305,4 +318,44 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TestNoCorrelatedTaskAcks() {
 	body := newReviewPayload(s.T())
 	rr := s.post(body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
 	s.Require().Equal(http.StatusOK, rr.Code, "no matching task = nothing to do, ack so GitHub stops retrying")
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestOrgScopedCorrelation() {
+	// Org route: the org segment is resolved to the canonical org id and
+	// passed into the correlation filter alongside repo + PR.
+	s.store.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, query *store.GetOrganizationQuery) (*types.Organization, error) {
+			s.Equal("org_e2e", query.ID)
+			return &types.Organization{ID: "org_e2e"}, nil
+		})
+	var capturedFilter *types.SpecTaskPRMatch
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+			capturedFilter = filters.PRMatch
+			return []*types.SpecTask{}, nil
+		})
+
+	body := newReviewPayload(s.T())
+	rr := s.postWithOrg("org_e2e", body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
+	s.Require().Equal(http.StatusOK, rr.Code)
+	s.Require().NotNil(capturedFilter)
+	s.Equal("org_e2e", capturedFilter.OrganizationID)
+	s.Equal("owner/repo", capturedFilter.RepositoryName)
+	s.Equal(42, capturedFilter.PRNumber)
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestOrgScopedUnknownOrgIs404() {
+	s.store.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).
+		Return(nil, store.ErrNotFound)
+
+	body := newReviewPayload(s.T())
+	rr := s.postWithOrg("org_ghost", body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
+	s.Require().Equal(http.StatusNotFound, rr.Code)
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestOrgScopedRejectsBadSignature() {
+	// Signature check must gate before org resolution and correlation.
+	body := newReviewPayload(s.T())
+	rr := s.postWithOrg("org_e2e", body, "pull_request_review", "sha256=deadbeef")
+	s.Require().Equal(http.StatusUnauthorized, rr.Code)
 }
