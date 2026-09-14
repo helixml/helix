@@ -58,7 +58,9 @@ import { CodeAgentConfigChangeSource } from "../../utils/codeAgentExecutionConfi
 import NoCodeAgentsDialog from "../agent/NoCodeAgentsDialog";
 import { useHasEnabledCodeAgentHarnesses } from "../../services/codeAgentHarnessesService";
 import {
+  preferredSpecTaskSandboxResources,
   preferredSpecTaskSandboxRuntime,
+  saveSpecTaskSandboxResourcesPreference,
   saveSpecTaskSandboxRuntimePreference,
 } from "../../utils/specTaskSandboxRuntime";
 import { DEFAULT_SANDBOX_PRESET, defaultSandboxResourceOverrides } from "../../constants/sandboxPresets";
@@ -334,12 +336,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     );
   }, [projectId, project?.default_sandbox_runtime]);
 
-  // Undefined when the project expresses no preference, so the create request
-  // omits sandbox_resource_overrides entirely and the server resolves the live
-  // default at container-create time. Sending the default explicitly would
-  // materialize it onto the row and freeze that task at today's value forever —
-  // the exact bug 1eff4e801 introduced. The selector still *displays* the
-  // default for an undefined value.
+  // A user-selected size is remembered per project. Without one, the project
+  // default is used; undefined means both are absent and lets the server resolve
+  // its live global default when the task starts.
   const projectDefaultSandboxVCPUs = project?.default_sandbox_resource_overrides?.vcpus;
   const projectDefaultSandboxMemoryMB = project?.default_sandbox_resource_overrides?.memory_mb;
   const projectCodeAgentConfigKey = JSON.stringify(
@@ -351,11 +350,21 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
   useEffect(() => {
     setSandboxResourceOverrides(
-      projectDefaultSandboxVCPUs && projectDefaultSandboxMemoryMB
-        ? { vcpus: projectDefaultSandboxVCPUs, memory_mb: projectDefaultSandboxMemoryMB }
-        : undefined,
+      preferredSpecTaskSandboxResources(
+        projectId,
+        projectDefaultSandboxVCPUs && projectDefaultSandboxMemoryMB
+          ? { vcpus: projectDefaultSandboxVCPUs, memory_mb: projectDefaultSandboxMemoryMB }
+          : undefined,
+      ),
     );
   }, [projectId, projectDefaultSandboxVCPUs, projectDefaultSandboxMemoryMB]);
+
+  const handleSandboxResourceOverridesChange = (
+    resources: TypesSandboxResourceOverrides,
+  ) => {
+    setSandboxResourceOverrides(resources);
+    saveSpecTaskSandboxResourcesPreference(projectId, resources);
+  };
 
   const handleSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
     setSandboxRuntime(runtime);
@@ -426,9 +435,12 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       project?.planning_code_agent_config || project?.code_agent_config,
     );
     setSandboxResourceOverrides(
-      projectDefaultSandboxVCPUs && projectDefaultSandboxMemoryMB
-        ? { vcpus: projectDefaultSandboxVCPUs, memory_mb: projectDefaultSandboxMemoryMB }
-        : undefined,
+      preferredSpecTaskSandboxResources(
+        projectId,
+        projectDefaultSandboxVCPUs && projectDefaultSandboxMemoryMB
+          ? { vcpus: projectDefaultSandboxVCPUs, memory_mb: projectDefaultSandboxMemoryMB }
+          : undefined,
+      ),
     );
     setSandboxRuntime(
       preferredSpecTaskSandboxRuntime(
@@ -1184,7 +1196,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   onChange={handleCodeAgentConfigChange}
                   sandboxResourceOverrides={sandboxResourceOverrides}
                   sandboxRuntime={sandboxRuntime}
-                  onSandboxResourceOverridesChange={setSandboxResourceOverrides}
+                  onSandboxResourceOverridesChange={handleSandboxResourceOverridesChange}
                   onSandboxRuntimeChange={handleSandboxRuntimeChange}
                   autoSelectDefault
                 />

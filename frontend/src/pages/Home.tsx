@@ -63,7 +63,9 @@ import {
   readNewChatTaskMode,
 } from './newChatLogic'
 import {
+  preferredSpecTaskSandboxResources,
   preferredSpecTaskSandboxRuntime,
+  saveSpecTaskSandboxResourcesPreference,
   saveSpecTaskSandboxRuntimePreference,
 } from '../utils/specTaskSandboxRuntime'
 
@@ -211,16 +213,29 @@ const Home: FC = () => {
     projectPlanningCodeAgentConfigKey,
   ])
 
-  // Compute follows the project, not its coding default. Keeping it in the
-  // effect above would reset a chosen sandbox size the moment picking a runtime
-  // seeded the project default and refreshed the project.
+  // Compute is remembered per project. A project with no explicit user choice
+  // starts from its saved defaults; an absent size remains undefined so the
+  // server can resolve its live global default when the task starts.
   useEffect(() => {
-    setTaskSandboxResources(undefined)
+    setTaskSandboxResources(preferredSpecTaskSandboxResources(
+      selectedProjectId,
+      selectedProject?.default_sandbox_resource_overrides,
+    ))
     setTaskSandboxRuntime(preferredSpecTaskSandboxRuntime(
       selectedProjectId,
       selectedProject?.default_sandbox_runtime,
     ))
-  }, [selectedProjectId, selectedProject?.default_sandbox_runtime])
+  }, [
+    selectedProjectId,
+    selectedProject?.default_sandbox_resource_overrides?.vcpus,
+    selectedProject?.default_sandbox_resource_overrides?.memory_mb,
+    selectedProject?.default_sandbox_runtime,
+  ])
+
+  const handleTaskSandboxResourcesChange = (resources: TypesSandboxResourceOverrides) => {
+    setTaskSandboxResources(resources)
+    saveSpecTaskSandboxResourcesPreference(selectedProjectId, resources)
+  }
 
   const handleTaskSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
     setTaskSandboxRuntime(runtime)
@@ -398,7 +413,7 @@ const Home: FC = () => {
         sandboxResourceOverrides={taskSandboxResources}
         sandboxRuntime={taskSandboxRuntime}
         onChange={handleTaskCodeAgentConfigChange}
-        onSandboxResourceOverridesChange={setTaskSandboxResources}
+        onSandboxResourceOverridesChange={handleTaskSandboxResourcesChange}
         onSandboxRuntimeChange={handleTaskSandboxRuntimeChange}
         disabled={submitting}
         autoSelectDefault

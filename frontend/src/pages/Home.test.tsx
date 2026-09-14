@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   TypesCodeAgentCredentialType,
   TypesCodeAgentRuntime,
+  TypesSandboxRuntime,
 } from '../api/api'
 import type {
   TypesCodeAgentExecutionConfig,
@@ -107,17 +108,38 @@ vi.mock('../components/create/AdvancedModelPicker', () => ({
 }))
 
 vi.mock('../components/agent/CodeAgentExecutionControls', () => ({
-  default: ({ value, onChange }: {
+  default: ({
+    value,
+    onChange,
+    sandboxResourceOverrides,
+    sandboxRuntime,
+    onSandboxResourceOverridesChange,
+    onSandboxRuntimeChange,
+  }: {
     value?: TypesCodeAgentExecutionConfig
     onChange: (value: TypesCodeAgentExecutionConfig, source: 'user') => void
+    sandboxResourceOverrides?: { vcpus?: number; memory_mb?: number }
+    sandboxRuntime?: TypesSandboxRuntime
+    onSandboxResourceOverridesChange?: (resources: { vcpus: number; memory_mb: number }) => void
+    onSandboxRuntimeChange?: (runtime: TypesSandboxRuntime) => void
   }) => (
     <>
       <div data-testid="active-code-agent">{value?.model || 'none'}</div>
+      <div data-testid="active-compute">
+        {sandboxResourceOverrides?.vcpus || 'global'}:{sandboxRuntime || 'unset'}
+      </div>
       <button onClick={() => onChange({
         runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
         credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
         model: 'manual-model',
       }, 'user')}>Select coding agent</button>
+      <button onClick={() => onSandboxResourceOverridesChange?.({
+        vcpus: 4,
+        memory_mb: 8192,
+      })}>Select compute size</button>
+      <button onClick={() => onSandboxRuntimeChange?.(
+        TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop,
+      )}>Select compute environment</button>
     </>
   ),
 }))
@@ -241,5 +263,47 @@ describe('Home project task mode', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /Build/ }))
     expect(screen.getByTestId('active-code-agent')).toHaveTextContent('implementation-model')
     expect(localStorage.getItem('helix_project_task_mode:user-1:org-1:project-1')).toBe('build')
+  })
+})
+
+describe('Home project compute preference', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockRouterState.projectId = 'project-1'
+    mockProjectState.projects = [{
+      id: 'project-1',
+      name: 'Project One',
+      default_sandbox_runtime: TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
+      default_sandbox_resource_overrides: { vcpus: 8, memory_mb: 16384 },
+    }]
+    mockProjectState.loading = false
+  })
+
+  it('starts from the selected project compute defaults', async () => {
+    renderHome()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-compute'))
+        .toHaveTextContent('8:headless-ubuntu')
+    })
+  })
+
+  it('remembers the last explicit compute choices for that project', async () => {
+    renderHome()
+    await waitFor(() => {
+      expect(screen.getByTestId('active-compute'))
+        .toHaveTextContent('8:headless-ubuntu')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select compute size' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select compute environment' }))
+
+    expect(JSON.parse(
+      localStorage.getItem('helix_spec_task_compute_project-1') || '',
+    )).toEqual({
+      sandbox_resource_overrides: { vcpus: 4, memory_mb: 8192 },
+      sandbox_runtime: TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop,
+    })
   })
 })
