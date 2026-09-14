@@ -2287,14 +2287,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindEmail = "email",
-  KindWebhook = "webhook",
-  KindHelixEvents = "helix_events",
-  KindSlack = "slack",
-  KindLocal = "local",
-  KindGitHub = "github",
-  KindGitLab = "gitlab",
   KindCron = "cron",
+  KindSlack = "slack",
+  KindWebhook = "webhook",
+  KindEmail = "email",
+  KindGitLab = "gitlab",
+  KindLocal = "local",
+  KindHelixEvents = "helix_events",
+  KindGitHub = "github",
 }
 
 export interface TransportResolvedActivation {
@@ -7400,6 +7400,12 @@ export interface TypesSpecTaskDesignReviewDetailResponse {
   comments?: TypesSpecTaskDesignReviewComment[];
   review?: TypesSpecTaskDesignReview;
   spec_task?: TypesSpecTask;
+}
+
+export interface TypesSpecTaskDesignReviewDocumentUpdateRequest {
+  content?: string;
+  document_type: "requirements" | "technical_design" | "implementation_plan";
+  original_content: string;
 }
 
 export interface TypesSpecTaskDesignReviewListResponse {
@@ -18256,6 +18262,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesSpecTaskDesignReviewComment, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments/${commentId}/resolve`,
         method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update one Markdown design document with optimistic concurrency
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsDocumentUpdate
+     * @summary Update a design review document
+     * @request PUT:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/document
+     * @secure
+     */
+    v1SpecTasksDesignReviewsDocumentUpdate: (
+      specTaskId: string,
+      reviewId: string,
+      request: TypesSpecTaskDesignReviewDocumentUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskDesignReview, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/document`,
+        method: "PUT",
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",

@@ -75,6 +75,14 @@ the existing design-review document surface, so reading, commenting, revising,
 and approving the plan no longer opens a separate workspace tab. Diff, files,
 and subagents remain available throughout planning.
 
+Rendered plan documents use the same Markdown component and typography tokens
+as `AgentChat`. A source toggle opens the underlying Markdown as editable plain
+text, with preview, save, cancel, and `Cmd/Ctrl+S`. Saves commit the canonical
+file on `helix-specs` and update the review/task snapshots. The client sends the
+content it started from, and the API returns a conflict if the planning agent
+changed that document in the meantime; reviewer edits never silently overwrite
+an agent push. Inline comments remain anchored and editable from rendered mode.
+
 ## Compatibility
 
 The API adds `planning_code_agent_config` to project and task create/update

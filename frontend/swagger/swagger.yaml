@@ -3546,24 +3546,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - email
-    - webhook
-    - helix_events
-    - slack
-    - local
-    - github
-    - gitlab
     - cron
+    - slack
+    - webhook
+    - email
+    - gitlab
+    - local
+    - helix_events
+    - github
     type: string
     x-enum-varnames:
-    - KindEmail
-    - KindWebhook
-    - KindHelixEvents
-    - KindSlack
-    - KindLocal
-    - KindGitHub
-    - KindGitLab
     - KindCron
+    - KindSlack
+    - KindWebhook
+    - KindEmail
+    - KindGitLab
+    - KindLocal
+    - KindHelixEvents
+    - KindGitHub
   transport.ResolvedActivation:
     properties:
       address:
@@ -11654,6 +11654,22 @@ definitions:
         $ref: '#/definitions/types.SpecTaskDesignReview'
       spec_task:
         $ref: '#/definitions/types.SpecTask'
+    type: object
+  types.SpecTaskDesignReviewDocumentUpdateRequest:
+    properties:
+      content:
+        type: string
+      document_type:
+        enum:
+        - requirements
+        - technical_design
+        - implementation_plan
+        type: string
+      original_content:
+        type: string
+    required:
+    - document_type
+    - original_content
     type: object
   types.SpecTaskDesignReviewListResponse:
     properties:
@@ -26786,6 +26802,56 @@ paths:
       security:
       - BearerAuth: []
       summary: Resolve design review comment
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/document:
+    put:
+      consumes:
+      - application/json
+      description: Update one Markdown design document with optimistic concurrency
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      - description: Document edit
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SpecTaskDesignReviewDocumentUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReview'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update a design review document
       tags:
       - SpecTasks
   /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit:

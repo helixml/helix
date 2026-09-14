@@ -19873,6 +19873,83 @@
                 }
             }
         },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/document": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update one Markdown design document with optimistic concurrency",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Update a design review document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Document edit",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewDocumentUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReview"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit": {
             "post": {
                 "security": [
@@ -28034,24 +28111,24 @@
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "email",
-                "webhook",
-                "helix_events",
+                "cron",
                 "slack",
-                "local",
-                "github",
+                "webhook",
+                "email",
                 "gitlab",
-                "cron"
+                "local",
+                "helix_events",
+                "github"
             ],
             "x-enum-varnames": [
-                "KindEmail",
-                "KindWebhook",
-                "KindHelixEvents",
+                "KindCron",
                 "KindSlack",
-                "KindLocal",
-                "KindGitHub",
+                "KindWebhook",
+                "KindEmail",
                 "KindGitLab",
-                "KindCron"
+                "KindLocal",
+                "KindHelixEvents",
+                "KindGitHub"
             ]
         },
         "transport.ResolvedActivation": {
@@ -38887,6 +38964,29 @@
                 },
                 "spec_task": {
                     "$ref": "#/definitions/types.SpecTask"
+                }
+            }
+        },
+        "types.SpecTaskDesignReviewDocumentUpdateRequest": {
+            "type": "object",
+            "required": [
+                "document_type",
+                "original_content"
+            ],
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "document_type": {
+                    "type": "string",
+                    "enum": [
+                        "requirements",
+                        "technical_design",
+                        "implementation_plan"
+                    ]
+                },
+                "original_content": {
+                    "type": "string"
                 }
             }
         },

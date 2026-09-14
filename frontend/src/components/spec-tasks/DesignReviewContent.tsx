@@ -31,19 +31,19 @@ import {
   ToggleButton,
   GlobalStyles,
 } from "@mui/material";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import EditIcon from "@mui/icons-material/Edit";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import Description from "@mui/icons-material/Description";
-import { GitBranch } from "lucide-react";
-import CommentIcon from "@mui/icons-material/Comment";
-import AddCommentIcon from "@mui/icons-material/AddComment";
-import ShareIcon from "@mui/icons-material/Share";
-import CheckIcon from "@mui/icons-material/Check";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import {
+  ArrowLeft,
+  Check,
+  CodeXml,
+  Eye,
+  FileText,
+  GitBranch,
+  MessageSquare,
+  MessageSquarePlus,
+  Save,
+  Share2,
+  X,
+} from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import ReconnectingWebSocket from "reconnecting-websocket";
 import { applyPatch } from "../../utils/patchUtils";
@@ -56,6 +56,7 @@ import {
   getUnresolvedCount,
   designReviewKeys,
   useCommentQueueStatus,
+  useUpdateDesignReviewDocument,
 } from "../../services/designReviewService";
 import useSnackbar from "../../hooks/useSnackbar";
 import useApi from "../../hooks/useApi";
@@ -72,8 +73,11 @@ import ReviewSubmitDialog from "./ReviewSubmitDialog";
 import RejectDesignDialog from "./RejectDesignDialog";
 import { useSpecTask, useArchiveSpecTask } from "../../services/specTaskService";
 import { TypesSpecTaskStatus } from "../../api/api";
+import Markdown from "../session/Markdown";
+import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY, TYPOGRAPHY } from "../../styles/typography";
 
 type DocumentType = "requirements" | "technical_design" | "implementation_plan";
+type DocumentMode = "preview" | "edit";
 
 interface DesignReviewContentProps {
   specTaskId: string;
@@ -91,6 +95,14 @@ const DOCUMENT_LABELS = {
   requirements: "Requirements Specification",
   technical_design: "Technical Design",
   implementation_plan: "Implementation Plan",
+};
+
+const TOOLBAR_ICON_BUTTON_SX = {
+  width: 30,
+  height: 30,
+  p: 0,
+  color: "text.secondary",
+  "&:hover": { color: "text.primary" },
 };
 
 type NormMapEntry = { node: Text; offset: number };
@@ -200,6 +212,9 @@ export default function DesignReviewContent({
 
   // Review state
   const [activeTab, setActiveTab] = useState<DocumentType>(initialTab);
+  const [documentMode, setDocumentMode] = useState<DocumentMode>("preview");
+  const [draftContent, setDraftContent] = useState<string | null>(null);
+  const [originalDraftContent, setOriginalDraftContent] = useState<string | null>(null);
   const [showCommentForm, setShowCommentForm] = useState(false);
   const [selectedText, setSelectedText] = useState("");
   const [commentText, setCommentText] = useState("");
@@ -308,6 +323,7 @@ export default function DesignReviewContent({
   );
 
   const submitReviewMutation = useSubmitReview(specTaskId, reviewId);
+  const updateDocumentMutation = useUpdateDesignReviewDocument(specTaskId, reviewId);
   const createCommentMutation = useCreateComment(specTaskId, reviewId);
   const resolveCommentMutation = useResolveComment(specTaskId, reviewId);
 
@@ -393,6 +409,16 @@ export default function DesignReviewContent({
         );
     }
   }, [review, activeTab]);
+  const displayedDocumentContent = draftContent ?? documentContent;
+  const hasUnsavedDocumentChanges =
+    draftContent !== null && draftContent !== originalDraftContent;
+  const canCommentOnDocument =
+    documentMode === "preview" && !hasUnsavedDocumentChanges;
+  const canEditDocument =
+    Boolean(review) &&
+    review?.status !== "approved" &&
+    review?.status !== "superseded" &&
+    task?.status !== TypesSpecTaskStatus.TaskStatusDone;
 
   // Get comment counts per document type
   const getCommentCount = (docType: DocumentType) => {
@@ -449,11 +475,60 @@ export default function DesignReviewContent({
 
   // Handle tab change
   const handleTabChange = (newTab: DocumentType) => {
+    if (hasUnsavedDocumentChanges) {
+      snackbar.warning("Save or cancel your document changes before switching tabs");
+      return;
+    }
+    setDocumentMode("preview");
+    setDraftContent(null);
+    setOriginalDraftContent(null);
     setActiveTab(newTab);
     setViewedTabs((prev) => new Set(prev).add(newTab));
     viewedContentRef.current.set(newTab, getTabContent(newTab));
     if (documentRef.current) {
       documentRef.current.scrollTop = 0;
+    }
+  };
+
+  const handleEditDocument = () => {
+    removeHighlight();
+    setShowCommentForm(false);
+    setSelectedText("");
+    setSelectedOffset(null);
+    setHoverButtonPosition(null);
+    hoveredElementRef.current = null;
+    if (canEditDocument && draftContent === null) {
+      const content = getTabContent(activeTab);
+      setDraftContent(content);
+      setOriginalDraftContent(content);
+    }
+    setDocumentMode("edit");
+  };
+
+  const handleCancelDocumentEdit = () => {
+    setDraftContent(null);
+    setOriginalDraftContent(null);
+    setDocumentMode("preview");
+  };
+
+  const handleSaveDocument = async () => {
+    if (!canEditDocument || draftContent === null || originalDraftContent === null) return;
+    try {
+      await updateDocumentMutation.mutateAsync({
+        document_type: activeTab,
+        content: draftContent,
+        original_content: originalDraftContent,
+      });
+      setDraftContent(null);
+      setOriginalDraftContent(null);
+      setDocumentMode("preview");
+      snackbar.success(`${DOCUMENT_LABELS[activeTab]} saved`);
+    } catch (error: any) {
+      if (error?.response?.status === 409) {
+        snackbar.error("This document changed while you were editing. Your draft is preserved; refresh before saving again.");
+      } else {
+        snackbar.error(error?.message || "Failed to save design document");
+      }
     }
   };
 
@@ -1091,7 +1166,7 @@ export default function DesignReviewContent({
   };
 
   const removeHighlight = () => {
-    CSS.highlights.delete("comment-highlight");
+    CSS.highlights?.delete("comment-highlight");
     savedHighlightRangeRef.current = null;
   };
 
@@ -1386,7 +1461,7 @@ export default function DesignReviewContent({
                 >
                   <ToggleButton value="chat">Chat</ToggleButton>
                   <ToggleButton value="spec">
-                    <Description sx={{ fontSize: 14, mr: 0.5 }} />
+                    <FileText size={14} style={{ marginRight: 4 }} />
                     Spec
                   </ToggleButton>
                 </ToggleButtonGroup>
@@ -1394,9 +1469,10 @@ export default function DesignReviewContent({
                 <IconButton
                   onClick={onBack}
                   size="small"
+                  aria-label="Back to task chat"
                   sx={{ display: { xs: 'flex', sm: 'none' }, ml: 0.5, mr: 0.5 }}
                 >
-                  <ArrowBackIcon sx={{ fontSize: 18 }} />
+                  <ArrowLeft size={18} />
                 </IconButton>
               </>
             )}
@@ -1481,12 +1557,13 @@ export default function DesignReviewContent({
                 <IconButton
                   size="small"
                   onClick={handleShareLink}
-                  sx={{ p: 0.5 }}
+                  aria-label="Copy shareable link"
+                  sx={TOOLBAR_ICON_BUTTON_SX}
                 >
                   {shareLinkCopied ? (
-                    <CheckIcon color="success" fontSize="small" />
+                    <Check size={18} color="currentColor" />
                   ) : (
-                    <ShareIcon fontSize="small" />
+                    <Share2 size={18} />
                   )}
                 </IconButton>
               </Tooltip>
@@ -1495,15 +1572,75 @@ export default function DesignReviewContent({
                 <IconButton
                   size="small"
                   onClick={() => setShowCommentLog(!showCommentLog)}
-                  sx={{ p: 0.5 }}
+                  aria-label="Toggle comment log"
+                  sx={{
+                    ...TOOLBAR_ICON_BUTTON_SX,
+                    ...(showCommentLog ? { bgcolor: "action.selected", color: "text.primary" } : {}),
+                  }}
                 >
                   <Badge
                     badgeContent={activeDocComments.length}
                     color="primary"
                   >
-                    <CommentIcon fontSize="small" />
+                    <MessageSquare size={18} />
                   </Badge>
                 </IconButton>
+              </Tooltip>
+
+              {draftContent !== null && (
+                <>
+                  {hasUnsavedDocumentChanges && (
+                    <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                      Unsaved
+                    </Typography>
+                  )}
+                  <Tooltip title="Cancel document changes">
+                    <IconButton
+                      size="small"
+                      onClick={handleCancelDocumentEdit}
+                      aria-label="Cancel document changes"
+                      disabled={updateDocumentMutation.isPending}
+                      sx={TOOLBAR_ICON_BUTTON_SX}
+                    >
+                      <X size={18} />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Save document">
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={handleSaveDocument}
+                        aria-label="Save document"
+                        disabled={!canEditDocument || !hasUnsavedDocumentChanges || updateDocumentMutation.isPending}
+                        sx={TOOLBAR_ICON_BUTTON_SX}
+                      >
+                        {updateDocumentMutation.isPending ? <CircularProgress size={16} /> : <Save size={18} />}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </>
+              )}
+
+              <Tooltip
+                title={documentMode === "edit"
+                  ? "Preview rendered markdown"
+                  : canEditDocument ? "Edit markdown source" : "View markdown source"}
+              >
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={() => documentMode === "edit" ? setDocumentMode("preview") : handleEditDocument()}
+                    aria-label={documentMode === "edit"
+                      ? "Preview rendered markdown"
+                      : canEditDocument ? "Edit markdown source" : "View markdown source"}
+                    sx={{
+                      ...TOOLBAR_ICON_BUTTON_SX,
+                      ...(documentMode === "edit" ? { bgcolor: "action.selected", color: "text.primary" } : {}),
+                    }}
+                  >
+                    {documentMode === "edit" ? <Eye size={18} /> : <CodeXml size={18} />}
+                  </IconButton>
+                </span>
               </Tooltip>
             </Box>
           </Box>
@@ -1533,7 +1670,7 @@ export default function DesignReviewContent({
             }}
           >
             {/* Hover button for adding comment without text selection */}
-            {hoverButtonPosition && !showCommentForm && !isNarrowViewport && (
+            {canCommentOnDocument && hoverButtonPosition && !showCommentForm && !isNarrowViewport && (
               <Tooltip title="Add comment" placement="top">
                 <IconButton
                   size="small"
@@ -1551,6 +1688,7 @@ export default function DesignReviewContent({
                     setHoverButtonPosition(null);
                     setShowCommentForm(true);
                   }}
+                  aria-label="Add comment"
                   sx={{
                     position: "absolute",
                     top: hoverButtonPosition.y,
@@ -1558,12 +1696,12 @@ export default function DesignReviewContent({
                     zIndex: 15,
                     bgcolor: "#1976d2",
                     color: "#fff",
-                    width: 28,
-                    height: 28,
+                    width: 30,
+                    height: 30,
                     "&:hover": { bgcolor: "#1565c0" },
                   }}
                 >
-                  <AddCommentIcon sx={{ fontSize: 14 }} />
+                    <MessageSquarePlus size={18} />
                 </IconButton>
               </Tooltip>
             )}
@@ -1571,10 +1709,10 @@ export default function DesignReviewContent({
             {/* Document content */}
             <Box
               onMouseDown={() => { if (!showCommentForm) removeHighlight(); }}
-              onMouseUp={() => handleTextSelection(false)}
-              onTouchEnd={() => handleTextSelection(true)}
+              onMouseUp={() => { if (canCommentOnDocument) handleTextSelection(false); }}
+              onTouchEnd={() => { if (canCommentOnDocument) handleTextSelection(true); }}
               onMouseMove={(e) => {
-                if (showCommentForm || isNarrowViewport) return;
+                if (!canCommentOnDocument || showCommentForm || isNarrowViewport) return;
                 const target = e.target as Node;
                 for (const bubble of commentRefs.current.values()) {
                   if (bubble.contains(target)) {
@@ -1615,81 +1753,8 @@ export default function DesignReviewContent({
                   py: 1.5,
                   borderRadius: 1,
                   boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-                  fontSize: "14px",
-                  lineHeight: 1.6,
+                  fontFamily: APP_FONT_FAMILY,
                   color: "text.primary",
-
-                  "& h1": {
-                    fontSize: "1.5rem",
-                    fontWeight: 600,
-                    color: "text.primary",
-                    marginTop: 0,
-                    marginBottom: "0.75rem",
-                    lineHeight: 1.3,
-                    borderBottom: 1,
-                    borderColor: "divider",
-                    paddingBottom: "0.5rem",
-                    "&:first-of-type": {
-                      marginTop: 0,
-                    },
-                  },
-                  "& h2": {
-                    fontSize: "1.25rem",
-                    fontWeight: 600,
-                    color: "text.primary",
-                    marginTop: "1.25rem",
-                    marginBottom: "0.5rem",
-                    lineHeight: 1.3,
-                  },
-                  "& h3": {
-                    fontSize: "1.1rem",
-                    fontWeight: 600,
-                    color: "text.primary",
-                    marginTop: "1rem",
-                    marginBottom: "0.4rem",
-                  },
-                  "& p": {
-                    marginBottom: "0.75rem",
-                  },
-                  "& ul, & ol": {
-                    marginBottom: "0.75rem",
-                    paddingLeft: "1.5rem",
-                  },
-                  "& li": {
-                    marginBottom: "0.25rem",
-                  },
-                  "& blockquote": {
-                    borderLeft: "3px solid",
-                    borderColor: "divider",
-                    paddingLeft: "1rem",
-                    marginLeft: 0,
-                    fontStyle: "italic",
-                    color: "text.secondary",
-                  },
-                  "& code": {
-                    fontFamily: "Monaco, Consolas, monospace",
-                    fontSize: "0.85em",
-                    bgcolor: "action.hover",
-                    padding: "1px 4px",
-                    borderRadius: "3px",
-                    border: 1,
-                    borderColor: "divider",
-                  },
-                  "& pre": {
-                    marginBottom: "0.75rem",
-                    borderRadius: "4px",
-                    overflow: "auto",
-                  },
-                  "& a": {
-                    color: "#00d5ff",
-                    textDecoration: "none",
-                    "&:hover": {
-                      textDecoration: "underline",
-                    },
-                    "&:visited": {
-                      color: "#00d5ff",
-                    },
-                  },
                   "&::selection": {
                     bgcolor: "#b3d7ff",
                     color: "#000",
@@ -1705,44 +1770,50 @@ export default function DesignReviewContent({
                 },
               }}
             >
-              <Paper ref={markdownRef} className="markdown-body" elevation={2}>
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    code({ node, inline, className, children, ref, ...props }: any) {
-                      const match = /language-(\w+)/.exec(className || "");
-                      return !inline && match ? (
-                        <SyntaxHighlighter
-                          style={oneLight as any}
-                          language={match[1]}
-                          PreTag="div"
-                          customStyle={{
-                            borderRadius: "4px",
-                            border: "1px solid #e0e0e0",
-                            fontSize: "14px",
-                            // Prevent code blocks from capturing vertical scroll
-                            // clip doesn't create a scroll container like auto does
-                            overflowX: "auto",
-                            overflowY: "clip",
-                          }}
-                          {...props}
-                        >
-                          {String(children).replace(/\n$/, "")}
-                        </SyntaxHighlighter>
-                      ) : (
-                        <code className={className} {...props}>
-                          {children}
-                        </code>
-                      );
-                    },
-                  }}
-                >
-                  {documentContent}
-                </ReactMarkdown>
-              </Paper>
+              {documentMode === "edit" ? (
+                <Paper className="markdown-body" elevation={0}>
+                  <Box
+                    component="textarea"
+                    aria-label={`${DOCUMENT_LABELS[activeTab]} markdown source`}
+                    value={displayedDocumentContent}
+                    readOnly={!canEditDocument}
+                    onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setDraftContent(event.target.value)}
+                    onKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+                        event.preventDefault();
+                        if (hasUnsavedDocumentChanges && !updateDocumentMutation.isPending) {
+                          handleSaveDocument();
+                        }
+                      }
+                    }}
+                    spellCheck={false}
+                    sx={{
+                      display: "block",
+                      width: "100%",
+                      minHeight: "calc(100vh - 250px)",
+                      resize: "vertical",
+                      border: 0,
+                      outline: 0,
+                      bgcolor: "transparent",
+                      color: "text.primary",
+                      fontFamily: APP_MONO_FONT_FAMILY,
+                      fontSize: `${TYPOGRAPHY.codeFontSize}px`,
+                      lineHeight: TYPOGRAPHY.codeLineHeight,
+                    }}
+                  />
+                </Paper>
+              ) : (
+                <Paper ref={markdownRef} className="markdown-body" elevation={0}>
+                  <Markdown
+                    text={displayedDocumentContent}
+                    session={null}
+                    renderThinkingWidget={false}
+                  />
+                </Paper>
+              )}
 
               {/* Inline Comments Overlay */}
-              {inlineComments.map((comment) => {
+              {canCommentOnDocument && inlineComments.map((comment) => {
                 if (!comment.quoted_text) return null;
                 const yPos = commentPositions.get(comment.id!);
                 if (yPos === undefined) return null;
@@ -1785,7 +1856,7 @@ export default function DesignReviewContent({
               })}
 
               {/* New Comment Form (Inline) */}
-              <InlineCommentForm
+              {canCommentOnDocument && <InlineCommentForm
                 show={showCommentForm}
                 yPos={
                   commentPositions.get(NEW_COMMENT_FORM_KEY) ??
@@ -1805,7 +1876,7 @@ export default function DesignReviewContent({
                 isNarrowViewport={isNarrowViewport}
                 isSubmitting={createCommentMutation.isPending}
                 outerRef={handleCommentFormRef}
-              />
+              />}
             </Box>
           </Box>
         </Box>
