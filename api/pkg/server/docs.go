@@ -22644,6 +22644,12 @@ const docTemplate = `{
                         "description": "Organization ID",
                         "name": "org_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Discover a subscription after returning from Checkout",
+                        "name": "discover_subscription",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -28038,24 +28044,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "email",
-                "gitlab",
-                "local",
-                "webhook",
                 "cron",
                 "helix_events",
-                "github",
-                "slack"
+                "email",
+                "local",
+                "webhook",
+                "slack",
+                "gitlab",
+                "github"
             ],
             "x-enum-varnames": [
-                "KindEmail",
-                "KindGitLab",
-                "KindLocal",
-                "KindWebhook",
                 "KindCron",
                 "KindHelixEvents",
-                "KindGitHub",
-                "KindSlack"
+                "KindEmail",
+                "KindLocal",
+                "KindWebhook",
+                "KindSlack",
+                "KindGitLab",
+                "KindGitHub"
             ]
         },
         "transport.ResolvedActivation": {

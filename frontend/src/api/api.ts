@@ -2287,14 +2287,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindEmail = "email",
-  KindGitLab = "gitlab",
-  KindLocal = "local",
-  KindWebhook = "webhook",
   KindCron = "cron",
   KindHelixEvents = "helix_events",
-  KindGitHub = "github",
+  KindEmail = "email",
+  KindLocal = "local",
+  KindWebhook = "webhook",
   KindSlack = "slack",
+  KindGitLab = "gitlab",
+  KindGitHub = "github",
 }
 
 export interface TransportResolvedActivation {
@@ -19537,6 +19537,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Organization ID */
         org_id?: string;
+        /** Discover a subscription after returning from Checkout */
+        discover_subscription?: boolean;
       },
       params: RequestParams = {},
     ) =>

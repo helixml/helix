@@ -3546,24 +3546,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - email
-    - gitlab
-    - local
-    - webhook
     - cron
     - helix_events
-    - github
+    - email
+    - local
+    - webhook
     - slack
+    - gitlab
+    - github
     type: string
     x-enum-varnames:
-    - KindEmail
-    - KindGitLab
-    - KindLocal
-    - KindWebhook
     - KindCron
     - KindHelixEvents
-    - KindGitHub
+    - KindEmail
+    - KindLocal
+    - KindWebhook
     - KindSlack
+    - KindGitLab
+    - KindGitHub
   transport.ResolvedActivation:
     properties:
       address:
@@ -28622,6 +28622,10 @@ paths:
         in: query
         name: org_id
         type: string
+      - description: Discover a subscription after returning from Checkout
+        in: query
+        name: discover_subscription
+        type: boolean
       responses:
         "200":
           description: OK
