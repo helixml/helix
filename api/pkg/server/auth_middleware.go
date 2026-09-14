@@ -226,7 +226,12 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.APIKeyType = apiKey.Type
 		user.ID = apiKey.Owner
 		user.Type = apiKey.OwnerType
-		user.Admin = auth.isAdminWithContext(ctx, user.ID)
+		// An org-labelled key is scoped to its organization: the bearer acts as
+		// the key owner within that org (membership rules apply) and must not
+		// inherit the owner's global admin — otherwise a global admin's org key
+		// would reach every organization and admin endpoint. dbUser carries the
+		// owner's Admin flag, so it must be cleared here, not just not set.
+		user.Admin = apiKey.OrganizationID == "" && auth.isAdminWithContext(ctx, user.ID)
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}
