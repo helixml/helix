@@ -2287,13 +2287,13 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindEmail = "email",
-  KindWebhook = "webhook",
-  KindGitLab = "gitlab",
-  KindLocal = "local",
-  KindHelixEvents = "helix_events",
-  KindSlack = "slack",
   KindCron = "cron",
+  KindHelixEvents = "helix_events",
+  KindEmail = "email",
+  KindLocal = "local",
+  KindWebhook = "webhook",
+  KindSlack = "slack",
+  KindGitLab = "gitlab",
   KindGitHub = "github",
 }
 
@@ -4341,6 +4341,7 @@ export interface TypesInteraction {
    */
   last_zed_message_offset?: number;
   mode?: TypesSessionMode;
+  pending_question?: TypesPendingQuestion;
   /**
    * PromptID links this interaction back to the prompt_history_entry that
    * created it (when the interaction was dispatched by the queue, as opposed
@@ -4355,6 +4356,7 @@ export interface TypesInteraction {
   prompt_message?: string;
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
+  question_history?: TypesResolvedQuestion[];
   rag_results?: TypesSessionRAGResult[];
   /**
    * ResponseEntries holds the structured response as an ordered list of typed entries.
@@ -5228,6 +5230,16 @@ export interface TypesPasswordUpdateRequest {
   new_password?: string;
 }
 
+export interface TypesPendingQuestion {
+  asked_at?: string;
+  questions?: TypesUserQuestion[];
+  request_id?: string;
+  source?: string;
+  thread_id?: string;
+  tool_call_id?: string;
+  turn_request_id?: string;
+}
+
 export interface TypesPinnedChat {
   id?: string;
   kind?: string;
@@ -5825,6 +5837,14 @@ export interface TypesPushResponse {
   success?: boolean;
 }
 
+export interface TypesQuestionActionResponse {
+  status?: string;
+}
+
+export interface TypesQuestionRespondRequest {
+  answers?: Record<string, string>;
+}
+
 export interface TypesQuotaResponse {
   active_concurrent_desktops?: number;
   /**
@@ -5969,6 +5989,19 @@ export interface TypesRepositoryInfo {
   html_url?: string;
   name?: string;
   private?: boolean;
+}
+
+export interface TypesResolvedQuestion {
+  answers?: Record<string, string>;
+  asked_at?: string;
+  outcome?: string;
+  questions?: TypesUserQuestion[];
+  request_id?: string;
+  resolved_at?: string;
+  source?: string;
+  thread_id?: string;
+  tool_call_id?: string;
+  turn_request_id?: string;
 }
 
 export enum TypesResource {
@@ -8454,6 +8487,20 @@ export interface TypesUserModelUsage {
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
+}
+
+export interface TypesUserQuestion {
+  allow_custom_answer?: boolean;
+  header?: string;
+  id?: string;
+  multi_select?: boolean;
+  options?: TypesUserQuestionOption[];
+  question?: string;
+}
+
+export interface TypesUserQuestionOption {
+  description?: string;
+  label?: string;
 }
 
 export interface TypesUserResponse {
@@ -12522,6 +12569,49 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Cancels the agent question currently pending on an interaction
+     *
+     * @tags interactions
+     * @name V1InteractionsQuestionsCancelCreate
+     * @summary Cancel an agent question
+     * @request POST:/api/v1/interactions/{interaction_id}/questions/{request_id}/cancel
+     * @secure
+     */
+    v1InteractionsQuestionsCancelCreate: (interactionId: string, requestId: string, params: RequestParams = {}) =>
+      this.request<TypesQuestionActionResponse, any>({
+        path: `/api/v1/interactions/${interactionId}/questions/${requestId}/cancel`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Sends answers to the agent question currently pending on an interaction
+     *
+     * @tags interactions
+     * @name V1InteractionsQuestionsRespondCreate
+     * @summary Respond to an agent question
+     * @request POST:/api/v1/interactions/{interaction_id}/questions/{request_id}/respond
+     * @secure
+     */
+    v1InteractionsQuestionsRespondCreate: (
+      interactionId: string,
+      requestId: string,
+      request: TypesQuestionRespondRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesQuestionActionResponse, any>({
+        path: `/api/v1/interactions/${interactionId}/questions/${requestId}/respond`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

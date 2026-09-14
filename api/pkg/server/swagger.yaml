@@ -3546,23 +3546,23 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - email
-    - webhook
-    - gitlab
-    - local
-    - helix_events
-    - slack
     - cron
+    - helix_events
+    - email
+    - local
+    - webhook
+    - slack
+    - gitlab
     - github
     type: string
     x-enum-varnames:
-    - KindEmail
-    - KindWebhook
-    - KindGitLab
-    - KindLocal
-    - KindHelixEvents
-    - KindSlack
     - KindCron
+    - KindHelixEvents
+    - KindEmail
+    - KindLocal
+    - KindWebhook
+    - KindSlack
+    - KindGitLab
     - KindGitHub
   transport.ResolvedActivation:
     properties:
@@ -6796,6 +6796,8 @@ definitions:
         type: integer
       mode:
         $ref: '#/definitions/types.SessionMode'
+      pending_question:
+        $ref: '#/definitions/types.PendingQuestion'
       prompt_id:
         description: |-
           PromptID links this interaction back to the prompt_history_entry that
@@ -6813,6 +6815,10 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.MessageContent'
         description: User prompt (multi-part)
+      question_history:
+        items:
+          $ref: '#/definitions/types.ResolvedQuestion'
+        type: array
       rag_results:
         items:
           $ref: '#/definitions/types.SessionRAGResult'
@@ -8304,6 +8310,25 @@ definitions:
       new_password:
         type: string
     type: object
+  types.PendingQuestion:
+    properties:
+      asked_at:
+        type: string
+      questions:
+        items:
+          $ref: '#/definitions/types.UserQuestion'
+        type: array
+      request_id:
+        type: string
+      source:
+        type: string
+      thread_id:
+        type: string
+      tool_call_id:
+        type: string
+      turn_request_id:
+        type: string
+    type: object
   types.PinnedChat:
     properties:
       id:
@@ -9234,6 +9259,18 @@ definitions:
       success:
         type: boolean
     type: object
+  types.QuestionActionResponse:
+    properties:
+      status:
+        type: string
+    type: object
+  types.QuestionRespondRequest:
+    properties:
+      answers:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
   types.QuotaResponse:
     properties:
       active_concurrent_desktops:
@@ -9458,6 +9495,33 @@ definitions:
         type: string
       private:
         type: boolean
+    type: object
+  types.ResolvedQuestion:
+    properties:
+      answers:
+        additionalProperties:
+          type: string
+        type: object
+      asked_at:
+        type: string
+      outcome:
+        type: string
+      questions:
+        items:
+          $ref: '#/definitions/types.UserQuestion'
+        type: array
+      request_id:
+        type: string
+      resolved_at:
+        type: string
+      source:
+        type: string
+      thread_id:
+        type: string
+      tool_call_id:
+        type: string
+      turn_request_id:
+        type: string
     type: object
   types.Resource:
     enum:
@@ -13375,6 +13439,30 @@ definitions:
         type: integer
       total_tokens:
         type: integer
+    type: object
+  types.UserQuestion:
+    properties:
+      allow_custom_answer:
+        type: boolean
+      header:
+        type: string
+      id:
+        type: string
+      multi_select:
+        type: boolean
+      options:
+        items:
+          $ref: '#/definitions/types.UserQuestionOption'
+        type: array
+      question:
+        type: string
+    type: object
+  types.UserQuestionOption:
+    properties:
+      description:
+        type: string
+      label:
+        type: string
     type: object
   types.UserResponse:
     properties:
@@ -18945,6 +19033,66 @@ paths:
       summary: Update an existing Helix model
       tags:
       - models
+  /api/v1/interactions/{interaction_id}/questions/{request_id}/cancel:
+    post:
+      description: Cancels the agent question currently pending on an interaction
+      parameters:
+      - description: Interaction ID
+        in: path
+        name: interaction_id
+        required: true
+        type: string
+      - description: Question request ID
+        in: path
+        name: request_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.QuestionActionResponse'
+      security:
+      - BearerAuth: []
+      summary: Cancel an agent question
+      tags:
+      - interactions
+  /api/v1/interactions/{interaction_id}/questions/{request_id}/respond:
+    post:
+      consumes:
+      - application/json
+      description: Sends answers to the agent question currently pending on an interaction
+      parameters:
+      - description: Interaction ID
+        in: path
+        name: interaction_id
+        required: true
+        type: string
+      - description: Question request ID
+        in: path
+        name: request_id
+        required: true
+        type: string
+      - description: Question answers
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.QuestionRespondRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.QuestionActionResponse'
+      security:
+      - BearerAuth: []
+      summary: Respond to an agent question
+      tags:
+      - interactions
   /api/v1/invitations/{id}/info:
     get:
       description: Unauthenticated. Returns the invited email and organization display

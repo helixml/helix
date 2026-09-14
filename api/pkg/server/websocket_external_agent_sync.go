@@ -769,6 +769,10 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		err = apiServer.handleAgentReady(sessionID, syncMsg)
 	case "turn_cancelled":
 		err = apiServer.handleTurnCancelled(sessionID, syncMsg)
+	case "question_requested":
+		err = apiServer.handleQuestionRequested(sessionID, syncMsg)
+	case "question_resolved":
+		err = apiServer.handleQuestionResolved(sessionID, syncMsg)
 	case "ping":
 		// no-op
 	default:
@@ -1238,6 +1242,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	// Structured tool call metadata — sent by Zed for tool_call entries.
 	toolName, _ := syncMsg.Data["tool_name"].(string)
 	toolStatus, _ := syncMsg.Data["tool_status"].(string)
+	toolCallID, _ := syncMsg.Data["tool_call_id"].(string)
+	toolCallName, _ := syncMsg.Data["tool_call_name"].(string)
+	subagentID, _ := syncMsg.Data["subagent_id"].(string)
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -1437,7 +1444,16 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				sctx.previousEntries = currentEntries
 			}
 
-			acc.AddMessageWithToolInfo(messageID, content, entryType, toolName, toolStatus)
+			acc.AddMessageWithMetadata(
+				messageID,
+				content,
+				entryType,
+				toolName,
+				toolStatus,
+				toolCallID,
+				toolCallName,
+				subagentID,
+			)
 
 			if prevMessageID != "" && prevMessageID != messageID {
 				log.Info().
@@ -2490,6 +2506,10 @@ func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *
 	if interaction == nil {
 		return fmt.Errorf("resolve interaction for acknowledged cancellation %s: interaction not found", requestID)
 	}
+	interaction, _, err = apiServer.settlePendingQuestionAsCancelled(context.Background(), interaction)
+	if err != nil {
+		return fmt.Errorf("settle pending question for acknowledged cancellation %s: %w", interaction.ID, err)
+	}
 
 	transitioned, err := apiServer.Store.MarkInteractionInterruptedIfWaiting(context.Background(), interaction.ID, interaction.GenerationID)
 	if err != nil {
@@ -3178,6 +3198,10 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("response_preview", targetInteraction.ResponseMessage).
 		Str("state_before", string(targetInteraction.State)).
 		Msg("🔄 [HELIX] Reloaded interaction with latest response content")
+	targetInteraction, _, err = apiServer.settlePendingQuestionAsCancelled(context.Background(), targetInteraction)
+	if err != nil {
+		return fmt.Errorf("settle pending question for completed interaction %s: %w", targetInteraction.ID, err)
+	}
 
 	// If the interaction was already completed (e.g. auto-completed by the streaming
 	// context transition logic during an interrupt), skip redundant completion.
@@ -3223,7 +3247,6 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		targetInteraction.State = types.InteractionStateError
 		targetInteraction.Error = "Agent unresponsive: it returned an empty response. Retrying automatically."
 		targetInteraction.Updated = time.Now()
-
 		if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction); err != nil {
 			return fmt.Errorf("failed to update bounced interaction %s: %w", targetInteraction.ID, err)
 		}
@@ -3298,7 +3321,6 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	if err := apiServer.applyACPTotalProcessedUsage(context.Background(), targetInteraction); err != nil {
 		return err
 	}
-
 	// A completed turn proves any latched launch failure on the owning spec task
 	// is no longer true. Work can resume through session inference (the chat's
 	// Retry, or just a message), which never touches the task, leaving it at
@@ -4539,6 +4561,17 @@ func (apiServer *HelixAPIServer) commitThreadLoadFailure(ctx context.Context, he
 	target.Error = fmt.Sprintf("Thread load failed: %s", errorMsg)
 	target.Updated = time.Now()
 	target.Completed = time.Now()
+	if updated, _, err := apiServer.settlePendingQuestionAsCancelled(ctx, target); err != nil {
+		log.Error().Err(err).
+			Str("interaction_id", target.ID).
+			Msg("Failed to settle pending question on thread-load failure")
+	} else {
+		target = updated
+		target.State = types.InteractionStateError
+		target.Error = fmt.Sprintf("Thread load failed: %s", errorMsg)
+		target.Updated = time.Now()
+		target.Completed = time.Now()
+	}
 	apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), target)
 
 	// If this interaction came from a queue prompt that's still
@@ -5017,19 +5050,25 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 			previousEntries[i].Type == entry.Type &&
 			previousEntries[i].MessageID == entry.MessageID &&
 			previousEntries[i].ToolName == entry.ToolName &&
-			previousEntries[i].ToolStatus == entry.ToolStatus {
+			previousEntries[i].ToolStatus == entry.ToolStatus &&
+			previousEntries[i].ToolCallID == entry.ToolCallID &&
+			previousEntries[i].ToolCallName == entry.ToolCallName &&
+			previousEntries[i].SubagentID == entry.SubagentID {
 			continue
 		}
 		epOffset, epPatch, epTotalLen := computePatch(prevContent, entry.Content)
 		entryPatches = append(entryPatches, types.EntryPatch{
-			Index:       i,
-			MessageID:   entry.MessageID,
-			Type:        entry.Type,
-			Patch:       epPatch,
-			PatchOffset: epOffset,
-			TotalLength: epTotalLen,
-			ToolName:    entry.ToolName,
-			ToolStatus:  entry.ToolStatus,
+			Index:        i,
+			MessageID:    entry.MessageID,
+			Type:         entry.Type,
+			Patch:        epPatch,
+			PatchOffset:  epOffset,
+			TotalLength:  epTotalLen,
+			ToolName:     entry.ToolName,
+			ToolStatus:   entry.ToolStatus,
+			ToolCallID:   entry.ToolCallID,
+			ToolCallName: entry.ToolCallName,
+			SubagentID:   entry.SubagentID,
 		})
 	}
 
@@ -5087,14 +5126,17 @@ func buildFullStatePatchEvent(sessionID, owner, interactionID string, entries []
 		// previousContent="" → computePatch returns patchOffset=0, patch=full content
 		epOffset, epPatch, epTotalLen := computePatch("", entry.Content)
 		entryPatches = append(entryPatches, types.EntryPatch{
-			Index:       i,
-			MessageID:   entry.MessageID,
-			Type:        entry.Type,
-			Patch:       epPatch,
-			PatchOffset: epOffset,
-			TotalLength: epTotalLen,
-			ToolName:    entry.ToolName,
-			ToolStatus:  entry.ToolStatus,
+			Index:        i,
+			MessageID:    entry.MessageID,
+			Type:         entry.Type,
+			Patch:        epPatch,
+			PatchOffset:  epOffset,
+			TotalLength:  epTotalLen,
+			ToolName:     entry.ToolName,
+			ToolStatus:   entry.ToolStatus,
+			ToolCallID:   entry.ToolCallID,
+			ToolCallName: entry.ToolCallName,
+			SubagentID:   entry.SubagentID,
 		})
 	}
 	event.EntryPatches = entryPatches

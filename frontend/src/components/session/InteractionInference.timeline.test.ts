@@ -177,4 +177,81 @@ describe("buildActivityTimeline", () => {
       { type: "tools", entries: [{ toolName: "read_file" }] },
     ]);
   });
+
+  it("keeps subagent work as a dedicated activity card", () => {
+    const entries = [
+      entry("1", "tool_call", "", "read_file"),
+      entry("2", "tool_call", "Reviewing the change", "Start subagent reviewer"),
+      entry("3", "tool_call", "", "Interact with subagent reviewer"),
+      entry("4", "tool_call", "", "bash"),
+      entry("5", "text", "Done"),
+    ];
+
+    const timeline = buildActivityTimeline(entries, false);
+
+    expect(timeline.activitySegments.map((segment) => segment.type)).toEqual([
+      "tools",
+      "subagent",
+      "tools",
+    ]);
+    expect(timeline.activitySegments[1]).toMatchObject({
+      type: "subagent",
+      entry: { tool_name: "Start subagent reviewer" },
+    });
+  });
+
+  it("replaces a matching question tool call with a resolved question row", () => {
+    const entries = [
+      {
+        ...entry(
+          "1",
+          "tool_call",
+          "raw question payload",
+          "Ask user 1 question",
+        ),
+        tool_call_id: "call-1",
+      },
+      entry("2", "text", "Done"),
+    ];
+
+    const timeline = buildActivityTimeline(entries, false, [
+      {
+        request_id: "request-1",
+        tool_call_id: "call-1",
+        outcome: "answered",
+        questions: [{ id: "deploy", question: "Deploy now?" }],
+        answers: { deploy: "No" },
+      },
+    ]);
+
+    expect(timeline.activitySegments).toMatchObject([
+      {
+        type: "question",
+        answer: { request_id: "request-1", answers: { deploy: "No" } },
+      },
+    ]);
+  });
+
+  it("adds a question row when the provider did not emit a matching tool call", () => {
+    const timeline = buildActivityTimeline(
+      [entry("1", "text", "Done")],
+      false,
+      [
+        {
+          request_id: "request-1",
+          outcome: "answered",
+          questions: [{ id: "deploy", question: "Deploy now?" }],
+          answers: { deploy: "No" },
+        },
+      ],
+    );
+
+    expect(timeline.finalTextIndex).toBe(0);
+    expect(timeline.activitySegments).toMatchObject([
+      {
+        type: "question",
+        answer: { request_id: "request-1" },
+      },
+    ]);
+  });
 });

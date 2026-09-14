@@ -16,6 +16,7 @@ import { shouldShowWelcome } from './minimalChatLogic'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from './EmbeddedSessionView'
 import type { ResponseEntry } from './InteractionInference'
 import { ComposerPlanProgress, planStepsFromResponseEntries } from './PlanProgress'
+import PendingQuestionCard from './PendingQuestionCard'
 import SessionPromptQueue from './SessionPromptQueue'
 import { useSessionPromptQueue } from './useSessionPromptQueue'
 import { getChatColors } from './chatStyles'
@@ -98,6 +99,9 @@ const AgentChat: FC<AgentChatProps> = ({
   )
   const latestInteraction = latestInteractionsResponse?.data?.interactions?.[0]
   const latestInteractionId = latestInteraction?.id || null
+  const pendingQuestion = latestInteraction?.state === TypesInteractionState.InteractionStateWaiting
+    ? latestInteraction.pending_question
+    : undefined
   // Has the customer said anything yet?
   //
   // One interaction means only the session's opening briefing exists — the
@@ -105,7 +109,7 @@ const AgentChat: FC<AgentChatProps> = ({
   // has asked it anything, so there is no conversation to show. hasSentInWelcome
   // covers the gap between clicking send and the count catching up on the next
   // poll, which would otherwise flash the welcome screen back for a moment.
-  const showWelcome = shouldShowWelcome(
+  const showWelcome = !pendingQuestion && shouldShowWelcome(
     minimal,
     hasSentInWelcome,
     latestInteractionsResponse?.data?.totalCount ?? 0,
@@ -196,7 +200,9 @@ const AgentChat: FC<AgentChatProps> = ({
       reviewComments={reviewComments}
       onRemoveReviewComment={onRemoveReviewComment}
       onReviewCommentsSent={onReviewCommentsSent}
-      hasAttachedHeader={(showComposerPlan && composerPlanExpanded) || hasSessionQueue}
+      hasAttachedHeader={
+        !!pendingQuestion || (showComposerPlan && composerPlanExpanded) || hasSessionQueue
+      }
     />
   )
 
@@ -280,6 +286,13 @@ const AgentChat: FC<AgentChatProps> = ({
                 entries={sessionQueue.entries}
                 onRemove={sessionQueue.remove}
                 onRestartAgent={sessionQueue.restartAgent}
+              />
+            )}
+            {pendingQuestion && latestInteractionId && (
+              <PendingQuestionCard
+                interactionId={latestInteractionId}
+                pendingQuestion={pendingQuestion}
+                attachedAbove={hasSessionQueue || (showComposerPlan && composerPlanExpanded)}
               />
             )}
             {composer}

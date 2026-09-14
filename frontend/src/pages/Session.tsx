@@ -170,6 +170,11 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
     // Check for differences in error state
     prevProps.interaction.error !== nextProps.interaction.error ||
 
+    prevProps.interaction.pending_question?.request_id !==
+      nextProps.interaction.pending_question?.request_id ||
+    prevProps.interaction.question_history?.length !==
+      nextProps.interaction.question_history?.length ||
+
     // Structured entries can change without output/state changing. Plans in
     // particular overwrite one stable entry as progress advances.
     prevProps.interaction.response_entries?.length !== nextProps.interaction.response_entries?.length ||

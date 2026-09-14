@@ -102,6 +102,9 @@ type Interaction struct {
 	// The frontend uses this to render entries with the correct component in the correct order.
 	ResponseEntries datatypes.JSON `json:"response_entries,omitempty" gorm:"type:jsonb"`
 
+	PendingQuestion *PendingQuestion   `json:"pending_question,omitempty" gorm:"type:jsonb;serializer:json"`
+	QuestionHistory []ResolvedQuestion `json:"question_history,omitempty" gorm:"type:jsonb;serializer:json"`
+
 	// CodeChanges is the immutable before/after workspace checkpoint summary for
 	// this turn. The full patch remains in hidden Git checkpoint refs.
 	CodeChanges *InteractionCodeChanges `json:"code_changes,omitempty" gorm:"type:jsonb;serializer:json"`
@@ -1063,14 +1066,17 @@ type WebsocketEvent struct {
 // applies the same patch logic as the flat content patch, but scoped to a
 // single ResponseEntry's content.
 type EntryPatch struct {
-	Index       int    `json:"index"`                  // Position in the entries array
-	MessageID   string `json:"message_id"`             // Zed message_id for this entry
-	Type        string `json:"type"`                   // "text", "tool_call", or "plan"
-	Patch       string `json:"patch,omitempty"`        // Content delta from PatchOffset onwards
-	PatchOffset int    `json:"patch_offset,omitempty"` // UTF-16 offset of first change in this entry
-	TotalLength int    `json:"total_length,omitempty"` // Final content length of this entry after patch
-	ToolName    string `json:"tool_name,omitempty"`    // For tool_call: the tool label
-	ToolStatus  string `json:"tool_status,omitempty"`  // For tool_call: "Completed", "In Progress", etc.
+	Index        int    `json:"index"`                    // Position in the entries array
+	MessageID    string `json:"message_id"`               // Zed message_id for this entry
+	Type         string `json:"type"`                     // "text", "tool_call", or "plan"
+	Patch        string `json:"patch,omitempty"`          // Content delta from PatchOffset onwards
+	PatchOffset  int    `json:"patch_offset,omitempty"`   // UTF-16 offset of first change in this entry
+	TotalLength  int    `json:"total_length,omitempty"`   // Final content length of this entry after patch
+	ToolName     string `json:"tool_name,omitempty"`      // For tool_call: the tool label
+	ToolStatus   string `json:"tool_status,omitempty"`    // For tool_call: "Completed", "In Progress", etc.
+	ToolCallID   string `json:"tool_call_id,omitempty"`   // Stable ACP tool-call id
+	ToolCallName string `json:"tool_call_name,omitempty"` // Provider tool name, e.g. "spawn_agent"
+	SubagentID   string `json:"subagent_id,omitempty"`    // Stable ACP child session id
 }
 
 type StepInfoType string

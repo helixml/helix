@@ -7767,6 +7767,100 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/interactions/{interaction_id}/questions/{request_id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Cancels the agent question currently pending on an interaction",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "Cancel an agent question",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interaction_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Question request ID",
+                        "name": "request_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionActionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/interactions/{interaction_id}/questions/{request_id}/respond": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sends answers to the agent question currently pending on an interaction",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "Respond to an agent question",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interaction_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Question request ID",
+                        "name": "request_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Question answers",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionRespondRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionActionResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/invitations/{id}/info": {
             "get": {
                 "description": "Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).",
@@ -27950,23 +28044,23 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "email",
-                "webhook",
-                "gitlab",
-                "local",
-                "helix_events",
-                "slack",
                 "cron",
+                "helix_events",
+                "email",
+                "local",
+                "webhook",
+                "slack",
+                "gitlab",
                 "github"
             ],
             "x-enum-varnames": [
-                "KindEmail",
-                "KindWebhook",
-                "KindGitLab",
-                "KindLocal",
-                "KindHelixEvents",
-                "KindSlack",
                 "KindCron",
+                "KindHelixEvents",
+                "KindEmail",
+                "KindLocal",
+                "KindWebhook",
+                "KindSlack",
+                "KindGitLab",
                 "KindGitHub"
             ]
         },
@@ -32338,6 +32432,9 @@ const docTemplate = `{
                 "mode": {
                     "$ref": "#/definitions/types.SessionMode"
                 },
+                "pending_question": {
+                    "$ref": "#/definitions/types.PendingQuestion"
+                },
                 "prompt_id": {
                     "description": "PromptID links this interaction back to the prompt_history_entry that\ncreated it (when the interaction was dispatched by the queue, as opposed\nto being initiated by Zed when the user types in the IDE). Empty for\nZed-initiated interactions. Used by handleMessageAdded /\nhandleMessageCompleted to mark the originating prompt as 'sent' without\nrelying on an in-memory map that doesn't survive API restarts. See\ndesign/2026-04-30-queue-and-other-stuck-state-bugs.md.",
                     "type": "string"
@@ -32353,6 +32450,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.MessageContent"
                         }
                     ]
+                },
+                "question_history": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ResolvedQuestion"
+                    }
                 },
                 "rag_results": {
                     "type": "array",
@@ -34414,6 +34517,35 @@ const docTemplate = `{
                 }
             }
         },
+        "types.PendingQuestion": {
+            "type": "object",
+            "properties": {
+                "asked_at": {
+                    "type": "string"
+                },
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UserQuestion"
+                    }
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "thread_id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                },
+                "turn_request_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.PinnedChat": {
             "type": "object",
             "properties": {
@@ -35719,6 +35851,25 @@ const docTemplate = `{
                 }
             }
         },
+        "types.QuestionActionResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.QuestionRespondRequest": {
+            "type": "object",
+            "properties": {
+                "answers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "types.QuotaResponse": {
             "type": "object",
             "properties": {
@@ -36001,6 +36152,47 @@ const docTemplate = `{
                 },
                 "private": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.ResolvedQuestion": {
+            "type": "object",
+            "properties": {
+                "answers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "asked_at": {
+                    "type": "string"
+                },
+                "outcome": {
+                    "type": "string"
+                },
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UserQuestion"
+                    }
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "resolved_at": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "thread_id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                },
+                "turn_request_id": {
+                    "type": "string"
                 }
             }
         },
@@ -41139,6 +41331,43 @@ const docTemplate = `{
                 },
                 "total_tokens": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.UserQuestion": {
+            "type": "object",
+            "properties": {
+                "allow_custom_answer": {
+                    "type": "boolean"
+                },
+                "header": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "multi_select": {
+                    "type": "boolean"
+                },
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UserQuestionOption"
+                    }
+                },
+                "question": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.UserQuestionOption": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
                 }
             }
         },

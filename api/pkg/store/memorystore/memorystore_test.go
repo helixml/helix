@@ -7,6 +7,48 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+func TestInteractionQuestionLifecycle(t *testing.T) {
+	ctx := context.Background()
+	memory := New()
+	interaction, err := memory.CreateInteraction(ctx, &types.Interaction{
+		ID: "interaction-1", SessionID: "session-1", UserID: "user-1",
+		GenerationID: 1, State: types.InteractionStateWaiting,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	question := &types.PendingQuestion{
+		RequestID: "question-1",
+		Questions: []types.UserQuestion{{ID: "choice", Question: "Choose one"}},
+	}
+	updated, changed, err := memory.SetInteractionPendingQuestion(ctx, interaction.ID, 1, question)
+	if err != nil || !changed || updated.PendingQuestion == nil {
+		t.Fatalf("set pending question = %#v, changed = %v, err = %v", updated, changed, err)
+	}
+
+	// A stale full-row update must not erase state owned by the targeted
+	// question methods.
+	interaction.ResponseMessage = "still working"
+	if _, err := memory.UpdateInteraction(ctx, interaction); err != nil {
+		t.Fatal(err)
+	}
+	updated, err = memory.GetInteraction(ctx, interaction.ID)
+	if err != nil || updated.PendingQuestion == nil {
+		t.Fatalf("pending question lost after stale update: %#v, err = %v", updated, err)
+	}
+
+	updated, changed, err = memory.ResolveInteractionPendingQuestion(
+		ctx, interaction.ID, 1, question.RequestID, "answered", map[string]string{"choice": "A"},
+	)
+	if err != nil || !changed || updated.PendingQuestion != nil || len(updated.QuestionHistory) != 1 {
+		t.Fatalf("resolve pending question = %#v, changed = %v, err = %v", updated, changed, err)
+	}
+	updated, changed, err = memory.SetInteractionPendingQuestion(ctx, interaction.ID, 1, question)
+	if err != nil || changed || updated.PendingQuestion != nil || len(updated.QuestionHistory) != 1 {
+		t.Fatalf("resolved question was resurrected: %#v, changed = %v, err = %v", updated, changed, err)
+	}
+}
+
 func TestSpecTaskThreadTracking(t *testing.T) {
 	ctx := context.Background()
 	store := New()
