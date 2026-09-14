@@ -169,6 +169,8 @@ export interface SpecTaskViewToolbarProps {
   showPlan?: boolean;
   /** Headless tasks have no stream and cannot be converted to a desktop. */
   showDesktop?: boolean;
+  /** Planning has no runnable application preview yet. */
+  showBrowser?: boolean;
   /** Status-specific action buttons (Open PR / …). */
   renderActions?: (density: ToolbarDensity) => ReactNode;
 
@@ -223,6 +225,7 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   showChatTab = false,
   showPlan = false,
   showDesktop = true,
+  showBrowser = true,
   renderActions,
   onToggleTerminal,
   terminalOpen,
@@ -268,7 +271,8 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   const availableTabs = viewTabs.filter(
     (t) => (!t.sessionOnly || hasSession)
       && (!t.chatOnly || showChatTab)
-      && (t.value !== "desktop" || showDesktop),
+      && (t.value !== "desktop" || showDesktop)
+      && (t.value !== "browser" || showBrowser),
   );
   const tabs = availableTabs.filter((t) => !(isPhone && t.foldOnPhone));
   const foldedTabs = availableTabs.filter((t) => isPhone && t.foldOnPhone);

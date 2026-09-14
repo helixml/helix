@@ -65,15 +65,20 @@ thread when the sandbox is live.
 
 ## Product surface
 
-Project Settings shows separate Planning and Implementation selectors. The new
-task form starts from those defaults and permits a per-task override for either
-phase.
+Project Settings shows separate Planning and Implementation selectors with the
+reasoning effort aligned at the far edge of each row. Hover guidance recommends
+an intelligent, high-reasoning planner and a faster, lower-cost implementer.
+The new task form starts from those defaults and permits a per-task override
+for either phase.
 
 The task page keeps the normal `AgentChat` in the left pane. The right workspace
-adds Plan beside Desktop, Browser, Diff, Files, Agents, and Details. Plan embeds
-the existing design-review document surface, so reading, commenting, revising,
-and approving the plan no longer opens a separate workspace tab. Diff, files,
-and subagents remain available throughout planning.
+opens Plan beside Desktop, Diff, Files, Agents, and Details during planning;
+Browser returns when implementation begins and there is an application to
+preview. Plan embeds the existing design-review document surface, so reading,
+commenting, revising, and approving the plan no longer opens a separate
+workspace tab. Diff, files, and subagents remain available throughout planning.
+Before the first successful publish, Plan explains that documents are pending
+or surfaces the task's actionable repository push error instead of disappearing.
 
 Rendered plan documents use the same Markdown component and typography tokens
 as `AgentChat`. A source toggle opens the underlying Markdown as editable plain
@@ -82,6 +87,12 @@ file on `helix-specs` and update the review/task snapshots. The client sends the
 content it started from, and the API returns a conflict if the planning agent
 changed that document in the meantime; reviewer edits never silently overwrite
 an agent push. Inline comments remain anchored and editable from rendered mode.
+
+The project chat composer remembers Plan versus Build per user and project.
+Selecting Plan switches its single runtime selector to the project's planning
+configuration; selecting Build switches it back to the implementation
+configuration. A later manual selector change remains task-local and is not
+reset while the selected mode stays active.
 
 ## Compatibility
 

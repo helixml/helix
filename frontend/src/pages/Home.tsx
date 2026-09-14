@@ -55,10 +55,12 @@ import {
   NEW_CHAT_REASONING_EFFORT_OPTIONS,
   newChatHeading,
   newChatModelStorageKey,
+  newChatTaskModeStorageKey,
   NewChatReasoningEffort,
   NewChatTaskMode,
   parseOrgDefaultRuntime,
   readNewChatModelSelection,
+  readNewChatTaskMode,
 } from './newChatLogic'
 import {
   preferredSpecTaskSandboxRuntime,
@@ -159,6 +161,9 @@ const Home: FC = () => {
   const startTask = useStartSpecTaskPlanning()
 
   const projectCodeAgentConfigKey = JSON.stringify(selectedProject?.code_agent_config ?? null)
+  const projectPlanningCodeAgentConfigKey = JSON.stringify(
+    selectedProject?.planning_code_agent_config ?? selectedProject?.code_agent_config ?? null,
+  )
 
   const modelStorageKey = newChatModelStorageKey(userId, orgId)
   const orgDefaultValue = orgSettings?.specs?.find((spec) => spec.key === 'agent.default')?.value
@@ -188,8 +193,23 @@ const Home: FC = () => {
   ])
 
   useEffect(() => {
-    setTaskCodeAgentConfig(selectedProject?.code_agent_config)
-  }, [selectedProjectId, projectCodeAgentConfigKey])
+    if (!userId || !orgId || !selectedProjectId) return
+    const rememberedMode = readNewChatTaskMode(localStorage.getItem(
+      newChatTaskModeStorageKey(userId, orgId, selectedProjectId),
+    ))
+    setTaskMode(rememberedMode)
+    setTaskCodeAgentConfig(
+      rememberedMode === 'plan'
+        ? selectedProject?.planning_code_agent_config || selectedProject?.code_agent_config
+        : selectedProject?.code_agent_config,
+    )
+  }, [
+    userId,
+    orgId,
+    selectedProjectId,
+    projectCodeAgentConfigKey,
+    projectPlanningCodeAgentConfigKey,
+  ])
 
   // Compute follows the project, not its coding default. Keeping it in the
   // effect above would reset a chosen sandbox size the moment picking a runtime
@@ -214,7 +234,23 @@ const Home: FC = () => {
     source: CodeAgentConfigChangeSource,
   ) => {
     setTaskCodeAgentConfig(next)
-    seedProjectCodeAgentConfig(next, source)
+    if (taskMode === 'build') seedProjectCodeAgentConfig(next, source)
+  }
+
+  const handleTaskModeChange = (mode: NewChatTaskMode) => {
+    setTaskMode(mode)
+    setTaskCodeAgentConfig(
+      mode === 'plan'
+        ? selectedProject?.planning_code_agent_config || selectedProject?.code_agent_config
+        : selectedProject?.code_agent_config,
+    )
+    if (userId && orgId && selectedProjectId) {
+      localStorage.setItem(
+        newChatTaskModeStorageKey(userId, orgId, selectedProjectId),
+        mode,
+      )
+    }
+    setModeMenuAnchor(null)
   }
 
   const isProjectContext = !!selectedProjectId
@@ -339,20 +375,14 @@ const Home: FC = () => {
       >
         <MenuItem
           selected={taskMode === 'plan'}
-          onClick={() => {
-            setTaskMode('plan')
-            setModeMenuAnchor(null)
-          }}
+          onClick={() => handleTaskModeChange('plan')}
         >
           <ListItemIcon><ListTodo size={16} /></ListItemIcon>
           <ListItemText primary="Plan" secondary="Create specifications first" />
         </MenuItem>
         <MenuItem
           selected={taskMode === 'build'}
-          onClick={() => {
-            setTaskMode('build')
-            setModeMenuAnchor(null)
-          }}
+          onClick={() => handleTaskModeChange('build')}
         >
           <ListItemIcon><Hammer size={16} /></ListItemIcon>
           <ListItemText primary="Build" secondary="Go directly to implementation" />

@@ -33,9 +33,22 @@ export const NEW_CHAT_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
 
 const PROJECT_CHAT_AGENT_STORAGE_PREFIX = 'helix_project_chat_agent'
 const NEW_CHAT_MODEL_STORAGE_PREFIX = 'helix_chat_model'
+const NEW_CHAT_TASK_MODE_STORAGE_PREFIX = 'helix_project_task_mode'
 
 export function newChatModelStorageKey(userId: string, orgId: string): string {
   return `${NEW_CHAT_MODEL_STORAGE_PREFIX}:${userId}:${orgId}`
+}
+
+export function newChatTaskModeStorageKey(
+  userId: string,
+  orgId: string,
+  projectId: string,
+): string {
+  return `${NEW_CHAT_TASK_MODE_STORAGE_PREFIX}:${userId}:${orgId}:${projectId}`
+}
+
+export function readNewChatTaskMode(value: string | null): NewChatTaskMode {
+  return value === 'plan' ? 'plan' : 'build'
 }
 
 export function readNewChatModelSelection(value: string | null): NewChatModelSelection | undefined {
@@ -161,7 +174,9 @@ export function buildNewChatTaskRequest({
     project_id: projectId,
     prompt,
     ...(codeAgentConfig
-      ? { code_agent_config: codeAgentConfig }
+      ? mode === 'plan'
+        ? { planning_code_agent_config: codeAgentConfig }
+        : { code_agent_config: codeAgentConfig }
       : {}),
     ...(sandboxResourceOverrides
       ? { sandbox_resource_overrides: sandboxResourceOverrides }

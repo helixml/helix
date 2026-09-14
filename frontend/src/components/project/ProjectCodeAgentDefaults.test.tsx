@@ -74,10 +74,27 @@ describe("ProjectCodeAgentDefaults", () => {
     // stay off — that flag is what hid the harness from project settings.
     expect(controls.props[0].computeOnly).toBeFalsy();
     expect(controls.props[1].computeOnly).toBeFalsy();
+    expect(controls.props[0].spreadAgentControls).toBe(true);
+    expect(controls.props[1].spreadAgentControls).toBe(true);
     // Compute is a sibling SettingRow rendered by ProjectTaskDefaults. Passing
     // no sandbox handlers is what makes this render the agent controls alone.
     expect(controls.props[0].onSandboxResourceOverridesChange).toBeUndefined();
     expect(controls.props[0].onSandboxRuntimeChange).toBeUndefined();
+  });
+
+  it("explains the recommended model tradeoff for each phase", () => {
+    render(
+      <ProjectCodeAgentDefaults project={{ id: "project-1" }} onUpdate={vi.fn()} />,
+    );
+
+    expect(
+      screen.getByLabelText("Planning benefits from an intelligent model with high reasoning effort."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(
+        "Implementation can use a faster, lower-cost model because it follows the approved plan.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("patches the selected phase when an agent changes", () => {

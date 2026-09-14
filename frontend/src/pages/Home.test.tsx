@@ -1,13 +1,22 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import {
+  TypesCodeAgentCredentialType,
+  TypesCodeAgentRuntime,
+} from '../api/api'
+import type {
+  TypesCodeAgentExecutionConfig,
+  TypesProject,
+} from '../api/api'
 import Home from './Home'
 
 const mockProjectState = vi.hoisted(() => ({
-  projects: [] as Array<{ id: string; name: string }>,
+  projects: [] as TypesProject[],
   loading: false,
 }))
+const mockRouterState = vi.hoisted(() => ({ projectId: '' }))
 const mockOrgNavigate = vi.fn()
 
 vi.mock('../contexts/account', () => ({
@@ -34,7 +43,7 @@ vi.mock('../hooks/useApps', () => ({
 }))
 
 vi.mock('../hooks/useRouter', () => ({
-  default: () => ({ params: {} }),
+  default: () => ({ params: { project_id: mockRouterState.projectId } }),
 }))
 
 vi.mock('../hooks/useSnackbar', () => ({
@@ -97,6 +106,26 @@ vi.mock('../components/create/AdvancedModelPicker', () => ({
   ),
 }))
 
+vi.mock('../components/agent/CodeAgentExecutionControls', () => ({
+  default: ({ value, onChange }: {
+    value?: TypesCodeAgentExecutionConfig
+    onChange: (value: TypesCodeAgentExecutionConfig, source: 'user') => void
+  }) => (
+    <>
+      <div data-testid="active-code-agent">{value?.model || 'none'}</div>
+      <button onClick={() => onChange({
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+        model: 'manual-model',
+      }, 'user')}>Select coding agent</button>
+    </>
+  ),
+}))
+
+vi.mock('../hooks/useSeedProjectCodeAgentConfig', () => ({
+  useSeedProjectCodeAgentConfig: () => vi.fn(),
+}))
+
 vi.mock('../components/tasks/SpecTaskExecutionControls', () => ({
   default: () => null,
 }))
@@ -113,6 +142,7 @@ describe('Home project empty state', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    mockRouterState.projectId = ''
     mockProjectState.projects = []
     mockProjectState.loading = false
   })
@@ -140,6 +170,7 @@ describe('Home chat model preference', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    mockRouterState.projectId = ''
     mockProjectState.projects = [{ id: 'project-1', name: 'Project' }]
     mockProjectState.loading = false
   })
@@ -154,5 +185,61 @@ describe('Home chat model preference', () => {
       model: 'selected-model',
       reasoningEffort: 'medium',
     })
+  })
+})
+
+describe('Home project task mode', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockRouterState.projectId = 'project-1'
+    mockProjectState.projects = [{
+      id: 'project-1',
+      name: 'Project One',
+      code_agent_config: {
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+        model: 'implementation-model',
+      },
+      planning_code_agent_config: {
+        runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+        credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+        model: 'planning-model',
+      },
+    }]
+    mockProjectState.loading = false
+  })
+
+  it('restores Plan per project and selects the planning config without overriding later choices', async () => {
+    localStorage.setItem(
+      'helix_project_task_mode:user-1:org-1:project-1',
+      'plan',
+    )
+    renderHome()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Start with planning' })).toBeInTheDocument()
+      expect(screen.getByTestId('active-code-agent')).toHaveTextContent('planning-model')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select coding agent' }))
+    expect(screen.getByTestId('active-code-agent')).toHaveTextContent('manual-model')
+  })
+
+  it('switches phase defaults and remembers the latest mode for this project', async () => {
+    renderHome()
+    await waitFor(() => {
+      expect(screen.getByTestId('active-code-agent')).toHaveTextContent('implementation-model')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start implementation immediately' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Plan/ }))
+    expect(screen.getByTestId('active-code-agent')).toHaveTextContent('planning-model')
+    expect(localStorage.getItem('helix_project_task_mode:user-1:org-1:project-1')).toBe('plan')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start with planning' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Build/ }))
+    expect(screen.getByTestId('active-code-agent')).toHaveTextContent('implementation-model')
+    expect(localStorage.getItem('helix_project_task_mode:user-1:org-1:project-1')).toBe('build')
   })
 })

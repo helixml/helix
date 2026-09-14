@@ -51,6 +51,7 @@ import ExternalAgentDesktopViewer, {
 } from "../external-agent/ExternalAgentDesktopViewer";
 import DiffViewer from "./DiffViewer";
 import TaskSessionPlaceholder from "./TaskSessionPlaceholder";
+import PlanningDocumentsPlaceholder from "./PlanningDocumentsPlaceholder";
 import {
   subscriptionRequirementFromTask,
   subscriptionRequirementMessage,
@@ -159,6 +160,10 @@ import {
   saveSpecTaskTerminalDrawerState,
 } from "./specTaskTerminalDrawerState";
 import { useDesignReviews } from "../../services/designReviewService";
+import {
+  isSpecTaskPlanningWorkspace,
+  shouldLoadSpecTaskDesignReviews,
+} from "./specTaskPlanningWorkspace";
 
 const SPEC_TASK_CHAT_PANEL_IDS = ["spec-task-chat", "spec-task-content"] as const;
 const SPEC_TASK_CHAT_LAYOUT_KEY = "helix.specTaskChat.layout";
@@ -282,9 +287,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     enabled: !!taskId,
     refetchInterval: 2300, // 2.3s - prime to avoid sync with other polling
   });
-  const { data: designReviewsData } = useDesignReviews(
-    task?.design_docs_pushed_at ? taskId : "",
+  const planningWorkspace = isSpecTaskPlanningWorkspace(task?.status);
+  const loadDesignReviews = shouldLoadSpecTaskDesignReviews(
+    task?.status,
+    task?.design_docs_pushed_at,
   );
+  const { data: designReviewsData } = useDesignReviews(loadDesignReviews ? taskId : "");
   const designReviews = designReviewsData?.reviews || [];
   const latestDesignReview =
     designReviews.find((review) => review.status !== "superseded") || designReviews[0];
@@ -785,8 +793,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   useEffect(() => {
     if (activeSessionId && currentView === "details") {
       // If there's an active session and we're on details, switch to appropriate view
-      // On mobile, default to chat; on desktop, default to desktop (chat is always visible)
-      const newView = isBigScreen ? (isHeadless ? "changes" : "desktop") : "chat";
+      // Planning keeps chat visible beside the plan; implementation opens its live workspace.
+      const newView = planningWorkspace
+        ? "plan"
+        : isBigScreen
+          ? (isHeadless ? "changes" : "desktop")
+          : "chat";
       setCurrentView(newView);
       if (syncViewWithUrl) {
         router.mergeParams({ view: newView });
@@ -798,7 +810,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         router.mergeParams({ view: "details" });
       }
     }
-  }, [activeSessionId, isBigScreen, isHeadless]);
+  }, [activeSessionId, isBigScreen, isHeadless, planningWorkspace]);
+
+  // Browser is an implementation preview. A bookmarked Browser URL should not
+  // leave planning on a hidden tab with content that cannot be useful yet.
+  useEffect(() => {
+    if (!planningWorkspace || currentView !== "browser") return;
+    setCurrentView("plan");
+    if (syncViewWithUrl) {
+      router.mergeParams({ view: "plan" });
+    }
+  }, [currentView, planningWorkspace, syncViewWithUrl]);
 
   // Fetch session data
   const { data: sessionResponse } = useGetSession(activeSessionId || "", {
@@ -2652,8 +2674,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   currentView={currentView}
                   onViewChange={handleViewChange}
                   hasSession
-                  showPlan={!!latestDesignReview?.id}
+                  showPlan={planningWorkspace || !!latestDesignReview?.id}
                   showDesktop={!isHeadless}
+                  showBrowser={!planningWorkspace}
                   renderActions={(density) =>
                     renderTaskActions("inline", density)
                   }
@@ -2687,17 +2710,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 {currentView === "agents" && (
                   <SubagentsPanel interactions={subagentInteractions} />
                 )}
-                {currentView === "plan" && latestDesignReview?.id && (
-                  <DesignReviewContent
-                    specTaskId={task.id}
-                    reviewId={latestDesignReview.id}
-                    onClose={() => handleViewChange(isHeadless ? "changes" : "desktop")}
-                    onImplementationStarted={() => {
-                      void queryClient.invalidateQueries({ queryKey: ["spec-tasks", task.id] });
-                      handleViewChange(isHeadless ? "changes" : "desktop");
-                    }}
-                    hideTitle
-                  />
+                {currentView === "plan" && (
+                  latestDesignReview?.id ? (
+                    <DesignReviewContent
+                      specTaskId={task.id}
+                      reviewId={latestDesignReview.id}
+                      onClose={() => handleViewChange(isHeadless ? "changes" : "desktop")}
+                      onImplementationStarted={() => {
+                        void queryClient.invalidateQueries({ queryKey: ["spec-tasks", task.id] });
+                        handleViewChange(isHeadless ? "changes" : "desktop");
+                      }}
+                      hideTitle
+                    />
+                  ) : (
+                    <PlanningDocumentsPlaceholder pushError={task.last_push_error} />
+                  )
                 )}
                 {!isHeadless && (currentView === "desktop" || currentView === "chat") &&
                   (isTaskCompleted && isDesktopPaused ? (
@@ -2800,8 +2827,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 onViewChange={handleViewChange}
                 hasSession
                 showChatTab
-                showPlan={!!latestDesignReview?.id}
+                showPlan={planningWorkspace || !!latestDesignReview?.id}
                 showDesktop={!isHeadless}
+                showBrowser={!planningWorkspace}
                 renderActions={(density) =>
                   renderTaskActions("inline", density)
                 }
@@ -2942,18 +2970,22 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               <SubagentsPanel interactions={subagentInteractions} />
             )}
 
-            {activeSessionId && currentView === "plan" && latestDesignReview?.id && (
+            {activeSessionId && currentView === "plan" && (
               <Box sx={{ flex: 1, overflow: "hidden" }}>
-                <DesignReviewContent
-                  specTaskId={task.id}
-                  reviewId={latestDesignReview.id}
-                  onClose={() => handleViewChange("chat")}
-                  onImplementationStarted={() => {
-                    void queryClient.invalidateQueries({ queryKey: ["spec-tasks", task.id] });
-                    handleViewChange("chat");
-                  }}
-                  hideTitle
-                />
+                {latestDesignReview?.id ? (
+                  <DesignReviewContent
+                    specTaskId={task.id}
+                    reviewId={latestDesignReview.id}
+                    onClose={() => handleViewChange("chat")}
+                    onImplementationStarted={() => {
+                      void queryClient.invalidateQueries({ queryKey: ["spec-tasks", task.id] });
+                      handleViewChange("chat");
+                    }}
+                    hideTitle
+                  />
+                ) : (
+                  <PlanningDocumentsPlaceholder pushError={task.last_push_error} />
+                )}
               </Box>
             )}
 
