@@ -112,7 +112,20 @@ func (apiServer *HelixAPIServer) getWorkspaceFile(w http.ResponseWriter, req *ht
 	apiServer.proxyAuthorizedWorkspaceGET(w, req, "/workspace/file", &types.WorkspaceFileResponse{})
 }
 
-// downloadWorkspaceFile streams a complete, binary-safe workspace file from the task desktop.
+// downloadWorkspaceFile godoc
+// @Summary Download a workspace file
+// @Description Streams a complete, binary-safe workspace file from the task desktop.
+// @Tags ExternalAgents
+// @Produce image/*,application/octet-stream
+// @Param sessionID path string true "Session ID"
+// @Param workspace query string false "Workspace name"
+// @Param path query string true "Repository-relative file path"
+// @Success 200 {file} binary
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/workspace-file/download [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) downloadWorkspaceFile(w http.ResponseWriter, req *http.Request) {
 	action := types.ActionGet
 	if req.URL.Query().Get("root") != "" {
