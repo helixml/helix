@@ -835,50 +835,27 @@ export default function DesignReviewContent({
     };
   }, [planningSessionId, specTaskId, reviewId, account.user]);
 
-  // Keyboard shortcuts
+  // Escape closes the active review overlay without intercepting typing keys.
   useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
+    const handleEscapeKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
         return;
       }
 
-      switch (e.key.toLowerCase()) {
-        case "c":
-          if (!e.ctrlKey && !e.metaKey) {
-            setShowCommentForm((prev) => !prev);
-            e.preventDefault();
-          }
-          break;
-        case "escape":
-          if (showCommentForm) {
-            removeHighlight();
-            setShowCommentForm(false);
-            e.preventDefault();
-          } else if (showSubmitDialog) {
-            setShowSubmitDialog(false);
-            e.preventDefault();
-          }
-          break;
-        case "1":
-        case "2":
-        case "3":
-          const tabs: DocumentType[] = [
-            "requirements",
-            "technical_design",
-            "implementation_plan",
-          ];
-          const tabIndex = parseInt(e.key) - 1;
-          if (tabIndex >= 0 && tabIndex < tabs.length) {
-            setActiveTab(tabs[tabIndex]);
-            e.preventDefault();
-          }
-          break;
+      if (e.key !== "Escape") return;
+      if (showCommentForm) {
+        removeHighlight();
+        setShowCommentForm(false);
+        e.preventDefault();
+      } else if (showSubmitDialog) {
+        setShowSubmitDialog(false);
+        e.preventDefault();
       }
     };
 
-    window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
+    window.addEventListener("keydown", handleEscapeKey);
+    return () => window.removeEventListener("keydown", handleEscapeKey);
   }, [showCommentForm, showSubmitDialog]);
 
   // Recalculate comment positions

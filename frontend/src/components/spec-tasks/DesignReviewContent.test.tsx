@@ -113,4 +113,23 @@ describe("DesignReviewContent document editing", () => {
     }));
     expect(snackbarSuccess).toHaveBeenCalledWith("Requirements Specification saved");
   });
+
+  it("does not intercept typing keys as global review shortcuts", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DesignReviewContent specTaskId="task-1" reviewId="review-1" onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    for (const key of ["c", "2"]) {
+      const event = new KeyboardEvent("keydown", { key, cancelable: true });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(screen.getByRole("tab", { name: "Requirements" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
 });
