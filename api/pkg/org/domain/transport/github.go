@@ -214,7 +214,7 @@ func (github) Describe() Descriptor {
 			Summary: "GitHub delivers matching events to Helix. Use the Connect to GitHub panel below to install the webhook.",
 		},
 		Secrets: []SecretRef{{
-			Label:      "GitHub token and webhook signing secret",
+			Label:      "GitHub webhook signing secret (outbound GitHub calls use the org's GitHub App; the transport.github token field is an ops override)",
 			SettingKey: "transport.github",
 			Location:   "Organization Settings",
 		}},
