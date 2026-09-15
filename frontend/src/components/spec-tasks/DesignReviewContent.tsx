@@ -221,6 +221,7 @@ export default function DesignReviewContent({
   // off-screen on first paint.
   const isNarrowViewport =
     docAreaWidth === null || docAreaWidth < SIDE_PANEL_MIN_DOC_AREA_WIDTH;
+  const usesChatCommentQueue = Boolean(onQueueComment);
 
   // Review state
   const [activeTab, setActiveTab] = useState<DocumentType>(initialTab);
@@ -909,7 +910,7 @@ export default function DesignReviewContent({
     // compact composer is anchored directly below the selection on narrower
     // embedded plan panes, so side-gutter collision math is irrelevant there.
     const formActive =
-      !isNarrowViewport && showCommentForm && !!selectedText;
+      !isNarrowViewport && !usesChatCommentQueue && showCommentForm && !!selectedText;
 
     if (
       !documentRef.current ||
@@ -1070,6 +1071,7 @@ export default function DesignReviewContent({
     commentFormPosition.y,
     commentFormMeasureTick,
     isNarrowViewport,
+    usesChatCommentQueue,
   ]);
 
   // Find the Y position of quoted text within the rendered markdown.
@@ -1882,7 +1884,7 @@ export default function DesignReviewContent({
                   setSelectedText("");
                   setSelectedOffset(null);
                 }}
-                isNarrowViewport={!!onQueueComment || isNarrowViewport}
+                isNarrowViewport={usesChatCommentQueue || isNarrowViewport}
                 isSubmitting={!onQueueComment && createCommentMutation.isPending}
                 outerRef={handleCommentFormRef}
               />}
