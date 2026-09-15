@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os"
@@ -76,6 +78,13 @@ type GitRepositoryService struct {
 	// concurrent handler hits) so we don't hammer GitHub and trip its 5000 req/hr
 	// rate limit. Set on construction; safe for concurrent use.
 	prListCache *prListCache
+
+	// githubReviewWebhooksURL enables PR review feedback for spec tasks: when
+	// set, creating a GitHub pull request also installs (idempotently) a
+	// pull_request_review webhook on the external repo so Helix gets review
+	// deliveries. Deliveries are signed with a per-repo secret stored on the
+	// repo row. Set via SetGitHubReviewWebhooks from server wiring.
+	githubReviewWebhooksURL string
 }
 
 // NewGitRepositoryService creates a new git repository service
@@ -145,6 +154,24 @@ func (s *GitRepositoryService) SetKoditService(koditService KoditServicer) {
 // This may differ from serverBaseURL in containerized environments
 func (s *GitRepositoryService) SetKoditGitURL(url string) {
 	s.koditGitURL = strings.TrimSuffix(url, "/")
+}
+
+// SetGitHubReviewWebhooks enables PR review webhooks on external GitHub repos.
+// url is the deployment's base payload URL (…/api/v1/webhooks/github/reviews);
+// per-repo secrets are generated at install time and stored on the repo row.
+// Empty url = feature off.
+func (s *GitRepositoryService) SetGitHubReviewWebhooks(url string) {
+	s.githubReviewWebhooksURL = strings.TrimSuffix(url, "/")
+}
+
+// generateWebhookSecret returns a fresh 256-bit hex secret for a repo's
+// pull_request_review webhook.
+func generateWebhookSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate webhook secret: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 // GetGitHomePath returns the path where git stores its global config (.gitconfig).

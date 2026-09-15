@@ -32,6 +32,7 @@ type gitRepositoryServicer interface {
 	CreatePullRequest(ctx context.Context, repoID, title, description, sourceBranch, targetBranch, userID string) (string, error)
 	GetPullRequest(ctx context.Context, repoID, id string) (*types.PullRequest, error)
 	ListPullRequests(ctx context.Context, repoID string) ([]*types.PullRequest, error)
+	ListPullRequestReviewComments(ctx context.Context, repoID, prID string, reviewID int64) ([]*types.PRReviewComment, error)
 	PushPullRequest(ctx context.Context, repoID, branchName string, force bool) error
 	PullFromRemote(ctx context.Context, repoID, branchName string, force bool) error
 	PushBranchToRemote(ctx context.Context, repoID, branchName string, force bool, userID ...string) error
