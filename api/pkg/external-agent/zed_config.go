@@ -316,6 +316,11 @@ func GenerateZedMCPConfig(
 	// request timeout` (180s).
 	config.ContextServers["chrome-devtools"] = ContextServerConfig{
 		Command: "/usr/bin/chrome-devtools-mcp",
+		// Persist the browser profile on the workspace volume. chrome-devtools-mcp
+		// otherwise passes an explicit user-data-dir under $HOME/.cache, which is
+		// part of the container overlay and is lost on recreation. Only
+		// /home/retro/work is bind-mounted persistently; the default Chrome path
+		// symlinks in helix-workspace-setup.sh cannot cover an explicit override.
 		// --viewport sets the rendered page size (Chrome window ends up viewport + ~80px
 		// of decorations). 1280x800 sits at the canonical desktop-vs-mobile breakpoint
 		// so sites still render in desktop mode, and the resulting Chrome window leaves
@@ -325,6 +330,7 @@ func GenerateZedMCPConfig(
 		// Disables navigator.webdriver, suppresses "Chrome is being controlled" infobar,
 		// and prevents extension probing (e.g. LinkedIn bot detection).
 		Args: []string{
+			"--user-data-dir=/home/retro/work/.chrome-state",
 			"--viewport", "1280x800",
 			"--chrome-arg=--disable-blink-features=AutomationControlled",
 			"--chrome-arg=--no-first-run",

@@ -29,6 +29,31 @@ func TestGenerateZedMCPConfigAllowsUnsandboxedCommands(t *testing.T) {
 	}
 }
 
+func TestGenerateZedMCPConfigUsesPersistentChromeProfile(t *testing.T) {
+	config, err := GenerateZedMCPConfig(
+		context.Background(),
+		&types.App{ID: "test-app"},
+		"user-1",
+		"session-1",
+		"http://api:8080",
+		"test-token",
+		false,
+		nil,
+		nil,
+		nil,
+		"",
+		nil,
+	)
+	assert.NoError(t, err)
+
+	chrome, ok := config.ContextServers["chrome-devtools"]
+	if assert.True(t, ok) {
+		if assert.NotEmpty(t, chrome.Args) {
+			assert.Equal(t, "--user-data-dir=/home/retro/work/.chrome-state", chrome.Args[0])
+		}
+	}
+}
+
 // TestGenerateZedMCPConfig_AgentDefaultModel covers P1-1 from the Deviqon
 // 2026-04-28 customer call. The original bug: when an agent had empty model
 // fields, the API silently substituted anthropic/claude-sonnet-4-5-latest;
