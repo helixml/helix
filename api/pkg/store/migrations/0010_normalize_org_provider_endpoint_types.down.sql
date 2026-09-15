@@ -1,2 +1,0 @@
--- Irreversible data repair: changing all organization endpoints back to
--- endpoint_type='user' would corrupt endpoints created with the correct type.
