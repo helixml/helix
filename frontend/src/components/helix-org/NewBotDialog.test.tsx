@@ -122,9 +122,9 @@ describe('NewBotDialog', () => {
     )
     expect(mocks.queueDraft).not.toHaveBeenCalled()
     expect(onClose).toHaveBeenCalledTimes(1)
-    expect(mocks.navigate).toHaveBeenCalledWith('org_session', {
+    expect(mocks.navigate).toHaveBeenCalledWith('org_bot_session', {
       org_id: 'my-org',
-      session_id: 'ses-chief',
+      bot_id: 'chief-of-staff',
     })
   })
 
