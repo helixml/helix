@@ -95,30 +95,49 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	projects, err := s.Store.ListProjects(ctx, &store.ListProjectsQuery{
-		OrganizationID: org.ID,
-		IncludeStats:   true,
-	})
+	projects, err := s.visibleOrganizationProjects(ctx, user, org.ID, orgMembership, types.ActionGet, true)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Org owners see all projects
-	if orgMembership.Role == types.OrganizationRoleOwner {
-		s.populateProjectOwners(ctx, projects)
-		return projects, nil
+	s.populateProjectOwners(ctx, projects)
+	return projects, nil
+}
+
+// visibleOrganizationProjects returns the org's projects the user may act on:
+// all of them for an org owner, otherwise only those authorizeUserToProject
+// allows for the action. A project-scoped credential (a sandbox's session key)
+// is confined to its own project on both branches, as authorizeUserToProject
+// would confine it. The same set bounds what the user may see of other
+// members' work (sessions, spec tasks), so every cross-member listing goes
+// through here.
+func (s *HelixAPIServer) visibleOrganizationProjects(
+	ctx context.Context,
+	user *types.User,
+	orgID string,
+	orgMembership *types.OrganizationMembership,
+	action types.Action,
+	includeStats bool,
+) ([]*types.Project, error) {
+	projects, err := s.Store.ListProjects(ctx, &store.ListProjectsQuery{
+		OrganizationID: orgID,
+		IncludeStats:   includeStats,
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	// Non-owners only see projects they have access to
 	var authorizedProjects []*types.Project
 	for _, project := range projects {
-		if err := s.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+		if orgMembership.Role == types.OrganizationRoleOwner {
+			if err := enforceKeyProjectScope(user, project.ID); err != nil {
+				continue
+			}
+		} else if err := s.authorizeUserToProject(ctx, user, project, action); err != nil {
 			continue
 		}
 		authorizedProjects = append(authorizedProjects, project)
 	}
-
-	s.populateProjectOwners(ctx, authorizedProjects)
 	return authorizedProjects, nil
 }
 
@@ -3078,6 +3097,7 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		if req.AgentAppID != "" {
 			agentAppID = agentApp.ID
 		} else if agentApp != nil {
+			previousApp := *agentApp
 			// Apply only owns name/runtime/provider/model/credentials/tools/
 			// display/goose. User-edited skill config (MCPs, APIs, Zapier, …)
 			// lives on the agent app via the Skills UI and must survive
@@ -3094,8 +3114,15 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				appHelixConfig.ExternalAgentConfig = agentApp.Config.Helix.ExternalAgentConfig
 			}
 			agentApp.Config.Helix = appHelixConfig
-			if _, err := s.Store.UpdateApp(r.Context(), agentApp); err != nil {
+			updatedApp, err := s.Store.UpdateApp(r.Context(), agentApp)
+			if err != nil {
 				return nil, system.NewHTTPError500(fmt.Sprintf("failed to update agent app: %v", err))
+			}
+			if err := s.syncOrgAgentProjectCodeAgentConfig(r.Context(), updatedApp); err != nil {
+				if _, rollbackErr := s.Store.UpdateApp(context.WithoutCancel(r.Context()), &previousApp); rollbackErr != nil {
+					return nil, system.NewHTTPError500(fmt.Sprintf("sync Org Bot execution config: %v; restore legacy App: %v", err, rollbackErr))
+				}
+				return nil, system.NewHTTPError500(fmt.Sprintf("sync Org Bot execution config: %v", err))
 			}
 			agentAppID = agentApp.ID
 		} else {

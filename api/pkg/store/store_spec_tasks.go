@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,6 +12,14 @@ import (
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
+
+// specTaskPRMatchJSON is the containment probe marshaled for the PRMatch
+// filter's @> query. Field tags must match the RepoPR JSON keys persisted by
+// the gorm json serializer.
+type specTaskPRMatchJSON struct {
+	RepositoryID string `json:"repository_id"`
+	PRNumber     int    `json:"pr_number"`
+}
 
 // CreateSpecTask creates a new spec-driven task
 func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
@@ -431,11 +440,21 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	if filters.ProjectID != "" {
 		db = db.Where("project_id = ?", filters.ProjectID)
 	}
+	if filters.FilterProjectIDs {
+		if len(filters.ProjectIDs) == 0 {
+			db = db.Where("1 = 0")
+		} else {
+			db = db.Where("project_id IN ?", filters.ProjectIDs)
+		}
+	}
 	if filters.Status != "" {
 		db = db.Where("status = ?", filters.Status)
 	}
 	if filters.UserID != "" {
 		db = db.Where("created_by = ?", filters.UserID)
+	}
+	if filters.CreatedByOrgBot != "" {
+		db = db.Where("created_by_org_agent = ?", filters.CreatedByOrgBot)
 	}
 	if filters.FilterParticipants {
 		if len(filters.ParticipantIDs) == 0 {
@@ -472,6 +491,22 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	for _, label := range filters.Labels {
 		labelJSON := `["` + label + `"]`
 		db = db.Where("labels @> ?::jsonb", labelJSON)
+	}
+	// PRMatch filter - tasks tracking this repo + PR (GitHub webhook correlation
+	// via JSONB containment against the RepoPullRequests array; the repository
+	// row's org ownership is the tenant boundary)
+	if filters.PRMatch != nil {
+		// json.Marshal, not fmt.Sprintf: the id is arbitrary row data and %q
+		// produces Go-quoted, not JSON-escaped, strings (control characters
+		// would break the ::jsonb cast and 500 the query).
+		matchJSON, err := json.Marshal(specTaskPRMatchJSON{
+			RepositoryID: filters.PRMatch.RepositoryID,
+			PRNumber:     filters.PRMatch.PRNumber,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("marshal PR match filter: %w", err)
+		}
+		db = db.Where("repo_pull_requests @> ?::jsonb", string(matchJSON))
 	}
 
 	if filters.Limit > 0 {

@@ -1,4 +1,4 @@
-// Shared chrome for every helix-org page: top-bar nav (Chart/Agents/Topics/Assets/
+// Shared chrome for every helix-org page: top-bar nav (Chart/Org Bots/Triggers/Assets/
 // Settings) + optional left chat rail + right content.
 //
 // Breadcrumbs sit on the left of the AppBar (same pattern as SpecTasks /
@@ -32,7 +32,7 @@ export type HelixOrgShellProps = {
   topbarActions?: ReactNode
   /**
    * Show the left chat rail. Only the Chart page sets this true —
-   * Agents / Topics / Assets / Settings / detail pages use the full width.
+   * Org Bots / Triggers / Assets / Settings / detail pages use the full width.
    */
   showChat?: boolean
   children: ReactNode

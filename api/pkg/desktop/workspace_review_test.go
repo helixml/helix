@@ -91,6 +91,63 @@ func TestWorkspaceReviewRejectsUnknownExplicitBase(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestWorkspaceReviewPrefersRemoteBaseOverStaleLocalBranch(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	runReviewTestGit(t, repoDir, "checkout", "-b", "upstream")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "upstream.txt"), []byte("upstream\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "upstream.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "advance upstream")
+	runReviewTestGit(t, repoDir, "update-ref", "refs/remotes/origin/main", "HEAD")
+	runReviewTestGit(t, repoDir, "checkout", "-b", "feature")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "feature.txt"), []byte("feature\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "feature.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "add feature")
+
+	branch := requestReviewSources(t, server, workspace, "main")[types.WorkspaceReviewSourceBranch]
+	assert.Equal(t, "origin/main", branch.BaseRef)
+	assert.Equal(t, []string{"feature.txt"}, codeChangePaths(branch.Files))
+}
+
+func TestWorkspaceReviewDoesNotReplaceHEADWithRemoteRef(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	runReviewTestGit(t, repoDir, "update-ref", "refs/remotes/origin/HEAD", "HEAD")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "feature.txt"), []byte("feature\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "feature.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "add feature")
+
+	branch := requestReviewSources(t, server, workspace, "HEAD")[types.WorkspaceReviewSourceBranch]
+	assert.Equal(t, "HEAD", branch.BaseRef)
+	assert.Empty(t, branch.Files)
+}
+
+func TestWorkspaceReviewPrefersRemoteCompatibilityFallback(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	runReviewTestGit(t, repoDir, "branch", "master", "main")
+	runReviewTestGit(t, repoDir, "checkout", "-b", "upstream")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "upstream.txt"), []byte("upstream\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "upstream.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "advance upstream")
+	runReviewTestGit(t, repoDir, "update-ref", "refs/remotes/origin/master", "HEAD")
+	runReviewTestGit(t, repoDir, "checkout", "-b", "feature")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "feature.txt"), []byte("feature\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "feature.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "add feature")
+	runReviewTestGit(t, repoDir, "branch", "-D", "main")
+
+	branch := requestReviewSources(t, server, workspace, "main")[types.WorkspaceReviewSourceBranch]
+	assert.Equal(t, "origin/master", branch.BaseRef)
+	assert.Equal(t, []string{"feature.txt"}, codeChangePaths(branch.Files))
+}
+
 func TestWorkspaceCheckpointCaptureDoesNotModifyUserGitState(t *testing.T) {
 	repoDir := setupTestGitRepo(t)
 	workspace := useReviewTestWorkspace(t, repoDir)

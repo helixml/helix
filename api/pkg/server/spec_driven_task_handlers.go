@@ -153,6 +153,13 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	// Set user ID and email from context
 	req.UserID = user.ID
 	req.UserEmail = user.Email
+	orgBot, err := s.orgBotForRequestUser(ctx, user)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", user.SessionID).Msg("Failed to resolve Org Bot for task creation")
+		http.Error(w, fmt.Sprintf("failed to resolve creating agent: %v", err), http.StatusInternalServerError)
+		return
+	}
+	req.CreatedByOrgBot = orgBot
 
 	// Strip null bytes that Postgres rejects (SQLSTATE 22021)
 	req.Prompt = strings.ReplaceAll(req.Prompt, "\x00", "")
@@ -284,15 +291,33 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(task)
 }
 
+// orgBotForRequestUser names the Org Bot behind a request, or "".
+// A Bot works with a session-scoped API key; the session it names carries
+// the Bot's org_worker_id. People and ordinary keys have no session. The
+// key→session binding is server-minted, so a session that cannot be loaded
+// is an inconsistency, not a case to attribute around.
+func (s *HelixAPIServer) orgBotForRequestUser(ctx context.Context, user *types.User) (string, error) {
+	if user == nil || user.SessionID == "" {
+		return "", nil
+	}
+	session, err := s.Store.GetSession(ctx, user.SessionID)
+	if err != nil {
+		return "", fmt.Errorf("load session %s for credential: %w", user.SessionID, err)
+	}
+	return session.Metadata.OrgWorkerID, nil
+}
+
 // listTasks godoc
 // @Summary List spec-driven tasks
-// @Description List spec-driven tasks with optional filtering by project, status, or user
+// @Description List spec-driven tasks with optional filtering by project, status, or user. Pass organization_id instead of project_id to list across every project the caller can access.
 // @Tags    spec-driven-tasks
 // @Produce json
-// @Param   project_id query string true "Project ID"
+// @Param   project_id query string false "Project ID (required unless organization_id is set)"
+// @Param   organization_id query string false "Organization slug or ID: list tasks across all accessible projects"
 // @Param   status query string false "Filter by status"
 // @Param   user_id query string false "Filter by user ID"
 // @Param   participant_ids query string false "Filter by creator or assignee user IDs (comma-separated, OR semantics)"
+// @Param   created_by_org_bot query string false "Only tasks created by this Org Bot handle"
 // @Param   include_archived query bool false "Include archived tasks" default(false)
 // @Param   with_depends_on query bool false "Include depends on tasks" default(false)
 // @Param   labels query string false "Filter by labels (comma-separated, AND semantics)"
@@ -307,9 +332,10 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
 	projectID := query.Get("project_id")
+	orgRef := query.Get("organization_id")
 
-	if projectID == "" {
-		http.Error(w, "project ID is required", http.StatusBadRequest)
+	if projectID == "" && orgRef == "" {
+		http.Error(w, "project_id or organization_id is required", http.StatusBadRequest)
 		return
 	}
 
@@ -325,10 +351,38 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authorize user to list tasks in the project
-	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionList); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
-		return
+	// A project listing is authorized against that project. An org-wide
+	// listing is bounded to the projects the caller can read, which is the
+	// same set the projects page shows them.
+	var (
+		filterProjectIDs bool
+		projectIDs       []string
+	)
+	if projectID != "" {
+		if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionList); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+	} else {
+		org, err := s.lookupOrg(ctx, orgRef)
+		if err != nil {
+			http.Error(w, "organization not found", http.StatusNotFound)
+			return
+		}
+		membership, err := s.authorizeOrgMember(ctx, user, org.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		projects, err := s.visibleOrganizationProjects(ctx, user, org.ID, membership, types.ActionList, false)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to list projects: %v", err), http.StatusInternalServerError)
+			return
+		}
+		filterProjectIDs = true
+		for _, project := range projects {
+			projectIDs = append(projectIDs, project.ID)
+		}
 	}
 
 	var labelFilter []string
@@ -362,6 +416,9 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		UserID:             query.Get("user_id"),
 		FilterParticipants: query.Has("participant_ids"),
 		ParticipantIDs:     participantIDs,
+		FilterProjectIDs:   filterProjectIDs,
+		ProjectIDs:         projectIDs,
+		CreatedByOrgBot:    query.Get("created_by_org_bot"),
 		WithDependsOn:      query.Get("with_depends_on") == "true",
 		Limit:              parseIntQuery(query.Get("limit"), 0), // 0 = no limit, return all tasks
 		Offset:             parseIntQuery(query.Get("offset"), 0),
@@ -383,35 +440,33 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		tasks = []*types.SpecTask{}
 	}
 
-	// Compute PR URLs for RepoPullRequests array
-	if projectID != "" {
-		// Batch load repos for RepoPullRequests URL computation
-		// Collect all unique repo IDs from all tasks
-		repoIDsMap := make(map[string]bool)
-		for _, task := range tasks {
-			for _, repoPR := range task.RepoPullRequests {
-				if repoPR.PRURL == "" && repoPR.PRID != "" {
-					repoIDsMap[repoPR.RepositoryID] = true
-				}
+	// Compute PR URLs for RepoPullRequests array.
+	// Batch load repos for RepoPullRequests URL computation
+	// Collect all unique repo IDs from all tasks
+	repoIDsMap := make(map[string]bool)
+	for _, task := range tasks {
+		for _, repoPR := range task.RepoPullRequests {
+			if repoPR.PRURL == "" && repoPR.PRID != "" {
+				repoIDsMap[repoPR.RepositoryID] = true
 			}
 		}
+	}
 
-		// Load repos and build lookup map
-		repoMap := make(map[string]*types.GitRepository)
-		for repoID := range repoIDsMap {
-			repo, err := s.Store.GetGitRepository(ctx, repoID)
-			if err == nil {
-				repoMap[repoID] = repo
-			}
+	// Load repos and build lookup map
+	repoMap := make(map[string]*types.GitRepository)
+	for repoID := range repoIDsMap {
+		repo, err := s.Store.GetGitRepository(ctx, repoID)
+		if err == nil {
+			repoMap[repoID] = repo
 		}
+	}
 
-		// Compute URLs for RepoPullRequests
-		for _, task := range tasks {
-			for i, repoPR := range task.RepoPullRequests {
-				if repoPR.PRURL == "" && repoPR.PRID != "" {
-					if repo, ok := repoMap[repoPR.RepositoryID]; ok && repo.ExternalURL != "" {
-						task.RepoPullRequests[i].PRURL = services.GetPullRequestURL(repo, repoPR.PRID)
-					}
+	// Compute URLs for RepoPullRequests
+	for _, task := range tasks {
+		for i, repoPR := range task.RepoPullRequests {
+			if repoPR.PRURL == "" && repoPR.PRID != "" {
+				if repo, ok := repoMap[repoPR.RepositoryID]; ok && repo.ExternalURL != "" {
+					task.RepoPullRequests[i].PRURL = services.GetPullRequestURL(repo, repoPR.PRID)
 				}
 			}
 		}
@@ -1438,50 +1493,58 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// When archiving, stop any running external agents
+	// When archiving, stop any running external agents in the background.
+	// Stopping a desktop is slow (screenshot capture, container teardown,
+	// billing settle, key revocation) and must not block the archive response.
 	if req.Archived {
-		// Stop the external agent if it's running
-		if task.PlanningSessionID != "" {
-			session, sessionErr := s.Store.GetSession(ctx, task.PlanningSessionID)
-			if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
-				stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.PlanningSessionID)
+		planningSessionID := task.PlanningSessionID
+		stopCtx, stopCancel := detachContext(r.Context(), 5*time.Minute)
+		go func() {
+			defer stopCancel()
+
+			// Stop the external agent if it's running
+			if planningSessionID != "" {
+				session, sessionErr := s.Store.GetSession(stopCtx, planningSessionID)
+				if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
+					stopErr := s.externalAgentExecutor.StopDesktop(stopCtx, planningSessionID)
+					if stopErr != nil {
+						log.Warn().
+							Err(stopErr).
+							Str("task_id", taskID).
+							Str("session_id", planningSessionID).
+							Msg("Failed to stop agent session when archiving (continuing anyway)")
+					} else {
+						log.Info().
+							Str("task_id", taskID).
+							Str("session_id", planningSessionID).
+							Msg("Stopped agent session when archiving")
+					}
+				}
+			}
+
+			// Stop any implementation session agents
+			// Get all sessions for this task's project and stop ones related to this task
+			externalAgent, agentErr := s.Store.GetSpecTaskExternalAgent(stopCtx, taskID)
+			if agentErr == nil && externalAgent != nil && externalAgent.Status == "running" {
+				stopErr := s.externalAgentExecutor.StopDesktop(stopCtx, externalAgent.ID)
 				if stopErr != nil {
 					log.Warn().
 						Err(stopErr).
 						Str("task_id", taskID).
-						Str("session_id", task.PlanningSessionID).
-						Msg("Failed to stop agent session when archiving (continuing anyway)")
+						Str("agent_id", externalAgent.ID).
+						Msg("Failed to stop external agent when archiving (continuing anyway)")
 				} else {
+					// Update agent status
+					externalAgent.Status = "stopped"
+					_ = s.Store.UpdateSpecTaskExternalAgent(stopCtx, externalAgent)
+
 					log.Info().
 						Str("task_id", taskID).
-						Str("session_id", task.PlanningSessionID).
-						Msg("Stopped agent session before archiving")
+						Str("agent_id", externalAgent.ID).
+						Msg("Stopped external agent when archiving")
 				}
 			}
-		}
-
-		// Stop any implementation session agents
-		// Get all sessions for this task's project and stop ones related to this task
-		externalAgent, agentErr := s.Store.GetSpecTaskExternalAgent(ctx, taskID)
-		if agentErr == nil && externalAgent != nil && externalAgent.Status == "running" {
-			stopErr := s.externalAgentExecutor.StopDesktop(ctx, externalAgent.ID)
-			if stopErr != nil {
-				log.Warn().
-					Err(stopErr).
-					Str("task_id", taskID).
-					Str("agent_id", externalAgent.ID).
-					Msg("Failed to stop external agent when archiving (continuing anyway)")
-			} else {
-				// Update agent status
-				externalAgent.Status = "stopped"
-				_ = s.Store.UpdateSpecTaskExternalAgent(ctx, externalAgent)
-
-				log.Info().
-					Str("task_id", taskID).
-					Str("agent_id", externalAgent.ID).
-					Msg("Stopped external agent before archiving")
-			}
-		}
+		}()
 	}
 
 	// Update archived status

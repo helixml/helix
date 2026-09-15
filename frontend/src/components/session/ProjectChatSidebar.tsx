@@ -1,4 +1,4 @@
-import { FC, MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { FC, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   closestCenter,
   DndContext,
@@ -8,12 +8,13 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import InputBase from '@mui/material/InputBase'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { Archive, FolderPlus, Search, SquarePen } from 'lucide-react'
+import { Archive, FolderPlus, Plus, Search, SquarePen } from 'lucide-react'
 
 import {
   TypesExternalRepositoryType,
@@ -28,10 +29,14 @@ import useSnackbar from '../../hooks/useSnackbar'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { useCreateGitRepository, useGitRepositories } from '../../services/gitRepositoryService'
 import { useListHelixOrgBots } from '../../services/helixOrgService'
+import { useOrganizationMembers } from '../../services/orgService'
 import { useListProjects } from '../../services/projectService'
 import { useArchiveSession } from '../../services/sessionService'
 import { useArchiveSpecTask } from '../../services/specTaskService'
 import { usePinnedChats } from '../../services/chatPinService'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { APP_FONT_FAMILY, TYPOGRAPHY } from '../../styles/typography'
+import NewBotDialog from '../helix-org/NewBotDialog'
 import CreateProjectDialog from '../project/CreateProjectDialog'
 import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import {
@@ -47,16 +52,24 @@ import {
   parseCollapsedGroupIds,
   serializeSidebarParticipantIds,
   sidebarPreferencesStorageKey,
-  sidebarPeopleFilterStorageKey,
+  sidebarExpandedPeopleStorageKey,
   sidebarProjectFilterStorageKey,
   serializeCollapsedGroupIds,
+  parseSidebarGroupBy,
+  sidebarGroupByStorageKey,
+  toSidebarBots,
+  toSidebarMembers,
+  withoutBotProjects,
 } from './ProjectChatSidebar.logic'
-import type { SidebarItem } from './ProjectChatSidebar.logic'
+import type { SidebarGroupBy, SidebarItem } from './ProjectChatSidebar.logic'
+import ProjectChatBotsGroup, { botGroupId } from './ProjectChatBotsGroup'
 import ProjectChatGroup from './ProjectChatGroup'
+import ProjectChatPeopleSection from './ProjectChatPeopleSection'
+import ProjectChatSectionHeader from './ProjectChatSectionHeader'
 import ProjectChatItemContextMenu from './ProjectChatItemContextMenu'
 import type { ProjectChatContextMenuPosition } from './ProjectChatItemContextMenu'
 import ProjectChatProjectContextMenu from './ProjectChatProjectContextMenu'
-import ProjectChatSidebarPeopleFilter from './ProjectChatSidebarPeopleFilter'
+import ProjectChatGroupByControl from './ProjectChatGroupByControl'
 import ProjectChatSidebarOptions from './ProjectChatSidebarOptions'
 import ProjectChatSidebarProjectFilter from './ProjectChatSidebarProjectFilter'
 import SortableProject from './SortableProject'
@@ -68,7 +81,6 @@ import type { NewChatTarget } from './NewChatProjectDialog'
 import ProjectChatSidebarMobileBar, { MOBILE_BAR_CLEARANCE } from './ProjectChatSidebarMobileBar'
 
 const RELATIVE_TIME_REFRESH_MS = 15000
-const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
 
 const readCollapsedGroups = (storageKey: string): Set<string> => {
   try {
@@ -83,6 +95,14 @@ const readParticipantIds = (storageKey: string): string[] | null => {
     return parseSidebarParticipantIds(window.localStorage.getItem(storageKey))
   } catch {
     return null
+  }
+}
+
+const readGroupBy = (storageKey: string): SidebarGroupBy => {
+  try {
+    return parseSidebarGroupBy(window.localStorage.getItem(storageKey))
+  } catch {
+    return 'project'
   }
 }
 
@@ -102,6 +122,7 @@ const ProjectChatSidebar: FC<{
   const router = useRouter()
   const isPhone = useIsPhone()
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   const snackbar = useSnackbar()
   const { openDialog } = useSettingsDialog()
   const orgSlug = router.params.org_id || ''
@@ -110,10 +131,12 @@ const ProjectChatSidebar: FC<{
   const storageKey = collapsedGroupsStorageKey(orgSlug)
   const preferencesStorageKey = sidebarPreferencesStorageKey(orgSlug)
   const projectFilterStorageKey = sidebarProjectFilterStorageKey(orgId)
+  const groupByStorageKey = sidebarGroupByStorageKey(orgId)
 
   const [query, setQuery] = useState('')
+  const [groupBy, setGroupBy] = useState<SidebarGroupBy>(() => readGroupBy(groupByStorageKey))
   const [projectFilter, setProjectFilter] = useState(() => readProjectFilter(projectFilterStorageKey))
-  const peopleFilterStorageKey = sidebarPeopleFilterStorageKey(currentUserId, orgSlug, projectFilter)
+  const peopleFilterStorageKey = sidebarExpandedPeopleStorageKey(currentUserId, orgSlug)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
   const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now())
   const [archiveConfirmation, setArchiveConfirmation] = useState<SidebarItem | null>(null)
@@ -123,6 +146,7 @@ const ProjectChatSidebar: FC<{
   const [projectContextMenuPosition, setProjectContextMenuPosition] = useState<ProjectChatContextMenuPosition | null>(null)
   const [archivingItemId, setArchivingItemId] = useState<string | null>(null)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
+  const [newBotOpen, setNewBotOpen] = useState(false)
   const [newChatPickerOpen, setNewChatPickerOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [chatShortcutsVisible, setChatShortcutsVisible] = useState(false)
@@ -141,6 +165,10 @@ const ProjectChatSidebar: FC<{
   }, [projectFilterStorageKey])
 
   useEffect(() => {
+    setGroupBy(readGroupBy(groupByStorageKey))
+  }, [groupByStorageKey])
+
+  useEffect(() => {
     setParticipantIdsOverride(readParticipantIds(peopleFilterStorageKey))
   }, [peopleFilterStorageKey])
 
@@ -149,10 +177,21 @@ const ProjectChatSidebar: FC<{
     return () => window.clearInterval(interval)
   }, [])
 
-  const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
+  const { data: allProjects = [], isLoading: projectsLoading } = useListProjects(orgId, {
     enabled: !!account.user?.id && !!orgId,
     refetchInterval: 10000,
   })
+  // Polled so a bot starting or stopping (and its session appearing) shows
+  // without a reload; the same list drives the org chart's status dots.
+  const { data: orgAgents = [], isLoading: botsLoading } = useListHelixOrgBots({
+    enabled: !!account.user?.id && !!orgId,
+    refetchInterval: 10000,
+  })
+  // Memoised on the query results (stable between fetches) so the project
+  // list keeps its identity for the sort memo and drag handlers downstream.
+  const sidebarBots = useMemo(() => toSidebarBots(orgAgents), [orgAgents])
+  // An agent's own project is its chat; it is listed under Org agents, not Projects.
+  const sidebarProjects = useMemo(() => withoutBotProjects(allProjects, sidebarBots), [allProjects, sidebarBots])
   const {
     preferences,
     sortedProjects,
@@ -160,8 +199,7 @@ const ProjectChatSidebar: FC<{
     setThreadSortOrder,
     setVisibleThreadCount,
     setManualProjectOrder,
-  } = useProjectChatSidebarPreferences(preferencesStorageKey, projects)
-  const sidebarProjects = projects
+  } = useProjectChatSidebarPreferences(preferencesStorageKey, sidebarProjects)
   const focusedProject = projectFilter === ALL_PROJECTS_FILTER
     ? undefined
     : sidebarProjects.find((project) => project.id === projectFilter)
@@ -180,12 +218,8 @@ const ProjectChatSidebar: FC<{
       // Persistence is optional when browser storage is unavailable.
     }
   }, [projectFilter, projectFilterStorageKey, projectsLoading, resolvedProjectFilter])
-  const { data: orgAgents = [] } = useListHelixOrgBots({
-    enabled: !!account.user?.id && !!orgId,
-  })
   const orgAgentAppIds = new Set(orgAgents.flatMap((agent) => [
-    agent.agent_id,
-    agent.agent_app_id,
+    agent.legacy_app_id,
   ]).filter((appId): appId is string => !!appId))
   const { data: repositories = [], isLoading: repositoriesLoading } = useGitRepositories({
     organizationId: orgId,
@@ -196,15 +230,24 @@ const ProjectChatSidebar: FC<{
   const archiveSpecTask = useArchiveSpecTask()
   const { data: pinnedChats = [] } = usePinnedChats(!!account.user?.id)
   const activeItemId = router.params.taskId || router.params.session_id || ''
-  const organizationMembers = account.organizationTools.organization?.memberships || []
+  // The account context loads memberships once; presence needs the polled
+  // list, which also carries the `online` flag.
+  const { data: liveMembers } = useOrganizationMembers(orgId, {
+    enabled: !!account.user?.id && !!orgId,
+    refetchInterval: 30000,
+  })
+  const organizationMembers = liveMembers ?? account.organizationTools.organization?.memberships ?? []
   const memberUserIds = new Set(organizationMembers.flatMap((member) => (
     member.user_id && member.user ? [member.user_id] : []
   )))
   const selectableMembers = currentUserId && !memberUserIds.has(currentUserId) && account.user
     ? [{ user_id: currentUserId, user: account.user }, ...organizationMembers]
     : organizationMembers
-  const selectedParticipantIds = participantIdsOverride === null
-    ? currentUserId ? [currentUserId] : []
+  const sidebarMembers = toSidebarMembers(organizationMembers, account.user)
+  // Members whose work is expanded when grouping by person. Until the viewer
+  // chooses, only their own group is open.
+  const expandedPeopleIds = participantIdsOverride === null
+    ? (currentUserId ? [currentUserId] : [])
     : participantIdsOverride.filter((userId) => userId === currentUserId || memberUserIds.has(userId))
   const {
     dragInProgressRef,
@@ -450,6 +493,15 @@ const ProjectChatSidebar: FC<{
     void performArchive(item)
   }
 
+  const selectGroupBy = (value: SidebarGroupBy) => {
+    setGroupBy(value)
+    try {
+      window.localStorage.setItem(groupByStorageKey, value)
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  }
+
   const updateSelectedParticipantIds = (userIds: string[]) => {
     const selectedUserIds = userIds.filter((userId) => (
       userId === currentUserId || memberUserIds.has(userId)
@@ -463,6 +515,12 @@ const ProjectChatSidebar: FC<{
     } catch {
       // Persistence is optional when browser storage is unavailable.
     }
+  }
+
+  const togglePerson = (userId: string) => {
+    updateSelectedParticipantIds(expandedPeopleIds.includes(userId)
+      ? expandedPeopleIds.filter((expandedId) => expandedId !== userId)
+      : [...expandedPeopleIds, userId])
   }
 
   const selectProjectFilter = (projectId: string) => {
@@ -514,12 +572,7 @@ const ProjectChatSidebar: FC<{
             onVisibleThreadCountChange={setVisibleThreadCount}
           />
         )}
-        <ProjectChatSidebarPeopleFilter
-          members={selectableMembers}
-          currentUser={account.user}
-          selectedUserIds={selectedParticipantIds}
-          onSelectedUserIdsChange={updateSelectedParticipantIds}
-        />
+        <ProjectChatGroupByControl value={groupBy} onChange={selectGroupBy} />
         <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
           <IconButton
             size="small"
@@ -528,8 +581,8 @@ const ProjectChatSidebar: FC<{
             aria-pressed={showArchived}
             sx={{
               color: showArchived
-                ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
-                : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
+                ? sidebarColors.foreground
+                : sidebarColors.subtleForeground,
             }}
           >
             <Archive size={15} strokeWidth={1.7} />
@@ -543,11 +596,7 @@ const ProjectChatSidebar: FC<{
                 onClick={() => setCreateProjectOpen(true)}
                 disabled={!account.user?.id || !orgId}
                 aria-label="New project"
-                sx={{
-                  color: lightTheme.isLight
-                    ? 'rgba(113,113,122,0.65)'
-                    : 'rgba(163,163,163,0.55)',
-                }}
+                sx={{ color: sidebarColors.subtleForeground }}
               >
                 <FolderPlus size={15} strokeWidth={1.7} />
               </IconButton>
@@ -557,6 +606,14 @@ const ProjectChatSidebar: FC<{
     </>
   )
   const groupsEnabled = !!account.user?.id && !!orgId
+  // Focus mode is "just this project" — it narrows what shows, never how it
+  // is laid out, so the group-by choice survives filtering. The archived
+  // view is only about threads, so agents stay out of it. Searching keeps
+  // every section so a query can land on an agent, a thread, or a
+  // colleague; each agent hides itself when nothing of its own matches.
+  const showBotsSection = !focusMode && !showArchived
+  const groupByPerson = groupBy === 'person'
+  const showSectionHeaders = showBotsSection || groupByPerson
 
   return (
     <Box
@@ -569,9 +626,9 @@ const ProjectChatSidebar: FC<{
         flexDirection: 'column',
         // Positioning context for the phone's floating bottom bar.
         position: 'relative',
-        fontFamily: T3_FONT_FAMILY,
-        color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-        backgroundColor: lightTheme.isLight ? '#fafafa' : '#000000',
+        fontFamily: APP_FONT_FAMILY,
+        color: sidebarColors.foreground,
+        backgroundColor: sidebarColors.background,
         '& .MuiTypography-root': { fontFamily: 'inherit' },
         '&[data-chat-shortcuts-visible="true"] .project-chat-item[data-chat-shortcut]::after': {
           content: 'attr(data-chat-shortcut)',
@@ -584,9 +641,9 @@ const ProjectChatSidebar: FC<{
           alignItems: 'center',
           justifyContent: 'center',
           borderRadius: '4px',
-          color: lightTheme.isLight ? '#52525b' : '#d4d4d8',
-          backgroundColor: lightTheme.isLight ? 'rgba(39,39,42,0.08)' : 'rgba(241,243,247,0.12)',
-          fontSize: '10px',
+          color: sidebarColors.primaryLabel,
+          backgroundColor: sidebarColors.rowSelected,
+          fontSize: TYPOGRAPHY.sidebar.statusFontSize,
           fontWeight: 600,
           lineHeight: 1,
           fontVariantNumeric: 'tabular-nums',
@@ -623,19 +680,19 @@ const ProjectChatSidebar: FC<{
               minWidth: 0,
               color: 'inherit',
               fontFamily: 'inherit',
-              fontSize: '14px',
+              fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
               fontWeight: 500,
               '& input::placeholder': {
-                color: lightTheme.isLight ? '#71717a' : '#a3a3a3',
+                color: sidebarColors.mutedForeground,
                 opacity: 1,
               },
             }}
           />
-          <Tooltip title="New thread (⌘⇧O / Ctrl+Shift+O)">
+          <Tooltip title="New task (⌘⇧O / Ctrl+Shift+O)">
             <IconButton
               size="small"
               onClick={openNewChatPicker}
-              aria-label="New thread"
+              aria-label="New task"
               aria-keyshortcuts="Meta+Shift+O Control+Shift+O"
             >
               <SquarePen size={16} strokeWidth={1.7} />
@@ -659,12 +716,7 @@ const ProjectChatSidebar: FC<{
               onVisibleThreadCountChange={setVisibleThreadCount}
             />
           )}
-          <ProjectChatSidebarPeopleFilter
-            members={selectableMembers}
-            currentUser={account.user}
-            selectedUserIds={selectedParticipantIds}
-            onSelectedUserIdsChange={updateSelectedParticipantIds}
-          />
+          <ProjectChatGroupByControl value={groupBy} onChange={selectGroupBy} />
           <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
             <IconButton
               size="small"
@@ -673,8 +725,8 @@ const ProjectChatSidebar: FC<{
               aria-pressed={showArchived}
               sx={{
                 color: showArchived
-                  ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
-                  : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
+                  ? sidebarColors.foreground
+                  : sidebarColors.subtleForeground,
               }}
             >
               <Archive size={15} strokeWidth={1.7} />
@@ -689,9 +741,7 @@ const ProjectChatSidebar: FC<{
                   disabled={!account.user?.id || !orgId}
                   aria-label="New project"
                   sx={{
-                    color: lightTheme.isLight
-                      ? 'rgba(113,113,122,0.65)'
-                      : 'rgba(163,163,163,0.55)',
+                    color: sidebarColors.subtleForeground,
                   }}
                 >
                   <FolderPlus size={15} strokeWidth={1.7} />
@@ -718,12 +768,76 @@ const ProjectChatSidebar: FC<{
           '&::-webkit-scrollbar': { display: 'none' },
         }}
       >
-        {projectsLoading ? (
+        {projectsLoading || (botsLoading && sidebarBots.length === 0) ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress size={22} />
           </Box>
         ) : (
           <>
+            {showBotsSection && (
+              <>
+                <ProjectChatSectionHeader
+                  label="Org bots"
+                  collapsed={collapsedGroups.has('bots')}
+                  onToggle={() => toggleGroup('bots')}
+                  actions={(
+                    <Button
+                      size="small"
+                      variant="text"
+                      startIcon={<Plus size={12} strokeWidth={1.8} />}
+                      onClick={() => setNewBotOpen(true)}
+                      disabled={!groupsEnabled}
+                      sx={{
+                        minWidth: 0,
+                        minHeight: 24,
+                        height: 24,
+                        px: 0.5,
+                        py: 0,
+                        color: 'inherit',
+                        fontSize: TYPOGRAPHY.sidebar.sectionFontSize,
+                        lineHeight: TYPOGRAPHY.sidebar.sectionLineHeight,
+                        textTransform: 'none',
+                        '& .MuiButton-startIcon': { mr: 0.25 },
+                      }}
+                    >
+                      New bot
+                    </Button>
+                  )}
+                />
+                {!collapsedGroups.has('bots') && (
+                  <ProjectChatBotsGroup
+                    orgId={orgId}
+                    bots={sidebarBots}
+                    collapsedGroups={collapsedGroups}
+                    onToggleBot={(botId) => toggleGroup(botGroupId(botId))}
+                    onOpenSession={onOpenSession}
+                    projects={allProjects}
+                    query={query}
+                    activeItemId={activeItemId}
+                    relativeTimeNow={relativeTimeNow}
+                    enabled={groupsEnabled}
+                    threadSortOrder={preferences.threadSortOrder}
+                    visibleThreadCount={preferences.visibleThreadCount}
+                    organizationMembers={selectableMembers}
+                    currentUser={account.user}
+                    pinnedChats={pinnedChats}
+                    archivingItemId={archivingItemId}
+                    onOpenItem={openItem}
+                    onOpenItemContextMenu={openItemContextMenu}
+                    onArchiveItem={requestArchive}
+                  />
+                )}
+              </>
+            )}
+            {showSectionHeaders && !groupByPerson && (
+              <ProjectChatSectionHeader
+                label={showArchived ? 'Archived' : 'Projects'}
+                collapsed={collapsedGroups.has('projects')}
+                onToggle={() => toggleGroup('projects')}
+              />
+            )}
+            {!groupByPerson && !(showSectionHeaders && collapsedGroups.has('projects')) && (
+            <>
             {!focusMode && <ProjectChatGroup
               orgId={orgId}
               collapsed={effectiveCollapsedGroups.has('default')}
@@ -733,10 +847,9 @@ const ProjectChatSidebar: FC<{
               enabled={groupsEnabled}
               threadSortOrder={preferences.threadSortOrder}
               visibleThreadCount={preferences.visibleThreadCount}
-              participantIds={selectedParticipantIds}
+              participantIds={currentUserId ? [currentUserId] : []}
               organizationMembers={selectableMembers}
               currentUser={account.user}
-              showTaskAvatars={selectedParticipantIds.some((userId) => userId !== currentUserId)}
               archived={showArchived}
               pinnedChats={pinnedChats}
               archivingItemId={archivingItemId}
@@ -773,10 +886,10 @@ const ProjectChatSidebar: FC<{
                         enabled={groupsEnabled}
                         threadSortOrder={preferences.threadSortOrder}
                         visibleThreadCount={preferences.visibleThreadCount}
-                        participantIds={selectedParticipantIds}
+                        allMembers
+                        showTaskAvatars
                         organizationMembers={selectableMembers}
                         currentUser={account.user}
-                        showTaskAvatars={selectedParticipantIds.some((userId) => userId !== currentUserId)}
                         archived={showArchived}
                         pinnedChats={pinnedChats}
                         archivingItemId={archivingItemId}
@@ -798,6 +911,41 @@ const ProjectChatSidebar: FC<{
                 )] : [])}
               </SortableContext>
             </DndContext>
+            </>
+            )}
+            {groupByPerson && (
+              <>
+                <ProjectChatSectionHeader
+                  label={showArchived ? 'Archived' : 'People'}
+                  collapsed={collapsedGroups.has('people')}
+                  onToggle={() => toggleGroup('people')}
+                />
+                {!collapsedGroups.has('people') && (
+                  <ProjectChatPeopleSection
+                    orgId={orgId}
+                    members={sidebarMembers}
+                    selectedUserIds={expandedPeopleIds}
+                    onToggleMember={togglePerson}
+                    projects={allProjects}
+                    projectId={focusMode ? focusedProject?.id : undefined}
+                    query={query}
+                    activeItemId={activeItemId}
+                    relativeTimeNow={relativeTimeNow}
+                    enabled={groupsEnabled}
+                    threadSortOrder={preferences.threadSortOrder}
+                    visibleThreadCount={preferences.visibleThreadCount}
+                    archived={showArchived}
+                    organizationMembers={selectableMembers}
+                    currentUser={account.user}
+                    pinnedChats={pinnedChats}
+                    archivingItemId={archivingItemId}
+                    onOpenItem={openItem}
+                    onOpenItemContextMenu={openItemContextMenu}
+                    onArchiveItem={requestArchive}
+                  />
+                )}
+              </>
+            )}
           </>
         )}
       </Box>
@@ -813,15 +961,28 @@ const ProjectChatSidebar: FC<{
 
       <NewChatProjectDialog
         open={newChatPickerOpen}
-        projects={projects}
+        projects={allProjects}
         onClose={() => setNewChatPickerOpen(false)}
         onSelect={startNewChat}
       />
+
+      <NewBotDialog open={newBotOpen} onClose={() => setNewBotOpen(false)} />
 
       <ProjectChatItemContextMenu
         item={contextMenuItem}
         position={contextMenuPosition}
         onClose={closeItemContextMenu}
+        onOpenProjectBoard={(projectId) => {
+          account.orgNavigate('project-specs', { id: projectId })
+          onOpenSession()
+        }}
+        onOpenProjectSettings={(projectId) => {
+          openDialog('project-settings', { projectId })
+        }}
+        onOpenProjectArtifacts={(projectId) => {
+          account.orgNavigate('project-artifacts', { id: projectId })
+          onOpenSession()
+        }}
       />
 
       <ProjectChatProjectContextMenu

@@ -145,7 +145,7 @@ const ProjectChatSidebarMobileBar: FC<ProjectChatSidebarMobileBarProps> = ({
           )}
         </Box>
 
-        <IconButton aria-label="New chat" onClick={onNewChat} sx={roundButtonSx}>
+        <IconButton aria-label="New task" onClick={onNewChat} sx={roundButtonSx}>
           <SquarePen size={18} strokeWidth={1.8} />
         </IconButton>
       </Box>

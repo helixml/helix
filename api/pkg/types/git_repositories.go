@@ -102,6 +102,12 @@ type GitHub struct {
 	PersonalAccessToken string `json:"personal_access_token"`
 	BaseURL             string `json:"base_url"` // For GitHub Enterprise instances (empty for github.com)
 
+	// WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review
+	// deliveries with (spec task PR review feedback). Auto-generated at first
+	// webhook install; one repo's secret never validates another repo's
+	// deliveries, keeping orgs isolated on shared deployments.
+	WebhookSecret string `json:"webhook_secret,omitempty"`
+
 	// GitHub App authentication (service-to-service)
 	// When AppID and PrivateKey are set, uses GitHub App installation tokens
 	AppID          int64  `json:"app_id,omitempty"`          // GitHub App ID
@@ -319,6 +325,18 @@ type CIStatus struct {
 	State   string `json:"state"`
 	URL     string `json:"url,omitempty"`
 	HeadSHA string `json:"head_sha,omitempty"`
+}
+
+// PRReviewComment is a normalized inline pull request review comment.
+// Used by the GitHub review webhook to build PR feedback messages for
+// spec task agents.
+type PRReviewComment struct {
+	ReviewID int64  `json:"review_id"`
+	Author   string `json:"author"`
+	Body     string `json:"body"`
+	Path     string `json:"path"`
+	Line     int    `json:"line"`
+	URL      string `json:"url,omitempty"`
 }
 
 type PullRequestState string

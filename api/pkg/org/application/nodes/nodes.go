@@ -29,6 +29,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // ErrReportingCycle is returned by AddParent when the proposed edge
@@ -114,14 +115,13 @@ type CreateParams struct {
 	Name            string
 	Content         string
 	AgentID         string
+	CodeAgentConfig *types.CodeAgentExecutionConfig
 	Tools           []tool.Name
 	PreserveContext bool
-	// Kind, HelixUserID, Identity create a human placeholder when Kind ==
-	// orgchart.NodeKindHuman. A human gets no base tools (it never makes an
-	// MCP request) and is never spawned.
-	Kind        orgchart.NodeKind
-	HelixUserID string
-	Identity    map[string]string
+	// SandboxRuntime / SandboxVCPUs are the node's own sandbox config; empty
+	// / 0 inherit the org default. VCPUs must be a spec-task preset rung.
+	SandboxRuntime string
+	SandboxVCPUs   int
 }
 
 // Create builds and persists a new Node, returning the created
@@ -141,15 +141,10 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return orgchart.Node{}, fmt.Errorf("check node id %q: %w", id, err)
 	}
-	// A human placeholder gets no tools — it never makes an MCP request.
-	// An agent gets the caller's tools unioned with the read baseline.
-	tools := p.Tools
-	if p.Kind != orgchart.NodeKindHuman {
-		if err := s.ValidateTools(p.Tools); err != nil {
-			return orgchart.Node{}, err
-		}
-		tools = MergeTools(p.Tools, s.baseTools)
+	if err := s.ValidateTools(p.Tools); err != nil {
+		return orgchart.Node{}, err
 	}
+	tools := MergeTools(p.Tools, s.baseTools)
 	node, err := orgchart.NewNode(id, p.Content, tools, s.now(), orgID)
 	if err != nil {
 		return orgchart.Node{}, err
@@ -160,17 +155,18 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	if p.AgentID != "" {
 		node = node.WithAgentID(p.AgentID)
 	}
+	if p.CodeAgentConfig != nil {
+		node = node.WithCodeAgentConfig(p.CodeAgentConfig)
+	}
 	if p.PreserveContext {
 		node = node.WithPreserveContext(true)
 	}
-	if p.Kind != "" {
-		node = node.WithKind(p.Kind)
-	}
-	if p.HelixUserID != "" {
-		node = node.WithHelixUserID(p.HelixUserID)
-	}
-	if len(p.Identity) > 0 {
-		node = node.WithIdentity(p.Identity)
+	if p.SandboxRuntime != "" || p.SandboxVCPUs != 0 {
+		runtime, vcpus, memoryMB, err := ValidateSandboxConfig(p.SandboxRuntime, p.SandboxVCPUs)
+		if err != nil {
+			return orgchart.Node{}, err
+		}
+		node = node.WithSandboxRuntime(runtime).WithSandboxResources(vcpus, memoryMB)
 	}
 	if err := s.nodes.Create(ctx, node); err != nil {
 		return orgchart.Node{}, err
@@ -183,14 +179,16 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 // Tools on a content-only update.
 type UpdateParams struct {
 	AgentID         *string
+	CodeAgentConfig *types.CodeAgentExecutionConfig
 	Name            *string
 	Content         *string
 	Tools           *[]tool.Name
 	ProjectIDs      *[]string
 	PreserveContext *bool
-	// Identity, when non-nil, replaces the node's per-channel handle map
-	// (human nodes only). nil leaves it unchanged.
-	Identity *map[string]string
+	// SandboxRuntime / SandboxVCPUs patch the node's sandbox config. A
+	// non-nil empty runtime or zero vCPUs resets that field to "inherit".
+	SandboxRuntime *string
+	SandboxVCPUs   *int
 }
 
 // Update reads the existing Node, applies the patch via the domain's
@@ -210,6 +208,9 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 	if p.AgentID != nil {
 		updated = updated.WithAgentID(*p.AgentID)
 	}
+	if p.CodeAgentConfig != nil {
+		updated = updated.WithCodeAgentConfig(p.CodeAgentConfig)
+	}
 	if p.Name != nil {
 		updated = updated.WithName(*p.Name)
 	}
@@ -225,8 +226,20 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 	if p.PreserveContext != nil {
 		updated = updated.WithPreserveContext(*p.PreserveContext)
 	}
-	if p.Identity != nil {
-		updated = updated.WithIdentity(*p.Identity)
+	if p.SandboxRuntime != nil || p.SandboxVCPUs != nil {
+		runtime := updated.SandboxRuntime
+		if p.SandboxRuntime != nil {
+			runtime = *p.SandboxRuntime
+		}
+		vcpus := updated.SandboxVCPUs
+		if p.SandboxVCPUs != nil {
+			vcpus = *p.SandboxVCPUs
+		}
+		runtime, vcpus, memoryMB, err := ValidateSandboxConfig(runtime, vcpus)
+		if err != nil {
+			return orgchart.Node{}, err
+		}
+		updated = updated.WithSandboxRuntime(runtime).WithSandboxResources(vcpus, memoryMB)
 	}
 	updated = updated.WithUpdatedAt(s.now())
 	if err := s.nodes.Update(ctx, updated); err != nil {
@@ -567,4 +580,27 @@ func MergeTools(existing, base []tool.Name) []tool.Name {
 		out = append(out, name)
 	}
 	return out
+}
+
+// ValidateSandboxConfig normalises a node's sandbox config against the
+// spec-task vocabulary: runtime must be "", ubuntu-desktop or
+// headless-ubuntu; vcpus must be 0 (inherit) or a preset rung, whose memory
+// is returned so the pair is always a valid preset.
+func ValidateSandboxConfig(runtime string, vcpus int) (string, int, int, error) {
+	runtime = strings.TrimSpace(runtime)
+	if !types.ValidSpecTaskSandboxRuntime(types.SandboxRuntime(runtime)) {
+		return "", 0, 0, fmt.Errorf("sandbox_runtime must be %q or %q (got %q)",
+			types.SandboxRuntimeUbuntuDesktop, types.SandboxRuntimeHeadlessUbuntu, runtime)
+	}
+	if vcpus < 0 {
+		return "", 0, 0, fmt.Errorf("sandbox vcpus must be positive (got %d)", vcpus)
+	}
+	if vcpus == 0 {
+		return runtime, 0, 0, nil
+	}
+	preset, ok := types.SpecTaskSandboxPresetForVCPUs(vcpus)
+	if !ok {
+		return "", 0, 0, fmt.Errorf("sandbox vcpus must be one of %s (got %d)", types.SpecTaskSandboxVCPUList(), vcpus)
+	}
+	return runtime, preset.VCPUs, preset.MemoryMB, nil
 }

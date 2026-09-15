@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fileDiffPath, parseRenderablePatch, resolveDiffFilePath } from "./pierreStyles";
+import { fileDiffPath, parseRenderablePatch, resolveDiffFilePath, TREE_UNSAFE_CSS } from "./pierreStyles";
 
 describe("parseRenderablePatch", () => {
   it("parses multiple git files for the virtualized diff surface", () => {
@@ -50,5 +50,13 @@ describe("resolveDiffFilePath", () => {
     expect(resolveDiffFilePath("", known)).toBeNull();
     expect(resolveDiffFilePath(undefined, known)).toBeNull();
     expect(resolveDiffFilePath("src/app.ts", [])).toBeNull();
+  });
+});
+
+describe("workspace file tree styles", () => {
+  it("gives changed files a visible row treatment", () => {
+    expect(TREE_UNSAFE_CSS).toContain("button[data-type='item'][data-item-git-status]");
+    expect(TREE_UNSAFE_CSS).toContain("background-color:");
+    expect(TREE_UNSAFE_CSS).toContain("box-shadow: inset 3px 0 0");
   });
 });

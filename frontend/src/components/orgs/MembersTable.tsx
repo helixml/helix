@@ -14,6 +14,7 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import useTheme from '@mui/material/styles/useTheme'
 
+import PresenceDot from '../widgets/PresenceDot'
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
 import EditRoleModal from './EditRoleModal'
@@ -87,6 +88,9 @@ const MembersTable: FC<MembersTableProps> = ({
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {pending ? <MailOutlineIcon color="action" /> : <PersonIcon color="action" />}
             <span>{pending ? (member.user?.email || 'Invited user') : (member.user?.full_name || 'Unnamed User')}</span>
+            {!pending && isOrgMembership && (
+              <PresenceDot online={!!(member as TypesOrganizationMembership).online} size={8} />
+            )}
             {pending && (
               <Chip
                 label="Pending invitation"

@@ -37,7 +37,7 @@ vi.mock('../components/system/Page', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 vi.mock('../components/common/CopyButton', () => ({ default: () => null }))
-vi.mock('../components/helix-org/WorkerRuntimePanel', () => ({ default: () => null }))
+vi.mock('../components/helix-org/WorkerRuntimePanel', () => ({ default: () => null, DefaultSandboxPanel: () => null }))
 vi.mock('./HelixOrgSettings', () => ({ default: () => null }))
 
 describe('OrgSettings autosave', () => {

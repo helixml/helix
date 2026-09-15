@@ -11,10 +11,14 @@ import { useListInteractions } from '../../services/sessionService'
 import { useRefreshSpecTaskStatus } from '../../services/specTaskService'
 import { SESSION_TYPE_TEXT } from '../../types'
 import RobustPromptInput from '../common/RobustPromptInput'
+import ChatWelcome from './ChatWelcome'
+import { shouldShowWelcome } from './minimalChatLogic'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from './EmbeddedSessionView'
 import type { ResponseEntry } from './InteractionInference'
 import { ComposerPlanProgress, planStepsFromResponseEntries } from './PlanProgress'
+import PendingQuestionCard from './PendingQuestionCard'
 import SessionPromptQueue from './SessionPromptQueue'
+import { useSessionPromptQueue } from './useSessionPromptQueue'
 import { getChatColors } from './chatStyles'
 import type { WorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
 
@@ -33,6 +37,21 @@ interface AgentChatProps {
   reviewComments?: readonly WorkspaceReviewComment[]
   onRemoveReviewComment?: (commentId: string) => void
   onReviewCommentsSent?: () => void
+  /**
+   * Customer-facing mode, for embedding this chat in someone else's product.
+   *
+   * Strips the surface back to a conversation: no developer controls in the
+   * composer, and the session's opening briefing is not rendered as though the
+   * customer had typed it. Before anyone has said anything it shows the
+   * welcome screen instead of an empty thread — the same one Helix's own new
+   * chat page uses, so starting a conversation looks like starting a
+   * conversation rather than like arriving in an empty log.
+   */
+  minimal?: boolean
+  /** Heading for the welcome screen. Only used in minimal mode. */
+  welcomeHeading?: string
+  /** Optional line under the welcome heading. */
+  welcomeSubheading?: string
 }
 
 /** Shared org/spec-task conversation surface. */
@@ -51,12 +70,16 @@ const AgentChat: FC<AgentChatProps> = ({
   reviewComments,
   onRemoveReviewComment,
   onReviewCommentsSent,
+  minimal = false,
+  welcomeHeading = 'What would you like to know?',
+  welcomeSubheading,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
   const streaming = useStreaming()
   const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
   const [isCancelling, setIsCancelling] = useState(false)
+  const [hasSentInWelcome, setHasSentInWelcome] = useState(false)
   const [composerPlanExpanded, setComposerPlanExpanded] = useState(false)
   const [dismissedPlanInteractionId, setDismissedPlanInteractionId] = useState<string | null>(null)
   const apiClient = api.getApiClient()
@@ -76,6 +99,25 @@ const AgentChat: FC<AgentChatProps> = ({
   )
   const latestInteraction = latestInteractionsResponse?.data?.interactions?.[0]
   const latestInteractionId = latestInteraction?.id || null
+  const pendingQuestion = latestInteraction?.state === TypesInteractionState.InteractionStateWaiting
+    ? latestInteraction.pending_question
+    : undefined
+  // Has the customer said anything yet?
+  //
+  // One interaction means only the session's opening briefing exists — the
+  // agent was told who it is talking to, and replied with a greeting. Nobody
+  // has asked it anything, so there is no conversation to show. hasSentInWelcome
+  // covers the gap between clicking send and the count catching up on the next
+  // poll, which would otherwise flash the welcome screen back for a moment.
+  const showWelcome = !pendingQuestion && shouldShowWelcome(
+    minimal,
+    hasSentInWelcome,
+    latestInteractionsResponse?.data?.totalCount ?? 0,
+  )
+  // Session-keyed queue for sessions without a spec task; the spec-task
+  // composer carries its own backend-backed queue instead.
+  const sessionQueue = useSessionPromptQueue(showSessionPromptQueue ? sessionId : '', isAgentBusy)
+  const hasSessionQueue = showSessionPromptQueue && sessionQueue.entries.length > 0
   const composerPlanSteps = isAgentBusy
     ? planStepsFromResponseEntries(latestInteraction?.response_entries as unknown as ResponseEntry[] | undefined)
     : []
@@ -83,6 +125,7 @@ const AgentChat: FC<AgentChatProps> = ({
     && dismissedPlanInteractionId !== latestInteractionId
 
   const handleSend = useCallback(async (message: string, interrupt?: boolean) => {
+    setHasSentInWelcome(true)
     setComposerPlanExpanded(false)
     setDismissedPlanInteractionId(null)
     await streaming.NewInference({
@@ -133,6 +176,58 @@ const AgentChat: FC<AgentChatProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
+  const composer = (
+    <RobustPromptInput
+      minimal={minimal}
+      sessionId={sessionId}
+      specTaskId={specTaskId}
+      projectId={projectId}
+      apiClient={apiClient}
+      onSend={handleSend}
+      onWillSend={onWillSend}
+      appendText={appendText}
+      onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
+      onFileUpload={handleFileUpload}
+      onCancel={handleCancel}
+      isAgentBusy={isAgentBusy}
+      isCancelling={isCancelling}
+      leadingActions={leadingActions}
+      showContextUsage={!minimal}
+      autoFocus
+      placeholder={placeholder}
+      disabled={disabled}
+      enableSandboxCompletions
+      reviewComments={reviewComments}
+      onRemoveReviewComment={onRemoveReviewComment}
+      onReviewCommentsSent={onReviewCommentsSent}
+      hasAttachedHeader={
+        !!pendingQuestion || (showComposerPlan && composerPlanExpanded) || hasSessionQueue
+      }
+    />
+  )
+
+  // Nothing said yet: the welcome screen IS the chat, so it gets the whole
+  // frame rather than sitting above an empty thread.
+  if (showWelcome) {
+    return (
+      <Box
+        data-agent-chat
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          minWidth: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        <ChatWelcome heading={welcomeHeading} subheading={welcomeSubheading}>
+          {composer}
+        </ChatWelcome>
+      </Box>
+    )
+  }
+
   return (
     <Box
       data-agent-chat
@@ -152,10 +247,9 @@ const AgentChat: FC<AgentChatProps> = ({
           ref={sessionViewRef}
           sessionId={sessionId}
           enableInteractionDebugCopy={enableInteractionDebugCopy}
+          minimal={minimal}
         />
       </Box>
-
-      {showSessionPromptQueue && <SessionPromptQueue sessionId={sessionId} />}
 
       <Box
         sx={{
@@ -186,30 +280,22 @@ const AgentChat: FC<AgentChatProps> = ({
                 }}
               />
             )}
-            <RobustPromptInput
-              sessionId={sessionId}
-              specTaskId={specTaskId}
-              projectId={projectId}
-              apiClient={apiClient}
-              onSend={handleSend}
-              onWillSend={onWillSend}
-              appendText={appendText}
-              onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
-              onFileUpload={handleFileUpload}
-              onCancel={handleCancel}
-              isAgentBusy={isAgentBusy}
-              isCancelling={isCancelling}
-              leadingActions={leadingActions}
-              showContextUsage
-              autoFocus
-              placeholder={placeholder}
-              disabled={disabled}
-              enableSandboxCompletions
-              reviewComments={reviewComments}
-              onRemoveReviewComment={onRemoveReviewComment}
-              onReviewCommentsSent={onReviewCommentsSent}
-              hasAttachedHeader={showComposerPlan && composerPlanExpanded}
-            />
+            {hasSessionQueue && (
+              <SessionPromptQueue
+                sessionId={sessionId}
+                entries={sessionQueue.entries}
+                onRemove={sessionQueue.remove}
+                onRestartAgent={sessionQueue.restartAgent}
+              />
+            )}
+            {pendingQuestion && latestInteractionId && (
+              <PendingQuestionCard
+                interactionId={latestInteractionId}
+                pendingQuestion={pendingQuestion}
+                attachedAbove={hasSessionQueue || (showComposerPlan && composerPlanExpanded)}
+              />
+            )}
+            {composer}
           </Box>
           {footerContent && (
             <Box

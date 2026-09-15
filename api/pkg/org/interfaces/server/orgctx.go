@@ -1,6 +1,10 @@
 package server
 
-import "context"
+import (
+	"context"
+
+	"github.com/helixml/helix/api/pkg/types"
+)
 
 // orgIDKey is the unexported context key for the resolved orgID.
 type orgIDKey struct{}
@@ -39,4 +43,32 @@ func WithOrgHandle(ctx context.Context, handle string) context.Context {
 func OrgHandleFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(orgHandleKey{}).(string)
 	return v
+}
+
+// orgAuthorizationKey carries the organization membership resolved by the
+// authenticated outer API middleware. The standalone org server deliberately
+// has no implicit privileged identity: callers that do not pass through that
+// middleware cannot grant organization-management tools over REST.
+type orgAuthorizationKey struct{}
+
+type OrgAuthorization struct {
+	MembershipRole types.OrganizationRole
+	PlatformAdmin  bool
+}
+
+func WithOrgAuthorization(ctx context.Context, role types.OrganizationRole, platformAdmin bool) context.Context {
+	return context.WithValue(ctx, orgAuthorizationKey{}, OrgAuthorization{
+		MembershipRole: role,
+		PlatformAdmin:  platformAdmin,
+	})
+}
+
+func OrgAuthorizationFromContext(ctx context.Context) (OrgAuthorization, bool) {
+	auth, ok := ctx.Value(orgAuthorizationKey{}).(OrgAuthorization)
+	return auth, ok
+}
+
+func CanManageOrganization(ctx context.Context) bool {
+	auth, ok := OrgAuthorizationFromContext(ctx)
+	return ok && (auth.PlatformAdmin || auth.MembershipRole == types.OrganizationRoleOwner)
 }

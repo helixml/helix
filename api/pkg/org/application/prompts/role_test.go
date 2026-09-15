@@ -29,14 +29,40 @@ func TestRoleRendersTemplate(t *testing.T) {
 	if msgs[0].Role != "user" {
 		t.Fatalf("role = %q, want user", msgs[0].Role)
 	}
+	text := strings.ToLower(msgs[0].Text)
 	// The template must mention the tool we're driving toward and the
 	// canonical Role-markdown sections demonstrated in the demo Roles.
 	// These assertions pin the *contract* of the prompt — that it tells
 	// the LLM to call create_bot and produces output the rest of the
 	// org can read. They do not pin every word of the prose.
-	for _, want := range []string{"create_bot", "## Behaviour", "## Starts when", "## Constraints"} {
-		if !strings.Contains(msgs[0].Text, want) {
+	for _, want := range []string{
+		"create_bot",
+		"## Behaviour",
+		"## Starts when",
+		"## Constraints",
+		"human-readable **name or role title**",
+		"concrete **purpose**",
+		"stop and wait for the answer",
+		"generic placeholder",
+		"keel-hq/keel",
+		"keel-maintainer",
+		"proceed without a question",
+		"full standard worker tool set",
+		"match the named owner/repository exactly",
+		"finish that scope in the same turn",
+		"POST /api/v1/git/repositories",
+		"derived from the short repository name",
+		"substitute a similarly named repository",
+		"do not ask a routine follow-up",
+		"set_bot_content",
+	} {
+		if !strings.Contains(text, strings.ToLower(want)) {
 			t.Errorf("template missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"Don't interview me", "A good guess beats a question", "Draft from this directly — no interview", "Want to change anything?"} {
+		if strings.Contains(msgs[0].Text, forbidden) {
+			t.Errorf("template still contains unsafe instruction %q", forbidden)
 		}
 	}
 }
@@ -49,6 +75,9 @@ func TestRoleAppendsHint(t *testing.T) {
 	}
 	if !strings.Contains(msgs[0].Text, "marketing director") {
 		t.Fatalf("hint not in output: %s", msgs[0].Text)
+	}
+	if !strings.Contains(msgs[0].Text, "Otherwise ask for the missing part and wait") {
+		t.Fatalf("hint bypasses the required brief: %s", msgs[0].Text)
 	}
 }
 

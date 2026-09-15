@@ -231,6 +231,42 @@ func TestEntriesWithTypes(t *testing.T) {
 	assert.Equal(t, "3", entries[2].MessageID)
 }
 
+func TestSubagentMetadataSurvivesStreamingUpdates(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessageWithMetadata(
+		"tool-1",
+		"**Tool Call: Audit auth changes**\nStatus: In Progress",
+		"tool_call",
+		"Audit auth changes",
+		"In Progress",
+		"call-7",
+		"spawn_agent",
+		"child-session-9",
+	)
+	a.AddMessageWithMetadata(
+		"tool-1",
+		"**Tool Call: Audit auth changes**\nStatus: Completed",
+		"tool_call",
+		"Audit auth changes",
+		"Completed",
+		"call-7",
+		"spawn_agent",
+		"child-session-9",
+	)
+
+	require.Len(t, a.Entries(), 1)
+	assert.Equal(t, ResponseEntry{
+		Type:         "tool_call",
+		Content:      "**Tool Call: Audit auth changes**\nStatus: Completed",
+		MessageID:    "tool-1",
+		ToolName:     "Audit auth changes",
+		ToolStatus:   "Completed",
+		ToolCallID:   "call-7",
+		ToolCallName: "spawn_agent",
+		SubagentID:   "child-session-9",
+	}, a.Entries()[0])
+}
+
 func TestEntriesPreserveLatestPlanSnapshot(t *testing.T) {
 	a := &MessageAccumulator{}
 	a.AddMessageWithType("1", "Working on it.", "text")
@@ -371,6 +407,37 @@ func TestResumeFromPersistedState(t *testing.T) {
 	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
+}
+
+func TestResumePreservesSubagentMetadata(t *testing.T) {
+	entries := []byte(`[{
+		"type":"tool_call",
+		"content":"Working",
+		"message_id":"msg-1",
+		"tool_name":"Start subagent reviewer",
+		"tool_status":"In Progress",
+		"tool_call_id":"call-1",
+		"tool_call_name":"spawn_agent",
+		"subagent_id":"child-session-1"
+	}]`)
+	a := RestoreAccumulator("Working", "msg-1", 0, entries)
+
+	a.AddMessageWithMetadata(
+		"msg-1",
+		"Done",
+		"tool_call",
+		"Start subagent reviewer",
+		"Completed",
+		"",
+		"",
+		"",
+	)
+
+	restored := a.Entries()
+	require.Len(t, restored, 1)
+	assert.Equal(t, "call-1", restored[0].ToolCallID)
+	assert.Equal(t, "spawn_agent", restored[0].ToolCallName)
+	assert.Equal(t, "child-session-1", restored[0].SubagentID)
 }
 
 func TestSanitizeNullBytes(t *testing.T) {

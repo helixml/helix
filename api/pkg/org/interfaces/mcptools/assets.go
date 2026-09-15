@@ -30,13 +30,13 @@ type AssetSSHIdentityIssuer interface {
 }
 
 type assetView struct {
-	ID             string           `json:"id"`
-	Name           string           `json:"name"`
-	Description    string           `json:"description,omitempty"`
-	NotesForAgents string           `json:"notes_for_agents,omitempty"`
-	Enabled        bool             `json:"enabled"`
-	Kind           asset.Kind       `json:"kind"`
-	Server         *assetServerView `json:"server,omitempty"`
+	ID           string           `json:"id"`
+	Name         string           `json:"name"`
+	Description  string           `json:"description,omitempty"`
+	NotesForBots string           `json:"notes_for_bots,omitempty"`
+	Enabled      bool             `json:"enabled"`
+	Kind         asset.Kind       `json:"kind"`
+	Server       *assetServerView `json:"server,omitempty"`
 }
 
 type assetServerView struct {
@@ -56,7 +56,7 @@ type assetSSHAccessView struct {
 }
 
 func viewAsset(a asset.Asset) assetView {
-	view := assetView{ID: a.ID, Name: a.Name, Description: a.Description, NotesForAgents: a.NotesForAgents, Enabled: !a.Disabled, Kind: a.Kind}
+	view := assetView{ID: a.ID, Name: a.Name, Description: a.Description, NotesForBots: a.NotesForAgents, Enabled: !a.Disabled, Kind: a.Kind}
 	if a.Config.Server != nil {
 		capabilities := []string{
 			"run_commands", "manage_detached_commands", "read_write_files", "ssh_via_helix_proxy",
@@ -68,7 +68,7 @@ func viewAsset(a asset.Asset) assetView {
 		if a.Disabled {
 			capabilities = nil
 			sshAccess.Available = false
-			sshAccess.Instructions = "This asset is disabled. An organization owner must enable it before agents can use MCP or SSH access."
+			sshAccess.Instructions = "This asset is disabled. An organization owner must enable it before Bots can use MCP or SSH access."
 		}
 		view.Server = &assetServerView{
 			Address: a.Config.Server.Address, Port: a.Config.Server.Port,
@@ -86,7 +86,7 @@ func assetCaller(inv tool.Invocation, operation string) (orgID, agentID string, 
 	}
 	orgID, agentID = inv.Caller.OrganizationID(), inv.Caller.ID()
 	if orgID == "" || agentID == "" {
-		return "", "", fmt.Errorf("%s: caller has no organization or agent ID", operation)
+		return "", "", fmt.Errorf("%s: caller has no organization or Bot ID", operation)
 	}
 	return orgID, agentID, nil
 }
@@ -98,7 +98,7 @@ const ListAssetsName tool.Name = "list_assets"
 func (t *ListAssets) Name() tool.Name                 { return ListAssetsName }
 func (t *ListAssets) InputSchema() *jsonschema.Schema { return mustSchema[struct{}]() }
 func (t *ListAssets) Description() string {
-	return "List server assets linked to this agent, including enabled or disabled status, connection coordinates, operator notes, command/file capabilities, and SSH proxy guidance."
+	return "List server assets linked to this Bot, including enabled or disabled status, connection coordinates, operator notes, command/file capabilities, and SSH proxy guidance."
 }
 func (t *ListAssets) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	orgID, agentID, err := assetCaller(inv, ListAssetsName)
@@ -400,7 +400,7 @@ func (t *ServerSSHAccess) InputSchema() *jsonschema.Schema {
 	return mustSchema[assetRefArgs]()
 }
 func (t *ServerSSHAccess) Description() string {
-	return "Mint a one-hour SSH certificate for this agent to a linked server and return the exact setup command. After setup, use normal ssh <asset-name>@<Helix-proxy>."
+	return "Mint a one-hour SSH certificate for this Bot to a linked server and return the exact setup command. After setup, use normal ssh <asset-name>@<Helix-proxy>."
 }
 func (t *ServerSSHAccess) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args assetRefArgs

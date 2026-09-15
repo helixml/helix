@@ -62,3 +62,46 @@ func TestApplySessionBootstrapRejectsPartialState(t *testing.T) {
 		}
 	}
 }
+
+func TestApplySessionBootstrapAppliesOrgWorkerLaunchConfig(t *testing.T) {
+	agent := &types.DesktopAgent{SessionID: "ses_worker"}
+	err := applySessionBootstrap(types.SessionMetadata{
+		OrgWorkerID:              "b-alex",
+		RuntimeInstructions:      "worker instructions",
+		SandboxRuntime:           types.SandboxRuntimeHeadlessUbuntu,
+		SandboxResourceOverrides: &types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192},
+	}, agent)
+	if err != nil {
+		t.Fatalf("applySessionBootstrap: %v", err)
+	}
+	if agent.OrgWorkerID != "b-alex" {
+		t.Fatalf("OrgWorkerID = %q", agent.OrgWorkerID)
+	}
+	if agent.DesktopType != "headless" {
+		t.Fatalf("DesktopType = %q, want headless", agent.DesktopType)
+	}
+	if agent.VCPUs != 4 || agent.MemoryMB != 8192 {
+		t.Fatalf("resources = %d/%d, want 4/8192", agent.VCPUs, agent.MemoryMB)
+	}
+}
+
+func TestApplySessionBootstrapDefaultsLegacyOrgWorkerToDesktopPreset(t *testing.T) {
+	// Sessions created before the launch config existed carry no runtime or
+	// size. They must keep booting as a desktop, now capped at the standard
+	// preset (what they were already billed as) instead of uncapped.
+	agent := &types.DesktopAgent{SessionID: "ses_worker"}
+	err := applySessionBootstrap(types.SessionMetadata{
+		OrgWorkerID:         "b-legacy",
+		RuntimeInstructions: "worker instructions",
+	}, agent)
+	if err != nil {
+		t.Fatalf("applySessionBootstrap: %v", err)
+	}
+	if agent.DesktopType != "" {
+		t.Fatalf("DesktopType = %q, want desktop default", agent.DesktopType)
+	}
+	std := types.EffectiveSpecTaskSandboxResources(nil)
+	if agent.VCPUs != std.VCPUs || agent.MemoryMB != std.MemoryMB {
+		t.Fatalf("resources = %d/%d, want standard preset %d/%d", agent.VCPUs, agent.MemoryMB, std.VCPUs, std.MemoryMB)
+	}
+}

@@ -260,6 +260,14 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 		return
 	}
 
+	// A connected agent owns the live question and must not receive the generic
+	// continue wake while it waits for the user. A disconnected agent still
+	// needs the cold-start recovery above so it can reconnect and reconcile the
+	// pending turn.
+	if stuck.PendingQuestion != nil {
+		return
+	}
+
 	// The "stuck enough to wake" clock should anchor on the most
 	// recent of:
 	//   - When the WebSocket connected (agent only able to receive

@@ -54,6 +54,13 @@ export const TREE_UNSAFE_CSS = `
   --trees-font-size-override: 12px;
 }
 button[data-type='item'] { border-radius: 5px; }
+button[data-type='item'][data-item-git-status] {
+  background-color: color-mix(in srgb, var(--trees-item-git-status-color) 13%, transparent);
+  box-shadow: inset 3px 0 0 var(--trees-item-git-status-color);
+}
+button[data-type='item'][data-item-git-status]:hover {
+  background-color: color-mix(in srgb, var(--trees-item-git-status-color) 20%, transparent);
+}
 `;
 
 export type RenderablePatch =

@@ -34,13 +34,10 @@ func sub(t *testing.T, worker, topicID string) streaming.Subscription {
 	return row
 }
 
-func worker(t *testing.T, st *store.Store, id string, human bool) {
+func worker(t *testing.T, st *store.Store, id string) {
 	t.Helper()
 	n, err := orgchart.NewNode(orgchart.NodeID(id), "# "+id, nil, at(), org)
 	require.NoError(t, err)
-	if human {
-		n = n.WithKind(orgchart.NodeKindHuman)
-	}
 	require.NoError(t, st.Nodes.Create(context.Background(), n))
 }
 
@@ -135,7 +132,7 @@ func TestConvert_ProcessorOutputTopicIsNotATrigger(t *testing.T) {
 func TestConvert_SubscriptionsBecomeAttachments(t *testing.T) {
 	ctx := context.Background()
 	st := memory.New()
-	worker(t, st, "b-sam", false)
+	worker(t, st, "b-sam")
 	seedBranch(t, st, "p-truncate", "po-out", "s-truncated")
 	memory.SeedRetired(st,
 		[]streaming.Topic{
@@ -191,7 +188,7 @@ func TestConvert_ProcessorInputsBecomeSourceRefs(t *testing.T) {
 func TestConvert_IsRepeatSafe(t *testing.T) {
 	ctx := context.Background()
 	st := memory.New()
-	worker(t, st, "b-sam", false)
+	worker(t, st, "b-sam")
 	seedBranch(t, st, "p-truncate", "po-out", "s-truncated")
 	memory.SeedRetired(st,
 		[]streaming.Topic{
@@ -218,29 +215,27 @@ func TestConvert_IsRepeatSafe(t *testing.T) {
 	require.Equal(t, []string{"trigger:s-general"}, attachmentSources(t, st, "b-sam"))
 }
 
-// TestConvert_SkipsDanglingAndHumanSubscriptions: a subscription whose
-// Worker is gone, and one belonging to a human, are not failures — they
-// simply have no attachment to become. A dangling row must not abort the
-// whole upgrade.
-func TestConvert_SkipsDanglingAndHumanSubscriptions(t *testing.T) {
+// TestConvert_SkipsDanglingSubscriptions verifies a missing Bot does not
+// abort the whole upgrade while subscriptions for existing Bots convert.
+func TestConvert_SkipsDanglingSubscriptions(t *testing.T) {
 	ctx := context.Background()
 	st := memory.New()
-	worker(t, st, "b-sam", false)
-	worker(t, st, "h-alice", true)
+	worker(t, st, "b-sam")
+	worker(t, st, "b-alice")
 	memory.SeedRetired(st,
 		[]streaming.Topic{topic(t, "s-general", "general", transport.LocalTransport())},
 		[]streaming.Subscription{
 			sub(t, "b-sam", "s-general"),
-			sub(t, "h-alice", "s-general"),
+			sub(t, "b-alice", "s-general"),
 			sub(t, "b-departed", "s-general"),
 			sub(t, "b-sam", "s-deleted-topic"),
 		}, nil)
 
 	res, err := cutover.Convert(ctx, cutover.Deps{Store: st})
 	require.NoError(t, err)
-	require.Equal(t, 1, res.Attachments)
+	require.Equal(t, 2, res.Attachments)
 	require.Equal(t, []string{"trigger:s-general"}, attachmentSources(t, st, "b-sam"))
-	require.Empty(t, attachmentSources(t, st, "h-alice"))
+	require.Equal(t, []string{"trigger:s-general"}, attachmentSources(t, st, "b-alice"))
 }
 
 // TestConvert_NothingToDoOnCleanInstall: a deployment that never ran a
@@ -281,7 +276,7 @@ func TestConvert_DeletedTriggerStaysDeleted(t *testing.T) {
 func TestConvert_DetachedWorkerStaysDetached(t *testing.T) {
 	ctx := context.Background()
 	st := memory.New()
-	worker(t, st, "b-sam", false)
+	worker(t, st, "b-sam")
 	memory.SeedRetired(st,
 		[]streaming.Topic{topic(t, "s-general", "general", transport.LocalTransport())},
 		[]streaming.Subscription{sub(t, "b-sam", "s-general")}, nil)

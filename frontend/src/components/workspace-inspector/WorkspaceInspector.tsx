@@ -53,7 +53,7 @@ interface TabContextMenu {
 
 const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
   sessionId,
-  baseBranch = "main",
+  baseBranch,
   pollInterval = 3_000,
   primarySurface = "changes",
   onPrimarySurfaceChange,

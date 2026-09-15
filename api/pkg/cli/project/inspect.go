@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
 )
@@ -193,15 +193,11 @@ func displayTask(task types.SpecTask) {
 
 // Helper functions
 func getAPIURL() string {
-	url := os.Getenv("HELIX_URL")
-	if url == "" {
-		url = "http://localhost:8080"
-	}
-	return url
+	return config.CliURL("http://localhost:8080")
 }
 
 func getToken() string {
-	token := os.Getenv("HELIX_API_KEY")
+	token := config.CliAPIKey()
 	if token == "" {
 		token = "oh-hallo-insecure-token" // Dev default
 	}

@@ -2,9 +2,10 @@ import type { FC, ReactElement } from 'react'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { BrainCircuit, Cpu, FolderGit2, GitBranch, Monitor, SquareTerminal } from 'lucide-react'
+import { BrainCircuit, Cpu, Folder, FolderGit2, GitBranch, Monitor, SquareTerminal } from 'lucide-react'
 
 import useApps from '../../hooks/useApps'
+import { TYPOGRAPHY } from '../../styles/typography'
 import AgentHarness from '../agent/AgentHarness'
 import { getProjectChatItemDetails } from './projectChatItemDetails'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
@@ -13,6 +14,8 @@ type ProjectChatItemTooltipProps = {
   item: SidebarItem
   repository?: string
   branch?: string
+  /** The project a row belongs to, for lists that span projects. */
+  projectName?: string
   /**
    * Phones show the same facts on the row's second line, so the tooltip would
    * be a duplicate they cannot dismiss.
@@ -25,6 +28,7 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
   item,
   repository,
   branch,
+  projectName,
   disabled = false,
   children,
 }) => {
@@ -35,6 +39,7 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
   if (disabled) return children
 
   const rows = [
+    projectName && { icon: <Folder size={13} />, value: projectName },
     repository && { icon: <FolderGit2 size={13} />, value: repository },
     branch && { icon: <GitBranch size={13} />, value: branch },
     harness && {
@@ -75,7 +80,14 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
       }}
       title={(
         <Box sx={{ minWidth: 170 }}>
-          <Typography sx={{ mb: rows.length ? 0.75 : 0, fontSize: '12px', fontWeight: 600, lineHeight: 1.35 }}>
+          <Typography
+            sx={{
+              mb: rows.length ? 0.75 : 0,
+              fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+              fontWeight: 600,
+              lineHeight: 1.35,
+            }}
+          >
             {item.title}
           </Typography>
           {rows.map((row) => (
@@ -83,7 +95,16 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
               <Box sx={{ width: 14, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 {row.icon}
               </Box>
-              <Typography sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '11px', lineHeight: 1.35 }}>
+              <Typography
+                sx={{
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontSize: TYPOGRAPHY.sidebar.statusFontSize,
+                  lineHeight: 1.35,
+                }}
+              >
                 {row.value}
               </Typography>
             </Box>

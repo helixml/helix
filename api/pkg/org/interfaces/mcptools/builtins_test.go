@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
@@ -24,7 +25,14 @@ import (
 	"github.com/helixml/helix/api/pkg/org/internal/orgtest"
 )
 
+type testAgentCreator struct{}
+
+func (testAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
+	return lifecycle.CreatedAgent{LegacyAppID: "app-test"}, nil
+}
+
 func injectTestPublishing(cfg *mcptools.Config) {
+	cfg.AgentCreator = testAgentCreator{}
 	deps := publishing.Deps{
 		Triggers: cfg.Store.Triggers,
 		Events:   cfg.Store.Events,

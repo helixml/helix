@@ -28,6 +28,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
@@ -55,26 +56,26 @@ func NewInProcHelixClient(s *HelixAPIServer, configs ...*configregistry.Registry
 	return client
 }
 
-func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instructions string, config lifecycle.AgentConfig) (string, error) {
+func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instructions string, config lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
 	user, err := c.resolveUser(ctx)
 	if err != nil {
 		org, orgErr := c.server.lookupOrg(ctx, orgID)
 		if orgErr != nil {
-			return "", fmt.Errorf("resolve organization %s: %w", orgID, orgErr)
+			return lifecycle.CreatedAgent{}, fmt.Errorf("resolve organization %s: %w", orgID, orgErr)
 		}
 		user, err = c.server.Store.GetUser(ctx, &store.GetUserQuery{ID: org.Owner})
 		if err != nil {
-			return "", fmt.Errorf("resolve owner %s for organization %s: %w", org.Owner, org.ID, err)
+			return lifecycle.CreatedAgent{}, fmt.Errorf("resolve owner %s for organization %s: %w", org.Owner, org.ID, err)
 		}
 		if user == nil {
-			return "", fmt.Errorf("resolve owner %s for organization %s: user not found", org.Owner, org.ID)
+			return lifecycle.CreatedAgent{}, fmt.Errorf("resolve owner %s for organization %s: user not found", org.Owner, org.ID)
 		}
 	}
 	if user.ID == "" {
-		return "", errors.New("create agent: user is missing")
+		return lifecycle.CreatedAgent{}, errors.New("create agent: user is missing")
 	}
 	if name == "" {
-		return "", errors.New("create agent: name is missing")
+		return lifecycle.CreatedAgent{}, errors.New("create agent: name is missing")
 	}
 	assistant := types.AssistantConfig{
 		Name:             name,
@@ -85,7 +86,7 @@ func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instru
 	if c.configs != nil && c.configs.IsDefaultAgentConfigured(ctx, orgID) {
 		defaults, configErr := c.configs.GetDefaultAgentConfig(ctx, orgID)
 		if configErr != nil {
-			return "", fmt.Errorf("read default agent config: %w", configErr)
+			return lifecycle.CreatedAgent{}, fmt.Errorf("read default agent config: %w", configErr)
 		}
 		applyResolvedAgentDefaults(&assistant, defaults)
 	}
@@ -99,7 +100,7 @@ func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instru
 		})
 	}
 	if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
-		return "", fmt.Errorf("create agent: %w", err)
+		return lifecycle.CreatedAgent{}, fmt.Errorf("create agent: %w", err)
 	}
 	app, err := c.server.Store.CreateApp(ctx, &types.App{
 		Owner:          user.ID,
@@ -114,9 +115,21 @@ func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instru
 		}},
 	})
 	if err != nil {
-		return "", err
+		return lifecycle.CreatedAgent{}, err
 	}
-	return app.ID, nil
+	executionConfig, err := external_agent.MaterializeCodeAgentConfig(app, nil)
+	if err != nil {
+		return lifecycle.CreatedAgent{}, fmt.Errorf("materialize Org Bot execution config: %w", err)
+	}
+	return lifecycle.CreatedAgent{LegacyAppID: app.ID, CodeAgentConfig: executionConfig}, nil
+}
+
+func (c *inProcHelixClient) ReadAgentExecutionConfig(ctx context.Context, legacyAppID string) (*types.CodeAgentExecutionConfig, error) {
+	app, err := c.server.Store.GetApp(ctx, legacyAppID)
+	if err != nil {
+		return nil, err
+	}
+	return external_agent.MaterializeCodeAgentConfig(app, nil)
 }
 
 func (c *inProcHelixClient) ApplyAgentDefaults(ctx context.Context, appID string, defaults types.AssistantConfig) error {
@@ -131,12 +144,26 @@ func (c *inProcHelixClient) ApplyAgentDefaults(ctx context.Context, appID string
 	if !isDeferredAgentScaffold(*assistant) {
 		return nil
 	}
+	previous := *app
+	previous.Config.Helix.Assistants = append([]types.AssistantConfig(nil), app.Config.Helix.Assistants...)
 	applyResolvedAgentDefaults(assistant, defaults)
 	if err := types.ValidateCodeAgentModelCompatibility(*assistant); err != nil {
 		return fmt.Errorf("apply agent defaults: %w", err)
 	}
-	_, err = c.server.Store.UpdateApp(ctx, app)
-	return err
+	updated, err := c.server.Store.UpdateApp(ctx, app)
+	if err != nil {
+		return err
+	}
+	if c.server.helixOrg == nil {
+		return nil
+	}
+	if err := c.server.syncOrgAgentProjectCodeAgentConfig(ctx, updated); err != nil {
+		if _, rollbackErr := c.server.Store.UpdateApp(context.WithoutCancel(ctx), &previous); rollbackErr != nil {
+			return fmt.Errorf("sync Org Bot execution config: %v; restore legacy App: %w", err, rollbackErr)
+		}
+		return fmt.Errorf("sync Org Bot execution config: %w", err)
+	}
+	return nil
 }
 
 func isDeferredAgentScaffold(assistant types.AssistantConfig) bool {
@@ -399,7 +426,7 @@ func (c *inProcHelixClient) markAgentAppAsOrgKind(ctx context.Context, appID str
 	}
 	app.AgentKind = types.AgentKindOrg
 	if _, err := c.server.Store.UpdateApp(ctx, app); err != nil {
-		return fmt.Errorf("classify agent app %s as org agent: %w", appID, err)
+		return fmt.Errorf("classify legacy App %s as Org Bot backing App: %w", appID, err)
 	}
 	return nil
 }
@@ -878,18 +905,27 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 
 // ---- runtimehelix.SpawnerClient ----
 
-// ServerStatus returns the desktop-quota slice of /api/v1/config. We
-// read directly from the same sources as
-// HelixAPIServer.getConfig — the Free-tier quota env value and the
-// in-memory active-desktop count.
+// ServerStatus returns the desktop quota for the activation's organization.
 func (c *inProcHelixClient) ServerStatus(ctx context.Context) (runtimehelix.ServerStatus, error) {
-	st := runtimehelix.ServerStatus{
-		MaxConcurrentDesktops: c.server.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops,
+	req := &types.QuotaRequest{OrganizationID: helixorgserver.OrgIDFromContext(ctx)}
+	if req.OrganizationID == "" {
+		req.OrganizationID = runtimehelix.OrganizationIDFromContext(ctx)
 	}
-	if c.server.externalAgentExecutor != nil {
-		st.ActiveConcurrentDesktops = len(c.server.externalAgentExecutor.ListSessions())
+	if req.OrganizationID == "" {
+		user, err := c.resolveUser(ctx)
+		if err != nil {
+			return runtimehelix.ServerStatus{}, err
+		}
+		req.UserID = user.ID
 	}
-	return st, nil
+	quotas, err := c.server.quotaManager.GetQuotas(ctx, req)
+	if err != nil {
+		return runtimehelix.ServerStatus{}, err
+	}
+	return runtimehelix.ServerStatus{
+		MaxConcurrentDesktops:    quotas.MaxConcurrentDesktops,
+		ActiveConcurrentDesktops: quotas.ActiveConcurrentDesktops,
+	}, nil
 }
 
 // GetOutput returns the latest output snapshot for a session.
@@ -966,6 +1002,13 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 		AutoRestartOnCrash:  true,
 		OrgWorkerID:         params.WorkerID,
 		RuntimeInstructions: params.Instructions,
+		InteractionTrigger:  params.InteractionTrigger,
+		SessionName:         params.Name,
+		SandboxRuntime:      params.Launch.SandboxRuntime,
+		SandboxResourceOverrides: &types.SandboxResourceOverrides{
+			VCPUs:    params.Launch.SandboxResources.VCPUs,
+			MemoryMB: params.Launch.SandboxResources.MemoryMB,
+		},
 		Messages: []*types.Message{{
 			Role:    "user",
 			Content: types.MessageContent{Parts: []any{params.Prompt}},
@@ -974,12 +1017,6 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 	session, err := c.server.StartExternalAgentSession(ctx, req, user.ID)
 	if err != nil {
 		return "", fmt.Errorf("start external agent session: %w", err)
-	}
-	if params.Name != "" && session.Name != params.Name {
-		session.Name = params.Name
-		if _, err := c.server.Store.UpdateSession(ctx, *session); err != nil {
-			return "", fmt.Errorf("name external agent session: %w", err)
-		}
 	}
 	return session.ID, nil
 }
@@ -1027,7 +1064,7 @@ func (c *inProcHelixClient) ClearSession(ctx context.Context, sessionID string) 
 // SyncAgentProfile refreshes the display name on every existing session and
 // the instruction files read natively by Codex and Claude on running desktops.
 // The spawner calls this before clearing the existing ACP thread.
-func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string) error {
+func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string, launch runtimehelix.SessionLaunchConfig) error {
 	if sessionID == "" {
 		return errors.New("SyncAgentProfile: sessionID is required")
 	}
@@ -1043,6 +1080,22 @@ func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, ses
 	if session.Metadata.OrgWorkerID != workerID || session.Metadata.RuntimeInstructions != instructions {
 		session.Metadata.OrgWorkerID = workerID
 		session.Metadata.RuntimeInstructions = instructions
+		changed = true
+	}
+	// The Bot's sandbox runtime/size is session state for the same reason the
+	// instructions are: every container start path rebuilds the DesktopAgent
+	// from the session, so a changed Bot config must land here before the
+	// next start — including the auto-start a queued message triggers.
+	resources := session.Metadata.SandboxResourceOverrides
+	if session.Metadata.SandboxRuntime != launch.SandboxRuntime ||
+		resources == nil ||
+		resources.VCPUs != launch.SandboxResources.VCPUs ||
+		resources.MemoryMB != launch.SandboxResources.MemoryMB {
+		session.Metadata.SandboxRuntime = launch.SandboxRuntime
+		session.Metadata.SandboxResourceOverrides = &types.SandboxResourceOverrides{
+			VCPUs:    launch.SandboxResources.VCPUs,
+			MemoryMB: launch.SandboxResources.MemoryMB,
+		}
 		changed = true
 	}
 	if session.ParentApp != "" {

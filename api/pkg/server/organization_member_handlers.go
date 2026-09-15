@@ -50,6 +50,10 @@ func (apiServer *HelixAPIServer) listOrganizationMembers(rw http.ResponseWriter,
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	now := time.Now()
+	for _, member := range members {
+		member.Online = types.IsUserOnline(&member.User, now)
+	}
 
 	// Surface pending invitations alongside real members so the OrgPeople
 	// UI can show them as placeholder rows without a second endpoint.
@@ -179,9 +183,6 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// Represent the new member in the org graph as a human node.
-	apiServer.ensureOrgHumanNode(r.Context(), orgID, newMember.ID)
 
 	writeResponse(rw, &types.AddOrganizationMemberResponse{
 		Membership: membership,
@@ -625,9 +626,6 @@ func (apiServer *HelixAPIServer) removeOrganizationMember(rw http.ResponseWriter
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// Drop the departing member's human node from the org graph.
-	apiServer.removeOrgHumanNode(r.Context(), orgID, userIDToRemove)
 
 	writeResponse(rw, nil, http.StatusOK)
 }

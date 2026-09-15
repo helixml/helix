@@ -8,6 +8,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +22,9 @@ func (f fakeSessionReader) GetSession(_ context.Context, _ string) (*types.Sessi
 }
 func (f fakeSessionReader) GetApp(_ context.Context, _ string) (*types.App, error) {
 	return nil, nil
+}
+func (f fakeSessionReader) GetSandboxBySession(_ context.Context, _ string) (*types.Sandbox, error) {
+	return nil, store.ErrNotFound
 }
 
 func runtimeFor(t *testing.T, stamp, containerID, agentStatus string) helixorgapi.BotRuntimeInfo {

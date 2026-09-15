@@ -19,13 +19,13 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// TestUpdateAppFiresOrgAgentInstructionsChangedWhenSystemPromptChanges proves
+// TestUpdateAppFiresOrgAgentConfigChangedWhenSystemPromptChanges proves
 // the App-side seam of the restart-required signal: saving a changed system
 // prompt through the REST app-update path calls
-// s.orgAgentInstructionsChanged with the App's own id. It does NOT prove the
+// s.orgAgentConfigChanged with the App's own id. It does NOT prove the
 // downstream Node resolution/stamping — that is covered separately by
 // TestStampRestartRequiredForApp_*.
-func TestUpdateAppFiresOrgAgentInstructionsChangedWhenSystemPromptChanges(t *testing.T) {
+func TestUpdateAppFiresOrgAgentConfigChangedWhenSystemPromptChanges(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	helixStore := store.NewMockStore(ctrl)
 
@@ -47,7 +47,7 @@ func TestUpdateAppFiresOrgAgentInstructionsChangedWhenSystemPromptChanges(t *tes
 	var firedForAppID string
 	server := &HelixAPIServer{
 		Store: helixStore,
-		orgAgentInstructionsChanged: func(_ context.Context, appID string) {
+		orgAgentConfigChanged: func(_ context.Context, appID string) {
 			firedForAppID = appID
 		},
 	}
@@ -68,11 +68,11 @@ func TestUpdateAppFiresOrgAgentInstructionsChangedWhenSystemPromptChanges(t *tes
 	require.Equal(t, existing.ID, firedForAppID)
 }
 
-// TestUpdateAppDoesNotFireOrgAgentInstructionsChangedWhenSystemPromptUnchanged
+// TestUpdateAppDoesNotFireOrgAgentConfigChangedWhenSystemPromptUnchanged
 // is the no-op-save guard: a save that leaves the system prompt untouched
 // (only the display name changes here) must not arm the restart-required
 // flag.
-func TestUpdateAppDoesNotFireOrgAgentInstructionsChangedWhenSystemPromptUnchanged(t *testing.T) {
+func TestUpdateAppDoesNotFireOrgAgentConfigChangedWhenSystemPromptUnchanged(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	helixStore := store.NewMockStore(ctrl)
 
@@ -94,7 +94,7 @@ func TestUpdateAppDoesNotFireOrgAgentInstructionsChangedWhenSystemPromptUnchange
 	fired := false
 	server := &HelixAPIServer{
 		Store: helixStore,
-		orgAgentInstructionsChanged: func(context.Context, string) {
+		orgAgentConfigChanged: func(context.Context, string) {
 			fired = true
 		},
 	}
@@ -176,4 +176,50 @@ type stampSessionsBySessionID struct{ sessions map[string]*types.Session }
 
 func (s stampSessionsBySessionID) GetSession(_ context.Context, id string) (*types.Session, error) {
 	return s.sessions[id], nil
+}
+
+// A model switch is just as restart-sensitive as a prompt edit: the ACP agent
+// process was spawned with the old model in its environment, so the running
+// sandbox keeps calling a model the provider may no longer serve until it is
+// restarted. Saving a new model must arm the banner.
+func TestUpdateAppFiresOrgAgentConfigChangedWhenModelChanges(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+
+	existing := &types.App{
+		ID:    "app-model",
+		Owner: "user-test",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Name:       "Modelled",
+			Assistants: []types.AssistantConfig{{Name: "Modelled", SystemPrompt: "same", Model: "qwen3.8-27b"}},
+		}},
+	}
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, updated *types.App) (*types.App, error) {
+		return updated, nil
+	})
+	helixStore.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return(nil, nil)
+	helixStore.EXPECT().ListTriggerConfigurations(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	var firedForAppID string
+	server := &HelixAPIServer{
+		Store: helixStore,
+		orgAgentConfigChanged: func(_ context.Context, appID string) {
+			firedForAppID = appID
+		},
+	}
+
+	update := *existing
+	update.Config.Helix.Assistants = []types.AssistantConfig{{Name: "Modelled", SystemPrompt: "same", Model: "qwen3.8-flash-next"}}
+	body, err := json.Marshal(update)
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPut, "/api/v1/agents/"+existing.ID, bytes.NewReader(body))
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: existing.Owner}))
+
+	_, httpErr := server.updateAgent(nil, req)
+
+	require.Nil(t, httpErr)
+	require.Equal(t, existing.ID, firedForAppID)
 }

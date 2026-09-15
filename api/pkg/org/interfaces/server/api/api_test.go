@@ -38,7 +38,14 @@ import (
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/types"
 )
+
+type fakeAgentCreator struct{}
+
+func (fakeAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
+	return lifecycle.CreatedAgent{LegacyAppID: "app-test"}, nil
+}
 
 // newDeps builds a fresh store + config registry + hub for one test,
 // with all application services constructed over them (the Phase-D
@@ -96,7 +103,7 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		// the topology reconcile. Helix/Mirror stay nil — the REST tests
 		// don't exercise the Helix-side teardown.
 		Lifecycle: &lifecycle.Service{
-			Store: st, Nodes: botsSvc, NodeReconcilers: []lifecycle.NodeReconciler{topo},
+			Store: st, Nodes: botsSvc, Agents: fakeAgentCreator{}, NodeReconcilers: []lifecycle.NodeReconciler{topo},
 			Now: clock, NewID: newID,
 		},
 		Attachments: attachments.New(attachments.Deps{Store: st, Now: clock, NewID: newID}),
@@ -124,6 +131,10 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 // do drives a JSON request through the handler under test and returns
 // the raw response recorder.
 func do(t *testing.T, h http.Handler, method, path string, body any) *httptest.ResponseRecorder {
+	return doAsRole(t, h, method, path, body, types.OrganizationRoleOwner, false)
+}
+
+func doAsRole(t *testing.T, h http.Handler, method, path string, body any, role types.OrganizationRole, platformAdmin bool) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf *bytes.Buffer
 	if body != nil {
@@ -139,7 +150,9 @@ func do(t *testing.T, h http.Handler, method, path string, body any) *httptest.R
 	req.Header.Set("Content-Type", "application/json")
 	// Inject the org scope the middleware would otherwise set so the
 	// handlers don't 400 on resolveOrgID.
-	req = req.WithContext(helixorgserver.WithOrgID(req.Context(), "org-test"))
+	ctx := helixorgserver.WithOrgID(req.Context(), "org-test")
+	ctx = helixorgserver.WithOrgAuthorization(ctx, role, platformAdmin)
+	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec

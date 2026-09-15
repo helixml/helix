@@ -39,6 +39,17 @@ export interface ListSessionsFilters {
   projectScope?: 'project' | 'none'
   sort?: 'created' | 'updated' | 'last_message'
   archived?: boolean
+  /**
+   * Another org member's sessions (requires orgId). The server limits them to
+   * projects the caller can read, so this is "what are they working on", not
+   * their private history.
+   */
+  ownerId?: string
+  /**
+   * Every member's chats in one project (requires orgId, projectId and
+   * projectScope 'project'). The server checks project access first.
+   */
+  allMembers?: boolean
 }
 
 // The "sessions" prefix is what every invalidation matches on, so it must stay
@@ -57,6 +68,10 @@ export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?
     projectScope: filters.projectScope ?? '',
     sort: filters.sort ?? '',
     archived: filters.archived ?? false,
+    // Without these, every person group and every everyone's-work project
+    // group would share one cache entry and show the viewer's own chats.
+    ownerId: filters.ownerId ?? '',
+    allMembers: filters.allMembers ?? false,
   },
 ];
 
@@ -127,6 +142,8 @@ export function useListSessions(orgId?: string, search?: string, projectId?: str
       app_id: appId,
       include_external_agents: options?.includeExternalAgents,
       archived: options?.archived,
+      owner_id: options?.ownerId,
+      all_members: options?.allMembers,
     }),
     enabled: options?.enabled ?? true
   })

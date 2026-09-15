@@ -742,13 +742,23 @@ func resolveReviewWorkspace(name string) (string, string, error) {
 
 func resolveReviewBaseBranch(ctx context.Context, workDir, base string) string {
 	candidates := []string{base}
-	if !strings.HasPrefix(base, "origin/") {
-		candidates = append(candidates, "origin/"+base)
+	if base != "HEAD" && !strings.HasPrefix(base, "origin/") && !strings.HasPrefix(base, "refs/") {
+		baseArg, err := validateReviewRef(base)
+		resolved := ""
+		if err == nil {
+			resolved, err = gitText(ctx, workDir,
+				constGitArg("rev-parse"), constGitArg("--symbolic-full-name"), baseArg)
+		}
+		if err == nil && strings.TrimSpace(resolved) == "refs/heads/"+base {
+			candidates = []string{"origin/" + base, base}
+		} else {
+			candidates = append(candidates, "origin/"+base)
+		}
 	}
 	if base == "main" {
-		candidates = append(candidates, "master", "origin/master")
+		candidates = append(candidates, "origin/master", "master")
 	} else if base == "master" {
-		candidates = append(candidates, "main", "origin/main")
+		candidates = append(candidates, "origin/main", "main")
 	}
 	for _, candidate := range candidates {
 		arg, err := validateReviewRef(candidate)

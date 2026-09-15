@@ -86,8 +86,6 @@ const COORDINATION_TOOLS = new Set([
   'bot_log',
   'read_events',
   'dm',
-  'ask_human',
-  'set_human_contact',
 ])
 
 const AGENT_TOOLS = new Set([

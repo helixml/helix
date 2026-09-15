@@ -67,7 +67,7 @@ const App: FC = () => {
     { enabled: appIsOrgAgent },
   )
   const linkedOrgAgentDetail = orgAgentDetails.find(
-    (detail) => (detail?.agent_id ?? detail?.agent_app_id) === params.app_id,
+    (detail) => detail?.legacy_app_id === params.app_id,
   )
   const linkedOrgAgent = linkedOrgAgentDetail?.bot
   const orgAgentDetailLoading = orgAgentsLoading
@@ -77,7 +77,7 @@ const App: FC = () => {
   // There is no direct App->Bot lookup endpoint, so match the org's Bot
   // list (already fetched above for appIsOrgAgent) on agent_id, which is
   // the Node's AgentID — the App's own id.
-  const restartBannerBot = orgAgents.find((bot) => bot.agent_id === params.app_id)
+  const restartBannerBot = orgAgents.find((bot) => bot.legacy_app_id === params.app_id)
   const restartOrgAgent = useRestartBotAgent()
   // Get user access information from appTools
   const { userAccess } = appTools

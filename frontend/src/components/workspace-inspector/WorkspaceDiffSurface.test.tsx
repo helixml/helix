@@ -159,6 +159,8 @@ describe("WorkspaceDiffSurface", () => {
     });
     const onUpsertComment = vi.fn();
     renderSurface({ comments: [], onUpsertComment, onRemoveComment: vi.fn() });
+    mocks.codeViewProps!.items[0].fileDiff.cacheKey = "parsed-after-render";
+    const initialVersion = mocks.codeViewProps!.items[0].version;
 
     act(() => {
       mocks.codeViewProps?.options.onLineSelectionEnd(
@@ -166,6 +168,7 @@ describe("WorkspaceDiffSurface", () => {
         { item: mocks.codeViewProps.items[0] },
       );
     });
+    expect(mocks.codeViewProps!.items[0].version).not.toBe(initialVersion);
     const input = screen.getByRole("textbox", { name: "Comment on line 2" });
     fireEvent.change(input, { target: { value: "Keep this." } });
     fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
@@ -179,7 +182,7 @@ describe("WorkspaceDiffSurface", () => {
     }));
   });
 
-  it("pauses live polling while text is being selected in the diff", () => {
+  it("does not rerender the diff while a pointer interaction is in progress", () => {
     mocks.live.mockReturnValue({
       ...idleQuery,
       data: { workspace: "primary", sources: [source("all")] },
@@ -188,7 +191,9 @@ describe("WorkspaceDiffSurface", () => {
 
     fireEvent.pointerDown(screen.getByTestId("code-view"));
 
-    expect(mocks.live.mock.calls.at(-1)?.[5]).toBe(false);
+    expect(mocks.codeViewProps?.onSelectedLinesChange).toBeUndefined();
+    expect(mocks.live.mock.calls).toHaveLength(1);
+    expect(mocks.live.mock.calls[0][5]).toBe(true);
   });
 
   it("reads a fresh 503 as a sandbox that is still coming up", () => {

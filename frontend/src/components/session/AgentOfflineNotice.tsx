@@ -50,7 +50,7 @@ const AgentOfflineNotice: FC = () => {
           fontFamily: APP_FONT_FAMILY,
         }}
       >
-        Sandbox stopped — the agent is not running. Start it to continue.
+        Sandbox stopped — send a message to wake the agent.
       </Typography>
     </Box>
   );

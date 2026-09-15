@@ -8,6 +8,7 @@ package memorystore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -143,6 +144,9 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 	defer m.mu.RUnlock()
 	result := make([]*types.Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
+		if query.RestrictToProjects && !containsString(query.ProjectIDs, s.ProjectID) {
+			continue
+		}
 		cp := *s
 		if query.SortBy == "last_message" {
 			for _, interaction := range m.interactions {
@@ -258,6 +262,10 @@ func (m *MemoryStore) CreateInteraction(_ context.Context, interaction *types.In
 		interaction.Updated = time.Now()
 	}
 	cp := *interaction
+	if existing, ok := m.interactions[interaction.ID]; ok {
+		cp.PendingQuestion = existing.PendingQuestion
+		cp.QuestionHistory = existing.QuestionHistory
+	}
 	m.interactions[interaction.ID] = &cp
 	return &cp, nil
 }
@@ -265,6 +273,10 @@ func (m *MemoryStore) CreateInteraction(_ context.Context, interaction *types.In
 func (m *MemoryStore) UpdateInteraction(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 	m.mu.Lock()
 	cp := *interaction
+	if existing, ok := m.interactions[interaction.ID]; ok {
+		cp.PendingQuestion = existing.PendingQuestion
+		cp.QuestionHistory = existing.QuestionHistory
+	}
 	m.interactions[interaction.ID] = &cp
 	cb := m.OnInteractionUpdated
 	m.mu.Unlock()
@@ -299,6 +311,72 @@ func (m *MemoryStore) UpdateInteractionStreamingFields(_ context.Context, intera
 		cb(&cp)
 	}
 	return nil
+}
+
+func (m *MemoryStore) SetInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error) {
+	if interactionID == "" || question == nil || question.RequestID == "" {
+		return nil, false, errors.New("interaction_id and question request_id are required")
+	}
+	m.mu.Lock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		m.mu.Unlock()
+		return nil, false, store.ErrNotFound
+	}
+	if existing.State != types.InteractionStateWaiting || existing.PendingQuestion != nil {
+		cp := *existing
+		m.mu.Unlock()
+		return &cp, false, nil
+	}
+	for _, resolved := range existing.QuestionHistory {
+		if resolved.RequestID == question.RequestID {
+			cp := *existing
+			m.mu.Unlock()
+			return &cp, false, nil
+		}
+	}
+	questionCopy := *question
+	if questionCopy.AskedAt.IsZero() {
+		questionCopy.AskedAt = time.Now()
+	}
+	existing.PendingQuestion = &questionCopy
+	existing.Updated = time.Now()
+	cp := *existing
+	cb := m.OnInteractionUpdated
+	m.mu.Unlock()
+	if cb != nil {
+		cb(&cp)
+	}
+	return &cp, true, nil
+}
+
+func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error) {
+	m.mu.Lock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		m.mu.Unlock()
+		return nil, false, store.ErrNotFound
+	}
+	if existing.PendingQuestion == nil || existing.PendingQuestion.RequestID != requestID {
+		cp := *existing
+		m.mu.Unlock()
+		return &cp, false, nil
+	}
+	existing.QuestionHistory = append(existing.QuestionHistory, types.ResolvedQuestion{
+		PendingQuestion: *existing.PendingQuestion,
+		Outcome:         outcome,
+		Answers:         answers,
+		ResolvedAt:      time.Now(),
+	})
+	existing.PendingQuestion = nil
+	existing.Updated = time.Now()
+	cp := *existing
+	cb := m.OnInteractionUpdated
+	m.mu.Unlock()
+	if cb != nil {
+		cb(&cp)
+	}
+	return &cp, true, nil
 }
 
 func (m *MemoryStore) BindInteractionExternalAgentRequest(_ context.Context, interactionID string, generationID int, requestID string) (bool, error) {
@@ -654,6 +732,12 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 		if filters != nil && filters.PlanningSessionID != "" && t.PlanningSessionID != filters.PlanningSessionID {
 			continue
 		}
+		if filters != nil && filters.CreatedByOrgBot != "" && t.CreatedByOrgBot != filters.CreatedByOrgBot {
+			continue
+		}
+		if filters != nil && filters.FilterProjectIDs && !containsString(filters.ProjectIDs, t.ProjectID) {
+			continue
+		}
 		if filters != nil && filters.FilterParticipants {
 			matchesParticipant := false
 			for _, userID := range filters.ParticipantIDs {
@@ -663,6 +747,18 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 				}
 			}
 			if !matchesParticipant {
+				continue
+			}
+		}
+		if filters != nil && filters.PRMatch != nil {
+			matched := false
+			for _, repoPR := range t.RepoPullRequests {
+				if repoPR.RepositoryID == filters.PRMatch.RepositoryID && repoPR.PRNumber == filters.PRMatch.PRNumber {
+					matched = true
+					break
+				}
+			}
+			if !matched {
 				continue
 			}
 		}
@@ -941,4 +1037,13 @@ func (m *MemoryStore) GetZedSettingsOverride(_ context.Context, _ string) (*type
 // connection mid-turn and turning any error-path test into a timeout.
 func (m *MemoryStore) FinishTriggerExecution(_ context.Context, _ string, _ types.TriggerExecutionStatus, _ string) (*types.TriggerExecution, error) {
 	return nil, store.ErrNotFound
+}
+
+func containsString(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
 }

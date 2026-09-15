@@ -41,7 +41,7 @@ func TestAssetsCLICreateServerSSHKey(t *testing.T) {
 		require.Equal(t, asset.KindServer, request.Kind)
 		require.Equal(t, "production", request.Name)
 		require.Equal(t, "10.0.0.8", request.Server.Address)
-		require.Equal(t, "Deploy only after draining traffic.", request.NotesForAgents)
+		require.Equal(t, "Deploy only after draining traffic.", request.NotesForBots)
 		require.Equal(t, asset.AuthSSHKey, request.Server.AuthType)
 		require.Empty(t, request.Server.Password)
 		w.WriteHeader(http.StatusCreated)
@@ -58,7 +58,7 @@ func TestAssetsCLICreateServerSSHKey(t *testing.T) {
 	var output bytes.Buffer
 	cmd.SetOut(&output)
 	cmd.SetErr(&output)
-	cmd.SetArgs([]string{"create", "server", "production", "--org", "org_test", "--address", "10.0.0.8", "--user", "ubuntu", "--notes-for-agents", "Deploy only after draining traffic."})
+	cmd.SetArgs([]string{"create", "server", "production", "--org", "org_test", "--address", "10.0.0.8", "--user", "ubuntu", "--notes-for-bots", "Deploy only after draining traffic."})
 	require.NoError(t, cmd.Execute())
 	require.Contains(t, output.String(), "Created asset production (a-server)")
 	require.Contains(t, output.String(), "ssh-ed25519 public-key")
@@ -91,16 +91,16 @@ func TestAssetsCLIPasswordComesOnlyFromStdin(t *testing.T) {
 	require.NotContains(t, output.String(), password)
 }
 
-func TestAssetsCLILinkAndUnlinkUseAgentPaths(t *testing.T) {
+func TestAssetsCLILinkAndUnlinkUseBotPaths(t *testing.T) {
 	var requests []string
 	server := newAssetCLITestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.Method+" "+r.URL.Path)
 		if r.Method == http.MethodPost {
 			var request orgapi.AssetLinkRequest
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
-			require.Equal(t, "agent-one", request.AgentID)
+			require.Equal(t, "bot-one", request.BotID)
 			w.WriteHeader(http.StatusCreated)
-			writeCLIJSON(t, w, asset.Link{OrganizationID: "org_test", AssetID: "a-server", AgentID: request.AgentID})
+			writeCLIJSON(t, w, asset.Link{OrganizationID: "org_test", AssetID: "a-server", AgentID: request.BotID})
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -110,8 +110,8 @@ func TestAssetsCLILinkAndUnlinkUseAgentPaths(t *testing.T) {
 	t.Setenv("HELIX_API_KEY", "test-key")
 
 	for _, args := range [][]string{
-		{"link", "a-server", "agent-one", "--org", "org_test"},
-		{"unlink", "a-server", "agent-one", "--org", "org_test"},
+		{"link", "a-server", "bot-one", "--org", "org_test"},
+		{"unlink", "a-server", "bot-one", "--org", "org_test"},
 	} {
 		cmd := newAssetsCmd()
 		cmd.SetOut(&bytes.Buffer{})
@@ -120,7 +120,7 @@ func TestAssetsCLILinkAndUnlinkUseAgentPaths(t *testing.T) {
 	}
 	require.Equal(t, []string{
 		"POST /api/v1/orgs/org_test/assets/a-server/links",
-		"DELETE /api/v1/orgs/org_test/assets/a-server/links/agent-one",
+		"DELETE /api/v1/orgs/org_test/assets/a-server/links/bot-one",
 	}, requests)
 }
 

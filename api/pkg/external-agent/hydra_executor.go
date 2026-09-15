@@ -716,6 +716,7 @@ func (h *HydraExecutor) beginSandboxMetering(ctx context.Context, agent *types.D
 		Owner:          agent.UserID,
 		ProjectID:      agent.ProjectID,
 		SpecTaskID:     agent.SpecTaskID,
+		OrgBotID:       agent.OrgWorkerID,
 		Name:           h.desktopSandboxName(ctx, agent),
 		Runtime:        runtime,
 		VCPUs:          vcpus,
@@ -753,6 +754,12 @@ func (h *HydraExecutor) desktopSandboxName(ctx context.Context, agent *types.Des
 			return task.Name
 		}
 		return agent.SpecTaskID
+	}
+	if agent.OrgWorkerID != "" {
+		if agent.OrgWorkerName != "" {
+			return agent.OrgWorkerName
+		}
+		return agent.OrgWorkerID
 	}
 	return fmt.Sprintf("Session %s", strings.TrimPrefix(agent.SessionID, "ses_"))
 }
@@ -814,9 +821,23 @@ func (h *HydraExecutor) attachSessionBootstrap(ctx context.Context, agent *types
 	if err != nil {
 		return fmt.Errorf("load session bootstrap state for %s: %w", agent.SessionID, err)
 	}
-	return applySessionBootstrap(session.Metadata, agent)
+	if err := applySessionBootstrap(session.Metadata, agent); err != nil {
+		return err
+	}
+	if agent.OrgWorkerID != "" {
+		// The org spawner names the session after the Bot; that is the label
+		// the sandbox billing row gets so the Sandboxes list reads as bots.
+		agent.OrgWorkerName = session.Name
+	}
+	return nil
 }
 
+// applySessionBootstrap turns an org worker's session state into launch
+// inputs: identity env + instruction files, and the sandbox runtime/size the
+// Bot was configured with. It is the org-worker counterpart of
+// resolveSpecTaskLaunchConfig — the session is the source of truth on every
+// path that rebuilds a DesktopAgent (resume, auto-start, auto-wake,
+// reconcile), so a headless Bot can never come back as a desktop.
 func applySessionBootstrap(metadata types.SessionMetadata, agent *types.DesktopAgent) error {
 	workerID := metadata.OrgWorkerID
 	instructions := metadata.RuntimeInstructions
@@ -825,6 +846,15 @@ func applySessionBootstrap(metadata types.SessionMetadata, agent *types.DesktopA
 	}
 	if workerID == "" || instructions == "" {
 		return fmt.Errorf("incomplete org-worker bootstrap state for session %s", agent.SessionID)
+	}
+	agent.OrgWorkerID = workerID
+	if types.EffectiveSpecTaskSandboxRuntime(metadata.SandboxRuntime) == types.SandboxRuntimeHeadlessUbuntu {
+		agent.DesktopType = "headless"
+	}
+	if agent.VCPUs <= 0 || agent.MemoryMB <= 0 {
+		resources := types.EffectiveSpecTaskSandboxResources(metadata.SandboxResourceOverrides)
+		agent.VCPUs = resources.VCPUs
+		agent.MemoryMB = resources.MemoryMB
 	}
 	agent.Env = append(agent.Env, "HELIX_WORKER_ID="+workerID)
 	if agent.WorkspaceFiles == nil {
@@ -1476,6 +1506,9 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	if agent.ProjectID != "" {
 		env = append(env, fmt.Sprintf("HELIX_PROJECT_ID=%s", agent.ProjectID))
 	}
+	if agent.OrganizationID != "" {
+		env = append(env, fmt.Sprintf("HELIX_ORGANIZATION_ID=%s", agent.OrganizationID))
+	}
 	// NOTE: HELIX_PRIMARY_REPO_NAME is set in StartDesktop after fetching actual repo name
 
 	// Display settings for non-headless containers
@@ -1883,6 +1916,27 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 		h.mutex.RUnlock()
 
 		if alreadyTracked {
+			sessionLock.Unlock()
+			continue
+		}
+
+		// Re-probe liveness under the per-session lock. The ListDevContainers
+		// snapshot above may pre-date a concurrent StopDesktop that already
+		// deleted this container from the sandbox. Trusting the stale snapshot
+		// resurrects a dead session as "running": a later StartDesktop then
+		// short-circuits on the phantom entry and never recreates the container,
+		// so every resume hangs until the API process restarts (#3067). A live
+		// GetDevContainer probe is the source of truth here, mirroring
+		// markMissingSessionsStopped. On any error or non-running status we skip
+		// — a genuinely-alive container whose probe transiently fails is simply
+		// re-discovered on the next sweep.
+		probed, probeErr := hydraClient.GetDevContainer(ctx, sessionID)
+		if probeErr != nil || probed == nil || probed.Status != hydra.DevContainerStatusRunning {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("container_id", container.containerID).
+				Err(probeErr).
+				Msg("Skipping discovery resurrection: container not confirmed running")
 			sessionLock.Unlock()
 			continue
 		}

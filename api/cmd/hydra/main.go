@@ -130,6 +130,14 @@ func run(cmd *cobra.Command, args []string) {
 			log.Error().Err(err).Str("upstream", revDialAPIURL).
 				Msg("Sandbox API proxy not started (bad HELIX_API_URL); session API path unavailable")
 		}
+		// The control plane's SSH proxy (asset and sandbox SSH for agents) sits
+		// beside the API; mirror it on the bridge so sandboxed agents can reach
+		// it as helix-api.internal:2224.
+		if sshUpstream, err := hydra.SandboxSSHProxyUpstream(revDialAPIURL); err != nil {
+			log.Error().Err(err).Str("upstream", revDialAPIURL).Msg("Sandbox SSH proxy not started (bad HELIX_API_URL)")
+		} else if err := server.StartSandboxSSHProxyWithRetry(ctx, "", sshUpstream, 2*time.Second); err != nil {
+			log.Error().Err(err).Str("upstream", sshUpstream).Msg("Sandbox SSH proxy not started")
+		}
 	} else {
 		log.Error().Msg("HELIX_API_URL is empty; sandbox API proxy not started, sessions cannot reach the Helix API")
 	}

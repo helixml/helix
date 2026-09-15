@@ -13,6 +13,7 @@ import {
   Typography,
 } from "@mui/material";
 import {
+  Bot,
   CloudUpload,
   EllipsisVertical,
   Files,
@@ -37,6 +38,7 @@ import useIsPhone from "../../hooks/useIsPhone";
 
 export type TaskView =
   | "chat"
+  | "agents"
   | "desktop"
   | "browser"
   | "changes"
@@ -111,7 +113,7 @@ interface ViewTab {
   chatOnly?: boolean;
   /**
    * Folded into the overflow menu on a phone. Six tabs plus the lifecycle
-   * controls do not fit across 390px, and these three are the ones you visit
+   * controls do not fit across 390px, and these views are the ones you visit
    * deliberately rather than flick between.
    */
   foldOnPhone?: boolean;
@@ -129,6 +131,7 @@ const VIEW_TABS: ViewTab[] = [
   { value: "browser", label: "Browser", icon: Globe2, sessionOnly: true },
   { value: "changes", label: "Diff", icon: GitCompare, sessionOnly: true },
   { value: "files", label: "Files", icon: Files, sessionOnly: true, foldOnPhone: true },
+  { value: "agents", label: "Agents", icon: Bot, sessionOnly: true, foldOnPhone: true },
   {
     value: "details",
     label: "Details",
@@ -198,6 +201,8 @@ export interface SpecTaskViewToolbarProps {
   onCollapsePanel?: () => void;
   /** Trailing control: close the task view. */
   onClosePanel?: () => void;
+  /** Label for the "details" view; org agents call it Settings. */
+  detailsLabel?: string;
 }
 
 /**
@@ -235,6 +240,7 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   renderMenuItems,
   onCollapsePanel,
   onClosePanel,
+  detailsLabel,
 }) => {
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const closeMenu = () => setMenuAnchorEl(null);
@@ -249,7 +255,10 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   const iconButtonSx = toolbarIconButtonSx(density);
   const controlIconSize = ICON_BUTTON_METRICS[density].icon;
 
-  const availableTabs = VIEW_TABS.filter(
+  const viewTabs = detailsLabel
+    ? VIEW_TABS.map((t) => (t.value === "details" ? { ...t, label: detailsLabel } : t))
+    : VIEW_TABS;
+  const availableTabs = viewTabs.filter(
     (t) => (!t.sessionOnly || hasSession)
       && (!t.chatOnly || showChatTab)
       && (t.value !== "desktop" || showDesktop),

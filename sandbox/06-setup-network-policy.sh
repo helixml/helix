@@ -187,6 +187,10 @@ helix_apply_sandbox_network_policy() {
         -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
     helix_iptables -A "$HELIX_INPUT_CHAIN" -d "${HELIX_NETWORK_GATEWAY}/32" \
         -p tcp --dport 18080 -j RETURN
+    # Hydra mirrors the control plane's SSH proxy (asset + sandbox SSH for
+    # agents) on the gateway; the proxy itself authenticates every connection.
+    helix_iptables -A "$HELIX_INPUT_CHAIN" -d "${HELIX_NETWORK_GATEWAY}/32" \
+        -p tcp --dport 2224 -j RETURN
     helix_iptables -A "$HELIX_INPUT_CHAIN" -d "${dns_gateway}/32" \
         -p udp --dport 53 -j RETURN
     helix_iptables -A "$HELIX_INPUT_CHAIN" -d "${dns_gateway}/32" \

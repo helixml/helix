@@ -110,8 +110,8 @@ type HelixAPIServer struct {
 	// Topic reconciler and the Socket Mode manager — live inside it, not
 	// as fields on this struct.
 	helixOrg *helixOrgHandlers
-	// orgSeeder creates membership-driven human nodes + the per-org Chief
-	// of Staff bot. Set by mountHelixOrg; nil when helix-org is disabled
+	// orgSeeder creates the per-org Chief of Staff bot. Set by mountHelixOrg;
+	// nil when helix-org is disabled
 	// (the seeder's methods are nil-safe no-ops).
 	orgSeeder *orgGraphSeeder
 	// onServiceConnectionChange is an optional post-mutation hook a
@@ -119,10 +119,10 @@ type HelixAPIServer struct {
 	// the connection types it owns without the generic service-connection
 	// handlers depending on it. nil when unregistered.
 	onServiceConnectionChange func(ctx context.Context, conn *types.ServiceConnection, deleted bool)
-	// orgAgentInstructionsChanged, when wired, is called after an App's
+	// orgAgentConfigChanged, when wired, is called after an App's
 	// system prompt changes so the helix-org layer can flag any Bot backed
 	// by that App as needing a sandbox restart. nil when helix-org is off.
-	orgAgentInstructionsChanged func(ctx context.Context, appID string)
+	orgAgentConfigChanged       func(ctx context.Context, appID string)
 	Stripe                      *stripe.Stripe
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller
@@ -155,6 +155,7 @@ type HelixAPIServer struct {
 	pendingCancelChannels       map[string]chan string // request_id -> channel that receives turn_cancelled status
 	cancelTurnMutexes           sync.Map               // session_id -> *sync.Mutex; serializes concurrent cancel requests
 	pendingCancelRetries        sync.Map               // interaction_id -> struct{}; dedupes durable cancel retries
+	pendingQuestionActions      sync.Map               // interaction_id/request_id -> struct{}; dedupes answer/cancel races
 	autoRestartInflight         sync.Map               // session_id -> struct{}: dedupes concurrent auto-restart triggers (zero value ready)
 	promptDrainMutexes          sync.Map               // session_id -> *sync.Mutex: serialises queue-drain dispatch per session (zero value ready). See lockPromptDrain.
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
@@ -677,6 +678,16 @@ func NewServer(
 	apiServer.specTaskOrchestrator.SetAttentionService(apiServer.attentionService)
 	apiServer.specTaskOrchestrator.SetCINotifier(services.NewEnqueueCINotifier(apiServer.enqueueSpecTaskAgentMessage))
 
+	// GitHub PR review feedback: when enabled, PR creations install a
+	// pull_request_review webhook on external repos (per-repo secret generated
+	// at install) and /api/v1/webhooks/github/reviews/{repo_id} correlates
+	// deliveries to spec tasks.
+	reviewWebhookURL := ""
+	if cfg.GitHub.ReviewWebhooks {
+		reviewWebhookURL = fmt.Sprintf("%s/api/v1/webhooks/github/reviews", strings.TrimSuffix(cfg.WebServer.URL, "/"))
+	}
+	gitRepositoryService.SetGitHubReviewWebhooks(reviewWebhookURL)
+
 	// Recover golden builds that were in progress when the API last restarted.
 	// Re-attaches monitoring goroutines for still-running builds, resets stale ones.
 	go apiServer.goldenBuildService.RecoverStaleBuilds(context.Background())
@@ -956,6 +967,12 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	insecureRouter.HandleFunc("/webhooks/{id}", apiServer.webhookTriggerHandler).Methods(http.MethodPost, http.MethodPut)
 
+	// GitHub PR review feedback for spec tasks - auth is the delivering repo's
+	// own per-repo webhook secret (auto-generated at install, stored on the
+	// repo row), so one org's secret can't forge deliveries into another org's
+	// tasks on a shared deployment.
+	insecureRouter.HandleFunc("/webhooks/github/reviews/{repo_id}", apiServer.specTaskGitHubReviewWebhook).Methods(http.MethodPost)
+
 	// Teams Bot Framework webhook - auth handled by Bot Framework JWT validation
 	insecureRouter.HandleFunc("/teams/webhook/{appID}", apiServer.teamsWebhookHandler).Methods(http.MethodPost)
 
@@ -1081,6 +1098,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/interactions", system.Wrapper(apiServer.listInteractions)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/interactions/{interaction_id}", system.Wrapper(apiServer.getInteraction)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/interactions/{interaction_id}/feedback", system.Wrapper(apiServer.feedbackInteraction)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/interactions/{interaction_id}/questions/{request_id}/respond", system.Wrapper(apiServer.respondToInteractionQuestion)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/interactions/{interaction_id}/questions/{request_id}/cancel", system.Wrapper(apiServer.cancelInteractionQuestion)).Methods(http.MethodPost)
 
 	authRouter.HandleFunc("/sessions/{id}/step-info", system.Wrapper(apiServer.getSessionStepInfo)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/rdp-connection", apiServer.getSessionRDPConnection).Methods(http.MethodGet)

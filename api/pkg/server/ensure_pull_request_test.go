@@ -18,12 +18,13 @@ import (
 // fakeGitRepoService implements gitRepositoryServicer for tests.
 // Methods not expected by a test panic to catch unexpected calls.
 type fakeGitRepoService struct {
-	listBranchesFunc     func(ctx context.Context, repoID string) ([]string, error)
-	getPullRequestFunc   func(ctx context.Context, repoID, id string) (*types.PullRequest, error)
-	withRepoLockFunc     func(repoID string, fn func() error) error
-	pushBranchFunc       func(ctx context.Context, repoID, branch string, force bool, userID ...string) error
-	listPullRequestsFunc func(ctx context.Context, repoID string) ([]*types.PullRequest, error)
-	createPRFunc         func(ctx context.Context, repoID, title, desc, src, tgt, userID string) (string, error)
+	listBranchesFunc       func(ctx context.Context, repoID string) ([]string, error)
+	getPullRequestFunc     func(ctx context.Context, repoID, id string) (*types.PullRequest, error)
+	withRepoLockFunc       func(repoID string, fn func() error) error
+	pushBranchFunc         func(ctx context.Context, repoID, branch string, force bool, userID ...string) error
+	listPullRequestsFunc   func(ctx context.Context, repoID string) ([]*types.PullRequest, error)
+	createPRFunc           func(ctx context.Context, repoID, title, desc, src, tgt, userID string) (string, error)
+	listReviewCommentsFunc func(ctx context.Context, repoID, prID string, reviewID int64) ([]*types.PRReviewComment, error)
 }
 
 func (f *fakeGitRepoService) ListBranches(ctx context.Context, repoID string) ([]string, error) {
@@ -72,6 +73,12 @@ func (f *fakeGitRepoService) CreatePullRequest(ctx context.Context, repoID, titl
 func (f *fakeGitRepoService) Initialize(_ context.Context) error { panic("Initialize unexpected") }
 func (f *fakeGitRepoService) SetKoditService(_ services.KoditServicer) {
 	panic("SetKoditService unexpected")
+}
+func (f *fakeGitRepoService) ListPullRequestReviewComments(ctx context.Context, repoID, prID string, reviewID int64) ([]*types.PRReviewComment, error) {
+	if f.listReviewCommentsFunc != nil {
+		return f.listReviewCommentsFunc(ctx, repoID, prID, reviewID)
+	}
+	panic("ListPullRequestReviewComments unexpected")
 }
 func (f *fakeGitRepoService) CloneRepositoryAsync(_ *types.GitRepository, _ ...func(string)) {
 	panic("CloneRepositoryAsync unexpected")

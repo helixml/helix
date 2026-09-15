@@ -41,7 +41,7 @@ const kindOptions = [
   },
   {
     value: AGENT_KIND_ORG,
-    label: 'Helix Org Agent',
+    label: 'Org Bot',
     description: 'Worker managed through the organization chart',
     icon: Network,
     color: '#a78bfa',

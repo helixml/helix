@@ -116,6 +116,13 @@ func (apiServer *HelixAPIServer) commitTurnError(ctx context.Context, interactio
 	// common remaining cause is the model provider itself failing, which Helix
 	// recorded in llm_calls even though Zed could not tell us about it.
 	errorMsg = apiServer.maybeExplainProviderFailure(ctx, interaction.SessionID, errorMsg)
+	if updated, _, err := apiServer.settlePendingQuestionAsCancelled(ctx, interaction); err != nil {
+		log.Error().Err(err).
+			Str("interaction_id", interaction.ID).
+			Msg("[TURN] Failed to settle pending question on turn error")
+	} else {
+		interaction = updated
+	}
 
 	interaction.State = types.InteractionStateError
 	interaction.Error = errorMsg

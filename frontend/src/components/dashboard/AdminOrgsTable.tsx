@@ -1,4 +1,4 @@
-import React, { FC, useState, useMemo } from "react";
+import React, { FC, useEffect, useMemo, useState } from "react";
 import {
     Table,
     TableBody,
@@ -17,6 +17,7 @@ import {
     IconButton,
     Menu,
     MenuItem,
+    TablePagination,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
@@ -26,7 +27,16 @@ import { useListAdminOrgs, useAdminSetOrgPlan } from "../../services/dashboardSe
 
 const AdminOrgsTable: FC = () => {
     const [searchQuery, setSearchQuery] = useState("");
-    const { data: orgs, isLoading, error } = useListAdminOrgs();
+    const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+    const [page, setPage] = useState(0);
+    const [rowsPerPage, setRowsPerPage] = useState(25);
+    const query = useMemo(() => ({
+        page: page + 1,
+        per_page: rowsPerPage,
+        ...(debouncedSearchQuery.trim() ? { query: debouncedSearchQuery.trim() } : {}),
+    }), [page, rowsPerPage, debouncedSearchQuery]);
+    const { data, isLoading, error } = useListAdminOrgs(query);
+    const orgs = data?.organizations;
     const setOrgPlan = useAdminSetOrgPlan();
     const [planAnchor, setPlanAnchor] = useState<null | HTMLElement>(null);
     const [planOrgId, setPlanOrgId] = useState<string | null>(null);
@@ -44,15 +54,15 @@ const AdminOrgsTable: FC = () => {
         closePlanMenu();
     };
 
-    const filtered = useMemo(() => {
-        if (!orgs) return [];
-        if (!searchQuery.trim()) return orgs;
-        const q = searchQuery.trim().toLowerCase();
-        return orgs.filter((o: TypesOrgDetails) => {
-            const name = (o.organization?.display_name || o.organization?.name || "").toLowerCase();
-            return name.includes(q);
-        });
-    }, [orgs, searchQuery]);
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearchQuery(searchQuery);
+            setPage(0);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
+
+    const filtered = orgs ?? [];
 
     if (isLoading && !orgs) {
         return (
@@ -118,7 +128,7 @@ const AdminOrgsTable: FC = () => {
                     }}
                 />
                 <Typography variant="body2" color="text.secondary">
-                    {filtered.length} org{filtered.length !== 1 ? "s" : ""}
+                    {data?.totalCount ?? 0} org{data?.totalCount !== 1 ? "s" : ""}
                 </Typography>
             </Box>
 
@@ -249,6 +259,22 @@ const AdminOrgsTable: FC = () => {
                     </TableBody>
                 </Table>
             </TableContainer>
+
+            {(data?.totalCount ?? 0) > 0 && (
+                <TablePagination
+                    rowsPerPageOptions={[10, 25, 50, 100]}
+                    component="div"
+                    count={data?.totalCount ?? 0}
+                    rowsPerPage={rowsPerPage}
+                    page={page}
+                    onPageChange={(_event, newPage) => setPage(newPage)}
+                    onRowsPerPageChange={(event) => {
+                        setRowsPerPage(parseInt(event.target.value, 10));
+                        setPage(0);
+                    }}
+                    labelRowsPerPage="Organizations per page:"
+                />
+            )}
 
             <Menu anchorEl={planAnchor} open={Boolean(planAnchor)} onClose={closePlanMenu}>
                 <MenuItem onClick={() => applyPlan("pro")}>Set Pro (paid, no Stripe)</MenuItem>

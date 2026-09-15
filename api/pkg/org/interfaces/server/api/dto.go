@@ -1,6 +1,6 @@
 // Package api exposes the org-graph state as JSON under
 // /api/v1/orgs/{org}/, alongside the MCP and webhook handlers in the
-// sibling server package. The React pages at /orgs/:org_id/helix-org/*
+// sibling server package. The React pages at /orgs/:org_id/*
 // consume these endpoints.
 //
 // DTOs carry only the data — predicates the React client derives
@@ -8,7 +8,7 @@
 package api
 
 import (
-	"encoding/json"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -16,6 +16,14 @@ import (
 // BotBadge is a compact reference to a Bot on the org overview.
 type BotBadge struct {
 	ID string `json:"id"`
+}
+
+// AssetLinkDTO is the public representation of an asset granted to an Org Bot.
+type AssetLinkDTO struct {
+	OrganizationID string    `json:"organization_id"`
+	AssetID        string    `json:"asset_id"`
+	BotID          string    `json:"bot_id"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // OrgOverview is the body of GET /overview — a flat list of every Bot
@@ -41,9 +49,8 @@ type ToolDTO struct {
 // report to several managers. A Bot's attachments are not on the bot —
 // they live as (worker, source) rows.
 type BotDTO struct {
-	ID            string `json:"id"`
-	AgentID       string `json:"agent_id,omitempty"`
-	LegacyAgentID string `json:"agent_app_id,omitempty"`
+	ID          string `json:"id"`
+	LegacyAppID string `json:"legacy_app_id,omitempty"`
 	// Name is the human-readable display label; empty means the UI falls
 	// back to ID. Distinct from ID, which is the immutable handle.
 	Name           string   `json:"name,omitempty"`
@@ -56,21 +63,34 @@ type BotDTO struct {
 	// Bot's chat session before each re-activation, so it accumulates
 	// context across triggers (e.g. Slack). Defaults to false.
 	PreserveContext bool `json:"preserve_context"`
-	// Kind is "" (agent) or "human". A human node is a person placeholder,
-	// never activated; Identity holds their cross-system handles and
-	// HelixUserID optionally links them to a Helix org member. Identity is
-	// omitted for agent bots.
-	Kind        string            `json:"kind,omitempty"`
-	HelixUserID string            `json:"helix_user_id,omitempty"`
-	Identity    map[string]string `json:"identity,omitempty"`
-	// AgentStatus is "running" when the bot's desktop sandbox is online,
+	// Status is "running" when the bot's desktop sandbox is online,
 	// "stopped" otherwise (no session, paused, never activated). Drives
 	// the green/grey presence dot on the org chart.
-	AgentStatus string `json:"agent_status,omitempty"`
+	Status string `json:"status,omitempty"`
 	// RestartRequired is true when the sandbox is running but still holds
 	// the tool list and instructions from before the last save. Drives the
 	// restart banner on the bot page and the org chat panel.
-	RestartRequired         bool                          `json:"restart_required,omitempty"`
+	RestartRequired bool `json:"restart_required,omitempty"`
+	// SandboxRuntime and SandboxResourceOverrides are the bot's own sandbox
+	// config in the spec-task vocabulary; empty means "inherit the org
+	// default". The Effective* fields are what the next container start will
+	// actually use once org and global defaults are applied. SandboxID /
+	// SandboxStatus come from the session-backed sandboxes row, when one
+	// exists (pending, running, stopping, stopped, failed).
+	SandboxRuntime                    types.SandboxRuntime            `json:"sandbox_runtime,omitempty"`
+	SandboxResourceOverrides          *types.SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+	EffectiveSandboxRuntime           types.SandboxRuntime            `json:"effective_sandbox_runtime,omitempty"`
+	EffectiveSandboxResourceOverrides *types.SandboxResourceOverrides `json:"effective_sandbox_resource_overrides,omitempty"`
+	SandboxID                         string                          `json:"sandbox_id,omitempty"`
+	SandboxStatus                     string                          `json:"sandbox_status,omitempty"`
+	SandboxStatusMessage              string                          `json:"sandbox_status_message,omitempty"`
+	// ProjectID is the bot's own Helix project — the one whose exploratory
+	// session is the bot's chat. SessionID is that session, when the bot
+	// has been activated. Both come from runtime state and let the chat
+	// sidebar list bots as top-level entries instead of surfacing their
+	// project like an ordinary one.
+	ProjectID               string                        `json:"project_id,omitempty"`
+	SessionID               string                        `json:"session_id,omitempty"`
 	AgentRuntime            string                        `json:"agent_runtime,omitempty"`
 	AgentModel              string                        `json:"agent_model,omitempty"`
 	CodeAgentRuntime        types.CodeAgentRuntime        `json:"code_agent_runtime,omitempty"`
@@ -89,90 +109,31 @@ type BotDTO struct {
 	DefaultInstructions string `json:"default_instructions,omitempty"`
 }
 
-func (d BotDTO) MarshalJSON() ([]byte, error) {
-	type botDTO BotDTO
-	return json.Marshal(botDTO(canonicalBotDTO(d)))
-}
-
-func (d *BotDTO) UnmarshalJSON(data []byte) error {
-	type botDTO BotDTO
-	var decoded botDTO
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	*d = canonicalBotDTO(BotDTO(decoded))
-	return nil
-}
-
-func canonicalBotDTO(d BotDTO) BotDTO {
-	if d.AgentID == "" {
-		d.AgentID = d.LegacyAgentID
-	}
-	d.LegacyAgentID = d.AgentID
-	return d
-}
-
-// BotChatDTO is the POST /bots/{id}/chat response. AgentID is the
-// per-Bot Helix agent app id and ProjectID is the Helix project that
-// owns it — the chart UI prefers ProjectID for the "chat via Human
+// BotChatDTO is the POST /bots/{id}/chat response. LegacyAppID is the
+// per-Bot legacy Helix App id and ProjectID is the Helix project that
 // Desktop" deep-link (/orgs/<org>/projects/<id>/desktop/<session>),
-// falling back to /agent/<agent_app_id> only when the project's
+// falling back to the legacy App only when the project's
 // exploratory session can't be reached.
 type BotChatDTO struct {
-	AgentID       string `json:"agent_id"`
-	LegacyAgentID string `json:"agent_app_id"`
-	ProjectID     string `json:"project_id,omitempty"`
+	LegacyAppID string `json:"legacy_app_id,omitempty"`
+	ProjectID   string `json:"project_id,omitempty"`
 }
 
 // BotActivateDTO is the POST /bots/{id}/activate response.
 type BotActivateDTO struct {
-	ActivationID  string `json:"activation_id,omitempty"`
-	ProjectID     string `json:"project_id,omitempty"`
-	AgentID       string `json:"agent_id,omitempty"`
-	LegacyAgentID string `json:"agent_app_id,omitempty"`
-	SessionID     string `json:"session_id,omitempty"`
+	ActivationID string `json:"activation_id,omitempty"`
+	ProjectID    string `json:"project_id,omitempty"`
+	LegacyAppID  string `json:"legacy_app_id,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
 }
 
 // BotDetailDTO is the full GET /bots/{id} response — the Bot plus the
 // surrounding runtime context the UI's detail pane needs.
 type BotDetailDTO struct {
 	Bot BotDTO `json:"bot"`
-	// AgentID + ProjectID — see BotChatDTO comments.
-	AgentID       string `json:"agent_id,omitempty"`
-	LegacyAgentID string `json:"agent_app_id,omitempty"`
-	ProjectID     string `json:"project_id,omitempty"`
-}
-
-type AgentDetailDTO struct {
-	BotDTO
-	ProjectID string `json:"project_id,omitempty"`
-}
-
-func (d AgentDetailDTO) MarshalJSON() ([]byte, error) {
-	type botDTO BotDTO
-	type agentDetailDTO struct {
-		botDTO
-		ProjectID string `json:"project_id,omitempty"`
-	}
-	return json.Marshal(agentDetailDTO{
-		botDTO:    botDTO(canonicalBotDTO(d.BotDTO)),
-		ProjectID: d.ProjectID,
-	})
-}
-
-func (d *AgentDetailDTO) UnmarshalJSON(data []byte) error {
-	type botDTO BotDTO
-	type agentDetailDTO struct {
-		botDTO
-		ProjectID string `json:"project_id,omitempty"`
-	}
-	var decoded agentDetailDTO
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	d.BotDTO = canonicalBotDTO(BotDTO(decoded.botDTO))
-	d.ProjectID = decoded.ProjectID
-	return nil
+	// LegacyAppID + ProjectID — see BotChatDTO comments.
+	LegacyAppID string `json:"legacy_app_id,omitempty"`
+	ProjectID   string `json:"project_id,omitempty"`
 }
 
 // CreateBotRequest is the body of POST /bots. Mirrors the MCP
@@ -184,22 +145,27 @@ type CreateBotRequest struct {
 	ID string `json:"id,omitempty"`
 	// Name is the human-readable display label (e.g. "Chief of Staff").
 	// Optional; the ID stays the immutable handle.
-	Name                    string                        `json:"name,omitempty"`
-	Content                 string                        `json:"content"`
-	Tools                   []string                      `json:"tools,omitempty"`
-	Triggers                []string                      `json:"triggers,omitempty"`
-	ParentID                string                        `json:"parent_id,omitempty"`
-	PreserveContext         bool                          `json:"preserve_context,omitempty"`
-	CodeAgentRuntime        types.CodeAgentRuntime        `json:"code_agent_runtime,omitempty"`
-	CodeAgentCredentialType types.CodeAgentCredentialType `json:"code_agent_credential_type,omitempty"`
-	Provider                string                        `json:"provider,omitempty"`
-	Model                   string                        `json:"model,omitempty"`
-	ReasoningEffort         string                        `json:"reasoning_effort,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Content string `json:"content"`
+	// Tools contains additions to the standard worker tool set.
+	Tools           []string `json:"tools,omitempty"`
+	Triggers        []string `json:"triggers,omitempty"`
+	ParentID        string   `json:"parent_id,omitempty"`
+	PreserveContext bool     `json:"preserve_context,omitempty"`
+	// SandboxRuntime / SandboxResourceOverrides are optional; see BotDTO.
+	// Only vcpus is read from the overrides — memory follows the preset.
+	SandboxRuntime           types.SandboxRuntime            `json:"sandbox_runtime,omitempty"`
+	SandboxResourceOverrides *types.SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+	CodeAgentRuntime         types.CodeAgentRuntime          `json:"code_agent_runtime,omitempty"`
+	CodeAgentCredentialType  types.CodeAgentCredentialType   `json:"code_agent_credential_type,omitempty"`
+	Provider                 string                          `json:"provider,omitempty"`
+	Model                    string                          `json:"model,omitempty"`
+	ReasoningEffort          string                          `json:"reasoning_effort,omitempty"`
 	// Owner makes this a manager Bot: it receives the canonical owner
-	// tool set (every org-graph mutation - create_bot, delete_bot,
-	// set_bot_content, subscribe, ... - plus the read baseline) so it can
-	// hire and manage other Nodes. When true, Tools is ignored in favour
-	// of that set. Used to seed a starter/root Bot for a new org.
+	// tool set (standard worker tools plus org-management mutations such as
+	// create_bot, delete_bot, and set_bot_content) so it can hire and manage
+	// other Nodes. When true, Tools is ignored in favour of that set. Used to
+	// seed a starter/root Bot for a new org.
 	Owner bool `json:"owner,omitempty"`
 }
 
@@ -220,15 +186,17 @@ type UpdateBotRequest struct {
 	Tools           []string `json:"tools,omitempty"`
 	ProjectIDs      []string `json:"project_ids,omitempty"`
 	PreserveContext *bool    `json:"preserve_context,omitempty"`
-	// Identity is the per-channel handle map for a human node (slack/github/
-	// email/…). When present it replaces the stored map; absent leaves it
-	// unchanged. Only meaningful for kind=human bots.
-	Identity                map[string]string              `json:"identity,omitempty"`
-	CodeAgentRuntime        *types.CodeAgentRuntime        `json:"code_agent_runtime,omitempty"`
-	CodeAgentCredentialType *types.CodeAgentCredentialType `json:"code_agent_credential_type,omitempty"`
-	Provider                *string                        `json:"provider,omitempty"`
-	Model                   *string                        `json:"model,omitempty"`
-	ReasoningEffort         *string                        `json:"reasoning_effort,omitempty"`
+	// SandboxRuntime / SandboxResourceOverrides patch the bot's sandbox
+	// config. A present-but-empty runtime, or vcpus=0, resets that field to
+	// inherit. Takes effect on the next container start; a running sandbox
+	// gets restart_required.
+	SandboxRuntime           *types.SandboxRuntime           `json:"sandbox_runtime,omitempty"`
+	SandboxResourceOverrides *types.SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+	CodeAgentRuntime         *types.CodeAgentRuntime         `json:"code_agent_runtime,omitempty"`
+	CodeAgentCredentialType  *types.CodeAgentCredentialType  `json:"code_agent_credential_type,omitempty"`
+	Provider                 *string                         `json:"provider,omitempty"`
+	Model                    *string                         `json:"model,omitempty"`
+	ReasoningEffort          *string                         `json:"reasoning_effort,omitempty"`
 }
 
 // AddBotParentRequest is the body of POST /bots/{id}/parents. ParentID

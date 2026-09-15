@@ -49,11 +49,11 @@ func bindingDTO(b workersecret.Binding) WorkerSecretBindingDTO {
 	}
 }
 
-// @Summary List an Agent's secret bindings
+// @Summary List a Bot's secret bindings
 // @Tags HelixOrg
 // @Success 200 {array} api.WorkerSecretBindingDTO
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/agents/{id}/secrets [get]
+// @Router /api/v1/orgs/{org}/bots/{id}/secrets [get]
 func (a *apiHandler) listWorkerSecrets(w http.ResponseWriter, r *http.Request) {
 	orgID, err := resolveOrgID(r)
 	if err != nil {
@@ -90,11 +90,11 @@ func (a *apiHandler) listWorkerSecrets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// @Summary List sources that may be granted to an Agent
+// @Summary List sources that may be granted to a Bot
 // @Tags HelixOrg
 // @Success 200 {array} workersecret.AvailableSource
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/agents/{id}/available-secrets [get]
+// @Router /api/v1/orgs/{org}/bots/{id}/available-secrets [get]
 func (a *apiHandler) listAvailableWorkerSecrets(w http.ResponseWriter, r *http.Request) {
 	orgID, err := resolveOrgID(r)
 	if err != nil {
@@ -113,12 +113,12 @@ func (a *apiHandler) listAvailableWorkerSecrets(w http.ResponseWriter, r *http.R
 	writeJSON(w, 200, rows)
 }
 
-// @Summary Create or replace an Agent secret binding
+// @Summary Create or replace a Bot secret binding
 // @Tags HelixOrg
 // @Param payload body api.PutWorkerSecretRequest true "Binding metadata"
 // @Success 200 {object} api.WorkerSecretBindingDTO
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/agents/{id}/secrets/{name} [put]
+// @Router /api/v1/orgs/{org}/bots/{id}/secrets/{name} [put]
 func (a *apiHandler) putWorkerSecret(w http.ResponseWriter, r *http.Request) {
 	orgID, err := resolveOrgID(r)
 	if err != nil {
@@ -146,11 +146,11 @@ func (a *apiHandler) putWorkerSecret(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, bindingDTO(b))
 }
 
-// @Summary Delete an Agent secret binding
+// @Summary Delete a Bot secret binding
 // @Tags HelixOrg
 // @Success 204
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/agents/{id}/secrets/{name} [delete]
+// @Router /api/v1/orgs/{org}/bots/{id}/secrets/{name} [delete]
 func (a *apiHandler) deleteWorkerSecret(w http.ResponseWriter, r *http.Request) {
 	orgID, err := resolveOrgID(r)
 	if err != nil {

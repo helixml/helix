@@ -32,11 +32,11 @@ const desktopResumeReapStaleThreshold = 3 * time.Minute
 // All must hold to classify as orphaned (any failing → treat as busy, defer):
 //   - latest is state=waiting (nothing else can be actively streaming);
 //   - no live WebSocket to the agent (wsLive=false) — a live turn keeps one;
-//   - the thread is already established (ZedThreadID set) — an empty ZedThreadID
-//     is the very-first-message boot race, which must never be reaped (mirrors
-//     the THREAD-ESTABLISHMENT BARRIER in processPendingPromptsForIdleSessions);
-//   - the turn has been idle past desktopResumeReapStaleThreshold — a freshly
-//     created / mid-boot in-flight turn is protected by the staleness window.
+//   - the sandbox is explicitly stopped; OR the thread is established and the
+//     turn has been idle past desktopResumeReapStaleThreshold. A terminal
+//     lifecycle state is authoritative even before first-thread creation, so a
+//     new message can wake the sandbox immediately. Otherwise an empty
+//     ZedThreadID and the staleness window protect a mid-boot first turn.
 func isOrphanedWaitingInteraction(session *types.Session, latest *types.Interaction, wsLive bool, now time.Time) bool {
 	if session == nil || latest == nil {
 		return false
@@ -46,6 +46,9 @@ func isOrphanedWaitingInteraction(session *types.Session, latest *types.Interact
 	}
 	if wsLive {
 		return false
+	}
+	if session.Metadata.ExternalAgentStatus == "stopped" || session.Metadata.ExternalAgentStatus == "terminated_idle" {
+		return true
 	}
 	if session.Metadata.ZedThreadID == "" {
 		return false
@@ -355,11 +358,11 @@ func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Con
 		// Reap ONLY when all three hold, so we never kill a live or mid-boot
 		// turn:
 		//   - no live WebSocket to the external agent (a live turn has one);
-		//   - the thread is already established (ZedThreadID set) — an empty
-		//     ZedThreadID means the very first message is mid-boot, which we
-		//     must not reap (mirrors the THREAD-ESTABLISHMENT BARRIER above);
-		//   - the waiting interaction is stale beyond the reap threshold — a
-		//     freshly-created in-flight turn is protected.
+		//   - the sandbox explicitly reports a terminal state; OR its thread is
+		//     established and the waiting interaction is stale beyond the reap
+		//     threshold. A known-stopped sandbox can be resumed immediately, even
+		//     if it died during first-thread creation. Ambiguous disconnects retain
+		//     the boot barrier and grace period that protect an in-flight turn.
 		latest := interactions[0]
 		_, wsLive := apiServer.externalAgentWSManager.getConnection(sessionID)
 		if isOrphanedWaitingInteraction(session, latest, wsLive, time.Now()) {

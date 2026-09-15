@@ -47,7 +47,7 @@ describe('NewChatProjectDialog', () => {
   it('starts the chat in the project that was clicked', () => {
     const { onSelect, onClose } = renderDialog()
 
-    fireEvent.click(screen.getByLabelText('New chat in home stuff'))
+    fireEvent.click(screen.getByLabelText('New task in home stuff'))
 
     expect(onSelect).toHaveBeenCalledWith({ projectId: 'prj_a' })
     expect(onClose).toHaveBeenCalled()
@@ -79,8 +79,8 @@ describe('NewChatProjectDialog', () => {
 
     fireEvent.change(screen.getByLabelText('Search projects'), { target: { value: 'webhook' } })
 
-    expect(screen.getByLabelText('New chat in webhookrelay')).toBeInTheDocument()
-    expect(screen.queryByLabelText('New chat in home stuff')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('New task in webhookrelay')).toBeInTheDocument()
+    expect(screen.queryByLabelText('New task in home stuff')).not.toBeInTheDocument()
   })
 
   it('keeps Enter safe when the filter empties the list', () => {

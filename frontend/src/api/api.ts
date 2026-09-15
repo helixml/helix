@@ -21,77 +21,15 @@ export interface ApiAddBotParentRequest {
   parent_id?: string;
 }
 
-export interface ApiAgentDetailDTO {
-  agent_app_id?: string;
-  agent_id?: string;
-  agent_model?: string;
-  agent_runtime?: string;
-  /**
-   * AgentStatus is "running" when the bot's desktop sandbox is online,
-   * "stopped" otherwise (no session, paused, never activated). Drives
-   * the green/grey presence dot on the org chart.
-   */
-  agent_status?: string;
-  code_agent_credential_type?: TypesCodeAgentCredentialType;
-  code_agent_runtime?: TypesCodeAgentRuntime;
-  content?: string;
-  created_at?: string;
-  /**
-   * DefaultInstructions is the built-in seed prompt for this node, when
-   * one exists (currently only the Chief of Staff every org is seeded
-   * with). It lets the UI offer "reset instructions" and hide that
-   * affordance for operator-created nodes, which have no default to
-   * reset to. Detail-only: GET /bots/{id} populates it, the list does
-   * not (it would repeat kilobytes of prompt per row).
-   */
-  default_instructions?: string;
-  helix_user_id?: string;
-  id?: string;
-  identity?: Record<string, string>;
-  /**
-   * Kind is "" (agent) or "human". A human node is a person placeholder,
-   * never activated; Identity holds their cross-system handles and
-   * HelixUserID optionally links them to a Helix org member. Identity is
-   * omitted for agent bots.
-   */
-  kind?: string;
-  model?: string;
-  /**
-   * Name is the human-readable display label; empty means the UI falls
-   * back to ID. Distinct from ID, which is the immutable handle.
-   */
-  name?: string;
-  organization_id?: string;
-  parent_ids?: string[];
-  /**
-   * PreserveContext, when true, stops the runtime from wiping this
-   * Bot's chat session before each re-activation, so it accumulates
-   * context across triggers (e.g. Slack). Defaults to false.
-   */
-  preserve_context?: boolean;
-  project_id?: string;
-  project_ids?: string[];
-  provider?: string;
-  reasoning_effort?: string;
-  /**
-   * RestartRequired is true when the sandbox is running but still holds
-   * the tool list and instructions from before the last save. Drives the
-   * restart banner on the bot page and the org chat panel.
-   */
-  restart_required?: boolean;
-  tools?: string[];
-  updated_at?: string;
-}
-
 export interface ApiAssetDTO {
-  agent_ids?: string[];
+  bot_ids?: string[];
   created_at?: string;
   description?: string;
   enabled?: boolean;
   id?: string;
   kind?: AssetKind;
   name?: string;
-  notes_for_agents?: string;
+  notes_for_bots?: string;
   organization_id?: string;
   server?: ApiServerAssetDTO;
   updated_at?: string;
@@ -105,12 +43,19 @@ export interface ApiAssetHealthDTO {
   tcp_reachable?: boolean;
 }
 
+export interface ApiAssetLinkDTO {
+  asset_id?: string;
+  bot_id?: string;
+  created_at?: string;
+  organization_id?: string;
+}
+
 export interface ApiAssetLinkRequest {
-  agent_id?: string;
+  bot_id?: string;
 }
 
 export interface ApiAssetLinksResponse {
-  agent_ids?: string[];
+  bot_ids?: string[];
 }
 
 export interface ApiAssetsResponse {
@@ -134,8 +79,7 @@ export interface ApiAttachmentWriteRequest {
 
 export interface ApiBotActivateDTO {
   activation_id?: string;
-  agent_app_id?: string;
-  agent_id?: string;
+  legacy_app_id?: string;
   project_id?: string;
   session_id?: string;
 }
@@ -145,22 +89,13 @@ export interface ApiBotBadge {
 }
 
 export interface ApiBotChatDTO {
-  agent_app_id?: string;
-  agent_id?: string;
+  legacy_app_id?: string;
   project_id?: string;
 }
 
 export interface ApiBotDTO {
-  agent_app_id?: string;
-  agent_id?: string;
   agent_model?: string;
   agent_runtime?: string;
-  /**
-   * AgentStatus is "running" when the bot's desktop sandbox is online,
-   * "stopped" otherwise (no session, paused, never activated). Drives
-   * the green/grey presence dot on the org chart.
-   */
-  agent_status?: string;
   code_agent_credential_type?: TypesCodeAgentCredentialType;
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
@@ -174,16 +109,10 @@ export interface ApiBotDTO {
    * not (it would repeat kilobytes of prompt per row).
    */
   default_instructions?: string;
-  helix_user_id?: string;
+  effective_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  effective_sandbox_runtime?: TypesSandboxRuntime;
   id?: string;
-  identity?: Record<string, string>;
-  /**
-   * Kind is "" (agent) or "human". A human node is a person placeholder,
-   * never activated; Identity holds their cross-system handles and
-   * HelixUserID optionally links them to a Helix org member. Identity is
-   * omitted for agent bots.
-   */
-  kind?: string;
+  legacy_app_id?: string;
   model?: string;
   /**
    * Name is the human-readable display label; empty means the UI falls
@@ -198,6 +127,14 @@ export interface ApiBotDTO {
    * context across triggers (e.g. Slack). Defaults to false.
    */
   preserve_context?: boolean;
+  /**
+   * ProjectID is the bot's own Helix project — the one whose exploratory
+   * session is the bot's chat. SessionID is that session, when the bot
+   * has been activated. Both come from runtime state and let the chat
+   * sidebar list bots as top-level entries instead of surfacing their
+   * project like an ordinary one.
+   */
+  project_id?: string;
   project_ids?: string[];
   provider?: string;
   reasoning_effort?: string;
@@ -207,15 +144,34 @@ export interface ApiBotDTO {
    * restart banner on the bot page and the org chat panel.
    */
   restart_required?: boolean;
+  sandbox_id?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime and SandboxResourceOverrides are the bot's own sandbox
+   * config in the spec-task vocabulary; empty means "inherit the org
+   * default". The Effective* fields are what the next container start will
+   * actually use once org and global defaults are applied. SandboxID /
+   * SandboxStatus come from the session-backed sandboxes row, when one
+   * exists (pending, running, stopping, stopped, failed).
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
+  sandbox_status?: string;
+  sandbox_status_message?: string;
+  session_id?: string;
+  /**
+   * Status is "running" when the bot's desktop sandbox is online,
+   * "stopped" otherwise (no session, paused, never activated). Drives
+   * the green/grey presence dot on the org chart.
+   */
+  status?: string;
   tools?: string[];
   updated_at?: string;
 }
 
 export interface ApiBotDetailDTO {
-  agent_app_id?: string;
-  /** AgentID + ProjectID — see BotChatDTO comments. */
-  agent_id?: string;
   bot?: ApiBotDTO;
+  /** LegacyAppID + ProjectID — see BotChatDTO comments. */
+  legacy_app_id?: string;
   project_id?: string;
 }
 
@@ -235,7 +191,7 @@ export interface ApiCreateAssetRequest {
   description?: string;
   kind?: AssetKind;
   name?: string;
-  notes_for_agents?: string;
+  notes_for_bots?: string;
   server?: ApiServerAssetWriteRequest;
 }
 
@@ -252,16 +208,23 @@ export interface ApiCreateBotRequest {
   name?: string;
   /**
    * Owner makes this a manager Bot: it receives the canonical owner
-   * tool set (every org-graph mutation - create_bot, delete_bot,
-   * set_bot_content, subscribe, ... - plus the read baseline) so it can
-   * hire and manage other Nodes. When true, Tools is ignored in favour
-   * of that set. Used to seed a starter/root Bot for a new org.
+   * tool set (standard worker tools plus org-management mutations such as
+   * create_bot, delete_bot, and set_bot_content) so it can hire and manage
+   * other Nodes. When true, Tools is ignored in favour of that set. Used to
+   * seed a starter/root Bot for a new org.
    */
   owner?: boolean;
   parent_id?: string;
   preserve_context?: boolean;
   provider?: string;
   reasoning_effort?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime / SandboxResourceOverrides are optional; see BotDTO.
+   * Only vcpus is read from the overrides — memory follows the preset.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
+  /** Tools contains additions to the standard worker tool set. */
   tools?: string[];
   triggers?: string[];
 }
@@ -522,7 +485,7 @@ export interface ApiUpdateAssetRequest {
   description?: string;
   enabled?: boolean;
   name?: string;
-  notes_for_agents?: string;
+  notes_for_bots?: string;
   server?: ApiUpdateServerAssetRequest;
 }
 
@@ -530,18 +493,20 @@ export interface ApiUpdateBotRequest {
   code_agent_credential_type?: TypesCodeAgentCredentialType;
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
-  /**
-   * Identity is the per-channel handle map for a human node (slack/github/
-   * email/…). When present it replaces the stored map; absent leaves it
-   * unchanged. Only meaningful for kind=human bots.
-   */
-  identity?: Record<string, string>;
   model?: string;
   name?: string;
   preserve_context?: boolean;
   project_ids?: string[];
   provider?: string;
   reasoning_effort?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime / SandboxResourceOverrides patch the bot's sandbox
+   * config. A present-but-empty runtime, or vcpus=0, resets that field to
+   * inherit. Takes effect on the next container start; a running sandbox
+   * gets restart_required.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
   tools?: string[];
 }
 
@@ -585,13 +550,6 @@ export enum AssetAuthType {
 
 export enum AssetKind {
   KindServer = "server",
-}
-
-export interface AssetLink {
-  agent_id?: string;
-  asset_id?: string;
-  created_at?: string;
-  organization_id?: string;
 }
 
 export interface FilestoreConfig {
@@ -1161,6 +1119,7 @@ export interface OpenaiViolence {
 export interface ServerActivateTrialRequest {
   credits?: number;
   days?: number;
+  org_id?: string;
   /**
    * Plan selects what to grant. "pro" grants a PAID plan via a PlanOverride
    * (no Stripe subscription) — for customers who paid out-of-band (bank
@@ -1177,6 +1136,14 @@ export interface ServerActivateTrialResponse {
 
 export interface ServerAddDomainRequest {
   hostname?: string;
+}
+
+export interface ServerAdminOrganizationsResponse {
+  organizations?: TypesOrgDetails[];
+  page?: number;
+  pageSize?: number;
+  totalCount?: number;
+  totalPages?: number;
 }
 
 export interface ServerAgentConfigAppliedResponse {
@@ -1346,6 +1313,7 @@ export interface ServerConfigurePendingSessionRequest {
 export interface ServerCreateTopUpRequest {
   amount?: number;
   org_id?: string;
+  return_url?: string;
 }
 
 export interface ServerDeployWebServiceRequest {
@@ -2319,13 +2287,13 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindSlack = "slack",
   KindCron = "cron",
-  KindGitLab = "gitlab",
-  KindLocal = "local",
-  KindEmail = "email",
-  KindWebhook = "webhook",
   KindHelixEvents = "helix_events",
+  KindEmail = "email",
+  KindLocal = "local",
+  KindWebhook = "webhook",
+  KindSlack = "slack",
+  KindGitLab = "gitlab",
   KindGitHub = "github",
 }
 
@@ -4373,6 +4341,7 @@ export interface TypesInteraction {
    */
   last_zed_message_offset?: number;
   mode?: TypesSessionMode;
+  pending_question?: TypesPendingQuestion;
   /**
    * PromptID links this interaction back to the prompt_history_entry that
    * created it (when the interaction was dispatched by the queue, as opposed
@@ -4387,6 +4356,7 @@ export interface TypesInteraction {
   prompt_message?: string;
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
+  question_history?: TypesResolvedQuestion[];
   rag_results?: TypesSessionRAGResult[];
   /**
    * ResponseEntries holds the structured response as an ordered list of typed entries.
@@ -5188,6 +5158,11 @@ export interface TypesOrganizationInvitation {
 
 export interface TypesOrganizationMembership {
   created_at?: string;
+  /**
+   * Online is true when the member has authenticated against the API within
+   * PresenceOnlineWindow. Computed by the members list, never persisted.
+   */
+  online?: boolean;
   organization_id?: string;
   /** Role - the role of the user in the organization (owner or member) */
   role?: TypesOrganizationRole;
@@ -5253,6 +5228,16 @@ export interface TypesPasswordResetRequest {
 
 export interface TypesPasswordUpdateRequest {
   new_password?: string;
+}
+
+export interface TypesPendingQuestion {
+  asked_at?: string;
+  questions?: TypesUserQuestion[];
+  request_id?: string;
+  source?: string;
+  thread_id?: string;
+  tool_call_id?: string;
+  turn_request_id?: string;
 }
 
 export interface TypesPinnedChat {
@@ -5791,6 +5776,11 @@ export interface TypesPublicInvitationInfo {
 
 export interface TypesPullRequest {
   author?: string;
+  /**
+   * BaseSHA is the commit SHA on the target side of the PR. CI failures on
+   * the head are only actionable when CI passed on this commit.
+   */
+  base_sha?: string;
   created_at?: string;
   description?: string;
   /**
@@ -5845,6 +5835,14 @@ export interface TypesPushResponse {
   message?: string;
   repository_id?: string;
   success?: boolean;
+}
+
+export interface TypesQuestionActionResponse {
+  status?: string;
+}
+
+export interface TypesQuestionRespondRequest {
+  answers?: Record<string, string>;
 }
 
 export interface TypesQuotaResponse {
@@ -5939,6 +5937,8 @@ export interface TypesRegisterRequest {
 }
 
 export interface TypesRepoPR {
+  ci_base_sha?: string;
+  ci_base_status?: string;
   ci_head_sha?: string;
   /**
    * CI status, populated by the spec task orchestrator's PR poll loop.
@@ -5989,6 +5989,19 @@ export interface TypesRepositoryInfo {
   html_url?: string;
   name?: string;
   private?: boolean;
+}
+
+export interface TypesResolvedQuestion {
+  answers?: Record<string, string>;
+  asked_at?: string;
+  outcome?: string;
+  questions?: TypesUserQuestion[];
+  request_id?: string;
+  resolved_at?: string;
+  source?: string;
+  thread_id?: string;
+  tool_call_id?: string;
+  turn_request_id?: string;
 }
 
 export enum TypesResource {
@@ -6119,6 +6132,12 @@ export interface TypesSandbox {
   image?: string;
   memory_mb?: number;
   name?: string;
+  /**
+   * OrgBotID is the helix-org bot whose session owns this container, when
+   * there is one. Denormalised from the session (org_worker_id) so the bot
+   * detail and the Sandboxes list can link both ways without joining sessions.
+   */
+  org_bot_id?: string;
   organization_id?: string;
   owner?: string;
   /**
@@ -6441,10 +6460,15 @@ export interface TypesServerConfigForFrontend {
    * Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
    */
   max_concurrent_desktops?: number;
-  organizations_create_enabled_for_non_admins?: boolean;
   onboarding_helix_model?: string;
   onboarding_helix_model_effort?: string;
+  /**
+   * Operator-selected default for the Helix-credits path through onboarding.
+   * Provider references and model IDs are identifiers, not credentials, and
+   * are safe to expose through the public frontend configuration endpoint.
+   */
   onboarding_helix_model_provider?: string;
+  organizations_create_enabled_for_non_admins?: boolean;
   /**
    * PreviewURLHTTPS controls whether generated sandbox preview URLs use
    * https:// (true) or http:// (false).
@@ -6866,6 +6890,16 @@ export interface TypesSessionMetadata {
   /** GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE) */
   render_node?: string;
   runtime_instructions?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
+   * SandboxRuntime and SandboxResourceOverrides are the container runtime and
+   * size for an org-worker session. The org spawner writes them from the Bot
+   * on every activation and StartDesktop reads them on every launch path
+   * (fresh start, message auto-start, resume, auto-wake, reconciler), so a
+   * headless bot never comes back as a desktop. SpecTask sessions leave both
+   * empty — the task is authoritative there, as with CodeAgentConfig.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
   session_rag_results?: TypesSessionRAGResult[];
   /** "planning", "implementation", "coordination", "exploratory" */
   session_role?: string;
@@ -7072,6 +7106,12 @@ export interface TypesSpecTask {
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  /**
+   * CreatedByOrgBot is the Org Bot handle that created this task. CreatedBy
+   * stays the person the Bot acts for; this records the Bot so its work can be
+   * listed under it.
+   */
+  created_by_org_bot?: string;
   /**
    * CredentialOwnerID names the user whose Claude subscription authenticates
    * this task's agent sessions, when that differs from CreatedBy. It changes
@@ -7464,6 +7504,12 @@ export interface TypesSpecTaskWithProject {
   /** Metadata */
   created_by?: string;
   /**
+   * CreatedByOrgBot is the Org Bot handle that created this task. CreatedBy
+   * stays the person the Bot acts for; this records the Bot so its work can be
+   * listed under it.
+   */
+  created_by_org_bot?: string;
+  /**
    * CredentialOwnerID names the user whose Claude subscription authenticates
    * this task's agent sessions, when that differs from CreatedBy. It changes
    * ONLY credential resolution — the task and its sessions are still owned by,
@@ -7748,10 +7794,10 @@ export interface TypesSystemSettingsRequest {
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
-  opencode_version?: string;
   onboarding_helix_model?: string;
   onboarding_helix_model_effort?: string;
   onboarding_helix_model_provider?: string;
+  opencode_version?: string;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;
@@ -7791,6 +7837,9 @@ export interface TypesSystemSettingsResponse {
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
+  onboarding_helix_model?: string;
+  onboarding_helix_model_effort?: string;
+  onboarding_helix_model_provider?: string;
   opencode_bundled_version?: string;
   /**
    * OpenCodeVersion is the admin override; empty means the bundled build.
@@ -7798,9 +7847,6 @@ export interface TypesSystemSettingsResponse {
    * can show the floor without hardcoding it.
    */
   opencode_version?: string;
-  onboarding_helix_model?: string;
-  onboarding_helix_model_effort?: string;
-  onboarding_helix_model_provider?: string;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;
@@ -8441,6 +8487,20 @@ export interface TypesUserModelUsage {
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
+}
+
+export interface TypesUserQuestion {
+  allow_custom_answer?: boolean;
+  header?: string;
+  id?: string;
+  multi_select?: boolean;
+  options?: TypesUserQuestionOption[];
+  question?: string;
+}
+
+export interface TypesUserQuestionOption {
+  description?: string;
+  label?: string;
 }
 
 export interface TypesUserResponse {
@@ -9225,7 +9285,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List all organizations
+     * @description List organizations with server-side pagination and name search
      *
      * @tags organizations
      * @name V1AdminOrgsList
@@ -9233,10 +9293,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/admin/orgs
      * @secure
      */
-    v1AdminOrgsList: (params: RequestParams = {}) =>
-      this.request<TypesOrgDetails[], any>({
+    v1AdminOrgsList: (
+      query?: {
+        /** Page number (default: 1) */
+        page?: number;
+        /** Organizations per page (default: 25, max: 100) */
+        per_page?: number;
+        /** Search organization display name or name */
+        query?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerAdminOrganizationsResponse, any>({
         path: `/api/v1/admin/orgs`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -9380,7 +9451,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Clears any stashed trial intent on the user and cancels the Stripe subscription on the user's oldest owned org if it is currently in a trialing state. Paid (active) subscriptions are never cancelled.
+     * @description Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the oldest owned org whose readable wallet is trialing. At most one subscription is cancelled per call. Paid (active) subscriptions are never cancelled.
      *
      * @tags users
      * @name V1AdminUsersTrialActivateDelete
@@ -9398,7 +9469,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).
+     * @description Stash a trial intent when the user owns no organisations, or activate the explicitly selected owned organisation. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).
      *
      * @tags users
      * @name V1AdminUsersTrialActivateCreate
@@ -11084,6 +11155,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Streams a complete, binary-safe workspace file from the task desktop.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceFileDownloadDetail
+     * @summary Download a workspace file
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-file/download
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceFileDownloadDetail: (
+      sessionId: string,
+      query: {
+        /** Workspace name */
+        workspace?: string;
+        /** Repository-relative file path */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-file/download`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "blob",
+        ...params,
+      }),
+
+    /**
      * @description Returns a bounded flat list of tracked and non-ignored untracked workspace entries.
      *
      * @tags ExternalAgents
@@ -12502,6 +12601,49 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Cancels the agent question currently pending on an interaction
+     *
+     * @tags interactions
+     * @name V1InteractionsQuestionsCancelCreate
+     * @summary Cancel an agent question
+     * @request POST:/api/v1/interactions/{interaction_id}/questions/{request_id}/cancel
+     * @secure
+     */
+    v1InteractionsQuestionsCancelCreate: (interactionId: string, requestId: string, params: RequestParams = {}) =>
+      this.request<TypesQuestionActionResponse, any>({
+        path: `/api/v1/interactions/${interactionId}/questions/${requestId}/cancel`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Sends answers to the agent question currently pending on an interaction
+     *
+     * @tags interactions
+     * @name V1InteractionsQuestionsRespondCreate
+     * @summary Respond to an agent question
+     * @request POST:/api/v1/interactions/{interaction_id}/questions/{request_id}/respond
+     * @secure
+     */
+    v1InteractionsQuestionsRespondCreate: (
+      interactionId: string,
+      requestId: string,
+      request: TypesQuestionRespondRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesQuestionActionResponse, any>({
+        path: `/api/v1/interactions/${interactionId}/questions/${requestId}/respond`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).
      *
      * @tags organizations
@@ -13908,334 +14050,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List the canonical Agents in an organization, including their instructions, tools, runtime, model configuration, and reporting lines.
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsDetail
-     * @summary Helix-org: list agents
-     * @request GET:/api/v1/orgs/{org}/agents
-     * @secure
-     */
-    v1OrgsAgentsDetail: (org: string, params: RequestParams = {}) =>
-      this.request<ApiBotDTO[], any>({
-        path: `/api/v1/orgs/${org}/agents`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a canonical Agent with its org-chart position, trigger attachments, tools, and Agent App configuration.
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsCreate
-     * @summary Helix-org: create an agent
-     * @request POST:/api/v1/orgs/{org}/agents
-     * @secure
-     */
-    v1OrgsAgentsCreate: (org: string, payload: ApiCreateBotRequest, params: RequestParams = {}) =>
-      this.request<ApiCreateBotResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete an Agent after archiving its runtime-owned project and deleting its Agent App, knowledge, runtime state, attachments, reporting lines, and org-chart row. Repositories are preserved.
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsDelete
-     * @summary Helix-org: delete an agent
-     * @request DELETE:/api/v1/orgs/{org}/agents/{id}
-     * @secure
-     */
-    v1OrgsAgentsDelete: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get one canonical Agent with its instructions, tools, runtime, model configuration, project, and reporting lines.
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsDetail2
-     * @summary Helix-org: get agent detail
-     * @request GET:/api/v1/orgs/{org}/agents/{id}
-     * @originalName v1OrgsAgentsDetail
-     * @duplicate
-     * @secure
-     */
-    v1OrgsAgentsDetail2: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiAgentDetailDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update the canonical Agent instructions, tools, project access, runtime, provider, model, or reasoning configuration.
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsPartialUpdate
-     * @summary Helix-org: update an agent
-     * @request PATCH:/api/v1/orgs/{org}/agents/{id}
-     * @secure
-     */
-    v1OrgsAgentsPartialUpdate: (org: string, id: string, payload: ApiUpdateBotRequest, params: RequestParams = {}) =>
-      this.request<ApiBotDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}`,
-        method: "PATCH",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsActivateCreate
-     * @summary Helix-org: activate an agent
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/activate
-     * @secure
-     */
-    v1OrgsAgentsActivateCreate: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiBotActivateDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/activate`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsAttachmentsDetail
-     * @summary Helix-org: list agent attachments
-     * @request GET:/api/v1/orgs/{org}/agents/{id}/attachments
-     */
-    v1OrgsAgentsAttachmentsDetail: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiAttachmentListResponse, any>({
-        path: `/api/v1/orgs/${org}/agents/${id}/attachments`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsAttachmentsCreate
-     * @summary Helix-org: attach an agent to a source
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/attachments
-     */
-    v1OrgsAgentsAttachmentsCreate: (
-      org: string,
-      id: string,
-      payload: ApiAttachmentWriteRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<ApiAttachmentDTO, any>({
-        path: `/api/v1/orgs/${org}/agents/${id}/attachments`,
-        method: "POST",
-        body: payload,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsAttachmentsDelete
-     * @summary Helix-org: delete an agent attachment
-     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/attachments/{attachment_id}
-     */
-    v1OrgsAgentsAttachmentsDelete: (org: string, id: string, attachmentId: string, params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/api/v1/orgs/${org}/agents/${id}/attachments/${attachmentId}`,
-        method: "DELETE",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsAvailableSecretsDetail
-     * @summary List sources that may be granted to an Agent
-     * @request GET:/api/v1/orgs/{org}/agents/{id}/available-secrets
-     * @secure
-     */
-    v1OrgsAgentsAvailableSecretsDetail: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<WorkersecretAvailableSource[], any>({
-        path: `/api/v1/orgs/${org}/agents/${id}/available-secrets`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsChatCreate
-     * @summary Helix-org: provision an agent chat
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/chat
-     * @secure
-     */
-    v1OrgsAgentsChatCreate: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiBotChatDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/chat`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsParentsCreate
-     * @summary Helix-org: add an agent manager
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/parents
-     * @secure
-     */
-    v1OrgsAgentsParentsCreate: (org: string, id: string, payload: ApiAddBotParentRequest, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/parents`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsParentsDelete
-     * @summary Helix-org: remove an agent manager
-     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/parents/{parent_id}
-     * @secure
-     */
-    v1OrgsAgentsParentsDelete: (org: string, id: string, parentId: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/parents/${parentId}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsRestartAgentCreate
-     * @summary Helix-org: restart an agent session
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/restart-agent
-     * @secure
-     */
-    v1OrgsAgentsRestartAgentCreate: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiBotActivateDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/restart-agent`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsSecretsDetail
-     * @summary List an Agent's secret bindings
-     * @request GET:/api/v1/orgs/{org}/agents/{id}/secrets
-     * @secure
-     */
-    v1OrgsAgentsSecretsDetail: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiWorkerSecretBindingDTO[], any>({
-        path: `/api/v1/orgs/${org}/agents/${id}/secrets`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsSecretsDelete
-     * @summary Delete an Agent secret binding
-     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/secrets/{name}
-     * @secure
-     */
-    v1OrgsAgentsSecretsDelete: (org: string, id: string, name: string, params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/api/v1/orgs/${org}/agents/${id}/secrets/${name}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsSecretsUpdate
-     * @summary Create or replace an Agent secret binding
-     * @request PUT:/api/v1/orgs/{org}/agents/{id}/secrets/{name}
-     * @secure
-     */
-    v1OrgsAgentsSecretsUpdate: (
-      org: string,
-      id: string,
-      name: string,
-      payload: ApiPutWorkerSecretRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<ApiWorkerSecretBindingDTO, any>({
-        path: `/api/v1/orgs/${org}/agents/${id}/secrets/${name}`,
-        method: "PUT",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsAgentsStopAgentCreate
-     * @summary Helix-org: stop an agent desktop
-     * @request POST:/api/v1/orgs/{org}/agents/{id}/stop-agent
-     * @secure
-     */
-    v1OrgsAgentsStopAgentCreate: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/agents/${id}/stop-agent`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * No description
      *
      * @tags HelixOrg
@@ -14371,12 +14185,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      *
      * @tags HelixOrg
      * @name V1OrgsAssetsLinksCreate
-     * @summary Helix-org: link an asset to an agent
+     * @summary Helix-org: link an asset to a bot
      * @request POST:/api/v1/orgs/{org}/assets/{id}/links
      * @secure
      */
     v1OrgsAssetsLinksCreate: (org: string, id: string, payload: ApiAssetLinkRequest, params: RequestParams = {}) =>
-      this.request<AssetLink, any>({
+      this.request<ApiAssetLinkDTO, any>({
         path: `/api/v1/orgs/${org}/assets/${id}/links`,
         method: "POST",
         body: payload,
@@ -14391,13 +14205,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      *
      * @tags HelixOrg
      * @name V1OrgsAssetsLinksDelete
-     * @summary Helix-org: unlink an asset from an agent
-     * @request DELETE:/api/v1/orgs/{org}/assets/{id}/links/{agent_id}
+     * @summary Helix-org: unlink an asset from a bot
+     * @request DELETE:/api/v1/orgs/{org}/assets/{id}/links/{bot_id}
      * @secure
      */
-    v1OrgsAssetsLinksDelete: (org: string, id: string, agentId: string, params: RequestParams = {}) =>
+    v1OrgsAssetsLinksDelete: (org: string, id: string, botId: string, params: RequestParams = {}) =>
       this.request<void, any>({
-        path: `/api/v1/orgs/${org}/assets/${id}/links/${agentId}`,
+        path: `/api/v1/orgs/${org}/assets/${id}/links/${botId}`,
         method: "DELETE",
         secure: true,
         ...params,
@@ -14518,6 +14332,77 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsBotsAttachmentsDetail
+     * @summary Helix-org: list bot attachments
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/attachments
+     */
+    v1OrgsBotsAttachmentsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiAttachmentListResponse, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/attachments`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsAttachmentsCreate
+     * @summary Helix-org: attach a bot to a source
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/attachments
+     */
+    v1OrgsBotsAttachmentsCreate: (
+      org: string,
+      id: string,
+      payload: ApiAttachmentWriteRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiAttachmentDTO, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/attachments`,
+        method: "POST",
+        body: payload,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsAttachmentsDelete
+     * @summary Helix-org: delete a bot attachment
+     * @request DELETE:/api/v1/orgs/{org}/bots/{id}/attachments/{attachment_id}
+     */
+    v1OrgsBotsAttachmentsDelete: (org: string, id: string, attachmentId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/attachments/${attachmentId}`,
+        method: "DELETE",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsAvailableSecretsDetail
+     * @summary List sources that may be granted to a Bot
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/available-secrets
+     * @secure
+     */
+    v1OrgsBotsAvailableSecretsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<WorkersecretAvailableSource[], any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/available-secrets`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsBotsChatCreate
      * @summary Helix-org: provision a per-bot chat app
      * @request POST:/api/v1/orgs/{org}/bots/{id}/chat
@@ -14571,14 +14456,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsBotsRestartAgentCreate
-     * @summary Helix-org: restart a bot's agent session (fresh session + desktop)
-     * @request POST:/api/v1/orgs/{org}/bots/{id}/restart-agent
+     * @name V1OrgsBotsRestartCreate
+     * @summary Helix-org: restart a bot (fresh session + desktop)
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/restart
      * @secure
      */
-    v1OrgsBotsRestartAgentCreate: (id: string, org: string, params: RequestParams = {}) =>
+    v1OrgsBotsRestartCreate: (id: string, org: string, params: RequestParams = {}) =>
       this.request<ApiBotActivateDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/bots/${id}/restart-agent`,
+        path: `/api/v1/orgs/${org}/bots/${id}/restart`,
         method: "POST",
         secure: true,
         ...params,
@@ -14588,14 +14473,73 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsBotsStopAgentCreate
-     * @summary Helix-org: stop a bot's agent desktop
-     * @request POST:/api/v1/orgs/{org}/bots/{id}/stop-agent
+     * @name V1OrgsBotsSecretsDetail
+     * @summary List a Bot's secret bindings
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/secrets
      * @secure
      */
-    v1OrgsBotsStopAgentCreate: (id: string, org: string, params: RequestParams = {}) =>
+    v1OrgsBotsSecretsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerSecretBindingDTO[], any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/secrets`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsSecretsDelete
+     * @summary Delete a Bot secret binding
+     * @request DELETE:/api/v1/orgs/{org}/bots/{id}/secrets/{name}
+     * @secure
+     */
+    v1OrgsBotsSecretsDelete: (org: string, id: string, name: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/secrets/${name}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsSecretsUpdate
+     * @summary Create or replace a Bot secret binding
+     * @request PUT:/api/v1/orgs/{org}/bots/{id}/secrets/{name}
+     * @secure
+     */
+    v1OrgsBotsSecretsUpdate: (
+      org: string,
+      id: string,
+      name: string,
+      payload: ApiPutWorkerSecretRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiWorkerSecretBindingDTO, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/secrets/${name}`,
+        method: "PUT",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsStopCreate
+     * @summary Helix-org: stop a bot's desktop
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/stop
+     * @secure
+     */
+    v1OrgsBotsStopCreate: (id: string, org: string, params: RequestParams = {}) =>
       this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/bots/${id}/stop-agent`,
+        path: `/api/v1/orgs/${org}/bots/${id}/stop`,
         method: "POST",
         secure: true,
         ...params,
@@ -17186,6 +17130,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         include_external_agents?: boolean;
         /** Return only archived sessions instead of only unarchived ones */
         archived?: boolean;
+        /** List another org member's sessions (requires org_id); limited to projects the caller can access unless they own the org */
+        owner_id?: string;
+        /** List every member's chats in one project (requires org_id, project_id and project_scope=project) */
+        all_members?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -18115,7 +18063,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List spec-driven tasks with optional filtering by project, status, or user
+     * @description List spec-driven tasks with optional filtering by project, status, or user. Pass organization_id instead of project_id to list across every project the caller can access.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksList
@@ -18123,15 +18071,19 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/spec-tasks
      */
     v1SpecTasksList: (
-      query: {
-        /** Project ID */
-        project_id: string;
+      query?: {
+        /** Project ID (required unless organization_id is set) */
+        project_id?: string;
+        /** Organization slug or ID: list tasks across all accessible projects */
+        organization_id?: string;
         /** Filter by status */
         status?: string;
         /** Filter by user ID */
         user_id?: string;
         /** Filter by creator or assignee user IDs (comma-separated, OR semantics) */
         participant_ids?: string;
+        /** Only tasks created by this Org Bot handle */
+        created_by_org_bot?: string;
         /**
          * Include archived tasks
          * @default false
@@ -19613,6 +19565,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Organization ID */
         org_id?: string;
+        /** Discover a subscription after returning from Checkout */
+        discover_subscription?: boolean;
       },
       params: RequestParams = {},
     ) =>

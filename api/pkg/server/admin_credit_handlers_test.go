@@ -119,7 +119,7 @@ func TestAdminGrantCredits_NoOrg_StashesOnUser(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 
 	adminUser := &types.User{ID: "admin-1", Admin: true}
-	targetUser := &types.User{ID: "target-1", Email: "t@example.com"}
+	targetUser := &types.User{ID: "target-1", Email: "t@example.com", Waitlisted: true}
 
 	mockStore.EXPECT().
 		GetUser(gomock.Any(), &store.GetUserQuery{ID: "target-1"}).
@@ -134,6 +134,7 @@ func TestAdminGrantCredits_NoOrg_StashesOnUser(t *testing.T) {
 		DoAndReturn(func(_ interface{}, u *types.User) (*types.User, error) {
 			require.NotNil(t, u.PendingAdminCreditsOnFirstOrg)
 			assert.InDelta(t, 75.0, *u.PendingAdminCreditsOnFirstOrg, 0.0001)
+			assert.True(t, u.Waitlisted)
 			return u, nil
 		})
 
@@ -150,6 +151,7 @@ func TestAdminGrantCredits_NoOrg_StashesOnUser(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Equal(t, "stashed", resp.Status)
 	assert.Empty(t, resp.OrgID)
+	assert.True(t, resp.User.Waitlisted)
 }
 
 func TestAdminGrantCredits_HasOrgWithWallet_TopsUp(t *testing.T) {

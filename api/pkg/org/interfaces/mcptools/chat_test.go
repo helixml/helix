@@ -21,6 +21,7 @@ import (
 // Config, so tool tests exercise the same append→notify→route path
 // production does.
 func injectTestPublishing(cfg *Config) {
+	cfg.AgentCreator = testAgentCreator{}
 	deps := publishing.Deps{
 		Triggers: cfg.Store.Triggers,
 		Events:   cfg.Store.Events,

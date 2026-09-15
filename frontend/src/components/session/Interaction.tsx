@@ -184,6 +184,13 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     return false;
   }
 
+  // In practice this is fixed for the life of an interaction, but it decides
+  // whether a system prompt is on screen — too consequential to leave to a
+  // comparator that happens not to look at it.
+  if (prevProps.hidePrompt !== nextProps.hidePrompt) {
+    return false;
+  }
+
   if (
     prevProps.nextInteraction?.id !== nextProps.nextInteraction?.id ||
     prevProps.nextInteraction?.state !== nextProps.nextInteraction?.state ||
@@ -228,6 +235,10 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     prevProps.interaction?.completed !== nextProps.interaction?.completed ||
     prevProps.interaction?.error !== nextProps.interaction?.error ||
     prevProps.interaction?.state !== nextProps.interaction?.state ||
+    prevProps.interaction?.pending_question?.request_id !==
+      nextProps.interaction?.pending_question?.request_id ||
+    prevProps.interaction?.question_history?.length !==
+      nextProps.interaction?.question_history?.length ||
     prevProps.interaction?.code_changes?.status !==
       nextProps.interaction?.code_changes?.status ||
     prevProps.interaction?.code_changes?.patch_hash !==
@@ -292,6 +303,16 @@ interface InteractionProps {
    * THIS one has been overtaken by events. See lastSuccessfulInteractionIndex.
    */
   recoveredLater?: boolean;
+  /**
+   * Suppress the user-prompt bubble, keeping the agent's reply.
+   *
+   * For customer-facing embeds, where the opening "user" turn is not something
+   * the customer said — it is the agent's own briefing, sent as the session's
+   * first prompt. Rendering it verbatim showed a candidate on the job board the
+   * whole system prompt, its tool list, and the sandbox scaffolding
+   * (repository paths, the branch to push to) before they had said a word.
+   */
+  hidePrompt?: boolean;
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -307,6 +328,7 @@ export const Interaction: FC<InteractionProps> = ({
   enableDebugCopy = false,
   nextInteraction,
   recoveredLater = false,
+  hidePrompt = false,
 }) => {
   // Memoize computed values
   const displayData = useMemo(() => {
@@ -441,7 +463,7 @@ export const Interaction: FC<InteractionProps> = ({
       onMouseLeave={() => setIsHovering(false)}
     >
       {/* User Message Container */}
-      {userMessage && (
+      {userMessage && !hidePrompt && interaction.trigger !== "org_hire" && (
         <Box
           sx={{
             display: "flex",
@@ -583,6 +605,7 @@ export const Interaction: FC<InteractionProps> = ({
       {/* Assistant Response Container */}
       {(assistantMessage ||
         (interaction as any)?.response_entries?.length > 0 ||
+        (interaction.question_history?.length ?? 0) > 0 ||
         isLive ||
         visibleError) && (
         <Box
