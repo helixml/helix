@@ -2717,21 +2717,23 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   <SubagentsPanel interactions={subagentInteractions} />
                 )}
                 {currentView === "plan" && (
-                  latestDesignReview?.id ? (
-                    <DesignReviewContent
-                      specTaskId={task.id}
-                      reviewId={latestDesignReview.id}
-                      onClose={() => handleViewChange(isHeadless ? "changes" : "desktop")}
-                      onImplementationStarted={() => {
-                        void queryClient.invalidateQueries({ queryKey: ["spec-tasks", task.id] });
-                        handleViewChange(isHeadless ? "changes" : "desktop");
-                      }}
-                      hideTitle
-                      onQueueComment={upsertWorkspaceComment}
-                    />
-                  ) : (
-                    <PlanningDocumentsPlaceholder pushError={task.last_push_error} />
-                  )
+                  <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+                    {latestDesignReview?.id ? (
+                      <DesignReviewContent
+                        specTaskId={task.id}
+                        reviewId={latestDesignReview.id}
+                        onClose={() => handleViewChange(isHeadless ? "changes" : "desktop")}
+                        onImplementationStarted={() => {
+                          void queryClient.invalidateQueries({ queryKey: ["spec-tasks", task.id] });
+                          handleViewChange(isHeadless ? "changes" : "desktop");
+                        }}
+                        hideTitle
+                        onQueueComment={upsertWorkspaceComment}
+                      />
+                    ) : (
+                      <PlanningDocumentsPlaceholder pushError={task.last_push_error} />
+                    )}
+                  </Box>
                 )}
                 {!isHeadless && (currentView === "desktop" || currentView === "chat") &&
                   (isTaskCompleted && isDesktopPaused ? (

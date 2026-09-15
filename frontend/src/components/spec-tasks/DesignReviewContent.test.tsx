@@ -39,7 +39,6 @@ vi.mock("../../services/designReviewService", () => ({
 
 vi.mock("../../services/specTaskService", () => ({
   useSpecTask: () => ({ data: { id: "task-1", status: "spec_review" } }),
-  useArchiveSpecTask: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock("../session/Markdown", () => ({
   default: ({ text }: { text: string }) => <div data-testid="agent-chat-markdown">{text}</div>,
@@ -65,7 +64,6 @@ vi.mock("./InlineCommentForm", () => ({ default: () => null }));
 vi.mock("./CommentLogSidebar", () => ({ default: () => null }));
 vi.mock("./ReviewActionFooter", () => ({ default: () => null }));
 vi.mock("./ReviewSubmitDialog", () => ({ default: () => null }));
-vi.mock("./RejectDesignDialog", () => ({ default: () => null }));
 
 class ResizeObserverStub {
   observe() {}
@@ -88,6 +86,11 @@ describe("DesignReviewContent document editing", () => {
       </QueryClientProvider>,
     );
 
+    for (const label of ["Requirements", "Design", "Plan"]) {
+      expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("tab", { name: "Requirements Specification" }))
+      .not.toBeInTheDocument();
     expect(screen.getByTestId("agent-chat-markdown")).toHaveTextContent("Original text");
 
     fireEvent.click(screen.getByRole("button", { name: "Edit markdown source" }));

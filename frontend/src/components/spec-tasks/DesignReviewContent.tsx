@@ -70,8 +70,7 @@ import InlineCommentForm from "./InlineCommentForm";
 import CommentLogSidebar from "./CommentLogSidebar";
 import ReviewActionFooter from "./ReviewActionFooter";
 import ReviewSubmitDialog from "./ReviewSubmitDialog";
-import RejectDesignDialog from "./RejectDesignDialog";
-import { useSpecTask, useArchiveSpecTask } from "../../services/specTaskService";
+import { useSpecTask } from "../../services/specTaskService";
 import { TypesSpecTaskStatus } from "../../api/api";
 import Markdown from "../session/Markdown";
 import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY, TYPOGRAPHY } from "../../styles/typography";
@@ -101,6 +100,12 @@ const DOCUMENT_LABELS = {
   requirements: "Requirements Specification",
   technical_design: "Technical Design",
   implementation_plan: "Implementation Plan",
+};
+
+const DOCUMENT_TAB_LABELS = {
+  requirements: "Requirements",
+  technical_design: "Design",
+  implementation_plan: "Plan",
 };
 
 const TOOLBAR_ICON_BUTTON_SX = {
@@ -231,18 +236,12 @@ export default function DesignReviewContent({
   });
   const [overallComment, setOverallComment] = useState("");
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
-  const [submitDecision, setSubmitDecision] = useState<
-    "approve" | "request_changes"
-  >("approve");
   const [startingImplementation, setStartingImplementation] = useState(false);
   const [showCommentLog, setShowCommentLog] = useState(false);
   const [viewedTabs, setViewedTabs] = useState<Set<DocumentType>>(
     new Set(["requirements"]),
   );
   const viewedContentRef = useRef<Map<DocumentType, string>>(new Map());
-  const [showRejectDialog, setShowRejectDialog] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
-  const archiveMutation = useArchiveSpecTask();
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [commentPositions, setCommentPositions] = useState<Map<string, number>>(
     new Map(),
@@ -397,7 +396,6 @@ export default function DesignReviewContent({
   const unresolvedCount = getUnresolvedCount(allComments);
 
   const ALL_TABS: DocumentType[] = ["requirements", "technical_design", "implementation_plan"];
-  const allTabsViewed = ALL_TABS.every((t) => viewedTabs.has(t));
 
   // Memoize document content
   const documentContent = useMemo(() => {
@@ -535,18 +533,6 @@ export default function DesignReviewContent({
         snackbar.error("This document changed while you were editing. Your draft is preserved; refresh before saving again.");
       } else {
         snackbar.error(error?.message || "Failed to save design document");
-      }
-    }
-  };
-
-  // Jump to the next unread tab in canonical order, wrapping past the end.
-  const handleNextDocument = () => {
-    const startIdx = ALL_TABS.indexOf(activeTab);
-    for (let i = 1; i <= ALL_TABS.length; i++) {
-      const candidate = ALL_TABS[(startIdx + i) % ALL_TABS.length];
-      if (!viewedTabs.has(candidate)) {
-        handleTabChange(candidate);
-        return;
       }
     }
   };
@@ -1303,24 +1289,18 @@ export default function DesignReviewContent({
   const handleSubmitReview = async () => {
     try {
       await submitReviewMutation.mutateAsync({
-        decision: submitDecision,
+        decision: "approve",
         overall_comment: overallComment || undefined,
       });
 
-      if (submitDecision === "approve") {
-        snackbar.success("Design approved! Agent starting implementation...");
-        setShowSubmitDialog(false);
+      snackbar.success("Design approved! Agent starting implementation...");
+      setShowSubmitDialog(false);
 
-        if (onImplementationStarted) {
-          onImplementationStarted();
-        }
-
-        onClose();
-      } else {
-        snackbar.success("Changes requested. Agent will be notified.");
-        setShowSubmitDialog(false);
-        onClose();
+      if (onImplementationStarted) {
+        onImplementationStarted();
       }
+
+      onClose();
     } catch (error: any) {
       // Open the matching provider connection flow on OAuth enforcement.
       const respData = error?.response?.data;
@@ -1354,17 +1334,6 @@ export default function DesignReviewContent({
         return;
       }
       snackbar.error(`Failed to submit review: ${error.message}`);
-    }
-  };
-
-  const handleRejectDesign = async () => {
-    try {
-      await archiveMutation.mutateAsync({ taskId: specTaskId, archived: true });
-      snackbar.success("Design rejected - spec task archived");
-      setShowRejectDialog(false);
-      onClose();
-    } catch (error: any) {
-      snackbar.error(`Failed to reject design: ${error.message}`);
     }
   };
 
@@ -1505,14 +1474,29 @@ export default function DesignReviewContent({
               variant="scrollable"
               scrollButtons="auto"
               sx={{
-                minHeight: 48,
+                minHeight: 36,
+                my: 0.75,
+                ml: onBack ? 0 : 2,
+                p: 0.5,
+                borderRadius: 1,
+                bgcolor: "action.hover",
+                "& .MuiTabs-indicator": { display: "none" },
+                "& .MuiTabs-flexContainer": { gap: 0.25 },
                 "& .MuiTab-root": {
-                  minHeight: 48,
-                  py: 0,
-                  textTransform: "uppercase",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  letterSpacing: "0.5px",
+                  minHeight: 28,
+                  minWidth: 0,
+                  px: 1.25,
+                  py: 0.5,
+                  borderRadius: 0.75,
+                  textTransform: "none",
+                  fontSize: TYPOGRAPHY.sidebar.controlFontSize,
+                  fontWeight: 500,
+                  color: "text.secondary",
+                  "&.Mui-selected": {
+                    color: "text.primary",
+                    bgcolor: "background.paper",
+                    boxShadow: "0 1px 2px rgba(0, 0, 0, 0.16)",
+                  },
                 },
               }}
             >
@@ -1521,12 +1505,12 @@ export default function DesignReviewContent({
                   key={tab}
                   label={
                     <Box display="flex" alignItems="center" gap={0.5}>
-                      {DOCUMENT_LABELS[tab]}
+                      {DOCUMENT_TAB_LABELS[tab]}
                       {!viewedTabs.has(tab) && (
                         <Box
                           sx={{
-                            width: 8,
-                            height: 8,
+                            width: 6,
+                            height: 6,
                             borderRadius: "50%",
                             bgcolor: "warning.main",
                             flexShrink: 0,
@@ -1937,17 +1921,8 @@ export default function DesignReviewContent({
               : ""
           }
           onApprove={() => {
-            setSubmitDecision("approve");
             setShowSubmitDialog(true);
           }}
-          onRequestChanges={() => {
-            setSubmitDecision("request_changes");
-            setShowSubmitDialog(true);
-          }}
-          allTabsViewed={allTabsViewed}
-          hasNextDocument={!allTabsViewed}
-          onNextDocument={handleNextDocument}
-          onReject={() => setShowRejectDialog(true)}
           onStartImplementation={handleStartImplementation}
         />
       )}
@@ -1956,20 +1931,10 @@ export default function DesignReviewContent({
       <ReviewSubmitDialog
         open={showSubmitDialog}
         onClose={() => setShowSubmitDialog(false)}
-        decision={submitDecision}
         overallComment={overallComment}
         onCommentChange={setOverallComment}
         onSubmit={handleSubmitReview}
         isSubmitting={submitReviewMutation.isPending}
-      />
-
-      <RejectDesignDialog
-        open={showRejectDialog}
-        onClose={() => setShowRejectDialog(false)}
-        reason={rejectReason}
-        onReasonChange={setRejectReason}
-        onReject={handleRejectDesign}
-        isSubmitting={archiveMutation.isPending}
       />
     </Box>
   );

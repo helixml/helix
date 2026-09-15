@@ -1,19 +1,142 @@
-import { FC, useMemo } from "react";
+import { useMemo, useState, type FC, type MouseEvent } from "react";
 import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import Popover from "@mui/material/Popover";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import { FileCode2 } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 
 import { TypesSession } from "../../api/api";
-import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
+import { APP_MONO_FONT_FAMILY, TYPOGRAPHY } from "../../styles/typography";
 import Markdown from "./Markdown";
-import MarkdownCodeBlock from "./MarkdownCodeBlock";
-import { parseWorkspaceReviewMessage } from "./workspaceReviewMessage";
+import {
+  parseWorkspaceReviewMessage,
+  type WorkspaceReviewMessageComment,
+} from "./workspaceReviewMessage";
 
 interface WorkspaceReviewMessageProps {
   text: string;
   session: TypesSession;
   getFileURL: (filename: string) => string;
 }
+
+function basename(filePath: string): string {
+  return filePath.replace(/\\/g, "/").split("/").at(-1) || filePath;
+}
+
+const WorkspaceReviewCommentContext: FC<{
+  comment: WorkspaceReviewMessageComment;
+}> = ({ comment }) => {
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const label = [basename(comment.filePath), comment.rangeLabel]
+    .filter(Boolean)
+    .join(" · ");
+
+  const handleOpen = (event: MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  return (
+    <>
+      <Tooltip title={`View context in ${comment.filePath}`}>
+        <Chip
+          icon={<MessageCircle size={14} />}
+          label={label}
+          size="small"
+          variant="outlined"
+          onClick={handleOpen}
+          aria-label={`View ${comment.sectionTitle.toLowerCase()} context: ${label}`}
+          sx={{
+            alignSelf: "flex-start",
+            maxWidth: "100%",
+            height: 26,
+            borderRadius: 1,
+            color: "text.secondary",
+            borderColor: "divider",
+            bgcolor: "transparent",
+            fontFamily: APP_MONO_FONT_FAMILY,
+            fontSize: TYPOGRAPHY.codeChromeFontSize,
+            "&:hover": {
+              color: "text.primary",
+              bgcolor: "action.hover",
+            },
+            "& .MuiChip-icon": {
+              ml: 0.75,
+              color: "inherit",
+            },
+            "& .MuiChip-label": {
+              px: 0.75,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            },
+          }}
+        />
+      </Tooltip>
+      <Popover
+        open={Boolean(anchorEl)}
+        anchorEl={anchorEl}
+        onClose={() => setAnchorEl(null)}
+        disableScrollLock
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        slotProps={{
+          paper: {
+            sx: {
+              width: 440,
+              maxWidth: "calc(100vw - 32px)",
+              mt: 0.5,
+              p: 1.5,
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 1.5,
+              boxShadow: 4,
+              bgcolor: "background.paper",
+            },
+          },
+        }}
+      >
+        <Typography
+          title={comment.filePath}
+          sx={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontFamily: APP_MONO_FONT_FAMILY,
+            fontSize: TYPOGRAPHY.codeFontSize,
+            fontWeight: 600,
+          }}
+        >
+          {comment.filePath}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          {[comment.sectionTitle, comment.rangeLabel].filter(Boolean).join(" · ")}
+        </Typography>
+        {comment.contents && (
+          <Box
+            component="pre"
+            sx={{
+              m: 0,
+              mt: 1.25,
+              pl: 1.25,
+              maxHeight: 240,
+              overflow: "auto",
+              borderLeft: "2px solid",
+              borderColor: "divider",
+              color: "text.secondary",
+              fontFamily: APP_MONO_FONT_FAMILY,
+              fontSize: TYPOGRAPHY.codeFontSize,
+              lineHeight: TYPOGRAPHY.codeLineHeight,
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {comment.contents}
+          </Box>
+        )}
+      </Popover>
+    </>
+  );
+};
 
 const WorkspaceReviewMessage: FC<WorkspaceReviewMessageProps> = ({
   text,
@@ -38,7 +161,7 @@ const WorkspaceReviewMessage: FC<WorkspaceReviewMessageProps> = ({
   return (
     <Box
       data-workspace-review-message
-      sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}
+      sx={{ display: "flex", flexDirection: "column", gap: 1 }}
     >
       {segments.map((segment, index) => {
         if (segment.type === "text") {
@@ -59,110 +182,23 @@ const WorkspaceReviewMessage: FC<WorkspaceReviewMessageProps> = ({
             key={`comment-${index}-${segment.filePath}-${segment.rangeLabel}`}
             data-workspace-review-comment
             sx={{
-              width: 640,
-              maxWidth: "100%",
-              overflow: "hidden",
-              border: "1px solid",
-              borderColor: "divider",
-              borderRadius: 1.5,
-              bgcolor: "background.default",
-              boxShadow: 1,
+              display: "flex",
+              minWidth: 0,
+              flexDirection: "column",
+              alignItems: "flex-start",
+              gap: 0.75,
             }}
           >
-            <Box
-              sx={{
-                minHeight: 42,
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
-                px: 1.25,
-                borderBottom: "1px solid",
-                borderColor: "divider",
-                bgcolor: "action.hover",
-              }}
-            >
-              <Box
-                sx={{
-                  width: 26,
-                  height: 26,
-                  display: "grid",
-                  placeItems: "center",
-                  flexShrink: 0,
-                  borderRadius: 1,
-                  color: "text.secondary",
-                  bgcolor: "action.selected",
-                }}
-              >
-                <FileCode2 size={15} />
-              </Box>
-              <Box sx={{ minWidth: 0, flex: 1 }}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ display: "block", lineHeight: 1.2 }}
-                >
-                  {segment.sectionTitle}
-                </Typography>
-                <Typography
-                  variant="body2"
-                  title={segment.filePath}
-                  sx={{
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    fontFamily: APP_MONO_FONT_FAMILY,
-                    fontSize: "0.78rem",
-                    fontWeight: 600,
-                  }}
-                >
-                  {segment.filePath}
-                </Typography>
-              </Box>
-              {segment.rangeLabel && (
-                <Box
-                  component="span"
-                  sx={{
-                    px: 0.75,
-                    py: 0.25,
-                    flexShrink: 0,
-                    border: "1px solid",
-                    borderColor: "divider",
-                    borderRadius: 0.75,
-                    color: "text.secondary",
-                    bgcolor: "background.paper",
-                    fontFamily: APP_MONO_FONT_FAMILY,
-                    fontSize: "0.68rem",
-                    fontWeight: 600,
-                    lineHeight: 1.4,
-                  }}
-                >
-                  {segment.rangeLabel}
-                </Box>
-              )}
-            </Box>
-            <Box
-              sx={{
-                p: 1.25,
-                "& .interactionMessage > :first-of-type": { mt: 0 },
-                "& .interactionMessage > :last-of-type": { mb: 0 },
-                "& [data-chat-code-block]": { mb: 0, borderRadius: 1 },
-              }}
-            >
-              {segment.text && (
-                <Markdown
-                  text={segment.text}
-                  session={session}
-                  getFileURL={getFileURL}
-                  showBlinker={false}
-                  isStreaming={false}
-                />
-              )}
-              {segment.contents && (
-                <MarkdownCodeBlock language={segment.language}>
-                  {segment.contents}
-                </MarkdownCodeBlock>
-              )}
-            </Box>
+            {segment.text && (
+              <Markdown
+                text={segment.text}
+                session={session}
+                getFileURL={getFileURL}
+                showBlinker={false}
+                isStreaming={false}
+              />
+            )}
+            <WorkspaceReviewCommentContext comment={segment} />
           </Box>
         );
       })}
