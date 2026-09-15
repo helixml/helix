@@ -679,6 +679,16 @@ func NewServer(
 	apiServer.specTaskOrchestrator.SetAttentionService(apiServer.attentionService)
 	apiServer.specTaskOrchestrator.SetCINotifier(services.NewEnqueueCINotifier(apiServer.enqueueSpecTaskAgentMessage))
 
+	// GitHub PR review feedback: when enabled, PR creations install a
+	// pull_request_review webhook on external repos (per-repo secret generated
+	// at install) and /api/v1/webhooks/github/reviews/{repo_id} correlates
+	// deliveries to spec tasks.
+	reviewWebhookURL := ""
+	if cfg.GitHub.ReviewWebhooks {
+		reviewWebhookURL = fmt.Sprintf("%s/api/v1/webhooks/github/reviews", strings.TrimSuffix(cfg.WebServer.URL, "/"))
+	}
+	gitRepositoryService.SetGitHubReviewWebhooks(reviewWebhookURL)
+
 	// Recover golden builds that were in progress when the API last restarted.
 	// Re-attaches monitoring goroutines for still-running builds, resets stale ones.
 	go apiServer.goldenBuildService.RecoverStaleBuilds(context.Background())
@@ -957,6 +967,12 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	insecureRouter.HandleFunc("/oauth/flow/callback", apiServer.handleOAuthCallback).Methods("GET")
 
 	insecureRouter.HandleFunc("/webhooks/{id}", apiServer.webhookTriggerHandler).Methods(http.MethodPost, http.MethodPut)
+
+	// GitHub PR review feedback for spec tasks - auth is the delivering repo's
+	// own per-repo webhook secret (auto-generated at install, stored on the
+	// repo row), so one org's secret can't forge deliveries into another org's
+	// tasks on a shared deployment.
+	insecureRouter.HandleFunc("/webhooks/github/reviews/{repo_id}", apiServer.specTaskGitHubReviewWebhook).Methods(http.MethodPost)
 
 	// Teams Bot Framework webhook - auth handled by Bot Framework JWT validation
 	insecureRouter.HandleFunc("/teams/webhook/{appID}", apiServer.teamsWebhookHandler).Methods(http.MethodPost)
