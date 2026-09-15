@@ -443,12 +443,13 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 	}
 
 	// Skip if a container boot is genuinely in progress and we're still
-	// inside the grace period. Both "starting" and "running" count as
-	// in-progress here: see the function header for why the post-bridge,
-	// pre-WS substate ("running" with no live WS) is the case the grace
-	// period most often needs to cover.
+	// inside the grace period. "starting", "restarting" and "running" all
+	// count as in-progress here: see the function header for why the
+	// post-bridge, pre-WS substate ("running" with no live WS) is the case the
+	// grace period most often needs to cover.
 	if session != nil &&
 		(session.Metadata.ExternalAgentStatus == "starting" ||
+			session.Metadata.ExternalAgentStatus == "restarting" ||
 			session.Metadata.ExternalAgentStatus == "running") &&
 		time.Since(stuck.Created) < coldStartGracePeriod() {
 		log.Debug().
