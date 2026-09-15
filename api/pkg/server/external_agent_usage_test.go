@@ -25,15 +25,13 @@ func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsSubscriptionTurn() {
 		ID:        "int_123",
 		Created:   created,
 		Completed: created.Add(2 * time.Second),
+		CodeAgentConfigSnapshot: &types.InteractionCodeAgentConfigSnapshot{
+			Provider:       "openai",
+			Model:          "gpt-5.6-luna",
+			Runtime:        types.CodeAgentRuntimeCodexCLI,
+			CredentialType: types.CodeAgentCredentialTypeSubscription,
+		},
 	}
-	app := &types.App{ID: "app_123", Config: types.AppConfig{Helix: types.AppHelixConfig{
-		Assistants: []types.AssistantConfig{{
-			AgentType:               types.AgentTypeZedExternal,
-			CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
-			CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
-			Model:                   "gpt-5.3-codex",
-		}},
-	}}}
 	syncMsg := &types.SyncMessage{Data: map[string]interface{}{
 		"usage": map[string]interface{}{
 			"total_tokens":        float64(175),
@@ -44,14 +42,6 @@ func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsSubscriptionTurn() {
 		},
 	}}
 
-	s.store.EXPECT().GetSpecTask(gomock.Any(), "task_123").Return(&types.SpecTask{
-		ID:         "task_123",
-		HelixAppID: "app_123",
-		CodeAgentOverrides: &types.CodeAgentOverrides{
-			Model: "gpt-5.6-luna",
-		},
-	}, nil)
-	s.store.EXPECT().GetApp(gomock.Any(), "app_123").Return(app, nil)
 	s.store.EXPECT().CreateUsageMetric(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
 			assert.Equal(s.T(), types.UsageMetricSourceACP, metric.Source)
@@ -186,19 +176,6 @@ func (s *WebSocketSyncSuite) TestRecordACPUsage_UsesInteractionSnapshotAfterMode
 // binary predates the ACP turn-usage change. The turn must still be recorded so
 // request counts and activity remain visible.
 func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsTurnWithoutUsageOrAgentName() {
-	app := &types.App{ID: "app_123", Config: types.AppConfig{Helix: types.AppHelixConfig{
-		Assistants: []types.AssistantConfig{{
-			AgentType:               types.AgentTypeZedExternal,
-			CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
-			CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
-			Model:                   "gpt-5.6-sol",
-		}},
-	}}}
-	s.store.EXPECT().GetSpecTask(gomock.Any(), "task_123").Return(&types.SpecTask{
-		ID:         "task_123",
-		HelixAppID: "app_123",
-	}, nil)
-	s.store.EXPECT().GetApp(gomock.Any(), "app_123").Return(app, nil)
 	s.store.EXPECT().CreateUsageMetric(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
 			assert.Equal(s.T(), types.UsageMetricSourceACP, metric.Source)
@@ -219,7 +196,15 @@ func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsTurnWithoutUsageOrAgentNa
 			ProjectID: "prj_123",
 			Metadata:  types.SessionMetadata{SpecTaskID: "task_123"},
 		},
-		&types.Interaction{ID: "int_123"},
+		&types.Interaction{
+			ID: "int_123",
+			CodeAgentConfigSnapshot: &types.InteractionCodeAgentConfigSnapshot{
+				Provider:       "openai",
+				Model:          "gpt-5.6-sol",
+				Runtime:        types.CodeAgentRuntimeCodexCLI,
+				CredentialType: types.CodeAgentCredentialTypeSubscription,
+			},
+		},
 		&types.SyncMessage{Data: map[string]interface{}{
 			"acp_thread_id": "019fc6c4-33b7-7671-bfc0-0358c7d225ba",
 			"message_id":    "0",

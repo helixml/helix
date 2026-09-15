@@ -54,6 +54,24 @@ describe("SpecTaskViewToolbar", () => {
     ]);
   });
 
+  it("shows planning workspace views without an implementation browser", () => {
+    render(
+      <SpecTaskViewToolbar
+        currentView="plan"
+        onViewChange={vi.fn()}
+        hasSession
+        showPlan
+        showBrowser={false}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Plan view" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Browser view" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Files view" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Agents view" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Diff view" })).toBeInTheDocument();
+  });
+
   it("folds the deliberate views into the menu on a phone", () => {
     isPhone = true;
     const onViewChange = vi.fn();

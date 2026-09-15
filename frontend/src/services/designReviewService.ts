@@ -168,6 +168,32 @@ export function useSubmitReview(specTaskId: string, reviewId: string) {
   })
 }
 
+export function useUpdateDesignReviewDocument(specTaskId: string, reviewId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (data: {
+      document_type: 'requirements' | 'technical_design' | 'implementation_plan'
+      content: string
+      original_content: string
+    }) => {
+      const response = await apiClient.v1SpecTasksDesignReviewsDocumentUpdate(specTaskId, reviewId, data)
+      return response.data
+    },
+    onSuccess: (updatedReview) => {
+      queryClient.setQueryData<DesignReviewDetailResponse | undefined>(
+        designReviewKeys.detail(specTaskId, reviewId),
+        (current) => current ? { ...current, review: updatedReview as DesignReview } : current,
+      )
+      queryClient.invalidateQueries({ queryKey: designReviewKeys.detail(specTaskId, reviewId) })
+      queryClient.invalidateQueries({ queryKey: designReviewKeys.list(specTaskId) })
+      queryClient.invalidateQueries({ queryKey: ['spec-tasks', specTaskId] })
+    },
+  })
+}
+
 export function useCreateComment(specTaskId: string, reviewId: string) {
   const api = useApi()
   const apiClient = api.getApiClient()

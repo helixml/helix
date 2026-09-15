@@ -151,6 +151,34 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 	return nil
 }
 
+// UpdateSpecTaskFields updates only the named columns. Callers holding a stale
+// task snapshot must use this instead of Save so concurrent workflow
+// transitions cannot be reverted.
+func (s *PostgresStore) UpdateSpecTaskFields(ctx context.Context, taskID string, updates map[string]any) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	updates["updated_at"] = time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.SpecTask{}).
+		Where("id = ?", taskID).
+		Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update spec task fields: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("spec task not found: %s", taskID)
+	}
+	updated, err := s.GetSpecTask(ctx, taskID)
+	if err == nil {
+		_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, updated)
+	}
+	return nil
+}
+
 // TransitionSpecTaskStatus atomically updates a spec task's status, but only if its
 // current status is in fromStatuses. Returns true if the row was updated (this caller
 // won the race), false if no row matched (another caller already transitioned).

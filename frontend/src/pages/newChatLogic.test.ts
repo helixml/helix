@@ -6,9 +6,11 @@ import {
   modelSupportsReasoningEffort,
   newChatHeading,
   newChatModelStorageKey,
+  newChatTaskModeStorageKey,
   projectChatAgentStorageKey,
   readNewChatReasoningEffort,
   readNewChatModelSelection,
+  readNewChatTaskMode,
 } from './newChatLogic'
 import {
   TypesCodeAgentCredentialType,
@@ -37,7 +39,7 @@ describe('new chat project mode', () => {
       projectId: 'prj_1',
       prompt: 'Add billing',
     })).toEqual({
-      code_agent_config: {
+      planning_code_agent_config: {
         runtime: 'claude_code',
         credential_type: 'subscription',
         model: 'claude-opus-5',
@@ -56,6 +58,16 @@ describe('new chat project mode', () => {
       projectId: 'prj_1',
       prompt: 'Fix the tests',
     }).just_do_it_mode).toBe(true)
+  })
+
+  it('remembers Plan or Build per user, organization, and project', () => {
+    expect(newChatTaskModeStorageKey('user_one', 'org_one', 'project_one'))
+      .toBe('helix_project_task_mode:user_one:org_one:project_one')
+    expect(newChatTaskModeStorageKey('user_one', 'org_one', 'project_one'))
+      .not.toBe(newChatTaskModeStorageKey('user_one', 'org_one', 'project_two'))
+    expect(readNewChatTaskMode('plan')).toBe('plan')
+    expect(readNewChatTaskMode('build')).toBe('build')
+    expect(readNewChatTaskMode('invalid')).toBe('build')
   })
 
   it('passes task execution choices through chat-first creation', () => {

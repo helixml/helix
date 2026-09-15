@@ -519,6 +519,24 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Resolve agent branch restrictions before external synchronization. A
+	// planning session whose only writable branch is helix-specs must not depend
+	// on external repository credentials to publish its local plan.
+	apiKey := s.extractAPIKey(r)
+	restriction, err := s.getBranchRestrictionForAPIKey(r.Context(), apiKey)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get branch restriction for API key")
+	}
+	if restriction != nil && restriction.IsAgentKey && restriction.ErrorMessage != "" {
+		log.Error().Str("repo_id", repoID).Str("error", restriction.ErrorMessage).Msg("Agent push denied")
+		http.Error(w, "Push denied: "+restriction.ErrorMessage, http.StatusForbidden)
+		return
+	}
+	planningOnlyPush := restriction != nil &&
+		restriction.IsAgentKey &&
+		len(restriction.AllowedBranches) == 1 &&
+		restriction.AllowedBranches[0] == SpecsBranchName
+
 	// Acquire repo lock to serialize all git operations on this repository.
 	// This prevents race conditions where a concurrent read (with force sync)
 	// could overwrite commits between receive-pack and upstream push.
@@ -528,10 +546,9 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	defer lock.Unlock()
 
 	// If this is an external repository, sync from upstream BEFORE accepting the push.
-	// This ensures we have the latest changes and can detect conflicts early.
-	// If sync fails (e.g., local ahead of remote), reject the push - this indicates
-	// something wrote to helix-specs locally without pushing to upstream.
-	if repo != nil && repo.ExternalURL != "" {
+	// This keeps mirrored branches current; SyncAllBranches deliberately excludes
+	// the local-authoritative helix-specs branch.
+	if repo != nil && repo.ExternalURL != "" && !planningOnlyPush {
 		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before accepting push")
 		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
 			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream - rejecting push")
@@ -539,6 +556,8 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 			return
 		}
 		log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before push")
+	} else if planningOnlyPush {
+		log.Debug().Str("repo_id", repoID).Msg("Skipping external sync for local-authoritative planning push")
 	}
 
 	// Handle GZIP-encoded request body (following gitea's pattern)
@@ -576,17 +595,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 
 	// Check branch restrictions for agent API keys BEFORE running receive-pack.
 	// Pass allowed branches via env var so the pre-receive hook can enforce them.
-	apiKey := s.extractAPIKey(r)
-	restriction, err := s.getBranchRestrictionForAPIKey(r.Context(), apiKey)
-	if err != nil {
-		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get branch restriction for API key")
-	}
 	if restriction != nil && restriction.IsAgentKey {
-		if restriction.ErrorMessage != "" {
-			log.Error().Str("repo_id", repoID).Str("error", restriction.ErrorMessage).Msg("Agent push denied")
-			http.Error(w, "Push denied: "+restriction.ErrorMessage, http.StatusForbidden)
-			return
-		}
 		if len(restriction.AllowedBranches) > 0 {
 			// Pass allowed branches to pre-receive hook via environment variable
 			environ = append(environ, "HELIX_ALLOWED_BRANCHES="+strings.Join(restriction.AllowedBranches, ","))
@@ -646,9 +655,9 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	// For external repos, push to upstream synchronously.
 	// IMPORTANT: We use a background context here because the git client may disconnect
 	// after receiving the successful receive-pack response. At this point, HTTP response
-	// headers have already been sent, so we cannot signal upstream push failures to the
-	// client - they will see success regardless. If upstream push fails, we rollback
-	// locally but the agent won't know. This is a known architectural limitation.
+	// headers have already been sent, so we cannot signal mirrored-branch failures to the
+	// client. Mirrored branches are rolled back, while helix-specs remains available from
+	// Helix and upstream publication is best-effort.
 	if len(pushedBranchesMap) > 0 && repo != nil && repo.ExternalURL != "" {
 		log.Debug().Str("repo_id", repoID).Int("branch_count", len(pushedBranchesMap)).Msg("Starting external push with detached context")
 
@@ -690,6 +699,14 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 			err := s.gitRepoService.PushBranchToRemote(branchCtx, repoID, branch, isForce, pushUserID)
 			branchCancel()
 
+			if err != nil && isLocalAuthoritativeBranch(branch) {
+				log.Warn().
+					Err(err).
+					Str("repo_id", repoID).
+					Str("branch", branch).
+					Msg("Upstream publication failed; retained local-authoritative branch")
+				continue
+			}
 			if err != nil {
 				log.Error().Err(err).Str("repo_id", repoID).Str("branch", branch).Bool("force", isForce).Msg("Failed to push branch to upstream - rolling back")
 				upstreamPushFailed = true
@@ -700,16 +717,29 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		}
 
 		if upstreamPushFailed {
-			log.Warn().Str("repo_id", repoID).Msg("Rolling back refs due to upstream push failure")
-			s.rollbackBranchRefs(repoPath, branchesBefore, pushedBranches)
+			rollbackBranches := make([]string, 0, len(pushedBranches))
+			retainedBranches := make([]string, 0, 1)
+			for _, branch := range pushedBranches {
+				if isLocalAuthoritativeBranch(branch) {
+					retainedBranches = append(retainedBranches, branch)
+				} else {
+					rollbackBranches = append(rollbackBranches, branch)
+				}
+			}
+			log.Warn().Str("repo_id", repoID).Strs("branches", rollbackBranches).Msg("Rolling back mirrored refs due to upstream push failure")
+			s.rollbackBranchRefs(repoPath, branchesBefore, rollbackBranches)
 			// Persist a structured error on the task so the failure is surfaced
 			// instead of silently rolled back after the client already got 200.
 			s.recordPushError(context.Background(), pushTaskID, repo, pushUserID, pushErr)
-			return
+			pushedBranches = retainedBranches
+			if len(pushedBranches) == 0 {
+				return
+			}
+		} else {
+			// External push succeeded, or only best-effort helix-specs publication
+			// failed. Clear stale blocking errors because local data is available.
+			s.clearPushError(context.Background(), pushTaskID)
 		}
-
-		// External push succeeded — clear any stale push error on the task.
-		s.clearPushError(context.Background(), pushTaskID)
 	}
 
 	// Trigger post-push hooks asynchronously

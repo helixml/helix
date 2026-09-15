@@ -14,7 +14,7 @@ type SpecTaskDesignReview struct {
 	SpecTaskID string `json:"spec_task_id" gorm:"not null;size:255;index"`
 
 	// Review metadata
-	ReviewerID string                    `json:"reviewer_id" gorm:"size:255;index"` // User who is reviewing
+	ReviewerID string                     `json:"reviewer_id" gorm:"size:255;index"` // User who is reviewing
 	Status     SpecTaskDesignReviewStatus `json:"status" gorm:"not null;size:50;default:pending;index"`
 
 	// Git information
@@ -28,7 +28,7 @@ type SpecTaskDesignReview struct {
 	ImplementationPlan string `json:"implementation_plan" gorm:"type:text"`
 
 	// Review decision
-	OverallComment string    `json:"overall_comment" gorm:"type:text"`
+	OverallComment string     `json:"overall_comment" gorm:"type:text"`
 	ApprovedAt     *time.Time `json:"approved_at,omitempty"`
 	RejectedAt     *time.Time `json:"rejected_at,omitempty"`
 
@@ -51,25 +51,25 @@ type SpecTaskDesignReviewComment struct {
 
 	// Location in document
 	DocumentType string `json:"document_type" gorm:"not null;size:50;index"` // "requirements", "technical_design", "implementation_plan"
-	SectionPath  string `json:"section_path" gorm:"type:text"`                // e.g., "## Architecture/### Database Schema"
-	LineNumber   int    `json:"line_number,omitempty"`                        // Optional line number
+	SectionPath  string `json:"section_path" gorm:"type:text"`               // e.g., "## Architecture/### Database Schema"
+	LineNumber   int    `json:"line_number,omitempty"`                       // Optional line number
 
 	// For inline comments - store the context around the comment
-	QuotedText   string `json:"quoted_text,omitempty" gorm:"type:text"`  // Text being commented on
-	StartOffset  int    `json:"start_offset,omitempty"`                  // Character offset in document
-	EndOffset    int    `json:"end_offset,omitempty"`                    // Character offset in document
+	QuotedText  string `json:"quoted_text,omitempty" gorm:"type:text"` // Text being commented on
+	StartOffset int    `json:"start_offset,omitempty"`                 // Character offset in document
+	EndOffset   int    `json:"end_offset,omitempty"`                   // Character offset in document
 
 	// The actual comment
-	CommentText string                         `json:"comment_text" gorm:"type:text;not null"`
+	CommentText string                          `json:"comment_text" gorm:"type:text;not null"`
 	CommentType SpecTaskDesignReviewCommentType `json:"comment_type,omitempty" gorm:"size:50"` // Made optional - simplified to single type
 
 	// Agent integration (NEW FIELDS)
 	AgentResponse        string         `json:"agent_response,omitempty" gorm:"type:text"`          // Agent's response (plain text)
 	AgentResponseEntries datatypes.JSON `json:"agent_response_entries,omitempty" gorm:"type:jsonb"` // Agent's structured entries (for tool call rendering)
 	AgentResponseAt      *time.Time     `json:"agent_response_at,omitempty"`                        // When agent responded
-	InteractionID   string     `json:"interaction_id,omitempty" gorm:"size:255;index"` // Link to Helix interaction
-	RequestID       string     `json:"request_id,omitempty" gorm:"size:255;index"`     // Request ID used when sending to agent (for response linking)
-	PromptID        string     `json:"prompt_id,omitempty" gorm:"size:255;index"`      // Link to the prompt_history_entry enqueued for this comment; RequestID/InteractionID are backfilled from it at dispatch
+	InteractionID        string         `json:"interaction_id,omitempty" gorm:"size:255;index"`     // Link to Helix interaction
+	RequestID            string         `json:"request_id,omitempty" gorm:"size:255;index"`         // Request ID used when sending to agent (for response linking)
+	PromptID             string         `json:"prompt_id,omitempty" gorm:"size:255;index"`          // Link to the prompt_history_entry enqueued for this comment; RequestID/InteractionID are backfilled from it at dispatch
 
 	// Database-backed queue for agent processing (restart-resilient)
 	// QueuedAt is set when comment is submitted for agent processing.
@@ -87,7 +87,7 @@ type SpecTaskDesignReviewComment struct {
 	UpdatedAt time.Time `json:"updated_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
 
 	// Relationships
-	Review *SpecTaskDesignReview `json:"review,omitempty" gorm:"foreignKey:ReviewID" swaggerignore:"true"`
+	Review  *SpecTaskDesignReview              `json:"review,omitempty" gorm:"foreignKey:ReviewID" swaggerignore:"true"`
 	Replies []SpecTaskDesignReviewCommentReply `json:"replies,omitempty" gorm:"foreignKey:CommentID;constraint:OnDelete:CASCADE" swaggerignore:"true"`
 }
 
@@ -114,25 +114,25 @@ type SpecTaskGitPushEvent struct {
 	SpecTaskID string `json:"spec_task_id" gorm:"not null;size:255;index"`
 
 	// Git details
-	CommitHash   string    `json:"commit_hash" gorm:"not null;size:255;index"`
-	Branch       string    `json:"branch" gorm:"not null;size:255;index"`
-	AuthorName   string    `json:"author_name" gorm:"size:255"`
-	AuthorEmail  string    `json:"author_email" gorm:"size:255"`
+	CommitHash    string    `json:"commit_hash" gorm:"not null;size:255;index"`
+	Branch        string    `json:"branch" gorm:"not null;size:255;index"`
+	AuthorName    string    `json:"author_name" gorm:"size:255"`
+	AuthorEmail   string    `json:"author_email" gorm:"size:255"`
 	CommitMessage string    `json:"commit_message" gorm:"type:text"`
-	PushedAt     time.Time `json:"pushed_at" gorm:"not null;index"`
+	PushedAt      time.Time `json:"pushed_at" gorm:"not null;index"`
 
 	// Event processing
-	Processed      bool       `json:"processed" gorm:"default:false;index"`
-	ProcessedAt    *time.Time `json:"processed_at,omitempty"`
-	ProcessingError string    `json:"processing_error,omitempty" gorm:"type:text"`
+	Processed       bool       `json:"processed" gorm:"default:false;index"`
+	ProcessedAt     *time.Time `json:"processed_at,omitempty"`
+	ProcessingError string     `json:"processing_error,omitempty" gorm:"type:text"`
 
 	// Files changed (for detecting design doc updates)
 	FilesChanged datatypes.JSON `json:"files_changed" gorm:"type:jsonb"` // Array of file paths
 
 	// Metadata
-	EventSource string    `json:"event_source" gorm:"size:50"` // "webhook", "polling", "manual"
+	EventSource string         `json:"event_source" gorm:"size:50"`             // "webhook", "polling", "manual"
 	RawPayload  datatypes.JSON `json:"raw_payload,omitempty" gorm:"type:jsonb"` // Original webhook/event data
-	CreatedAt   time.Time `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP;index"`
+	CreatedAt   time.Time      `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP;index"`
 }
 
 // Enums
@@ -140,21 +140,21 @@ type SpecTaskGitPushEvent struct {
 type SpecTaskDesignReviewStatus string
 
 const (
-	SpecTaskDesignReviewStatusPending       SpecTaskDesignReviewStatus = "pending"         // Waiting for reviewer
-	SpecTaskDesignReviewStatusInReview      SpecTaskDesignReviewStatus = "in_review"       // Reviewer is actively reviewing
+	SpecTaskDesignReviewStatusPending          SpecTaskDesignReviewStatus = "pending"           // Waiting for reviewer
+	SpecTaskDesignReviewStatusInReview         SpecTaskDesignReviewStatus = "in_review"         // Reviewer is actively reviewing
 	SpecTaskDesignReviewStatusChangesRequested SpecTaskDesignReviewStatus = "changes_requested" // Reviewer requested changes
-	SpecTaskDesignReviewStatusApproved      SpecTaskDesignReviewStatus = "approved"        // Approved, ready for implementation
-	SpecTaskDesignReviewStatusSuperseded    SpecTaskDesignReviewStatus = "superseded"      // Newer review exists (agent pushed updates)
+	SpecTaskDesignReviewStatusApproved         SpecTaskDesignReviewStatus = "approved"          // Approved, ready for implementation
+	SpecTaskDesignReviewStatusSuperseded       SpecTaskDesignReviewStatus = "superseded"        // Newer review exists (agent pushed updates)
 )
 
 type SpecTaskDesignReviewCommentType string
 
 const (
-	SpecTaskDesignReviewCommentTypeGeneral     SpecTaskDesignReviewCommentType = "general"     // General comment
-	SpecTaskDesignReviewCommentTypeQuestion    SpecTaskDesignReviewCommentType = "question"    // Question needing clarification
-	SpecTaskDesignReviewCommentTypeSuggestion  SpecTaskDesignReviewCommentType = "suggestion"  // Suggested improvement
-	SpecTaskDesignReviewCommentTypeCritical    SpecTaskDesignReviewCommentType = "critical"    // Critical issue must be fixed
-	SpecTaskDesignReviewCommentTypePraise      SpecTaskDesignReviewCommentType = "praise"      // Positive feedback
+	SpecTaskDesignReviewCommentTypeGeneral    SpecTaskDesignReviewCommentType = "general"    // General comment
+	SpecTaskDesignReviewCommentTypeQuestion   SpecTaskDesignReviewCommentType = "question"   // Question needing clarification
+	SpecTaskDesignReviewCommentTypeSuggestion SpecTaskDesignReviewCommentType = "suggestion" // Suggested improvement
+	SpecTaskDesignReviewCommentTypeCritical   SpecTaskDesignReviewCommentType = "critical"   // Critical issue must be fixed
+	SpecTaskDesignReviewCommentTypePraise     SpecTaskDesignReviewCommentType = "praise"     // Positive feedback
 )
 
 // Request types
@@ -183,14 +183,20 @@ type SpecTaskDesignReviewCommentReplyCreateRequest struct {
 }
 
 type SpecTaskDesignReviewSubmitRequest struct {
-	ReviewID       string                     `json:"review_id" validate:"required"`
-	Decision       string                     `json:"decision" validate:"required,oneof=approve request_changes"` // "approve" or "request_changes"
-	OverallComment string                     `json:"overall_comment,omitempty"`
+	ReviewID       string `json:"review_id" validate:"required"`
+	Decision       string `json:"decision" validate:"required,oneof=approve request_changes"` // "approve" or "request_changes"
+	OverallComment string `json:"overall_comment,omitempty"`
 }
 
 type SpecTaskDesignReviewUpdateRequest struct {
 	Status         SpecTaskDesignReviewStatus `json:"status,omitempty"`
 	OverallComment string                     `json:"overall_comment,omitempty"`
+}
+
+type SpecTaskDesignReviewDocumentUpdateRequest struct {
+	DocumentType    string  `json:"document_type" validate:"required,oneof=requirements technical_design implementation_plan"`
+	Content         string  `json:"content" validate:"required"`
+	OriginalContent *string `json:"original_content" validate:"required"`
 }
 
 // Response types

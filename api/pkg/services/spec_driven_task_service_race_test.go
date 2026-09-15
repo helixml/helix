@@ -166,14 +166,15 @@ func TestSpecDrivenTaskService_StartJustDoItMode_LosingClaimDeletesOrphan(t *tes
 		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
 	}
 	task := &types.SpecTask{
-		ID:              "task-jdi-race",
-		ProjectID:       project.ID,
-		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
-		Status:          types.TaskStatusQueuedImplementation,
-		CreatedBy:       "user-1",
-		BranchMode:      types.BranchModeExisting,
-		BranchName:      "feature/existing",
-		Name:            "racing Just Do It task",
+		ID:                      "task-jdi-race",
+		ProjectID:               project.ID,
+		CodeAgentConfig:         testSpecTaskCodeAgentConfig(),
+		PlanningCodeAgentConfig: testSpecTaskCodeAgentConfig(),
+		Status:                  types.TaskStatusQueuedImplementation,
+		CreatedBy:               "user-1",
+		BranchMode:              types.BranchModeExisting,
+		BranchName:              "feature/existing",
+		Name:                    "racing Just Do It task",
 	}
 
 	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)

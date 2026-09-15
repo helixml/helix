@@ -20,7 +20,7 @@ describe("WorkspaceFileComment", () => {
       </div>,
     );
 
-    const input = screen.getByRole("textbox", { name: "Comment on lines 12 to 13" });
+    const input = screen.getByRole("textbox", { name: "Comment on L12–13" });
     input.focus();
 
     fireEvent.keyDown(input, { key: "f" });
@@ -53,7 +53,7 @@ describe("WorkspaceFileComment", () => {
     expect(onParentKeyDown).not.toHaveBeenCalled();
   });
 
-  it("renders a committed comment with its line range and delete action", () => {
+  it("renders a committed comment as a compact annotation with a delete action", () => {
     render(
       <WorkspaceFileComment
         entry={{ ...draft, kind: "comment", text: "Keep this focused." }}
@@ -62,9 +62,10 @@ describe("WorkspaceFileComment", () => {
       />,
     );
 
-    expect(screen.getByText("File comment")).toBeInTheDocument();
-    expect(screen.getByText("L12–13")).toBeInTheDocument();
+    expect(screen.queryByText("File comment")).not.toBeInTheDocument();
+    expect(screen.queryByText("L12–13")).not.toBeInTheDocument();
     expect(screen.getByText("Keep this focused.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete comment" })).toBeInTheDocument();
+    expect(document.querySelector("[data-review-comment-annotation]")).toBeInTheDocument();
   });
 });

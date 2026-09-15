@@ -44,8 +44,8 @@ function makeStream(): { stream: WebSocketStream; socket: FakeWebSocket } {
 
   const stream = new WebSocketStream(
     {} as any, // api
-    1, // hostId
-    1, // appId
+    1,
+    1,
     settings,
     getStandardVideoFormats(),
     [1920, 1080],

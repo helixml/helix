@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -245,6 +246,243 @@ func (s *HelixAPIServer) getDesignReview(w http.ResponseWriter, r *http.Request)
 	w.Write(jsonBytes) //nolint:errcheck
 }
 
+var errDesignReviewDocumentChanged = errors.New("design review document changed since editing started")
+
+func designReviewDocumentFilename(documentType string) (string, error) {
+	switch documentType {
+	case "requirements":
+		return "requirements.md", nil
+	case "technical_design":
+		return "design.md", nil
+	case "implementation_plan":
+		return "tasks.md", nil
+	default:
+		return "", fmt.Errorf("unsupported document type %q", documentType)
+	}
+}
+
+func setDesignReviewDocumentContent(review *types.SpecTaskDesignReview, task *types.SpecTask, documentType, content string) {
+	switch documentType {
+	case "requirements":
+		review.RequirementsSpec = content
+		task.RequirementsSpec = content
+		if title := services.SpecTitleFromRequirements(content); title != "" {
+			task.Name = title
+		}
+	case "technical_design":
+		review.TechnicalDesign = content
+		task.TechnicalDesign = content
+	case "implementation_plan":
+		review.ImplementationPlan = content
+		task.ImplementationPlan = content
+	}
+}
+
+func designReviewDocumentUpdates(documentType, content string) (map[string]any, map[string]any) {
+	reviewUpdates := map[string]any{}
+	taskUpdates := map[string]any{}
+	switch documentType {
+	case "requirements":
+		reviewUpdates["requirements_spec"] = content
+		taskUpdates["requirements_spec"] = content
+		if title := services.SpecTitleFromRequirements(content); title != "" {
+			taskUpdates["name"] = title
+		}
+	case "technical_design":
+		reviewUpdates["technical_design"] = content
+		taskUpdates["technical_design"] = content
+	case "implementation_plan":
+		reviewUpdates["implementation_plan"] = content
+		taskUpdates["implementation_plan"] = content
+	}
+	return reviewUpdates, taskUpdates
+}
+
+// updateDesignReviewDocument persists a reviewer edit to the canonical
+// helix-specs file and refreshes both database snapshots.
+// @Summary Update a design review document
+// @Description Update one Markdown design document with optimistic concurrency
+// @Tags SpecTasks
+// @Accept json
+// @Produce json
+// @Param spec_task_id path string true "Spec Task ID"
+// @Param review_id path string true "Design Review ID"
+// @Param request body types.SpecTaskDesignReviewDocumentUpdateRequest true "Document edit"
+// @Success 200 {object} types.SpecTaskDesignReview
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 409 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/document [put]
+// @Security BearerAuth
+func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	specTaskID := vars["spec_task_id"]
+	reviewID := vars["review_id"]
+
+	var req types.SpecTaskDesignReviewDocumentUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+	filename, err := designReviewDocumentFilename(req.DocumentType)
+	if err != nil || req.OriginalContent == nil || strings.TrimSpace(req.Content) == "" {
+		http.Error(w, "document_type, non-empty content, and original_content are required", http.StatusBadRequest)
+		return
+	}
+
+	task, err := s.Store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if user.ID != task.CreatedBy {
+		if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	review, err := s.Store.GetSpecTaskDesignReview(ctx, reviewID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if review.SpecTaskID != task.ID {
+		http.Error(w, "design review does not belong to spec task", http.StatusBadRequest)
+		return
+	}
+	if review.Status == types.SpecTaskDesignReviewStatusApproved || review.Status == types.SpecTaskDesignReviewStatusSuperseded {
+		http.Error(w, "approved or superseded design reviews cannot be edited", http.StatusConflict)
+		return
+	}
+
+	project, err := s.Store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if project.DefaultRepoID == "" {
+		http.Error(w, "project has no primary repository", http.StatusBadRequest)
+		return
+	}
+	repo, err := s.gitRepositoryService.GetRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get primary repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	var taskDir string
+	if task.DesignDocPath != "" {
+		taskDir = "design/tasks/" + task.DesignDocPath
+	} else {
+		gitRepo, openErr := services.OpenGitRepo(repo.LocalPath)
+		if openErr != nil {
+			http.Error(w, fmt.Sprintf("failed to open primary repository: %s", openErr.Error()), http.StatusInternalServerError)
+			return
+		}
+		defer gitRepo.Close()
+		taskDir, err = gitRepo.FindTaskDirInBranch(services.SpecsBranchName, "", task.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	documentPath := taskDir + "/" + filename
+	commitHash := review.GitCommitHash
+
+	writeDocument := func() error {
+		currentContent, readErr := s.gitRepositoryService.GetFileContents(ctx, repo.ID, documentPath, services.SpecsBranchName)
+		if readErr != nil {
+			return fmt.Errorf("failed to read current document: %w", readErr)
+		}
+		if currentContent != *req.OriginalContent {
+			return errDesignReviewDocumentChanged
+		}
+		if currentContent == req.Content {
+			var hashErr error
+			commitHash, hashErr = s.gitRepositoryService.GetLocalBranchSHA(ctx, repo.ID, services.SpecsBranchName)
+			return hashErr
+		}
+
+		commitMessage := fmt.Sprintf("docs(specs): update %s from review", filename)
+		var writeErr error
+		commitHash, writeErr = s.gitRepositoryService.CreateOrUpdateFileContents(
+			ctx,
+			repo.ID,
+			documentPath,
+			services.SpecsBranchName,
+			[]byte(req.Content),
+			commitMessage,
+			user.GitAuthorName(),
+			user.GitAuthorEmail(),
+		)
+		return writeErr
+	}
+
+	if repo.IsExternal && repo.ExternalURL != "" {
+		err = s.gitRepositoryService.WithExternalRepoWrite(ctx, repo, services.ExternalRepoWriteOptions{
+			Branch:          services.SpecsBranchName,
+			FailOnSyncError: true,
+			FailOnPushError: true,
+		}, writeDocument)
+	} else {
+		err = s.gitRepositoryService.WithRepoLock(repo.ID, writeDocument)
+	}
+	if errors.Is(err, errDesignReviewDocumentChanged) {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to update design document: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	// Git writes can take seconds. Re-read both rows, revalidate ownership and
+	// editability, then update only document-owned columns.
+	task, err = s.Store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	review, err = s.Store.GetSpecTaskDesignReview(ctx, reviewID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if review.SpecTaskID != task.ID {
+		http.Error(w, "design review does not belong to spec task", http.StatusBadRequest)
+		return
+	}
+	if review.Status == types.SpecTaskDesignReviewStatusApproved || review.Status == types.SpecTaskDesignReviewStatusSuperseded {
+		http.Error(w, "approved or superseded design reviews cannot be edited", http.StatusConflict)
+		return
+	}
+
+	now := time.Now()
+	reviewUpdates, taskUpdates := designReviewDocumentUpdates(req.DocumentType, req.Content)
+	reviewUpdates["git_branch"] = services.SpecsBranchName
+	reviewUpdates["git_commit_hash"] = commitHash
+	reviewUpdates["git_pushed_at"] = now
+	if err := s.Store.UpdateSpecTaskDesignReviewDocument(ctx, review.ID, task.ID, reviewUpdates, taskUpdates); err != nil {
+		if errors.Is(err, store.ErrSpecTaskDesignReviewNotEditable) {
+			http.Error(w, "approved or superseded design reviews cannot be edited", http.StatusConflict)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	setDesignReviewDocumentContent(review, task, req.DocumentType, req.Content)
+	review.GitBranch = services.SpecsBranchName
+	review.GitCommitHash = commitHash
+	review.GitPushedAt = now
+	review.UpdatedAt = now
+
+	writeResponse(w, review, http.StatusOK)
+}
+
 // submitDesignReview approves or requests changes for a design review
 // @Summary Submit design review decision
 // @Description Approve or request changes for a design review
@@ -305,7 +543,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 	switch req.Decision {
 	case "approve":
-		if review.Status == types.SpecTaskDesignReviewStatusApproved {
+		if review.Status == types.SpecTaskDesignReviewStatusApproved && specTask.Status == types.TaskStatusImplementation {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(review)
 			return
@@ -318,6 +556,17 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 		switch specTask.Status {
 		case types.TaskStatusSpecReview, types.TaskStatusSpecRevision, types.TaskStatusSpecGeneration:
+			if reason, validationErr := s.validateSpecTaskAgentConfig(ctx, specTask, user.ID, types.SpecTaskPhaseImplementation); validationErr != nil {
+				http.Error(w, validationErr.Error(), http.StatusInternalServerError)
+				return
+			} else if reason != "" {
+				writeResponse(w, map[string]interface{}{
+					"error":   "agent_config_invalid",
+					"message": reason,
+				}, http.StatusUnprocessableEntity)
+				return
+			}
+
 			// Before advancing to implementation, validate the approver has
 			// provider OAuth so their credentials can be used for commits and
 			// push. Mirrors the check in approveSpecs/approveImplementation —
@@ -363,17 +612,25 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 				s.auditLogService.LogTaskApproved(ctx, specTask, user.ID, user.Email)
 			}
 
-			s.wg.Add(1)
-			go func() {
-				defer s.wg.Done()
-				if err := s.specDrivenTaskService.ApproveSpecs(context.Background(), specTask); err != nil {
-					log.Error().
-						Err(err).
-						Str("spec_task_id", specTask.ID).
-						Str("review_id", review.ID).
-						Msg("[DesignReview] Failed to process spec approval (orchestrator will retry)")
+			if err := s.specDrivenTaskService.ApproveSpecs(ctx, specTask); err != nil {
+				if errors.Is(err, services.ErrImplementationHandoffAlreadyClaimed) {
+					http.Error(w, err.Error(), http.StatusConflict)
+					return
 				}
-			}()
+				s.persistSpecApprovalError(ctx, specTask.ID, err)
+				http.Error(w, fmt.Sprintf("failed to start implementation: %v", err), http.StatusInternalServerError)
+				return
+			}
+		case types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued:
+			if err := s.specDrivenTaskService.ApproveSpecs(ctx, specTask); err != nil {
+				if errors.Is(err, services.ErrImplementationHandoffAlreadyClaimed) {
+					http.Error(w, err.Error(), http.StatusConflict)
+					return
+				}
+				s.persistSpecApprovalError(ctx, specTask.ID, err)
+				http.Error(w, fmt.Sprintf("failed to start implementation: %v", err), http.StatusInternalServerError)
+				return
+			}
 		default:
 			log.Info().
 				Str("spec_task_id", specTask.ID).
