@@ -70,7 +70,8 @@ import CommentLogSidebar from "./CommentLogSidebar";
 import ReviewActionFooter from "./ReviewActionFooter";
 import ReviewSubmitDialog from "./ReviewSubmitDialog";
 import { useSpecTask } from "../../services/specTaskService";
-import { TypesSpecTaskStatus } from "../../api/api";
+import { useGetSession } from "../../services/sessionService";
+import { TypesInteractionState, TypesSpecTaskStatus } from "../../api/api";
 import Markdown from "../session/Markdown";
 import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY, TYPOGRAPHY } from "../../styles/typography";
 import type { WorkspaceReviewComment } from "../workspace-inspector/workspaceReviewComments";
@@ -90,11 +91,21 @@ interface DesignReviewContentProps {
   /** If provided, renders a "← Back to task" tab as the first tab in the tab strip */
   onBack?: () => void;
   onQueueComment?: (comment: WorkspaceReviewComment) => void;
-  onSendComment?: (comment: WorkspaceReviewComment) => Promise<void>;
+  onSendComment?: (comment: WorkspaceReviewComment) => Promise<{
+    sessionId: string;
+    interactionId?: string;
+    promptMessage?: string;
+    startedAt: number;
+  } | void>;
 }
 
 let planCommentSequence = 0;
 const nextPlanCommentId = () => `plan-comment-${Date.now()}-${++planCommentSequence}`;
+const TERMINAL_INTERACTION_STATES = new Set<TypesInteractionState>([
+  TypesInteractionState.InteractionStateComplete,
+  TypesInteractionState.InteractionStateError,
+  TypesInteractionState.InteractionStateInterrupted,
+]);
 
 const DOCUMENT_LABELS = {
   requirements: "Requirements Specification",
@@ -260,6 +271,13 @@ export default function DesignReviewContent({
   // Track when we just created a comment - enables queue polling immediately without waiting for comments refresh
   const [awaitingCommentResponse, setAwaitingCommentResponse] = useState(false);
   const [awaitingSentCommentTurn, setAwaitingSentCommentTurn] = useState(false);
+  const [sentCommentTurn, setSentCommentTurn] = useState<{
+    sessionId: string;
+    interactionId?: string;
+    promptMessage?: string;
+    startedAt: number;
+  } | null>(null);
+  const isSendingCommentRef = useRef(false);
 
   // Refs for positioning
   const documentRef = useRef<HTMLDivElement>(null);
@@ -332,6 +350,12 @@ export default function DesignReviewContent({
     },
   );
 
+  const { data: sentCommentSessionResponse, isError: sentCommentSessionError } =
+    useGetSession(sentCommentTurn?.sessionId || "", {
+      enabled: awaitingSentCommentTurn && !!sentCommentTurn?.sessionId,
+      refetchInterval: awaitingSentCommentTurn ? 3000 : false,
+    });
+
   const submitReviewMutation = useSubmitReview(specTaskId, reviewId);
   const updateDocumentMutation = useUpdateDesignReviewDocument(specTaskId, reviewId);
   const createCommentMutation = useCreateComment(specTaskId, reviewId);
@@ -379,6 +403,50 @@ export default function DesignReviewContent({
 
   const review = reviewData?.review;
   const allComments = commentsData?.comments || [];
+  const sentCommentInteractions = sentCommentSessionResponse?.data?.interactions || [];
+  const sentCommentInteraction = (() => {
+    if (sentCommentTurn?.interactionId) {
+      return sentCommentInteractions.find(
+        (interaction) => interaction.id === sentCommentTurn.interactionId,
+      );
+    }
+    if (sentCommentTurn?.promptMessage) {
+      return [...sentCommentInteractions].reverse().find(
+        (interaction) => interaction.prompt_message === sentCommentTurn.promptMessage,
+      );
+    }
+    return [...sentCommentInteractions].reverse().find((interaction) => {
+      const createdAt = Date.parse(interaction.created || "");
+      return Number.isFinite(createdAt) &&
+        createdAt >= (sentCommentTurn?.startedAt || 0) - 1000;
+    });
+  })();
+  const sentCommentInteractionState =
+    sentCommentInteraction?.state ?? TypesInteractionState.InteractionStateNone;
+
+  useEffect(() => {
+    if (!awaitingSentCommentTurn) return;
+    if (
+      !sentCommentSessionError &&
+      !TERMINAL_INTERACTION_STATES.has(sentCommentInteractionState)
+    ) {
+      return;
+    }
+    queryClient.invalidateQueries({
+      queryKey: designReviewKeys.comments(specTaskId, reviewId),
+    });
+    void queryClient.refetchQueries({
+      queryKey: designReviewKeys.detail(specTaskId, reviewId),
+    });
+    setAwaitingSentCommentTurn(false);
+    setSentCommentTurn(null);
+  }, [
+    awaitingSentCommentTurn,
+    sentCommentInteractionState,
+    sentCommentSessionError,
+    specTaskId,
+    reviewId,
+  ]);
 
   // Refs to access latest values inside WebSocket messageHandler (avoids stale closures)
   const allCommentsRef = useRef(allComments);
@@ -760,7 +828,6 @@ export default function DesignReviewContent({
               void queryClient.refetchQueries({
                 queryKey: designReviewKeys.detail(specTaskId, reviewId),
               });
-              setAwaitingSentCommentTurn(false);
               // Mark as complete rather than clearing immediately — keeps the response content
               // visible on comment 1 while the React Query cache refreshes. The next comment's
               // streaming events will naturally overwrite this with the new comment's data.
@@ -821,7 +888,6 @@ export default function DesignReviewContent({
             void queryClient.refetchQueries({
               queryKey: designReviewKeys.detail(specTaskId, reviewId),
             });
-            setAwaitingSentCommentTurn(false);
             // Mark as complete rather than clearing immediately (see session_update handler above)
             setStreamingResponse(prev => prev ? { ...prev, isComplete: true } : null);
             streamEntries = [];
@@ -1262,12 +1328,19 @@ export default function DesignReviewContent({
   };
 
   const handleSendComment = async () => {
-    if (!commentText.trim() || !onSendComment) return;
+    if (
+      !commentText.trim() ||
+      !onSendComment ||
+      isSendingComment ||
+      isSendingCommentRef.current
+    ) return;
 
+    isSendingCommentRef.current = true;
     setIsSendingComment(true);
     setAwaitingSentCommentTurn(true);
     try {
-      await onSendComment(buildPlanReviewComment({
+      const startedAt = Date.now();
+      const sentTurn = await onSendComment(buildPlanReviewComment({
         id: nextPlanCommentId(),
         specTaskId,
         designDocPath: task?.design_doc_path,
@@ -1276,6 +1349,10 @@ export default function DesignReviewContent({
         selectedText,
         text: commentText,
       }));
+      setSentCommentTurn(sentTurn || {
+        sessionId: planningSessionId || "",
+        startedAt,
+      });
       snackbar.success("Comment sent to agent");
       removeHighlight();
       setCommentText("");
@@ -1284,8 +1361,10 @@ export default function DesignReviewContent({
       setShowCommentForm(false);
     } catch (error) {
       setAwaitingSentCommentTurn(false);
+      setSentCommentTurn(null);
       snackbar.error(error instanceof Error ? error.message : "Failed to send comment");
     } finally {
+      isSendingCommentRef.current = false;
       setIsSendingComment(false);
     }
   };

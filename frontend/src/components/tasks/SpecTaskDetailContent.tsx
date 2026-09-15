@@ -815,13 +815,25 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (!activeSessionId) {
       throw new Error("No active agent session");
     }
+    const startedAt = Date.now();
+    const promptMessage = appendWorkspaceReviewComments("", [comment]);
     handleWillSend();
-    await streaming.NewInference({
+    const session = await streaming.NewInference({
       type: SESSION_TYPE_TEXT,
-      message: appendWorkspaceReviewComments("", [comment]),
+      message: promptMessage,
       sessionId: activeSessionId,
       interrupt: true,
     });
+    const interactions = session.interactions || [];
+    const sentInteraction = [...interactions].reverse().find(
+      (interaction) => interaction.prompt_message === promptMessage,
+    );
+    return {
+      sessionId: activeSessionId,
+      interactionId: sentInteraction?.id,
+      promptMessage,
+      startedAt,
+    };
   };
 
   // Default to appropriate view based on session state and screen size

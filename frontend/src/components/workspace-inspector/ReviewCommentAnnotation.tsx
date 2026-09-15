@@ -128,7 +128,7 @@ export default function ReviewCommentAnnotation({
           }
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && displayedText.trim()) {
             event.preventDefault();
-            if (onSend) send();
+            if (onSend && !event.shiftKey) send();
             else submit();
           }
         }}
@@ -159,7 +159,9 @@ export default function ReviewCommentAnnotation({
           color="text.secondary"
           sx={{ mr: "auto", opacity: 0.7, fontSize: TYPOGRAPHY.codeChromeFontSize }}
         >
-          ⌘/Ctrl Enter to {onSend ? "send" : "add"}
+          {onSend
+            ? "⌘/Ctrl Enter to send · Shift+⌘/Ctrl Enter to add to chat"
+            : "⌘/Ctrl Enter to add"}
         </Typography>
         <Button
           size="small"

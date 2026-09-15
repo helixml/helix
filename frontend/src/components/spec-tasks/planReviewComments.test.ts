@@ -46,4 +46,37 @@ describe("buildPlanReviewComment", () => {
       contents: "Rendered-only text",
     });
   });
+
+  it("locates rendered text across inline markdown formatting", () => {
+    const documentContent =
+      "Use **bold guidance** and [`code links`](https://example.com/docs) here.";
+    const comment = buildPlanReviewComment({
+      id: "plan-4",
+      specTaskId: "spt_4",
+      documentType: "technical_design",
+      documentContent,
+      selectedText: "Use bold guidance and code links here.",
+      text: "Keep this concrete",
+    });
+
+    expect(comment.startIndex).toBe(documentContent.indexOf("Use"));
+    expect(comment.endIndex).toBe(
+      documentContent.indexOf("here.") + "here.".length - 1,
+    );
+  });
+
+  it("maps collapsed rendered whitespace back to source offsets", () => {
+    const documentContent = "First line\n\nsecond line";
+    const comment = buildPlanReviewComment({
+      id: "plan-5",
+      specTaskId: "spt_5",
+      documentType: "requirements",
+      documentContent,
+      selectedText: "First line second line",
+      text: "Join this thought",
+    });
+
+    expect(comment.startIndex).toBe(0);
+    expect(comment.endIndex).toBe(documentContent.length - 1);
+  });
 });

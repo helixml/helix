@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import DesignReviewContent from "./DesignReviewContent";
 
 const updateDocument = vi.fn();
 const snackbarSuccess = vi.fn();
+const useGetSessionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../services/designReviewService", () => ({
   designReviewKeys: {
@@ -39,6 +40,9 @@ vi.mock("../../services/designReviewService", () => ({
 
 vi.mock("../../services/specTaskService", () => ({
   useSpecTask: () => ({ data: { id: "task-1", status: "spec_review" } }),
+}));
+vi.mock("../../services/sessionService", () => ({
+  useGetSession: (...args: unknown[]) => useGetSessionMock(...args),
 }));
 vi.mock("../session/Markdown", () => ({
   default: ({ text }: { text: string }) => <p data-testid="agent-chat-markdown">{text}</p>,
@@ -94,6 +98,8 @@ describe("DesignReviewContent document editing", () => {
     updateDocument.mockReset();
     updateDocument.mockResolvedValue({});
     snackbarSuccess.mockReset();
+    useGetSessionMock.mockReset();
+    useGetSessionMock.mockReturnValue({ data: undefined, isError: false });
     vi.stubGlobal("ResizeObserver", ResizeObserverStub);
   });
 
@@ -182,5 +188,98 @@ describe("DesignReviewContent document editing", () => {
       contents: expect.stringContaining("Original text"),
     })));
     expect(onQueueComment).not.toHaveBeenCalled();
+  });
+
+  it("prevents duplicate immediate sends while the first request is pending", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let resolveSend: (value: { sessionId: string; startedAt: number }) => void = () => {};
+    const pendingSend = new Promise<{ sessionId: string; startedAt: number }>((resolve) => {
+      resolveSend = resolve;
+    });
+    const onSendComment = vi.fn(() => pendingSend);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DesignReviewContent
+          specTaskId="task-1"
+          reviewId="review-1"
+          onClose={vi.fn()}
+          onSendComment={onSendComment}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.mouseMove(screen.getByTestId("agent-chat-markdown"));
+    fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Plan comment" }), {
+      target: { value: "Send only once" },
+    });
+    const sendButton = screen.getByRole("button", { name: "Send" });
+    fireEvent.click(sendButton);
+    fireEvent.click(sendButton);
+
+    expect(onSendComment).toHaveBeenCalledOnce();
+    await act(async () => resolveSend({ sessionId: "selected-session", startedAt: Date.now() }));
+  });
+
+  it("refreshes the document when the targeted session turn is interrupted", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const refetchQueries = vi.spyOn(queryClient, "refetchQueries");
+    let sessionResult: { data?: { data: { interactions: Array<Record<string, string>> } }; isError: boolean } = {
+      data: undefined,
+      isError: false,
+    };
+    useGetSessionMock.mockImplementation(() => sessionResult);
+    const onSendComment = vi.fn().mockResolvedValue({
+      sessionId: "selected-session",
+      interactionId: "sent-interaction",
+      promptMessage: "sent prompt",
+      startedAt: Date.now(),
+    });
+    const view = (
+      <QueryClientProvider client={queryClient}>
+        <DesignReviewContent
+          specTaskId="task-1"
+          reviewId="review-1"
+          onClose={vi.fn()}
+          onSendComment={onSendComment}
+        />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view);
+
+    fireEvent.mouseMove(screen.getByTestId("agent-chat-markdown"));
+    fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Plan comment" }), {
+      target: { value: "Handle interruption" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(useGetSessionMock).toHaveBeenCalledWith(
+      "selected-session",
+      expect.objectContaining({ enabled: true }),
+    ));
+
+    sessionResult = {
+      data: {
+        data: {
+          interactions: [{ id: "sent-interaction", state: "interrupted" }],
+        },
+      },
+      isError: false,
+    };
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <DesignReviewContent
+          specTaskId="task-1"
+          reviewId="review-1"
+          onClose={vi.fn()}
+          onSendComment={onSendComment}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(refetchQueries).toHaveBeenCalledWith({
+      queryKey: ["design-reviews", "detail", "task-1", "review-1"],
+    }));
   });
 });

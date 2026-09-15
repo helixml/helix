@@ -37,4 +37,33 @@ describe("InlineCommentForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(onSend).toHaveBeenCalledOnce();
   });
+
+  it("provides keyboard shortcuts for send and add to chat", () => {
+    const onCreate = vi.fn();
+    const onSend = vi.fn();
+    render(
+      <InlineCommentForm
+        show
+        yPos={100}
+        selectedText="Selected plan text"
+        commentText="Please clarify"
+        onCommentChange={vi.fn()}
+        onCreate={onCreate}
+        onSend={onSend}
+        onCancel={vi.fn()}
+        submitLabel="Add to chat"
+      />,
+    );
+
+    const input = screen.getByRole("textbox", { name: "Comment on selected text" });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(onCreate).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true, shiftKey: true });
+    expect(onCreate).toHaveBeenCalledOnce();
+    expect(
+      screen.getByText("⌘/Ctrl Enter to send · Shift+⌘/Ctrl Enter to add to chat"),
+    ).toBeInTheDocument();
+  });
 });
