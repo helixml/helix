@@ -1720,11 +1720,13 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         GO_VERSION=$$(awk '/^go [0-9]/ {print $$2; exit}' go.mod)
+        SKILLS_COMMIT=$$(awk -F= '$$1 == "SKILLS_COMMIT" { print $$2 }' sandbox-versions.txt)
         echo "Building helix-ubuntu..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
           --build-arg CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:2c8193530ecc423e0f123d0c85b68a15d1395adcddabfc943e2523dbfde172e1 \
           --build-arg GO_VERSION=$${GO_VERSION} \
+          --build-arg SKILLS_COMMIT=$${SKILLS_COMMIT} \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64 \
           .
         docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
@@ -2006,11 +2008,13 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         GO_VERSION=$$(awk '/^go [0-9]/ {print $$2; exit}' go.mod)
+        SKILLS_COMMIT=$$(awk -F= '$$1 == "SKILLS_COMMIT" { print $$2 }' sandbox-versions.txt)
         echo "Building helix-ubuntu (arm64, no CUDA)..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
           --build-arg CUDA_BASE_IMAGE=ubuntu:25.10@sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b \
           --build-arg GO_VERSION=$${GO_VERSION} \
+          --build-arg SKILLS_COMMIT=$${SKILLS_COMMIT} \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64 \
           .
         docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64

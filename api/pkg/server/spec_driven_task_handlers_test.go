@@ -245,31 +245,31 @@ func TestListTasks_RequiresProjectOrOrganization(t *testing.T) {
 // A helix-org agent creates tasks with a session-scoped key; the session it
 // names carries the agent's handle, which the task records as its creator
 // agent. Humans and plain keys have no session and record nothing.
-func TestOrgAgentForRequestUser(t *testing.T) {
+func TestOrgBotForRequestUser(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	server := &HelixAPIServer{Store: mockStore}
 
-	agent, err := server.orgAgentForRequestUser(context.Background(), &types.User{ID: "user1"})
+	bot, err := server.orgBotForRequestUser(context.Background(), &types.User{ID: "user1"})
 	require.NoError(t, err)
-	require.Empty(t, agent)
+	require.Empty(t, bot)
 
 	mockStore.EXPECT().GetSession(gomock.Any(), "ses_bot").Return(&types.Session{
 		ID:       "ses_bot",
 		Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"},
 	}, nil)
-	agent, err = server.orgAgentForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_bot"})
+	bot, err = server.orgBotForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_bot"})
 	require.NoError(t, err)
-	require.Equal(t, "chief-of-staff", agent)
+	require.Equal(t, "chief-of-staff", bot)
 
 	// A key bound to a session that cannot be loaded is an inconsistency,
 	// not a human to attribute the task to.
 	mockStore.EXPECT().GetSession(gomock.Any(), "ses_gone").Return(nil, store.ErrNotFound)
-	_, err = server.orgAgentForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_gone"})
+	_, err = server.orgBotForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_gone"})
 	require.Error(t, err)
 }
 
-func TestListTasks_FiltersByCreatorOrgAgent(t *testing.T) {
+func TestListTasks_FiltersByCreatorOrgBot(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	server := &HelixAPIServer{Store: mockStore}
@@ -283,7 +283,7 @@ func TestListTasks_FiltersByCreatorOrgAgent(t *testing.T) {
 			return []*types.SpecTask{}, nil
 		})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/spec-tasks?project_id=project1&created_by_org_agent=chief-of-staff", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/spec-tasks?project_id=project1&created_by_org_bot=chief-of-staff", nil)
 	req = req.WithContext(setRequestUser(req.Context(), user))
 	response := httptest.NewRecorder()
 
@@ -291,5 +291,5 @@ func TestListTasks_FiltersByCreatorOrgAgent(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, response.Code)
 	require.NotNil(t, captured)
-	require.Equal(t, "chief-of-staff", captured.CreatedByOrgAgent)
+	require.Equal(t, "chief-of-staff", captured.CreatedByOrgBot)
 }

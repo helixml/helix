@@ -66,7 +66,7 @@ func newWorkerSecretsDeps(t *testing.T) orgapi.Deps {
 func TestListWorkerSecrets_MarksDeletedSourceUnavailable(t *testing.T) {
 	deps := newWorkerSecretsDeps(t)
 
-	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/agents/b-agent/secrets", nil)
+	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/bots/b-agent/secrets", nil)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body)

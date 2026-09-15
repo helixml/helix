@@ -29,7 +29,7 @@ func BoundAgentForProject(ctx context.Context, st *store.Store, orgID, projectID
 	var match orgchart.NodeID
 	var matches int
 	for _, n := range nodes {
-		if n.Kind == orgchart.NodeKindHuman || n.ID == "" {
+		if n.ID == "" {
 			continue
 		}
 		state, stateErr := LoadState(ctx, st, orgID, n.ID)

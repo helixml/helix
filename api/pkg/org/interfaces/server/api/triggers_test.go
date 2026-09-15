@@ -46,7 +46,7 @@ func TestAgentAttachmentRequiresExactProcessorOutput(t *testing.T) {
 	h := orgapi.Handler(deps)
 	seedBot(t, st, context.Background(), "w-one", "# Worker")
 
-	invalid := do(t, h, http.MethodPost, "/agents/w-one/attachments", map[string]any{"source": map[string]any{"kind": "processor_output", "processor_id": "p-one"}})
+	invalid := do(t, h, http.MethodPost, "/bots/w-one/attachments", map[string]any{"source": map[string]any{"kind": "processor_output", "processor_id": "p-one"}})
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("invalid status=%d body=%s", invalid.Code, invalid.Body)
 	}
@@ -76,7 +76,7 @@ func TestTriggerDTOReportsAttachedWorkers(t *testing.T) {
 		t.Fatalf("attached_workers before attach = %v, want none", before.AttachedWorkers)
 	}
 
-	attach := do(t, h, http.MethodPost, "/agents/w-one/attachments", map[string]any{
+	attach := do(t, h, http.MethodPost, "/bots/w-one/attachments", map[string]any{
 		"source": map[string]any{"kind": "trigger", "trigger_id": tr.ID},
 	})
 	if attach.Code != http.StatusCreated {

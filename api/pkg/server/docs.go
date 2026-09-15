@@ -725,19 +725,36 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List all organizations",
+                "description": "List organizations with server-side pagination and name search",
                 "tags": [
                     "organizations"
                 ],
                 "summary": "List organizations with wallets (admin only)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Organizations per page (default: 25, max: 100)",
+                        "name": "per_page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search organization display name or name",
+                        "name": "query",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.OrgDetails"
-                            }
+                            "$ref": "#/definitions/server.AdminOrganizationsResponse"
                         }
                     }
                 }
@@ -1082,7 +1099,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).",
+                "description": "Stash a trial intent when the user owns no organisations, or activate the explicitly selected owned organisation. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).",
                 "consumes": [
                     "application/json"
                 ],
@@ -1102,7 +1119,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Trial parameters (days, credits)",
+                        "description": "Trial parameters and org_id (required iff the user owns an organisation)",
                         "name": "request",
                         "in": "body",
                         "schema": {
@@ -1125,7 +1142,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Clears any stashed trial intent on the user and cancels the Stripe subscription on the user's oldest owned org if it is currently in a trialing state. Paid (active) subscriptions are never cancelled.",
+                "description": "Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the oldest owned org whose readable wallet is trialing. At most one subscription is cancelled per call. Paid (active) subscriptions are never cancelled.",
                 "produces": [
                     "application/json"
                 ],
@@ -4550,6 +4567,72 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/workspace-file/download": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Streams a complete, binary-safe workspace file from the task desktop.",
+                "produces": [
+                    "image/*",
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Download a workspace file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository-relative file path",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/external-agents/{sessionID}/workspace-files": {
             "get": {
                 "security": [
@@ -7750,6 +7833,100 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/interactions/{interaction_id}/questions/{request_id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Cancels the agent question currently pending on an interaction",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "Cancel an agent question",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interaction_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Question request ID",
+                        "name": "request_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionActionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/interactions/{interaction_id}/questions/{request_id}/respond": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sends answers to the agent question currently pending on an interaction",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "Respond to an agent question",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interaction_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Question request ID",
+                        "name": "request_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Question answers",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionRespondRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionActionResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/invitations/{id}/info": {
             "get": {
                 "description": "Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).",
@@ -10206,779 +10383,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/agents": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "List the canonical Agents in an organization, including their instructions, tools, runtime, model configuration, and reporting lines.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: list agents",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/api.BotDTO"
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Create a canonical Agent with its org-chart position, trigger attachments, tools, and Agent App configuration.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: create an agent",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Agent specification",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.CreateBotRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/api.CreateBotResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "501": {
-                        "description": "Not Implemented",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get one canonical Agent with its instructions, tools, runtime, model configuration, project, and reporting lines.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: get agent detail",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.AgentDetailDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Delete an Agent after archiving its runtime-owned project and deleting its Agent App, knowledge, runtime state, attachments, reporting lines, and org-chart row. Repositories are preserved.",
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: delete an agent",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "501": {
-                        "description": "Not Implemented",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "patch": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Update the canonical Agent instructions, tools, project access, runtime, provider, model, or reasoning configuration.",
-                "consumes": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: update an agent",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Agent fields to update",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.UpdateBotRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.BotDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}/activate": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: activate an agent",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "202": {
-                        "description": "Accepted",
-                        "schema": {
-                            "$ref": "#/definitions/api.BotActivateDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "501": {
-                        "description": "Not Implemented",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}/attachments": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: list agent attachments",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization ID or slug",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.AttachmentListResponse"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: attach an agent to a source",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization ID or slug",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Source",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.AttachmentWriteRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/api.AttachmentDTO"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}/attachments/{attachment_id}": {
-            "delete": {
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: delete an agent attachment",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization ID or slug",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Attachment ID",
-                        "name": "attachment_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}/available-secrets": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "List sources that may be granted to an Agent",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/workersecret.AvailableSource"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}/chat": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: provision an agent chat",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.BotChatDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "501": {
-                        "description": "Not Implemented",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}/parents": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: add an agent manager",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID of the direct report",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Manager Agent ID",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.AddBotParentRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}/parents/{parent_id}": {
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: remove an agent manager",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID of the direct report",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Manager Agent ID",
-                        "name": "parent_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}/restart-agent": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: restart an agent session",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "202": {
-                        "description": "Accepted",
-                        "schema": {
-                            "$ref": "#/definitions/api.BotActivateDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "501": {
-                        "description": "Not Implemented",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}/secrets": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "List an Agent's secret bindings",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/api.WorkerSecretBindingDTO"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}/secrets/{name}": {
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Create or replace an Agent secret binding",
-                "parameters": [
-                    {
-                        "description": "Binding metadata",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.PutWorkerSecretRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.WorkerSecretBindingDTO"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Delete an Agent secret binding",
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/agents/{id}/stop-agent": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: stop an agent desktop",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or ID",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "501": {
-                        "description": "Not Implemented",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/orgs/{org}/assets": {
             "get": {
                 "security": [
@@ -11177,10 +10581,10 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: link an asset to an agent",
+                "summary": "Helix-org: link an asset to a bot",
                 "parameters": [
                     {
-                        "description": "Agent link",
+                        "description": "Bot link",
                         "name": "payload",
                         "in": "body",
                         "required": true,
@@ -11193,13 +10597,13 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/asset.Link"
+                            "$ref": "#/definitions/api.AssetLinkDTO"
                         }
                     }
                 }
             }
         },
-        "/api/v1/orgs/{org}/assets/{id}/links/{agent_id}": {
+        "/api/v1/orgs/{org}/assets/{id}/links/{bot_id}": {
             "delete": {
                 "security": [
                     {
@@ -11209,7 +10613,7 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: unlink an asset from an agent",
+                "summary": "Helix-org: unlink an asset from a bot",
                 "responses": {
                     "204": {
                         "description": "No Content"
@@ -11478,6 +10882,146 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/bots/{id}/attachments": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list bot attachments",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.AttachmentListResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: attach a bot to a source",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Source",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.AttachmentWriteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.AttachmentDTO"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/attachments/{attachment_id}": {
+            "delete": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a bot attachment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Attachment ID",
+                        "name": "attachment_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/available-secrets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "List sources that may be granted to a Bot",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/workersecret.AvailableSource"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots/{id}/chat": {
             "post": {
                 "security": [
@@ -11623,7 +11167,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/bots/{id}/restart-agent": {
+        "/api/v1/orgs/{org}/bots/{id}/restart": {
             "post": {
                 "security": [
                     {
@@ -11633,7 +11177,7 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: restart a bot's agent session (fresh session + desktop)",
+                "summary": "Helix-org: restart a bot (fresh session + desktop)",
                 "parameters": [
                     {
                         "type": "string",
@@ -11671,7 +11215,79 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/bots/{id}/stop-agent": {
+        "/api/v1/orgs/{org}/bots/{id}/secrets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "List a Bot's secret bindings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.WorkerSecretBindingDTO"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/secrets/{name}": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Create or replace a Bot secret binding",
+                "parameters": [
+                    {
+                        "description": "Binding metadata",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.PutWorkerSecretRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerSecretBindingDTO"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Delete a Bot secret binding",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/stop": {
             "post": {
                 "security": [
                     {
@@ -11681,7 +11297,7 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: stop a bot's agent desktop",
+                "summary": "Helix-org: stop a bot's desktop",
                 "parameters": [
                     {
                         "type": "string",
@@ -19753,8 +19369,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Only tasks created by this helix-org agent (bot handle)",
-                        "name": "created_by_org_agent",
+                        "description": "Only tasks created by this Org Bot handle",
+                        "name": "created_by_org_bot",
                         "in": "query"
                     },
                     {
@@ -23094,6 +22710,12 @@ const docTemplate = `{
                         "description": "Organization ID",
                         "name": "org_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Discover a subscription after returning from Checkout",
+                        "name": "discover_subscription",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -23550,114 +23172,10 @@ const docTemplate = `{
                 }
             }
         },
-        "api.AgentDetailDTO": {
-            "type": "object",
-            "properties": {
-                "agent_app_id": {
-                    "type": "string"
-                },
-                "agent_id": {
-                    "type": "string"
-                },
-                "agent_model": {
-                    "type": "string"
-                },
-                "agent_runtime": {
-                    "type": "string"
-                },
-                "agent_status": {
-                    "description": "AgentStatus is \"running\" when the bot's desktop sandbox is online,\n\"stopped\" otherwise (no session, paused, never activated). Drives\nthe green/grey presence dot on the org chart.",
-                    "type": "string"
-                },
-                "code_agent_credential_type": {
-                    "$ref": "#/definitions/types.CodeAgentCredentialType"
-                },
-                "code_agent_runtime": {
-                    "$ref": "#/definitions/types.CodeAgentRuntime"
-                },
-                "content": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "default_instructions": {
-                    "description": "DefaultInstructions is the built-in seed prompt for this node, when\none exists (currently only the Chief of Staff every org is seeded\nwith). It lets the UI offer \"reset instructions\" and hide that\naffordance for operator-created nodes, which have no default to\nreset to. Detail-only: GET /bots/{id} populates it, the list does\nnot (it would repeat kilobytes of prompt per row).",
-                    "type": "string"
-                },
-                "helix_user_id": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "identity": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "kind": {
-                    "description": "Kind is \"\" (agent) or \"human\". A human node is a person placeholder,\nnever activated; Identity holds their cross-system handles and\nHelixUserID optionally links them to a Helix org member. Identity is\nomitted for agent bots.",
-                    "type": "string"
-                },
-                "model": {
-                    "type": "string"
-                },
-                "name": {
-                    "description": "Name is the human-readable display label; empty means the UI falls\nback to ID. Distinct from ID, which is the immutable handle.",
-                    "type": "string"
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "parent_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "preserve_context": {
-                    "description": "PreserveContext, when true, stops the runtime from wiping this\nBot's chat session before each re-activation, so it accumulates\ncontext across triggers (e.g. Slack). Defaults to false.",
-                    "type": "boolean"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "project_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "provider": {
-                    "type": "string"
-                },
-                "reasoning_effort": {
-                    "type": "string"
-                },
-                "restart_required": {
-                    "description": "RestartRequired is true when the sandbox is running but still holds\nthe tool list and instructions from before the last save. Drives the\nrestart banner on the bot page and the org chat panel.",
-                    "type": "boolean"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "tools": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
         "api.AssetDTO": {
             "type": "object",
             "properties": {
-                "agent_ids": {
+                "bot_ids": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -23681,7 +23199,7 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
-                "notes_for_agents": {
+                "notes_for_bots": {
                     "type": "string"
                 },
                 "organization_id": {
@@ -23715,10 +23233,27 @@ const docTemplate = `{
                 }
             }
         },
+        "api.AssetLinkDTO": {
+            "type": "object",
+            "properties": {
+                "asset_id": {
+                    "type": "string"
+                },
+                "bot_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                }
+            }
+        },
         "api.AssetLinkRequest": {
             "type": "object",
             "properties": {
-                "agent_id": {
+                "bot_id": {
                     "type": "string"
                 }
             }
@@ -23726,7 +23261,7 @@ const docTemplate = `{
         "api.AssetLinksResponse": {
             "type": "object",
             "properties": {
-                "agent_ids": {
+                "bot_ids": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -23787,10 +23322,7 @@ const docTemplate = `{
                 "activation_id": {
                     "type": "string"
                 },
-                "agent_app_id": {
-                    "type": "string"
-                },
-                "agent_id": {
+                "legacy_app_id": {
                     "type": "string"
                 },
                 "project_id": {
@@ -23812,10 +23344,7 @@ const docTemplate = `{
         "api.BotChatDTO": {
             "type": "object",
             "properties": {
-                "agent_app_id": {
-                    "type": "string"
-                },
-                "agent_id": {
+                "legacy_app_id": {
                     "type": "string"
                 },
                 "project_id": {
@@ -23826,20 +23355,10 @@ const docTemplate = `{
         "api.BotDTO": {
             "type": "object",
             "properties": {
-                "agent_app_id": {
-                    "type": "string"
-                },
-                "agent_id": {
-                    "type": "string"
-                },
                 "agent_model": {
                     "type": "string"
                 },
                 "agent_runtime": {
-                    "type": "string"
-                },
-                "agent_status": {
-                    "description": "AgentStatus is \"running\" when the bot's desktop sandbox is online,\n\"stopped\" otherwise (no session, paused, never activated). Drives\nthe green/grey presence dot on the org chart.",
                     "type": "string"
                 },
                 "code_agent_credential_type": {
@@ -23858,20 +23377,16 @@ const docTemplate = `{
                     "description": "DefaultInstructions is the built-in seed prompt for this node, when\none exists (currently only the Chief of Staff every org is seeded\nwith). It lets the UI offer \"reset instructions\" and hide that\naffordance for operator-created nodes, which have no default to\nreset to. Detail-only: GET /bots/{id} populates it, the list does\nnot (it would repeat kilobytes of prompt per row).",
                     "type": "string"
                 },
-                "helix_user_id": {
-                    "type": "string"
+                "effective_sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "effective_sandbox_runtime": {
+                    "$ref": "#/definitions/types.SandboxRuntime"
                 },
                 "id": {
                     "type": "string"
                 },
-                "identity": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "kind": {
-                    "description": "Kind is \"\" (agent) or \"human\". A human node is a person placeholder,\nnever activated; Identity holds their cross-system handles and\nHelixUserID optionally links them to a Helix org member. Identity is\nomitted for agent bots.",
+                "legacy_app_id": {
                     "type": "string"
                 },
                 "model": {
@@ -23914,7 +23429,31 @@ const docTemplate = `{
                     "description": "RestartRequired is true when the sandbox is running but still holds\nthe tool list and instructions from before the last save. Drives the\nrestart banner on the bot page and the org chat panel.",
                     "type": "boolean"
                 },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime and SandboxResourceOverrides are the bot's own sandbox\nconfig in the spec-task vocabulary; empty means \"inherit the org\ndefault\". The Effective* fields are what the next container start will\nactually use once org and global defaults are applied. SandboxID /\nSandboxStatus come from the session-backed sandboxes row, when one\nexists (pending, running, stopping, stopped, failed).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
+                "sandbox_status": {
+                    "type": "string"
+                },
+                "sandbox_status_message": {
+                    "type": "string"
+                },
                 "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status is \"running\" when the bot's desktop sandbox is online,\n\"stopped\" otherwise (no session, paused, never activated). Drives\nthe green/grey presence dot on the org chart.",
                     "type": "string"
                 },
                 "tools": {
@@ -23931,15 +23470,12 @@ const docTemplate = `{
         "api.BotDetailDTO": {
             "type": "object",
             "properties": {
-                "agent_app_id": {
-                    "type": "string"
-                },
-                "agent_id": {
-                    "description": "AgentID + ProjectID — see BotChatDTO comments.",
-                    "type": "string"
-                },
                 "bot": {
                     "$ref": "#/definitions/api.BotDTO"
+                },
+                "legacy_app_id": {
+                    "description": "LegacyAppID + ProjectID — see BotChatDTO comments.",
+                    "type": "string"
                 },
                 "project_id": {
                     "type": "string"
@@ -23987,7 +23523,7 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
-                "notes_for_agents": {
+                "notes_for_bots": {
                     "type": "string"
                 },
                 "server": {
@@ -24018,7 +23554,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "owner": {
-                    "description": "Owner makes this a manager Bot: it receives the canonical owner\ntool set (every org-graph mutation - create_bot, delete_bot,\nset_bot_content, subscribe, ... - plus the read baseline) so it can\nhire and manage other Nodes. When true, Tools is ignored in favour\nof that set. Used to seed a starter/root Bot for a new org.",
+                    "description": "Owner makes this a manager Bot: it receives the canonical owner\ntool set (standard worker tools plus org-management mutations such as\ncreate_bot, delete_bot, and set_bot_content) so it can hire and manage\nother Nodes. When true, Tools is ignored in favour of that set. Used to\nseed a starter/root Bot for a new org.",
                     "type": "boolean"
                 },
                 "parent_id": {
@@ -24033,7 +23569,19 @@ const docTemplate = `{
                 "reasoning_effort": {
                     "type": "string"
                 },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime / SandboxResourceOverrides are optional; see BotDTO.\nOnly vcpus is read from the overrides — memory follows the preset.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
                 "tools": {
+                    "description": "Tools contains additions to the standard worker tool set.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -24577,7 +24125,7 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
-                "notes_for_agents": {
+                "notes_for_bots": {
                     "type": "string"
                 },
                 "server": {
@@ -24596,13 +24144,6 @@ const docTemplate = `{
                 },
                 "content": {
                     "type": "string"
-                },
-                "identity": {
-                    "description": "Identity is the per-channel handle map for a human node (slack/github/\nemail/…). When present it replaces the stored map; absent leaves it\nunchanged. Only meaningful for kind=human bots.",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
                 },
                 "model": {
                     "type": "string"
@@ -24624,6 +24165,17 @@ const docTemplate = `{
                 },
                 "reasoning_effort": {
                     "type": "string"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime / SandboxResourceOverrides patch the bot's sandbox\nconfig. A present-but-empty runtime, or vcpus=0, resets that field to\ninherit. Takes effect on the next container start; a running sandbox\ngets restart_required.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
                 },
                 "tools": {
                     "type": "array",
@@ -24728,23 +24280,6 @@ const docTemplate = `{
             "x-enum-varnames": [
                 "KindServer"
             ]
-        },
-        "asset.Link": {
-            "type": "object",
-            "properties": {
-                "agent_id": {
-                    "type": "string"
-                },
-                "asset_id": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "type": "string"
-                }
-            }
         },
         "filestore.Config": {
             "type": "object",
@@ -25926,6 +25461,9 @@ const docTemplate = `{
                 "days": {
                     "type": "integer"
                 },
+                "org_id": {
+                    "type": "string"
+                },
                 "plan": {
                     "description": "Plan selects what to grant. \"pro\" grants a PAID plan via a PlanOverride\n(no Stripe subscription) — for customers who paid out-of-band (bank\ntransfer). Empty or \"trial\" uses the Stripe trial path (Days applies).",
                     "type": "string"
@@ -25951,6 +25489,29 @@ const docTemplate = `{
             "properties": {
                 "hostname": {
                     "type": "string"
+                }
+            }
+        },
+        "server.AdminOrganizationsResponse": {
+            "type": "object",
+            "properties": {
+                "organizations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.OrgDetails"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "pageSize": {
+                    "type": "integer"
+                },
+                "totalCount": {
+                    "type": "integer"
+                },
+                "totalPages": {
+                    "type": "integer"
                 }
             }
         },
@@ -26305,6 +25866,9 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "org_id": {
+                    "type": "string"
+                },
+                "return_url": {
                     "type": "string"
                 }
             }
@@ -28546,24 +28110,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
+                "cron",
+                "helix_events",
                 "email",
                 "local",
-                "cron",
                 "webhook",
-                "github",
+                "slack",
                 "gitlab",
-                "helix_events",
-                "slack"
+                "github"
             ],
             "x-enum-varnames": [
+                "KindCron",
+                "KindHelixEvents",
                 "KindEmail",
                 "KindLocal",
-                "KindCron",
                 "KindWebhook",
-                "KindGitHub",
+                "KindSlack",
                 "KindGitLab",
-                "KindHelixEvents",
-                "KindSlack"
+                "KindGitHub"
             ]
         },
         "transport.ResolvedActivation": {
@@ -32934,6 +32498,9 @@ const docTemplate = `{
                 "mode": {
                     "$ref": "#/definitions/types.SessionMode"
                 },
+                "pending_question": {
+                    "$ref": "#/definitions/types.PendingQuestion"
+                },
                 "prompt_id": {
                     "description": "PromptID links this interaction back to the prompt_history_entry that\ncreated it (when the interaction was dispatched by the queue, as opposed\nto being initiated by Zed when the user types in the IDE). Empty for\nZed-initiated interactions. Used by handleMessageAdded /\nhandleMessageCompleted to mark the originating prompt as 'sent' without\nrelying on an in-memory map that doesn't survive API restarts. See\ndesign/2026-04-30-queue-and-other-stuck-state-bugs.md.",
                     "type": "string"
@@ -32949,6 +32516,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.MessageContent"
                         }
                     ]
+                },
+                "question_history": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ResolvedQuestion"
+                    }
                 },
                 "rag_results": {
                     "type": "array",
@@ -35010,6 +34583,35 @@ const docTemplate = `{
                 }
             }
         },
+        "types.PendingQuestion": {
+            "type": "object",
+            "properties": {
+                "asked_at": {
+                    "type": "string"
+                },
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UserQuestion"
+                    }
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "thread_id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                },
+                "turn_request_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.PinnedChat": {
             "type": "object",
             "properties": {
@@ -36315,6 +35917,25 @@ const docTemplate = `{
                 }
             }
         },
+        "types.QuestionActionResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.QuestionRespondRequest": {
+            "type": "object",
+            "properties": {
+                "answers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "types.QuotaResponse": {
             "type": "object",
             "properties": {
@@ -36597,6 +36218,47 @@ const docTemplate = `{
                 },
                 "private": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.ResolvedQuestion": {
+            "type": "object",
+            "properties": {
+                "answers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "asked_at": {
+                    "type": "string"
+                },
+                "outcome": {
+                    "type": "string"
+                },
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UserQuestion"
+                    }
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "resolved_at": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "thread_id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                },
+                "turn_request_id": {
+                    "type": "string"
                 }
             }
         },
@@ -36922,6 +36584,10 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "org_bot_id": {
+                    "description": "OrgBotID is the helix-org bot whose session owns this container, when\nthere is one. Denormalised from the session (org_worker_id) so the bot\ndetail and the Sandboxes list can link both ways without joining sessions.",
                     "type": "string"
                 },
                 "organization_id": {
@@ -38202,6 +37868,17 @@ const docTemplate = `{
                 "runtime_instructions": {
                     "type": "string"
                 },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime and SandboxResourceOverrides are the container runtime and\nsize for an org-worker session. The org spawner writes them from the Bot\non every activation and StartDesktop reads them on every launch path\n(fresh start, message auto-start, resume, auto-wake, reconciler), so a\nheadless bot never comes back as a desktop. SpecTask sessions leave both\nempty — the task is authoritative there, as with CodeAgentConfig.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
                 "session_rag_results": {
                     "type": "array",
                     "items": {
@@ -38692,8 +38369,8 @@ const docTemplate = `{
                     "description": "Metadata",
                     "type": "string"
                 },
-                "created_by_org_agent": {
-                    "description": "CreatedByOrgAgent is the helix-org agent (org bot handle) that created\nthis task, when an agent rather than a person did. CreatedBy stays the\nhuman the agent acts for; this records the agent so its work can be\nlisted under it.",
+                "created_by_org_bot": {
+                    "description": "CreatedByOrgBot is the Org Bot handle that created this task. CreatedBy\nstays the person the Bot acts for; this records the Bot so its work can be\nlisted under it.",
                     "type": "string"
                 },
                 "credential_owner_id": {
@@ -39554,8 +39231,8 @@ const docTemplate = `{
                     "description": "Metadata",
                     "type": "string"
                 },
-                "created_by_org_agent": {
-                    "description": "CreatedByOrgAgent is the helix-org agent (org bot handle) that created\nthis task, when an agent rather than a person did. CreatedBy stays the\nhuman the agent acts for; this records the agent so its work can be\nlisted under it.",
+                "created_by_org_bot": {
+                    "description": "CreatedByOrgBot is the Org Bot handle that created this task. CreatedBy\nstays the person the Bot acts for; this records the Bot so its work can be\nlisted under it.",
                     "type": "string"
                 },
                 "credential_owner_id": {
@@ -41720,6 +41397,43 @@ const docTemplate = `{
                 },
                 "total_tokens": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.UserQuestion": {
+            "type": "object",
+            "properties": {
+                "allow_custom_answer": {
+                    "type": "boolean"
+                },
+                "header": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "multi_select": {
+                    "type": "boolean"
+                },
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UserQuestionOption"
+                    }
+                },
+                "question": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.UserQuestionOption": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
                 }
             }
         },

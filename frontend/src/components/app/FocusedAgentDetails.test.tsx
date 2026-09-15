@@ -71,9 +71,9 @@ describe('FocusedAgentDetails', () => {
     expect(screen.getByTestId('worker-secrets')).toBeInTheDocument()
   })
 
-  it('explains when an org backing agent is no longer linked to a worker', () => {
+  it('explains when a legacy App is no longer linked to an Org Bot', () => {
     renderDetails('org')
 
-    expect(screen.getByText(/no longer linked to an organization worker/i)).toBeInTheDocument()
+    expect(screen.getByText(/no longer linked to an org bot/i)).toBeInTheDocument()
   })
 })

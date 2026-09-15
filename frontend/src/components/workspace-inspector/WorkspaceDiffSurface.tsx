@@ -65,7 +65,7 @@ interface WorkspaceDiffSurfaceProps {
   sessionId: string;
   workspace?: string;
   workspacePath?: string;
-  baseBranch: string;
+  baseBranch?: string;
   pollInterval: number;
   interactionId?: string;
   selectedFile?: string;

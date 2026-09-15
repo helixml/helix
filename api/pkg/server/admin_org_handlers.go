@@ -3,12 +3,30 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/errgroup"
 )
+
+const (
+	defaultAdminOrgsPerPage = 25
+	maxAdminOrgsPerPage     = 100
+)
+
+// AdminOrganizationsResponse is the paginated response returned by the admin
+// organizations endpoint.
+type AdminOrganizationsResponse struct {
+	Organizations []types.OrgDetails `json:"organizations"`
+	Page          int                `json:"page"`
+	PageSize      int                `json:"pageSize"`
+	TotalCount    int                `json:"totalCount"`
+	TotalPages    int                `json:"totalPages"`
+}
 
 // SetOrgPlanRequest is the body for POST /admin/orgs/{id}/plan.
 type SetOrgPlanRequest struct {
@@ -66,9 +84,12 @@ func (apiServer *HelixAPIServer) adminSetOrgPlan(rw http.ResponseWriter, r *http
 
 // adminListOrganizations godoc
 // @Summary List organizations with wallets (admin only)
-// @Description List all organizations
+// @Description List organizations with server-side pagination and name search
 // @Tags    organizations
-// @Success 200 {array} types.OrgDetails
+// @Param page query int false "Page number (default: 1)"
+// @Param per_page query int false "Organizations per page (default: 25, max: 100)"
+// @Param query query string false "Search organization display name or name"
+// @Success 200 {object} AdminOrganizationsResponse
 // @Router /api/v1/admin/orgs [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) adminListOrganizations(rw http.ResponseWriter, r *http.Request) {
@@ -79,8 +100,42 @@ func (apiServer *HelixAPIServer) adminListOrganizations(rw http.ResponseWriter, 
 		return
 	}
 
+	// Sort first so pagination is stable across requests. Preserve the table's
+	// existing search behavior: prefer display_name and fall back to name.
+	sort.Slice(organizations, func(i, j int) bool {
+		left, right := organizationSearchName(organizations[i]), organizationSearchName(organizations[j])
+		if left == right {
+			return organizations[i].ID < organizations[j].ID
+		}
+		return left < right
+	})
+	search := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("query")))
+	if search != "" {
+		filtered := organizations[:0]
+		for _, org := range organizations {
+			if strings.Contains(organizationSearchName(org), search) {
+				filtered = append(filtered, org)
+			}
+		}
+		organizations = filtered
+	}
+
+	page, perPage := parsePagination(r, 1, defaultAdminOrgsPerPage, maxAdminOrgsPerPage)
+	totalCount := len(organizations)
+	totalPages := (totalCount + perPage - 1) / perPage
+	start := (page - 1) * perPage
+	if start < 0 || start > totalCount {
+		start = totalCount
+	}
+	end := min(start+perPage, totalCount)
+	organizations = organizations[start:end]
+
+	response := AdminOrganizationsResponse{
+		Organizations: []types.OrgDetails{},
+		Page:          page, PageSize: perPage, TotalCount: totalCount, TotalPages: totalPages,
+	}
 	if len(organizations) == 0 {
-		writeResponse(rw, []types.OrgDetails{}, http.StatusOK)
+		writeResponse(rw, response, http.StatusOK)
 		return
 	}
 
@@ -104,43 +159,59 @@ func (apiServer *HelixAPIServer) adminListOrganizations(rw http.ResponseWriter, 
 		walletsByOrgID[wallet.OrgID] = *wallet
 	}
 
-	result := make([]types.OrgDetails, 0, len(organizations))
-	for _, org := range organizations {
-		memberships, err := apiServer.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{
-			OrganizationID: org.ID,
-		})
-		if err != nil {
-			log.Err(err).Msg("error listing organization memberships")
-			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
+	result := make([]types.OrgDetails, len(organizations))
+	group, groupContext := errgroup.WithContext(r.Context())
+	group.SetLimit(8)
+	for i, org := range organizations {
+		i, org := i, org
+		group.Go(func() error {
+			memberships, err := apiServer.Store.ListOrganizationMemberships(groupContext, &store.ListOrganizationMembershipsQuery{
+				OrganizationID: org.ID,
+			})
+			if err != nil {
+				return err
+			}
 
-		members := make([]types.User, 0, len(memberships))
-		for _, membership := range memberships {
-			members = append(members, membership.User)
-		}
+			members := make([]types.User, 0, len(memberships))
+			for _, membership := range memberships {
+				members = append(members, membership.User)
+			}
 
-		projects, err := apiServer.Store.ListProjects(r.Context(), &store.ListProjectsQuery{
-			OrganizationID: org.ID,
-		})
-		if err != nil {
-			log.Err(err).Msg("error listing organization projects")
-			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
+			projects, err := apiServer.Store.ListProjects(groupContext, &store.ListProjectsQuery{
+				OrganizationID: org.ID,
+			})
+			if err != nil {
+				return err
+			}
 
-		orgProjects := make([]types.Project, 0, len(projects))
-		for _, project := range projects {
-			orgProjects = append(orgProjects, *project)
-		}
+			orgProjects := make([]types.Project, 0, len(projects))
+			for _, project := range projects {
+				orgProjects = append(orgProjects, *project)
+			}
 
-		result = append(result, types.OrgDetails{
-			Organization: *org,
-			Wallet:       walletsByOrgID[org.ID],
-			Members:      members,
-			Projects:     orgProjects,
+			result[i] = types.OrgDetails{
+				Organization: *org,
+				Wallet:       walletsByOrgID[org.ID],
+				Members:      members,
+				Projects:     orgProjects,
+			}
+			return nil
 		})
 	}
+	if err := group.Wait(); err != nil {
+		log.Err(err).Msg("error loading organization details")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-	writeResponse(rw, result, http.StatusOK)
+	response.Organizations = result
+	writeResponse(rw, response, http.StatusOK)
+}
+
+func organizationSearchName(org *types.Organization) string {
+	name := org.DisplayName
+	if name == "" {
+		name = org.Name
+	}
+	return strings.ToLower(name)
 }

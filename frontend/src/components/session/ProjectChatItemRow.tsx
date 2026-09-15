@@ -1,57 +1,24 @@
-import { FC, MouseEvent, ReactElement, useState } from 'react'
+import { FC, MouseEvent } from 'react'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { keyframes } from '@mui/material/styles'
-import { Archive, ArchiveRestore, Folder, GitBranch, GitPullRequest, Pin } from 'lucide-react'
+import { Archive, ArchiveRestore, GitBranch, Pin } from 'lucide-react'
 
 import type { TypesOrganizationMembership, TypesUser } from '../../api/api'
 import useApps from '../../hooks/useApps'
 import useIsPhone from '../../hooks/useIsPhone'
 import useLightTheme from '../../hooks/useLightTheme'
-import { useGetProjectRepositories } from '../../services/projectService'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { TYPOGRAPHY } from '../../styles/typography'
 import AgentHarness from '../agent/AgentHarness'
 import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
+import { activeStatusDotPulse, ProjectRowIcon, StackedTaskStatusIcons, TaskStatusIcons } from './ProjectChatItemBadges'
 import { getProjectChatItemDetails, resolveProjectChatItemBranch } from './projectChatItemDetails'
-import { compactRelativeTime, getSidebarPullRequestIcon, getSidebarTaskStatus, githubOrgAvatarUrl, isActiveSidebarTask } from './ProjectChatSidebar.logic'
+import { compactRelativeTime, getSidebarPullRequestIcon, getSidebarTaskStatus, isActiveSidebarTask } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
-
-const activeStatusDotPulse = keyframes`
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-`
-
-// Project glyph for the stacked (cross-project) row: the GitHub owner avatar
-// when the project's repo lives on github.com, the generic folder otherwise —
-// including when the avatar can't load (air-gapped deployments never reach
-// github.com, so the broken-image state must degrade to the folder).
-const ProjectRowIcon: FC<{ projectId?: string }> = ({ projectId }) => {
-  const repositoriesQuery = useGetProjectRepositories(projectId || '', !!projectId)
-  // Track which URL failed rather than a boolean so a URL change (repos
-  // resolving late, project reassignment) gets a fresh attempt.
-  const [failedUrl, setFailedUrl] = useState<string | null>(null)
-  const avatarUrl = githubOrgAvatarUrl(repositoriesQuery.data || [])
-  if (avatarUrl && avatarUrl !== failedUrl) {
-    return (
-      <Box
-        component="img"
-        key={avatarUrl}
-        src={avatarUrl}
-        alt=""
-        onError={() => setFailedUrl(avatarUrl)}
-        sx={{ width: 14, height: 14, borderRadius: '3px', flexShrink: 0, display: 'block' }}
-      />
-    )
-  }
-  return <Folder size={12} style={{ opacity: 0.72, flexShrink: 0 }} />
-}
 
 export type ProjectChatItemRowProps = {
   item: SidebarItem
@@ -94,6 +61,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   onArchiveItem,
 }) => {
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   const { apps } = useApps()
   // No hover on a phone, so the facts the tooltip carries have to live on the
   // row itself. That makes the row two lines, and taller.
@@ -113,22 +81,14 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   const taskPerson = resolveOrganizationUser(taskPersonId, organizationMembers, currentUser)
   const taskPersonRole = item.kind === 'session' ? 'Started by' : item.task?.assignee_id ? 'Assigned to' : 'Created by'
   const branch = resolveProjectChatItemBranch(item, defaultBranch)
-  // Only resolved for the phone layout — on desktop the tooltip does
-  // its own lookup when it actually opens.
-  const details = isPhone
+  // Stacked rows expose stable context without requiring hover; dense desktop
+  // rows keep the details in the tooltip.
+  const details = isPhone || stacked
     ? getProjectChatItemDetails({ item, apps, repository: repositoryName, branch })
     : undefined
-  const subLine = details
-    ? [
-        details.branch && { key: 'branch', icon: <GitBranch size={11} />, value: details.branch },
-        // Icon only — the mark identifies the harness, the name just
-        // ate horizontal space on a phone.
-        details.harness && {
-          key: 'harness',
-          icon: <AgentHarness runtime={details.runtime || ''} variant="short" size={11} />,
-        },
-      ].filter(Boolean) as Array<{ key: string; icon: ReactElement; value?: string }>
-    : []
+  const branchUnavailable = item.kind === 'spec-task' && !details?.branch
+  const branchLabel = details?.branch || (branchUnavailable ? 'n/a' : undefined)
+  const hasSubLineDetails = !!(branchLabel || details?.harness)
 
   // Active tasks trade their timestamp for the live status label (t3-style):
   // "24 minutes ago" says nothing while the agent is mid-implementation, and
@@ -147,8 +107,19 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         : stacked
           // Static content sizes the slot so a status label wider than the
           // 28px timestamp column still fits; the archive button overlays it.
-          ? { minWidth: 28, height: 16, flexShrink: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }
-          : { width: 28, height: 28, flexShrink: 0, position: 'relative' }}
+          // Without hover the overlay would hide the time forever, so
+          // touch devices get the phone treatment: side by side.
+          ? {
+              minWidth: 32,
+              height: 20,
+              flexShrink: 0,
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              '@media (hover: none)': { gap: 0.5 },
+            }
+          : { width: 32, height: 28, flexShrink: 0, position: 'relative' }}
     >
       <Typography
         className="sidebar-item-time"
@@ -164,11 +135,9 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
           whiteSpace: 'nowrap',
           color: showStatusAsTime
             ? status!.color
-            : active
-              ? (lightTheme.isLight ? 'rgba(39,39,42,0.58)' : 'rgba(241,243,247,0.72)')
-              : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
-          fontSize: '10px',
-          lineHeight: 1,
+            : sidebarColors.mutedForeground,
+          fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+          lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
           fontVariantNumeric: 'tabular-nums',
           transition: 'opacity 100ms ease',
           ...(showStatusAsTime && isAgentWorking && {
@@ -193,7 +162,10 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
           sx={{
             ...(isPhone
               ? { position: 'static', width: 28, height: 28 }
-              : { position: 'absolute', top: stacked ? -6 : 0, right: 0, bottom: stacked ? -6 : 0, width: 20, height: 28 }),
+              : { position: 'absolute', top: stacked ? -4 : 0, right: 0, bottom: stacked ? -4 : 0, width: 24, height: 28 }),
+            ...(!isPhone && stacked && {
+              '@media (hover: none)': { position: 'static', top: 'auto', bottom: 'auto', height: 20 },
+            }),
             opacity: 0,
             color: 'inherit',
             transition: 'opacity 100ms ease',
@@ -208,55 +180,11 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   )
 
   const statusIcons = item.kind === 'spec-task' && (
-    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
-      <Tooltip title={pullRequestIcon?.tooltip || ''}>
-        <Box
-          component="a"
-          href={pullRequestIcon?.url}
-          target={pullRequestIcon?.url ? '_blank' : undefined}
-          rel={pullRequestIcon?.url ? 'noopener noreferrer' : undefined}
-          aria-label={pullRequestIcon?.tooltip}
-          onMouseOver={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation()
-            if (!pullRequestIcon?.url) event.preventDefault()
-          }}
-          sx={{
-            display: 'inline-flex',
-            color: pullRequestIcon?.color || 'currentColor',
-            cursor: pullRequestIcon?.url ? 'pointer' : 'default',
-          }}
-        >
-          <GitPullRequest size={13} />
-        </Box>
-      </Tooltip>
-      {status && (
-        <Tooltip title={status.tooltip || ''} disableHoverListener={!status.tooltip}>
-          <Box
-            onMouseOver={(event) => event.stopPropagation()}
-            sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45 }}
-          >
-            <Box
-              sx={{
-                width: 5,
-                height: 5,
-                borderRadius: '50%',
-                backgroundColor: status.color,
-                animation: isAgentWorking
-                  ? `${activeStatusDotPulse} 2s ease-in-out infinite`
-                  : 'none',
-                '@media (prefers-reduced-motion: reduce)': {
-                  animation: 'none',
-                },
-              }}
-            />
-            <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
-              {status.label}
-            </Typography>
-          </Box>
-        </Tooltip>
-      )}
-    </Box>
+    <TaskStatusIcons
+      status={status}
+      pullRequestIcon={pullRequestIcon}
+      isAgentWorking={isAgentWorking}
+    />
   )
 
   const titleNode = (
@@ -268,68 +196,23 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
-        fontSize: '14px',
-        lineHeight: '20px',
-        fontWeight: active ? 500 : 400,
-        // The stacked row's hierarchy is carried by contrast: the title
-        // reads brighter than the muted project line above it.
-        ...(stacked && !active && {
-          color: lightTheme.isLight ? '#52525b' : 'rgba(212,212,216,0.88)',
-        }),
+        color: active ? sidebarColors.foreground : sidebarColors.primaryLabel,
+        fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
+        lineHeight: TYPOGRAPHY.sidebar.primaryLineHeight,
+        fontWeight: 500,
       }}
     >
       {item.title}
     </Typography>
   )
 
-  // The stacked row keeps its title line clean: the workflow status collapses
-  // to a colored dot at the right edge (label in the tooltip), and the PR icon
-  // only appears once a pull request actually exists — the grey "no PR yet"
-  // placeholder is noise repeated on every row.
   const stackedStatusIcons = item.kind === 'spec-task' && (
-    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
-      {pullRequestIcon?.url && (
-        <Tooltip title={pullRequestIcon.tooltip}>
-          <Box
-            component="a"
-            href={pullRequestIcon.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={pullRequestIcon.tooltip}
-            onMouseOver={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-            sx={{ display: 'inline-flex', color: pullRequestIcon.color, cursor: 'pointer' }}
-          >
-            <GitPullRequest size={12} />
-          </Box>
-        </Tooltip>
-      )}
-      {status && !showStatusAsTime && (
-        <Tooltip title={status.tooltip || status.label}>
-          <Box
-            onMouseOver={(event) => event.stopPropagation()}
-            sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45, flexShrink: 0 }}
-          >
-            <Box
-              sx={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                flexShrink: 0,
-                backgroundColor: status.color,
-              }}
-            />
-            {/* No hover on a phone, so the label the tooltip would carry
-                has to live on the row itself. */}
-            {isPhone && (
-              <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
-                {status.label}
-              </Typography>
-            )}
-          </Box>
-        </Tooltip>
-      )}
-    </Box>
+    <StackedTaskStatusIcons
+      status={status}
+      pullRequestIcon={pullRequestIcon}
+      showStatus={!showStatusAsTime}
+      showLabel={isPhone}
+    />
   )
 
   const avatarNode = showTaskAvatars && !!taskPersonId && (
@@ -347,49 +230,68 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     </Tooltip>
   )
 
-  const subLineNode = isPhone && subLine.length > 0 && (
+  const branchMetadataNode = branchLabel && (
     <Box
+      data-testid="sidebar-item-branch"
+      data-branch-state={branchUnavailable ? 'unavailable' : 'available'}
+      onMouseOver={(event) => event.stopPropagation()}
       sx={{
         display: 'flex',
         alignItems: 'center',
-        gap: 1.25,
+        gap: 0.5,
         minWidth: 0,
-        color: lightTheme.isLight
-          ? 'rgba(113,113,122,0.85)'
-          : 'rgba(163,163,163,0.72)',
+        flex: 1,
       }}
     >
-      {subLine.map((entry) => (
+      <Box sx={{ display: 'inline-flex', flexShrink: 0 }}>
+        <GitBranch size={11} />
+      </Box>
+      <Typography
+        component="span"
+        sx={{
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+          lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
+        }}
+      >
+        {branchLabel}
+      </Typography>
+    </Box>
+  )
+
+  const branchNode = branchUnavailable
+    ? (
+        <Tooltip title="Task is in planning mode; no branch yet." placement="bottom-start">
+          {branchMetadataNode}
+        </Tooltip>
+      )
+    : branchMetadataNode
+
+  const subLineNode = (stacked || (isPhone && hasSubLineDetails)) && (
+    <Box
+      data-testid="sidebar-item-metadata"
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1,
+        minWidth: 0,
+        width: '100%',
+        ...(stacked && { height: 16, mt: 0.25 }),
+        color: sidebarColors.subtleForeground,
+      }}
+    >
+      {branchNode}
+      {details?.harness && (
         <Box
-          key={entry.key}
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 0.5,
-            minWidth: 0,
-            // The branch takes the slack; the other entries are
-            // icon-sized and should stay whole.
-            flexShrink: entry.key === 'branch' ? 1 : 0,
-          }}
+          data-testid="sidebar-item-harness"
+          sx={{ ml: 'auto', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
         >
-          <Box sx={{ display: 'inline-flex', flexShrink: 0 }}>{entry.icon}</Box>
-          {entry.value && (
-            <Typography
-              component="span"
-              sx={{
-                minWidth: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                fontSize: '11px',
-                lineHeight: '15px',
-              }}
-            >
-              {entry.value}
-            </Typography>
-          )}
+          <AgentHarness runtime={details.runtime || ''} variant="short" size={11} />
         </Box>
-      ))}
+      )}
     </Box>
   )
 
@@ -408,8 +310,8 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
           alignItems: 'center',
           justifyContent: 'center',
           color: active
-            ? (lightTheme.isLight ? 'rgba(39,39,42,0.68)' : 'rgba(241,243,247,0.78)')
-            : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.62)'),
+            ? sidebarColors.foreground
+            : sidebarColors.subtleForeground,
           transition: 'opacity 100ms ease',
         }}
       >
@@ -442,39 +344,35 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
       sx={{
         width: '100%',
         minWidth: 0,
-        // Stacked (cross-project) and phone rows are two lines; project
-        // groups on desktop keep the dense single-line row.
+        // Cross-project rows use a stable three-line card; project groups on
+        // desktop keep the dense single-line row.
         ...(stacked
-          ? { py: 0.75, flexDirection: 'column', alignItems: 'stretch', gap: 0.4 }
+          ? { minHeight: 78, py: 1, flexDirection: 'column', alignItems: 'stretch' }
           : isPhone
             ? { minHeight: 52, py: 0.75, flexDirection: 'column', alignItems: 'stretch', gap: 0.25 }
             : { height: 32, flexDirection: 'row', alignItems: 'center', gap: 0.75 }),
         px: 1,
         borderRadius: '6px',
         display: 'flex',
-        color: active
-          ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
-          : (lightTheme.isLight ? '#71717a' : 'rgba(163,163,163,0.80)'),
-        backgroundColor: active
-          ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
-          : 'transparent',
+        color: active ? sidebarColors.foreground : sidebarColors.primaryLabel,
+        backgroundColor: active ? sidebarColors.rowSelected : 'transparent',
         cursor: 'pointer',
         textAlign: 'left',
         outline: 'none',
         position: 'relative',
         '&:hover, &:focus-visible': {
-          color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-          backgroundColor: active
-            ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
-            : (lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)'),
+          color: sidebarColors.foreground,
+          backgroundColor: active ? sidebarColors.rowSelected : sidebarColors.rowHover,
         },
         '&:hover .sidebar-item-time, &:focus-within .sidebar-item-time': { opacity: 0 },
         '&:hover .sidebar-item-archive, &:focus-within .sidebar-item-archive': { opacity: 1 },
         // Without hover the archive button can never appear, so on a
-        // coarse pointer it is always shown. On a phone it gets its
-        // own column instead (below), so the time stays visible too.
+        // coarse pointer it is always shown. Phone and stacked rows give
+        // it its own column (the stacked slot drops its overlay under
+        // hover: none), so the time/status stays visible alongside it;
+        // only the dense single-line desktop row keeps the swap.
         '@media (hover: none)': {
-          '& .sidebar-item-time': { opacity: isPhone ? 1 : 0 },
+          '& .sidebar-item-time': { opacity: isPhone || stacked ? 1 : 0 },
           '& .sidebar-item-archive': { opacity: 1 },
         },
         ...(isPhone && {
@@ -491,7 +389,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     >
       {stacked ? (
         <>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, minWidth: 0, width: '100%' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%', height: 20 }}>
             <ProjectRowIcon projectId={item.projectId} />
             <Typography
               component="span"
@@ -501,19 +399,17 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                fontSize: '11px',
-                lineHeight: '14px',
-                fontWeight: 400,
-                color: active
-                  ? (lightTheme.isLight ? 'rgba(39,39,42,0.68)' : 'rgba(241,243,247,0.72)')
-                  : (lightTheme.isLight ? 'rgba(113,113,122,0.8)' : 'rgba(200,200,206,0.8)'),
+                fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+                lineHeight: TYPOGRAPHY.sidebar.metadataLineHeight,
+                fontWeight: 500,
+                color: sidebarColors.mutedForeground,
               }}
             >
               {projectName}
             </Typography>
             {timeAndArchive}
           </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, width: '100%', mt: 0.5 }}>
             {titleNode}
             {avatarNode}
             {pinNode}

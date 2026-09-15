@@ -1,19 +1,103 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	helixstripe "github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
+
+func TestCheckoutHandlersRejectUnsafeReturnURLBeforeWalletLookup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	cfg := &config.ServerConfig{}
+	cfg.Stripe.BillingEnabled = true
+	cfg.Stripe.SecretKey = "sk_test"
+	cfg.Stripe.WebhookSigningSecret = "whsec_test"
+	server := &HelixAPIServer{
+		Cfg:    cfg,
+		Store:  mockStore,
+		Stripe: helixstripe.NewStripe(cfg.Stripe, mockStore),
+	}
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/top-ups/new",
+		bytes.NewBufferString(`{"amount":10,"return_url":"//evil.example"}`),
+	)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_1"}))
+
+	_, err := server.createTopUp(httptest.NewRecorder(), req)
+	if err == nil {
+		t.Fatal("expected unsafe return URL to be rejected")
+	}
+
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/subscription/new?return_url=%2F%2Fevil.example",
+		nil,
+	)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_1"}))
+	_, err = server.subscriptionCreate(httptest.NewRecorder(), req)
+	if err == nil {
+		t.Fatal("expected unsafe subscription return URL to be rejected")
+	}
+}
+
+func TestCreateTopUpAcceptsArbitraryPositiveAmount(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().
+		GetWalletByUser(gomock.Any(), "usr_1").
+		Return(nil, errors.New("stop before Stripe"))
+	cfg := &config.ServerConfig{}
+	cfg.Stripe.BillingEnabled = true
+	server := &HelixAPIServer{Cfg: cfg, Store: mockStore}
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/top-ups/new",
+		bytes.NewBufferString(`{"amount":7,"return_url":"/onboarding"}`),
+	)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_1"}))
+
+	_, err := server.createTopUp(httptest.NewRecorder(), req)
+	if err == nil || !strings.Contains(err.Error(), "stop before Stripe") {
+		t.Fatalf("expected amount 7 to pass validation and reach wallet lookup, got %v", err)
+	}
+}
+
+func TestCreateTopUpRejectsStripeAmountBoundsBeforeStoreCalls(t *testing.T) {
+	for _, amount := range []string{"0.49", "1000000"} {
+		t.Run(amount, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			cfg := &config.ServerConfig{}
+			cfg.Stripe.BillingEnabled = true
+			server := &HelixAPIServer{Cfg: cfg, Store: mockStore}
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/api/v1/top-ups/new",
+				bytes.NewBufferString(`{"amount":`+amount+`,"org_id":"org_1"}`),
+			)
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_1"}))
+
+			_, err := server.createTopUp(httptest.NewRecorder(), req)
+			if err == nil || !strings.Contains(err.Error(), "amount must be between") {
+				t.Fatalf("expected amount %s to be rejected before store calls, got %v", amount, err)
+			}
+		})
+	}
+}
 
 type LookupOrgSuite struct {
 	suite.Suite
@@ -222,4 +306,51 @@ func (s *GetOrganizationStatusSuite) TestMissingOrgGets404() {
 		Return(nil, store.ErrNotFound)
 
 	s.Equal(http.StatusNotFound, s.do("ghost-org").Code)
+}
+
+func TestOnboardingTrialPeriodDays(t *testing.T) {
+	tests := []struct {
+		name      string
+		user      *types.User
+		wallet    *types.Wallet
+		returnURL string
+		want      int64
+	}{
+		{
+			name:      "new user entering from onboarding",
+			user:      &types.User{},
+			wallet:    &types.Wallet{},
+			returnURL: "/onboarding?org_id=org_123",
+			want:      3,
+		},
+		{
+			name:      "completed onboarding",
+			user:      &types.User{OnboardingCompleted: true},
+			wallet:    &types.Wallet{},
+			returnURL: "/onboarding",
+			want:      0,
+		},
+		{
+			name:      "existing subscription",
+			user:      &types.User{},
+			wallet:    &types.Wallet{StripeSubscriptionID: "sub_123"},
+			returnURL: "/onboarding",
+			want:      0,
+		},
+		{
+			name:      "organization billing entry point",
+			user:      &types.User{},
+			wallet:    &types.Wallet{},
+			returnURL: "",
+			want:      0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := onboardingTrialPeriodDays(tt.user, tt.wallet, tt.returnURL); got != tt.want {
+				t.Fatalf("onboardingTrialPeriodDays() = %d, want %d", got, tt.want)
+			}
+		})
+	}
 }

@@ -62,7 +62,7 @@ const HelixOrgChatPanel: FC = () => {
 
   const { data: botsData } = useListHelixOrgBots({ refetchInterval: 5000 })
   const agents = useMemo(
-    () => (botsData ?? []).filter((b: BotDTO) => b.kind !== 'human' && b.id),
+    () => (botsData ?? []).filter((b: BotDTO) => b.id),
     [botsData],
   )
 
@@ -120,7 +120,9 @@ const HelixOrgChatPanel: FC = () => {
   }, [orgId, agents])
 
   const selectedBot = agents.find((b) => b.id === selectedBotId)
-  const agentOnline = selectedBot?.agent_status === 'running'
+  const botOnline = selectedBot?.status === 'running'
+  const botStarting = !botOnline && selectedBot?.sandbox_status === 'pending'
+  const agentHeadless = selectedBot?.effective_sandbox_runtime === 'headless-ubuntu'
 
   // Project + session for the selected bot (detail endpoint carries project_id).
   const { data: botDetail, refetch: refetchBot } = useHelixOrgBot(selectedBotId || undefined, {
@@ -155,6 +157,10 @@ const HelixOrgChatPanel: FC = () => {
       .catch(() => { if (!cancelled) setChatSessionId(null) })
     return () => { cancelled = true }
   }, [projectID, selectedBotId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (agentHeadless && view === 'desktop') setView('chat')
+  }, [agentHeadless, view])
 
   useEffect(() => {
     streaming.setCurrentSessionId(chatSessionId)
@@ -218,7 +224,7 @@ const HelixOrgChatPanel: FC = () => {
 
   const handleOpenSettings = () => {
     closeMenu()
-    const agentID = botDetail?.agent_id ?? botDetail?.agent_app_id
+    const agentID = botDetail?.legacy_app_id
     if (!orgId || !agentID) return
     router.navigate('org_agent', { org_id: orgId, app_id: agentID })
   }
@@ -232,7 +238,11 @@ const HelixOrgChatPanel: FC = () => {
 
   const busy = activateAgent.isPending || stopAgent.isPending || restartAgent.isPending
   const border = lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
-  const statusColor = agentOnline ? 'rgb(46, 160, 67)' : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
+  const statusColor = botOnline
+    ? 'rgb(46, 160, 67)'
+    : botStarting
+      ? 'rgb(214, 158, 46)'
+      : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
   const menuIconSx = { mr: 1, fontSize: 20 }
 
   return (
@@ -310,7 +320,7 @@ const HelixOrgChatPanel: FC = () => {
                 anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
                 transformOrigin={{ vertical: 'top', horizontal: 'right' }}
               >
-                {agentOnline ? (
+                {botOnline ? (
                   <MenuItem
                     disabled={busy}
                     onClick={() => {
@@ -352,11 +362,12 @@ const HelixOrgChatPanel: FC = () => {
           )}
         </Stack>
         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ pl: 3.5 }}>
-          <Tooltip title={agentOnline ? 'Agent sandbox online' : 'Agent sandbox stopped'}>
+          <Tooltip title={selectedBot?.sandbox_status_message || (botOnline ? 'Org Bot sandbox online' : botStarting ? 'Org Bot sandbox starting' : 'Org Bot sandbox stopped')}>
             <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: statusColor, flexShrink: 0 }} />
           </Tooltip>
           <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
-            {agentOnline ? 'Running' : 'Stopped'}
+            {botOnline ? 'Running' : botStarting ? 'Starting' : selectedBot?.sandbox_status === 'failed' ? 'Failed' : 'Stopped'}
+            {agentHeadless ? ' · headless' : ''}
             {selectedBotId ? ` · ${selectedBotId}` : ''}
           </Typography>
         </Stack>
@@ -372,7 +383,7 @@ const HelixOrgChatPanel: FC = () => {
           ['chat', 'Chat'],
           ['desktop', 'Desktop'],
           ['tasks', 'Tasks'],
-        ] as const).map(([value, label]) => (
+        ] as const).filter(([value]) => value !== 'desktop' || !agentHeadless).map(([value, label]) => (
           <Button
             key={value}
             size="small"
@@ -421,11 +432,11 @@ const HelixOrgChatPanel: FC = () => {
         ) : !chatSessionId ? (
           <Box sx={{ p: 3, textAlign: 'center', m: 'auto' }}>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              {agentOnline
+              {botOnline
                 ? 'Session is starting…'
                 : `Start ${selectedBot?.name || selectedBotId} to open chat.`}
             </Typography>
-            {!agentOnline && (
+            {!botOnline && (
               <Button
                 variant="contained"
                 size="small"

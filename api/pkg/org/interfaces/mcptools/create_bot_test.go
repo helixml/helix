@@ -4,13 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
+
+type testAgentCreator struct{}
+
+func (testAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
+	return lifecycle.CreatedAgent{LegacyAppID: "app-test"}, nil
+}
 
 // newCreateBotCaller sets up the minimal env create_bot needs: a
 // store-backed Config, a deterministic clock + ID generator, and a
@@ -20,6 +28,7 @@ func newCreateBotCaller(t *testing.T, orgID string) (Config, orgchart.Node) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	deps := DefaultDeps(st)
+	deps.AgentCreator = testAgentCreator{}
 	deps.Now = func() time.Time { return time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC) }
 	deps.NewID = func() string { return "id-create-bot-test" }
 	caller, err := orgchart.NewNode("b-owner", "# Owner", nil, deps.Now(), orgID)
@@ -61,49 +70,51 @@ type botCaller struct{ id, orgID string }
 func (c botCaller) ID() string             { return c.id }
 func (c botCaller) OrganizationID() string { return c.orgID }
 
-// TestCreateBotEmptyToolsGetsFullBaseline simulates a caller that
+func TestCreateBotDescriptionRequiresConfirmedNameAndPurpose(t *testing.T) {
+	t.Parallel()
+	description := (&CreateBot{}).Description()
+	for _, want := range []string{
+		"human-readable name or role title",
+		"concrete purpose",
+		"ask for it and wait",
+		"never create a generic placeholder",
+		"b-keel-maintainer",
+		"full standard worker set",
+		"same turn",
+		"exact owner/repository match",
+		"POST /api/v1/git/repositories",
+		"derived from the short repository name",
+		"substitute a similarly named repository",
+	} {
+		if !strings.Contains(description, want) {
+			t.Errorf("create_bot description missing %q", want)
+		}
+	}
+}
+
+// TestCreateBotEmptyToolsGetsDefaultWorkerSet simulates a caller that
 // forgets the `tools` field entirely (or passes []). The created Bot
-// must still expose the full read baseline — otherwise it would have no
-// MCP surface at all and §13-style introspection would silently fail.
-func TestCreateBotEmptyToolsGetsFullBaseline(t *testing.T) {
+// must still expose the full standard worker capability set.
+func TestCreateBotEmptyToolsGetsDefaultWorkerSet(t *testing.T) {
 	t.Parallel()
 	deps, caller := newCreateBotCaller(t, "org-test")
 	bot := invokeCreateBot(t, deps, caller, `{"id":"b-empty","content":"# Empty bot"}`)
-	if !reflect.DeepEqual(bot.Tools, BaseReadTools) {
-		t.Fatalf("empty-tools bot drifted from BaseReadTools.\n got: %v\nwant: %v", bot.Tools, BaseReadTools)
+	want := DefaultBotTools()
+	if !reflect.DeepEqual(bot.Tools, want) {
+		t.Fatalf("empty-tools bot drifted from DefaultBotTools.\n got: %v\nwant: %v", bot.Tools, want)
 	}
 }
 
 // TestCreateBotUnionWithCallerTools is the headline behaviour: a
 // caller-supplied tools list is preserved (order + custom tools) and
-// the baseline is appended. The duplicate `managers` in the caller
-// input — already part of the baseline — must not appear twice.
+// the standard worker set is appended. Default entries in the caller input
+// must not appear twice.
 func TestCreateBotUnionWithCallerTools(t *testing.T) {
 	t.Parallel()
 	deps, caller := newCreateBotCaller(t, "org-test")
 	bot := invokeCreateBot(t, deps, caller,
 		`{"id":"b-qa","content":"# QA","tools":["chat","managers","attach_worker"]}`)
-	want := []tool.Name{
-		// Caller's order preserved, deduped (managers comes from the
-		// caller, not from the baseline appendage).
-		ChatName,
-		ManagersName,
-		AttachWorkerName,
-		// Baseline tail in BaseReadTools order, minus the already-present `managers`.
-		ReportsName,
-		ListBotsName,
-		GetBotName,
-		ListTriggersName,
-		GetTriggerName,
-		ListTriggerEventsName,
-		ReadEventsName,
-		BotLogName,
-		GetSecretName,
-		AskHumanName,
-		ListSecretsName,
-		ListProcessorsName,
-		GetProcessorName,
-	}
+	want := MergeDefaultBotTools([]tool.Name{ChatName, ManagersName, AttachWorkerName})
 	if !reflect.DeepEqual(bot.Tools, want) {
 		t.Fatalf("create_bot union drifted.\n got: %v\nwant: %v", bot.Tools, want)
 	}

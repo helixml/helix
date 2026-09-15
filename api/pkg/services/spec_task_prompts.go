@@ -26,6 +26,18 @@ type PlanningPromptData struct {
 	ClonedTaskPreamble string // Special instructions for cloned tasks (non-empty if task was cloned)
 }
 
+// helixSkillsSection tells the agent the Helix agent skills exist and when to
+// open them. Every harness already lists installed skills (name + description)
+// in its own system prompt, but — as with BuildAgentToolsSection — a capability
+// that is only in a list and never in the task prompt does not get reached for.
+// The set is whatever helix-workspace-setup.sh linked from github.com/helixml/skills
+// at container start (HELIX_SKILLS); this names the default set and stays static.
+const helixSkillsSection = `## Helix skills
+
+This sandbox has Helix agent skills (github.com/helixml/skills) installed — by default ` + "`helix-cli`, `helix-artifacts`, `helix-spec-tasks`, `helix-board` and `helix-files`" + `. Your harness lists the ones actually present with their descriptions — read a skill when the task matches it instead of guessing at ` + "`helix`" + ` commands. Read ` + "`helix-cli`" + ` before your first ` + "`helix`" + ` command (the CLI is on PATH and already authenticated for this project), and use ` + "`helix-artifacts`" + ` whenever the user wants a page, dashboard, report, PDF or image they can open from the project.
+
+`
+
 // planningPromptTemplate is the compiled template for planning prompts
 var planningPromptTemplate = template.Must(template.New("planning").Parse(`## CURRENT PHASE: PLANNING/SPEC-WRITING
 
@@ -48,7 +60,7 @@ ALL work happens in /home/retro/work/. No other paths.
 - /home/retro/work/helix-specs/ = Your design docs go here (ALREADY EXISTS - don't create it)
 - /home/retro/work/<repo>/ = Code repos (don't touch these - implementation happens later)
 {{.RepositorySection}}
-{{.AttachmentsSection}}{{.AgentToolsSection}}## Your Task Directory
+{{.AttachmentsSection}}{{.AgentToolsSection}}` + helixSkillsSection + `## Your Task Directory
 
 Create exactly 3 files in /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/ (directory already exists):
 1. requirements.md - User stories + acceptance criteria
@@ -217,8 +229,7 @@ func buildJustDoItPrompt(userPrompt, guidelinesSection, primaryRepoName, repoSec
 **Primary Project Directory:** /home/retro/work/%s/
 %s
 %s%s%s
-
-**For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
+`+helixSkillsSection+`**For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
 `, userPrompt, guidelinesSection, primaryRepoName, repoSection, attachmentsSection, shellCommandsGuidance, gitInstructions)
 }
 

@@ -8,7 +8,6 @@ import { InteractionLiveStream } from "./InteractionLiveStream";
 vi.mock("../../hooks/useLiveInteraction", () => ({
   default: vi.fn(),
 }));
-
 const mockedUseLiveInteraction = vi.mocked(useLiveInteraction);
 
 describe("InteractionLiveStream", () => {
@@ -44,6 +43,27 @@ describe("InteractionLiveStream", () => {
       />,
     );
 
+  it("suppresses the working timer while a question is attached to the composer", () => {
+    render(
+      <InteractionLiveStream
+        session_id="session-1"
+        interaction={{
+          id: "interaction-1",
+          created: "2026-08-03T00:00:00.000Z",
+          state: TypesInteractionState.InteractionStateWaiting,
+          pending_question: {
+            request_id: "question-1",
+            questions: [{ id: "choice", question: "Choose one", options: [{ label: "A" }] }],
+          },
+        }}
+        session={{ id: "session-1" }}
+        serverConfig={{ filestore_prefix: "/api/v1/filestore" }}
+      />,
+    );
+
+    expect(screen.queryByText(/Working for/)).not.toBeInTheDocument();
+  });
+
   it("keeps counting from the persisted request time after mounting", () => {
     renderStream();
 
@@ -64,7 +84,7 @@ describe("InteractionLiveStream", () => {
     renderStream(true);
 
     expect(screen.getByRole("status", { name: "Sandbox stopped" })).toBeInTheDocument();
-    expect(screen.getByText(/the agent is not running/i)).toBeInTheDocument();
+    expect(screen.getByText(/send a message to wake the agent/i)).toBeInTheDocument();
   });
 
   it("still shows the timer when the sandbox is alive", () => {

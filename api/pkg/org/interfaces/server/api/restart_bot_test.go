@@ -58,7 +58,7 @@ func TestRestartBotAgent_ResetsThenActivatesExistingSession(t *testing.T) {
 	deps = wireActivate(deps, st, &fakeEnsurer{projectID: "prj_alice", agentApp: "app_alice"}, disp)
 
 	h := orgapi.Handler(deps)
-	rec := do(t, h, "POST", "/bots/b-alice/restart-agent", nil)
+	rec := do(t, h, "POST", "/bots/b-alice/restart", nil)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body)
 	}
@@ -66,8 +66,8 @@ func TestRestartBotAgent_ResetsThenActivatesExistingSession(t *testing.T) {
 	if resetter.calls != 1 || resetter.lastSID != "ses_alice" {
 		t.Errorf("ResetSession calls = %d lastSID = %q, want 1 / ses_alice", resetter.calls, resetter.lastSID)
 	}
-	if disp.manualCalls != 1 {
-		t.Errorf("DispatchManual must run after the reset to start a fresh session; got %d", disp.manualCalls)
+	if disp.manualCalls != 1 || disp.hireCalls != 0 {
+		t.Errorf("dispatch calls manual/hire = %d/%d, want 1/0", disp.manualCalls, disp.hireCalls)
 	}
 }
 
@@ -86,15 +86,15 @@ func TestRestartBotAgent_ActivatesWithoutResetWhenNoSession(t *testing.T) {
 	deps = wireActivate(deps, st, &fakeEnsurer{projectID: "prj_bob", agentApp: "app_bob"}, disp)
 
 	h := orgapi.Handler(deps)
-	rec := do(t, h, "POST", "/bots/b-bob/restart-agent", nil)
+	rec := do(t, h, "POST", "/bots/b-bob/restart", nil)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body)
 	}
 	if resetter.calls != 0 {
 		t.Errorf("ResetSession must NOT run without a live session; got %d", resetter.calls)
 	}
-	if disp.manualCalls != 1 {
-		t.Errorf("DispatchManual must run to start a fresh session; got %d", disp.manualCalls)
+	if disp.hireCalls != 0 || disp.manualCalls != 1 {
+		t.Errorf("dispatch calls hire/manual = %d/%d, want 0/1", disp.hireCalls, disp.manualCalls)
 	}
 }
 
@@ -113,7 +113,7 @@ func TestRestartBotAgent_ResetFailureSurfaces(t *testing.T) {
 	deps = wireActivate(deps, st, &fakeEnsurer{projectID: "prj_carol"}, disp)
 
 	h := orgapi.Handler(deps)
-	rec := do(t, h, "POST", "/bots/b-carol/restart-agent", nil)
+	rec := do(t, h, "POST", "/bots/b-carol/restart", nil)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body)
 	}
@@ -130,7 +130,7 @@ func TestRestartBotAgent_404OnUnknownBot(t *testing.T) {
 	deps.BotSessionResetter = &fakeResetter{}
 	h := orgapi.Handler(deps)
 
-	rec := do(t, h, "POST", "/bots/b-ghost/restart-agent", nil)
+	rec := do(t, h, "POST", "/bots/b-ghost/restart", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body)
 	}

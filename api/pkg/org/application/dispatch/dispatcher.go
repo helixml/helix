@@ -159,8 +159,21 @@ func (d *Dispatcher) Route(ctx context.Context, e eventsource.Event) error {
 	if err != nil {
 		return fmt.Errorf("route: find attachments: %w", err)
 	}
+	if d.store.Nodes == nil {
+		return errors.New("route: bot repository is not configured")
+	}
 	targets := make([]orgchart.NodeID, 0, len(rows))
 	for _, a := range rows {
+		// An attachment row outlives the Bot it points at, so a missing
+		// Bot is expected and silently skipped. Any other error is a
+		// real store failure: log it rather than dropping the event for
+		// this target without a trace.
+		if _, err := d.store.Nodes.Get(ctx, e.OrganizationID, a.WorkerID); err != nil {
+			if !errors.Is(err, store.ErrNotFound) {
+				d.logger.Warn("route: get bot", "bot", a.WorkerID, "err", err)
+			}
+			continue
+		}
 		targets = append(targets, a.WorkerID)
 	}
 	d.deliver(ctx, e.OrganizationID, targets, orgchart.NodeID(e.OriginatingWorkerID), activation.Trigger{
@@ -192,14 +205,6 @@ func (d *Dispatcher) deliver(ctx context.Context, orgID string, targets []orgcha
 			continue
 		}
 		seen[id] = struct{}{}
-		node, err := d.store.Nodes.Get(ctx, orgID, id)
-		if err != nil {
-			d.logger.Warn("dispatch: get bot", "bot", id, "err", err)
-			continue
-		}
-		if node.IsHuman() {
-			continue
-		}
-		d.queue.Enqueue(orgID, node.ID, trigger)
+		d.queue.Enqueue(orgID, id, trigger)
 	}
 }

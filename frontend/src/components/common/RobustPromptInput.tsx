@@ -121,6 +121,16 @@ interface RobustPromptInputProps {
   leadingActions?: React.ReactNode
   trailingActions?: React.ReactNode
   showContextUsage?: boolean
+  /**
+   * Strip the composer back to what a non-technical person needs: a box, a
+   * send button, and nothing that asks them to reason about how the agent
+   * runs. Hides the interrupt/queue toggle.
+   *
+   * For customer-facing embeds. Someone on a job board does not have a mental
+   * model of queued versus interrupting turns, and offering the choice invites
+   * them to get it wrong on a surface where they cannot see what it did.
+   */
+  minimal?: boolean
   contextMenuAppId?: string
   formatContextMenuInsert?: (text: string) => string
   autoFocus?: boolean
@@ -559,6 +569,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   leadingActions,
   trailingActions,
   showContextUsage = false,
+  minimal = false,
   contextMenuAppId,
   formatContextMenuInsert,
   autoFocus = false,
@@ -1755,7 +1766,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           )}
 
           {/* Interrupt mode toggle */}
-          {sendMode === 'queued' && <Tooltip
+          {sendMode === 'queued' && !minimal && <Tooltip
             title={
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>

@@ -28,7 +28,7 @@ const asset: AssetDTO = {
   id: 'a-server',
   name: 'ubuntu-1',
   kind: AssetKind.KindServer,
-  agent_ids: ['chief-of-staff'],
+  bot_ids: ['chief-of-staff'],
   server: { address: '10.0.0.8', port: 22, user: 'ubuntu', auth_type: AssetAuthType.AuthSSHKey },
 }
 
@@ -90,17 +90,17 @@ describe('HelixOrgChart server assets', () => {
     )
 
     expect(screen.getAllByRole('status')).toHaveLength(1)
-    expect(screen.getAllByLabelText(/Connect asset to an agent from the/)).toHaveLength(4)
+    expect(screen.getAllByLabelText(/Connect asset to an org bot from the/)).toHaveLength(4)
     for (const side of ['left', 'right', 'top', 'bottom']) {
-      expect(screen.getByLabelText(`Connect asset to an agent from the ${side}`)).toHaveStyle({ width: '10px', height: '10px' })
+      expect(screen.getByLabelText(`Connect asset to an org bot from the ${side}`)).toHaveStyle({ width: '10px', height: '10px' })
     }
     expect(screen.getByRole('status')).toHaveAccessibleName('Network or SSH unavailable')
-    expect(screen.getByText('1 allowed agent')).toBeInTheDocument()
+    expect(screen.getByText('1 allowed org bot')).toBeInTheDocument()
   })
 })
 
-describe('HelixOrgChart agent actions', () => {
-  it('opens the agent project from the node menu', () => {
+describe('HelixOrgChart Org Bot actions', () => {
+  it('opens the Org Bot project from the node menu', () => {
     render(
       <ReactFlowProvider>
         <BotNode {...({
@@ -130,7 +130,7 @@ describe('HelixOrgChart agent actions', () => {
     expect(handlers.onViewProject).toHaveBeenCalledWith('project-1')
   })
 
-  it('renders quick settings and project actions on the node', () => {
+  it('renders quick settings and project actions on the Bot node', () => {
     render(
       <ReactFlowProvider>
         <BotNode {...({
@@ -195,8 +195,7 @@ describe('HelixOrgChart processors and people panel', () => {
     render(
       <ThemeProvider theme={createTheme()}>
         <PeoplePanel
-          people={[{ id: 'alice', name: 'Alice', kind: 'human', identity: { email: 'alice@example.com' } } as any]}
-          onSelect={handlers.onSelectBot}
+          people={[{ user_id: 'alice', role: 'owner', user: { id: 'alice', full_name: 'Alice', email: 'alice@example.com' } } as any]}
         />
       </ThemeProvider>,
     )

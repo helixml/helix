@@ -19,8 +19,8 @@ func fpNode(t *testing.T, content string, tools []tool.Name) Node {
 // is a set. Without sorting, dragging a chip in the tool picker would
 // nag every operator to restart.
 func TestRestartFingerprint_StableAcrossToolReordering(t *testing.T) {
-	a := fpNode(t, "# bot", []tool.Name{"chat", "ask_human", "reports"})
-	b := fpNode(t, "# bot", []tool.Name{"reports", "chat", "ask_human"})
+	a := fpNode(t, "# bot", []tool.Name{"chat", "list_bots", "reports"})
+	b := fpNode(t, "# bot", []tool.Name{"reports", "chat", "list_bots"})
 
 	require.Equal(t, RestartFingerprint(a), RestartFingerprint(b))
 }
@@ -78,4 +78,11 @@ func TestRestartFingerprint_ToolsCannotRunIntoContent(t *testing.T) {
 	b := fpNode(t, "a\x00b", nil)
 
 	require.NotEqual(t, RestartFingerprint(a), RestartFingerprint(b))
+}
+
+func TestRestartFingerprint_ChangesOnSandboxConfig(t *testing.T) {
+	before := fpNode(t, "# bot", []tool.Name{"chat"})
+
+	require.NotEqual(t, RestartFingerprint(before), RestartFingerprint(before.WithSandboxRuntime("headless-ubuntu")))
+	require.NotEqual(t, RestartFingerprint(before), RestartFingerprint(before.WithSandboxResources(4, 8192)))
 }

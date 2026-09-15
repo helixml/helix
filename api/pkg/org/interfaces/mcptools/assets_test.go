@@ -18,7 +18,7 @@ type assetCallerIdentity struct{ agentID, orgID string }
 func (c assetCallerIdentity) ID() string             { return c.agentID }
 func (c assetCallerIdentity) OrganizationID() string { return c.orgID }
 
-func TestAssetDiscoveryOnlyReturnsLinkedAssetsAndAgentNotes(t *testing.T) {
+func TestAssetDiscoveryOnlyReturnsLinkedAssetsAndBotNotes(t *testing.T) {
 	ctx := context.Background()
 	st := orgmemory.New()
 	now := time.Now().UTC()
@@ -54,8 +54,8 @@ func TestAssetDiscoveryOnlyReturnsLinkedAssetsAndAgentNotes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"notes_for_agents":"Deploy only after checking the runbook."`) {
-		t.Fatalf("agent notes missing from list_assets: %s", raw)
+	if !strings.Contains(string(raw), `"notes_for_bots":"Deploy only after checking the runbook."`) {
+		t.Fatalf("Bot notes missing from list_assets: %s", raw)
 	}
 	var listed struct {
 		Assets []assetView `json:"assets"`
@@ -112,6 +112,6 @@ func TestAssetDiscoveryOnlyReturnsLinkedAssetsAndAgentNotes(t *testing.T) {
 		Args:   json.RawMessage(`{"asset":"production"}`),
 	})
 	if err == nil || !strings.Contains(err.Error(), "not linked") {
-		t.Fatalf("unlinked agent error = %v", err)
+		t.Fatalf("unlinked Bot error = %v", err)
 	}
 }

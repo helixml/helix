@@ -322,6 +322,8 @@ type Store interface {
 	// handleMessageCompleted. See the lost-update fix in
 	// websocket_external_agent_sync.go.
 	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
+	SetInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error)
+	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error)
 	// BindInteractionExternalAgentRequest persists the request ID before an
 	// external-agent turn is dispatched, so queued turns remain identifiable
 	// across API restarts.

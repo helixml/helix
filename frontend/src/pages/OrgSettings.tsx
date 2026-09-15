@@ -20,7 +20,7 @@ import useRouter from "../hooks/useRouter";
 import { TypesOrganization } from "../api/api";
 import useSnackbar from "../hooks/useSnackbar";
 import CopyButton from "../components/common/CopyButton";
-import DefaultAgentConfigPanel from "../components/helix-org/WorkerRuntimePanel";
+import DefaultAgentConfigPanel, { DefaultSandboxPanel } from "../components/helix-org/WorkerRuntimePanel";
 import HelixOrgSettings from "./HelixOrgSettings";
 
 const OrgSettings: FC = () => {
@@ -360,6 +360,9 @@ const OrgSettings: FC = () => {
                   Runtime settings copied to new Bots and new projects. Existing Bots and projects are unchanged.
                 </Typography>
                 <DefaultAgentConfigPanel disabled={isReadOnly} />
+                <Box sx={{ mt: 3 }}>
+                  <DefaultSandboxPanel disabled={isReadOnly} />
+                </Box>
                 <Box sx={{ mt: 3 }}>
                   <HelixOrgSettings />
                 </Box>

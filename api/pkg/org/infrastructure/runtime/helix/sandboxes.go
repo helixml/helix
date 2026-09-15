@@ -167,7 +167,10 @@ func (s *Sandboxes) OpenTerminal(ctx context.Context, orgID, sandboxID, shell st
 	if err != nil {
 		return nil, fmt.Errorf("connect to sandbox host: %w", err)
 	}
-	terminal, err := client.OpenSandboxTerminal(ctx, value.ID, shell)
+	// Session-backed rows (org bot and spec-task containers) are filed in
+	// hydra under the session id, not the row id; HydraOpsID picks the right
+	// key for both kinds. Using value.ID here 404'd every bot sandbox.
+	terminal, err := client.OpenSandboxTerminal(ctx, value.HydraOpsID(), shell)
 	if err != nil {
 		return nil, fmt.Errorf("open sandbox terminal: %w", err)
 	}

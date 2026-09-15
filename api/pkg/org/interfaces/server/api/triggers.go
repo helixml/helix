@@ -10,13 +10,13 @@ import (
 	"strings"
 
 	triggerapp "github.com/helixml/helix/api/pkg/org/application/triggers"
-	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	"github.com/helixml/helix/api/pkg/org/domain/trigger"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 )
 
 type APIError struct {
@@ -398,14 +398,14 @@ func (a *apiHandler) requireAttachments(w http.ResponseWriter) bool {
 	return true
 }
 
-// @Summary Helix-org: list agent attachments
+// @Summary Helix-org: list bot attachments
 // @Tags HelixOrg
 // @Produce json
 // @Param org path string true "Organization ID or slug"
-// @Param id path string true "Agent ID"
+// @Param id path string true "Bot ID"
 // @Success 200 {object} api.AttachmentListResponse
-// @Router /api/v1/orgs/{org}/agents/{id}/attachments [get]
-func (a *apiHandler) listAgentAttachments(w http.ResponseWriter, r *http.Request) {
+// @Router /api/v1/orgs/{org}/bots/{id}/attachments [get]
+func (a *apiHandler) listBotAttachments(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAttachments(w) {
 		return
 	}
@@ -416,7 +416,7 @@ func (a *apiHandler) listAgentAttachments(w http.ResponseWriter, r *http.Request
 	}
 	rows, err := a.deps.Attachments.ListForWorker(r.Context(), orgID, orgchart.NodeID(r.PathValue("id")))
 	if err != nil {
-		writeAPIError(w, 404, "not_found", "Agent not found")
+		writeAPIError(w, 404, "not_found", "Bot not found")
 		return
 	}
 	out := make([]AttachmentDTO, 0, len(rows))
@@ -426,16 +426,16 @@ func (a *apiHandler) listAgentAttachments(w http.ResponseWriter, r *http.Request
 	writeJSON(w, 200, AttachmentListResponse{Attachments: out})
 }
 
-// @Summary Helix-org: attach an agent to a source
+// @Summary Helix-org: attach a bot to a source
 // @Tags HelixOrg
 // @Accept json
 // @Produce json
 // @Param org path string true "Organization ID or slug"
-// @Param id path string true "Agent ID"
+// @Param id path string true "Bot ID"
 // @Param payload body api.AttachmentWriteRequest true "Source"
 // @Success 201 {object} api.AttachmentDTO
-// @Router /api/v1/orgs/{org}/agents/{id}/attachments [post]
-func (a *apiHandler) createAgentAttachment(w http.ResponseWriter, r *http.Request) {
+// @Router /api/v1/orgs/{org}/bots/{id}/attachments [post]
+func (a *apiHandler) createBotAttachment(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAttachments(w) {
 		return
 	}
@@ -469,14 +469,14 @@ func (a *apiHandler) createAgentAttachment(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, 201, AttachmentDTO{ID: row.ID, WorkerID: string(row.WorkerID), Source: sourceRefDTO(row.Source), CreatedAt: row.CreatedAt.Format("2006-01-02T15:04:05Z07:00")})
 }
 
-// @Summary Helix-org: delete an agent attachment
+// @Summary Helix-org: delete a bot attachment
 // @Tags HelixOrg
 // @Param org path string true "Organization ID or slug"
-// @Param id path string true "Agent ID"
+// @Param id path string true "Bot ID"
 // @Param attachment_id path string true "Attachment ID"
 // @Success 204
-// @Router /api/v1/orgs/{org}/agents/{id}/attachments/{attachment_id} [delete]
-func (a *apiHandler) deleteAgentAttachment(w http.ResponseWriter, r *http.Request) {
+// @Router /api/v1/orgs/{org}/bots/{id}/attachments/{attachment_id} [delete]
+func (a *apiHandler) deleteBotAttachment(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAttachments(w) {
 		return
 	}

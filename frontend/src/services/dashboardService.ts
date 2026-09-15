@@ -37,18 +37,26 @@ export function usersQueryKey(query?: UserListQuery) {
     return ["users", query];
 }
 
-export const adminOrgsQueryKey = () => ["admin-orgs"];
+export interface AdminOrgsListQuery {
+    page?: number;
+    per_page?: number;
+    query?: string;
+}
 
-export function useListAdminOrgs() {
+export const adminOrgsQueryKey = (query?: AdminOrgsListQuery) =>
+    query ? ["admin-orgs", query] : ["admin-orgs"];
+
+export function useListAdminOrgs(query?: AdminOrgsListQuery) {
     const api = useApi();
     const apiClient = api.getApiClient();
 
     return useQuery({
-        queryKey: adminOrgsQueryKey(),
+        queryKey: adminOrgsQueryKey(query),
         queryFn: async () => {
-            const response = await apiClient.v1AdminOrgsList();
+            const response = await apiClient.v1AdminOrgsList(query);
             return response.data;
         },
+        placeholderData: (previousData) => previousData,
     });
 }
 
@@ -239,6 +247,7 @@ export function useAdminDeleteUser() {
 
 export interface ActivateTrialInput {
     userId: string;
+    orgId?: string;
     days?: number;
     credits?: number;
     // plan "pro" grants a PAID plan via a PlanOverride (no Stripe subscription)
@@ -288,7 +297,7 @@ export function useAdminUserOwnedOrgs(userId: string | undefined, enabled: boole
  * Hook to activate a trial on a user (cloud edition, admin only).
  * If the user has no orgs yet, the intent is stashed and applied when they
  * create their first org. Otherwise the Stripe trial subscription is created
- * on the user's oldest owned org wallet immediately.
+ * on the explicitly selected owned org wallet immediately.
  */
 export function useAdminActivateTrial() {
     const api = useApi();
@@ -300,6 +309,7 @@ export function useAdminActivateTrial() {
             const response = await apiClient.v1AdminUsersTrialActivateCreate(input.userId, {
                 days: input.days ?? 0,
                 credits: input.credits ?? 0,
+                org_id: input.orgId,
                 plan: input.plan ?? "",
             });
             return response.data;

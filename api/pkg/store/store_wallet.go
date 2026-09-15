@@ -136,7 +136,7 @@ func (s *PostgresStore) ListWallets(ctx context.Context, q *ListWalletsQuery) ([
 	return wallets, nil
 }
 
-// UpdateWallet updates subscription ID, status (does not update balance, for that use dedicated method)
+// UpdateWallet updates subscription and plan fields (does not update balance, for that use dedicated method)
 func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error) {
 	if wallet.ID == "" {
 		return nil, fmt.Errorf("id not specified")
@@ -147,6 +147,7 @@ func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) 
 	err := s.gdb.WithContext(ctx).Model(&types.Wallet{}).Where("id = ?", wallet.ID).Updates(
 		map[string]interface{}{
 			"updated_at":                        wallet.UpdatedAt,
+			"plan_override":                     wallet.PlanOverride,
 			"stripe_subscription_id":            wallet.StripeSubscriptionID,
 			"subscription_status":               wallet.SubscriptionStatus,
 			"subscription_current_period_start": wallet.SubscriptionCurrentPeriodStart,

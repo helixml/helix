@@ -13,11 +13,13 @@ import (
 )
 
 var agentProvisioningKeys = map[string]bool{
-	configregistry.DefaultAgentConfigKey: true,
-	"worker.runtime":                     true,
-	"worker.credentials":                 true,
-	"worker.provider":                    true,
-	"worker.model":                       true,
+	configregistry.DefaultAgentConfigKey:    true,
+	"worker.runtime":                        true,
+	"worker.credentials":                    true,
+	"worker.provider":                       true,
+	"worker.model":                          true,
+	configregistry.DefaultSandboxRuntimeKey: true,
+	configregistry.DefaultSandboxVCPUsKey:   true,
 }
 
 // ---- Settings -----------------------------------------------------------
@@ -130,9 +132,6 @@ func (a *apiHandler) activateDeferredBotsAfterRuntimeChange(ctx context.Context,
 		return
 	}
 	for _, b := range bs {
-		if b.IsHuman() {
-			continue
-		}
 		provisioned := true
 		if a.deps.BotRuntime != nil {
 			info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID)

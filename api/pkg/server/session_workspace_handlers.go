@@ -71,6 +71,28 @@ func resolveExpectedBranch(specTask *types.SpecTask) string {
 	return services.GenerateFeatureBranchName(specTask)
 }
 
+// orgWorkerDefaultBranch resolves the branch an org bot's session commits to:
+// the default branch of its project's primary repository. Empty when the
+// project or repo cannot be resolved, which leaves the caller's "no branch"
+// handling in charge.
+func (apiServer *HelixAPIServer) orgWorkerDefaultBranch(ctx context.Context, projectID string) string {
+	if projectID == "" {
+		return ""
+	}
+	project, err := apiServer.Store.GetProject(ctx, projectID)
+	if err != nil || project == nil || project.DefaultRepoID == "" {
+		return ""
+	}
+	repo, err := apiServer.Store.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil || repo == nil {
+		return ""
+	}
+	if repo.DefaultBranch != "" {
+		return repo.DefaultBranch
+	}
+	return "main"
+}
+
 // Wire types mirroring api/pkg/desktop/workspace.go. Duplicated
 // rather than imported because the desktop package pulls in
 // gstreamer/CGo via its video pipeline, which would balloon this
@@ -341,6 +363,16 @@ func (apiServer *HelixAPIServer) workspaceStatus(_ http.ResponseWriter, req *htt
 			resp.ExpectedBranch = resolveExpectedBranch(specTask)
 		}
 	}
+	// An org bot works directly on the default branch of its own per-bot
+	// repository — there is no feature branch and nothing protects main
+	// there — so the safety net commits to that branch instead of refusing.
+	orgWorkerBranch := false
+	if resp.ExpectedBranch == "" && session.Metadata.OrgWorkerID != "" {
+		if branch := apiServer.orgWorkerDefaultBranch(ctx, projectID); branch != "" {
+			resp.ExpectedBranch = branch
+			orgWorkerBranch = true
+		}
+	}
 
 	// Decide whether the pre-fork commit can actually save changes.
 	// Default to "can save" — only flip false when there ARE dirty
@@ -351,6 +383,8 @@ func (apiServer *HelixAPIServer) workspaceStatus(_ http.ResponseWriter, req *htt
 		case resp.ExpectedBranch == "":
 			resp.CanSaveChanges = false
 			resp.CannotSaveReason = "This session isn't linked to a feature branch — the safety net can't decide where to commit your changes. Commit and push them from the desktop terminal first, then try switching agent."
+		case orgWorkerBranch:
+			// Bot repo default branch: pushable by design.
 		case resp.ExpectedBranch == "main" || resp.ExpectedBranch == "master":
 			resp.CanSaveChanges = false
 			resp.CannotSaveReason = fmt.Sprintf("The branch for this session is %q, which the repository protects from direct pushes. Commit your changes to a feature branch from the desktop terminal first, then try switching agent.", resp.ExpectedBranch)

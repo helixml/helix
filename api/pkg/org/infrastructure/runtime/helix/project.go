@@ -348,10 +348,10 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 					return "", "", "", fmt.Errorf("enable org member access to project %s for %s: %w", state.ProjectID, workerID, err)
 				}
 			}
-			// Runtime/model configuration is owned by the generated Helix app
-			// after initial provisioning. Do not re-apply the provisioning
-			// spec here: doing so would overwrite edits made through the app
-			// settings UI/API with worker.* defaults on every bot start.
+			// Runtime/model configuration is owned by the Org Bot after
+			// initial provisioning. Do not re-apply the provisioning spec here:
+			// doing so would overwrite per-agent edits with worker.* defaults on
+			// every bot start.
 			// Self-heal a deleted repo: the project is live but its repo may
 			// have been removed out-of-band. The project self-heals above (via
 			// ErrProjectNotFound); give the repo the same treatment so the
@@ -377,7 +377,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 				}
 			}
 			a.syncProjectRuntimeSecrets(ctx, state.ProjectID, workerID)
-			a.syncProjectCodeAgentConfig(ctx, state.ProjectID, bot.AgentID, workerID)
+			a.syncProjectCodeAgentConfig(ctx, state.ProjectID, bot.CodeAgentConfig, bot.AgentID, workerID)
 			return state.ProjectID, state.AgentID, repoID, nil
 		}
 	}
@@ -397,15 +397,14 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		}
 	}
 	a.syncProjectRuntimeSecrets(ctx, resp.ProjectID, workerID)
-	// resp.AgentAppID, not bot.AgentID: a brand-new Bot has no linked app yet
-	// and ApplyProject is what provisions one. On this path the app and the
-	// project were both built from the same spec, so the sync is normally a
-	// no-op — it exists so the two cannot start out disagreeing.
+	// A pre-cutover Bot may not have a materialized CodeAgentConfig yet. Keep
+	// the freshly provisioned App id as the compatibility fallback for that
+	// row; new Bots use their own persisted execution config.
 	freshAppID := resp.AgentAppID
 	if freshAppID == "" {
 		freshAppID = bot.AgentID
 	}
-	a.syncProjectCodeAgentConfig(ctx, resp.ProjectID, freshAppID, workerID)
+	a.syncProjectCodeAgentConfig(ctx, resp.ProjectID, bot.CodeAgentConfig, freshAppID, workerID)
 	repoID = project.DefaultRepoID
 	// Helix's project-apply does NOT auto-create a default repo. We
 	// MUST create one and attach it as primary, because:
@@ -449,41 +448,47 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 }
 
 // syncProjectCodeAgentConfig keeps a Worker project's task defaults equal to
-// the coding configuration of the Bot's own linked agent app.
+// the Org Bot's own coding configuration. Legacy rows without a materialized
+// config temporarily fall back to their linked App during cutover.
 //
 // project.CodeAgentConfig is what a spec task inherits when it is created
 // without an explicit one, so it decides which harness the Bot's own work runs
 // on. It was previously written once at provisioning time from the applier's
 // worker.* defaults and never refreshed, so changing a Bot's harness in the
-// agent settings left its project — and therefore every task it filed — on the
+// Bot settings left its project — and therefore every task it filed — on the
 // harness it was provisioned with. A Bot running opencode would keep creating
 // deepseek_harness tasks.
 //
-// This is not the "don't re-apply the provisioning spec" case the fast path
-// warns about: the source here is the Bot's live app config, which IS what the
-// settings UI edits, so syncing propagates a user's edit rather than reverting
-// it.
-//
-// Best-effort: a Bot with no linked app, an app with no coding assistant, or a
-// failed write leaves the project as-is and logs. Activation must not fail over
-// a task default.
-func (a *WorkerProject) syncProjectCodeAgentConfig(ctx context.Context, projectID, agentAppID string, workerID orgchart.NodeID) {
-	if projectID == "" || agentAppID == "" {
+// Best-effort: a legacy Bot with neither a materialized config nor linked App,
+// an App with no coding assistant, or a failed write leaves the project as-is
+// and logs. Activation must not fail over a task default.
+func (a *WorkerProject) syncProjectCodeAgentConfig(ctx context.Context, projectID string, agentConfig *types.CodeAgentExecutionConfig, legacyAppID string, workerID orgchart.NodeID) {
+	if projectID == "" {
 		return
 	}
-	app, err := a.Service.GetApp(ctx, agentAppID)
-	if err != nil || app == nil {
-		if a.Logger != nil {
-			a.Logger.Warn("project applier: could not load agent app for code-agent config sync", "worker", workerID, "app", agentAppID, "err", err)
+	var desired *types.CodeAgentExecutionConfig
+	if agentConfig != nil {
+		copied := *agentConfig
+		copied.GooseRecipes = append([]types.AssistantGooseRecipe(nil), agentConfig.GooseRecipes...)
+		desired = &copied
+	} else {
+		if legacyAppID == "" {
+			return
 		}
-		return
-	}
-	desired, err := external_agent.MaterializeCodeAgentConfig(app, nil)
-	if err != nil || desired == nil {
-		if a.Logger != nil {
-			a.Logger.Warn("project applier: agent app has no coding assistant; leaving project task defaults unchanged", "worker", workerID, "app", agentAppID, "err", err)
+		app, err := a.Service.GetApp(ctx, legacyAppID)
+		if err != nil || app == nil {
+			if a.Logger != nil {
+				a.Logger.Warn("project applier: could not load legacy agent app for code-agent config sync", "worker", workerID, "app", legacyAppID, "err", err)
+			}
+			return
 		}
-		return
+		desired, err = external_agent.MaterializeCodeAgentConfig(app, nil)
+		if err != nil || desired == nil {
+			if a.Logger != nil {
+				a.Logger.Warn("project applier: legacy agent app has no coding assistant; leaving project task defaults unchanged", "worker", workerID, "app", legacyAppID, "err", err)
+			}
+			return
+		}
 	}
 	project, err := a.Service.GetProject(ctx, projectID)
 	if err != nil {

@@ -547,7 +547,7 @@ func (s *HelixAPIServer) isOrgAgentSession(ctx context.Context, session *types.S
 
 	nodes, err := s.helixOrg.store.Nodes.List(ctx, session.OrganizationID)
 	if err != nil {
-		return false, fmt.Errorf("list org agents while archiving session: %w", err)
+		return false, fmt.Errorf("list Org Bots while archiving session: %w", err)
 	}
 	for _, node := range nodes {
 		if node.AgentID == session.ParentApp {
@@ -1300,6 +1300,7 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 			SystemPrompt:         session.Metadata.SystemPrompt,
 			PromptMessage:        message,
 			PromptMessageContent: messageContent,
+			Trigger:              req.InteractionTrigger,
 			State:                types.InteractionStateWaiting, // Will be updated once inference is complete
 		}
 
@@ -1352,6 +1353,7 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 			SystemPrompt:         session.Metadata.SystemPrompt,
 			PromptMessage:        message,
 			PromptMessageContent: messageContent,
+			Trigger:              req.InteractionTrigger,
 		},
 	)
 
@@ -3169,6 +3171,13 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		}
 	}
 
+	// Name the session before the desktop starts: StartDesktop labels the
+	// sandbox billing row after the session, so a name applied afterwards
+	// would leave the row carrying the first-prompt placeholder.
+	if req.SessionName != "" && session.Name != req.SessionName {
+		session.Name = req.SessionName
+	}
+
 	// Autonomous surfaces (org workers) ask for crash auto-recovery. Set it on
 	// the metadata after the build/reuse branch so it sticks on the reused
 	// exploratory singleton too, not only on a freshly minted row.
@@ -3181,6 +3190,10 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		}
 		session.Metadata.OrgWorkerID = req.OrgWorkerID
 		session.Metadata.RuntimeInstructions = req.RuntimeInstructions
+		// Sandbox launch config travels with the worker identity: the
+		// executor reads it on every StartDesktop for this session.
+		session.Metadata.SandboxRuntime = req.SandboxRuntime
+		session.Metadata.SandboxResourceOverrides = req.SandboxResourceOverrides
 	}
 
 	if req.AppID != "" {

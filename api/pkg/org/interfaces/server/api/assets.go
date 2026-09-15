@@ -29,11 +29,11 @@ type AssetDTO struct {
 	OrganizationID string          `json:"organization_id"`
 	Name           string          `json:"name"`
 	Description    string          `json:"description,omitempty"`
-	NotesForAgents string          `json:"notes_for_agents,omitempty"`
+	NotesForBots   string          `json:"notes_for_bots,omitempty"`
 	Enabled        bool            `json:"enabled"`
 	Kind           asset.Kind      `json:"kind"`
 	Server         *ServerAssetDTO `json:"server,omitempty"`
-	AgentIDs       []string        `json:"agent_ids"`
+	BotIDs         []string        `json:"bot_ids"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
@@ -52,11 +52,11 @@ type ServerAssetWriteRequest struct {
 }
 
 type CreateAssetRequest struct {
-	Name           string                   `json:"name"`
-	Description    string                   `json:"description,omitempty"`
-	NotesForAgents string                   `json:"notes_for_agents,omitempty"`
-	Kind           asset.Kind               `json:"kind"`
-	Server         *ServerAssetWriteRequest `json:"server,omitempty"`
+	Name         string                   `json:"name"`
+	Description  string                   `json:"description,omitempty"`
+	NotesForBots string                   `json:"notes_for_bots,omitempty"`
+	Kind         asset.Kind               `json:"kind"`
+	Server       *ServerAssetWriteRequest `json:"server,omitempty"`
 }
 
 type UpdateServerAssetRequest struct {
@@ -69,19 +69,19 @@ type UpdateServerAssetRequest struct {
 }
 
 type UpdateAssetRequest struct {
-	Name           *string                   `json:"name,omitempty"`
-	Description    *string                   `json:"description,omitempty"`
-	NotesForAgents *string                   `json:"notes_for_agents,omitempty"`
-	Enabled        *bool                     `json:"enabled,omitempty"`
-	Server         *UpdateServerAssetRequest `json:"server,omitempty"`
+	Name         *string                   `json:"name,omitempty"`
+	Description  *string                   `json:"description,omitempty"`
+	NotesForBots *string                   `json:"notes_for_bots,omitempty"`
+	Enabled      *bool                     `json:"enabled,omitempty"`
+	Server       *UpdateServerAssetRequest `json:"server,omitempty"`
 }
 
 type AssetLinkRequest struct {
-	AgentID string `json:"agent_id"`
+	BotID string `json:"bot_id"`
 }
 
 type AssetLinksResponse struct {
-	AgentIDs []string `json:"agent_ids"`
+	BotIDs []string `json:"bot_ids"`
 }
 
 type AssetHealthDTO struct {
@@ -114,8 +114,8 @@ func assetErrorStatus(err error) int {
 func (a *apiHandler) assetDTO(ctxOrg string, value asset.Asset, agentIDs []string) AssetDTO {
 	dto := AssetDTO{
 		ID: value.ID, OrganizationID: ctxOrg, Name: value.Name,
-		Description: value.Description, NotesForAgents: value.NotesForAgents,
-		Enabled: !value.Disabled, Kind: value.Kind, AgentIDs: agentIDs, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+		Description: value.Description, NotesForBots: value.NotesForAgents,
+		Enabled: !value.Disabled, Kind: value.Kind, BotIDs: agentIDs, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}
 	if value.Config.Server != nil {
 		s := value.Config.Server
@@ -199,7 +199,7 @@ func (a *apiHandler) createAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	value, err := a.deps.Assets.CreateServer(r.Context(), orgID, assetapp.CreateServerParams{
-		Name: req.Name, Description: req.Description, NotesForAgents: req.NotesForAgents,
+		Name: req.Name, Description: req.Description, NotesForAgents: req.NotesForBots,
 		Address: req.Server.Address, Port: req.Server.Port, User: req.Server.User,
 		AuthType: req.Server.AuthType, Password: req.Server.Password, HostKey: req.Server.HostKey,
 	})
@@ -260,7 +260,7 @@ func (a *apiHandler) updateAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	params := assetapp.UpdateServerParams{Name: req.Name, Description: req.Description, NotesForAgents: req.NotesForAgents, Enabled: req.Enabled}
+	params := assetapp.UpdateServerParams{Name: req.Name, Description: req.Description, NotesForAgents: req.NotesForBots, Enabled: req.Enabled}
 	if req.Server != nil {
 		params.Address = req.Server.Address
 		params.Port = req.Server.Port
@@ -349,15 +349,15 @@ func (a *apiHandler) listAssetLinks(w http.ResponseWriter, r *http.Request) {
 	for _, link := range links {
 		agentIDs = append(agentIDs, link.AgentID)
 	}
-	writeJSON(w, http.StatusOK, AssetLinksResponse{AgentIDs: agentIDs})
+	writeJSON(w, http.StatusOK, AssetLinksResponse{BotIDs: agentIDs})
 }
 
-// @Summary Helix-org: link an asset to an agent
+// @Summary Helix-org: link an asset to a bot
 // @Tags HelixOrg
 // @Accept json
 // @Produce json
-// @Param payload body api.AssetLinkRequest true "Agent link"
-// @Success 201 {object} asset.Link
+// @Param payload body api.AssetLinkRequest true "Bot link"
+// @Success 201 {object} api.AssetLinkDTO
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/assets/{id}/links [post]
 func (a *apiHandler) linkAsset(w http.ResponseWriter, r *http.Request) {
@@ -374,23 +374,28 @@ func (a *apiHandler) linkAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if strings.TrimSpace(req.AgentID) == "" {
-		writeError(w, http.StatusBadRequest, errors.New("agent_id is required"))
+	if strings.TrimSpace(req.BotID) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("bot_id is required"))
 		return
 	}
-	link, err := a.deps.Assets.Link(r.Context(), orgID, r.PathValue("id"), req.AgentID)
+	link, err := a.deps.Assets.Link(r.Context(), orgID, r.PathValue("id"), req.BotID)
 	if err != nil {
 		writeError(w, assetErrorStatus(err), err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, link)
+	writeJSON(w, http.StatusCreated, AssetLinkDTO{
+		OrganizationID: link.OrganizationID,
+		AssetID:        string(link.AssetID),
+		BotID:          link.AgentID,
+		CreatedAt:      link.CreatedAt,
+	})
 }
 
-// @Summary Helix-org: unlink an asset from an agent
+// @Summary Helix-org: unlink an asset from a bot
 // @Tags HelixOrg
 // @Success 204 "No Content"
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/assets/{id}/links/{agent_id} [delete]
+// @Router /api/v1/orgs/{org}/assets/{id}/links/{bot_id} [delete]
 func (a *apiHandler) unlinkAsset(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAssets(w) {
 		return
@@ -400,7 +405,7 @@ func (a *apiHandler) unlinkAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := a.deps.Assets.Unlink(r.Context(), orgID, r.PathValue("id"), r.PathValue("agent_id")); err != nil {
+	if err := a.deps.Assets.Unlink(r.Context(), orgID, r.PathValue("id"), r.PathValue("bot_id")); err != nil {
 		writeError(w, assetErrorStatus(err), err)
 		return
 	}

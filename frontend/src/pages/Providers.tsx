@@ -14,8 +14,6 @@ import { PROVIDERS, Provider } from '../components/providers/types';
 import CustomLogo from '../components/providers/logos/custom';
 import useRouter from '../hooks/useRouter';
 import useAccount from '../hooks/useAccount';
-import AnthropicLogo from '../components/providers/logos/anthropic';
-import OpenAILogo from '../components/providers/logos/openai';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
 import CodexSubscriptionConnect from '../components/account/CodexSubscriptionConnect';
 import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
@@ -25,7 +23,7 @@ import type { ReactNode } from 'react'
 import { formatCodexAccountDetail, formatCodexAccountRef } from '../components/account/codexSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
 import CodeAgentHarnessesSection from '../components/providers/CodeAgentHarnessesSection';
-import { getProviderPresetDefinition } from '../components/providers/ProviderEndpointIcon';
+import { getProviderPresetDefinition, ProviderMark } from '../components/providers/ProviderEndpointIcon';
 import {
   useOrgCodeAgentHarnesses,
   useUpdateOrgCodeAgentHarnesses,
@@ -248,9 +246,6 @@ const Providers: React.FC = () => {
             onChange={handleCodeAgentChange}
             subscriptionIdentity={subscriptionIdentity}
             subscriptionAction={(runtime) => {
-              // Connecting here enables the org policy but keeps the paid
-              // credential personal. Org-owned subscriptions remain an
-              // explicit shared-credential workflow.
               if (runtime === 'claude_code') return <ClaudeSubscriptionConnect variant="button" enableForOrgId={org?.id} />
               if (runtime === 'codex_cli') return <CodexSubscriptionConnect enableForOrgId={org?.id} />
               return null
@@ -328,8 +323,8 @@ const Providers: React.FC = () => {
             >
               <CardHeader
                 avatar={
-                  <Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}>
-                    <AnthropicLogo style={{ width: 40, height: 40 }} />
+                  <Avatar sx={{ bgcolor: 'action.hover', width: 56, height: 56 }}>
+                    <ProviderMark provider={PROVIDERS.find(provider => provider.id === 'user/anthropic')!} size={40} />
                   </Avatar>
                 }
                 title="Anthropic"
@@ -348,7 +343,7 @@ const Providers: React.FC = () => {
           <Grid item xs={12} sm={6} display="flex" justifyContent="center">
             <Card sx={{ width: 320, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: 2, borderStyle: 'dashed', borderWidth: 1, borderColor: hasCodexSubscription ? 'success.main' : 'divider' }}>
               <CardHeader
-                avatar={<Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}><OpenAILogo style={{ width: 40, height: 40 }} /></Avatar>}
+                avatar={<Avatar sx={{ bgcolor: 'action.hover', width: 56, height: 56 }}><ProviderMark provider={PROVIDERS.find(provider => provider.id === 'user/openai')!} size={40} /></Avatar>}
                 title="ChatGPT"
                 titleTypographyProps={{ variant: 'h6', align: 'center' }}
               />
@@ -491,12 +486,8 @@ const Providers: React.FC = () => {
                 >
                   <CardHeader
                     avatar={
-                      <Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}>
-                        {typeof provider.logo === 'string' ? (
-                          <img src={provider.logo} alt={provider.name} style={{ width: 40, height: 40 }} />
-                        ) : (
-                          <provider.logo style={{ width: 40, height: 40 }} />
-                        )}
+                      <Avatar sx={{ bgcolor: 'action.hover', width: 56, height: 56 }}>
+                        <ProviderMark provider={provider} size={40} />
                       </Avatar>
                     }
                     title={provider.name}
@@ -582,8 +573,8 @@ const Providers: React.FC = () => {
                 >
                   <CardHeader
                     avatar={
-                      <Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}>
-                        <CustomLogo style={{ width: 40, height: 40 }} />
+                      <Avatar sx={{ bgcolor: 'action.hover', width: 56, height: 56 }}>
+                        <ProviderMark provider={customCardProvider} size={40} />
                       </Avatar>
                     }
                     title={endpoint.name}

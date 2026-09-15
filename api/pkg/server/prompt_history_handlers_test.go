@@ -290,6 +290,64 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForSession_BusyInt
 	s.server.processPendingPromptsForSession(context.Background(), sessionID)
 }
 
+func (s *PromptHistoryHandlersSuite) TestIsOrphanedWaitingInteraction_StoppedSandboxReapsImmediately() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_stopped"}
+	session.Metadata.ExternalAgentStatus = "stopped"
+	latest := &types.Interaction{
+		ID:      "int_recent",
+		State:   types.InteractionStateWaiting,
+		Updated: now.Add(-time.Second),
+	}
+
+	s.True(isOrphanedWaitingInteraction(session, latest, false, now),
+		"an explicitly stopped sandbox cannot finish its waiting turn and should be reaped immediately, including during first-thread creation")
+}
+
+func (s *PromptHistoryHandlersSuite) TestIsOrphanedWaitingInteraction_TerminatedIdleReapsImmediately() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_idle_reaped"}
+	session.Metadata.ZedThreadID = "thread-established"
+	session.Metadata.ExternalAgentStatus = "terminated_idle"
+	latest := &types.Interaction{
+		ID:      "int_recent",
+		State:   types.InteractionStateWaiting,
+		Updated: now.Add(-time.Second),
+	}
+
+	s.True(isOrphanedWaitingInteraction(session, latest, false, now))
+}
+
+func (s *PromptHistoryHandlersSuite) TestIsOrphanedWaitingInteraction_AmbiguousDisconnectKeepsGracePeriod() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_disconnected"}
+	session.Metadata.ZedThreadID = "thread-established"
+	session.Metadata.ExternalAgentStatus = "running"
+	latest := &types.Interaction{
+		ID:      "int_recent",
+		State:   types.InteractionStateWaiting,
+		Updated: now.Add(-time.Second),
+	}
+
+	s.False(isOrphanedWaitingInteraction(session, latest, false, now),
+		"a transient disconnect from a nominally running sandbox must retain the stale-turn grace period")
+}
+
+func (s *PromptHistoryHandlersSuite) TestIsOrphanedWaitingInteraction_LiveWSNeverReapsStoppedStatus() {
+	now := time.Now()
+	session := &types.Session{ID: "ses_live"}
+	session.Metadata.ZedThreadID = "thread-established"
+	session.Metadata.ExternalAgentStatus = "stopped"
+	latest := &types.Interaction{
+		ID:      "int_old",
+		State:   types.InteractionStateWaiting,
+		Updated: now.Add(-time.Hour),
+	}
+
+	s.False(isOrphanedWaitingInteraction(session, latest, true, now),
+		"a live websocket remains authoritative over stale lifecycle metadata")
+}
+
 // TestMarkCanonicalSessionStartingForSync_NoWS_MarksStarting verifies that
 // when a chat is sent to a session whose desktop has no live WebSocket,
 // syncPromptHistory's helper flips external_agent_status to "starting"

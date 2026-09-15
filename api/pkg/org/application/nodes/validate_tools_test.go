@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
@@ -80,16 +79,12 @@ func TestCreate_UnwiredCatalogueSkipsValidation(t *testing.T) {
 	require.Equal(t, []tool.Name{"whatever_tool"}, toolsOf(t, st, "b-nocat"))
 }
 
-// A human placeholder never makes an MCP request and gets no tools —
-// validation must not reject the empty list it is created with.
-func TestCreate_HumanNodeUnaffected(t *testing.T) {
+func TestCreate_EmptyToolsGetsBaseline(t *testing.T) {
 	st := memory.New()
 	node, err := svc(st, []tool.Name{"managers"}, live).Create(context.Background(), org, nodes.CreateParams{
-		ID:          "h-user",
-		Content:     "Org member.",
-		Kind:        orgchart.NodeKindHuman,
-		HelixUserID: "usr-1",
+		ID:      "b-user",
+		Content: "Org bot.",
 	})
 	require.NoError(t, err)
-	require.Empty(t, node.Tools)
+	require.Equal(t, []tool.Name{"managers"}, node.Tools)
 }

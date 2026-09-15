@@ -18,11 +18,18 @@ type seedDispatcher struct {
 	activationIDs []activation.ID
 }
 
+type seedAgentCreator struct{}
+
+func (seedAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
+	return lifecycle.CreatedAgent{LegacyAppID: "app-test"}, nil
+}
+
 func TestSeedChiefOfStaffRespectsDeletionAndExplicitRecreation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	st := orggorm.GetOrgTestDB(t)
 	deps := mcptools.DefaultDeps(st).Build()
+	deps.Lifecycle.Agents = seedAgentCreator{}
 	seeder := &orgGraphSeeder{lifecycle: deps.Lifecycle, bots: deps.Nodes, botStore: st.Nodes}
 	const orgID = "org-chief-deletion"
 
@@ -67,6 +74,7 @@ func TestSeedChiefOfStaffPreservesContextForNewBotOnly(t *testing.T) {
 	ctx := context.Background()
 	st := orggorm.GetOrgTestDB(t)
 	deps := mcptools.DefaultDeps(st).Build()
+	deps.Lifecycle.Agents = seedAgentCreator{}
 	dispatcher := &seedDispatcher{}
 	deps.Lifecycle.Dispatcher = dispatcher
 	seeder := &orgGraphSeeder{lifecycle: deps.Lifecycle, bots: deps.Nodes, botStore: st.Nodes}

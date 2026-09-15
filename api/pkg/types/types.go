@@ -102,6 +102,9 @@ type Interaction struct {
 	// The frontend uses this to render entries with the correct component in the correct order.
 	ResponseEntries datatypes.JSON `json:"response_entries,omitempty" gorm:"type:jsonb"`
 
+	PendingQuestion *PendingQuestion   `json:"pending_question,omitempty" gorm:"type:jsonb;serializer:json"`
+	QuestionHistory []ResolvedQuestion `json:"question_history,omitempty" gorm:"type:jsonb;serializer:json"`
+
 	// CodeChanges is the immutable before/after workspace checkpoint summary for
 	// this turn. The full patch remains in hidden Git checkpoint refs.
 	CodeChanges *InteractionCodeChanges `json:"code_changes,omitempty" gorm:"type:jsonb;serializer:json"`
@@ -163,6 +166,11 @@ const (
 // not user-initiated (those use the default empty string or app-trigger
 // names like "slack", "crisp"). Used by the fork-and-pause flow.
 const (
+	// InteractionTriggerOrgHire marks the internal prompt that starts a newly
+	// hired organization worker. The prompt is sent to the agent but is not a
+	// human-authored chat message.
+	InteractionTriggerOrgHire = "org_hire"
+
 	// InteractionTriggerForkSeed marks the single synthetic divider
 	// interaction created on a forked child, carrying lineage metadata
 	// and (for the agent prepend path) a serialized blob of the parent
@@ -519,6 +527,15 @@ type SessionMetadata struct {
 	// and reasoning. SpecTask sessions keep this nil and read the task instead.
 	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
 
+	// SandboxRuntime and SandboxResourceOverrides are the container runtime and
+	// size for an org-worker session. The org spawner writes them from the Bot
+	// on every activation and StartDesktop reads them on every launch path
+	// (fresh start, message auto-start, resume, auto-wake, reconciler), so a
+	// headless bot never comes back as a desktop. SpecTask sessions leave both
+	// empty — the task is authoritative there, as with CodeAgentConfig.
+	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty"`
+	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+
 	// Container fields (Hydra executor)
 	ContainerName string `json:"container_name,omitempty"` // Docker container name
 	ContainerID   string `json:"container_id,omitempty"`   // Docker container ID
@@ -623,6 +640,16 @@ type SessionChatRequest struct {
 	// a Worker's identity.
 	OrgWorkerID         string `json:"-"`
 	RuntimeInstructions string `json:"-"`
+	InteractionTrigger  string `json:"-"`
+	// SessionName, when set, names a freshly created session up front so the
+	// container start that follows (and the sandbox row it opens) sees the
+	// final name rather than the placeholder derived from the first prompt.
+	SessionName string `json:"-"`
+	// SandboxRuntime / SandboxResourceOverrides are the org worker's resolved
+	// container runtime and size, persisted onto the session metadata. Internal
+	// for the same reason as OrgWorkerID.
+	SandboxRuntime           SandboxRuntime            `json:"-"`
+	SandboxResourceOverrides *SandboxResourceOverrides `json:"-"`
 }
 
 // ExternalAgentConfig holds display configuration for external agent sessions
@@ -1039,14 +1066,17 @@ type WebsocketEvent struct {
 // applies the same patch logic as the flat content patch, but scoped to a
 // single ResponseEntry's content.
 type EntryPatch struct {
-	Index       int    `json:"index"`                  // Position in the entries array
-	MessageID   string `json:"message_id"`             // Zed message_id for this entry
-	Type        string `json:"type"`                   // "text", "tool_call", or "plan"
-	Patch       string `json:"patch,omitempty"`        // Content delta from PatchOffset onwards
-	PatchOffset int    `json:"patch_offset,omitempty"` // UTF-16 offset of first change in this entry
-	TotalLength int    `json:"total_length,omitempty"` // Final content length of this entry after patch
-	ToolName    string `json:"tool_name,omitempty"`    // For tool_call: the tool label
-	ToolStatus  string `json:"tool_status,omitempty"`  // For tool_call: "Completed", "In Progress", etc.
+	Index        int    `json:"index"`                    // Position in the entries array
+	MessageID    string `json:"message_id"`               // Zed message_id for this entry
+	Type         string `json:"type"`                     // "text", "tool_call", or "plan"
+	Patch        string `json:"patch,omitempty"`          // Content delta from PatchOffset onwards
+	PatchOffset  int    `json:"patch_offset,omitempty"`   // UTF-16 offset of first change in this entry
+	TotalLength  int    `json:"total_length,omitempty"`   // Final content length of this entry after patch
+	ToolName     string `json:"tool_name,omitempty"`      // For tool_call: the tool label
+	ToolStatus   string `json:"tool_status,omitempty"`    // For tool_call: "Completed", "In Progress", etc.
+	ToolCallID   string `json:"tool_call_id,omitempty"`   // Stable ACP tool-call id
+	ToolCallName string `json:"tool_call_name,omitempty"` // Provider tool name, e.g. "spawn_agent"
+	SubagentID   string `json:"subagent_id,omitempty"`    // Stable ACP child session id
 }
 
 type StepInfoType string
@@ -2086,6 +2116,11 @@ type DesktopAgent struct {
 	ProjectID           string   `json:"project_id,omitempty"`            // Project ID for exploratory sessions (when no SpecTask)
 	RepositoryIDs       []string `json:"repository_ids,omitempty"`        // Git repository IDs to checkout
 	PrimaryRepositoryID string   `json:"primary_repository_id,omitempty"` // Primary git repository (opened in Zed by default)
+	// OrgWorkerID / OrgWorkerName identify a helix-org bot session. Filled from
+	// the session metadata by the executor's bootstrap step; they name and link
+	// the sandbox billing row to the bot. Never accepted from callers.
+	OrgWorkerID   string `json:"-"`
+	OrgWorkerName string `json:"-"`
 
 	// Branch configuration (for starting on correct branch)
 	BranchMode    string `json:"branch_mode,omitempty"`    // "new" or "existing"

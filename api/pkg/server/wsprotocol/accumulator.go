@@ -18,15 +18,18 @@ func RestoreAccumulator(content string, lastMessageID string, offset int, respon
 		var entries []ResponseEntry
 		if err := json.Unmarshal(responseEntries, &entries); err == nil && len(entries) > 0 {
 			acc := &MessageAccumulator{
-				Content:           content,
-				LastMessageID:     lastMessageID,
-				Offset:            offset,
-				contentDirty:      false,
-				messageOrder:      make([]string, 0, len(entries)),
-				messageContent:    make(map[string]string, len(entries)),
-				messageType:       make(map[string]string, len(entries)),
-				messageToolName:   make(map[string]string),
-				messageToolStatus: make(map[string]string),
+				Content:             content,
+				LastMessageID:       lastMessageID,
+				Offset:              offset,
+				contentDirty:        false,
+				messageOrder:        make([]string, 0, len(entries)),
+				messageContent:      make(map[string]string, len(entries)),
+				messageType:         make(map[string]string, len(entries)),
+				messageToolName:     make(map[string]string),
+				messageToolStatus:   make(map[string]string),
+				messageToolCallID:   make(map[string]string),
+				messageToolCallName: make(map[string]string),
+				messageSubagentID:   make(map[string]string),
 			}
 			for _, entry := range entries {
 				id := entry.MessageID
@@ -41,6 +44,15 @@ func RestoreAccumulator(content string, lastMessageID string, offset int, respon
 				}
 				if entry.ToolStatus != "" {
 					acc.messageToolStatus[id] = entry.ToolStatus
+				}
+				if entry.ToolCallID != "" {
+					acc.messageToolCallID[id] = entry.ToolCallID
+				}
+				if entry.ToolCallName != "" {
+					acc.messageToolCallName[id] = entry.ToolCallName
+				}
+				if entry.SubagentID != "" {
+					acc.messageSubagentID[id] = entry.SubagentID
 				}
 			}
 			if lastMessageID == "" && len(acc.messageOrder) > 0 {
@@ -58,11 +70,14 @@ func RestoreAccumulator(content string, lastMessageID string, offset int, respon
 // Used to preserve structural boundaries between assistant text, tool calls,
 // and plan snapshots.
 type ResponseEntry struct {
-	Type       string `json:"type"` // "text", "tool_call", or "plan"
-	Content    string `json:"content"`
-	MessageID  string `json:"message_id"`
-	ToolName   string `json:"tool_name,omitempty"`   // For tool_call: the tool label
-	ToolStatus string `json:"tool_status,omitempty"` // For tool_call: "Completed", "In Progress", etc.
+	Type         string `json:"type"` // "text", "tool_call", or "plan"
+	Content      string `json:"content"`
+	MessageID    string `json:"message_id"`
+	ToolName     string `json:"tool_name,omitempty"`      // For tool_call: the display label
+	ToolStatus   string `json:"tool_status,omitempty"`    // For tool_call: "Completed", "In Progress", etc.
+	ToolCallID   string `json:"tool_call_id,omitempty"`   // Stable ACP tool-call id
+	ToolCallName string `json:"tool_call_name,omitempty"` // Provider tool name, e.g. "spawn_agent"
+	SubagentID   string `json:"subagent_id,omitempty"`    // Stable ACP child session id
 }
 
 // MessageAccumulator handles the multi-message append/overwrite logic for
@@ -101,8 +116,11 @@ type MessageAccumulator struct {
 	// Map from message_id to its entry type ("text", "tool_call", or "plan")
 	messageType map[string]string
 	// Map from message_id to tool metadata (name, status) for tool_call entries
-	messageToolName   map[string]string
-	messageToolStatus map[string]string
+	messageToolName     map[string]string
+	messageToolStatus   map[string]string
+	messageToolCallID   map[string]string
+	messageToolCallName map[string]string
+	messageSubagentID   map[string]string
 
 	// priorMessageContent holds (message_id → content) snapshots of entries
 	// from earlier completed interactions in the same session. Zed's
@@ -187,6 +205,13 @@ func (a *MessageAccumulator) SetPriorMessageIDs(ids []string) {
 
 // AddMessageWithToolInfo processes a new content update with full tool metadata.
 func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryType, toolName, toolStatus string) {
+	a.AddMessageWithMetadata(messageID, content, entryType, toolName, toolStatus, "", "", "")
+}
+
+// AddMessageWithMetadata processes a content update with stable ACP tool and
+// subagent identity. These fields are persisted with response_entries so a
+// finished session can reconstruct its subagent timeline after a page reload.
+func (a *MessageAccumulator) AddMessageWithMetadata(messageID, content, entryType, toolName, toolStatus, toolCallID, toolCallName, subagentID string) {
 	if priorContent, isPrior := a.priorMessageContent[messageID]; isPrior && priorContent == content {
 		// Same (id, content) as an earlier interaction's entry — Zed's
 		// flush_streaming_throttle replayed it. Drop silently. Different
@@ -211,6 +236,15 @@ func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryTyp
 	if a.messageToolStatus == nil {
 		a.messageToolStatus = make(map[string]string)
 	}
+	if a.messageToolCallID == nil {
+		a.messageToolCallID = make(map[string]string)
+	}
+	if a.messageToolCallName == nil {
+		a.messageToolCallName = make(map[string]string)
+	}
+	if a.messageSubagentID == nil {
+		a.messageSubagentID = make(map[string]string)
+	}
 
 	if _, exists := a.messageContent[messageID]; exists {
 		// Known message_id — replace content in-place
@@ -225,6 +259,15 @@ func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryTyp
 		if toolStatus != "" {
 			a.messageToolStatus[messageID] = toolStatus
 		}
+		if toolCallID != "" {
+			a.messageToolCallID[messageID] = toolCallID
+		}
+		if toolCallName != "" {
+			a.messageToolCallName[messageID] = toolCallName
+		}
+		if subagentID != "" {
+			a.messageSubagentID[messageID] = subagentID
+		}
 	} else {
 		// New message_id — append to order
 		a.messageOrder = append(a.messageOrder, messageID)
@@ -237,6 +280,15 @@ func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryTyp
 		}
 		if toolStatus != "" {
 			a.messageToolStatus[messageID] = toolStatus
+		}
+		if toolCallID != "" {
+			a.messageToolCallID[messageID] = toolCallID
+		}
+		if toolCallName != "" {
+			a.messageToolCallName[messageID] = toolCallName
+		}
+		if subagentID != "" {
+			a.messageSubagentID[messageID] = subagentID
 		}
 	}
 
@@ -264,11 +316,14 @@ func (a *MessageAccumulator) Entries() []ResponseEntry {
 			}
 		}
 		entries = append(entries, ResponseEntry{
-			Type:       t,
-			Content:    c,
-			MessageID:  id,
-			ToolName:   a.messageToolName[id],
-			ToolStatus: a.messageToolStatus[id],
+			Type:         t,
+			Content:      c,
+			MessageID:    id,
+			ToolName:     a.messageToolName[id],
+			ToolStatus:   a.messageToolStatus[id],
+			ToolCallID:   a.messageToolCallID[id],
+			ToolCallName: a.messageToolCallName[id],
+			SubagentID:   a.messageSubagentID[id],
 		})
 	}
 	return entries

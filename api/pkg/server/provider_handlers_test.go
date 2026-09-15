@@ -371,7 +371,6 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 		Provider: "ep_123",
 		Owner:    "user_id",
 	}).DoAndReturn(func(_ context.Context, req *manager.GetClientRequest) (openai.Client, error) {
-		defer close(warmDone)
 		// The warm goroutine shouldn't see "*****" — it should use the copy with the real key.
 		// We can't directly observe the API key from GetClientRequest, but we can verify
 		// the goroutine completed without error.
@@ -380,7 +379,15 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 	})
 
 	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{{ID: "llama3"}}, nil)
-	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
+	// Signal from the LAST mocked call in the warm path, not the first: releasing
+	// the test after GetClient lets TearDownTest run ctrl.Finish() while the
+	// goroutine is still on its way to ListModels/GetModelInfo, which fails as
+	// "missing call(s) to GetModelInfo" whenever CI is loaded enough to lose the race.
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *model.ModelInfoRequest) (*types.ModelInfo, error) {
+			close(warmDone)
+			return nil, errors.New("not found")
+		})
 
 	req, err := http.NewRequest("POST", "/v1/provider-endpoints", bytes.NewReader(body))
 	s.Require().NoError(err)

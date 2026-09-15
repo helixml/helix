@@ -57,6 +57,7 @@ func newCreateBotEnv(t *testing.T) (Config, *fakeDispatcher, tool.Caller) {
 
 	dispatcher := &fakeDispatcher{}
 	deps := DefaultDeps(st)
+	deps.AgentCreator = testAgentCreator{}
 	deps.Dispatcher = dispatcher
 	deps.Now = func() time.Time { return now }
 	var counter int

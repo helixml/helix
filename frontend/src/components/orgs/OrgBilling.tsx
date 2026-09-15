@@ -15,7 +15,7 @@ import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
-import { useGetWallet } from '../../services/useBilling'
+import { DEFAULT_TOP_UP_AMOUNT, TOP_UP_AMOUNTS, useGetWallet } from '../../services/useBilling'
 import { useGetOrgUsage } from '../../services/orgService'
 import TokenUsage from '../usage/TokenUsage'
 import TotalCost from '../usage/TotalCost'
@@ -58,7 +58,7 @@ const OrgBilling: FC = () => {
   const { data: usage } = useGetOrgUsage(orgId || '', { enabled: !!orgId })
   const usageMetrics = usage?.metrics || []
   
-  const [topUpAmount, setTopUpAmount] = useState<number>(10)
+  const [topUpAmount, setTopUpAmount] = useState<number>(DEFAULT_TOP_UP_AMOUNT)
   const [isSubscribing, setIsSubscribing] = useState<boolean>(false)
   const [isToppingUp, setIsToppingUp] = useState<boolean>(false)
 
@@ -198,13 +198,9 @@ const OrgBilling: FC = () => {
                               label="Amount"
                               onChange={(e) => setTopUpAmount(e.target.value as number)}
                             >
-                              <MenuItem value={5}>$5</MenuItem>
-                              <MenuItem value={10}>$10</MenuItem>
-                              <MenuItem value={20}>$20</MenuItem>
-                              <MenuItem value={50}>$50</MenuItem>
-                              <MenuItem value={100}>$100</MenuItem>
-                              <MenuItem value={500}>$500</MenuItem>
-                              <MenuItem value={1000}>$1000</MenuItem>
+                              {TOP_UP_AMOUNTS.map((amount) => (
+                                <MenuItem key={amount} value={amount}>${amount}</MenuItem>
+                              ))}
                             </Select>
                           </FormControl>
                           <Button 
@@ -257,7 +253,7 @@ const OrgBilling: FC = () => {
                             ) : isTrialing ? (
                               <>
                                 <Typography variant="body2" gutterBottom>
-                                  Free trial active. No payment method required - add one before the trial ends to keep your subscription.
+                                  Free trial active. Manage your subscription to review or update payment details before the trial ends.
                                 </Typography>
                                 {extendedWallet?.subscription_current_period_end && (
                                   <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>

@@ -7,18 +7,24 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/stripe/stripe-go/v76"
 	"go.uber.org/mock/gomock"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/server/helixorg"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
@@ -58,6 +64,42 @@ func newInProcTestSetup(t *testing.T) (*HelixAPIServer, *memorystore.MemoryStore
 	client := NewInProcHelixClient(server)
 	ctx := runtimehelix.WithUser(context.Background(), user)
 	return server, store, client, user, ctx
+}
+
+func TestInProcClient_ServerStatusUsesOrganizationQuota(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := helixstore.NewMockStore(ctrl)
+	executor := external_agent.NewMockExecutor(ctrl)
+	cfg := &config.ServerConfig{}
+	cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops = 2
+	cfg.SubscriptionQuotas.Projects.Pro.MaxConcurrentDesktops = 30
+	orgID := "org_trialing"
+
+	st.EXPECT().GetWalletByOrg(gomock.Any(), orgID).Return(&types.Wallet{
+		OrgID:                orgID,
+		StripeSubscriptionID: "sub_trialing",
+		SubscriptionStatus:   stripe.SubscriptionStatusTrialing,
+	}, nil)
+	st.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{EnforceQuotas: true}, nil)
+	executor.EXPECT().ListSessions().Return([]*external_agent.ZedSession{
+		{OrganizationID: "org_other_1"},
+		{OrganizationID: "org_other_2"},
+	})
+	st.EXPECT().GetProjectsCount(gomock.Any(), &helixstore.GetProjectsCountQuery{OrganizationID: orgID}).Return(int64(0), nil)
+	st.EXPECT().GetRepositoriesCount(gomock.Any(), &helixstore.GetRepositoriesCountQuery{OrganizationID: orgID}).Return(int64(0), nil)
+	st.EXPECT().GetSpecTasksCount(gomock.Any(), &helixstore.GetSpecTasksCountQuery{OrganizationID: orgID}).Return(int64(0), nil)
+	st.EXPECT().ListSandboxes(gomock.Any(), &helixstore.ListSandboxesQuery{OrganizationID: orgID}).Return(nil, nil)
+
+	server := &HelixAPIServer{Cfg: cfg, Store: st, externalAgentExecutor: executor}
+	server.quotaManager = quota.NewDefaultQuotaManager(st, cfg, executor)
+	client := NewInProcHelixClient(server)
+	ctx := helixorgserver.WithOrgID(context.Background(), orgID)
+
+	status, err := client.ServerStatus(ctx)
+
+	require.NoError(t, err)
+	require.Equal(t, 30, status.MaxConcurrentDesktops)
+	require.Zero(t, status.ActiveConcurrentDesktops)
 }
 
 func TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentID(t *testing.T) {
@@ -254,10 +296,11 @@ func TestInProcClient_CreateAgentUsesOrganizationOwnerWithoutRequestUser(t *test
 	)
 
 	client := NewInProcHelixClient(&HelixAPIServer{Store: st})
-	appID, err := client.CreateAgent(context.Background(), "org_test", "Chief of Staff", "Lead", lifecycle.AgentConfig{})
+	created, err := client.CreateAgent(context.Background(), "org_test", "Chief of Staff", "Lead", lifecycle.AgentConfig{})
 
 	require.NoError(t, err)
-	require.Equal(t, "app_test", appID)
+	require.Equal(t, "app_test", created.LegacyAppID)
+	require.Equal(t, types.CodeAgentRuntimeZedAgent, created.CodeAgentConfig.Runtime)
 }
 
 func TestInProcClient_CreateAgentUsesConfiguredOrgDefaults(t *testing.T) {
@@ -371,6 +414,43 @@ func TestInProcClient_DeferredDefaultsApplyOnlyToUntouchedScaffold(t *testing.T)
 	require.NoError(t, client.ApplyAgentDefaults(ctx, app.ID, defaults))
 	require.Equal(t, types.CodeAgentRuntimeCodexCLI, app.Config.Helix.Assistants[0].CodeAgentRuntime)
 	require.Equal(t, "user-selected", app.Config.Helix.Assistants[0].Model)
+}
+
+func TestInProcClient_ApplyAgentDefaultsSyncsOrgBotConfig(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := helixstore.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+	ctx := context.Background()
+	app := &types.App{
+		ID: "app-deferred", OrganizationID: "org-test", AgentKind: types.AgentKindOrg,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			Name: "Bot", AgentType: types.AgentTypeZedExternal,
+			CodeAgentRuntime: types.CodeAgentRuntimeZedAgent, ReasoningEffort: types.ReasoningEffortNone,
+		}}}},
+	}
+	node, err := orgchart.NewNode("b-bot", "Build", nil, time.Now().UTC(), app.OrganizationID)
+	require.NoError(t, err)
+	require.NoError(t, orgStore.Nodes.Create(ctx, node.WithAgentID(app.ID)))
+	helixStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+	helixStore.EXPECT().UpdateApp(gomock.Any(), app).Return(app, nil)
+	helixStore.EXPECT().ListProjects(gomock.Any(), &helixstore.ListProjectsQuery{OrganizationID: app.OrganizationID}).Return(nil, nil)
+	client := NewInProcHelixClient(&HelixAPIServer{
+		Store:    helixStore,
+		helixOrg: &helixOrgHandlers{store: orgStore},
+	})
+	defaults := types.AssistantConfig{
+		CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+		CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+		Provider:                "openai",
+		Model:                   "gpt-5.6",
+		ReasoningEffort:         "high",
+	}
+
+	require.NoError(t, client.ApplyAgentDefaults(ctx, app.ID, defaults))
+	stored, err := orgStore.Nodes.Get(ctx, app.OrganizationID, node.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.CodeAgentRuntimeCodexCLI, stored.CodeAgentConfig.Runtime)
+	require.Equal(t, "gpt-5.6", stored.CodeAgentConfig.Model)
 }
 
 func TestInProcClient_DeleteProjectNormalizesGormNotFound(t *testing.T) {
@@ -596,13 +676,23 @@ func TestInProcSpawnerClient_SyncAgentProfileRenamesStoppedSession(t *testing.T)
 	_, err := store.CreateSession(ctx, types.Session{ID: "ses_profile", Name: "You are Bot old"})
 	require.NoError(t, err)
 
-	err = client.SyncAgentProfile(ctx, "ses_profile", "Build Engineer", "w-build", "instructions")
+	launch := runtimehelix.SessionLaunchConfig{
+		SandboxRuntime:   types.SandboxRuntimeHeadlessUbuntu,
+		SandboxResources: types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192},
+	}
+	err = client.SyncAgentProfile(ctx, "ses_profile", "Build Engineer", "w-build", "instructions", launch)
 	require.ErrorContains(t, err, "external agent executor is not configured")
 
 	got, err := store.GetSession(ctx, "ses_profile")
 	require.NoError(t, err)
 	require.Equal(t, "Build Engineer", got.Name)
 	require.Equal(t, "w-build", got.Metadata.OrgWorkerID)
+	// The Bot's sandbox config must land on the session so the next
+	// container start (any path) launches headless at the chosen preset.
+	require.Equal(t, types.SandboxRuntimeHeadlessUbuntu, got.Metadata.SandboxRuntime)
+	require.NotNil(t, got.Metadata.SandboxResourceOverrides)
+	require.Equal(t, 4, got.Metadata.SandboxResourceOverrides.VCPUs)
+	require.Equal(t, 8192, got.Metadata.SandboxResourceOverrides.MemoryMB)
 	require.Equal(t, "instructions", got.Metadata.RuntimeInstructions)
 }
 

@@ -7,33 +7,31 @@ const triggerSource = readFileSync('src/services/triggerService.ts', 'utf8')
 const count = (pattern: RegExp) => source.match(pattern)?.length ?? 0
 const countTriggers = (pattern: RegExp) => triggerSource.match(pattern)?.length ?? 0
 
-describe('Helix Org Agent API argument order', () => {
-  it('always passes organization ID before Agent and relationship IDs', () => {
-    expect(count(/v1OrgsAgents[A-Za-z0-9]*\(/g)).toBe(16)
-    expect(count(/v1OrgsAgentsDetail\(orgID\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsCreate\(orgID, payload\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsPartialUpdate\(orgID, id, body\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsChatCreate\(orgID, botId\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsActivateCreate\(orgID, botId\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsStopAgentCreate\(orgID, botId\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsRestartAgentCreate\(orgID, botId\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsDetail2\(orgID, botId\)/g)).toBe(2)
-    expect(count(/v1OrgsAgentsParentsCreate\(orgID, botID, \{ parent_id: parentID \}\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsParentsDelete\(orgID, botID, parentID\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsDelete\(orgID, botId\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsSecretsDetail\(orgID, agentID!\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsAvailableSecretsDetail\(orgID, agentID!\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsSecretsUpdate\(orgID, agentID!, input.name, input.payload\)/g)).toBe(1)
-    expect(count(/v1OrgsAgentsSecretsDelete\(orgID, agentID!, name\)/g)).toBe(1)
+describe('Helix Org Bot API argument order', () => {
+  it('passes Bot and organization IDs in generated-client order', () => {
+    expect(count(/v1OrgsBots[A-Za-z0-9]*\(/g)).toBe(16)
+    expect(count(/v1OrgsBotsDetail\(orgID\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsCreate\(orgID, payload\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsPartialUpdate\(orgID, id, body\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsChatCreate\(botId, orgID\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsActivateCreate\(botId, orgID\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsStopCreate\(botId, orgID\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsRestartCreate\(botId, orgID\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsDetail2\(botId, orgID\)/g)).toBe(2)
+    expect(count(/v1OrgsBotsParentsCreate\(botID, orgID, \{ parent_id: parentID \}\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsParentsDelete\(botID, parentID, orgID\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsDelete\(botId, orgID\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsSecretsDetail\(orgID, botID!\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsAvailableSecretsDetail\(orgID, botID!\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsSecretsUpdate\(orgID, botID!, input.name, input.payload\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsSecretsDelete\(orgID, botID!, name\)/g)).toBe(1)
   })
 
-  // Subscriptions became attachments and moved to triggerService; the
-  // org-ID-first invariant moved with them.
-  it('passes organization ID before Agent and Trigger IDs on the attachment surface', () => {
-    expect(countTriggers(/v1OrgsAgentsAttachments[A-Za-z0-9]*\(/g)).toBe(6)
-    expect(countTriggers(/v1OrgsAgentsAttachmentsDetail\(orgID, workerID!?\)/g)).toBe(2)
-    expect(countTriggers(/v1OrgsAgentsAttachmentsCreate\(orgID, workerID!?, [^)]+\)/g)).toBe(2)
-    expect(countTriggers(/v1OrgsAgentsAttachmentsDelete\(orgID, workerID!?, attachmentID\)/g)).toBe(2)
+  it('passes organization ID before Bot and Trigger IDs on attachments', () => {
+    expect(countTriggers(/v1OrgsBotsAttachments[A-Za-z0-9]*\(/g)).toBe(6)
+    expect(countTriggers(/v1OrgsBotsAttachmentsDetail\(orgID, botID!?\)/g)).toBe(2)
+    expect(countTriggers(/v1OrgsBotsAttachmentsCreate\(orgID, botID!?, [^)]+\)/g)).toBe(2)
+    expect(countTriggers(/v1OrgsBotsAttachmentsDelete\(orgID, botID!?, attachmentID\)/g)).toBe(2)
     expect(countTriggers(/v1OrgsTriggers[A-Za-z0-9]*\(orgID/g)).toBeGreaterThan(0)
   })
 })

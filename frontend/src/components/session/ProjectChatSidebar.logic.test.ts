@@ -593,12 +593,11 @@ describe('ProjectChatSidebar logic', () => {
 })
 
 describe('ProjectChatSidebar bots and people', () => {
-  it('lists agents (not humans) as bots, running first, and hides their home projects', async () => {
+  it('lists Org Bots running first and hides their home projects', async () => {
     const { botHomeProjectIds, toSidebarBots, withoutBotProjects } = await import('./ProjectChatSidebar.logic')
     const bots = toSidebarBots([
-      { id: 'b-mira', name: 'Mira', agent_status: 'stopped', project_id: 'prj_mira', session_id: 'ses_mira', agent_id: 'app_mira' },
-      { id: 'chief', name: 'Chief of Staff', agent_status: 'running', project_id: 'prj_chief' },
-      { id: 'h-user', name: 'Person', kind: 'human' },
+      { id: 'b-mira', name: 'Mira', status: 'stopped', project_id: 'prj_mira', session_id: 'ses_mira', legacy_app_id: 'app_mira' },
+      { id: 'chief', name: 'Chief of Staff', status: 'running', project_id: 'prj_chief' },
       { id: '', name: 'Broken' },
     ])
     expect(bots.map((bot) => bot.id)).toEqual(['chief', 'b-mira'])

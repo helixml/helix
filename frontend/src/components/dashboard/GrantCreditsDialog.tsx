@@ -109,7 +109,7 @@ const GrantCreditsDialog: FC<GrantCreditsDialogProps> = ({ open, onClose, user }
                 }}
             >
                 <Typography variant="h6" component="div">
-                    Grant credits
+                    Give them credits
                 </Typography>
                 <IconButton aria-label="close" onClick={handleClose} disabled={grantCredits.isPending}>
                     <CloseIcon />
@@ -177,7 +177,7 @@ const GrantCreditsDialog: FC<GrantCreditsDialogProps> = ({ open, onClose, user }
                     disabled={submitDisabled}
                     startIcon={grantCredits.isPending ? <CircularProgress size={20} /> : null}
                 >
-                    {grantCredits.isPending ? 'Granting…' : 'Grant credits'}
+                    {grantCredits.isPending ? 'Granting…' : 'Give credits'}
                 </Button>
             </DialogActions>
         </Dialog>

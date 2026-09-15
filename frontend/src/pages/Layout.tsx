@@ -583,7 +583,6 @@ const Layout: FC<{
       case "helix_org_root":
       case "helix_org_bots":
       case "helix_org_bot_detail":
-      case "helix_org_human_detail":
       case "helix_org_settings":
       case "helix_org_topics":
       case "helix_org_triggers":

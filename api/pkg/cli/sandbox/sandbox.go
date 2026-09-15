@@ -18,6 +18,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
@@ -90,15 +91,11 @@ func newRuntimesCmd() *cobra.Command {
 }
 
 func newClient() (*client.HelixClient, error) {
-	url := os.Getenv("HELIX_URL")
-	if url == "" {
-		url = "http://localhost:8080"
-	}
-	apiKey := os.Getenv("HELIX_API_KEY")
+	apiKey := config.CliAPIKey()
 	if apiKey == "" {
-		return nil, errors.New("HELIX_API_KEY is not set")
+		return nil, errors.New("HELIX_API_KEY (or USER_API_TOKEN inside a Helix sandbox) is not set")
 	}
-	return client.NewClient(url, apiKey, false)
+	return client.NewClient(config.CliURL("http://localhost:8080"), apiKey, false)
 }
 
 // resolveOrg picks the org id. Order:
