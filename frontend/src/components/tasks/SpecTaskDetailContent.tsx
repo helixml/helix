@@ -1024,6 +1024,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     setIsRestarting(true);
     setRestartConfirmOpen(false);
 
+    // Show the spinner on the very next render rather than waiting up to 3s for
+    // the next useSandboxState poll. The backend writes the same "restarting"
+    // status synchronously before it tears the container down, so the poll that
+    // follows agrees with this patch. force: true because the desktop is
+    // running right now — the helper's default idle guard would skip the write.
+    optimisticallyMarkSessionStarting(queryClient, activeSessionId, {
+      status: "restarting",
+      force: true,
+    });
+
     try {
       snackbar.info("Restarting agent session...");
       // Single backend call: the restart-agent endpoint tears down the
@@ -1036,6 +1046,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       snackbar.success("Session restarted successfully");
     } catch (err: any) {
       console.error("Failed to restart session:", err);
+      // Drop the optimistic "restarting" value so the UI falls back to the real
+      // (paused) state with the error, instead of a spinner that never resolves.
+      queryClient.invalidateQueries({
+        queryKey: GET_SESSION_QUERY_KEY(activeSessionId),
+      });
       snackbar.error(err?.message || "Failed to restart session");
     } finally {
       setIsRestarting(false);
@@ -2696,7 +2711,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   stopBusy={isStopping}
                   showRestart={isDesktopRunning}
                   onRestart={() => setRestartConfirmOpen(true)}
-                  restartBusy={isRestarting}
+                  restartBusy={isRestarting || isDesktopStarting}
                   showKeepAlive={isDesktopRunning}
                   keepAlive={task.keep_alive}
                   onToggleKeepAlive={handleToggleKeepAlive}
@@ -2852,7 +2867,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 stopBusy={isStopping}
                 showRestart={isDesktopRunning}
                 onRestart={() => setRestartConfirmOpen(true)}
-                restartBusy={isRestarting}
+                restartBusy={isRestarting || isDesktopStarting}
                 showKeepAlive={isDesktopRunning}
                 keepAlive={task.keep_alive}
                 onToggleKeepAlive={handleToggleKeepAlive}
