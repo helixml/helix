@@ -130,7 +130,12 @@ func (s *Server) handleWSKeyboardKeycode(data []byte) {
 	}
 
 	isDown := data[1] != 0
-	// modifiers := data[2] // Currently unused, could be used for modifier sync
+	// data[2] (modifiers) is deliberately unused. A physical keyboard already
+	// sends real ShiftLeft/ControlLeft press and release events, so synthesizing
+	// a second modifier from this byte would fight the real one and risk the
+	// stuck-modifier failure mode in
+	// design/2025-11-25-keyboard-modifier-stuck-analysis.md. Virtual keyboards,
+	// which send no modifier events at all, use the keysym path instead.
 	evdevCode := int(binary.BigEndian.Uint16(data[3:5]))
 
 	if evdevCode == 0 {
@@ -180,7 +185,9 @@ func (s *Server) handleWSKeyboardKeysym(data []byte) {
 	}
 
 	// Try D-Bus RemoteDesktop first (GNOME)
-	// NotifyKeyboardKeysym sends the character directly, independent of layout
+	// NotifyKeyboardKeysym sends the character directly, independent of layout.
+	// It resolves the shift level from the compositor's own keymap, so we must
+	// NOT synthesize Shift here — that would double-apply it.
 	if s.conn != nil && s.rdSessionPath != "" {
 		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 		err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, keysym, isDown).Err
@@ -193,21 +200,24 @@ func (s *Server) handleWSKeyboardKeysym(data []byte) {
 	// Fallback to Wayland-native virtual keyboard for Sway/wlroots
 	// Convert keysym to evdev keycode using xkbcommon (layout-aware) or static mapping
 	if s.waylandInput != nil {
-		// Try xkbcommon first for layout-aware mapping
-		evdevCode := XKBKeysymToEvdev(keysym)
-		if evdevCode == 0 {
-			// Fall back to static QWERTY mapping
-			evdevCode = keysymToEvdev(keysym)
-		}
+		evdevCode, needsShift := resolveKeysym(keysym)
 		if evdevCode == 0 {
 			s.logger.Debug("No evdev mapping for keysym", "keysym", keysym, "xkbAvailable", IsXKBAvailable())
 			return
 		}
+		// Hold Shift around the key press for shift-level characters, otherwise
+		// the bare keycode types the unshifted character ('@' becomes '2').
 		var err error
 		if isDown {
+			if needsShift {
+				s.waylandInput.KeyDownEvdev(KEY_LEFTSHIFT)
+			}
 			err = s.waylandInput.KeyDownEvdev(evdevCode)
 		} else {
 			err = s.waylandInput.KeyUpEvdev(evdevCode)
+			if needsShift {
+				s.waylandInput.KeyUpEvdev(KEY_LEFTSHIFT)
+			}
 		}
 		if err != nil {
 			s.logger.Debug("Wayland virtual keyboard keysym failed", "keysym", keysym, "evdev", evdevCode, "err", err)
@@ -305,15 +315,15 @@ func (s *Server) handleWSKeyboardKeysymTap(data []byte) {
 	// Fallback to Wayland-native virtual keyboard for Sway/wlroots
 	// Convert keysym to evdev keycode using xkbcommon (layout-aware) or static mapping
 	if s.waylandInput != nil {
-		// Try xkbcommon first for layout-aware mapping
-		evdevCode := XKBKeysymToEvdev(keysym)
-		if evdevCode == 0 {
-			// Fall back to static QWERTY mapping
-			evdevCode = keysymToEvdev(keysym)
-		}
+		evdevCode, needsShift := resolveKeysym(keysym)
 		if evdevCode == 0 {
 			s.logger.Debug("No evdev mapping for keysym tap", "keysym", keysym, "xkbAvailable", IsXKBAvailable())
 			return
+		}
+		// Shift-level characters need Shift held even when the client sent no
+		// modifiers — a virtual keyboard emits '@' with no Shift key event.
+		if needsShift {
+			modifiers |= ModifierShift
 		}
 
 		// Press modifiers first
@@ -742,6 +752,38 @@ func (s *Server) handleWSTouchWithClient(data []byte, sessionID string, clientID
 		// Pressure is not available from the WebSocket message, default to 1.0
 		GetSessionRegistry().BroadcastTouchEvent(sessionID, clientID, slot, touchEventType, int32(screenX), int32(screenY), 1.0)
 	}
+}
+
+// keysymNeedsShift reports whether a keysym sits on the Shift level of a US
+// QWERTY layout, i.e. whether Shift must be held for the keycode returned by
+// keysymToEvdev to actually produce this character.
+//
+// Without this, '@' maps to KEY_2 and is typed as '2' — the reason logging in
+// from a phone was impossible, since virtual keyboards emit the symbol with no
+// accompanying Shift key event.
+func keysymNeedsShift(keysym uint32) bool {
+	if keysym >= 'A' && keysym <= 'Z' {
+		return true
+	}
+	switch keysym {
+	case '!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
+		'_', '+', '{', '}', '|', ':', '"', '<', '>', '?', '~':
+		return true
+	}
+	return false
+}
+
+// resolveKeysym converts a keysym to an evdev keycode plus whether Shift must be
+// held for it to produce the requested character. Prefers the layout-aware
+// xkbcommon table and falls back to the static US QWERTY mapping.
+//
+// Only used for the Wayland virtual-keyboard fallback. The GNOME D-Bus path
+// resolves the shift level from the compositor's own keymap.
+func resolveKeysym(keysym uint32) (int, bool) {
+	if evdevCode := XKBKeysymToEvdev(keysym); evdevCode != 0 {
+		return evdevCode, XKBKeysymNeedsShift(keysym)
+	}
+	return keysymToEvdev(keysym), keysymNeedsShift(keysym)
 }
 
 // keysymToEvdev converts an X11 keysym to a Linux evdev keycode.

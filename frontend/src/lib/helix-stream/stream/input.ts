@@ -3,7 +3,7 @@ import { ByteBuffer, I16_MAX, U16_MAX, U8_MAX } from "./buffer"
 import { ControllerConfig, extractGamepadState, GamepadState, SUPPORTED_BUTTONS } from "./gamepad"
 import { convertToKey, convertToModifiers } from "./keyboard"
 import { convertToEvdevKey, convertToEvdevModifiers } from "./evdev-keys"
-import { convertToKeysym, shouldUseKeysym } from "./keysym"
+import { convertToKeysym, hasShiftLevelMismatch, shouldUseKeysym } from "./keysym"
 import { convertToButton } from "./mouse"
 
 // Smooth scrolling multiplier
@@ -169,11 +169,23 @@ export class StreamInput {
     private sendKeyEvent(isDown: boolean, event: KeyboardEvent) {
         this.buffer.reset()
 
-        // Check if we should use keysym mode (iPad/iOS with empty event.code)
+        // Check if we should use keysym mode (iPad/iOS with empty event.code,
+        // or a character that contradicts the reported modifier state)
         if (this.config.useEvdevCodes && shouldUseKeysym(event)) {
             const keysym = convertToKeysym(event)
             if (keysym) {
                 const modifiers = convertToEvdevModifiers(event)
+                if (hasShiftLevelMismatch(event)) {
+                    // This character came from a virtual keyboard, which may never
+                    // deliver a keyup. Send a self-contained tap on the press and
+                    // swallow the release so the key cannot latch down on the
+                    // remote desktop. Auto-repeat still works: each repeated
+                    // keydown produces another tap.
+                    if (isDown) {
+                        this.sendKeysymTap(keysym, modifiers)
+                    }
+                    return
+                }
                 this.sendKeysym(isDown, keysym, modifiers)
                 return
             }
@@ -207,13 +219,21 @@ export class StreamInput {
 
         trySendChannel(this.keyboard, this.buffer)
     }
-    sendText(text: string) {
-        this.buffer.putU8(1)
-
-        this.buffer.putU8(text.length)
-        this.buffer.putUtf8(text)
-
-        trySendChannel(this.keyboard, this.buffer)
+    /**
+     * Type a string on the remote desktop as a sequence of keysym taps.
+     *
+     * Used for virtual-keyboard text that arrives as a finished string rather
+     * than as key events: swipe typing, autocomplete, and IME composition.
+     * Keysyms name the character, so the backend resolves the shift level and
+     * "@" does not arrive as "2".
+     */
+    sendTextAsKeysyms(text: string) {
+        for (const char of text) {
+            const keysym = this.charToKeysym(char)
+            if (keysym) {
+                this.sendKeysymTap(keysym)
+            }
+        }
     }
 
     /**
@@ -279,12 +299,7 @@ export class StreamInput {
             case 'insertCompositionText':
                 // Insert text - send keysym tap for each character
                 if (data) {
-                    for (const char of data) {
-                        const keysym = this.charToKeysym(char)
-                        if (keysym) {
-                            this.sendKeysymTap(keysym)
-                        }
-                    }
+                    this.sendTextAsKeysyms(data)
                     return true
                 }
                 break
