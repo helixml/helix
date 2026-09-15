@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketStream } from './websocket-stream'
 import { WsMessageType } from './websocket-stream.types'
+import { getStandardVideoFormats } from './video'
 
 /**
  * Exercises the REAL transport, not stubs.
@@ -43,10 +44,10 @@ function makeStream(): { stream: WebSocketStream; socket: FakeWebSocket } {
 
   const stream = new WebSocketStream(
     {} as any, // api
-    'host',
-    'app',
+    1, // hostId
+    1, // appId
     settings,
-    [],
+    getStandardVideoFormats(),
     [1920, 1080],
     'ses_test',
   )
