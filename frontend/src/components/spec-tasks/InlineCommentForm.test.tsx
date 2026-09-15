@@ -9,6 +9,7 @@ describe("InlineCommentForm", () => {
 
   it("keeps a narrow comment form inside the plan panel", () => {
     const onCreate = vi.fn();
+    const onSend = vi.fn();
     const { container } = render(
       <InlineCommentForm
         show
@@ -17,6 +18,7 @@ describe("InlineCommentForm", () => {
         commentText="Please clarify"
         onCommentChange={vi.fn()}
         onCreate={onCreate}
+        onSend={onSend}
         onCancel={vi.fn()}
         isNarrowViewport
         submitLabel="Add to chat"
@@ -32,5 +34,7 @@ describe("InlineCommentForm", () => {
     expect(screen.queryByText(/Selected plan text/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add to chat" }));
     expect(onCreate).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(onSend).toHaveBeenCalledOnce();
   });
 });

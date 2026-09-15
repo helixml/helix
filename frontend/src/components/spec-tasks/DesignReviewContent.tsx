@@ -90,6 +90,7 @@ interface DesignReviewContentProps {
   /** If provided, renders a "← Back to task" tab as the first tab in the tab strip */
   onBack?: () => void;
   onQueueComment?: (comment: WorkspaceReviewComment) => void;
+  onSendComment?: (comment: WorkspaceReviewComment) => Promise<void>;
 }
 
 let planCommentSequence = 0;
@@ -193,6 +194,7 @@ export default function DesignReviewContent({
   hideTitle = false,
   onBack,
   onQueueComment,
+  onSendComment,
 }: DesignReviewContentProps) {
   const snackbar = useSnackbar();
   const api = useApi();
@@ -230,6 +232,7 @@ export default function DesignReviewContent({
   const [showCommentForm, setShowCommentForm] = useState(false);
   const [selectedText, setSelectedText] = useState("");
   const [commentText, setCommentText] = useState("");
+  const [isSendingComment, setIsSendingComment] = useState(false);
   const [commentFormPosition, setCommentFormPosition] = useState({
     x: 0,
     y: 0,
@@ -256,6 +259,7 @@ export default function DesignReviewContent({
   const [selectedOffset, setSelectedOffset] = useState<number | null>(null);
   // Track when we just created a comment - enables queue polling immediately without waiting for comments refresh
   const [awaitingCommentResponse, setAwaitingCommentResponse] = useState(false);
+  const [awaitingSentCommentTurn, setAwaitingSentCommentTurn] = useState(false);
 
   // Refs for positioning
   const documentRef = useRef<HTMLDivElement>(null);
@@ -324,7 +328,7 @@ export default function DesignReviewContent({
     specTaskId,
     reviewId,
     {
-      refetchInterval: hasAwaitingComments ? 3000 : 5000,
+      refetchInterval: hasAwaitingComments || awaitingSentCommentTurn ? 3000 : 5000,
     },
   );
 
@@ -753,9 +757,10 @@ export default function DesignReviewContent({
               queryClient.invalidateQueries({
                 queryKey: designReviewKeys.comments(specTaskId, reviewId),
               });
-              queryClient.invalidateQueries({
+              void queryClient.refetchQueries({
                 queryKey: designReviewKeys.detail(specTaskId, reviewId),
               });
+              setAwaitingSentCommentTurn(false);
               // Mark as complete rather than clearing immediately — keeps the response content
               // visible on comment 1 while the React Query cache refreshes. The next comment's
               // streaming events will naturally overwrite this with the new comment's data.
@@ -813,9 +818,10 @@ export default function DesignReviewContent({
             queryClient.invalidateQueries({
               queryKey: designReviewKeys.comments(specTaskId, reviewId),
             });
-            queryClient.invalidateQueries({
+            void queryClient.refetchQueries({
               queryKey: designReviewKeys.detail(specTaskId, reviewId),
             });
+            setAwaitingSentCommentTurn(false);
             // Mark as complete rather than clearing immediately (see session_update handler above)
             setStreamingResponse(prev => prev ? { ...prev, isComplete: true } : null);
             streamEntries = [];
@@ -1255,6 +1261,35 @@ export default function DesignReviewContent({
     }
   };
 
+  const handleSendComment = async () => {
+    if (!commentText.trim() || !onSendComment) return;
+
+    setIsSendingComment(true);
+    setAwaitingSentCommentTurn(true);
+    try {
+      await onSendComment(buildPlanReviewComment({
+        id: nextPlanCommentId(),
+        specTaskId,
+        designDocPath: task?.design_doc_path,
+        documentType: activeTab,
+        documentContent: displayedDocumentContent,
+        selectedText,
+        text: commentText,
+      }));
+      snackbar.success("Comment sent to agent");
+      removeHighlight();
+      setCommentText("");
+      setSelectedText("");
+      setSelectedOffset(null);
+      setShowCommentForm(false);
+    } catch (error) {
+      setAwaitingSentCommentTurn(false);
+      snackbar.error(error instanceof Error ? error.message : "Failed to send comment");
+    } finally {
+      setIsSendingComment(false);
+    }
+  };
+
   const handleResolveComment = async (commentId: string) => {
     try {
       await resolveCommentMutation.mutateAsync(commentId);
@@ -1668,7 +1703,7 @@ export default function DesignReviewContent({
             }}
           >
             {/* Hover button for adding comment without text selection */}
-            {canCommentOnDocument && hoverButtonPosition && !showCommentForm && !isNarrowViewport && (
+            {canCommentOnDocument && hoverButtonPosition && !showCommentForm && (
               <Tooltip title="Add comment" placement="top">
                 <IconButton
                   size="small"
@@ -1691,7 +1726,7 @@ export default function DesignReviewContent({
                   sx={{
                     position: "absolute",
                     top: hoverButtonPosition.y,
-                    left: "calc(50% + 400px + 4px)",
+                    left: "min(calc(50% + 400px + 4px), calc(100% - 38px))",
                     zIndex: 15,
                     bgcolor: "#1976d2",
                     color: "#fff",
@@ -1711,7 +1746,7 @@ export default function DesignReviewContent({
               onMouseUp={() => { if (canCommentOnDocument) handleTextSelection(false); }}
               onTouchEnd={() => { if (canCommentOnDocument) handleTextSelection(true); }}
               onMouseMove={(e) => {
-                if (!canCommentOnDocument || showCommentForm || isNarrowViewport) return;
+                if (!canCommentOnDocument || showCommentForm) return;
                 const target = e.target as Node;
                 for (const bubble of commentRefs.current.values()) {
                   if (bubble.contains(target)) {
@@ -1734,7 +1769,10 @@ export default function DesignReviewContent({
                     if (containerRect) {
                       const scrollTop = documentRef.current?.scrollTop || 0;
                       const y = rect.top - containerRect.top + scrollTop;
-                      setHoverButtonPosition({ x: 0, y, elementText: (el as HTMLElement).innerText.trim() });
+                      const elementText =
+                        (el as HTMLElement).innerText?.trim() || el.textContent?.trim() || "";
+                      if (!elementText) return;
+                      setHoverButtonPosition({ x: 0, y, elementText });
                     }
                     return;
                   }
@@ -1866,6 +1904,7 @@ export default function DesignReviewContent({
                 commentText={commentText}
                 onCommentChange={setCommentText}
                 onCreate={handleCreateComment}
+                onSend={onSendComment ? handleSendComment : undefined}
                 submitLabel={onQueueComment ? "Add to chat" : "Comment"}
                 onCancel={() => {
                   removeHighlight();
@@ -1876,6 +1915,7 @@ export default function DesignReviewContent({
                 }}
                 isNarrowViewport={usesChatCommentQueue || isNarrowViewport}
                 isSubmitting={!onQueueComment && createCommentMutation.isPending}
+                isSending={isSendingComment}
                 outerRef={handleCommentFormRef}
               />}
             </Box>

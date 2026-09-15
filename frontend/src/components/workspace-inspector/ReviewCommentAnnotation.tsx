@@ -21,6 +21,8 @@ interface ReviewCommentAnnotationProps {
   onTextChange?: (text: string) => void;
   submitLabel?: string;
   isSubmitting?: boolean;
+  onSend?: (text: string) => void;
+  isSending?: boolean;
 }
 
 export default function ReviewCommentAnnotation({
@@ -32,6 +34,8 @@ export default function ReviewCommentAnnotation({
   onTextChange,
   submitLabel = "Comment",
   isSubmitting = false,
+  onSend,
+  isSending = false,
 }: ReviewCommentAnnotationProps) {
   const [localText, setLocalText] = useState(text);
   const displayedText = kind === "draft" && !onTextChange ? localText : text;
@@ -41,8 +45,12 @@ export default function ReviewCommentAnnotation({
   }, [onTextChange]);
   const submit = useCallback(() => {
     const trimmed = displayedText.trim();
-    if (trimmed && !isSubmitting) onSubmit(trimmed);
-  }, [displayedText, isSubmitting, onSubmit]);
+    if (trimmed && !isSubmitting && !isSending) onSubmit(trimmed);
+  }, [displayedText, isSending, isSubmitting, onSubmit]);
+  const send = useCallback(() => {
+    const trimmed = displayedText.trim();
+    if (trimmed && onSend && !isSubmitting && !isSending) onSend(trimmed);
+  }, [displayedText, isSending, isSubmitting, onSend]);
 
   if (kind === "comment") {
     return (
@@ -120,7 +128,8 @@ export default function ReviewCommentAnnotation({
           }
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && displayedText.trim()) {
             event.preventDefault();
-            submit();
+            if (onSend) send();
+            else submit();
           }
         }}
         sx={{
@@ -150,7 +159,7 @@ export default function ReviewCommentAnnotation({
           color="text.secondary"
           sx={{ mr: "auto", opacity: 0.7, fontSize: TYPOGRAPHY.codeChromeFontSize }}
         >
-          ⌘/Ctrl Enter to add
+          ⌘/Ctrl Enter to {onSend ? "send" : "add"}
         </Typography>
         <Button
           size="small"
@@ -169,8 +178,9 @@ export default function ReviewCommentAnnotation({
         </Button>
         <Button
           size="small"
-          variant="contained"
-          disabled={!displayedText.trim() || isSubmitting}
+          variant={onSend ? "text" : "contained"}
+          color={onSend ? "inherit" : "primary"}
+          disabled={!displayedText.trim() || isSubmitting || isSending}
           onClick={submit}
           sx={{
             minWidth: 0,
@@ -183,6 +193,24 @@ export default function ReviewCommentAnnotation({
         >
           {isSubmitting ? <CircularProgress size={12} color="inherit" /> : submitLabel}
         </Button>
+        {onSend && (
+          <Button
+            size="small"
+            variant="contained"
+            disabled={!displayedText.trim() || isSubmitting || isSending}
+            onClick={send}
+            sx={{
+              minWidth: 0,
+              minHeight: 24,
+              px: 1,
+              py: 0,
+              fontSize: TYPOGRAPHY.codeChromeFontSize,
+              textTransform: "none",
+            }}
+          >
+            {isSending ? <CircularProgress size={12} color="inherit" /> : "Send"}
+          </Button>
+        )}
       </Box>
     </Box>
   );

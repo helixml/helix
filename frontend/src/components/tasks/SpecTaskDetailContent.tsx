@@ -106,7 +106,10 @@ import DesignReviewContent from "../spec-tasks/DesignReviewContent";
 import SubagentsPanel from "../session/SubagentsPanel";
 import { mergeStreamingInteraction } from "../session/subagentActivity";
 import { getChatColors } from "../session/chatStyles";
-import type { WorkspaceReviewComment } from "../workspace-inspector/workspaceReviewComments";
+import {
+  appendWorkspaceReviewComments,
+  type WorkspaceReviewComment,
+} from "../workspace-inspector/workspaceReviewComments";
 import CodeAgentExecutionControls from "../agent/CodeAgentExecutionControls";
 import AgentToolsPicker from "../tools/AgentToolsPicker";
 import SandboxStatusIndicator, {
@@ -165,6 +168,7 @@ import {
   isSpecTaskPlanningWorkspace,
   shouldLoadSpecTaskDesignReviews,
 } from "./specTaskPlanningWorkspace";
+import { SESSION_TYPE_TEXT } from "../../types";
 
 const SPEC_TASK_CHAT_PANEL_IDS = ["spec-task-chat", "spec-task-content"] as const;
 const SPEC_TASK_CHAT_LAYOUT_KEY = "helix.specTaskChat.layout";
@@ -806,6 +810,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (!activeSessionId) return;
     optimisticallyMarkSessionStarting(queryClient, activeSessionId);
   }, [queryClient, activeSessionId]);
+
+  const sendWorkspaceComment = async (comment: WorkspaceReviewComment) => {
+    if (!activeSessionId) {
+      throw new Error("No active agent session");
+    }
+    handleWillSend();
+    await streaming.NewInference({
+      type: SESSION_TYPE_TEXT,
+      message: appendWorkspaceReviewComments("", [comment]),
+      sessionId: activeSessionId,
+      interrupt: true,
+    });
+  };
 
   // Default to appropriate view based on session state and screen size
   useEffect(() => {
@@ -2729,6 +2746,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         }}
                         hideTitle
                         onQueueComment={upsertWorkspaceComment}
+                        onSendComment={sendWorkspaceComment}
                       />
                     ) : (
                       <PlanningDocumentsPlaceholder pushError={task.last_push_error} />
@@ -2992,6 +3010,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     }}
                     hideTitle
                     onQueueComment={upsertWorkspaceComment}
+                    onSendComment={sendWorkspaceComment}
                   />
                 ) : (
                   <PlanningDocumentsPlaceholder pushError={task.last_push_error} />

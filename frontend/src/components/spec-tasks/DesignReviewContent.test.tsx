@@ -41,7 +41,7 @@ vi.mock("../../services/specTaskService", () => ({
   useSpecTask: () => ({ data: { id: "task-1", status: "spec_review" } }),
 }));
 vi.mock("../session/Markdown", () => ({
-  default: ({ text }: { text: string }) => <div data-testid="agent-chat-markdown">{text}</div>,
+  default: ({ text }: { text: string }) => <p data-testid="agent-chat-markdown">{text}</p>,
 }));
 vi.mock("../../hooks/useSnackbar", () => ({
   default: () => ({
@@ -60,7 +60,26 @@ vi.mock("../../utils/oauthProviders", () => ({
   vcsScopesForProvider: () => [],
 }));
 vi.mock("./InlineCommentBubble", () => ({ default: () => null }));
-vi.mock("./InlineCommentForm", () => ({ default: () => null }));
+vi.mock("./InlineCommentForm", () => ({
+  default: (props: {
+    show: boolean;
+    commentText: string;
+    onCommentChange: (text: string) => void;
+    onCreate: () => void;
+    onSend?: () => void;
+    submitLabel?: string;
+  }) => props.show ? (
+    <div>
+      <textarea
+        aria-label="Plan comment"
+        value={props.commentText}
+        onChange={(event) => props.onCommentChange(event.target.value)}
+      />
+      <button onClick={props.onCreate}>{props.submitLabel}</button>
+      {props.onSend && <button onClick={props.onSend}>Send</button>}
+    </div>
+  ) : null,
+}));
 vi.mock("./CommentLogSidebar", () => ({ default: () => null }));
 vi.mock("./ReviewActionFooter", () => ({ default: () => null }));
 vi.mock("./ReviewSubmitDialog", () => ({ default: () => null }));
@@ -131,5 +150,37 @@ describe("DesignReviewContent document editing", () => {
       "aria-selected",
       "true",
     );
+  });
+
+  it("offers add-to-chat and immediate send from a narrow plan pane", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onQueueComment = vi.fn();
+    const onSendComment = vi.fn().mockResolvedValue(undefined);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DesignReviewContent
+          specTaskId="task-1"
+          reviewId="review-1"
+          onClose={vi.fn()}
+          onQueueComment={onQueueComment}
+          onSendComment={onSendComment}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.mouseMove(screen.getByTestId("agent-chat-markdown"));
+    fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Plan comment" }), {
+      target: { value: "Address this now" },
+    });
+
+    expect(screen.getByRole("button", { name: "Add to chat" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(onSendComment).toHaveBeenCalledWith(expect.objectContaining({
+      sectionTitle: "Plan comment",
+      text: "Address this now",
+      contents: expect.stringContaining("Original text"),
+    })));
+    expect(onQueueComment).not.toHaveBeenCalled();
   });
 });

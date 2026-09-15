@@ -10,9 +10,11 @@ interface InlineCommentFormProps {
   commentText: string;
   onCommentChange: (value: string) => void;
   onCreate: () => void;
+  onSend?: () => void;
   onCancel: () => void;
   isNarrowViewport?: boolean;
   isSubmitting?: boolean;
+  isSending?: boolean;
   submitLabel?: string;
   // Optional outer ref used by the parent to measure the rendered form
   // height — needed so the bubble-stacking algorithm can include this form.
@@ -26,9 +28,11 @@ export default function InlineCommentForm({
   commentText,
   onCommentChange,
   onCreate,
+  onSend,
   onCancel,
   isNarrowViewport = false,
   isSubmitting = false,
+  isSending = false,
   submitLabel = "Comment",
   outerRef,
 }: InlineCommentFormProps) {
@@ -96,8 +100,10 @@ export default function InlineCommentForm({
         onTextChange={onCommentChange}
         onCancel={onCancel}
         onSubmit={onCreate}
+        onSend={onSend}
         submitLabel={submitLabel}
         isSubmitting={isSubmitting}
+        isSending={isSending}
       />
     </Box>
   );
