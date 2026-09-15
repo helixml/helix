@@ -30,7 +30,11 @@ func (f *fakeQueryer) ListAccessGrants(_ context.Context, _ *ListAccessGrantsQue
 func newFakeQueryer() *fakeQueryer {
 	return &fakeQueryer{
 		memberships: map[string]*types.OrganizationMembership{
+			// org-2 is seeded with an owner role on purpose: without
+			// enforceKeyOrgScope both cross-org assertions would succeed,
+			// so the negative tests fail if the guard is removed.
 			"org-1/user-1": {OrganizationID: "org-1", UserID: "user-1", Role: types.OrganizationRoleMember},
+			"org-2/user-1": {OrganizationID: "org-2", UserID: "user-1", Role: types.OrganizationRoleOwner},
 		},
 	}
 }
