@@ -2,7 +2,6 @@ import React, { FC, useMemo } from "react";
 import InteractionContainer from "./InteractionContainer";
 import InteractionInference from "./InteractionInference";
 import Box from "@mui/material/Box";
-import Stack from "@mui/material/Stack";
 import Alert from "@mui/material/Alert";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
@@ -14,7 +13,6 @@ import CollapsibleSystemPrefix, {
 } from "./CollapsibleSystemPrefix";
 import ChangedFilesCard from "./ChangedFilesCard";
 import { parseMessageWithAttachments } from "../common/chatAttachments";
-import { resolveChatTurnAssistantPreview } from "./ChatTurnNavigator.logic";
 import { workspaceReviewMessageCopyText } from "./workspaceReviewMessage";
 
 import useAccount from "../../hooks/useAccount";
@@ -43,8 +41,8 @@ const getInteractionUserMessage = (interaction?: TypesInteraction) => {
 
 /**
  * Inline divider rendered in place of a normal user/assistant turn for
- * synthetic fork_seed interactions. The disclosure keeps both the seeded
- * transcript and its associated synthetic handoff out of the normal chat.
+ * synthetic fork_seed interactions. The seeded transcript stays behind a
+ * disclosure, while the associated handoff renders as normal agent activity.
  */
 const ForkSeedDivider: FC<{
   interaction: TypesInteraction;
@@ -55,15 +53,17 @@ const ForkSeedDivider: FC<{
 }) => {
   const [expanded, setExpanded] = React.useState(false);
   const transcript = interaction.response_message || "";
-  const isAgentSwitch = interaction.prompt_message?.startsWith("Agent switched to ")
-    && handoffInteraction?.trigger === "fork_handoff";
-  const dividerLabel = interaction.prompt_message || "Forked from prior session";
-  const handoffResponse = handoffInteraction
-    ? resolveChatTurnAssistantPreview(
-        handoffInteraction.response_message,
-        (handoffInteraction as any).response_entries,
-      )
-    : null;
+  const hasHandoff = handoffInteraction?.trigger === "fork_handoff";
+  const isImplementationTransition = hasHandoff &&
+    handoffInteraction.prompt_message?.includes("## CURRENT PHASE: IMPLEMENTATION");
+  const isAgentSwitch = hasHandoff && (
+    interaction.prompt_message?.startsWith("Agent switched to ") ||
+    interaction.prompt_message === "Switching to implementation harness configuration" ||
+    isImplementationTransition
+  );
+  const dividerLabel = isImplementationTransition
+    ? "Switching to implementation harness configuration"
+    : interaction.prompt_message || "Forked from prior session";
   return (
     <Box sx={{ my: 3 }}>
       <Box
@@ -85,10 +85,7 @@ const ForkSeedDivider: FC<{
           }}
         >
           <Box
-            component={isAgentSwitch ? "button" : "div"}
-            type={isAgentSwitch ? "button" : undefined}
-            aria-expanded={isAgentSwitch ? expanded : undefined}
-            onClick={isAgentSwitch ? () => setExpanded((value) => !value) : undefined}
+            component="div"
             sx={{
               background: "transparent",
               border: "none",
@@ -98,8 +95,6 @@ const ForkSeedDivider: FC<{
               textTransform: "uppercase",
               letterSpacing: 0.5,
               p: 0,
-              cursor: isAgentSwitch ? "pointer" : "default",
-              "&:hover": isAgentSwitch ? { color: "text.primary" } : undefined,
             }}
           >
             {dividerLabel}
@@ -125,35 +120,6 @@ const ForkSeedDivider: FC<{
         </Box>
         <Box sx={{ flex: 1, borderTop: "1px dashed", borderColor: "divider" }} />
       </Box>
-      {expanded && handoffInteraction && (
-        <Stack spacing={1} sx={{ mt: 1 }}>
-          <Box
-            sx={{
-              p: 1.5,
-              borderRadius: 1,
-              backgroundColor: "action.hover",
-              fontSize: "0.8rem",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}
-          >
-            {handoffInteraction.prompt_message}
-          </Box>
-          <Box
-            sx={{
-              p: 1.5,
-              border: "1px solid",
-              borderColor: "divider",
-              borderRadius: 1,
-              fontSize: "0.8rem",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}
-          >
-            {handoffResponse || "Waiting for the agent response…"}
-          </Box>
-        </Stack>
-      )}
       {!isAgentSwitch && expanded && transcript && (
         <Box
           sx={{
@@ -446,10 +412,6 @@ export const Interaction: FC<InteractionProps> = ({
       />
     );
   }
-  if (interaction.trigger === "fork_handoff") {
-    return null;
-  }
-
   return (
     <Box
       data-chat-turn={interaction.id}
@@ -463,7 +425,10 @@ export const Interaction: FC<InteractionProps> = ({
       onMouseLeave={() => setIsHovering(false)}
     >
       {/* User Message Container */}
-      {userMessage && !hidePrompt && interaction.trigger !== "org_hire" && (
+      {userMessage &&
+        !hidePrompt &&
+        interaction.trigger !== "org_hire" &&
+        interaction.trigger !== "fork_handoff" && (
         <Box
           sx={{
             display: "flex",
