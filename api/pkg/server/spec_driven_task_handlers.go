@@ -195,15 +195,23 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
-	if req.CodeAgentConfig != nil {
+	if req.CodeAgentConfig != nil || req.PlanningCodeAgentConfig != nil {
 		project, err := s.Store.GetProject(ctx, req.ProjectID)
 		if err != nil {
 			http.Error(w, "project not found", http.StatusBadRequest)
 			return
 		}
-		if err := s.validateCodeAgentExecutionConfig(ctx, req.CodeAgentConfig, user.ID, user.ID, project.OrganizationID); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+		if req.CodeAgentConfig != nil {
+			if err := s.validateCodeAgentExecutionConfig(ctx, req.CodeAgentConfig, user.ID, user.ID, project.OrganizationID); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		if req.PlanningCodeAgentConfig != nil {
+			if err := s.validateCodeAgentExecutionConfig(ctx, req.PlanningCodeAgentConfig, user.ID, user.ID, project.OrganizationID); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 	}
 
@@ -671,7 +679,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		// Refuse to queue implementation if the agent's provider/model
 		// snapshot is stale or empty — same backstop as start-planning, so
 		// post-spec approval can't sneak past with a broken config.
-		if reason, vErr := s.validateSpecTaskAgentConfig(ctx, existingTask, user.ID); vErr != nil {
+		if reason, vErr := s.validateSpecTaskAgentConfig(ctx, existingTask, user.ID, types.SpecTaskPhaseImplementation); vErr != nil {
 			log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with approval")
 		} else if reason != "" {
 			writeResponse(w, map[string]interface{}{
@@ -683,22 +691,61 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
+	req.TaskID = taskID
+	req.ApprovedBy = user.ID
+	req.ApprovedAt = now
 	existingTask.SpecApproval = &req
 	existingTask.StatusUpdatedAt = &now
+	specApprovalJSON, err := json.Marshal(req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to encode spec approval: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	var nextStatus types.SpecTaskStatus
+	var fromStatuses []types.SpecTaskStatus
+	extraFields := map[string]any{"spec_approval": string(specApprovalJSON)}
 	if req.Approved {
 		existingTask.SpecApprovedBy = user.ID
 		existingTask.SpecApprovedAt = &now
-		existingTask.Status = types.TaskStatusSpecApproved
+		nextStatus = types.TaskStatusSpecApproved
+		fromStatuses = []types.SpecTaskStatus{
+			types.TaskStatusSpecGeneration,
+			types.TaskStatusSpecReview,
+			types.TaskStatusSpecRevision,
+			types.TaskStatusSpecApproved,
+		}
+		extraFields["spec_approved_by"] = user.ID
+		extraFields["spec_approved_at"] = now
 	} else {
-		// Rejection — don't set approval tracking fields, go straight to revision
-		existingTask.Status = types.TaskStatusSpecRevision
+		nextStatus = types.TaskStatusSpecRevision
+		fromStatuses = []types.SpecTaskStatus{
+			types.TaskStatusSpecGeneration,
+			types.TaskStatusSpecReview,
+			types.TaskStatusSpecRevision,
+			types.TaskStatusSpecApproved,
+		}
 	}
 
-	err = s.Store.UpdateSpecTask(ctx, existingTask)
-	if err != nil {
-		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update task")
-		http.Error(w, fmt.Sprintf("failed to update task: %v", err), http.StatusInternalServerError)
-		return
+	if req.Approved && (existingTask.Status == types.TaskStatusImplementationQueued ||
+		existingTask.Status == types.TaskStatusImplementation ||
+		existingTask.Status == types.TaskStatusQueuedImplementation) {
+		// A previous request already claimed or completed the handoff. Do not
+		// write an older status back; ApproveSpecs will re-drive pending work.
+	} else {
+		transitioned, transitionErr := s.Store.TransitionSpecTaskStatus(
+			ctx, taskID, fromStatuses, nextStatus, extraFields,
+		)
+		if transitionErr != nil {
+			log.Error().Err(transitionErr).Str("task_id", taskID).Msg("Failed to update task approval")
+			http.Error(w, fmt.Sprintf("failed to update task approval: %v", transitionErr), http.StatusInternalServerError)
+			return
+		}
+		if !transitioned {
+			http.Error(w, "task is no longer awaiting spec approval", http.StatusConflict)
+			return
+		}
+		existingTask.Status = nextStatus
 	}
 
 	// Log audit event for spec approval
@@ -723,18 +770,22 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Process approval immediately in goroutine (don't wait for orchestrator polling)
-	// This sends the implementation instruction to the agent right away
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		if err := s.specDrivenTaskService.ApproveSpecs(context.Background(), existingTask); err != nil {
-			log.Error().
-				Err(err).
-				Str("task_id", taskID).
-				Msg("Failed to process spec approval (orchestrator will retry)")
+	// Approval is not complete until the durable implementation handoff exists.
+	// Returning 200 before this point leaves the approver with a task that can be
+	// stuck without any visible failure.
+	if err := s.specDrivenTaskService.ApproveSpecs(ctx, existingTask); err != nil {
+		if errors.Is(err, services.ErrImplementationHandoffAlreadyClaimed) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
 		}
-	}()
+		s.persistSpecApprovalError(ctx, taskID, err)
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to process spec approval")
+		http.Error(w, fmt.Sprintf("failed to start implementation: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if refreshed, refreshErr := s.Store.GetSpecTask(ctx, taskID); refreshErr == nil {
+		existingTask = refreshed
+	}
 
 	log.Info().
 		Str("task_id", taskID).
@@ -744,6 +795,24 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(existingTask)
+}
+
+func (s *HelixAPIServer) persistSpecApprovalError(ctx context.Context, taskID string, approvalErr error) {
+	ctx = context.WithoutCancel(ctx)
+	task, err := s.Store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to load task for approval error")
+		return
+	}
+	metadata := make(map[string]interface{}, len(task.Metadata)+2)
+	for key, value := range task.Metadata {
+		metadata[key] = value
+	}
+	metadata["error"] = approvalErr.Error()
+	metadata["error_timestamp"] = time.Now().Format(time.RFC3339)
+	if err := s.Store.UpdateSpecTaskFields(ctx, taskID, map[string]any{"metadata": metadata}); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to persist approval error")
+	}
 }
 
 // getTaskSpecs godoc
@@ -1104,7 +1173,11 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	// empty — otherwise the orchestrator would spawn a desktop that boots
 	// fine but can't reach a routable model, and the user has to dig
 	// through API logs to find the cause.
-	if reason, vErr := s.validateSpecTaskAgentConfig(ctx, task, user.ID); vErr != nil {
+	phase := types.SpecTaskPhasePlanning
+	if task.JustDoItMode {
+		phase = types.SpecTaskPhaseImplementation
+	}
+	if reason, vErr := s.validateSpecTaskAgentConfig(ctx, task, user.ID, phase); vErr != nil {
 		log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with planning")
 	} else if reason != "" {
 		writeResponse(w, map[string]interface{}{

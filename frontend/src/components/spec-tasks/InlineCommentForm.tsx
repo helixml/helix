@@ -1,5 +1,7 @@
 import React, { useCallback, useRef, useEffect } from "react";
-import { Paper, Box, TextField, Button, Typography, CircularProgress } from "@mui/material";
+import { Box } from "@mui/material";
+
+import ReviewCommentAnnotation from "../workspace-inspector/ReviewCommentAnnotation";
 
 interface InlineCommentFormProps {
   show: boolean;
@@ -11,6 +13,7 @@ interface InlineCommentFormProps {
   onCancel: () => void;
   isNarrowViewport?: boolean;
   isSubmitting?: boolean;
+  submitLabel?: string;
   // Optional outer ref used by the parent to measure the rendered form
   // height — needed so the bubble-stacking algorithm can include this form.
   outerRef?: (el: HTMLDivElement | null) => void;
@@ -26,6 +29,7 @@ export default function InlineCommentForm({
   onCancel,
   isNarrowViewport = false,
   isSubmitting = false,
+  submitLabel = "Comment",
   outerRef,
 }: InlineCommentFormProps) {
   const paperRef = useRef<HTMLDivElement>(null);
@@ -45,115 +49,56 @@ export default function InlineCommentForm({
     outerRefRef.current?.(el);
   }, []);
 
-  // Auto-scroll to ensure the comment form is visible after it appears
+  // Keep the compact annotation visible when it opens below the selection.
   useEffect(() => {
     if (show && paperRef.current) {
-      // Small delay to ensure the element is rendered
-      setTimeout(() => {
-        paperRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "nearest",
-        });
-      }, 100);
+      paperRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
   }, [show, yPos]);
 
   if (!show || !selectedText) return null;
 
-  // On narrow viewports (tablets), render as a bottom sheet style overlay
-  // On wide viewports, keep the original side positioning
   const narrowStyles = {
-    position: "fixed" as const,
+    position: "absolute" as const,
     left: "50%",
-    bottom: "20px",
-    transform: "translateX(-50%)",
+    top: `${yPos + 8}px`,
     width: "calc(100% - 32px)",
-    maxWidth: "500px",
-    top: "auto",
+    maxWidth: 480,
+    transform: "translateX(-50%)",
+    bottom: "auto",
   };
 
   const wideStyles = {
     position: "absolute" as const,
     left: "820px",
     top: `${yPos}px`,
-    width: "300px",
+    width: "360px",
     transform: "none",
     bottom: "auto",
   };
 
   return (
-    <Paper
+    <Box
       ref={setRefs}
+      data-plan-comment-draft
       sx={{
         ...(isNarrowViewport ? narrowStyles : wideStyles),
-        p: 2,
-        bgcolor: "background.paper",
-        border: "2px solid",
+        bgcolor: "background.default",
+        borderLeft: "2px solid",
         borderColor: "primary.main",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
         zIndex: 20,
       }}
     >
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Add Comment
-      </Typography>
-
-      <Box
-        sx={{
-          bgcolor: "action.hover",
-          p: 1,
-          borderLeft: "3px solid",
-          borderColor: "primary.main",
-          mb: 1.5,
-          fontStyle: "italic",
-          fontSize: "0.75rem",
-          maxHeight: isNarrowViewport ? "60px" : "none",
-          overflow: "auto",
-        }}
-      >
-        "
-        {selectedText.length > 100
-          ? selectedText.substring(0, 100) + "..."
-          : selectedText}
-        "
-      </Box>
-
-      <TextField
-        fullWidth
-        multiline
-        rows={isNarrowViewport ? 2 : 3}
-        value={commentText}
-        onChange={(e) => onCommentChange(e.target.value)}
-        onKeyDown={(e) => {
-          // Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux) to submit
-          if (
-            e.key === "Enter" &&
-            (e.metaKey || e.ctrlKey) &&
-            commentText.trim()
-          ) {
-            e.preventDefault();
-            onCreate();
-          }
-        }}
-        placeholder="Add your comment... (Cmd+Enter to submit)"
-        autoFocus
-        sx={{ mb: 1.5 }}
+      <ReviewCommentAnnotation
+        kind="draft"
+        text={commentText}
+        rangeLabel="selected text"
+        onTextChange={onCommentChange}
+        onCancel={onCancel}
+        onSubmit={onCreate}
+        submitLabel={submitLabel}
+        isSubmitting={isSubmitting}
       />
-
-      <Box display="flex" gap={1} justifyContent="flex-end">
-        <Button size="small" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          size="small"
-          variant="contained"
-          onClick={onCreate}
-          disabled={!commentText.trim() || isSubmitting}
-          startIcon={isSubmitting ? <CircularProgress size={16} color="inherit" /> : undefined}
-        >
-          Comment
-        </Button>
-      </Box>
-    </Paper>
+    </Box>
   );
 }

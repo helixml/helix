@@ -1094,7 +1094,7 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 		}
 	}
 
-	// Use WithExternalRepoWrite to handle pre-sync, write, post-push, and rollback
+	// WithExternalRepoWrite applies the branch's configured mirror semantics.
 	var fileContent string
 	err = s.gitRepositoryService.WithExternalRepoWrite(
 		r.Context(),

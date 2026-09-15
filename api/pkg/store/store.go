@@ -617,6 +617,7 @@ type Store interface {
 	GetSpecTasksCount(ctx context.Context, query *GetSpecTasksCountQuery) (int64, error)
 	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
+	UpdateSpecTaskFields(ctx context.Context, taskID string, updates map[string]any) error
 	TransitionSpecTaskStatus(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, extraFields map[string]any) (bool, error)
 	// SetPlanningSessionIDIfEmpty atomically claims a spec task's planning_session_id
 	// slot. Returns true if this caller won the claim (row updated), false if another
@@ -670,6 +671,7 @@ type Store interface {
 	CreateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error
 	GetSpecTaskDesignReview(ctx context.Context, id string) (*types.SpecTaskDesignReview, error)
 	UpdateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error
+	UpdateSpecTaskDesignReviewDocument(ctx context.Context, reviewID, taskID string, reviewUpdates, taskUpdates map[string]any) error
 	DeleteSpecTaskDesignReview(ctx context.Context, id string) error
 	ListSpecTaskDesignReviews(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReview, error)
 	GetLatestDesignReview(ctx context.Context, specTaskID string) (*types.SpecTaskDesignReview, error)

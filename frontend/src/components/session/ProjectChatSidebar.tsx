@@ -784,7 +784,6 @@ const ProjectChatSidebar: FC<{
                     <Button
                       size="small"
                       variant="text"
-                      startIcon={<Plus size={12} strokeWidth={1.8} />}
                       onClick={() => setNewBotOpen(true)}
                       disabled={!groupsEnabled}
                       sx={{
@@ -793,14 +792,20 @@ const ProjectChatSidebar: FC<{
                         height: 24,
                         px: 0.5,
                         py: 0,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 0.25,
                         color: 'inherit',
                         fontSize: TYPOGRAPHY.sidebar.sectionFontSize,
                         lineHeight: TYPOGRAPHY.sidebar.sectionLineHeight,
                         textTransform: 'none',
-                        '& .MuiButton-startIcon': { mr: 0.25 },
                       }}
                     >
-                      New bot
+                      <Plus size={12} strokeWidth={1.8} aria-hidden="true" />
+                      <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center' }}>
+                        New bot
+                      </Box>
                     </Button>
                   )}
                 />

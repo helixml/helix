@@ -280,13 +280,12 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 		}
 	}
 
-	// Load startup script from helix-specs branch in primary repo.
-	// Sync from upstream first — helix-specs can be modified outside Helix
-	// (e.g., direct git pushes), so we need the latest version.
+	// helix-specs is local-authoritative. Read the startup script from Helix's
+	// bare repository without consulting the external VCS.
 	if project.DefaultRepoID != "" {
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
-			syncErr := s.gitRepositoryService.WithExternalRepoRead(r.Context(), primaryRepo, func() error {
+			loadErr := s.gitRepositoryService.WithRepoLock(primaryRepo.ID, func() error {
 				startupScript, loadErr := s.projectInternalRepoService.LoadStartupScriptFromHelixSpecs(primaryRepo.LocalPath)
 				if loadErr != nil {
 					return loadErr
@@ -294,9 +293,9 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 				project.StartupScript = startupScript
 				return nil
 			})
-			if syncErr != nil {
+			if loadErr != nil {
 				log.Warn().
-					Err(syncErr).
+					Err(loadErr).
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
 					Msg("failed to load startup script from helix-specs branch")
@@ -475,6 +474,18 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		}
 		defaultApp = external_agent.AppFromCodeAgentConfig(req.CodeAgentConfig, user.ID, req.OrganizationID)
 	}
+	if req.PlanningCodeAgentConfig == nil {
+		if req.CodeAgentConfig != nil {
+			planningConfig := *req.CodeAgentConfig
+			planningConfig.GooseRecipes = append([]types.AssistantGooseRecipe(nil), req.CodeAgentConfig.GooseRecipes...)
+			req.PlanningCodeAgentConfig = &planningConfig
+		}
+	}
+	if req.PlanningCodeAgentConfig != nil {
+		if err := s.validateProjectCodeAgentConfig(r.Context(), req.PlanningCodeAgentConfig, user.ID, user.ID, req.OrganizationID); err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("invalid planning code-agent config: %v", err))
+		}
+	}
 
 	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
 	if err != nil {
@@ -525,6 +536,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		StartupScript:                   req.StartupScript,
 		DefaultHelixAppID:               req.DefaultHelixAppID,
 		CodeAgentConfig:                 req.CodeAgentConfig,
+		PlanningCodeAgentConfig:         req.PlanningCodeAgentConfig,
 		DefaultSandboxRuntime:           types.EffectiveSpecTaskSandboxRuntime(req.DefaultSandboxRuntime),
 		DefaultSandboxResourceOverrides: req.DefaultSandboxResourceOverrides,
 		Guidelines:                      req.Guidelines,
@@ -552,15 +564,14 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	// Initialize startup script in the primary code repo
 	// Startup script lives at .helix/startup.sh in the primary repository
 	if primaryRepo.LocalPath != "" {
-		// Use WithExternalRepoWrite with lenient options - don't fail project creation
-		// if startup script sync/push fails. The utility still handles rollback on push failure.
+		// Keep the startup script locally even when best-effort upstream publication fails.
 		writeErr := s.gitRepositoryService.WithExternalRepoWrite(
 			r.Context(),
 			primaryRepo,
 			services.ExternalRepoWriteOptions{
 				Branch:          "helix-specs",
-				FailOnSyncError: false, // Don't fail project creation on sync error
-				FailOnPushError: false, // Don't fail project creation on push error (but still rollback)
+				FailOnSyncError: false,
+				FailOnPushError: false,
 			},
 			func() error {
 				return s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(
@@ -736,6 +747,11 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 			return nil, system.NewHTTPError400(err.Error())
 		}
 	}
+	if req.PlanningCodeAgentConfig != nil {
+		if err := s.validateProjectCodeAgentConfig(r.Context(), req.PlanningCodeAgentConfig, user.ID, project.UserID, project.OrganizationID); err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("invalid planning code-agent config: %v", err))
+		}
+	}
 
 	// Apply updates
 	if req.Name != nil {
@@ -782,6 +798,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	}
 	if req.CodeAgentConfig != nil {
 		project.CodeAgentConfig = req.CodeAgentConfig
+	}
+	if req.PlanningCodeAgentConfig != nil {
+		project.PlanningCodeAgentConfig = req.PlanningCodeAgentConfig
 	}
 	if req.DefaultSandboxRuntime != nil {
 		if !types.ValidSpecTaskSandboxRuntime(*req.DefaultSandboxRuntime) {
@@ -1992,16 +2011,16 @@ func (s *HelixAPIServer) getProjectStartupScriptHistory(_ http.ResponseWriter, r
 		return nil, system.NewHTTPError400("primary repository is external - history not available")
 	}
 
-	// Sync from upstream first — helix-specs can be modified outside Helix
+	// helix-specs history is served from Helix's local bare repository.
 	var versions []services.StartupScriptVersion
-	syncErr := s.gitRepositoryService.WithExternalRepoRead(r.Context(), primaryRepo, func() error {
+	loadErr := s.gitRepositoryService.WithRepoLock(primaryRepo.ID, func() error {
 		var err error
 		versions, err = s.projectInternalRepoService.GetStartupScriptHistoryFromHelixSpecs(primaryRepo.LocalPath)
 		return err
 	})
-	if syncErr != nil {
+	if loadErr != nil {
 		log.Error().
-			Err(syncErr).
+			Err(loadErr).
 			Str("project_id", projectID).
 			Str("primary_repo_id", project.DefaultRepoID).
 			Msg("failed to get startup script history from helix-specs branch")

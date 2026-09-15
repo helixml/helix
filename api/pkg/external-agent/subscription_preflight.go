@@ -35,11 +35,11 @@ func (h *HydraExecutor) verifySubscriptionCredentials(ctx context.Context, agent
 	var credentialType types.CodeAgentCredentialType
 	if session.Metadata.SpecTaskID != "" {
 		task, err := h.store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
-		if err != nil || task == nil || task.CodeAgentConfig == nil {
+		if err != nil || task == nil || task.ActiveCodeAgentConfig() == nil {
 			return nil
 		}
-		runtime = task.CodeAgentConfig.Runtime
-		credentialType = task.CodeAgentConfig.CredentialType
+		runtime = task.ActiveCodeAgentConfig().Runtime
+		credentialType = task.ActiveCodeAgentConfig().CredentialType
 	} else {
 		app, err := h.store.GetApp(ctx, session.ParentApp)
 		if err != nil || app == nil {

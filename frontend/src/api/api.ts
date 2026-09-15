@@ -2287,14 +2287,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
+  KindLocal = "local",
+  KindSlack = "slack",
   KindCron = "cron",
+  KindWebhook = "webhook",
+  KindGitHub = "github",
+  KindGitLab = "gitlab",
   KindHelixEvents = "helix_events",
   KindEmail = "email",
-  KindLocal = "local",
-  KindWebhook = "webhook",
-  KindSlack = "slack",
-  KindGitLab = "gitlab",
-  KindGitHub = "github",
 }
 
 export interface TransportResolvedActivation {
@@ -3688,6 +3688,9 @@ export interface TypesCreateTaskRequest {
   just_do_it_mode?: boolean;
   /** Name is the task title. Empty means derive it from the prompt. */
   name?: string;
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
+  planning_goose_recipe_name?: string;
+  planning_goose_recipe_params?: Record<string, string>;
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   prompt?: string;
@@ -5351,6 +5354,11 @@ export interface TypesProject {
    */
   next_task_number?: number;
   organization_id?: string;
+  /**
+   * PlanningCodeAgentConfig is the planning-phase default copied into each new
+   * SpecTask. Nil preserves the historical behaviour by using CodeAgentConfig.
+   */
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
   project_manager_helix_app_id?: string;
   pull_request_reviewer_helix_app_id?: string;
   pull_request_reviews_enabled?: boolean;
@@ -5475,6 +5483,7 @@ export interface TypesProjectCreateRequest {
   guidelines?: string;
   name?: string;
   organization_id?: string;
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
   /** Project-level skills */
   skills?: TypesAssistantSkills;
   startup_script?: string;
@@ -5574,6 +5583,7 @@ export interface TypesProjectUpdateRequest {
   kodit_enabled?: boolean;
   metadata?: TypesProjectMetadata;
   name?: string;
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
   /** Project manager agent */
   project_manager_helix_app_id?: string;
   /** Pull request reviewer agent */
@@ -7099,6 +7109,7 @@ export interface TypesSpecTask {
   cloned_from_id?: string;
   /** Original project */
   cloned_from_project_id?: string;
+  /** CodeAgentConfig is the implementation-phase execution configuration. */
   code_agent_config?: TypesCodeAgentExecutionConfig;
   /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
@@ -7194,6 +7205,13 @@ export interface TypesSpecTask {
   organization_id?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
+  /**
+   * PlanningCodeAgentConfig is independently snapshotted when the task is
+   * created so project-default changes cannot alter an existing planning run.
+   */
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
+  planning_goose_recipe_name?: string;
+  planning_goose_recipe_params?: Record<string, string>;
   planning_options?: TypesStartPlanningOptions;
   /**
    * Session tracking (single Helix session for entire workflow - planning + implementation)
@@ -7388,6 +7406,12 @@ export interface TypesSpecTaskDesignReviewDetailResponse {
   spec_task?: TypesSpecTask;
 }
 
+export interface TypesSpecTaskDesignReviewDocumentUpdateRequest {
+  content: string;
+  document_type: "requirements" | "technical_design" | "implementation_plan";
+  original_content: string;
+}
+
 export interface TypesSpecTaskDesignReviewListResponse {
   reviews?: TypesSpecTaskDesignReview[];
   total?: number;
@@ -7410,6 +7434,7 @@ export interface TypesSpecTaskDesignReviewSubmitRequest {
 
 export interface TypesSpecTaskExecutionConfigUpdateRequest {
   code_agent_config?: TypesCodeAgentExecutionConfig;
+  phase?: "planning" | "implementation";
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
 }
 
@@ -7496,6 +7521,7 @@ export interface TypesSpecTaskWithProject {
   cloned_from_id?: string;
   /** Original project */
   cloned_from_project_id?: string;
+  /** CodeAgentConfig is the implementation-phase execution configuration. */
   code_agent_config?: TypesCodeAgentExecutionConfig;
   /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
@@ -7591,6 +7617,13 @@ export interface TypesSpecTaskWithProject {
   organization_id?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
+  /**
+   * PlanningCodeAgentConfig is independently snapshotted when the task is
+   * created so project-default changes cannot alter an existing planning run.
+   */
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
+  planning_goose_recipe_name?: string;
+  planning_goose_recipe_params?: Record<string, string>;
   planning_options?: TypesStartPlanningOptions;
   /**
    * Session tracking (single Helix session for entire workflow - planning + implementation)
@@ -18270,6 +18303,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Update one Markdown design document with optimistic concurrency
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsDocumentUpdate
+     * @summary Update a design review document
+     * @request PUT:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/document
+     * @secure
+     */
+    v1SpecTasksDesignReviewsDocumentUpdate: (
+      specTaskId: string,
+      reviewId: string,
+      request: TypesSpecTaskDesignReviewDocumentUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskDesignReview, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/document`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Approve or request changes for a design review
      *
      * @tags SpecTasks
@@ -18528,7 +18586,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns the task-owned code-agent configuration. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.
+     * @description Returns the task-owned code-agent configuration for the active planning or implementation phase. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksExecutionConfigDetail
@@ -18546,7 +18604,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Replaces a task's complete code-agent configuration or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.
+     * @description Replaces a task's planning or implementation code-agent configuration, or its sandbox resource preset. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksExecutionConfigPartialUpdate

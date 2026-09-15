@@ -37,6 +37,7 @@ type GitIntegrationSuite struct {
 	// Services
 	gitRepoService *GitRepositoryService
 	gitHTTPServer  *GitHTTPServer
+	testAPIKey     *types.ApiKey
 
 	// HTTP test server
 	httpServer *httptest.Server
@@ -105,6 +106,7 @@ func (s *GitIntegrationSuite) SetupTest() {
 		Key:   "test-api-key",
 		Owner: "test-user",
 	}
+	s.testAPIKey = testAPIKey
 	s.mockStore.EXPECT().
 		GetAPIKey(gomock.Any(), gomock.Any()).
 		Return(testAPIKey, nil).
@@ -331,6 +333,165 @@ func (s *GitIntegrationSuite) TestSyncFromUpstream() {
 	// Now middle should have it
 	middleCommit = s.getMiddleCommit("main")
 	s.Equal(upstreamCommit, middleCommit, "Middle should match upstream after sync")
+}
+
+func (s *GitIntegrationSuite) TestSyncAllBranchesPreservesLocalHelixSpecs() {
+	localCommit, changed, err := CommitFileToBareBranch(
+		s.ctx,
+		s.testRepo.LocalPath,
+		SpecsBranchName,
+		"design/local.md",
+		[]byte("local plan\n"),
+		"Helix",
+		"helix@example.com",
+		"Add local plan",
+	)
+	s.Require().NoError(err)
+	s.True(changed)
+
+	upstreamCommit, changed, err := CommitFileToBareBranch(
+		s.ctx,
+		s.upstreamDir,
+		SpecsBranchName,
+		"design/upstream.md",
+		[]byte("upstream plan\n"),
+		"Test",
+		"test@example.com",
+		"Add upstream plan",
+	)
+	s.Require().NoError(err)
+	s.True(changed)
+	s.NotEqual(localCommit, upstreamCommit)
+
+	err = s.gitRepoService.SyncAllBranches(s.ctx, s.testRepo.ID, true)
+	s.Require().NoError(err)
+	s.Equal(localCommit, s.getMiddleCommit(SpecsBranchName))
+}
+
+func (s *GitIntegrationSuite) TestExternalWriteReportsFailedHelixSpecsPublication() {
+	s.testRepo.ExternalURL = "file://" + filepath.Join(s.testDir, "unavailable-upstream")
+	var localCommit string
+	err := s.gitRepoService.WithExternalRepoWrite(
+		s.ctx,
+		s.testRepo,
+		ExternalRepoWriteOptions{
+			Branch:          SpecsBranchName,
+			FailOnSyncError: true,
+			FailOnPushError: true,
+		},
+		func() error {
+			var changed bool
+			var writeErr error
+			localCommit, changed, writeErr = CommitFileToBareBranch(
+				s.ctx,
+				s.testRepo.LocalPath,
+				SpecsBranchName,
+				"design/local.md",
+				[]byte("local plan\n"),
+				"Helix",
+				"helix@example.com",
+				"Add local plan",
+			)
+			s.True(changed)
+			return writeErr
+		},
+	)
+	s.Require().ErrorContains(err, "failed to publish retained local branch to upstream")
+	s.Equal(localCommit, s.getMiddleCommit(SpecsBranchName))
+}
+
+func (s *GitIntegrationSuite) TestAgentHelixSpecsPushSurvivesUserOAuthFailure() {
+	agentClone := filepath.Join(s.testDir, "agent-specs-clone")
+	s.cloneFromServer(agentClone)
+	_, _, checkoutErr := gitcmd.NewCommand("checkout", "-b", SpecsBranchName).
+		RunStdString(s.ctx, &gitcmd.RunOpts{Dir: agentClone})
+	s.Require().NoError(checkoutErr)
+
+	task := &types.SpecTask{
+		ID:                "spt_local_plan",
+		Name:              "Local Plan",
+		DesignDocPath:     "spt_local_plan",
+		Status:            types.TaskStatusSpecGeneration,
+		PlanningStartedBy: "user-without-oauth",
+		LastPushError:     &types.PushError{RawMessage: "previous publication failed"},
+	}
+	taskDir := filepath.Join(agentClone, "design", "tasks", task.DesignDocPath)
+	s.Require().NoError(os.MkdirAll(taskDir, 0755))
+	documents := map[string]string{
+		"requirements.md": "# Requirements: Local Plan\n\nServe this plan from Helix.\n",
+		"design.md":       "# Design\n\nKeep helix-specs local-authoritative.\n",
+		"tasks.md":        "# Tasks\n\n- [ ] Implement the local plan.\n",
+	}
+	for filename, content := range documents {
+		s.Require().NoError(os.WriteFile(filepath.Join(taskDir, filename), []byte(content), 0644))
+	}
+	s.Require().NoError(giteagit.AddChanges(s.ctx, agentClone, true))
+	s.Require().NoError(giteagit.CommitChanges(s.ctx, agentClone, giteagit.CommitChangesOptions{
+		Committer: &giteagit.Signature{Name: "Test", Email: "test@example.com", When: time.Now()},
+		Author:    &giteagit.Signature{Name: "Test", Email: "test@example.com", When: time.Now()},
+		Message:   "Add local plan",
+	}))
+
+	var stateMu sync.Mutex
+	taskState := *task
+	var createdReview *types.SpecTaskDesignReview
+	s.testAPIKey.SpecTaskID = task.ID
+	s.mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).DoAndReturn(func(context.Context, string) (*types.SpecTask, error) {
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		result := taskState
+		return &result, nil
+	}).AnyTimes()
+	s.mockStore.EXPECT().ListOAuthConnections(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.mockStore.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, updated *types.SpecTask) error {
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		taskState = *updated
+		return nil
+	}).AnyTimes()
+	s.mockStore.EXPECT().ListSpecTaskDesignReviews(gomock.Any(), task.ID).Return(nil, nil)
+	s.mockStore.EXPECT().CreateSpecTaskDesignReview(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, review *types.SpecTaskDesignReview) error {
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		result := *review
+		createdReview = &result
+		return nil
+	})
+	s.mockStore.EXPECT().GetUnresolvedCommentsForTask(gomock.Any(), task.ID).Return(nil, nil)
+
+	// Planning-only pushes must not need working external repository credentials.
+	s.testRepo.ExternalURL = "file://" + filepath.Join(s.testDir, "unavailable-upstream")
+
+	_, _, pushErr := gitcmd.NewCommand("push", "origin", SpecsBranchName).
+		RunStdString(s.ctx, &gitcmd.RunOpts{Dir: agentClone})
+	s.Require().NoError(pushErr)
+	s.gitHTTPServer.wg.Wait()
+
+	middleCommit, err := GetBranchCommitID(s.ctx, s.testRepo.LocalPath, SpecsBranchName)
+	s.Require().NoError(err)
+	s.NotEmpty(middleCommit)
+	_, err = GetBranchCommitID(s.ctx, s.upstreamDir, SpecsBranchName)
+	s.Error(err)
+
+	gitRepo, err := OpenGitRepo(s.testRepo.LocalPath)
+	s.Require().NoError(err)
+	defer gitRepo.Close()
+	for filename, expected := range documents {
+		content, readErr := gitRepo.ReadFileFromBranch(SpecsBranchName, filepath.Join("design", "tasks", task.DesignDocPath, filename))
+		s.Require().NoError(readErr)
+		s.Equal(expected, string(content))
+	}
+
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	s.Nil(taskState.LastPushError)
+	s.Equal(types.TaskStatusSpecReview, taskState.Status)
+	s.NotNil(taskState.DesignDocsPushedAt)
+	s.Require().NotNil(createdReview)
+	s.Equal(documents["requirements.md"], createdReview.RequirementsSpec)
+	s.Equal(documents["design.md"], createdReview.TechnicalDesign)
+	s.Equal(documents["tasks.md"], createdReview.ImplementationPlan)
+	s.Equal(SpecsBranchName, createdReview.GitBranch)
 }
 
 func (s *GitIntegrationSuite) TestRecoverIncompletePushes() {

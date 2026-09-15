@@ -638,6 +638,7 @@ func NewServer(
 	// sender path (session-scoped prompt queue). Delivery is deferred until idle
 	// for interrupt=false, or cancel-then-send for interrupt=true.
 	apiServer.specDrivenTaskService.EnqueueMessageToAgent = apiServer.enqueueSpecTaskAgentMessage
+	apiServer.specDrivenTaskService.TransitionToImplementation = apiServer.transitionSpecTaskToImplementation
 	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
 	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
 	// Wire project-secret injection into HydraExecutor so every desktop container
@@ -1685,6 +1686,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// Design review routes
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews", apiServer.listDesignReviews).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}", apiServer.getDesignReview).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/document", apiServer.updateDesignReviewDocument).Methods(http.MethodPut)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit", apiServer.submitDesignReview).Methods(http.MethodPost) // TODO: move
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.createDesignReviewComment).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.listDesignReviewComments).Methods(http.MethodGet)

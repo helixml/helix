@@ -428,14 +428,15 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 	return nil
 }
 
-// SyncAllBranches fetches ALL branches from the external remote into the local bare repository.
-// This is used when initially importing a repository or when you need to ensure all
-// remote branches are available locally.
+// SyncAllBranches fetches mirrored branches from the external remote into the local bare repository.
 //
 // The method:
 // 1. Opens the local bare repository
-// 2. Fetches ALL branches from the "origin" remote
-// 3. Updates local refs to match the remote (including new and deleted branches if prune=true)
+// 2. Fetches mirrored branches from the "origin" remote
+// 3. Updates mirrored local refs to match the remote
+//
+// helix-specs is excluded because Helix serves it from the local bare repository
+// and must retain planning data even when it cannot be published upstream.
 //
 // Uses gitea/git module for native git operations.
 func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID string, force bool) error {
@@ -455,7 +456,9 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 	// Build authenticated URL for fetch
 	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
 
-	// Fetch ALL branches using wildcard refspec
+	// Fetch mirrored branches using a wildcard refspec. The negative refspec is
+	// essential: a force fetch must never replace the local-authoritative
+	// helix-specs branch with an older or missing upstream copy.
 	refSpec := "refs/heads/*:refs/heads/*"
 	if force {
 		refSpec = "+" + refSpec
@@ -465,47 +468,17 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 		Str("repo_id", gitRepo.ID).
 		Str("external_url", gitRepo.ExternalURL).
 		Bool("force", force).
-		Msg("Syncing ALL branches from external repository")
-
-	// Check if helix-specs branch exists before fetching (we need to preserve it)
-	hasHelixSpecs := false
-	if branches, err := ListBranches(ctx, gitRepo.LocalPath); err == nil {
-		for _, b := range branches {
-			if b == "helix-specs" {
-				hasHelixSpecs = true
-				break
-			}
-		}
-	}
+		Msg("Syncing mirrored branches from external repository")
 
 	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
 		Remote:   fetchURL,
-		RefSpecs: []string{refSpec},
+		RefSpecs: []string{refSpec, "^refs/heads/" + SpecsBranchName},
 		Force:    force,
-		Prune:    false, // Don't prune - preserves local-only branches like helix-specs
+		Prune:    false,
 		Timeout:  5 * time.Minute,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to fetch from remote: %w", err)
-	}
-
-	// Restore helix-specs branch if it was pruned (it's a local-only branch for design docs)
-	// The prune operation removes branches not on the remote, but helix-specs is intentionally local.
-	if hasHelixSpecs {
-		if branches, err := ListBranches(ctx, gitRepo.LocalPath); err == nil {
-			helixSpecsStillExists := false
-			for _, b := range branches {
-				if b == "helix-specs" {
-					helixSpecsStillExists = true
-					break
-				}
-			}
-			if !helixSpecsStillExists {
-				log.Warn().
-					Str("repo_id", gitRepo.ID).
-					Msg("helix-specs branch was pruned during sync - this should not happen, branch needs to be recreated")
-			}
-		}
 	}
 
 	// Update the repository's branch list using gitea's git module
@@ -526,7 +499,7 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 				Str("repo_id", gitRepo.ID).
 				Int("branch_count", len(branches)).
 				Strs("branches", branches).
-				Msg("Successfully synced all branches from external repository")
+				Msg("Successfully synced mirrored branches from external repository")
 		}
 	}
 

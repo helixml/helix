@@ -19943,6 +19943,83 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/document": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update one Markdown design document with optimistic concurrency",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Update a design review document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Document edit",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewDocumentUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReview"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit": {
             "post": {
                 "security": [
@@ -20626,7 +20703,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the task-owned code-agent configuration. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.",
+                "description": "Returns the task-owned code-agent configuration for the active planning or implementation phase. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.",
                 "produces": [
                     "application/json"
                 ],
@@ -20664,7 +20741,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Replaces a task's complete code-agent configuration or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.",
+                "description": "Replaces a task's planning or implementation code-agent configuration, or its sandbox resource preset. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.",
                 "consumes": [
                     "application/json"
                 ],
@@ -28110,24 +28187,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "cron",
-                "helix_events",
-                "email",
                 "local",
-                "webhook",
                 "slack",
+                "cron",
+                "webhook",
+                "github",
                 "gitlab",
-                "github"
+                "helix_events",
+                "email"
             ],
             "x-enum-varnames": [
-                "KindCron",
-                "KindHelixEvents",
-                "KindEmail",
                 "KindLocal",
-                "KindWebhook",
                 "KindSlack",
+                "KindCron",
+                "KindWebhook",
+                "KindGitHub",
                 "KindGitLab",
-                "KindGitHub"
+                "KindHelixEvents",
+                "KindEmail"
             ]
         },
         "transport.ResolvedActivation": {
@@ -31066,6 +31143,18 @@ const docTemplate = `{
                 "name": {
                     "description": "Name is the task title. Empty means derive it from the prompt.",
                     "type": "string"
+                },
+                "planning_code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
+                "planning_goose_recipe_name": {
+                    "type": "string"
+                },
+                "planning_goose_recipe_params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "priority": {
                     "$ref": "#/definitions/types.SpecTaskPriority"
@@ -34830,6 +34919,14 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "planning_code_agent_config": {
+                    "description": "PlanningCodeAgentConfig is the planning-phase default copied into each new\nSpecTask. Nil preserves the historical behaviour by using CodeAgentConfig.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
+                },
                 "project_manager_helix_app_id": {
                     "type": "string"
                 },
@@ -35117,6 +35214,9 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "planning_code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
                 "skills": {
                     "description": "Project-level skills",
                     "allOf": [
@@ -35371,6 +35471,9 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "planning_code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
                 },
                 "project_manager_helix_app_id": {
                     "description": "Project manager agent",
@@ -38349,7 +38452,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "code_agent_config": {
-                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                    "description": "CodeAgentConfig is the implementation-phase execution configuration.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
                 },
                 "code_agent_overrides": {
                     "description": "Legacy migration source; cleared together with HelixAppID on task start.",
@@ -38494,6 +38602,23 @@ const docTemplate = `{
                 "original_prompt": {
                     "description": "Kiro's actual approach: simple, human-readable artifacts",
                     "type": "string"
+                },
+                "planning_code_agent_config": {
+                    "description": "PlanningCodeAgentConfig is independently snapshotted when the task is\ncreated so project-default changes cannot alter an existing planning run.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
+                },
+                "planning_goose_recipe_name": {
+                    "type": "string"
+                },
+                "planning_goose_recipe_params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "planning_options": {
                     "$ref": "#/definitions/types.StartPlanningOptions"
@@ -38936,6 +39061,30 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SpecTaskDesignReviewDocumentUpdateRequest": {
+            "type": "object",
+            "required": [
+                "content",
+                "document_type",
+                "original_content"
+            ],
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "document_type": {
+                    "type": "string",
+                    "enum": [
+                        "requirements",
+                        "technical_design",
+                        "implementation_plan"
+                    ]
+                },
+                "original_content": {
+                    "type": "string"
+                }
+            }
+        },
         "types.SpecTaskDesignReviewListResponse": {
             "type": "object",
             "properties": {
@@ -39002,6 +39151,17 @@ const docTemplate = `{
             "properties": {
                 "code_agent_config": {
                     "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
+                "phase": {
+                    "enum": [
+                        "planning",
+                        "implementation"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskPhase"
+                        }
+                    ]
                 },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
@@ -39211,7 +39371,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "code_agent_config": {
-                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                    "description": "CodeAgentConfig is the implementation-phase execution configuration.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
                 },
                 "code_agent_overrides": {
                     "description": "Legacy migration source; cleared together with HelixAppID on task start.",
@@ -39356,6 +39521,23 @@ const docTemplate = `{
                 "original_prompt": {
                     "description": "Kiro's actual approach: simple, human-readable artifacts",
                     "type": "string"
+                },
+                "planning_code_agent_config": {
+                    "description": "PlanningCodeAgentConfig is independently snapshotted when the task is\ncreated so project-default changes cannot alter an existing planning run.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
+                },
+                "planning_goose_recipe_name": {
+                    "type": "string"
+                },
+                "planning_goose_recipe_params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "planning_options": {
                     "$ref": "#/definitions/types.StartPlanningOptions"

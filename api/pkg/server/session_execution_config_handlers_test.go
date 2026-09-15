@@ -303,6 +303,7 @@ func TestUpdateSessionExecutionConfigWritesThroughToSpecTask(t *testing.T) {
 	mem.SeedSpecTask(&types.SpecTask{
 		ID:                session.Metadata.SpecTaskID,
 		PlanningSessionID: session.ID,
+		Status:            types.TaskStatusImplementation,
 		CodeAgentConfig: &types.CodeAgentExecutionConfig{
 			Runtime:        types.CodeAgentRuntimeZedAgent,
 			CredentialType: types.CodeAgentCredentialTypeSubscription,

@@ -914,8 +914,9 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
             />
           </SettingRow>
           <SettingRow
-            title="Agent"
-            description="Runtime and model new tasks start on, including tasks filed by an agent. Which runtimes are available is set for the whole organization under Providers."
+            title="Agents"
+            description="Planning and implementation runtime defaults for new tasks. Available runtimes are managed for the organization under Providers."
+            align="start"
           >
             <ProjectCodeAgentDefaults
               project={project}

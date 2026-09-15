@@ -98,6 +98,44 @@ func TestSwitchAgentInPlace_MutatesSessionAndSeeds(t *testing.T) {
 	assert.Equal(t, types.InteractionStateWaiting, handoff.State, "handoff must be Waiting so the reconnect resume path delivers it on reconnect")
 }
 
+func TestSwitchAgentInPlace_CleanHandoffOmitsPlannerTranscript(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+	mem.SeedApp(&types.App{ID: "app_target", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI, Model: "gpt-5.6-sol",
+		}},
+	}}})
+	session := newTestParentSession("user_a")
+	seedParentWithInteractions(t, mem, session, 2)
+
+	httpErr := srv.switchAgentInPlaceForNextTurn(ctx, session, types.CodeAgentRuntimeCodexCLI, "app_target", agentSwitchOptions{
+		createHandoff:  true,
+		handoffPrompt:  "Implement the approved plan.",
+		omitTranscript: true,
+	})
+	require.Nil(t, httpErr)
+
+	interactions, _, err := mem.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: session.ID, GenerationID: session.GenerationID, PerPage: 1000,
+	})
+	require.NoError(t, err)
+	var seed, handoff *types.Interaction
+	for _, interaction := range interactions {
+		switch interaction.Trigger {
+		case types.InteractionTriggerForkSeed:
+			seed = interaction
+		case types.InteractionTriggerForkHandoff:
+			handoff = interaction
+		}
+	}
+	require.NotNil(t, seed)
+	assert.Empty(t, seed.ResponseMessage)
+	require.NotNil(t, handoff)
+	assert.Equal(t, "Implement the approved plan.", handoff.PromptMessage)
+}
+
 func TestSessionUsesAgentRuntime_RejectsStaleAgentName(t *testing.T) {
 	session := newTestParentSession("user_a")
 	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeCodexCLI

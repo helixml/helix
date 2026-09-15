@@ -169,7 +169,7 @@ describe("WorkspaceDiffSurface", () => {
       );
     });
     expect(mocks.codeViewProps!.items[0].version).not.toBe(initialVersion);
-    const input = screen.getByRole("textbox", { name: "Comment on line 2" });
+    const input = screen.getByRole("textbox", { name: "Comment on L2" });
     fireEvent.change(input, { target: { value: "Keep this." } });
     fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
 

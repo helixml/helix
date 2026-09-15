@@ -3,6 +3,7 @@ import {
   loadSpecTaskContentPanelOpen,
   resolveSpecTaskChatDefaultLayout,
   saveSpecTaskContentPanelOpen,
+  shouldStartSpecTaskContentPanelCollapsed,
   specTaskContentPanelStorageKey,
 } from "./specTaskPanelLayout";
 
@@ -49,5 +50,27 @@ describe("resolveSpecTaskChatDefaultLayout", () => {
     expect(loadSpecTaskContentPanelOpen("spt_one", storage)).toBe(false);
     expect(storage.values.get(specTaskContentPanelStorageKey("spt_one")))
       .toBe("closed");
+  });
+});
+
+describe("shouldStartSpecTaskContentPanelCollapsed", () => {
+  it("keeps the plan visible for a headless planning task", () => {
+    expect(shouldStartSpecTaskContentPanelCollapsed({
+      allowContentCollapse: true,
+      collapseAfterSplit: true,
+      isHeadless: true,
+      isPlanningWorkspace: true,
+      headlessPreferenceOpen: false,
+    })).toBe(false);
+  });
+
+  it("honors the saved collapsed preference during headless implementation", () => {
+    expect(shouldStartSpecTaskContentPanelCollapsed({
+      allowContentCollapse: true,
+      collapseAfterSplit: false,
+      isHeadless: true,
+      isPlanningWorkspace: false,
+      headlessPreferenceOpen: false,
+    })).toBe(true);
   });
 });

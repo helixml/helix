@@ -29,21 +29,20 @@ import {
   Badge,
   ToggleButtonGroup,
   ToggleButton,
+  TextareaAutosize,
   GlobalStyles,
 } from "@mui/material";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import EditIcon from "@mui/icons-material/Edit";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import Description from "@mui/icons-material/Description";
-import { GitBranch } from "lucide-react";
-import CommentIcon from "@mui/icons-material/Comment";
-import AddCommentIcon from "@mui/icons-material/AddComment";
-import ShareIcon from "@mui/icons-material/Share";
-import CheckIcon from "@mui/icons-material/Check";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import {
+  ArrowLeft,
+  Check,
+  FileText,
+  GitBranch,
+  MessageSquare,
+  MessageSquarePlus,
+  Save,
+  Share2,
+  X,
+} from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import ReconnectingWebSocket from "reconnecting-websocket";
 import { applyPatch } from "../../utils/patchUtils";
@@ -56,6 +55,7 @@ import {
   getUnresolvedCount,
   designReviewKeys,
   useCommentQueueStatus,
+  useUpdateDesignReviewDocument,
 } from "../../services/designReviewService";
 import useSnackbar from "../../hooks/useSnackbar";
 import useApi from "../../hooks/useApi";
@@ -69,11 +69,15 @@ import InlineCommentForm from "./InlineCommentForm";
 import CommentLogSidebar from "./CommentLogSidebar";
 import ReviewActionFooter from "./ReviewActionFooter";
 import ReviewSubmitDialog from "./ReviewSubmitDialog";
-import RejectDesignDialog from "./RejectDesignDialog";
-import { useSpecTask, useArchiveSpecTask } from "../../services/specTaskService";
+import { useSpecTask } from "../../services/specTaskService";
 import { TypesSpecTaskStatus } from "../../api/api";
+import Markdown from "../session/Markdown";
+import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY, TYPOGRAPHY } from "../../styles/typography";
+import type { WorkspaceReviewComment } from "../workspace-inspector/workspaceReviewComments";
+import { buildPlanReviewComment } from "./planReviewComments";
 
 type DocumentType = "requirements" | "technical_design" | "implementation_plan";
+type DocumentMode = "preview" | "edit";
 
 interface DesignReviewContentProps {
   specTaskId: string;
@@ -85,12 +89,30 @@ interface DesignReviewContentProps {
   hideTitle?: boolean;
   /** If provided, renders a "← Back to task" tab as the first tab in the tab strip */
   onBack?: () => void;
+  onQueueComment?: (comment: WorkspaceReviewComment) => void;
 }
+
+let planCommentSequence = 0;
+const nextPlanCommentId = () => `plan-comment-${Date.now()}-${++planCommentSequence}`;
 
 const DOCUMENT_LABELS = {
   requirements: "Requirements Specification",
   technical_design: "Technical Design",
   implementation_plan: "Implementation Plan",
+};
+
+const DOCUMENT_TAB_LABELS = {
+  requirements: "Requirements",
+  technical_design: "Design",
+  implementation_plan: "Plan",
+};
+
+const TOOLBAR_ICON_BUTTON_SX = {
+  width: 30,
+  height: 30,
+  p: 0,
+  color: "text.secondary",
+  "&:hover": { color: "text.primary" },
 };
 
 type NormMapEntry = { node: Text; offset: number };
@@ -170,6 +192,7 @@ export default function DesignReviewContent({
   initialTab = "requirements",
   hideTitle = false,
   onBack,
+  onQueueComment,
 }: DesignReviewContentProps) {
   const snackbar = useSnackbar();
   const api = useApi();
@@ -197,9 +220,13 @@ export default function DesignReviewContent({
   // off-screen on first paint.
   const isNarrowViewport =
     docAreaWidth === null || docAreaWidth < SIDE_PANEL_MIN_DOC_AREA_WIDTH;
+  const usesChatCommentQueue = Boolean(onQueueComment);
 
   // Review state
   const [activeTab, setActiveTab] = useState<DocumentType>(initialTab);
+  const [documentMode, setDocumentMode] = useState<DocumentMode>("preview");
+  const [draftContent, setDraftContent] = useState<string | null>(null);
+  const [originalDraftContent, setOriginalDraftContent] = useState<string | null>(null);
   const [showCommentForm, setShowCommentForm] = useState(false);
   const [selectedText, setSelectedText] = useState("");
   const [commentText, setCommentText] = useState("");
@@ -209,18 +236,12 @@ export default function DesignReviewContent({
   });
   const [overallComment, setOverallComment] = useState("");
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
-  const [submitDecision, setSubmitDecision] = useState<
-    "approve" | "request_changes"
-  >("approve");
   const [startingImplementation, setStartingImplementation] = useState(false);
   const [showCommentLog, setShowCommentLog] = useState(false);
   const [viewedTabs, setViewedTabs] = useState<Set<DocumentType>>(
     new Set(["requirements"]),
   );
   const viewedContentRef = useRef<Map<DocumentType, string>>(new Map());
-  const [showRejectDialog, setShowRejectDialog] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
-  const archiveMutation = useArchiveSpecTask();
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [commentPositions, setCommentPositions] = useState<Map<string, number>>(
     new Map(),
@@ -308,6 +329,7 @@ export default function DesignReviewContent({
   );
 
   const submitReviewMutation = useSubmitReview(specTaskId, reviewId);
+  const updateDocumentMutation = useUpdateDesignReviewDocument(specTaskId, reviewId);
   const createCommentMutation = useCreateComment(specTaskId, reviewId);
   const resolveCommentMutation = useResolveComment(specTaskId, reviewId);
 
@@ -374,7 +396,6 @@ export default function DesignReviewContent({
   const unresolvedCount = getUnresolvedCount(allComments);
 
   const ALL_TABS: DocumentType[] = ["requirements", "technical_design", "implementation_plan"];
-  const allTabsViewed = ALL_TABS.every((t) => viewedTabs.has(t));
 
   // Memoize document content
   const documentContent = useMemo(() => {
@@ -393,6 +414,16 @@ export default function DesignReviewContent({
         );
     }
   }, [review, activeTab]);
+  const displayedDocumentContent = draftContent ?? documentContent;
+  const hasUnsavedDocumentChanges =
+    draftContent !== null && draftContent !== originalDraftContent;
+  const canCommentOnDocument =
+    documentMode === "preview" && !hasUnsavedDocumentChanges;
+  const canEditDocument =
+    Boolean(review) &&
+    review?.status !== "approved" &&
+    review?.status !== "superseded" &&
+    task?.status !== TypesSpecTaskStatus.TaskStatusDone;
 
   // Get comment counts per document type
   const getCommentCount = (docType: DocumentType) => {
@@ -449,6 +480,13 @@ export default function DesignReviewContent({
 
   // Handle tab change
   const handleTabChange = (newTab: DocumentType) => {
+    if (hasUnsavedDocumentChanges) {
+      snackbar.warning("Save or cancel your document changes before switching tabs");
+      return;
+    }
+    setDocumentMode("preview");
+    setDraftContent(null);
+    setOriginalDraftContent(null);
     setActiveTab(newTab);
     setViewedTabs((prev) => new Set(prev).add(newTab));
     viewedContentRef.current.set(newTab, getTabContent(newTab));
@@ -457,14 +495,44 @@ export default function DesignReviewContent({
     }
   };
 
-  // Jump to the next unread tab in canonical order, wrapping past the end.
-  const handleNextDocument = () => {
-    const startIdx = ALL_TABS.indexOf(activeTab);
-    for (let i = 1; i <= ALL_TABS.length; i++) {
-      const candidate = ALL_TABS[(startIdx + i) % ALL_TABS.length];
-      if (!viewedTabs.has(candidate)) {
-        handleTabChange(candidate);
-        return;
+  const handleEditDocument = () => {
+    removeHighlight();
+    setShowCommentForm(false);
+    setSelectedText("");
+    setSelectedOffset(null);
+    setHoverButtonPosition(null);
+    hoveredElementRef.current = null;
+    if (canEditDocument && draftContent === null) {
+      const content = getTabContent(activeTab);
+      setDraftContent(content);
+      setOriginalDraftContent(content);
+    }
+    setDocumentMode("edit");
+  };
+
+  const handleCancelDocumentEdit = () => {
+    setDraftContent(null);
+    setOriginalDraftContent(null);
+    setDocumentMode("preview");
+  };
+
+  const handleSaveDocument = async () => {
+    if (!canEditDocument || draftContent === null || originalDraftContent === null) return;
+    try {
+      await updateDocumentMutation.mutateAsync({
+        document_type: activeTab,
+        content: draftContent,
+        original_content: originalDraftContent,
+      });
+      setDraftContent(null);
+      setOriginalDraftContent(null);
+      setDocumentMode("preview");
+      snackbar.success(`${DOCUMENT_LABELS[activeTab]} saved`);
+    } catch (error: any) {
+      if (error?.response?.status === 409) {
+        snackbar.error("This document changed while you were editing. Your draft is preserved; refresh before saving again.");
+      } else {
+        snackbar.error(error?.message || "Failed to save design document");
       }
     }
   };
@@ -767,50 +835,27 @@ export default function DesignReviewContent({
     };
   }, [planningSessionId, specTaskId, reviewId, account.user]);
 
-  // Keyboard shortcuts
+  // Escape closes the active review overlay without intercepting typing keys.
   useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
+    const handleEscapeKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
         return;
       }
 
-      switch (e.key.toLowerCase()) {
-        case "c":
-          if (!e.ctrlKey && !e.metaKey) {
-            setShowCommentForm((prev) => !prev);
-            e.preventDefault();
-          }
-          break;
-        case "escape":
-          if (showCommentForm) {
-            removeHighlight();
-            setShowCommentForm(false);
-            e.preventDefault();
-          } else if (showSubmitDialog) {
-            setShowSubmitDialog(false);
-            e.preventDefault();
-          }
-          break;
-        case "1":
-        case "2":
-        case "3":
-          const tabs: DocumentType[] = [
-            "requirements",
-            "technical_design",
-            "implementation_plan",
-          ];
-          const tabIndex = parseInt(e.key) - 1;
-          if (tabIndex >= 0 && tabIndex < tabs.length) {
-            setActiveTab(tabs[tabIndex]);
-            e.preventDefault();
-          }
-          break;
+      if (e.key !== "Escape") return;
+      if (showCommentForm) {
+        removeHighlight();
+        setShowCommentForm(false);
+        e.preventDefault();
+      } else if (showSubmitDialog) {
+        setShowSubmitDialog(false);
+        e.preventDefault();
       }
     };
 
-    window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
+    window.addEventListener("keydown", handleEscapeKey);
+    return () => window.removeEventListener("keydown", handleEscapeKey);
   }, [showCommentForm, showSubmitDialog]);
 
   // Recalculate comment positions
@@ -837,11 +882,11 @@ export default function DesignReviewContent({
   }, []);
 
   useEffect(() => {
-    // On narrow viewports bubbles render inline (position: relative) and
-    // the form is a bottom-sheet (position: fixed). Stacking math is
-    // irrelevant in that mode.
+    // Existing server-side review bubbles stack in the wide side gutter. The
+    // compact composer is anchored directly below the selection on narrower
+    // embedded plan panes, so side-gutter collision math is irrelevant there.
     const formActive =
-      !isNarrowViewport && showCommentForm && !!selectedText;
+      !isNarrowViewport && !usesChatCommentQueue && showCommentForm && !!selectedText;
 
     if (
       !documentRef.current ||
@@ -917,10 +962,7 @@ export default function DesignReviewContent({
       });
 
       if (formActive) {
-        // 220 is a sensible default matching the form's typical rendered
-        // height with a 3-line TextField; the real value replaces it once
-        // the form has mounted and the ref callback bumps the tick.
-        const formHeight = commentFormRef.current?.offsetHeight || 220;
+        const formHeight = commentFormRef.current?.offsetHeight || 104;
         positions.push({
           id: NEW_COMMENT_FORM_KEY,
           baseY: commentFormPosition.y,
@@ -1005,6 +1047,7 @@ export default function DesignReviewContent({
     commentFormPosition.y,
     commentFormMeasureTick,
     isNarrowViewport,
+    usesChatCommentQueue,
   ]);
 
   // Find the Y position of quoted text within the rendered markdown.
@@ -1091,7 +1134,7 @@ export default function DesignReviewContent({
   };
 
   const removeHighlight = () => {
-    CSS.highlights.delete("comment-highlight");
+    CSS.highlights?.delete("comment-highlight");
     savedHighlightRangeRef.current = null;
   };
 
@@ -1122,7 +1165,7 @@ export default function DesignReviewContent({
 
         if (containerRect) {
           const scrollTop = documentRef.current?.scrollTop || 0;
-          const yPosition = rect.top - containerRect.top + scrollTop;
+          const yPosition = rect.bottom - containerRect.top + scrollTop;
 
           // Clear stale highlight before applying new selection
           removeHighlight();
@@ -1161,6 +1204,25 @@ export default function DesignReviewContent({
   const handleCreateComment = async () => {
     if (!commentText.trim()) {
       snackbar.error("Comment text is required");
+      return;
+    }
+
+    if (onQueueComment) {
+      onQueueComment(buildPlanReviewComment({
+        id: nextPlanCommentId(),
+        specTaskId,
+        designDocPath: task?.design_doc_path,
+        documentType: activeTab,
+        documentContent: displayedDocumentContent,
+        selectedText,
+        text: commentText,
+      }));
+      snackbar.success("Comment added to chat");
+      removeHighlight();
+      setCommentText("");
+      setSelectedText("");
+      setSelectedOffset(null);
+      setShowCommentForm(false);
       return;
     }
 
@@ -1205,24 +1267,18 @@ export default function DesignReviewContent({
   const handleSubmitReview = async () => {
     try {
       await submitReviewMutation.mutateAsync({
-        decision: submitDecision,
+        decision: "approve",
         overall_comment: overallComment || undefined,
       });
 
-      if (submitDecision === "approve") {
-        snackbar.success("Design approved! Agent starting implementation...");
-        setShowSubmitDialog(false);
+      snackbar.success("Design approved! Agent starting implementation...");
+      setShowSubmitDialog(false);
 
-        if (onImplementationStarted) {
-          onImplementationStarted();
-        }
-
-        onClose();
-      } else {
-        snackbar.success("Changes requested. Agent will be notified.");
-        setShowSubmitDialog(false);
-        onClose();
+      if (onImplementationStarted) {
+        onImplementationStarted();
       }
+
+      onClose();
     } catch (error: any) {
       // Open the matching provider connection flow on OAuth enforcement.
       const respData = error?.response?.data;
@@ -1256,17 +1312,6 @@ export default function DesignReviewContent({
         return;
       }
       snackbar.error(`Failed to submit review: ${error.message}`);
-    }
-  };
-
-  const handleRejectDesign = async () => {
-    try {
-      await archiveMutation.mutateAsync({ taskId: specTaskId, archived: true });
-      snackbar.success("Design rejected - spec task archived");
-      setShowRejectDialog(false);
-      onClose();
-    } catch (error: any) {
-      snackbar.error(`Failed to reject design: ${error.message}`);
     }
   };
 
@@ -1386,7 +1431,7 @@ export default function DesignReviewContent({
                 >
                   <ToggleButton value="chat">Chat</ToggleButton>
                   <ToggleButton value="spec">
-                    <Description sx={{ fontSize: 14, mr: 0.5 }} />
+                    <FileText size={14} style={{ marginRight: 4 }} />
                     Spec
                   </ToggleButton>
                 </ToggleButtonGroup>
@@ -1394,9 +1439,10 @@ export default function DesignReviewContent({
                 <IconButton
                   onClick={onBack}
                   size="small"
+                  aria-label="Back to task chat"
                   sx={{ display: { xs: 'flex', sm: 'none' }, ml: 0.5, mr: 0.5 }}
                 >
-                  <ArrowBackIcon sx={{ fontSize: 18 }} />
+                  <ArrowLeft size={18} />
                 </IconButton>
               </>
             )}
@@ -1406,14 +1452,29 @@ export default function DesignReviewContent({
               variant="scrollable"
               scrollButtons="auto"
               sx={{
-                minHeight: 48,
+                minHeight: 36,
+                my: 0.75,
+                ml: onBack ? 0 : 2,
+                p: 0.5,
+                borderRadius: 1,
+                bgcolor: "action.hover",
+                "& .MuiTabs-indicator": { display: "none" },
+                "& .MuiTabs-flexContainer": { gap: 0.25 },
                 "& .MuiTab-root": {
-                  minHeight: 48,
-                  py: 0,
-                  textTransform: "uppercase",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  letterSpacing: "0.5px",
+                  minHeight: 28,
+                  minWidth: 0,
+                  px: 1.25,
+                  py: 0.5,
+                  borderRadius: 0.75,
+                  textTransform: "none",
+                  fontSize: TYPOGRAPHY.sidebar.controlFontSize,
+                  fontWeight: 500,
+                  color: "text.secondary",
+                  "&.Mui-selected": {
+                    color: "text.primary",
+                    bgcolor: "background.paper",
+                    boxShadow: "0 1px 2px rgba(0, 0, 0, 0.16)",
+                  },
                 },
               }}
             >
@@ -1422,12 +1483,12 @@ export default function DesignReviewContent({
                   key={tab}
                   label={
                     <Box display="flex" alignItems="center" gap={0.5}>
-                      {DOCUMENT_LABELS[tab]}
+                      {DOCUMENT_TAB_LABELS[tab]}
                       {!viewedTabs.has(tab) && (
                         <Box
                           sx={{
-                            width: 8,
-                            height: 8,
+                            width: 6,
+                            height: 6,
                             borderRadius: "50%",
                             bgcolor: "warning.main",
                             flexShrink: 0,
@@ -1481,12 +1542,13 @@ export default function DesignReviewContent({
                 <IconButton
                   size="small"
                   onClick={handleShareLink}
-                  sx={{ p: 0.5 }}
+                  aria-label="Copy shareable link"
+                  sx={TOOLBAR_ICON_BUTTON_SX}
                 >
                   {shareLinkCopied ? (
-                    <CheckIcon color="success" fontSize="small" />
+                    <Check size={18} color="currentColor" />
                   ) : (
-                    <ShareIcon fontSize="small" />
+                    <Share2 size={18} />
                   )}
                 </IconButton>
               </Tooltip>
@@ -1495,23 +1557,94 @@ export default function DesignReviewContent({
                 <IconButton
                   size="small"
                   onClick={() => setShowCommentLog(!showCommentLog)}
-                  sx={{ p: 0.5 }}
+                  aria-label="Toggle comment log"
+                  sx={{
+                    ...TOOLBAR_ICON_BUTTON_SX,
+                    ...(showCommentLog ? { bgcolor: "action.selected", color: "text.primary" } : {}),
+                  }}
                 >
                   <Badge
                     badgeContent={activeDocComments.length}
                     color="primary"
                   >
-                    <CommentIcon fontSize="small" />
+                    <MessageSquare size={18} />
                   </Badge>
                 </IconButton>
               </Tooltip>
+
+              {draftContent !== null && hasUnsavedDocumentChanges && (
+                <>
+                  <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                    Unsaved
+                  </Typography>
+                  <Tooltip title="Cancel document changes">
+                    <IconButton
+                      size="small"
+                      onClick={handleCancelDocumentEdit}
+                      aria-label="Cancel document changes"
+                      disabled={updateDocumentMutation.isPending}
+                      sx={TOOLBAR_ICON_BUTTON_SX}
+                    >
+                      <X size={18} />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Save document">
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={handleSaveDocument}
+                        aria-label="Save document"
+                        disabled={!canEditDocument || !hasUnsavedDocumentChanges || updateDocumentMutation.isPending}
+                        sx={TOOLBAR_ICON_BUTTON_SX}
+                      >
+                        {updateDocumentMutation.isPending ? <CircularProgress size={16} /> : <Save size={18} />}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </>
+              )}
+
+              <ToggleButtonGroup
+                value={documentMode === "preview" ? "preview" : "markdown"}
+                exclusive
+                size="small"
+                aria-label="Document view"
+                onChange={(_, value: "preview" | "markdown" | null) => {
+                  if (value === "preview") {
+                    setDocumentMode("preview");
+                  } else if (value === "markdown") {
+                    handleEditDocument();
+                  }
+                }}
+                sx={{
+                  height: 24,
+                  flexShrink: 0,
+                  "& .MuiToggleButton-root": {
+                    minHeight: 24,
+                    px: 0.75,
+                    py: 0,
+                    border: 0,
+                    borderRadius: 0.75,
+                    textTransform: "none",
+                    color: "text.secondary",
+                    fontSize: TYPOGRAPHY.codeChromeFontSize,
+                    fontWeight: 500,
+                    "&.Mui-selected": {
+                      color: "text.primary",
+                      bgcolor: "action.selected",
+                    },
+                  },
+                }}
+              >
+                <ToggleButton value="preview">Preview</ToggleButton>
+                <ToggleButton value="markdown">Markdown</ToggleButton>
+              </ToggleButtonGroup>
             </Box>
           </Box>
 
           <Box
             ref={documentRef}
             flex={1}
-            overflow="auto"
             p={2}
             onMouseLeave={() => {
               hoveredElementRef.current = null;
@@ -1530,10 +1663,12 @@ export default function DesignReviewContent({
             sx={{
               bgcolor: "background.default",
               position: "relative",
+              overflowY: "auto",
+              overflowX: "hidden",
             }}
           >
             {/* Hover button for adding comment without text selection */}
-            {hoverButtonPosition && !showCommentForm && !isNarrowViewport && (
+            {canCommentOnDocument && hoverButtonPosition && !showCommentForm && !isNarrowViewport && (
               <Tooltip title="Add comment" placement="top">
                 <IconButton
                   size="small"
@@ -1547,10 +1682,12 @@ export default function DesignReviewContent({
                     // Whole-block selection has no precise start point; fall
                     // back to occurrence-ordinal anchoring.
                     setSelectedOffset(null);
-                    setCommentFormPosition({ x: 0, y: hoverButtonPosition.y });
+                    const blockHeight = hoveredElementRef.current?.getBoundingClientRect().height || 0;
+                    setCommentFormPosition({ x: 0, y: hoverButtonPosition.y + blockHeight });
                     setHoverButtonPosition(null);
                     setShowCommentForm(true);
                   }}
+                  aria-label="Add comment"
                   sx={{
                     position: "absolute",
                     top: hoverButtonPosition.y,
@@ -1558,12 +1695,12 @@ export default function DesignReviewContent({
                     zIndex: 15,
                     bgcolor: "#1976d2",
                     color: "#fff",
-                    width: 28,
-                    height: 28,
+                    width: 30,
+                    height: 30,
                     "&:hover": { bgcolor: "#1565c0" },
                   }}
                 >
-                  <AddCommentIcon sx={{ fontSize: 14 }} />
+                    <MessageSquarePlus size={18} />
                 </IconButton>
               </Tooltip>
             )}
@@ -1571,10 +1708,10 @@ export default function DesignReviewContent({
             {/* Document content */}
             <Box
               onMouseDown={() => { if (!showCommentForm) removeHighlight(); }}
-              onMouseUp={() => handleTextSelection(false)}
-              onTouchEnd={() => handleTextSelection(true)}
+              onMouseUp={() => { if (canCommentOnDocument) handleTextSelection(false); }}
+              onTouchEnd={() => { if (canCommentOnDocument) handleTextSelection(true); }}
               onMouseMove={(e) => {
-                if (showCommentForm || isNarrowViewport) return;
+                if (!canCommentOnDocument || showCommentForm || isNarrowViewport) return;
                 const target = e.target as Node;
                 for (const bubble of commentRefs.current.values()) {
                   if (bubble.contains(target)) {
@@ -1610,86 +1747,13 @@ export default function DesignReviewContent({
                 mx: "auto",
                 position: "relative",
                 "& .markdown-body": {
-                  bgcolor: "background.paper",
+                  bgcolor: "transparent",
                   px: 2.5,
                   py: 1.5,
-                  borderRadius: 1,
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-                  fontSize: "14px",
-                  lineHeight: 1.6,
+                  borderRadius: 0,
+                  boxShadow: "none",
+                  fontFamily: APP_FONT_FAMILY,
                   color: "text.primary",
-
-                  "& h1": {
-                    fontSize: "1.5rem",
-                    fontWeight: 600,
-                    color: "text.primary",
-                    marginTop: 0,
-                    marginBottom: "0.75rem",
-                    lineHeight: 1.3,
-                    borderBottom: 1,
-                    borderColor: "divider",
-                    paddingBottom: "0.5rem",
-                    "&:first-of-type": {
-                      marginTop: 0,
-                    },
-                  },
-                  "& h2": {
-                    fontSize: "1.25rem",
-                    fontWeight: 600,
-                    color: "text.primary",
-                    marginTop: "1.25rem",
-                    marginBottom: "0.5rem",
-                    lineHeight: 1.3,
-                  },
-                  "& h3": {
-                    fontSize: "1.1rem",
-                    fontWeight: 600,
-                    color: "text.primary",
-                    marginTop: "1rem",
-                    marginBottom: "0.4rem",
-                  },
-                  "& p": {
-                    marginBottom: "0.75rem",
-                  },
-                  "& ul, & ol": {
-                    marginBottom: "0.75rem",
-                    paddingLeft: "1.5rem",
-                  },
-                  "& li": {
-                    marginBottom: "0.25rem",
-                  },
-                  "& blockquote": {
-                    borderLeft: "3px solid",
-                    borderColor: "divider",
-                    paddingLeft: "1rem",
-                    marginLeft: 0,
-                    fontStyle: "italic",
-                    color: "text.secondary",
-                  },
-                  "& code": {
-                    fontFamily: "Monaco, Consolas, monospace",
-                    fontSize: "0.85em",
-                    bgcolor: "action.hover",
-                    padding: "1px 4px",
-                    borderRadius: "3px",
-                    border: 1,
-                    borderColor: "divider",
-                  },
-                  "& pre": {
-                    marginBottom: "0.75rem",
-                    borderRadius: "4px",
-                    overflow: "auto",
-                  },
-                  "& a": {
-                    color: "#00d5ff",
-                    textDecoration: "none",
-                    "&:hover": {
-                      textDecoration: "underline",
-                    },
-                    "&:visited": {
-                      color: "#00d5ff",
-                    },
-                  },
                   "&::selection": {
                     bgcolor: "#b3d7ff",
                     color: "#000",
@@ -1705,44 +1769,51 @@ export default function DesignReviewContent({
                 },
               }}
             >
-              <Paper ref={markdownRef} className="markdown-body" elevation={2}>
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    code({ node, inline, className, children, ref, ...props }: any) {
-                      const match = /language-(\w+)/.exec(className || "");
-                      return !inline && match ? (
-                        <SyntaxHighlighter
-                          style={oneLight as any}
-                          language={match[1]}
-                          PreTag="div"
-                          customStyle={{
-                            borderRadius: "4px",
-                            border: "1px solid #e0e0e0",
-                            fontSize: "14px",
-                            // Prevent code blocks from capturing vertical scroll
-                            // clip doesn't create a scroll container like auto does
-                            overflowX: "auto",
-                            overflowY: "clip",
-                          }}
-                          {...props}
-                        >
-                          {String(children).replace(/\n$/, "")}
-                        </SyntaxHighlighter>
-                      ) : (
-                        <code className={className} {...props}>
-                          {children}
-                        </code>
-                      );
-                    },
-                  }}
-                >
-                  {documentContent}
-                </ReactMarkdown>
-              </Paper>
+              {documentMode === "edit" ? (
+                <Paper className="markdown-body" elevation={0}>
+                  <Box
+                    component={TextareaAutosize}
+                    aria-label={`${DOCUMENT_LABELS[activeTab]} markdown source`}
+                    value={displayedDocumentContent}
+                    readOnly={!canEditDocument}
+                    onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setDraftContent(event.target.value)}
+                    onKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+                        event.preventDefault();
+                        if (hasUnsavedDocumentChanges && !updateDocumentMutation.isPending) {
+                          handleSaveDocument();
+                        }
+                      }
+                    }}
+                    spellCheck={false}
+                    sx={{
+                      display: "block",
+                      width: "100%",
+                      minHeight: "calc(100vh - 250px)",
+                      resize: "none",
+                      overflow: "hidden",
+                      border: 0,
+                      outline: 0,
+                      bgcolor: "transparent",
+                      color: "text.primary",
+                      fontFamily: APP_MONO_FONT_FAMILY,
+                      fontSize: `${TYPOGRAPHY.codeFontSize}px`,
+                      lineHeight: TYPOGRAPHY.codeLineHeight,
+                    }}
+                  />
+                </Paper>
+              ) : (
+                <Paper ref={markdownRef} className="markdown-body" elevation={0}>
+                  <Markdown
+                    text={displayedDocumentContent}
+                    session={null}
+                    renderThinkingWidget={false}
+                  />
+                </Paper>
+              )}
 
               {/* Inline Comments Overlay */}
-              {inlineComments.map((comment) => {
+              {canCommentOnDocument && inlineComments.map((comment) => {
                 if (!comment.quoted_text) return null;
                 const yPos = commentPositions.get(comment.id!);
                 if (yPos === undefined) return null;
@@ -1785,7 +1856,7 @@ export default function DesignReviewContent({
               })}
 
               {/* New Comment Form (Inline) */}
-              <InlineCommentForm
+              {canCommentOnDocument && <InlineCommentForm
                 show={showCommentForm}
                 yPos={
                   commentPositions.get(NEW_COMMENT_FORM_KEY) ??
@@ -1795,6 +1866,7 @@ export default function DesignReviewContent({
                 commentText={commentText}
                 onCommentChange={setCommentText}
                 onCreate={handleCreateComment}
+                submitLabel={onQueueComment ? "Add to chat" : "Comment"}
                 onCancel={() => {
                   removeHighlight();
                   setShowCommentForm(false);
@@ -1802,10 +1874,10 @@ export default function DesignReviewContent({
                   setSelectedText("");
                   setSelectedOffset(null);
                 }}
-                isNarrowViewport={isNarrowViewport}
-                isSubmitting={createCommentMutation.isPending}
+                isNarrowViewport={usesChatCommentQueue || isNarrowViewport}
+                isSubmitting={!onQueueComment && createCommentMutation.isPending}
                 outerRef={handleCommentFormRef}
-              />
+              />}
             </Box>
           </Box>
         </Box>
@@ -1841,17 +1913,8 @@ export default function DesignReviewContent({
               : ""
           }
           onApprove={() => {
-            setSubmitDecision("approve");
             setShowSubmitDialog(true);
           }}
-          onRequestChanges={() => {
-            setSubmitDecision("request_changes");
-            setShowSubmitDialog(true);
-          }}
-          allTabsViewed={allTabsViewed}
-          hasNextDocument={!allTabsViewed}
-          onNextDocument={handleNextDocument}
-          onReject={() => setShowRejectDialog(true)}
           onStartImplementation={handleStartImplementation}
         />
       )}
@@ -1860,20 +1923,10 @@ export default function DesignReviewContent({
       <ReviewSubmitDialog
         open={showSubmitDialog}
         onClose={() => setShowSubmitDialog(false)}
-        decision={submitDecision}
         overallComment={overallComment}
         onCommentChange={setOverallComment}
         onSubmit={handleSubmitReview}
         isSubmitting={submitReviewMutation.isPending}
-      />
-
-      <RejectDesignDialog
-        open={showRejectDialog}
-        onClose={() => setShowRejectDialog(false)}
-        reason={rejectReason}
-        onReasonChange={setRejectReason}
-        onReject={handleRejectDesign}
-        isSubmitting={archiveMutation.isPending}
       />
     </Box>
   );

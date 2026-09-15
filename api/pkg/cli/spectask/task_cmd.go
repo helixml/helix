@@ -320,8 +320,11 @@ func newGetCommand() *cobra.Command {
 			if len(task.Labels) > 0 {
 				fmt.Printf("  Labels:    %s\n", strings.Join(task.Labels, ", "))
 			}
+			if task.PlanningCodeAgentConfig != nil {
+				fmt.Printf("  Planner:   %s / %s\n", task.PlanningCodeAgentConfig.Runtime, task.PlanningCodeAgentConfig.Model)
+			}
 			if task.CodeAgentConfig != nil {
-				fmt.Printf("  Agent:     %s / %s\n", task.CodeAgentConfig.Runtime, task.CodeAgentConfig.Model)
+				fmt.Printf("  Implement: %s / %s\n", task.CodeAgentConfig.Runtime, task.CodeAgentConfig.Model)
 			}
 			fmt.Printf("  Runtime:   %s\n", types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime))
 			if task.PlanningSessionID != "" {

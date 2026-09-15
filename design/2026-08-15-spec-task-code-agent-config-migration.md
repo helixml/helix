@@ -1,5 +1,8 @@
 # Spec task code-agent config ownership
 
+> Extended by `2026-09-14-spec-task-phase-agents.md`: SpecTasks and projects now
+> own separate planning and implementation configurations.
+
 ## Decision
 
 Spec tasks and coding projects own a complete `CodeAgentExecutionConfig`. They no longer depend on a persisted Helix App to resolve runtime, credential type, provider, model, reasoning effort, service tier, or Goose recipe configuration.
