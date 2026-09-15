@@ -48,18 +48,18 @@ interface AddProviderDialogProps {
 const NameTypography = styled(Typography)(({ theme }) => ({
   fontSize: '2rem',
   fontWeight: 700,
-  color: '#F8FAFC',
+  color: theme.palette.text.primary,
   marginBottom: theme.spacing(1),
 }));
 
 const DescriptionTypography = styled(Typography)(({ theme }) => ({
   fontSize: '1.1rem',
-  color: '#A0AEC0',
+  color: theme.palette.text.secondary,
   marginBottom: theme.spacing(3),
 }));
 
 const SectionCard = styled(Box)(({ theme }) => ({
-  background: '#23262F',
+  background: theme.palette.background.default,
   borderRadius: 12,
   padding: theme.spacing(3),
   marginBottom: theme.spacing(3),
@@ -360,7 +360,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                       href={part}
                       target="_blank"
                       rel="noopener noreferrer"
-                      style={{ color: '#6366F1', textDecoration: 'none' }}
+                      style={{ color: 'inherit', textDecoration: 'underline' }}
                     >
                       {part}
                     </a>

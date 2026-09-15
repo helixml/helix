@@ -36,6 +36,11 @@ import ClaudeSubscriptionConnect from "../components/account/ClaudeSubscriptionC
 import AnthropicLogo from "../components/providers/logos/anthropic";
 import AgentHarness from "../components/agent/AgentHarness";
 import CodexSubscriptionConnect from "../components/account/CodexSubscriptionConnect";
+import AddProviderDialog from "../components/providers/AddProviderDialog";
+import { PROVIDERS } from "../components/providers/types";
+import ExternalCredentialsPicker, {
+  ExternalCredentialType,
+} from "../components/onboarding/ExternalCredentialsPicker";
 import { useGetConfig } from "../services/userService";
 import {
   DEFAULT_TOP_UP_AMOUNT,
@@ -56,7 +61,10 @@ import {
 } from "../services/codeAgentHarnessesService";
 import { useListProviders } from "../services/providersService";
 import {
+  providerEndpointIsConnected,
   providersForCodeAgentHarness,
+  providersForCodeAgentRuntime,
+  resolveProviderEndpointRef,
 } from "../utils/codeAgentProviders";
 import { providerRef } from "../components/create/AdvancedModelPicker";
 import {
@@ -68,6 +76,8 @@ import type { TypesCodeAgentExecutionConfig } from "../api/api";
 const ACCENT = "#00e891";
 const ACCENT_DIM = "rgba(0, 232, 145, 0.08)";
 const CARD_BORDER_ACTIVE = "rgba(0, 232, 145, 0.25)";
+const ANTHROPIC_PROVIDER = PROVIDERS.find((provider) => provider.id === "user/anthropic")!;
+const OPENAI_PROVIDER = PROVIDERS.find((provider) => provider.id === "user/openai")!;
 
 function getOnboardingPalette(isLight: boolean) {
   return {
@@ -170,8 +180,14 @@ interface OnboardingDraft {
   createdOrgId: string;
   createdOrgDuringOnboarding: boolean;
   codingAccessOption: CodingAccessOption;
+  claudeCredentialType: ExternalCredentialType;
+  codexCredentialType: ExternalCredentialType;
+  claudeProvider: string;
+  codexProvider: string;
   claudeModel: string;
   codexModel: string;
+  claudeAPIModel: string;
+  codexAPIModel: string;
   helixProvider: string;
   helixModel: string;
   helixReasoningEffort: string;
@@ -269,15 +285,25 @@ export default function Onboarding() {
   const trialEligible =
     !account.user?.onboarding_completed && !wallet?.stripe_subscription_id;
 
-  // Final step: choose Helix credits or an external coding subscription.
+  // Final step: choose Helix credits or external coding credentials.
   const [codingAccessOption, setCodingAccessOption] =
     useState<CodingAccessOption>("helix");
+  const [claudeCredentialType, setClaudeCredentialType] =
+    useState<ExternalCredentialType>("subscription");
+  const [codexCredentialType, setCodexCredentialType] =
+    useState<ExternalCredentialType>("subscription");
+  const [claudeProvider, setClaudeProvider] = useState("");
+  const [codexProvider, setCodexProvider] = useState("");
   const [claudeModel, setClaudeModel] = useState("");
   const [codexModel, setCodexModel] = useState("");
+  const [claudeAPIModel, setClaudeAPIModel] = useState("");
+  const [codexAPIModel, setCodexAPIModel] = useState("");
   const [helixProvider, setHelixProvider] = useState("");
   const [helixModel, setHelixModel] = useState("");
   const [helixReasoningEffort, setHelixReasoningEffort] = useState("none");
   const [finishingOnboarding, setFinishingOnboarding] = useState(false);
+  const [apiKeyDialogRuntime, setAPIKeyDialogRuntime] =
+    useState<"claude" | "codex" | null>(null);
   const updateCodeAgentHarnesses = useUpdateOrgCodeAgentHarnesses(createdOrg?.id);
   const { data: providers = [], isLoading: providersLoading } = useListProviders({
     loadModels: true,
@@ -320,7 +346,7 @@ export default function Onboarding() {
   const existingOrgs = account.organizationTools.organizations;
   const hasExistingOrgs = existingOrgs.length > 0;
 
-  // External coding subscription state
+  // External coding credential state
   const hasClaudeSubscription = !!findHarnessStatus(
     harnesses,
     TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
@@ -329,17 +355,61 @@ export default function Onboarding() {
     harnesses,
     TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
   )?.viewer_has_subscription;
+  const claudeAPIProviders = providersForCodeAgentRuntime(
+    providers,
+    TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+  ).filter(providerEndpointIsConnected);
+  const codexAPIProviders = providersForCodeAgentRuntime(
+    providers,
+    TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+  ).filter(providerEndpointIsConnected);
+  const selectedClaudeAPIProvider = resolveProviderEndpointRef(
+    claudeAPIProviders,
+    claudeProvider,
+  ) || claudeAPIProviders[0];
+  const selectedCodexAPIProvider = resolveProviderEndpointRef(
+    codexAPIProviders,
+    codexProvider,
+  ) || codexAPIProviders[0];
+  const selectedClaudeAPIProviderRef = selectedClaudeAPIProvider
+    ? providerRef(selectedClaudeAPIProvider)
+    : "";
+  const selectedCodexAPIProviderRef = selectedCodexAPIProvider
+    ? providerRef(selectedCodexAPIProvider)
+    : "";
+  const claudeAPIModels = (selectedClaudeAPIProvider?.available_models || []).filter((model) =>
+    model.id && model.enabled && (!model.type || model.type === "chat" || model.type === "text"));
+  const codexAPIModels = (selectedCodexAPIProvider?.available_models || []).filter((model) =>
+    model.id && model.enabled && (!model.type || model.type === "chat" || model.type === "text"));
+  const selectedClaudeAPIModel = claudeAPIModels.some((model) => model.id === claudeAPIModel)
+    ? claudeAPIModel
+    : claudeAPIModels[0]?.id || "";
+  const selectedCodexAPIModel = codexAPIModels.some((model) => model.id === codexAPIModel)
+    ? codexAPIModel
+    : codexAPIModels[0]?.id || "";
+  const ownedClaudeAPIProvider = providersForCodeAgentRuntime(
+    providers,
+    TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+  ).find((provider) => provider.endpoint_type === "org" && provider.owner === createdOrg?.id);
+  const ownedCodexAPIProvider = providersForCodeAgentRuntime(
+    providers,
+    TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+  ).find((provider) => provider.endpoint_type === "org" && provider.owner === createdOrg?.id);
 
   useEffect(() => {
-    if (codingAccessOption === "claude" && hasClaudeSubscription && !claudeModel) {
+    if (codingAccessOption === "claude" && claudeCredentialType === "subscription"
+      && hasClaudeSubscription && !claudeModel) {
       setClaudeModel(DEFAULT_CLAUDE_SUBSCRIPTION_MODEL);
     }
-    if (codingAccessOption === "codex" && hasCodexSubscription && !codexModel) {
+    if (codingAccessOption === "codex" && codexCredentialType === "subscription"
+      && hasCodexSubscription && !codexModel) {
       setCodexModel(DEFAULT_CODEX_SUBSCRIPTION_MODEL);
     }
   }, [
     claudeModel,
+    claudeCredentialType,
     codexModel,
+    codexCredentialType,
     codingAccessOption,
     hasClaudeSubscription,
     hasCodexSubscription,
@@ -418,8 +488,18 @@ export default function Onboarding() {
         || draft.codingAccessOption === "claude"
         || draft.codingAccessOption === "codex"
       ) setCodingAccessOption(draft.codingAccessOption);
+      if (draft.claudeCredentialType === "subscription" || draft.claudeCredentialType === "api_key") {
+        setClaudeCredentialType(draft.claudeCredentialType);
+      }
+      if (draft.codexCredentialType === "subscription" || draft.codexCredentialType === "api_key") {
+        setCodexCredentialType(draft.codexCredentialType);
+      }
+      if (typeof draft.claudeProvider === "string") setClaudeProvider(draft.claudeProvider);
+      if (typeof draft.codexProvider === "string") setCodexProvider(draft.codexProvider);
       if (typeof draft.claudeModel === "string") setClaudeModel(draft.claudeModel);
       if (typeof draft.codexModel === "string") setCodexModel(draft.codexModel);
+      if (typeof draft.claudeAPIModel === "string") setClaudeAPIModel(draft.claudeAPIModel);
+      if (typeof draft.codexAPIModel === "string") setCodexAPIModel(draft.codexAPIModel);
       if (typeof draft.helixProvider === "string") setHelixProvider(draft.helixProvider);
       if (typeof draft.helixModel === "string") setHelixModel(draft.helixModel);
       if (typeof draft.helixReasoningEffort === "string") {
@@ -478,8 +558,14 @@ export default function Onboarding() {
       createdOrgId: createdOrg?.id || "",
       createdOrgDuringOnboarding,
       codingAccessOption,
+      claudeCredentialType,
+      codexCredentialType,
+      claudeProvider,
+      codexProvider,
       claudeModel,
       codexModel,
+      claudeAPIModel,
+      codexAPIModel,
       helixProvider,
       helixModel,
       helixReasoningEffort,
@@ -494,8 +580,14 @@ export default function Onboarding() {
   }, [
     account.user?.id,
     activeStep,
+    claudeCredentialType,
+    claudeAPIModel,
     claudeModel,
+    claudeProvider,
+    codexCredentialType,
+    codexAPIModel,
     codexModel,
+    codexProvider,
     codingAccessOption,
     completedSteps,
     createdOrg?.id,
@@ -623,17 +715,35 @@ export default function Onboarding() {
 
       const codeAgentConfig: TypesCodeAgentExecutionConfig | undefined =
         codingAccessOption === "claude"
-          ? {
-              runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
-              credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
-              model: claudeModel,
-            }
-          : codingAccessOption === "codex"
+          ? claudeCredentialType === "subscription"
             ? {
-                runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+                runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
                 credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
-                model: codexModel,
+                model: claudeModel,
               }
+            : selectedClaudeAPIProviderRef && selectedClaudeAPIModel
+              ? {
+                  runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+                  credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+                  provider_ref: selectedClaudeAPIProviderRef,
+                  model: selectedClaudeAPIModel,
+                }
+              : undefined
+          : codingAccessOption === "codex"
+            ? codexCredentialType === "subscription"
+              ? {
+                  runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+                  credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+                  model: codexModel,
+                }
+              : selectedCodexAPIProviderRef && selectedCodexAPIModel
+                ? {
+                    runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+                    credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+                    provider_ref: selectedCodexAPIProviderRef,
+                    model: selectedCodexAPIModel,
+                  }
+                : undefined
             : helixProvider && helixModel
               ? {
                   runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
@@ -670,6 +780,26 @@ export default function Onboarding() {
             enabled: true,
             subscription_enabled: true,
           }]);
+        }
+        if (codeAgentConfig.credential_type === TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey
+          && codeAgentConfig.runtime !== TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent) {
+          const providerRefValue = codeAgentConfig.provider_ref!;
+          const apiProviderPolicyReady = selectedHarness?.enabled
+            && selectedHarness.subscription_enabled !== true
+            && (selectedHarness.provider_refs == null
+              || selectedHarness.provider_refs.includes(providerRefValue));
+          if (!apiProviderPolicyReady) {
+            const providerRefs = Array.from(new Set([
+              ...(selectedHarness?.provider_refs || []),
+              providerRefValue,
+            ]));
+            await updateCodeAgentHarnesses.mutateAsync([{
+              runtime: codeAgentConfig.runtime!,
+              enabled: true,
+              subscription_enabled: false,
+              provider_refs: providerRefs,
+            }]);
+          }
         }
         await api.getApiClient().v1OrgsSettingsUpdate(
           "agent.default",
@@ -715,7 +845,9 @@ export default function Onboarding() {
     [
       account,
       api,
+      claudeCredentialType,
       claudeModel,
+      codexCredentialType,
       codexModel,
       codingAccessOption,
       createdOrg,
@@ -726,6 +858,10 @@ export default function Onboarding() {
       helixDefaultAvailable,
       onboardingDraftKey,
       router,
+      selectedClaudeAPIModel,
+      selectedClaudeAPIProviderRef,
+      selectedCodexAPIModel,
+      selectedCodexAPIProviderRef,
       shouldMeetChiefOfStaff,
       snackbar,
       updateCodeAgentHarnesses,
@@ -1264,21 +1400,31 @@ export default function Onboarding() {
         const inventoryLoading = providersLoading || harnessesLoading;
         const hasHelixCredits = !serverConfig?.billing_enabled || (wallet?.balance ?? 0) > 0;
         const zeroCreditColor = lightTheme.isLight ? "#c2410c" : "warning.main";
+        const claudeAccessReady = claudeCredentialType === "subscription"
+          ? hasClaudeSubscription && !!claudeModel
+          : !!selectedClaudeAPIProviderRef && !!selectedClaudeAPIModel;
+        const codexAccessReady = codexCredentialType === "subscription"
+          ? hasCodexSubscription && !!codexModel
+          : !!selectedCodexAPIProviderRef && !!selectedCodexAPIModel;
         const hasSelectedAccess =
           (codingAccessOption === "helix" && hasHelixCredits && helixDefaultAvailable) ||
-          (codingAccessOption === "claude" && hasClaudeSubscription) ||
-          (codingAccessOption === "codex" && hasCodexSubscription);
+          (codingAccessOption === "claude" && claudeAccessReady) ||
+          (codingAccessOption === "codex" && codexAccessReady);
         const canFinish =
           !inventoryLoading && !!createdOrg?.viewer_is_owner && (
             (codingAccessOption === "helix" && hasHelixCredits && helixDefaultAvailable) ||
-            (codingAccessOption === "claude" && hasClaudeSubscription && !!claudeModel) ||
-            (codingAccessOption === "codex" && hasCodexSubscription && !!codexModel)
+            (codingAccessOption === "claude" && claudeAccessReady) ||
+            (codingAccessOption === "codex" && codexAccessReady)
           );
         const continueLabel =
           codingAccessOption === "claude"
-            ? "Continue with Claude subscription"
+            ? claudeCredentialType === "subscription"
+              ? "Continue with Claude subscription"
+              : "Continue with Anthropic API key"
             : codingAccessOption === "codex"
-              ? "Continue with ChatGPT subscription"
+              ? codexCredentialType === "subscription"
+                ? "Continue with ChatGPT subscription"
+                : "Continue with OpenAI API key"
               : "Continue with Helix credits";
 
         const codingOptions: Array<{
@@ -1294,15 +1440,15 @@ export default function Onboarding() {
           },
           {
             id: "claude",
-            title: "Claude Subscription",
-            description: "Connect Claude Code and use your Claude Pro or Max plan instead of Helix credits.",
-            connected: hasClaudeSubscription,
+            title: "Claude",
+            description: "Run Claude Code with your Claude subscription or an Anthropic API key.",
+            connected: hasClaudeSubscription || claudeAPIProviders.length > 0,
           },
           {
             id: "codex",
-            title: "ChatGPT Subscription",
-            description: "Connect Codex and use your ChatGPT plan instead of Helix credits.",
-            connected: hasCodexSubscription,
+            title: "ChatGPT / OpenAI",
+            description: "Run Codex with your ChatGPT subscription or an OpenAI API key.",
+            connected: hasCodexSubscription || codexAPIProviders.length > 0,
           },
         ];
 
@@ -1316,7 +1462,7 @@ export default function Onboarding() {
                   mb: 2,
                 }}
               >
-                Choose how to power your AI agents: use Helix credits, or connect your Claude or ChatGPT subscription.
+                Choose how to power your AI agents: use Helix credits, a Claude or ChatGPT subscription, or your own API key.
               </Typography>
               {codingAccessOption === "helix" && wallet && (
                 <Box
@@ -1374,7 +1520,15 @@ export default function Onboarding() {
                   return (
                     <ButtonBase
                       key={option.id}
-                      onClick={() => setCodingAccessOption(option.id)}
+                      onClick={() => {
+                        setCodingAccessOption(option.id);
+                        if (option.id === "claude" && !hasClaudeSubscription && claudeAPIProviders.length > 0) {
+                          setClaudeCredentialType("api_key");
+                        }
+                        if (option.id === "codex" && !hasCodexSubscription && codexAPIProviders.length > 0) {
+                          setCodexCredentialType("api_key");
+                        }
+                      }}
                       aria-pressed={selected}
                       sx={{
                         display: "flex",
@@ -1532,87 +1686,100 @@ export default function Onboarding() {
                 </Stack>
               )}
 
-              {codingAccessOption === "claude" && !hasClaudeSubscription && (
-                <Box
-                  sx={{
-                    p: 1.5,
-                    mb: 2,
-                    borderRadius: 1.5,
-                    border: `1px solid ${palette.BORDER_SUBTLE}`,
-                    bgcolor: palette.OVERLAY_FAINT,
+              {codingAccessOption === "claude" && (
+                <ExternalCredentialsPicker
+                  idPrefix="onboarding-claude"
+                  credentialAriaLabel="Claude credentials"
+                  credentialHeading="Claude credentials"
+                  credentialType={claudeCredentialType}
+                  onCredentialTypeChange={setClaudeCredentialType}
+                  subscriptionLabel="Claude subscription"
+                  hasSubscription={hasClaudeSubscription}
+                  subscriptionConnectMessage="Connect your personal Claude subscription before continuing."
+                  subscriptionConnect={(
+                    <ClaudeSubscriptionConnect variant="button" enableForOrgId={createdOrg?.id} />
+                  )}
+                  subscriptionModelLabel="Claude model"
+                  subscriptionModels={CLAUDE_SUBSCRIPTION_MODELS.map((model) => ({
+                    value: model.id,
+                    label: model.label,
+                  }))}
+                  selectedSubscriptionModel={claudeModel}
+                  onSubscriptionModelChange={setClaudeModel}
+                  apiKeyLabel="Anthropic API key"
+                  apiKeyConnected={claudeAPIProviders.length > 0}
+                  apiKeyProviderLabel="Anthropic provider"
+                  apiKeyProviders={claudeAPIProviders.map((provider) => ({
+                    value: providerRef(provider),
+                    label: provider.name || provider.id || "",
+                  }))}
+                  selectedAPIKeyProvider={selectedClaudeAPIProviderRef}
+                  onAPIKeyProviderChange={(value) => {
+                    setClaudeProvider(value);
+                    setClaudeAPIModel("");
                   }}
-                >
-                  <Typography
-                    sx={{
-                      color: palette.TEXT_SECONDARY,
-                      fontSize: "0.75rem",
-                      mb: 1,
-                    }}
-                  >
-                    Connect your personal Claude subscription before continuing.
-                  </Typography>
-                  <ClaudeSubscriptionConnect
-                    variant="button"
-                    enableForOrgId={createdOrg?.id}
-                  />
-                </Box>
+                  apiKeyModelLabel="Claude model"
+                  apiKeyModels={claudeAPIModels.map((model) => ({
+                    value: model.id || "",
+                    label: model.id || "",
+                  }))}
+                  selectedAPIKeyModel={selectedClaudeAPIModel}
+                  onAPIKeyModelChange={setClaudeAPIModel}
+                  noAPIKeyMessage="Add an Anthropic API key to load the Claude models available to this organization."
+                  onManageAPIKey={() => setAPIKeyDialogRuntime("claude")}
+                  updateAPIKey={!!ownedClaudeAPIProvider}
+                  manageAPIKeyDisabled={!createdOrg?.viewer_is_owner}
+                  textSecondary={palette.TEXT_SECONDARY}
+                  subtleBorder={palette.BORDER_SUBTLE}
+                  overlayBackground={palette.OVERLAY_FAINT}
+                />
               )}
 
-              {codingAccessOption === "claude" && hasClaudeSubscription && (
-                <FormControl fullWidth sx={{ mb: 2 }}>
-                  <InputLabel id="onboarding-claude-model-label">Claude model</InputLabel>
-                  <Select
-                    labelId="onboarding-claude-model-label"
-                    label="Claude model"
-                    value={claudeModel}
-                    onChange={(event) => setClaudeModel(event.target.value)}
-                  >
-                    <MenuItem value="" disabled>Select a model</MenuItem>
-                    {CLAUDE_SUBSCRIPTION_MODELS.map((model) => (
-                      <MenuItem key={model.id} value={model.id}>{model.label}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              )}
-
-              {codingAccessOption === "codex" && !hasCodexSubscription && (
-                <Box
-                  sx={{
-                    p: 1.5,
-                    mb: 2,
-                    borderRadius: 1.5,
-                    border: `1px solid ${palette.BORDER_SUBTLE}`,
-                    bgcolor: palette.OVERLAY_FAINT,
+              {codingAccessOption === "codex" && (
+                <ExternalCredentialsPicker
+                  idPrefix="onboarding-openai"
+                  credentialAriaLabel="ChatGPT / OpenAI credentials"
+                  credentialHeading="ChatGPT / OpenAI credentials"
+                  credentialType={codexCredentialType}
+                  onCredentialTypeChange={setCodexCredentialType}
+                  subscriptionLabel="ChatGPT subscription"
+                  hasSubscription={hasCodexSubscription}
+                  subscriptionConnectMessage="Connect your personal ChatGPT subscription before continuing."
+                  subscriptionConnect={<CodexSubscriptionConnect enableForOrgId={createdOrg?.id} />}
+                  subscriptionModelLabel="Codex model"
+                  subscriptionModels={CODEX_SUBSCRIPTION_MODELS.map((model) => ({
+                    value: model.id,
+                    label: model.label,
+                  }))}
+                  selectedSubscriptionModel={codexModel}
+                  onSubscriptionModelChange={setCodexModel}
+                  apiKeyLabel="OpenAI API key"
+                  apiKeyConnected={codexAPIProviders.length > 0}
+                  apiKeyProviderLabel="OpenAI provider"
+                  apiKeyProviders={codexAPIProviders.map((provider) => ({
+                    value: providerRef(provider),
+                    label: provider.name || provider.id || "",
+                  }))}
+                  selectedAPIKeyProvider={selectedCodexAPIProviderRef}
+                  onAPIKeyProviderChange={(value) => {
+                    setCodexProvider(value);
+                    setCodexAPIModel("");
                   }}
-                >
-                  <Typography
-                    sx={{
-                      color: palette.TEXT_SECONDARY,
-                      fontSize: "0.75rem",
-                      mb: 1,
-                    }}
-                  >
-                    Connect your personal ChatGPT subscription before continuing.
-                  </Typography>
-                  <CodexSubscriptionConnect enableForOrgId={createdOrg?.id} />
-                </Box>
-              )}
-
-              {codingAccessOption === "codex" && hasCodexSubscription && (
-                <FormControl fullWidth sx={{ mb: 2 }}>
-                  <InputLabel id="onboarding-codex-model-label">Codex model</InputLabel>
-                  <Select
-                    labelId="onboarding-codex-model-label"
-                    label="Codex model"
-                    value={codexModel}
-                    onChange={(event) => setCodexModel(event.target.value)}
-                  >
-                    <MenuItem value="" disabled>Select a model</MenuItem>
-                    {CODEX_SUBSCRIPTION_MODELS.map((model) => (
-                      <MenuItem key={model.id} value={model.id}>{model.label}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                  apiKeyModelLabel="OpenAI model"
+                  apiKeyModels={codexAPIModels.map((model) => ({
+                    value: model.id || "",
+                    label: model.id || "",
+                  }))}
+                  selectedAPIKeyModel={selectedCodexAPIModel}
+                  onAPIKeyModelChange={setCodexAPIModel}
+                  noAPIKeyMessage="Add an OpenAI API key to load the models available to this organization."
+                  onManageAPIKey={() => setAPIKeyDialogRuntime("codex")}
+                  updateAPIKey={!!ownedCodexAPIProvider}
+                  manageAPIKeyDisabled={!createdOrg?.viewer_is_owner}
+                  textSecondary={palette.TEXT_SECONDARY}
+                  subtleBorder={palette.BORDER_SUBTLE}
+                  overlayBackground={palette.OVERLAY_FAINT}
+                />
               )}
 
               {codingAccessOption === "helix" && !hasHelixCredits ? (
@@ -1659,6 +1826,17 @@ export default function Onboarding() {
                       : continueLabel}
                 </Button>
               ) : null}
+              {apiKeyDialogRuntime && createdOrg?.id && (
+                <AddProviderDialog
+                  open
+                  onClose={() => setAPIKeyDialogRuntime(null)}
+                  orgId={createdOrg.id}
+                  provider={apiKeyDialogRuntime === "claude" ? ANTHROPIC_PROVIDER : OPENAI_PROVIDER}
+                  existingProvider={apiKeyDialogRuntime === "claude"
+                    ? ownedClaudeAPIProvider
+                    : ownedCodexAPIProvider}
+                />
+              )}
             </Box>
           </Fade>
         );

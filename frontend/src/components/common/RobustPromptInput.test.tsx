@@ -333,6 +333,31 @@ describe('RobustPromptInput rich attachments', () => {
     })
   })
 
+  it('pastes desktop-viewer text without attaching its transparent PNG placeholder', () => {
+    const onFileUpload = vi.fn()
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        onSend={vi.fn()}
+        onFileUpload={onFileUpload}
+      />,
+    )
+
+    const placeholder = new File([new Uint8Array(161)], 'image.png', { type: 'image/png' })
+    const textarea = screen.getByPlaceholderText('Send message to agent...')
+    const allowedDefaultPaste = fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [placeholder],
+        items: [],
+        getData: (type: string) => type === 'text/plain' ? 'https://example.com' : '',
+      },
+    })
+
+    expect(allowedDefaultPaste).toBe(true)
+    expect(onFileUpload).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+  })
+
   it('previews and uploads pasted images and PDFs before sending agent-readable paths', async () => {
     const onFileUpload = vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`)
     render(
