@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildMessageWithAttachments,
   createPendingChatAttachment,
+  filesFromClipboard,
   parseMessageWithAttachments,
   PendingChatAttachment,
   validateChatAttachmentFiles,
@@ -21,6 +22,28 @@ const uploaded = (overrides: Partial<PendingChatAttachment>): PendingChatAttachm
 })
 
 describe('chat attachments', () => {
+  it.each([70, 161])('ignores a %i-byte desktop text-copy placeholder image when text is available', (size) => {
+    const placeholder = new File([new Uint8Array(size)], 'image.png', { type: 'image/png' })
+    const clipboard = {
+      files: [placeholder],
+      items: [],
+      getData: (type: string) => type === 'text/plain' ? 'https://example.com' : '',
+    } as unknown as DataTransfer
+
+    expect(filesFromClipboard(clipboard)).toEqual([])
+  })
+
+  it('keeps small PNG clipboard images when there is no accompanying text', () => {
+    const image = new File([new Uint8Array(70)], 'pixel.png', { type: 'image/png' })
+    const clipboard = {
+      files: [image],
+      items: [],
+      getData: () => '',
+    } as unknown as DataTransfer
+
+    expect(filesFromClipboard(clipboard)).toEqual([image])
+  })
+
   it('creates attachment IDs when randomUUID is unavailable on an HTTP origin', () => {
     const originalRandomUUID = globalThis.crypto.randomUUID
     Object.defineProperty(globalThis.crypto, 'randomUUID', {

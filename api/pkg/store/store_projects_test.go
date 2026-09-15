@@ -30,6 +30,20 @@ func TestDeleteProjectPreservesRepositoryAndAttachment(t *testing.T) {
 	require.NoError(t, db.First(&types.ProjectRepository{}, "project_id = ? AND repository_id = ?", project.ID, repository.ID).Error)
 }
 
+func TestCreateProjectEnablesArchiveAutomationByDefault(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&types.Project{}))
+	project := &types.Project{ID: "project-archive-defaults", Name: "Archive Defaults"}
+	store := &PostgresStore{gdb: db}
+
+	created, err := store.CreateProject(context.Background(), project)
+	require.NoError(t, err)
+	require.True(t, created.AutoArchiveCompletedTasks)
+	require.True(t, created.ArchiveStaleTasksEnabled)
+	require.Equal(t, 6, created.ArchiveStaleTasksDays)
+}
+
 func (suite *PostgresStoreTestSuite) TestListProjects_WithStats_EmptyProject() {
 	project := &types.Project{
 		ID:     "proj-stats-empty-" + system.GenerateUUID(),

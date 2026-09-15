@@ -88,6 +88,7 @@ const Page: React.FC<{
     'org_chat',
     'org_chat-task',
     'org_session',
+    'org_bot_session',
     'org_new',
   ].includes(router.name)
 

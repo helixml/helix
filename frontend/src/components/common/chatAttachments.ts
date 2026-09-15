@@ -53,6 +53,10 @@ export interface RejectedChatAttachment {
   reason: string
 }
 
+// The desktop viewer's 70-byte transparent pixel is re-encoded to 161 bytes
+// by Chromium before it reaches a paste event.
+const DESKTOP_TEXT_CLIPBOARD_PLACEHOLDER_PNG_MAX_BYTES = 512
+
 export function validateChatAttachmentFiles(
   files: File[],
   existingCount: number,
@@ -83,14 +87,25 @@ export function validateChatAttachmentFiles(
 
 export function filesFromClipboard(data: DataTransfer): File[] {
   const directFiles = Array.from(data.files)
-  if (directFiles.length > 0) return directFiles
+  const files = directFiles.length > 0
+    ? directFiles
+    : Array.from(data.items)
+      .filter((item) => item.kind === 'file')
+      .flatMap((item) => {
+        const file = item.getAsFile()
+        return file ? [file] : []
+      })
 
-  return Array.from(data.items)
-    .filter((item) => item.kind === 'file')
-    .flatMap((item) => {
-      const file = item.getAsFile()
-      return file ? [file] : []
-    })
+  if (
+    files.length === 1
+    && data.getData('text/plain')
+    && files[0].type === 'image/png'
+    && files[0].size <= DESKTOP_TEXT_CLIPBOARD_PLACEHOLDER_PNG_MAX_BYTES
+  ) {
+    return []
+  }
+
+  return files
 }
 
 export function buildMessageWithAttachments(

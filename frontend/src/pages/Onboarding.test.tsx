@@ -165,6 +165,18 @@ vi.mock('../components/account/CodexSubscriptionConnect', () => ({
   ),
 }))
 
+vi.mock('../components/providers/AddProviderDialog', () => ({
+  default: ({ open, orgId, provider, existingProvider, onClose }: any) => open ? (
+    <div
+      role="dialog"
+      aria-label={`${existingProvider ? 'Update' : 'Add'} ${provider.name} API key`}
+      data-org-id={orgId}
+    >
+      <button onClick={onClose}>Close API key dialog</button>
+    </div>
+  ) : null,
+}))
+
 vi.mock('lucide-react', () => ({
   Bot: () => <span data-testid="bot-icon" />,
   Coins: () => <span data-testid="coins-icon" />,
@@ -257,7 +269,7 @@ describe('Onboarding', () => {
 
     expect(screen.getByText('Helix needs an LLM to run your agents.')).toBeVisible()
     expect(screen.getByText(
-      'Choose how to power your AI agents: use Helix credits, or connect your Claude or ChatGPT subscription.',
+      'Choose how to power your AI agents: use Helix credits, a Claude or ChatGPT subscription, or your own API key.',
     )).toBeVisible()
     expect(screen.getByRole('button', { name: 'Launch Helix' })).toBeEnabled()
     const helix = screen.getByRole('button', { name: /helix models/i })
@@ -397,6 +409,132 @@ describe('Onboarding', () => {
       'data-enable-for-org-id',
       'org-1',
     )
+  })
+
+  it('lets the user add an Anthropic API key from onboarding', async () => {
+    mockState.harnesses = mockState.harnesses.map((harness) =>
+      harness.runtime === 'claude_code'
+        ? { ...harness, viewer_has_subscription: false }
+        : harness)
+    renderOnboarding()
+    await goToCodingAccessStep()
+
+    fireEvent.click(screen.getByRole('button', { name: /run claude code/i }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Anthropic API key' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add Anthropic API key' }))
+
+    expect(screen.getByRole('dialog', { name: 'Add Anthropic API key' })).toHaveAttribute(
+      'data-org-id',
+      'org-1',
+    )
+  })
+
+  it('lets the user add an OpenAI API key from onboarding', async () => {
+    renderOnboarding()
+    await goToCodingAccessStep()
+
+    fireEvent.click(screen.getByRole('button', { name: /run codex/i }))
+    fireEvent.click(screen.getByRole('radio', { name: 'OpenAI API key' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add OpenAI API key' }))
+
+    expect(screen.getByRole('dialog', { name: 'Add OpenAI API key' })).toHaveAttribute(
+      'data-org-id',
+      'org-1',
+    )
+  })
+
+  it('saves Claude Code with an Anthropic API key and enables that provider', async () => {
+    mockState.providers.push({
+      id: 'pe_anthropic',
+      name: 'anthropic',
+      endpoint_type: 'org',
+      owner: 'org-1',
+      status: 'ok',
+      available_models: [{
+        id: 'claude-opus-4-6',
+        enabled: true,
+        type: 'chat',
+      }, {
+        id: 'claude-sonnet-4-6',
+        enabled: true,
+        type: 'chat',
+      }],
+    })
+    renderOnboarding()
+    await goToCodingAccessStep()
+
+    fireEvent.click(screen.getByRole('button', { name: /run claude code/i }))
+    fireEvent.click(screen.getByRole('radio', { name: /anthropic api key/i }))
+    expect(screen.getByRole('combobox', { name: 'Claude model' })).toHaveTextContent(
+      'claude-opus-4-6',
+    )
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Claude model' }))
+    fireEvent.click(screen.getByRole('option', { name: 'claude-sonnet-4-6' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Launch Helix' }))
+
+    await waitFor(() => expect(mockV1OrgsSettingsUpdate).toHaveBeenCalledWith(
+      'agent.default',
+      'my-org',
+      { value: JSON.stringify({
+        code_agent_runtime: 'claude_code',
+        code_agent_credential_type: 'api_key',
+        provider: 'pe_anthropic',
+        model: 'claude-sonnet-4-6',
+        reasoning_effort: 'none',
+      }) },
+    ))
+    expect(mockUpdateHarnesses).toHaveBeenCalledWith([{
+      runtime: 'claude_code',
+      enabled: true,
+      subscription_enabled: false,
+      provider_refs: ['pe_anthropic'],
+    }])
+  })
+
+  it('saves Codex with an OpenAI API key and enables that provider', async () => {
+    mockState.providers.push({
+      id: 'pe_openai',
+      name: 'openai',
+      endpoint_type: 'org',
+      owner: 'org-1',
+      status: 'ok',
+      available_models: [{
+        id: 'gpt-5.4',
+        enabled: true,
+        type: 'chat',
+      }, {
+        id: 'gpt-5.4-mini',
+        enabled: true,
+        type: 'chat',
+      }],
+    })
+    renderOnboarding()
+    await goToCodingAccessStep()
+
+    fireEvent.click(screen.getByRole('button', { name: /run codex/i }))
+    fireEvent.click(screen.getByRole('radio', { name: /openai api key/i }))
+    expect(screen.getByRole('combobox', { name: 'OpenAI model' })).toHaveTextContent('gpt-5.4')
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'OpenAI model' }))
+    fireEvent.click(screen.getByRole('option', { name: 'gpt-5.4-mini' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Launch Helix' }))
+
+    await waitFor(() => expect(mockV1OrgsSettingsUpdate).toHaveBeenCalledWith(
+      'agent.default',
+      'my-org',
+      { value: JSON.stringify({
+        code_agent_runtime: 'codex_cli',
+        code_agent_credential_type: 'api_key',
+        provider: 'pe_openai',
+        model: 'gpt-5.4-mini',
+        reasoning_effort: 'none',
+      }) },
+    ))
+    expect(mockUpdateHarnesses).toHaveBeenCalledWith([{
+      runtime: 'codex_cli',
+      enabled: true,
+      subscription_enabled: false,
+      provider_refs: ['pe_openai'],
+    }])
   })
 
   it('selects a Codex subscription model and enables only that harness', async () => {
