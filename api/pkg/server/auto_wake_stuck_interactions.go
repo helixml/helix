@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/hydra"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -525,6 +526,32 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		return
 	}
 
+	// A RUNNING container needs a restart, not a start.
+	//
+	// This is the bug that made the whole retry budget pointless.
+	// autoStartDevContainerForSession → StartDesktop short-circuits on
+	// HasRunningContainer and returns "running" without touching the container
+	// (hydra_executor.go, "Dev container already running"). So for the one state
+	// this function exists to repair — container up, Zed never dialled home
+	// (helixml/helix#2397) — every kick was a no-op. We waited out the grace
+	// period, burned both retries on nothing, and marked the interaction
+	// "Agent never connected after auto-wake cold-start retries". The customer
+	// read that as "The system has encountered an error".
+	//
+	// Restarting is what actually gets Zed to re-dial. Reuse the same path the
+	// operator-facing restart-agent button uses, including its wedged-thread
+	// check, rather than inventing a second recovery with different behaviour.
+	if apiServer.externalAgentExecutor != nil &&
+		apiServer.externalAgentExecutor.HasRunningContainer(ctx, stuck.SessionID) {
+		log.Info().
+			Str("stuck_interaction_id", stuck.ID).
+			Str("session_id", stuck.SessionID).
+			Int("attempt", newCount).
+			Msg("🔌 [AUTO_WAKE] Container is up but no WS — restarting the agent (helixml/helix#2397)")
+		go apiServer.restartAgentForStuckSession(stuck.SessionID)
+		return
+	}
+
 	log.Info().
 		Str("stuck_interaction_id", stuck.ID).
 		Str("session_id", stuck.SessionID).
@@ -533,4 +560,41 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		Msg("🔌 [AUTO_WAKE] No WS for stuck interaction — kicking dev container auto-start (helixml/helix#2397)")
 
 	go apiServer.autoStartDevContainerForSession(stuck.SessionID)
+}
+
+// restartAgentForStuckSession restarts a session's container so a dead Zed
+// re-dials the sync WebSocket.
+//
+// Detached from the scan tick and defensive throughout: this runs unattended
+// against a session whose owner is not watching, so every failure is logged and
+// swallowed rather than allowed to take down the worker.
+func (apiServer *HelixAPIServer) restartAgentForStuckSession(sessionID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil || session == nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("[AUTO_WAKE] Cannot load session to restart agent")
+		return
+	}
+	user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: session.Owner})
+	if err != nil || user == nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("[AUTO_WAKE] Cannot load session owner to restart agent")
+		return
+	}
+
+	// A Zed that never connected often has a wedged thread behind it; the
+	// operator button makes the same call before restarting.
+	resetThread := apiServer.threadIsWedged(ctx, session)
+	if _, httpErr := apiServer.restartSessionContainer(ctx, user, session, resetThread); httpErr != nil {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("error", httpErr.Error()).
+			Msg("[AUTO_WAKE] Agent restart failed; the retry budget will surface an error to the user")
+		return
+	}
+	log.Info().
+		Str("session_id", sessionID).
+		Bool("thread_reset", resetThread).
+		Msg("♻️ [AUTO_WAKE] Restarted agent container after no-WS detection")
 }
