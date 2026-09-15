@@ -162,3 +162,72 @@ func TestIsAdminWithContext_DatabaseError(t *testing.T) {
 	result := auth.isAdminWithContext(context.Background(), userID)
 	assert.False(t, result, "database error should return false")
 }
+
+func TestGetUserFromToken_OrgAPIKeyDoesNotInheritAdmin(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+
+	// The key owner is a global admin (dev mode: everyone is admin), but the
+	// key is labelled with an organization — it must not wield that admin.
+	mockStore.EXPECT().
+		GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hl-orgkey"}).
+		Return(&types.ApiKey{
+			Key:            "hl-orgkey",
+			Name:           "org key",
+			Type:           types.APIkeytypeAPI,
+			Owner:          "user-123",
+			OwnerType:      types.OwnerTypeUser,
+			OrganizationID: "org-1",
+		}, nil)
+	// Exactly one user load (the key owner): the admin lookup must be skipped.
+	mockStore.EXPECT().
+		GetUser(gomock.Any(), &store.GetUserQuery{ID: "user-123"}).
+		Times(1).
+		Return(&types.User{ID: "user-123", Admin: true}, nil)
+	mockStore.EXPECT().
+		EnsureUserMeta(gomock.Any(), types.UserMeta{ID: "user-123"}).
+		Return(&types.UserMeta{ID: "user-123"}, nil)
+
+	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
+		adminUserIDs: []string{config.AdminAllUsers},
+	}, nil, nil)
+
+	user, err := auth.getUserFromToken(context.Background(), "hl-orgkey")
+	assert.NoError(t, err)
+	assert.False(t, user.Admin, "org-scoped key must not inherit the creator's global admin")
+	assert.Equal(t, "org-1", user.OrganizationID)
+}
+
+func TestGetUserFromToken_PersonalAPIKeyInheritsAdmin(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+
+	mockStore.EXPECT().
+		GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hl-personal"}).
+		Return(&types.ApiKey{
+			Key:       "hl-personal",
+			Name:      "personal key",
+			Type:      types.APIkeytypeAPI,
+			Owner:     "user-123",
+			OwnerType: types.OwnerTypeUser,
+		}, nil)
+	mockStore.EXPECT().
+		GetUser(gomock.Any(), &store.GetUserQuery{ID: "user-123"}).
+		Return(&types.User{ID: "user-123"}, nil)
+	mockStore.EXPECT().
+		EnsureUserMeta(gomock.Any(), types.UserMeta{ID: "user-123"}).
+		Return(&types.UserMeta{ID: "user-123"}, nil)
+
+	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
+		adminUserIDs: []string{"user-123"},
+	}, nil, nil)
+
+	user, err := auth.getUserFromToken(context.Background(), "hl-personal")
+	assert.NoError(t, err)
+	assert.True(t, user.Admin, "personal key keeps the owner's admin status")
+	assert.Empty(t, user.OrganizationID)
+}
