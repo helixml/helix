@@ -32,6 +32,7 @@ type HelixCodeReviewTrigger struct { //nolint:revive
 	cfg        *config.ServerConfig
 	store      store.Store
 	controller Controller
+	reviews    *prReviews
 }
 
 func New(cfg *config.ServerConfig, store store.Store, controller Controller) *HelixCodeReviewTrigger {
@@ -39,6 +40,7 @@ func New(cfg *config.ServerConfig, store store.Store, controller Controller) *He
 		cfg:        cfg,
 		store:      store,
 		controller: controller,
+		reviews:    newPRReviews(),
 	}
 }
 
@@ -76,6 +78,39 @@ func (h *HelixCodeReviewTrigger) processAzureDevOpsPullRequest(ctx context.Conte
 		return fmt.Errorf("azure devops configuration not found for repository %s", repo.ID)
 	}
 
+	// Resolve the PR before any provider calls so a newer push supersedes
+	// in-flight reviews of older heads without waiting on network round trips.
+	repoPR := specTask.GetPRForRepo(repo.ID)
+	if repoPR == nil {
+		repoPR = specTask.GetFirstOpenPR()
+	}
+	if repoPR == nil {
+		return fmt.Errorf("no pull request found for spec task %s", specTask.ID)
+	}
+
+	prID, err := strconv.Atoi(repoPR.PRID)
+	if err != nil {
+		return fmt.Errorf("failed to parse pull request ID: %w", err)
+	}
+
+	key := prReviewKey{repoID: repo.ID, prID: prID}
+	work := h.reviews.begin(key, commitHash)
+	if work == nil {
+		log.Info().
+			Str("spec_task_id", specTask.ID).
+			Str("commit_hash", commitHash).
+			Msg("PR review already in flight for this commit, skipping")
+		return nil
+	}
+	// If the review never reaches its session (provider call fails), release
+	// the registration so a retry push of the same commit is not dropped.
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			h.reviews.release(key, work)
+		}
+	}()
+
 	client, err := h.getAzureDevOpsClient(ctx, repo)
 	if err != nil {
 		return fmt.Errorf("failed to create azure devops client: %w", err)
@@ -89,20 +124,6 @@ func (h *HelixCodeReviewTrigger) processAzureDevOpsPullRequest(ctx context.Conte
 	repositoryName, err := h.getAzureDevOpsRepositoryName(repo)
 	if err != nil {
 		return fmt.Errorf("failed to get azure devops repository name: %w", err)
-	}
-
-	// Get the PR for this specific repo, or fall back to first open PR
-	repoPR := specTask.GetPRForRepo(repo.ID)
-	if repoPR == nil {
-		repoPR = specTask.GetFirstOpenPR()
-	}
-	if repoPR == nil {
-		return fmt.Errorf("no pull request found for spec task %s", specTask.ID)
-	}
-
-	prID, err := strconv.Atoi(repoPR.PRID)
-	if err != nil {
-		return fmt.Errorf("failed to parse pull request ID: %w", err)
 	}
 
 	pr, err := client.GetPullRequest(ctx, repositoryName, adoProject, prID)
@@ -135,15 +156,36 @@ func (h *HelixCodeReviewTrigger) processAzureDevOpsPullRequest(ctx context.Conte
 		TargetRefName:           targetRefName,
 	})
 
-	return h.runReviewSession(ctx, project, specTask, commitHash)
+	handedOff = true
+	return h.runReviewSession(ctx, project, specTask, key, work, commitHash)
 }
 
-func (h *HelixCodeReviewTrigger) runReviewSession(ctx context.Context, project *types.Project, specTask *types.SpecTask, commitHash string) error {
+func (h *HelixCodeReviewTrigger) runReviewSession(ctx context.Context, project *types.Project, specTask *types.SpecTask, key prReviewKey, work *prReview, commitHash string) error {
+	// Gate before touching the store or the session: a newer push for this PR
+	// removes this queued review, and it must never create a session or submit
+	// comments or a verdict for its superseded head.
+	reviewCtx, ok := h.reviews.start(key, work, ctx)
+	if !ok {
+		log.Info().
+			Str("spec_task_id", specTask.ID).
+			Str("commit_hash", commitHash).
+			Msg("PR review superseded by newer push before starting")
+		return nil
+	}
+	defer func() {
+		if h.reviews.release(key, work) {
+			log.Info().
+				Str("spec_task_id", specTask.ID).
+				Str("commit_hash", commitHash).
+				Msg("PR review superseded by newer push, discarding review")
+		}
+	}()
+
 	if project.PullRequestReviewerHelixAppID == "" {
 		return fmt.Errorf("no pull request reviewer agent configured for project %s", project.ID)
 	}
 
-	app, err := h.store.GetApp(ctx, project.PullRequestReviewerHelixAppID)
+	app, err := h.store.GetApp(reviewCtx, project.PullRequestReviewerHelixAppID)
 	if err != nil {
 		return fmt.Errorf("failed to get reviewer app: %w", err)
 	}
@@ -175,7 +217,7 @@ func (h *HelixCodeReviewTrigger) runReviewSession(ctx context.Context, project *
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
-	user, err := h.store.GetUser(ctx, &store.GetUserQuery{
+	user, err := h.store.GetUser(reviewCtx, &store.GetUserQuery{
 		ID: app.Owner,
 	})
 	if err != nil {
@@ -189,7 +231,7 @@ func (h *HelixCodeReviewTrigger) runReviewSession(ctx context.Context, project *
 
 	prompt := fmt.Sprintf("Review the pull request changes for task: %s\nCommit: %s", specTask.Name, commitHash)
 
-	resp, err := h.controller.RunBlockingSession(ctx, &controller.RunSessionRequest{
+	resp, err := h.controller.RunBlockingSession(reviewCtx, &controller.RunSessionRequest{
 		OrganizationID: app.OrganizationID,
 		App:            app,
 		Session:        session,
@@ -197,12 +239,21 @@ func (h *HelixCodeReviewTrigger) runReviewSession(ctx context.Context, project *
 		PromptMessage:  types.MessageContent{Parts: []any{prompt}},
 	})
 	if err != nil {
+		if h.reviews.superseded(work) {
+			// The release defer records the superseded outcome; the review
+			// must not publish comments or a verdict for its old head.
+			return nil
+		}
 		log.Warn().
 			Err(err).
 			Str("app_id", app.ID).
 			Str("spec_task_id", specTask.ID).
 			Msg("failed to run review session")
 		return fmt.Errorf("failed to run review session: %w", err)
+	}
+
+	if h.reviews.superseded(work) {
+		return nil
 	}
 
 	log.Info().
