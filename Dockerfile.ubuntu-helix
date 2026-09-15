@@ -1473,6 +1473,7 @@ ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridg
 ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+ADD desktop/shared/helix-chrome-devtools-mcp.sh /usr/local/bin/helix-chrome-devtools-mcp
 ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-headless-workspace-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh
@@ -1487,7 +1488,8 @@ ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
 ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
 RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridge.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
-    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-chrome-devtools-mcp \
+    /usr/local/bin/helix-run-startup-script.sh \
     /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh \
     /usr/local/bin/start-settings-sync-daemon.sh \
     /usr/local/bin/start-zed-headless.sh /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh

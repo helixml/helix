@@ -48,8 +48,10 @@ func TestGenerateZedMCPConfigUsesPersistentChromeProfile(t *testing.T) {
 
 	chrome, ok := config.ContextServers["chrome-devtools"]
 	if assert.True(t, ok) {
+		assert.Equal(t, "/usr/local/bin/helix-chrome-devtools-mcp", chrome.Command)
 		if assert.NotEmpty(t, chrome.Args) {
 			assert.Equal(t, "--user-data-dir=/home/retro/work/.chrome-state", chrome.Args[0])
+			assert.Contains(t, chrome.Args, "--chrome-arg=--ozone-platform=wayland")
 		}
 	}
 }
