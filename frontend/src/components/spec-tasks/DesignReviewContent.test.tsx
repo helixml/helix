@@ -92,13 +92,17 @@ describe("DesignReviewContent document editing", () => {
     expect(screen.queryByRole("tab", { name: "Requirements Specification" }))
       .not.toBeInTheDocument();
     expect(screen.getByTestId("agent-chat-markdown")).toHaveTextContent("Original text");
+    expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit markdown source" }));
+    fireEvent.click(screen.getByRole("button", { name: "Markdown" }));
     const editor = screen.getByRole("textbox", { name: "Requirements Specification markdown source" });
     fireEvent.change(editor, { target: { value: "# Requirements\n\nReviewer edit" } });
 
     expect(screen.getByText("Unsaved")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Preview rendered markdown" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
     expect(screen.getByTestId("agent-chat-markdown")).toHaveTextContent("Reviewer edit");
 
     fireEvent.click(screen.getByRole("button", { name: "Save document" }));

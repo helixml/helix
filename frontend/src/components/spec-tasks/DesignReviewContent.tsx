@@ -29,13 +29,12 @@ import {
   Badge,
   ToggleButtonGroup,
   ToggleButton,
+  TextareaAutosize,
   GlobalStyles,
 } from "@mui/material";
 import {
   ArrowLeft,
   Check,
-  CodeXml,
-  Eye,
   FileText,
   GitBranch,
   MessageSquare,
@@ -1596,13 +1595,11 @@ export default function DesignReviewContent({
                 </IconButton>
               </Tooltip>
 
-              {draftContent !== null && (
+              {draftContent !== null && hasUnsavedDocumentChanges && (
                 <>
-                  {hasUnsavedDocumentChanges && (
-                    <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
-                      Unsaved
-                    </Typography>
-                  )}
+                  <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                    Unsaved
+                  </Typography>
                   <Tooltip title="Cancel document changes">
                     <IconButton
                       size="small"
@@ -1630,34 +1627,47 @@ export default function DesignReviewContent({
                 </>
               )}
 
-              <Tooltip
-                title={documentMode === "edit"
-                  ? "Preview rendered markdown"
-                  : canEditDocument ? "Edit markdown source" : "View markdown source"}
+              <ToggleButtonGroup
+                value={documentMode === "preview" ? "preview" : "markdown"}
+                exclusive
+                size="small"
+                aria-label="Document view"
+                onChange={(_, value: "preview" | "markdown" | null) => {
+                  if (value === "preview") {
+                    setDocumentMode("preview");
+                  } else if (value === "markdown") {
+                    handleEditDocument();
+                  }
+                }}
+                sx={{
+                  height: 24,
+                  flexShrink: 0,
+                  "& .MuiToggleButton-root": {
+                    minHeight: 24,
+                    px: 0.75,
+                    py: 0,
+                    border: 0,
+                    borderRadius: 0.75,
+                    textTransform: "none",
+                    color: "text.secondary",
+                    fontSize: TYPOGRAPHY.codeChromeFontSize,
+                    fontWeight: 500,
+                    "&.Mui-selected": {
+                      color: "text.primary",
+                      bgcolor: "action.selected",
+                    },
+                  },
+                }}
               >
-                <span>
-                  <IconButton
-                    size="small"
-                    onClick={() => documentMode === "edit" ? setDocumentMode("preview") : handleEditDocument()}
-                    aria-label={documentMode === "edit"
-                      ? "Preview rendered markdown"
-                      : canEditDocument ? "Edit markdown source" : "View markdown source"}
-                    sx={{
-                      ...TOOLBAR_ICON_BUTTON_SX,
-                      ...(documentMode === "edit" ? { bgcolor: "action.selected", color: "text.primary" } : {}),
-                    }}
-                  >
-                    {documentMode === "edit" ? <Eye size={18} /> : <CodeXml size={18} />}
-                  </IconButton>
-                </span>
-              </Tooltip>
+                <ToggleButton value="preview">Preview</ToggleButton>
+                <ToggleButton value="markdown">Markdown</ToggleButton>
+              </ToggleButtonGroup>
             </Box>
           </Box>
 
           <Box
             ref={documentRef}
             flex={1}
-            overflow="auto"
             p={2}
             onMouseLeave={() => {
               hoveredElementRef.current = null;
@@ -1676,6 +1686,8 @@ export default function DesignReviewContent({
             sx={{
               bgcolor: "background.default",
               position: "relative",
+              overflowY: "auto",
+              overflowX: "hidden",
             }}
           >
             {/* Hover button for adding comment without text selection */}
@@ -1783,7 +1795,7 @@ export default function DesignReviewContent({
               {documentMode === "edit" ? (
                 <Paper className="markdown-body" elevation={0}>
                   <Box
-                    component="textarea"
+                    component={TextareaAutosize}
                     aria-label={`${DOCUMENT_LABELS[activeTab]} markdown source`}
                     value={displayedDocumentContent}
                     readOnly={!canEditDocument}
@@ -1801,7 +1813,8 @@ export default function DesignReviewContent({
                       display: "block",
                       width: "100%",
                       minHeight: "calc(100vh - 250px)",
-                      resize: "vertical",
+                      resize: "none",
+                      overflow: "hidden",
                       border: 0,
                       outline: 0,
                       bgcolor: "transparent",
