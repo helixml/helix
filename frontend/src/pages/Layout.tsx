@@ -521,7 +521,7 @@ const Layout: FC<{
   const isProjectsIndex =
     router.name === "org_projects" &&
     (!router.params.tab || router.params.tab === "projects");
-  const isConversationRoute = ["org_chat", "org_chat-task", "org_session", "org_new"].includes(
+  const isConversationRoute = ["org_chat", "org_chat-task", "org_session", "org_bot_session", "org_new"].includes(
     router.name,
   );
   const routedAgent = router.params.app_id
@@ -546,7 +546,7 @@ const Layout: FC<{
   // link straight into a thread.
   useEffect(() => {
     if (!isPhone) return;
-    if (isNavigationRouteActive(router.name, ["session", "chat-task"])) {
+    if (isNavigationRouteActive(router.name, ["session", "bot_session", "chat-task"])) {
       account.setMobileMenuOpen(false);
     }
     // account is a context object and must not be a dependency.

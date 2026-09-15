@@ -124,7 +124,7 @@ const routes: IApplicationRoute[] = [
   name: 'org_bot_session',
   path: '/orgs/:org_id/chat/bots/:bot_id',
   meta: {
-    drawer: false,
+    drawer: true,
     topbar: false,
     title: 'Bot Chat',
   },

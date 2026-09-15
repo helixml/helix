@@ -336,7 +336,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   }
 
   const handleChatClick = () => {
-    const action = chatRailAction(isPhone, isActive(['chat', 'session']))
+    const action = chatRailAction(isPhone, isActive(['chat', 'session', 'bot_session']))
     if (!action.keepDrawerOpen) {
       orgNavigateTo('chat')
       return
@@ -396,7 +396,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       {
         icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
         tooltip: "AI chat assistant",
-        isActive: isActive(['chat', 'session']),
+        isActive: isActive(['chat', 'session', 'bot_session']),
         onClick: handleChatClick,
         label: "Chat",
       },
