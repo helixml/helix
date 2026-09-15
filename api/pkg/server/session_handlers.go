@@ -206,6 +206,9 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 
 	// Extract organization_id query parameter if present
 	orgID := req.URL.Query().Get("org_id")
+	if orgID == "" && user.TokenType == types.TokenTypeAPIKey {
+		orgID = user.OrganizationID
+	}
 	if orgID != "" {
 		// Lookup org
 		org, err := apiServer.lookupOrg(ctx, orgID)
