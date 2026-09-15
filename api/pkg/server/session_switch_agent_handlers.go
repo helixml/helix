@@ -184,12 +184,13 @@ func (apiServer *HelixAPIServer) transitionSpecTaskToImplementation(
 
 	session.Metadata.Phase = string(types.SpecTaskPhaseImplementation)
 	if switchErr := apiServer.switchAgentInPlaceForNextTurn(ctx, session, config.Runtime, "", agentSwitchOptions{
-		createHandoff:  true,
-		requireHandoff: true,
-		handoffPrompt:  prompt,
-		omitTranscript: true,
-		deliverLive:    live,
-		clearParentApp: true,
+		createHandoff:   true,
+		requireHandoff:  true,
+		handoffPrompt:   prompt,
+		transitionLabel: "Switching to implementation harness configuration",
+		omitTranscript:  true,
+		deliverLive:     live,
+		clearParentApp:  true,
 	}); switchErr != nil {
 		return fmt.Errorf("switch task to implementation agent: %s", switchErr.Message)
 	}
@@ -219,13 +220,14 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 }
 
 type agentSwitchOptions struct {
-	createHandoff  bool
-	requireHandoff bool
-	handoffReason  string
-	handoffPrompt  string
-	omitTranscript bool
-	deliverLive    bool
-	clearParentApp bool
+	createHandoff   bool
+	requireHandoff  bool
+	handoffReason   string
+	handoffPrompt   string
+	transitionLabel string
+	omitTranscript  bool
+	deliverLive     bool
+	clearParentApp  bool
 }
 
 func (apiServer *HelixAPIServer) hasImplementationHandoff(ctx context.Context, session *types.Session, prompt string) bool {
@@ -350,6 +352,10 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 
 	// fork_seed interaction carries the prior transcript for
 	// maybePrependTranscript to inject into the new thread's first message.
+	transitionLabel := options.transitionLabel
+	if transitionLabel == "" {
+		transitionLabel = fmt.Sprintf("Agent switched to %s at turn %d", targetRuntime, completedCount)
+	}
 	seedInteraction := &types.Interaction{
 		Created:         now,
 		Updated:         now,
@@ -359,7 +365,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 		Mode:            types.SessionModeInference,
 		Trigger:         types.InteractionTriggerForkSeed,
 		State:           types.InteractionStateComplete,
-		PromptMessage:   fmt.Sprintf("Agent switched to %s at turn %d", targetRuntime, completedCount),
+		PromptMessage:   transitionLabel,
 		ResponseMessage: transcript,
 	}
 	if _, err := apiServer.Store.CreateInteraction(ctx, seedInteraction); err != nil {
