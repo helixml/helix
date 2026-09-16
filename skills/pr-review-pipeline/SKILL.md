@@ -24,6 +24,7 @@ GitHub repo (pull_request events)
 | `reviewer-brief.md` | The per-review-task brief template the coordinator pastes into each dispatched `create_spectask`. |
 | `auth-ops.md` | GitHub token doctrine — read it before touching auth, and put it on any bot that posts reviews. |
 | `scripts/post_review.sh` | Runnable asset for review tasks: posts `review.json` (event APPROVE or COMMENT — REQUEST_CHANGES is rejected; inline `comments` pass through) to GitHub and verifies via the reviews API that exactly one review exists at the commit. |
+| `scripts/update_pr_summary.sh` | Runnable asset for review tasks: after the verified review post, refreshes the PR's `<!-- CURSOR_SUMMARY -->` description block (risk line + factual Overview, footer = reviewer login + reviewed sha) — GET → replace/insert ONLY between the markers → PATCH → GET-verify, with a re-GET right before the PATCH so surrounding description text can never be clobbered. |
 
 ## Placeholders (REPLACE before use — the skill is repo-agnostic)
 
@@ -149,7 +150,8 @@ Without a connected App, an owner creates a fine-grained PAT secret instead (`he
 1. Open a test PR — then `helix api /orgs/REPLACE_ORG/triggers/REPLACE_TRIGGER/events` shows the delivery and `bot_log REPLACE_BOT` shows the activation.
 2. Coordinator dispatches exactly one `pr-review-<N>-<short>` task; it posts one review and moves itself to `done`.
 3. Reviews API confirms: latest review by `REVIEWER_LOGIN` has `commit_id == head SHA`.
-4. Push a new commit to the test PR: coordinator reviews again for the new SHA and ignores the same SHA on re-events.
+4. PR description carries the `<!-- CURSOR_SUMMARY -->` block stamped for the reviewed sha; human-written description text outside the markers is untouched.
+5. Push a new commit to the test PR: coordinator reviews again for the new SHA (summary block regenerated in place, footer sha updated) and ignores the same SHA on re-events.
 
 ## Upkeep — updates ship as PRs, not bot edits
 
@@ -164,7 +166,8 @@ Never hand-edit bot content or processor code on the box — that silently forks
 
 ## Hard rules (why the pipeline is shaped this way)
 
-- **Verdicts: APPROVE or COMMENT only.** Never REQUEST_CHANGES — a bot review must never block a merge. Findings ship as ≤5 short inline comments anchored to exact diff lines; the body carries only ≤2 verified-state lines + `Reviewed: <sha>` (banned: opener verdict, "Must fix:"/"Also:" sections, numbered file:line body findings, effort estimates — see reviewer-brief.md §8). Tone: zero chatiness.
+- **Every verified review post is followed by a PR-summary refresh:** the reviewer runs `scripts/update_pr_summary.sh` to swap the `<!-- CURSOR_SUMMARY -->` block (risk line + factual Overview, footer `Reviewed by <REVIEWER_LOGIN> for commit <sha>`), replacing ONLY content between the markers and never claiming an unverified summary; risk is descriptive and never changes the verdict policy or blocks anything.
+- **Verdicts: APPROVE or COMMENT only.** Never REQUEST_CHANGES — a bot review must never block a merge. Findings ship as ≤5 short inline comments anchored to exact diff lines; the body carries only ≤2 verified-state lines + `Reviewed: <sha>` (banned: opener verdict, "Must fix:"/"Also:" sections, numbered file:line body findings, effort estimates — see reviewer-brief.md §9). Tone: zero chatiness.
 - **One review per (PR, SHA), always verified.** `scripts/post_review.sh` POSTs once and refuses to report success unless the reviews API shows exactly one review at the commit. Never claim a review you cannot verify.
 - **Self-loop discipline.** Events caused by `REVIEWER_LOGIN` never start work; the coordinator never reviews itself.
 - **Auth failures follow [auth-ops.md](auth-ops.md)** — one re-mint max, stop-with-verbatim-headers, and the salvage pattern so a finished review dies nowhere near a broken token.
