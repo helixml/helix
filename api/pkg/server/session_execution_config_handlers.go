@@ -42,7 +42,7 @@ func (s *HelixAPIServer) sessionExecutionConfigSurface(ctx context.Context, sess
 		return nil, fmt.Errorf("failed to load session's spec task: %w", err)
 	}
 	surface.task = task
-	surface.config = task.CodeAgentConfig
+	surface.config = task.ActiveCodeAgentConfig()
 	surface.overrides = task.CodeAgentOverrides
 	if task.HelixAppID != "" {
 		surface.agentID = task.HelixAppID
@@ -173,7 +173,7 @@ func (s *HelixAPIServer) updateSessionExecutionConfig(w http.ResponseWriter, r *
 			CodeAgentConfig: surface.config,
 		}
 		_, restarted, httpErr := s.applySpecTaskExecutionConfig(
-			ctx, user, surface.task, session, req.CodeAgentConfig,
+			ctx, user, surface.task, session, types.SpecTaskPhaseForStatus(surface.task.Status), req.CodeAgentConfig,
 			"The coding agent or model configuration changed for this session.",
 		)
 		if httpErr != nil {

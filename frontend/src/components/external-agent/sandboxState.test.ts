@@ -110,3 +110,40 @@ describe("isSandboxOffline", () => {
     expect(isSandboxOffline(undefined)).toBe(false);
   });
 });
+
+// "restarting" is the backend marker written before StopDesktop so the teardown
+// half of a restart still reads as a boot in flight. The UI deliberately has no
+// fourth SandboxState for it — mapping it onto "starting" is what gives every
+// consumer (viewer overlay, toolbar, Kanban card, isSandboxOffline) the right
+// behaviour without a per-call-site change.
+describe('deriveSandboxState("restarting")', () => {
+  it('maps onto "starting" so the spinner shows and no Start button appears', () => {
+    expect(
+      deriveSandboxState({ external_agent_status: "restarting" }).sandboxState,
+    ).toBe("starting");
+  });
+
+  it('still maps to "starting" while the old container name is on the row', () => {
+    // This is the exact shape mid-restart: StopDesktop leaves container_name
+    // set, and the old code read that as a running/stopped container.
+    expect(
+      deriveSandboxState({
+        external_agent_status: "restarting",
+        container_name: "ubuntu-external-ses_1",
+      }).sandboxState,
+    ).toBe("starting");
+  });
+
+  it("carries the backend's progress text through", () => {
+    expect(
+      deriveSandboxState({
+        external_agent_status: "restarting",
+        status_message: "Restarting desktop...",
+      }).statusMessage,
+    ).toBe("Restarting desktop...");
+  });
+
+  it("is not offline", () => {
+    expect(isSandboxOffline({ external_agent_status: "restarting" })).toBe(false);
+  });
+});

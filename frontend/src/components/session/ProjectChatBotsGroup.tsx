@@ -1,4 +1,4 @@
-import { FC, MouseEvent, useEffect, useState } from 'react'
+import { FC, MouseEvent, useState } from 'react'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
@@ -19,7 +19,6 @@ import {
 } from 'lucide-react'
 
 import type { TypesOrganizationMembership, TypesPinnedChat, TypesProject, TypesUser } from '../../api/api'
-import useAccount from '../../hooks/useAccount'
 import useIsPhone from '../../hooks/useIsPhone'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
@@ -30,6 +29,8 @@ import {
   useStopBotAgent,
 } from '../../services/helixOrgService'
 import { useSpecTasks } from '../../services/specTaskService'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { TYPOGRAPHY } from '../../styles/typography'
 import { PRESENCE_OFFLINE_COLOR, PRESENCE_ONLINE_COLOR } from '../widgets/PresenceDot'
 import ProjectChatItemRow from './ProjectChatItemRow'
 import ProjectChatShowMore from './ProjectChatShowMore'
@@ -74,7 +75,7 @@ type ProjectChatBotsGroupProps = ItemRowProps & {
 
 // Top-level list of the org's agents. Each agent is its own collapsible group
 // holding the spec tasks it created; the agent row itself opens its chat
-// session (starting the agent first if it has never run), and the menu
+// session through the stable bot route, and the menu
 // reaches the agent's settings without going through the org chart.
 const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
   orgId,
@@ -84,34 +85,14 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
   onOpenSession,
   ...rowProps
 }) => {
-  const account = useAccount()
   const router = useRouter()
   const snackbar = useSnackbar()
   const activateBot = useActivateBot()
   const stopBot = useStopBotAgent()
   const restartBot = useRestartBotAgent()
   const [menu, setMenu] = useState<BotMenuState>(null)
-  const [pendingOpenBotId, setPendingOpenBotId] = useState<string | null>(null)
   const [busyBotId, setBusyBotId] = useState<string | null>(null)
   const orgSlug = (router.params.org_id as string) || ''
-
-  const openSession = (sessionId: string) => {
-    account.orgNavigate('session', { session_id: sessionId })
-    onOpenSession()
-  }
-
-  // A freshly started agent gets its session id from the polled bots list, so
-  // the open completes reactively once it lands rather than by re-clicking.
-  const pendingSessionId = pendingOpenBotId
-    ? bots.find((candidate) => candidate.id === pendingOpenBotId)?.sessionId || ''
-    : ''
-  useEffect(() => {
-    if (!pendingSessionId) return
-    setPendingOpenBotId(null)
-    openSession(pendingSessionId)
-    // openSession closes over context objects; the session id is the trigger.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingSessionId])
 
   const runBotAction = async (bot: SidebarBot, action: 'start' | 'stop' | 'restart') => {
     setBusyBotId(bot.id)
@@ -128,19 +109,17 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
       }
     } catch (error: any) {
       snackbar.error(error?.response?.data?.error ?? error?.message ?? `Failed to ${action} ${bot.name}`)
-      if (action === 'start') setPendingOpenBotId(null)
     } finally {
       setBusyBotId(null)
     }
   }
 
   const openBot = (bot: SidebarBot) => {
-    if (bot.sessionId) {
-      openSession(bot.sessionId)
-      return
-    }
-    setPendingOpenBotId(bot.id)
-    void runBotAction(bot, 'start')
+    router.navigate('org_bot_session', {
+      org_id: orgSlug || orgId,
+      bot_id: bot.id,
+    })
+    onOpenSession()
   }
 
   const openSettings = (bot: SidebarBot) => {
@@ -172,7 +151,7 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
           orgId={orgId}
           bot={bot}
           collapsed={collapsedGroups.has(botGroupId(bot.id))}
-          busy={busyBotId === bot.id || pendingOpenBotId === bot.id}
+          busy={busyBotId === bot.id}
           onToggle={() => onToggleBot(bot.id)}
           onOpen={() => openBot(bot)}
           onOpenSettings={() => openSettings(bot)}
@@ -267,6 +246,7 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   onArchiveItem,
 }) => {
   const lightTheme = useLightTheme()
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   const isPhone = useIsPhone()
   const searching = !!query.trim()
   const open = !collapsed || searching
@@ -286,7 +266,7 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   const filteredItems = filterProjectChatGroups([{ id: bot.id, name: bot.name, items }], query)[0]?.items || []
   const renderedItems = windowSidebarItems(filteredItems, activeItemId, pagination.visibleCount)
   const hasMore = filteredItems.length > pagination.visibleCount || tasks.length >= pagination.requestCount
-  const active = !!bot.sessionId && bot.sessionId === activeItemId
+  const active = bot.id === activeItemId || (!!bot.sessionId && bot.sessionId === activeItemId)
   const statusTitle = bot.running
     ? (bot.restartRequired ? 'Running · restart required to apply changes' : 'Agent running')
     : 'Agent stopped'
@@ -326,17 +306,11 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
           cursor: 'pointer',
           position: 'relative',
           outline: 'none',
-          color: active
-            ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
-            : (lightTheme.isLight ? '#71717a' : 'rgba(163,163,163,0.80)'),
-          backgroundColor: active
-            ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
-            : 'transparent',
+          color: active ? sidebarColors.foreground : sidebarColors.primaryLabel,
+          backgroundColor: active ? sidebarColors.rowSelected : 'transparent',
           '&:hover, &:focus-visible': {
-            color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-            backgroundColor: active
-              ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
-              : (lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)'),
+            color: sidebarColors.foreground,
+            backgroundColor: active ? sidebarColors.rowSelected : sidebarColors.rowHover,
           },
           '&:hover .sidebar-bot-settings, &:focus-within .sidebar-bot-settings': { opacity: 1 },
           '@media (hover: none)': { '& .sidebar-bot-settings': { opacity: 1 } },
@@ -398,9 +372,9 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            fontSize: '14px',
-            lineHeight: '20px',
-            fontWeight: active ? 500 : 400,
+            fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
+            lineHeight: TYPOGRAPHY.sidebar.primaryLineHeight,
+            fontWeight: 500,
           }}
         >
           {bot.name}
@@ -429,7 +403,7 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
         )}
       </Box>
       {open && tasksQuery.isError && (
-        <Typography color="error" sx={{ pl: 2.15, py: 0.5, fontSize: '0.7rem' }}>
+        <Typography color="error" sx={{ pl: 2.15, py: 0.5, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
           Failed to load tasks
         </Typography>
       )}

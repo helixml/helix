@@ -4,6 +4,8 @@ import Typography from '@mui/material/Typography'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
 import useLightTheme from '../../hooks/useLightTheme'
+import { getSidebarColors } from '../../styles/themeTokens'
+import { TYPOGRAPHY } from '../../styles/typography'
 
 type ProjectChatSectionHeaderProps = {
   label: string
@@ -23,7 +25,7 @@ const ProjectChatSectionHeader: FC<ProjectChatSectionHeaderProps> = ({
   actions,
 }) => {
   const lightTheme = useLightTheme()
-  const color = lightTheme.isLight ? 'rgba(113,113,122,0.9)' : 'rgba(163,163,163,0.7)'
+  const sidebarColors = getSidebarColors(lightTheme.isLight)
   return (
     <Box
       sx={{
@@ -33,7 +35,7 @@ const ProjectChatSectionHeader: FC<ProjectChatSectionHeaderProps> = ({
         display: 'flex',
         alignItems: 'center',
         gap: 0.25,
-        color,
+        color: sidebarColors.subtleForeground,
       }}
     >
       <Box
@@ -59,7 +61,7 @@ const ProjectChatSectionHeader: FC<ProjectChatSectionHeaderProps> = ({
           cursor: 'pointer',
           font: 'inherit',
           borderRadius: '4px',
-          '&:hover': { color: lightTheme.isLight ? '#27272a' : '#f1f3f7' },
+          '&:hover': { color: sidebarColors.foreground },
         }}
       >
         {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
@@ -67,11 +69,11 @@ const ProjectChatSectionHeader: FC<ProjectChatSectionHeaderProps> = ({
           component="span"
           sx={{
             fontFamily: 'inherit',
-            fontSize: '10.5px',
+            fontSize: TYPOGRAPHY.sidebar.sectionFontSize,
             fontWeight: 600,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
-            lineHeight: 1,
+            lineHeight: TYPOGRAPHY.sidebar.sectionLineHeight,
           }}
         >
           {label}

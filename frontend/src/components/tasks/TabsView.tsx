@@ -60,7 +60,6 @@ import { useQuery } from "@tanstack/react-query";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import SpecTaskDetailContent from "./SpecTaskDetailContent";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
-import DesignReviewContent from "../spec-tasks/DesignReviewContent";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
 import RobustPromptInput from "../common/RobustPromptInput";
 import NewSpecTaskForm from "./NewSpecTaskForm";
@@ -1479,19 +1478,13 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           ) : activeTab.type === "review" &&
             activeTab.taskId &&
             activeTab.reviewId ? (
-            <DesignReviewContent
+            <SpecTaskDetailContent
               key={`${panel.id}-${activeTab.id}`}
-              specTaskId={activeTab.taskId}
-              reviewId={activeTab.reviewId}
+              taskId={activeTab.taskId}
+              initialView="plan"
               onClose={() => onTabClose(panel.id, activeTab.id)}
-              onImplementationStarted={() => {
-                onTabClose(panel.id, activeTab.id);
-                const task = tasks.find((t) => t.id === activeTab.taskId);
-                if (task) {
-                  onAddTab(panel.id, task);
-                }
-              }}
-              hideTitle={true}
+              onTaskArchived={onTaskArchived}
+              syncViewWithUrl={false}
             />
           ) : activeTab.type === "create" ? (
             <NewSpecTaskForm
@@ -1511,9 +1504,6 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             <SpecTaskDetailContent
               key={`${panel.id}-${activeTab.id}`}
               taskId={activeTab.id}
-              onOpenReview={(taskId, reviewId, reviewTitle) =>
-                onOpenReview(taskId, reviewId, reviewTitle, panel.id)
-              }
               onTaskArchived={onTaskArchived}
               syncViewWithUrl={false}
             />

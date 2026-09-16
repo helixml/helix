@@ -49,6 +49,8 @@ export interface CodeAgentExecutionControlsProps {
   computeOnly?: boolean
   /** Select the recommended available harness and model when a new task has no config. */
   autoSelectDefault?: boolean
+  /** Use the full row, keeping model selection left and reasoning effort right. */
+  spreadAgentControls?: boolean
 }
 
 const compactButtonSx = {
@@ -79,6 +81,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   grouped = false,
   computeOnly = false,
   autoSelectDefault = false,
+  spreadAgentControls = false,
 }) => {
   const isPhone = useIsPhone()
   const snackbar = useSnackbar()
@@ -222,7 +225,17 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
           )}
         </Box>
       ) : (
-        <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: compact ? 'nowrap' : 'wrap' }}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={0.25}
+          sx={{
+            minWidth: 0,
+            width: spreadAgentControls ? '100%' : undefined,
+            justifyContent: spreadAgentControls ? 'space-between' : 'flex-start',
+            flexWrap: spreadAgentControls || compact ? 'nowrap' : 'wrap',
+          }}
+        >
           {!computeOnly && agentControl}
           {!computeOnly && reasoningControl}
           {computeControl}

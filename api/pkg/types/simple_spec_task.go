@@ -244,6 +244,7 @@ type CreateTaskRequest struct {
 	AssigneeID   string   `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
 
 	CodeAgentConfig          *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	PlanningCodeAgentConfig  *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty"`
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" swaggerignore:"true"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
 	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty"`
@@ -266,8 +267,10 @@ type CreateTaskRequest struct {
 	// recipes; GooseRecipeParams are substituted into the recipe at session
 	// start. Recipes declared on the agent but not selected here are still
 	// available as runtime slash-commands inside the desktop.
-	GooseRecipeName   string            `json:"goose_recipe_name,omitempty"`
-	GooseRecipeParams map[string]string `json:"goose_recipe_params,omitempty"`
+	GooseRecipeName           string            `json:"goose_recipe_name,omitempty"`
+	GooseRecipeParams         map[string]string `json:"goose_recipe_params,omitempty"`
+	PlanningGooseRecipeName   string            `json:"planning_goose_recipe_name,omitempty"`
+	PlanningGooseRecipeParams map[string]string `json:"planning_goose_recipe_params,omitempty"`
 
 	// Git repositories are now managed at the project level - no task-level repo selection needed
 }
@@ -309,7 +312,11 @@ type SpecTask struct {
 	// project's list. The effective surface is the union of the two.
 	AgentTools []string `json:"agent_tools,omitempty" gorm:"type:jsonb;serializer:json"`
 
+	// CodeAgentConfig is the implementation-phase execution configuration.
 	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty" gorm:"type:jsonb;serializer:json"`
+	// PlanningCodeAgentConfig is independently snapshotted when the task is
+	// created so project-default changes cannot alter an existing planning run.
+	PlanningCodeAgentConfig *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty" gorm:"type:jsonb;serializer:json"`
 	// Legacy migration source; cleared together with HelixAppID on task start.
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
@@ -428,8 +435,10 @@ type SpecTask struct {
 	// API bakes these into a CodeAgentBakedRecipe and pushes it to the
 	// settings-sync-daemon, which writes a single slash_command pointing at
 	// the substituted recipe YAML. Empty when no recipe was selected.
-	GooseRecipeName   string            `json:"goose_recipe_name,omitempty" gorm:"size:255"`
-	GooseRecipeParams map[string]string `json:"goose_recipe_params,omitempty" gorm:"type:jsonb;serializer:json"`
+	GooseRecipeName           string            `json:"goose_recipe_name,omitempty" gorm:"size:255"`
+	GooseRecipeParams         map[string]string `json:"goose_recipe_params,omitempty" gorm:"type:jsonb;serializer:json"`
+	PlanningGooseRecipeName   string            `json:"planning_goose_recipe_name,omitempty" gorm:"size:255"`
+	PlanningGooseRecipeParams map[string]string `json:"planning_goose_recipe_params,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Clone tracking
 	ClonedFromID        string `json:"cloned_from_id,omitempty" gorm:"size:255;index"`         // Original task this was cloned from
@@ -536,26 +545,36 @@ type SpecGeneration struct {
 
 // SpecTaskFilters for filtering spec tasks in queries
 type SpecTaskFilters struct {
-	ProjectID          string         `json:"project_id,omitempty"`
-	Status             SpecTaskStatus `json:"status,omitempty"`
-	UserID             string         `json:"user_id,omitempty"`
-	FilterParticipants bool           `json:"filter_participants,omitempty"`
-	ParticipantIDs     []string       `json:"participant_ids,omitempty"` // Created by or assigned to any selected user
-	FilterProjectIDs   bool           `json:"filter_project_ids,omitempty"`
-	ProjectIDs         []string       `json:"project_ids,omitempty"` // Any of these projects; empty matches nothing when FilterProjectIDs is set
-	CreatedByOrgBot    string         `json:"created_by_org_bot,omitempty"`
-	Type               string         `json:"type,omitempty"`
-	Priority           string         `json:"priority,omitempty"`
-	Limit              int            `json:"limit,omitempty"`
-	Offset             int            `json:"offset,omitempty"`
-	SortBy             string         `json:"sort_by,omitempty"`
-	WithDependsOn      bool           `json:"with_depends_on,omitempty"`
-	IncludeArchived    bool           `json:"include_archived,omitempty"`    // If true, include both archived and non-archived
-	ArchivedOnly       bool           `json:"archived_only,omitempty"`       // If true, show only archived tasks
-	DesignDocPath      string         `json:"design_doc_path,omitempty"`     // Filter by exact DesignDocPath (for git push detection)
-	BranchName         string         `json:"branch_name,omitempty"`         // Filter by exact BranchName (for uniqueness check)
-	PlanningSessionID  string         `json:"planning_session_id,omitempty"` // Filter by PlanningSessionID (reverse lookup)
-	Labels             []string       `json:"labels,omitempty"`              // Filter tasks that have ALL of these labels (AND semantics)
+	ProjectID          string           `json:"project_id,omitempty"`
+	Status             SpecTaskStatus   `json:"status,omitempty"`
+	UserID             string           `json:"user_id,omitempty"`
+	FilterParticipants bool             `json:"filter_participants,omitempty"`
+	ParticipantIDs     []string         `json:"participant_ids,omitempty"` // Created by or assigned to any selected user
+	FilterProjectIDs   bool             `json:"filter_project_ids,omitempty"`
+	ProjectIDs         []string         `json:"project_ids,omitempty"` // Any of these projects; empty matches nothing when FilterProjectIDs is set
+	CreatedByOrgBot    string           `json:"created_by_org_bot,omitempty"`
+	Type               string           `json:"type,omitempty"`
+	Priority           string           `json:"priority,omitempty"`
+	Limit              int              `json:"limit,omitempty"`
+	Offset             int              `json:"offset,omitempty"`
+	SortBy             string           `json:"sort_by,omitempty"`
+	WithDependsOn      bool             `json:"with_depends_on,omitempty"`
+	IncludeArchived    bool             `json:"include_archived,omitempty"`    // If true, include both archived and non-archived
+	ArchivedOnly       bool             `json:"archived_only,omitempty"`       // If true, show only archived tasks
+	DesignDocPath      string           `json:"design_doc_path,omitempty"`     // Filter by exact DesignDocPath (for git push detection)
+	BranchName         string           `json:"branch_name,omitempty"`         // Filter by exact BranchName (for uniqueness check)
+	PlanningSessionID  string           `json:"planning_session_id,omitempty"` // Filter by PlanningSessionID (reverse lookup)
+	Labels             []string         `json:"labels,omitempty"`              // Filter tasks that have ALL of these labels (AND semantics)
+	PRMatch            *SpecTaskPRMatch `json:"pr_match,omitempty"`            // Filter tasks tracking this repo + PR (webhook correlation)
+}
+
+// SpecTaskPRMatch selects tasks whose RepoPullRequests contain an entry with
+// this repository id and PR number. Used by the GitHub review webhook to
+// correlate an inbound PR event to spec tasks; the repository row's org
+// ownership is the tenant boundary.
+type SpecTaskPRMatch struct {
+	RepositoryID string
+	PRNumber     int
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
@@ -578,6 +597,7 @@ type SpecTaskUpdateRequest struct {
 // code-agent config or its sandbox resource preset.
 type SpecTaskExecutionConfigUpdateRequest struct {
 	AgentID                  string                    `json:"agent_id,omitempty" swaggerignore:"true"` // Rejected legacy field
+	Phase                    SpecTaskPhase             `json:"phase,omitempty" validate:"omitempty,oneof=planning implementation"`
 	CodeAgentConfig          *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" swaggerignore:"true"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`

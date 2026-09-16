@@ -1,5 +1,6 @@
 export interface WorkspaceReviewMessageComment {
   type: "comment";
+  sectionTitle: string;
   filePath: string;
   rangeLabel: string;
   text: string;
@@ -100,6 +101,7 @@ export function parseWorkspaceReviewMessage(
     } else {
       segments.push({
         type: "comment",
+        sectionTitle: attributes.sectionTitle || "File comment",
         filePath: attributes.filePath,
         rangeLabel: attributes.rangeLabel || inferredRangeLabel(attributes),
         ...body,
@@ -123,7 +125,8 @@ export function workspaceReviewMessagePreview(message: string): string | null {
       const location = [segment.filePath, segment.rangeLabel]
         .filter(Boolean)
         .join(" ");
-      return `Comment on ${location}: ${segment.text}`;
+      const label = segment.sectionTitle === "File comment" ? "Comment" : segment.sectionTitle;
+      return `${label} on ${location}: ${segment.text}`;
     })
     .join(" · ")
     .replace(/\s+/g, " ")
@@ -143,7 +146,7 @@ export function workspaceReviewMessageCopyText(message: string): string | null {
       const code = segment.contents
         ? `\n\n\`\`\`${segment.language}\n${segment.contents}\n\`\`\``
         : "";
-      return `File comment · ${location}\n\n${segment.text}${code}`;
+      return `${segment.sectionTitle} · ${location}\n\n${segment.text}${code}`;
     })
     .join("\n\n");
 }

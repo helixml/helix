@@ -324,6 +324,9 @@ export interface IEntryPatch {
   total_length: number,
   tool_name?: string,
   tool_status?: string,
+  tool_call_id?: string,
+  tool_call_name?: string,
+  subagent_id?: string,
 }
 
 export interface IWebsocketEvent {

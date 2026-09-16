@@ -9,8 +9,9 @@ import (
 
 func TestBuildApprovalInstructionPromptRecoversSharedSpecsPush(t *testing.T) {
 	task := &types.SpecTask{
-		ID:   "spt_test",
-		Name: "Update dependencies",
+		ID:             "spt_test",
+		Name:           "Update dependencies",
+		OriginalPrompt: "Upgrade the database driver without changing behavior.",
 	}
 
 	prompt := BuildApprovalInstructionPrompt(
@@ -32,6 +33,7 @@ func TestBuildApprovalInstructionPromptRecoversSharedSpecsPush(t *testing.T) {
 		"git push origin helix-specs",
 		"Do not stop and do not force-push",
 		"continue with the code",
+		"Upgrade the database driver without changing behavior.",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("approval prompt is missing %q", want)

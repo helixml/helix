@@ -4818,9 +4818,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             const input = streamRef.current?.getInput();
             if (input) {
               // Send the complete text (handles multi-character swipe results)
-              for (const char of data) {
-                input.sendText(char);
-              }
+              input.sendTextAsKeysyms(data);
             }
             e.preventDefault();
           }
@@ -4837,10 +4835,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             );
             const input = streamRef.current?.getInput();
             if (input) {
-              // Send each character as a key event
-              for (const char of data) {
-                input.sendText(char);
-              }
+              input.sendTextAsKeysyms(data);
             }
           }
           // Clear the input to prevent accumulation
@@ -4858,9 +4853,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             const input = streamRef.current?.getInput();
             if (input) {
               // Send the complete composed text
-              for (const char of data) {
-                input.sendText(char);
-              }
+              input.sendTextAsKeysyms(data);
             }
           }
           // Clear the input

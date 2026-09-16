@@ -1099,7 +1099,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).",
+                "description": "Stash a trial intent when the user owns no organisations, or activate the explicitly selected owned organisation. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).",
                 "consumes": [
                     "application/json"
                 ],
@@ -1119,7 +1119,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Trial parameters (days, credits)",
+                        "description": "Trial parameters and org_id (required iff the user owns an organisation)",
                         "name": "request",
                         "in": "body",
                         "schema": {
@@ -1142,7 +1142,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Clears any stashed trial intent on the user and cancels the Stripe subscription on the user's oldest owned org if it is currently in a trialing state. Paid (active) subscriptions are never cancelled.",
+                "description": "Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the oldest owned org whose readable wallet is trialing. At most one subscription is cancelled per call. Paid (active) subscriptions are never cancelled.",
                 "produces": [
                     "application/json"
                 ],
@@ -4567,6 +4567,72 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/workspace-file/download": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Streams a complete, binary-safe workspace file from the task desktop.",
+                "produces": [
+                    "image/*",
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Download a workspace file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository-relative file path",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/external-agents/{sessionID}/workspace-files": {
             "get": {
                 "security": [
@@ -7762,6 +7828,100 @@ const docTemplate = `{
                         "description": "Internal server error",
                         "schema": {
                             "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/interactions/{interaction_id}/questions/{request_id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Cancels the agent question currently pending on an interaction",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "Cancel an agent question",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interaction_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Question request ID",
+                        "name": "request_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionActionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/interactions/{interaction_id}/questions/{request_id}/respond": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sends answers to the agent question currently pending on an interaction",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "Respond to an agent question",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interaction_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Question request ID",
+                        "name": "request_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Question answers",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionRespondRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionActionResponse"
                         }
                     }
                 }
@@ -19783,6 +19943,83 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/document": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update one Markdown design document with optimistic concurrency",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Update a design review document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Document edit",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewDocumentUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReview"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit": {
             "post": {
                 "security": [
@@ -20466,7 +20703,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the task-owned code-agent configuration. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.",
+                "description": "Returns the task-owned code-agent configuration for the active planning or implementation phase. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.",
                 "produces": [
                     "application/json"
                 ],
@@ -20504,7 +20741,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Replaces a task's complete code-agent configuration or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.",
+                "description": "Replaces a task's planning or implementation code-agent configuration, or its sandbox resource preset. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.",
                 "consumes": [
                     "application/json"
                 ],
@@ -22550,6 +22787,12 @@ const docTemplate = `{
                         "description": "Organization ID",
                         "name": "org_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Discover a subscription after returning from Checkout",
+                        "name": "discover_subscription",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -23388,7 +23631,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "owner": {
-                    "description": "Owner makes this a manager Bot: it receives the canonical owner\ntool set (every org-graph mutation - create_bot, delete_bot,\nset_bot_content, subscribe, ... - plus the read baseline) so it can\nhire and manage other Nodes. When true, Tools is ignored in favour\nof that set. Used to seed a starter/root Bot for a new org.",
+                    "description": "Owner makes this a manager Bot: it receives the canonical owner\ntool set (standard worker tools plus org-management mutations such as\ncreate_bot, delete_bot, and set_bot_content) so it can hire and manage\nother Nodes. When true, Tools is ignored in favour of that set. Used to\nseed a starter/root Bot for a new org.",
                     "type": "boolean"
                 },
                 "parent_id": {
@@ -23415,6 +23658,7 @@ const docTemplate = `{
                     ]
                 },
                 "tools": {
+                    "description": "Tools contains additions to the standard worker tool set.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -25294,6 +25538,9 @@ const docTemplate = `{
                 "days": {
                     "type": "integer"
                 },
+                "org_id": {
+                    "type": "string"
+                },
                 "plan": {
                     "description": "Plan selects what to grant. \"pro\" grants a PAID plan via a PlanOverride\n(no Stripe subscription) — for customers who paid out-of-band (bank\ntransfer). Empty or \"trial\" uses the Stripe trial path (Days applies).",
                     "type": "string"
@@ -25696,6 +25943,9 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "org_id": {
+                    "type": "string"
+                },
+                "return_url": {
                     "type": "string"
                 }
             }
@@ -27937,24 +28187,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "cron",
-                "email",
-                "webhook",
                 "local",
-                "gitlab",
                 "slack",
+                "cron",
+                "webhook",
+                "github",
+                "gitlab",
                 "helix_events",
-                "github"
+                "email"
             ],
             "x-enum-varnames": [
-                "KindCron",
-                "KindEmail",
-                "KindWebhook",
                 "KindLocal",
-                "KindGitLab",
                 "KindSlack",
+                "KindCron",
+                "KindWebhook",
+                "KindGitHub",
+                "KindGitLab",
                 "KindHelixEvents",
-                "KindGitHub"
+                "KindEmail"
             ]
         },
         "transport.ResolvedActivation": {
@@ -30894,6 +31144,18 @@ const docTemplate = `{
                     "description": "Name is the task title. Empty means derive it from the prompt.",
                     "type": "string"
                 },
+                "planning_code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
+                "planning_goose_recipe_name": {
+                    "type": "string"
+                },
+                "planning_goose_recipe_params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "priority": {
                     "$ref": "#/definitions/types.SpecTaskPriority"
                 },
@@ -32325,6 +32587,9 @@ const docTemplate = `{
                 "mode": {
                     "$ref": "#/definitions/types.SessionMode"
                 },
+                "pending_question": {
+                    "$ref": "#/definitions/types.PendingQuestion"
+                },
                 "prompt_id": {
                     "description": "PromptID links this interaction back to the prompt_history_entry that\ncreated it (when the interaction was dispatched by the queue, as opposed\nto being initiated by Zed when the user types in the IDE). Empty for\nZed-initiated interactions. Used by handleMessageAdded /\nhandleMessageCompleted to mark the originating prompt as 'sent' without\nrelying on an in-memory map that doesn't survive API restarts. See\ndesign/2026-04-30-queue-and-other-stuck-state-bugs.md.",
                     "type": "string"
@@ -32340,6 +32605,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.MessageContent"
                         }
                     ]
+                },
+                "question_history": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ResolvedQuestion"
+                    }
                 },
                 "rag_results": {
                     "type": "array",
@@ -34401,6 +34672,35 @@ const docTemplate = `{
                 }
             }
         },
+        "types.PendingQuestion": {
+            "type": "object",
+            "properties": {
+                "asked_at": {
+                    "type": "string"
+                },
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UserQuestion"
+                    }
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "thread_id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                },
+                "turn_request_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.PinnedChat": {
             "type": "object",
             "properties": {
@@ -34618,6 +34918,14 @@ const docTemplate = `{
                 },
                 "organization_id": {
                     "type": "string"
+                },
+                "planning_code_agent_config": {
+                    "description": "PlanningCodeAgentConfig is the planning-phase default copied into each new\nSpecTask. Nil preserves the historical behaviour by using CodeAgentConfig.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
                 },
                 "project_manager_helix_app_id": {
                     "type": "string"
@@ -34906,6 +35214,9 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "planning_code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
                 "skills": {
                     "description": "Project-level skills",
                     "allOf": [
@@ -35160,6 +35471,9 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "planning_code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
                 },
                 "project_manager_helix_app_id": {
                     "description": "Project manager agent",
@@ -35706,6 +36020,25 @@ const docTemplate = `{
                 }
             }
         },
+        "types.QuestionActionResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.QuestionRespondRequest": {
+            "type": "object",
+            "properties": {
+                "answers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "types.QuotaResponse": {
             "type": "object",
             "properties": {
@@ -35988,6 +36321,47 @@ const docTemplate = `{
                 },
                 "private": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.ResolvedQuestion": {
+            "type": "object",
+            "properties": {
+                "answers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "asked_at": {
+                    "type": "string"
+                },
+                "outcome": {
+                    "type": "string"
+                },
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UserQuestion"
+                    }
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "resolved_at": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "thread_id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                },
+                "turn_request_id": {
+                    "type": "string"
                 }
             }
         },
@@ -38078,7 +38452,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "code_agent_config": {
-                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                    "description": "CodeAgentConfig is the implementation-phase execution configuration.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
                 },
                 "code_agent_overrides": {
                     "description": "Legacy migration source; cleared together with HelixAppID on task start.",
@@ -38223,6 +38602,23 @@ const docTemplate = `{
                 "original_prompt": {
                     "description": "Kiro's actual approach: simple, human-readable artifacts",
                     "type": "string"
+                },
+                "planning_code_agent_config": {
+                    "description": "PlanningCodeAgentConfig is independently snapshotted when the task is\ncreated so project-default changes cannot alter an existing planning run.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
+                },
+                "planning_goose_recipe_name": {
+                    "type": "string"
+                },
+                "planning_goose_recipe_params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "planning_options": {
                     "$ref": "#/definitions/types.StartPlanningOptions"
@@ -38665,6 +39061,30 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SpecTaskDesignReviewDocumentUpdateRequest": {
+            "type": "object",
+            "required": [
+                "content",
+                "document_type",
+                "original_content"
+            ],
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "document_type": {
+                    "type": "string",
+                    "enum": [
+                        "requirements",
+                        "technical_design",
+                        "implementation_plan"
+                    ]
+                },
+                "original_content": {
+                    "type": "string"
+                }
+            }
+        },
         "types.SpecTaskDesignReviewListResponse": {
             "type": "object",
             "properties": {
@@ -38731,6 +39151,17 @@ const docTemplate = `{
             "properties": {
                 "code_agent_config": {
                     "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
+                "phase": {
+                    "enum": [
+                        "planning",
+                        "implementation"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskPhase"
+                        }
+                    ]
                 },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
@@ -38940,7 +39371,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "code_agent_config": {
-                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                    "description": "CodeAgentConfig is the implementation-phase execution configuration.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
                 },
                 "code_agent_overrides": {
                     "description": "Legacy migration source; cleared together with HelixAppID on task start.",
@@ -39085,6 +39521,23 @@ const docTemplate = `{
                 "original_prompt": {
                     "description": "Kiro's actual approach: simple, human-readable artifacts",
                     "type": "string"
+                },
+                "planning_code_agent_config": {
+                    "description": "PlanningCodeAgentConfig is independently snapshotted when the task is\ncreated so project-default changes cannot alter an existing planning run.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
+                },
+                "planning_goose_recipe_name": {
+                    "type": "string"
+                },
+                "planning_goose_recipe_params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "planning_options": {
                     "$ref": "#/definitions/types.StartPlanningOptions"
@@ -41126,6 +41579,43 @@ const docTemplate = `{
                 },
                 "total_tokens": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.UserQuestion": {
+            "type": "object",
+            "properties": {
+                "allow_custom_answer": {
+                    "type": "boolean"
+                },
+                "header": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "multi_select": {
+                    "type": "boolean"
+                },
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UserQuestionOption"
+                    }
+                },
+                "question": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.UserQuestionOption": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
                 }
             }
         },

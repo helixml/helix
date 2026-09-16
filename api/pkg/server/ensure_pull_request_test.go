@@ -18,12 +18,18 @@ import (
 // fakeGitRepoService implements gitRepositoryServicer for tests.
 // Methods not expected by a test panic to catch unexpected calls.
 type fakeGitRepoService struct {
-	listBranchesFunc     func(ctx context.Context, repoID string) ([]string, error)
-	getPullRequestFunc   func(ctx context.Context, repoID, id string) (*types.PullRequest, error)
-	withRepoLockFunc     func(repoID string, fn func() error) error
-	pushBranchFunc       func(ctx context.Context, repoID, branch string, force bool, userID ...string) error
-	listPullRequestsFunc func(ctx context.Context, repoID string) ([]*types.PullRequest, error)
-	createPRFunc         func(ctx context.Context, repoID, title, desc, src, tgt, userID string) (string, error)
+	listBranchesFunc          func(ctx context.Context, repoID string) ([]string, error)
+	getRepositoryFunc         func(ctx context.Context, repoID string) (*types.GitRepository, error)
+	getFileContentsFunc       func(ctx context.Context, repoID, path, branch string) (string, error)
+	writeFileContentsFunc     func(ctx context.Context, repoID, path, branch string, content []byte, message, authorName, authorEmail string) (string, error)
+	getLocalBranchSHAFunc     func(ctx context.Context, repoID, branch string) (string, error)
+	getPullRequestFunc        func(ctx context.Context, repoID, id string) (*types.PullRequest, error)
+	withRepoLockFunc          func(repoID string, fn func() error) error
+	withExternalRepoWriteFunc func(ctx context.Context, repo *types.GitRepository, opts services.ExternalRepoWriteOptions, fn func() error) error
+	pushBranchFunc            func(ctx context.Context, repoID, branch string, force bool, userID ...string) error
+	listPullRequestsFunc      func(ctx context.Context, repoID string) ([]*types.PullRequest, error)
+	createPRFunc              func(ctx context.Context, repoID, title, desc, src, tgt, userID string) (string, error)
+	listReviewCommentsFunc    func(ctx context.Context, repoID, prID string, reviewID int64) ([]*types.PRReviewComment, error)
 }
 
 func (f *fakeGitRepoService) ListBranches(ctx context.Context, repoID string) ([]string, error) {
@@ -73,6 +79,12 @@ func (f *fakeGitRepoService) Initialize(_ context.Context) error { panic("Initia
 func (f *fakeGitRepoService) SetKoditService(_ services.KoditServicer) {
 	panic("SetKoditService unexpected")
 }
+func (f *fakeGitRepoService) ListPullRequestReviewComments(ctx context.Context, repoID, prID string, reviewID int64) ([]*types.PRReviewComment, error) {
+	if f.listReviewCommentsFunc != nil {
+		return f.listReviewCommentsFunc(ctx, repoID, prID, reviewID)
+	}
+	panic("ListPullRequestReviewComments unexpected")
+}
 func (f *fakeGitRepoService) CloneRepositoryAsync(_ *types.GitRepository, _ ...func(string)) {
 	panic("CloneRepositoryAsync unexpected")
 }
@@ -82,7 +94,10 @@ func (f *fakeGitRepoService) ValidateUserOAuth(_ context.Context, _ *types.GitRe
 func (f *fakeGitRepoService) CreateRepository(_ context.Context, _ *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
 	panic("CreateRepository unexpected")
 }
-func (f *fakeGitRepoService) GetRepository(_ context.Context, _ string) (*types.GitRepository, error) {
+func (f *fakeGitRepoService) GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error) {
+	if f.getRepositoryFunc != nil {
+		return f.getRepositoryFunc(ctx, repoID)
+	}
 	panic("GetRepository unexpected")
 }
 func (f *fakeGitRepoService) GetRepositoryMetadata(_ context.Context, _ string) (*types.GitRepository, error) {
@@ -103,10 +118,16 @@ func (f *fakeGitRepoService) CreateBranch(_ context.Context, _, _, _ string) err
 func (f *fakeGitRepoService) BrowseTree(_ context.Context, _, _, _ string) ([]types.TreeEntry, error) {
 	panic("BrowseTree unexpected")
 }
-func (f *fakeGitRepoService) GetFileContents(_ context.Context, _, _, _ string) (string, error) {
+func (f *fakeGitRepoService) GetFileContents(ctx context.Context, repoID, path, branch string) (string, error) {
+	if f.getFileContentsFunc != nil {
+		return f.getFileContentsFunc(ctx, repoID, path, branch)
+	}
 	panic("GetFileContents unexpected")
 }
-func (f *fakeGitRepoService) CreateOrUpdateFileContents(_ context.Context, _, _, _ string, _ []byte, _, _, _ string) (string, error) {
+func (f *fakeGitRepoService) CreateOrUpdateFileContents(ctx context.Context, repoID, path, branch string, content []byte, message, authorName, authorEmail string) (string, error) {
+	if f.writeFileContentsFunc != nil {
+		return f.writeFileContentsFunc(ctx, repoID, path, branch, content, message, authorName, authorEmail)
+	}
 	panic("CreateOrUpdateFileContents unexpected")
 }
 func (f *fakeGitRepoService) GetCloneCommand(_, _ string) string { panic("GetCloneCommand unexpected") }
@@ -128,7 +149,10 @@ func (f *fakeGitRepoService) SyncAllBranches(_ context.Context, _ string, _ bool
 func (f *fakeGitRepoService) SyncBaseBranch(_ context.Context, _, _ string) error {
 	panic("SyncBaseBranch unexpected")
 }
-func (f *fakeGitRepoService) GetLocalBranchSHA(_ context.Context, _, _ string) (string, error) {
+func (f *fakeGitRepoService) GetLocalBranchSHA(ctx context.Context, repoID, branch string) (string, error) {
+	if f.getLocalBranchSHAFunc != nil {
+		return f.getLocalBranchSHAFunc(ctx, repoID, branch)
+	}
 	panic("GetLocalBranchSHA unexpected")
 }
 func (f *fakeGitRepoService) GetExternalRepoStatus(_ context.Context, _, _ string) (*types.ExternalStatus, error) {
@@ -138,7 +162,11 @@ func (f *fakeGitRepoService) GetRepoLock(_ string) *sync.Mutex { panic("GetRepoL
 func (f *fakeGitRepoService) WithExternalRepoRead(_ context.Context, _ *types.GitRepository, _ func() error) error {
 	panic("WithExternalRepoRead unexpected")
 }
-func (f *fakeGitRepoService) WithExternalRepoWrite(_ context.Context, _ *types.GitRepository, _ services.ExternalRepoWriteOptions, _ func() error) error {
+
+func (f *fakeGitRepoService) WithExternalRepoWrite(ctx context.Context, repo *types.GitRepository, opts services.ExternalRepoWriteOptions, fn func() error) error {
+	if f.withExternalRepoWriteFunc != nil {
+		return f.withExternalRepoWriteFunc(ctx, repo, opts, fn)
+	}
 	panic("WithExternalRepoWrite unexpected")
 }
 

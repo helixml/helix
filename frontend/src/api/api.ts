@@ -208,10 +208,10 @@ export interface ApiCreateBotRequest {
   name?: string;
   /**
    * Owner makes this a manager Bot: it receives the canonical owner
-   * tool set (every org-graph mutation - create_bot, delete_bot,
-   * set_bot_content, subscribe, ... - plus the read baseline) so it can
-   * hire and manage other Nodes. When true, Tools is ignored in favour
-   * of that set. Used to seed a starter/root Bot for a new org.
+   * tool set (standard worker tools plus org-management mutations such as
+   * create_bot, delete_bot, and set_bot_content) so it can hire and manage
+   * other Nodes. When true, Tools is ignored in favour of that set. Used to
+   * seed a starter/root Bot for a new org.
    */
   owner?: boolean;
   parent_id?: string;
@@ -224,6 +224,7 @@ export interface ApiCreateBotRequest {
    * Only vcpus is read from the overrides — memory follows the preset.
    */
   sandbox_runtime?: TypesSandboxRuntime;
+  /** Tools contains additions to the standard worker tool set. */
   tools?: string[];
   triggers?: string[];
 }
@@ -1118,6 +1119,7 @@ export interface OpenaiViolence {
 export interface ServerActivateTrialRequest {
   credits?: number;
   days?: number;
+  org_id?: string;
   /**
    * Plan selects what to grant. "pro" grants a PAID plan via a PlanOverride
    * (no Stripe subscription) — for customers who paid out-of-band (bank
@@ -1311,6 +1313,7 @@ export interface ServerConfigurePendingSessionRequest {
 export interface ServerCreateTopUpRequest {
   amount?: number;
   org_id?: string;
+  return_url?: string;
 }
 
 export interface ServerDeployWebServiceRequest {
@@ -2284,14 +2287,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindCron = "cron",
-  KindEmail = "email",
-  KindWebhook = "webhook",
   KindLocal = "local",
-  KindGitLab = "gitlab",
   KindSlack = "slack",
-  KindHelixEvents = "helix_events",
+  KindCron = "cron",
+  KindWebhook = "webhook",
   KindGitHub = "github",
+  KindGitLab = "gitlab",
+  KindHelixEvents = "helix_events",
+  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -3685,6 +3688,9 @@ export interface TypesCreateTaskRequest {
   just_do_it_mode?: boolean;
   /** Name is the task title. Empty means derive it from the prompt. */
   name?: string;
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
+  planning_goose_recipe_name?: string;
+  planning_goose_recipe_params?: Record<string, string>;
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   prompt?: string;
@@ -4338,6 +4344,7 @@ export interface TypesInteraction {
    */
   last_zed_message_offset?: number;
   mode?: TypesSessionMode;
+  pending_question?: TypesPendingQuestion;
   /**
    * PromptID links this interaction back to the prompt_history_entry that
    * created it (when the interaction was dispatched by the queue, as opposed
@@ -4352,6 +4359,7 @@ export interface TypesInteraction {
   prompt_message?: string;
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
+  question_history?: TypesResolvedQuestion[];
   rag_results?: TypesSessionRAGResult[];
   /**
    * ResponseEntries holds the structured response as an ordered list of typed entries.
@@ -5225,6 +5233,16 @@ export interface TypesPasswordUpdateRequest {
   new_password?: string;
 }
 
+export interface TypesPendingQuestion {
+  asked_at?: string;
+  questions?: TypesUserQuestion[];
+  request_id?: string;
+  source?: string;
+  thread_id?: string;
+  tool_call_id?: string;
+  turn_request_id?: string;
+}
+
 export interface TypesPinnedChat {
   id?: string;
   kind?: string;
@@ -5336,6 +5354,11 @@ export interface TypesProject {
    */
   next_task_number?: number;
   organization_id?: string;
+  /**
+   * PlanningCodeAgentConfig is the planning-phase default copied into each new
+   * SpecTask. Nil preserves the historical behaviour by using CodeAgentConfig.
+   */
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
   project_manager_helix_app_id?: string;
   pull_request_reviewer_helix_app_id?: string;
   pull_request_reviews_enabled?: boolean;
@@ -5460,6 +5483,7 @@ export interface TypesProjectCreateRequest {
   guidelines?: string;
   name?: string;
   organization_id?: string;
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
   /** Project-level skills */
   skills?: TypesAssistantSkills;
   startup_script?: string;
@@ -5559,6 +5583,7 @@ export interface TypesProjectUpdateRequest {
   kodit_enabled?: boolean;
   metadata?: TypesProjectMetadata;
   name?: string;
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
   /** Project manager agent */
   project_manager_helix_app_id?: string;
   /** Pull request reviewer agent */
@@ -5822,6 +5847,14 @@ export interface TypesPushResponse {
   success?: boolean;
 }
 
+export interface TypesQuestionActionResponse {
+  status?: string;
+}
+
+export interface TypesQuestionRespondRequest {
+  answers?: Record<string, string>;
+}
+
 export interface TypesQuotaResponse {
   active_concurrent_desktops?: number;
   /**
@@ -5966,6 +5999,19 @@ export interface TypesRepositoryInfo {
   html_url?: string;
   name?: string;
   private?: boolean;
+}
+
+export interface TypesResolvedQuestion {
+  answers?: Record<string, string>;
+  asked_at?: string;
+  outcome?: string;
+  questions?: TypesUserQuestion[];
+  request_id?: string;
+  resolved_at?: string;
+  source?: string;
+  thread_id?: string;
+  tool_call_id?: string;
+  turn_request_id?: string;
 }
 
 export enum TypesResource {
@@ -7063,6 +7109,7 @@ export interface TypesSpecTask {
   cloned_from_id?: string;
   /** Original project */
   cloned_from_project_id?: string;
+  /** CodeAgentConfig is the implementation-phase execution configuration. */
   code_agent_config?: TypesCodeAgentExecutionConfig;
   /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
@@ -7158,6 +7205,13 @@ export interface TypesSpecTask {
   organization_id?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
+  /**
+   * PlanningCodeAgentConfig is independently snapshotted when the task is
+   * created so project-default changes cannot alter an existing planning run.
+   */
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
+  planning_goose_recipe_name?: string;
+  planning_goose_recipe_params?: Record<string, string>;
   planning_options?: TypesStartPlanningOptions;
   /**
    * Session tracking (single Helix session for entire workflow - planning + implementation)
@@ -7352,6 +7406,12 @@ export interface TypesSpecTaskDesignReviewDetailResponse {
   spec_task?: TypesSpecTask;
 }
 
+export interface TypesSpecTaskDesignReviewDocumentUpdateRequest {
+  content: string;
+  document_type: "requirements" | "technical_design" | "implementation_plan";
+  original_content: string;
+}
+
 export interface TypesSpecTaskDesignReviewListResponse {
   reviews?: TypesSpecTaskDesignReview[];
   total?: number;
@@ -7374,6 +7434,7 @@ export interface TypesSpecTaskDesignReviewSubmitRequest {
 
 export interface TypesSpecTaskExecutionConfigUpdateRequest {
   code_agent_config?: TypesCodeAgentExecutionConfig;
+  phase?: "planning" | "implementation";
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
 }
 
@@ -7460,6 +7521,7 @@ export interface TypesSpecTaskWithProject {
   cloned_from_id?: string;
   /** Original project */
   cloned_from_project_id?: string;
+  /** CodeAgentConfig is the implementation-phase execution configuration. */
   code_agent_config?: TypesCodeAgentExecutionConfig;
   /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
@@ -7555,6 +7617,13 @@ export interface TypesSpecTaskWithProject {
   organization_id?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
+  /**
+   * PlanningCodeAgentConfig is independently snapshotted when the task is
+   * created so project-default changes cannot alter an existing planning run.
+   */
+  planning_code_agent_config?: TypesCodeAgentExecutionConfig;
+  planning_goose_recipe_name?: string;
+  planning_goose_recipe_params?: Record<string, string>;
   planning_options?: TypesStartPlanningOptions;
   /**
    * Session tracking (single Helix session for entire workflow - planning + implementation)
@@ -8451,6 +8520,20 @@ export interface TypesUserModelUsage {
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
+}
+
+export interface TypesUserQuestion {
+  allow_custom_answer?: boolean;
+  header?: string;
+  id?: string;
+  multi_select?: boolean;
+  options?: TypesUserQuestionOption[];
+  question?: string;
+}
+
+export interface TypesUserQuestionOption {
+  description?: string;
+  label?: string;
 }
 
 export interface TypesUserResponse {
@@ -9401,7 +9484,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Clears any stashed trial intent on the user and cancels the Stripe subscription on the user's oldest owned org if it is currently in a trialing state. Paid (active) subscriptions are never cancelled.
+     * @description Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the oldest owned org whose readable wallet is trialing. At most one subscription is cancelled per call. Paid (active) subscriptions are never cancelled.
      *
      * @tags users
      * @name V1AdminUsersTrialActivateDelete
@@ -9419,7 +9502,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).
+     * @description Stash a trial intent when the user owns no organisations, or activate the explicitly selected owned organisation. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).
      *
      * @tags users
      * @name V1AdminUsersTrialActivateCreate
@@ -11105,6 +11188,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Streams a complete, binary-safe workspace file from the task desktop.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceFileDownloadDetail
+     * @summary Download a workspace file
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-file/download
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceFileDownloadDetail: (
+      sessionId: string,
+      query: {
+        /** Workspace name */
+        workspace?: string;
+        /** Repository-relative file path */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-file/download`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "blob",
+        ...params,
+      }),
+
+    /**
      * @description Returns a bounded flat list of tracked and non-ignored untracked workspace entries.
      *
      * @tags ExternalAgents
@@ -12519,6 +12630,49 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Cancels the agent question currently pending on an interaction
+     *
+     * @tags interactions
+     * @name V1InteractionsQuestionsCancelCreate
+     * @summary Cancel an agent question
+     * @request POST:/api/v1/interactions/{interaction_id}/questions/{request_id}/cancel
+     * @secure
+     */
+    v1InteractionsQuestionsCancelCreate: (interactionId: string, requestId: string, params: RequestParams = {}) =>
+      this.request<TypesQuestionActionResponse, any>({
+        path: `/api/v1/interactions/${interactionId}/questions/${requestId}/cancel`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Sends answers to the agent question currently pending on an interaction
+     *
+     * @tags interactions
+     * @name V1InteractionsQuestionsRespondCreate
+     * @summary Respond to an agent question
+     * @request POST:/api/v1/interactions/{interaction_id}/questions/{request_id}/respond
+     * @secure
+     */
+    v1InteractionsQuestionsRespondCreate: (
+      interactionId: string,
+      requestId: string,
+      request: TypesQuestionRespondRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesQuestionActionResponse, any>({
+        path: `/api/v1/interactions/${interactionId}/questions/${requestId}/respond`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -18149,6 +18303,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Update one Markdown design document with optimistic concurrency
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsDocumentUpdate
+     * @summary Update a design review document
+     * @request PUT:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/document
+     * @secure
+     */
+    v1SpecTasksDesignReviewsDocumentUpdate: (
+      specTaskId: string,
+      reviewId: string,
+      request: TypesSpecTaskDesignReviewDocumentUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskDesignReview, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/document`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Approve or request changes for a design review
      *
      * @tags SpecTasks
@@ -18407,7 +18586,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns the task-owned code-agent configuration. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.
+     * @description Returns the task-owned code-agent configuration for the active planning or implementation phase. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksExecutionConfigDetail
@@ -18425,7 +18604,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Replaces a task's complete code-agent configuration or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.
+     * @description Replaces a task's planning or implementation code-agent configuration, or its sandbox resource preset. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksExecutionConfigPartialUpdate
@@ -19444,6 +19623,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Organization ID */
         org_id?: string;
+        /** Discover a subscription after returning from Checkout */
+        discover_subscription?: boolean;
       },
       params: RequestParams = {},
     ) =>

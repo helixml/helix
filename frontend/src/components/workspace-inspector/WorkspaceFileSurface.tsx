@@ -1,5 +1,6 @@
-import React, { FC } from "react";
+import React, { FC, useEffect, useState } from "react";
 import { Alert, Box, CircularProgress, Typography } from "@mui/material";
+import useApi from "../../hooks/useApi";
 import { useWorkspaceFile } from "./workspaceReviewService";
 import WorkspaceFileTree from "./WorkspaceFileTree";
 import WorkspaceEditableFile from "./WorkspaceEditableFile";
@@ -18,6 +19,61 @@ interface WorkspaceFileSurfaceProps {
   onUpsertComment: (comment: WorkspaceReviewComment) => void;
   onRemoveComment: (commentId: string) => void;
 }
+
+const isImagePath = (path: string) =>
+  /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(path);
+
+const WorkspaceImage: FC<{
+  sessionId: string;
+  workspace?: string;
+  path: string;
+}> = ({ sessionId, workspace, path }) => {
+  const api = useApi();
+  const [src, setSrc] = useState<string>();
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectURL = "";
+
+    api
+      .getApiClient()
+      .v1ExternalAgentsWorkspaceFileDownloadDetail(
+        sessionId,
+        { path, workspace },
+        { signal: controller.signal },
+      )
+      .then((response) => {
+        objectURL = URL.createObjectURL(response.data);
+        if (controller.signal.aborted) {
+          URL.revokeObjectURL(objectURL);
+          return;
+        }
+        setSrc(objectURL);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setError(true);
+      });
+
+    return () => {
+      controller.abort();
+      if (objectURL) URL.revokeObjectURL(objectURL);
+    };
+  }, [path, sessionId, workspace]);
+
+  if (error) return <Alert severity="error">Could not preview {path}.</Alert>;
+  if (!src) return <CircularProgress size={22} />;
+
+  return (
+    <Box
+      component="img"
+      src={src}
+      alt={path.split("/").pop() || path}
+      onError={() => setError(true)}
+      sx={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+    />
+  );
+};
 
 const WorkspaceFileSurface: FC<WorkspaceFileSurfaceProps> = ({
   sessionId,
@@ -70,6 +126,15 @@ const WorkspaceFileSurface: FC<WorkspaceFileSurfaceProps> = ({
         ) : fileQuery.isError ? (
           <Box sx={{ p: 2 }}>
             <Alert severity="error">Could not read {path}.</Alert>
+          </Box>
+        ) : isImagePath(path) ? (
+          <Box sx={{ flex: 1, minHeight: 0, display: "grid", placeItems: "center", p: 2 }}>
+            <WorkspaceImage
+              key={`${sessionId}:${workspace || "primary"}:${path}`}
+              sessionId={sessionId}
+              workspace={workspace}
+              path={path}
+            />
           </Box>
         ) : fileQuery.data?.binary ? (
           <Box

@@ -850,7 +850,10 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 			http.Error(res, "only external agent sessions accept workspace uploads", http.StatusBadRequest)
 			return
 		}
-		if session.Metadata.ExternalAgentStatus != "starting" {
+		// "restarting" counts as in-flight too — restartSessionContainer is
+		// already bringing a new container up, so starting a second one here
+		// would race it.
+		if session.Metadata.ExternalAgentStatus != "starting" && session.Metadata.ExternalAgentStatus != "restarting" {
 			log.Info().
 				Str("session_id", sessionID).
 				Msg("Starting stopped external agent for chat attachment upload")

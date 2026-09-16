@@ -1,38 +1,39 @@
-import React from 'react'
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  TextField,
-  Button,
   Box,
+  Button,
   CircularProgress,
-} from '@mui/material'
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  TextField,
+} from "@mui/material";
 
 interface ReviewSubmitDialogProps {
-  open: boolean
-  onClose: () => void
-  decision: 'approve' | 'request_changes'
-  overallComment: string
-  onCommentChange: (value: string) => void
-  onSubmit: () => void
-  isSubmitting: boolean
+  open: boolean;
+  onClose: () => void;
+  overallComment: string;
+  onCommentChange: (value: string) => void;
+  onSubmit: () => void;
+  isSubmitting: boolean;
 }
 
 export default function ReviewSubmitDialog({
   open,
   onClose,
-  decision,
   overallComment,
   onCommentChange,
   onSubmit,
   isSubmitting,
 }: ReviewSubmitDialogProps) {
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth sx={{ zIndex: 200000 }}>
-      <DialogTitle>
-        {decision === 'approve' ? 'Approve Design' : 'Request Changes'}
-      </DialogTitle>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      sx={{ zIndex: 200000 }}
+    >
+      <DialogTitle>Approve Design</DialogTitle>
       <DialogContent>
         <TextField
           fullWidth
@@ -40,7 +41,7 @@ export default function ReviewSubmitDialog({
           rows={4}
           label="Overall Comment (optional)"
           value={overallComment}
-          onChange={e => onCommentChange(e.target.value)}
+          onChange={(event) => onCommentChange(event.target.value)}
           sx={{ mt: 2 }}
         />
       </DialogContent>
@@ -48,18 +49,18 @@ export default function ReviewSubmitDialog({
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
-          color={decision === 'approve' ? 'success' : 'warning'}
+          color="success"
           onClick={onSubmit}
           disabled={isSubmitting}
           startIcon={
-            isSubmitting ? <CircularProgress size={16} color="inherit" /> : undefined
+            isSubmitting ? (
+              <CircularProgress size={16} color="inherit" />
+            ) : undefined
           }
         >
-          {isSubmitting
-            ? decision === 'approve' ? 'Approving…' : 'Submitting…'
-            : decision === 'approve' ? 'Approve' : 'Submit Feedback'}
+          {isSubmitting ? "Approving…" : "Approve"}
         </Button>
       </Box>
     </Dialog>
-  )
+  );
 }

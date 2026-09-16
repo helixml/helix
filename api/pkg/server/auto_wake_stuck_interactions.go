@@ -261,6 +261,14 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 		return
 	}
 
+	// A connected agent owns the live question and must not receive the generic
+	// continue wake while it waits for the user. A disconnected agent still
+	// needs the cold-start recovery above so it can reconnect and reconcile the
+	// pending turn.
+	if stuck.PendingQuestion != nil {
+		return
+	}
+
 	// The "stuck enough to wake" clock should anchor on the most
 	// recent of:
 	//   - When the WebSocket connected (agent only able to receive
@@ -436,12 +444,13 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 	}
 
 	// Skip if a container boot is genuinely in progress and we're still
-	// inside the grace period. Both "starting" and "running" count as
-	// in-progress here: see the function header for why the post-bridge,
-	// pre-WS substate ("running" with no live WS) is the case the grace
-	// period most often needs to cover.
+	// inside the grace period. "starting", "restarting" and "running" all
+	// count as in-progress here: see the function header for why the
+	// post-bridge, pre-WS substate ("running" with no live WS) is the case the
+	// grace period most often needs to cover.
 	if session != nil &&
 		(session.Metadata.ExternalAgentStatus == "starting" ||
+			session.Metadata.ExternalAgentStatus == "restarting" ||
 			session.Metadata.ExternalAgentStatus == "running") &&
 		time.Since(stuck.Created) < coldStartGracePeriod() {
 		log.Debug().

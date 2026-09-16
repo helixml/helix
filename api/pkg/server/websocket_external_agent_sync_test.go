@@ -365,9 +365,15 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 	)
 
 	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, lastZedMessageID string) error {
+		func(_ context.Context, _ string, _ int, responseMessage string, responseEntries datatypes.JSON, _ int, lastZedMessageID string) error {
 			s.Equal("Hello from AI", responseMessage)
 			s.Equal("msg-1", lastZedMessageID)
+			var entries []wsprotocol.ResponseEntry
+			s.Require().NoError(json.Unmarshal(responseEntries, &entries))
+			s.Require().Len(entries, 1)
+			s.Equal("call-1", entries[0].ToolCallID)
+			s.Equal("spawn_agent", entries[0].ToolCallName)
+			s.Equal("child-session-1", entries[0].SubagentID)
 			return nil
 		},
 	)
@@ -381,10 +387,14 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 	syncMsg := &types.SyncMessage{
 		EventType: "message_added",
 		Data: map[string]interface{}{
-			"acp_thread_id": "thread-1",
-			"message_id":    "msg-1",
-			"content":       "Hello from AI",
-			"role":          "assistant",
+			"acp_thread_id":  "thread-1",
+			"message_id":     "msg-1",
+			"content":        "Hello from AI",
+			"role":           "assistant",
+			"entry_type":     "tool_call",
+			"tool_call_id":   "call-1",
+			"tool_call_name": "spawn_agent",
+			"subagent_id":    "child-session-1",
 		},
 	}
 
@@ -2839,6 +2849,97 @@ func (s *WebSocketSyncSuite) TestProcessSyncMessage_SyncEventHookFires() {
 	s.Equal("ping", hookEventType)
 }
 
+func (s *WebSocketSyncSuite) TestQuestionRequested_AttachesToWaitingInteraction() {
+	interaction := &types.Interaction{
+		ID: "int-question", SessionID: "agent-1", GenerationID: 2,
+		State: types.InteractionStateWaiting,
+	}
+	s.server.requestToInteractionMapping["turn-1"] = interaction.ID
+	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil)
+	s.store.EXPECT().SetInteractionPendingQuestion(gomock.Any(), interaction.ID, 2, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ int, question *types.PendingQuestion) (*types.Interaction, bool, error) {
+			s.Equal("question-1", question.RequestID)
+			s.Equal("elicitation", question.Source)
+			updated := *interaction
+			updated.PendingQuestion = question
+			return &updated, true, nil
+		})
+	s.store.EXPECT().GetSession(gomock.Any(), "agent-1").Return(&types.Session{ID: "agent-1", Owner: "user-1"}, nil)
+	recorder := &recordingPubSub{NoopPubSub: pubsub.NewNoop()}
+	s.server.pubsub = recorder
+
+	err := s.server.processExternalAgentSyncMessage("agent-1", &types.SyncMessage{
+		EventType: "question_requested",
+		Data: map[string]interface{}{
+			"thread_id": "thread-1", "request_id": "question-1", "turn_request_id": "turn-1",
+			"source": "elicitation",
+			"questions": []interface{}{map[string]interface{}{
+				"id": "framework", "header": "Framework", "question": "Which framework?",
+				"options":      []interface{}{map[string]interface{}{"label": "React"}},
+				"multi_select": false, "allow_custom_answer": true,
+			}},
+		},
+	})
+
+	s.NoError(err)
+	s.Len(recorder.payloads, 1)
+}
+
+func (s *WebSocketSyncSuite) TestQuestionResolved_ClearsAndArchivesQuestion() {
+	interaction := &types.Interaction{
+		ID: "int-question", SessionID: "agent-1", GenerationID: 2,
+		State:           types.InteractionStateWaiting,
+		PendingQuestion: &types.PendingQuestion{RequestID: "question-1"},
+	}
+	s.server.requestToInteractionMapping["turn-1"] = interaction.ID
+	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil)
+	s.store.EXPECT().ResolveInteractionPendingQuestion(
+		gomock.Any(), interaction.ID, 2, "question-1", "answered", map[string]string{"framework": "React"},
+	).DoAndReturn(func(_ context.Context, _ string, _ int, _ string, _ string, answers map[string]string) (*types.Interaction, bool, error) {
+		updated := *interaction
+		updated.PendingQuestion = nil
+		updated.QuestionHistory = []types.ResolvedQuestion{{Answers: answers, Outcome: "answered"}}
+		return &updated, true, nil
+	})
+	s.store.EXPECT().GetSession(gomock.Any(), "agent-1").Return(&types.Session{ID: "agent-1", Owner: "user-1"}, nil)
+
+	err := s.server.processExternalAgentSyncMessage("agent-1", &types.SyncMessage{
+		EventType: "question_resolved",
+		Data: map[string]interface{}{
+			"thread_id": "thread-1", "request_id": "question-1", "turn_request_id": "turn-1",
+			"outcome": "answered", "answers": map[string]interface{}{"framework": "React"},
+		},
+	})
+
+	s.NoError(err)
+}
+
+func (s *WebSocketSyncSuite) TestResumeRedeliverySettlesStalePendingQuestion() {
+	interaction := &types.Interaction{
+		ID: "int-stale-question", SessionID: "ses-stale-question", GenerationID: 2,
+		State:           types.InteractionStateWaiting,
+		PendingQuestion: &types.PendingQuestion{RequestID: "question-stale"},
+	}
+	updated := *interaction
+	updated.PendingQuestion = nil
+	updated.QuestionHistory = []types.ResolvedQuestion{{
+		PendingQuestion: *interaction.PendingQuestion,
+		Outcome:         "cancelled",
+	}}
+	s.store.EXPECT().ResolveInteractionPendingQuestion(
+		gomock.Any(), interaction.ID, 2, "question-stale", "cancelled", map[string]string(nil),
+	).Return(&updated, true, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), interaction.SessionID).
+		Return(&types.Session{ID: interaction.SessionID, Owner: "user-1"}, nil)
+
+	got, err := s.server.settlePendingQuestionBeforeRedelivery(context.Background(), interaction)
+
+	s.NoError(err)
+	s.Nil(got.PendingQuestion)
+	s.Require().Len(got.QuestionHistory, 1)
+	s.Equal("cancelled", got.QuestionHistory[0].Outcome)
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Streaming context cache tests
 // ──────────────────────────────────────────────────────────────────────────────
@@ -3683,6 +3784,48 @@ func (s *WebSocketSyncSuite) TestCancelActiveTurn_AfterRestartUsesDurableRequest
 	s.Equal("cancelled", got.status)
 	s.Equal(session.ID, s.server.requestToSessionMapping["req_restart_cancel"])
 	s.Equal(waiting.ID, s.server.requestToInteractionMapping["req_restart_cancel"])
+}
+
+func (s *WebSocketSyncSuite) TestTurnCancelledSettlesPendingQuestion() {
+	session := &types.Session{ID: "ses_question_cancel", Owner: "usr_test", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_question_cancel", SessionID: session.ID, GenerationID: 1,
+		State:                  types.InteractionStateWaiting,
+		ExternalAgentRequestID: "req_question_cancel",
+		PendingQuestion:        &types.PendingQuestion{RequestID: "question-1"},
+	}
+	settled := *waiting
+	settled.PendingQuestion = nil
+	settled.QuestionHistory = []types.ResolvedQuestion{{
+		PendingQuestion: *waiting.PendingQuestion,
+		Outcome:         "cancelled",
+	}}
+	interrupted := settled
+	interrupted.State = types.InteractionStateInterrupted
+	s.server.requestToInteractionMapping[waiting.ExternalAgentRequestID] = waiting.ID
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil)
+	s.store.EXPECT().ResolveInteractionPendingQuestion(
+		gomock.Any(), waiting.ID, waiting.GenerationID, "question-1", "cancelled", map[string]string(nil),
+	).Return(&settled, true, nil)
+	s.store.EXPECT().MarkInteractionInterruptedIfWaiting(
+		gomock.Any(), waiting.ID, waiting.GenerationID,
+	).Return(true, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(&interrupted, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), session.ID).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), session.ID).Return(nil, nil).AnyTimes()
+
+	err := s.server.handleTurnCancelled(session.ID, &types.SyncMessage{
+		EventType: "turn_cancelled",
+		Data: map[string]interface{}{
+			"request_id": waiting.ExternalAgentRequestID,
+			"status":     "cancelled",
+		},
+	})
+
+	s.NoError(err)
+	s.Nil(interrupted.PendingQuestion)
+	s.Require().Len(interrupted.QuestionHistory, 1)
 }
 
 func (s *WebSocketSyncSuite) TestCancelActiveTurn_LegacyMemoryMappingRequiresAgentAck() {

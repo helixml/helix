@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -269,9 +269,8 @@ describe("Interaction", () => {
     expect(screen.queryByTestId("interaction-error")).not.toBeInTheDocument();
   });
 
-  it("collapses an agent-switch handoff under its divider", () => {
+  it("labels the implementation harness configuration transition", () => {
     const systemPrompt = "[System: The coding agent or model configuration changed for this task.]";
-    const agentReply = "Ready to continue with Claude Code.";
     render(
       <Interaction
         {...baseProps}
@@ -284,29 +283,21 @@ describe("Interaction", () => {
         nextInteraction={{
           id: "int_handoff",
           trigger: "fork_handoff",
-          prompt_message: systemPrompt,
-          response_entries: [{ type: "text", content: agentReply }] as any,
+          prompt_message: `## CURRENT PHASE: IMPLEMENTATION\n\n${systemPrompt}`,
           state: TypesInteractionState.InteractionStateComplete,
         }}
       />,
     );
 
-    const divider = screen.getByRole("button", {
-      name: "Agent switched to claude_code at turn 2",
-    });
-    expect(divider).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Switching to implementation harness configuration"))
+      .toBeInTheDocument();
+    expect(screen.queryByText("Agent switched to claude_code at turn 2"))
+      .not.toBeInTheDocument();
     expect(screen.queryByText(systemPrompt)).not.toBeInTheDocument();
-    expect(screen.queryByText(agentReply)).not.toBeInTheDocument();
     expect(screen.queryByText(/Show transcript/)).not.toBeInTheDocument();
-
-    fireEvent.click(divider);
-
-    expect(divider).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText(systemPrompt)).toBeInTheDocument();
-    expect(screen.getByText(agentReply)).toBeInTheDocument();
   });
 
-  it("does not render a handoff as a normal conversation turn", () => {
+  it("renders handoff agent work without exposing its system prompt", () => {
     render(
       <Interaction
         {...baseProps}
@@ -314,12 +305,31 @@ describe("Interaction", () => {
           id: "int_handoff",
           trigger: "fork_handoff",
           prompt_message: "[System: hidden handoff]",
-          response_message: "Hidden agent reply",
+          response_message: "Visible implementation work",
         }}
       />,
     );
 
     expect(screen.queryByText("[System: hidden handoff]")).not.toBeInTheDocument();
-    expect(screen.queryByText("Hidden agent reply")).not.toBeInTheDocument();
+    expect(screen.getByTestId("agent-reply")).toHaveTextContent("Visible implementation work");
+  });
+
+  it("renders live handoff activity", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_handoff",
+          trigger: "fork_handoff",
+          prompt_message: "[System: hidden handoff]",
+          state: TypesInteractionState.InteractionStateWaiting,
+        }}
+      >
+        <div>Live implementation activity</div>
+      </Interaction>,
+    );
+
+    expect(screen.queryByText("[System: hidden handoff]")).not.toBeInTheDocument();
+    expect(screen.getByText("Live implementation activity")).toBeInTheDocument();
   });
 });

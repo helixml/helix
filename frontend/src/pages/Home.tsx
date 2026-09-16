@@ -55,13 +55,17 @@ import {
   NEW_CHAT_REASONING_EFFORT_OPTIONS,
   newChatHeading,
   newChatModelStorageKey,
+  newChatTaskModeStorageKey,
   NewChatReasoningEffort,
   NewChatTaskMode,
   parseOrgDefaultRuntime,
   readNewChatModelSelection,
+  readNewChatTaskMode,
 } from './newChatLogic'
 import {
+  preferredSpecTaskSandboxResources,
   preferredSpecTaskSandboxRuntime,
+  saveSpecTaskSandboxResourcesPreference,
   saveSpecTaskSandboxRuntimePreference,
 } from '../utils/specTaskSandboxRuntime'
 
@@ -137,11 +141,8 @@ const Home: FC = () => {
   const [selectedModel, setSelectedModel] = useState('')
   const [reasoningEffort, setReasoningEffort] = useState<NewChatReasoningEffort>('medium')
   const [taskCodeAgentConfig, setTaskCodeAgentConfig] = useState<TypesCodeAgentExecutionConfig>()
-  // Undefined until the user picks a size, so the create request omits
-  // sandbox_resource_overrides and the server resolves the live default at
-  // container-create time. Sending the default explicitly would materialize it
-  // onto the row and pin that task to today's value forever. The selector still
-  // displays the default for an undefined value.
+  // Synced below from the per-project preference or project default. It remains
+  // undefined when neither exists so the server can resolve its live default.
   const [taskSandboxResources, setTaskSandboxResources] =
     useState<TypesSandboxResourceOverrides | undefined>()
   const [taskSandboxRuntime, setTaskSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
@@ -159,6 +160,9 @@ const Home: FC = () => {
   const startTask = useStartSpecTaskPlanning()
 
   const projectCodeAgentConfigKey = JSON.stringify(selectedProject?.code_agent_config ?? null)
+  const projectPlanningCodeAgentConfigKey = JSON.stringify(
+    selectedProject?.planning_code_agent_config ?? selectedProject?.code_agent_config ?? null,
+  )
 
   const modelStorageKey = newChatModelStorageKey(userId, orgId)
   const orgDefaultValue = orgSettings?.specs?.find((spec) => spec.key === 'agent.default')?.value
@@ -188,19 +192,47 @@ const Home: FC = () => {
   ])
 
   useEffect(() => {
-    setTaskCodeAgentConfig(selectedProject?.code_agent_config)
-  }, [selectedProjectId, projectCodeAgentConfigKey])
+    if (!userId || !orgId || !selectedProjectId) return
+    const rememberedMode = readNewChatTaskMode(localStorage.getItem(
+      newChatTaskModeStorageKey(userId, orgId, selectedProjectId),
+    ))
+    setTaskMode(rememberedMode)
+    setTaskCodeAgentConfig(
+      rememberedMode === 'plan'
+        ? selectedProject?.planning_code_agent_config || selectedProject?.code_agent_config
+        : selectedProject?.code_agent_config,
+    )
+  }, [
+    userId,
+    orgId,
+    selectedProjectId,
+    projectCodeAgentConfigKey,
+    projectPlanningCodeAgentConfigKey,
+  ])
 
-  // Compute follows the project, not its coding default. Keeping it in the
-  // effect above would reset a chosen sandbox size the moment picking a runtime
-  // seeded the project default and refreshed the project.
+  // Compute is remembered per project. A project with no explicit user choice
+  // starts from its saved defaults; an absent size remains undefined so the
+  // server can resolve its live global default when the task starts.
   useEffect(() => {
-    setTaskSandboxResources(undefined)
+    setTaskSandboxResources(preferredSpecTaskSandboxResources(
+      selectedProjectId,
+      selectedProject?.default_sandbox_resource_overrides,
+    ))
     setTaskSandboxRuntime(preferredSpecTaskSandboxRuntime(
       selectedProjectId,
       selectedProject?.default_sandbox_runtime,
     ))
-  }, [selectedProjectId, selectedProject?.default_sandbox_runtime])
+  }, [
+    selectedProjectId,
+    selectedProject?.default_sandbox_resource_overrides?.vcpus,
+    selectedProject?.default_sandbox_resource_overrides?.memory_mb,
+    selectedProject?.default_sandbox_runtime,
+  ])
+
+  const handleTaskSandboxResourcesChange = (resources: TypesSandboxResourceOverrides) => {
+    setTaskSandboxResources(resources)
+    saveSpecTaskSandboxResourcesPreference(selectedProjectId, resources)
+  }
 
   const handleTaskSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
     setTaskSandboxRuntime(runtime)
@@ -214,7 +246,23 @@ const Home: FC = () => {
     source: CodeAgentConfigChangeSource,
   ) => {
     setTaskCodeAgentConfig(next)
-    seedProjectCodeAgentConfig(next, source)
+    if (taskMode === 'build') seedProjectCodeAgentConfig(next, source)
+  }
+
+  const handleTaskModeChange = (mode: NewChatTaskMode) => {
+    setTaskMode(mode)
+    setTaskCodeAgentConfig(
+      mode === 'plan'
+        ? selectedProject?.planning_code_agent_config || selectedProject?.code_agent_config
+        : selectedProject?.code_agent_config,
+    )
+    if (userId && orgId && selectedProjectId) {
+      localStorage.setItem(
+        newChatTaskModeStorageKey(userId, orgId, selectedProjectId),
+        mode,
+      )
+    }
+    setModeMenuAnchor(null)
   }
 
   const isProjectContext = !!selectedProjectId
@@ -339,20 +387,14 @@ const Home: FC = () => {
       >
         <MenuItem
           selected={taskMode === 'plan'}
-          onClick={() => {
-            setTaskMode('plan')
-            setModeMenuAnchor(null)
-          }}
+          onClick={() => handleTaskModeChange('plan')}
         >
           <ListItemIcon><ListTodo size={16} /></ListItemIcon>
           <ListItemText primary="Plan" secondary="Create specifications first" />
         </MenuItem>
         <MenuItem
           selected={taskMode === 'build'}
-          onClick={() => {
-            setTaskMode('build')
-            setModeMenuAnchor(null)
-          }}
+          onClick={() => handleTaskModeChange('build')}
         >
           <ListItemIcon><Hammer size={16} /></ListItemIcon>
           <ListItemText primary="Build" secondary="Go directly to implementation" />
@@ -368,7 +410,7 @@ const Home: FC = () => {
         sandboxResourceOverrides={taskSandboxResources}
         sandboxRuntime={taskSandboxRuntime}
         onChange={handleTaskCodeAgentConfigChange}
-        onSandboxResourceOverridesChange={setTaskSandboxResources}
+        onSandboxResourceOverridesChange={handleTaskSandboxResourcesChange}
         onSandboxRuntimeChange={handleTaskSandboxRuntimeChange}
         disabled={submitting}
         autoSelectDefault
@@ -545,7 +587,7 @@ const Home: FC = () => {
   return (
     <Page
       breadcrumbs={[{ title: selectedProject?.name || 'No project' }]}
-      breadcrumbTitle={isProjectContext ? 'New Task' : 'New thread'}
+      breadcrumbTitle={isProjectContext ? 'New task' : 'New thread'}
       breadcrumbShowHome={false}
       disableContentScroll
       px={2}

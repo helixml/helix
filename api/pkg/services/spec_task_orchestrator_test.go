@@ -941,8 +941,11 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleSpecApproved_SelfHealsNilSpecA
 		ctx,
 		"task-stuck",
 		gomock.Any(),
-		types.TaskStatusImplementation,
+		types.TaskStatusImplementationQueued,
 		gomock.Any(),
+	).Return(true, nil)
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx, "task-stuck", gomock.Any(), types.TaskStatusImplementation, gomock.Any(),
 	).Return(true, nil)
 
 	err := s.orchestrator.handleSpecApproved(ctx, task)

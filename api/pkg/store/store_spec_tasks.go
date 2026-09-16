@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,6 +12,14 @@ import (
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
+
+// specTaskPRMatchJSON is the containment probe marshaled for the PRMatch
+// filter's @> query. Field tags must match the RepoPR JSON keys persisted by
+// the gorm json serializer.
+type specTaskPRMatchJSON struct {
+	RepositoryID string `json:"repository_id"`
+	PRNumber     int    `json:"pr_number"`
+}
 
 // CreateSpecTask creates a new spec-driven task
 func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
@@ -139,6 +148,34 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 
 	_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, task)
 
+	return nil
+}
+
+// UpdateSpecTaskFields updates only the named columns. Callers holding a stale
+// task snapshot must use this instead of Save so concurrent workflow
+// transitions cannot be reverted.
+func (s *PostgresStore) UpdateSpecTaskFields(ctx context.Context, taskID string, updates map[string]any) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	updates["updated_at"] = time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.SpecTask{}).
+		Where("id = ?", taskID).
+		Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update spec task fields: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("spec task not found: %s", taskID)
+	}
+	updated, err := s.GetSpecTask(ctx, taskID)
+	if err == nil {
+		_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, updated)
+	}
 	return nil
 }
 
@@ -482,6 +519,22 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	for _, label := range filters.Labels {
 		labelJSON := `["` + label + `"]`
 		db = db.Where("labels @> ?::jsonb", labelJSON)
+	}
+	// PRMatch filter - tasks tracking this repo + PR (GitHub webhook correlation
+	// via JSONB containment against the RepoPullRequests array; the repository
+	// row's org ownership is the tenant boundary)
+	if filters.PRMatch != nil {
+		// json.Marshal, not fmt.Sprintf: the id is arbitrary row data and %q
+		// produces Go-quoted, not JSON-escaped, strings (control characters
+		// would break the ::jsonb cast and 500 the query).
+		matchJSON, err := json.Marshal(specTaskPRMatchJSON{
+			RepositoryID: filters.PRMatch.RepositoryID,
+			PRNumber:     filters.PRMatch.PRNumber,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("marshal PR match filter: %w", err)
+		}
+		db = db.Where("repo_pull_requests @> ?::jsonb", string(matchJSON))
 	}
 
 	if filters.Limit > 0 {

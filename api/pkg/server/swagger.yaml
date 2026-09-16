@@ -302,10 +302,10 @@ definitions:
       owner:
         description: |-
           Owner makes this a manager Bot: it receives the canonical owner
-          tool set (every org-graph mutation - create_bot, delete_bot,
-          set_bot_content, subscribe, ... - plus the read baseline) so it can
-          hire and manage other Nodes. When true, Tools is ignored in favour
-          of that set. Used to seed a starter/root Bot for a new org.
+          tool set (standard worker tools plus org-management mutations such as
+          create_bot, delete_bot, and set_bot_content) so it can hire and manage
+          other Nodes. When true, Tools is ignored in favour of that set. Used to
+          seed a starter/root Bot for a new org.
         type: boolean
       parent_id:
         type: string
@@ -324,6 +324,7 @@ definitions:
           SandboxRuntime / SandboxResourceOverrides are optional; see BotDTO.
           Only vcpus is read from the overrides — memory follows the preset.
       tools:
+        description: Tools contains additions to the standard worker tool set.
         items:
           type: string
         type: array
@@ -1696,6 +1697,8 @@ definitions:
         type: number
       days:
         type: integer
+      org_id:
+        type: string
       plan:
         description: |-
           Plan selects what to grant. "pro" grants a PAID plan via a PlanOverride
@@ -1984,6 +1987,8 @@ definitions:
       amount:
         type: number
       org_id:
+        type: string
+      return_url:
         type: string
     type: object
   server.DeployWebServiceRequest:
@@ -3541,24 +3546,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - cron
-    - email
-    - webhook
     - local
-    - gitlab
     - slack
-    - helix_events
+    - cron
+    - webhook
     - github
+    - gitlab
+    - helix_events
+    - email
     type: string
     x-enum-varnames:
-    - KindCron
-    - KindEmail
-    - KindWebhook
     - KindLocal
-    - KindGitLab
     - KindSlack
-    - KindHelixEvents
+    - KindCron
+    - KindWebhook
     - KindGitHub
+    - KindGitLab
+    - KindHelixEvents
+    - KindEmail
   transport.ResolvedActivation:
     properties:
       address:
@@ -5752,6 +5757,14 @@ definitions:
       name:
         description: Name is the task title. Empty means derive it from the prompt.
         type: string
+      planning_code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
+      planning_goose_recipe_name:
+        type: string
+      planning_goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       priority:
         $ref: '#/definitions/types.SpecTaskPriority'
       project_id:
@@ -6791,6 +6804,8 @@ definitions:
         type: integer
       mode:
         $ref: '#/definitions/types.SessionMode'
+      pending_question:
+        $ref: '#/definitions/types.PendingQuestion'
       prompt_id:
         description: |-
           PromptID links this interaction back to the prompt_history_entry that
@@ -6808,6 +6823,10 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.MessageContent'
         description: User prompt (multi-part)
+      question_history:
+        items:
+          $ref: '#/definitions/types.ResolvedQuestion'
+        type: array
       rag_results:
         items:
           $ref: '#/definitions/types.SessionRAGResult'
@@ -8299,6 +8318,25 @@ definitions:
       new_password:
         type: string
     type: object
+  types.PendingQuestion:
+    properties:
+      asked_at:
+        type: string
+      questions:
+        items:
+          $ref: '#/definitions/types.UserQuestion'
+        type: array
+      request_id:
+        type: string
+      source:
+        type: string
+      thread_id:
+        type: string
+      tool_call_id:
+        type: string
+      turn_request_id:
+        type: string
+    type: object
   types.PinnedChat:
     properties:
       id:
@@ -8461,6 +8499,12 @@ definitions:
         type: integer
       organization_id:
         type: string
+      planning_code_agent_config:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        description: |-
+          PlanningCodeAgentConfig is the planning-phase default copied into each new
+          SpecTask. Nil preserves the historical behaviour by using CodeAgentConfig.
       project_manager_helix_app_id:
         type: string
       pull_request_reviewer_helix_app_id:
@@ -8657,6 +8701,8 @@ definitions:
         type: string
       organization_id:
         type: string
+      planning_code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       skills:
         allOf:
         - $ref: '#/definitions/types.AssistantSkills'
@@ -8824,6 +8870,8 @@ definitions:
         $ref: '#/definitions/types.ProjectMetadata'
       name:
         type: string
+      planning_code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       project_manager_helix_app_id:
         description: Project manager agent
         type: string
@@ -9229,6 +9277,18 @@ definitions:
       success:
         type: boolean
     type: object
+  types.QuestionActionResponse:
+    properties:
+      status:
+        type: string
+    type: object
+  types.QuestionRespondRequest:
+    properties:
+      answers:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
   types.QuotaResponse:
     properties:
       active_concurrent_desktops:
@@ -9453,6 +9513,33 @@ definitions:
         type: string
       private:
         type: boolean
+    type: object
+  types.ResolvedQuestion:
+    properties:
+      answers:
+        additionalProperties:
+          type: string
+        type: object
+      asked_at:
+        type: string
+      outcome:
+        type: string
+      questions:
+        items:
+          $ref: '#/definitions/types.UserQuestion'
+        type: array
+      request_id:
+        type: string
+      resolved_at:
+        type: string
+      source:
+        type: string
+      thread_id:
+        type: string
+      tool_call_id:
+        type: string
+      turn_request_id:
+        type: string
     type: object
   types.Resource:
     enum:
@@ -11106,7 +11193,9 @@ definitions:
         description: Original project
         type: string
       code_agent_config:
-        $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        description: CodeAgentConfig is the implementation-phase execution configuration.
       code_agent_overrides:
         allOf:
         - $ref: '#/definitions/types.CodeAgentOverrides'
@@ -11242,6 +11331,18 @@ definitions:
       original_prompt:
         description: 'Kiro''s actual approach: simple, human-readable artifacts'
         type: string
+      planning_code_agent_config:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        description: |-
+          PlanningCodeAgentConfig is independently snapshotted when the task is
+          created so project-default changes cannot alter an existing planning run.
+      planning_goose_recipe_name:
+        type: string
+      planning_goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       planning_options:
         $ref: '#/definitions/types.StartPlanningOptions'
       planning_session_id:
@@ -11566,6 +11667,23 @@ definitions:
       spec_task:
         $ref: '#/definitions/types.SpecTask'
     type: object
+  types.SpecTaskDesignReviewDocumentUpdateRequest:
+    properties:
+      content:
+        type: string
+      document_type:
+        enum:
+        - requirements
+        - technical_design
+        - implementation_plan
+        type: string
+      original_content:
+        type: string
+    required:
+    - content
+    - document_type
+    - original_content
+    type: object
   types.SpecTaskDesignReviewListResponse:
     properties:
       reviews:
@@ -11615,6 +11733,12 @@ definitions:
     properties:
       code_agent_config:
         $ref: '#/definitions/types.CodeAgentExecutionConfig'
+      phase:
+        allOf:
+        - $ref: '#/definitions/types.SpecTaskPhase'
+        enum:
+        - planning
+        - implementation
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
     type: object
@@ -11777,7 +11901,9 @@ definitions:
         description: Original project
         type: string
       code_agent_config:
-        $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        description: CodeAgentConfig is the implementation-phase execution configuration.
       code_agent_overrides:
         allOf:
         - $ref: '#/definitions/types.CodeAgentOverrides'
@@ -11913,6 +12039,18 @@ definitions:
       original_prompt:
         description: 'Kiro''s actual approach: simple, human-readable artifacts'
         type: string
+      planning_code_agent_config:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentExecutionConfig'
+        description: |-
+          PlanningCodeAgentConfig is independently snapshotted when the task is
+          created so project-default changes cannot alter an existing planning run.
+      planning_goose_recipe_name:
+        type: string
+      planning_goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       planning_options:
         $ref: '#/definitions/types.StartPlanningOptions'
       planning_session_id:
@@ -13371,6 +13509,30 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.UserQuestion:
+    properties:
+      allow_custom_answer:
+        type: boolean
+      header:
+        type: string
+      id:
+        type: string
+      multi_select:
+        type: boolean
+      options:
+        items:
+          $ref: '#/definitions/types.UserQuestionOption'
+        type: array
+      question:
+        type: string
+    type: object
+  types.UserQuestionOption:
+    properties:
+      description:
+        type: string
+      label:
+        type: string
+    type: object
   types.UserResponse:
     properties:
       admin:
@@ -14637,9 +14799,10 @@ paths:
       - users
   /api/v1/admin/users/{id}/trial-activate:
     delete:
-      description: Clears any stashed trial intent on the user and cancels the Stripe
-        subscription on the user's oldest owned org if it is currently in a trialing
-        state. Paid (active) subscriptions are never cancelled.
+      description: Clears any stashed trial intent on the user and cancels the trialing
+        Stripe subscription on the oldest owned org whose readable wallet is trialing.
+        At most one subscription is cancelled per call. Paid (active) subscriptions
+        are never cancelled.
       parameters:
       - description: User ID
         in: path
@@ -14661,9 +14824,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: Stash a trial intent on the user, or immediately create a Stripe
-        trial subscription on the user's oldest-owned org. Days defaults to 90; credits
-        are taken verbatim from the request (0 means no admin top-up beyond what Stripe's
+      description: Stash a trial intent when the user owns no organisations, or activate
+        the explicitly selected owned organisation. Days defaults to 90; credits are
+        taken verbatim from the request (0 means no admin top-up beyond what Stripe's
         subscription invoice contributes).
       parameters:
       - description: User ID
@@ -14671,7 +14834,7 @@ paths:
         name: id
         required: true
         type: string
-      - description: Trial parameters (days, credits)
+      - description: Trial parameters and org_id (required iff the user owns an organisation)
         in: body
         name: request
         schema:
@@ -16868,6 +17031,49 @@ paths:
       summary: Update a workspace file
       tags:
       - ExternalAgents
+  /api/v1/external-agents/{sessionID}/workspace-file/download:
+    get:
+      description: Streams a complete, binary-safe workspace file from the task desktop.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Workspace name
+        in: query
+        name: workspace
+        type: string
+      - description: Repository-relative file path
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - image/*
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Download a workspace file
+      tags:
+      - ExternalAgents
   /api/v1/external-agents/{sessionID}/workspace-files:
     get:
       description: Returns a bounded flat list of tracked and non-ignored untracked
@@ -18939,6 +19145,66 @@ paths:
       summary: Update an existing Helix model
       tags:
       - models
+  /api/v1/interactions/{interaction_id}/questions/{request_id}/cancel:
+    post:
+      description: Cancels the agent question currently pending on an interaction
+      parameters:
+      - description: Interaction ID
+        in: path
+        name: interaction_id
+        required: true
+        type: string
+      - description: Question request ID
+        in: path
+        name: request_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.QuestionActionResponse'
+      security:
+      - BearerAuth: []
+      summary: Cancel an agent question
+      tags:
+      - interactions
+  /api/v1/interactions/{interaction_id}/questions/{request_id}/respond:
+    post:
+      consumes:
+      - application/json
+      description: Sends answers to the agent question currently pending on an interaction
+      parameters:
+      - description: Interaction ID
+        in: path
+        name: interaction_id
+        required: true
+        type: string
+      - description: Question request ID
+        in: path
+        name: request_id
+        required: true
+        type: string
+      - description: Question answers
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.QuestionRespondRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.QuestionActionResponse'
+      security:
+      - BearerAuth: []
+      summary: Respond to an agent question
+      tags:
+      - interactions
   /api/v1/invitations/{id}/info:
     get:
       description: Unauthenticated. Returns the invited email and organization display
@@ -26600,6 +26866,56 @@ paths:
       summary: Resolve design review comment
       tags:
       - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/document:
+    put:
+      consumes:
+      - application/json
+      description: Update one Markdown design document with optimistic concurrency
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      - description: Document edit
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SpecTaskDesignReviewDocumentUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReview'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update a design review document
+      tags:
+      - SpecTasks
   /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit:
     post:
       consumes:
@@ -27037,9 +27353,9 @@ paths:
       - SpecTasks
   /api/v1/spec-tasks/{taskId}/execution-config:
     get:
-      description: Returns the task-owned code-agent configuration. Unmigrated historical
-        tasks are resolved through their legacy App until task start materializes
-        the configuration.
+      description: Returns the task-owned code-agent configuration for the active
+        planning or implementation phase. Unmigrated historical tasks are resolved
+        through their legacy App until task start materializes the configuration.
       parameters:
       - description: SpecTask ID
         in: path
@@ -27065,10 +27381,10 @@ paths:
     patch:
       consumes:
       - application/json
-      description: Replaces a task's complete code-agent configuration or sandbox
-        resource preset. Running sandboxes are resized in place and code-agent changes
-        start a fresh ACP thread; stopped sandboxes record code-agent changes for
-        the next start.
+      description: Replaces a task's planning or implementation code-agent configuration,
+        or its sandbox resource preset. Omitting phase updates the active phase. Running
+        sandboxes are resized in place and active code-agent changes start a fresh
+        ACP thread; stopped sandboxes and inactive phases record changes for later.
       parameters:
       - description: SpecTask ID
         in: path
@@ -28468,6 +28784,10 @@ paths:
         in: query
         name: org_id
         type: string
+      - description: Discover a subscription after returning from Checkout
+        in: query
+        name: discover_subscription
+        type: boolean
       responses:
         "200":
           description: OK

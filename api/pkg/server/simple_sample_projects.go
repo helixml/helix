@@ -1294,6 +1294,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 					}
 
 					task.CodeAgentConfig = createdShapeProject.CodeAgentConfig
+					task.PlanningCodeAgentConfig = createdShapeProject.PlanningCodeAgentConfig
 
 					task.Labels = taskPrompt.Labels
 					task.Metadata = map[string]interface{}{
@@ -1618,6 +1619,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 		// Snapshot the project-owned execution config onto each new task.
 		task.CodeAgentConfig = createdProject.CodeAgentConfig
+		task.PlanningCodeAgentConfig = createdProject.PlanningCodeAgentConfig
 
 		// Store labels directly (GORM serializer handles JSON conversion)
 		task.Labels = taskPrompt.Labels

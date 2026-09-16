@@ -26,6 +26,19 @@ export function resolveSpecTaskChatDefaultLayout(
   return savedLayout || DEFAULT_LAYOUT;
 }
 
+export function shouldStartSpecTaskContentPanelCollapsed(input: {
+  allowContentCollapse: boolean;
+  collapseAfterSplit: boolean;
+  isHeadless: boolean;
+  isPlanningWorkspace: boolean;
+  headlessPreferenceOpen: boolean;
+}): boolean {
+  if (!input.allowContentCollapse) return false;
+  if (input.isHeadless && input.isPlanningWorkspace) return false;
+  if (input.collapseAfterSplit) return true;
+  return input.isHeadless && !input.headlessPreferenceOpen;
+}
+
 export const specTaskContentPanelStorageKey = (taskId: string): string =>
   `helix.specTask.${taskId}.contentPanel`;
 

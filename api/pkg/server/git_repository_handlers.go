@@ -339,6 +339,9 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 	projectID := r.URL.Query().Get("project_id")
 
 	user := getRequestUser(r)
+	if orgID == "" && user.TokenType == types.TokenTypeAPIKey {
+		orgID = user.OrganizationID
+	}
 
 	var orgMembership *types.OrganizationMembership
 	if orgID != "" {
@@ -1094,7 +1097,7 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 		}
 	}
 
-	// Use WithExternalRepoWrite to handle pre-sync, write, post-push, and rollback
+	// WithExternalRepoWrite applies the branch's configured mirror semantics.
 	var fileContent string
 	err = s.gitRepositoryService.WithExternalRepoWrite(
 		r.Context(),

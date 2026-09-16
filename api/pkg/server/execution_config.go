@@ -321,19 +321,28 @@ func (s *HelixAPIServer) applySpecTaskExecutionConfig(
 	user *types.User,
 	task *types.SpecTask,
 	session *types.Session,
+	phase types.SpecTaskPhase,
 	config *types.CodeAgentExecutionConfig,
 	handoffReason string,
 ) (changed bool, restarted bool, httpErr *system.HTTPError) {
 	if err := s.validateCodeAgentExecutionConfig(ctx, config, user.ID, task.UserID, task.OrganizationID); err != nil {
 		return false, false, system.NewHTTPError400(err.Error())
 	}
-	if reflect.DeepEqual(task.CodeAgentConfig, config) &&
+	if phase == "" {
+		phase = types.SpecTaskPhaseForStatus(task.Status)
+	}
+	if phase != types.SpecTaskPhasePlanning && phase != types.SpecTaskPhaseImplementation {
+		return false, false, system.NewHTTPError400("phase must be planning or implementation")
+	}
+	if reflect.DeepEqual(task.CodeAgentConfigForPhase(phase), config) &&
 		task.HelixAppID == "" && task.CodeAgentOverrides == nil &&
 		(session == nil || (session.ParentApp == "" && session.Metadata.CodeAgentOverrides == nil)) {
 		return false, false, nil
 	}
-	live := session != nil && s.hasRunningAgentContainer(ctx, session.ID)
-	if session != nil {
+	activePhase := types.SpecTaskPhaseForStatus(task.Status)
+	phaseIsActive := phase == activePhase
+	live := phaseIsActive && session != nil && s.hasRunningAgentContainer(ctx, session.ID)
+	if phaseIsActive && session != nil {
 		var err error
 		if live {
 			err = s.cancelTurnsForSwitch(ctx, session.ID)
@@ -346,26 +355,46 @@ func (s *HelixAPIServer) applySpecTaskExecutionConfig(
 	}
 
 	oldConfig := task.CodeAgentConfig
+	if phase == types.SpecTaskPhasePlanning {
+		oldConfig = task.PlanningCodeAgentConfig
+	}
 	oldAppID := task.HelixAppID
 	oldOverrides := task.CodeAgentOverrides
-	task.CodeAgentConfig = config
-	task.HelixAppID = ""
-	task.CodeAgentOverrides = nil
+	if phase == types.SpecTaskPhasePlanning {
+		task.PlanningCodeAgentConfig = config
+	} else {
+		task.CodeAgentConfig = config
+	}
+	// A pre-start historical task may still keep its implementation agent in
+	// the legacy App fields. Editing only its planner must not discard that
+	// implementation source before start-time migration can materialize it.
+	if phase == types.SpecTaskPhaseImplementation || task.CodeAgentConfig != nil {
+		task.HelixAppID = ""
+		task.CodeAgentOverrides = nil
+	}
 	if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
-		task.CodeAgentConfig = oldConfig
+		if phase == types.SpecTaskPhasePlanning {
+			task.PlanningCodeAgentConfig = oldConfig
+		} else {
+			task.CodeAgentConfig = oldConfig
+		}
 		task.HelixAppID = oldAppID
 		task.CodeAgentOverrides = oldOverrides
 		return false, false, system.NewHTTPError500(fmt.Sprintf("failed to save code-agent config: %v", err))
 	}
 	rollback := func() {
-		task.CodeAgentConfig = oldConfig
+		if phase == types.SpecTaskPhasePlanning {
+			task.PlanningCodeAgentConfig = oldConfig
+		} else {
+			task.CodeAgentConfig = oldConfig
+		}
 		task.HelixAppID = oldAppID
 		task.CodeAgentOverrides = oldOverrides
 		if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
 			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to roll back task code-agent config")
 		}
 	}
-	if session == nil {
+	if !phaseIsActive || session == nil {
 		return true, false, nil
 	}
 	if switchErr := s.switchAgentInPlaceForNextTurn(ctx, session, config.Runtime, "", agentSwitchOptions{

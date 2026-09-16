@@ -699,6 +699,15 @@ func ensureCodexConfig(path, openAIBaseURL, model string) error {
 
 	config["approval_policy"] = "never"
 	config["sandbox_mode"] = "danger-full-access"
+	features, ok := config["features"].(map[string]interface{})
+	if config["features"] != nil && !ok {
+		return fmt.Errorf("Codex setting %q must be a table", "features")
+	}
+	if features == nil {
+		features = map[string]interface{}{}
+		config["features"] = features
+	}
+	features["default_mode_request_user_input"] = true
 	if model == "" {
 		delete(config, "model")
 	} else {

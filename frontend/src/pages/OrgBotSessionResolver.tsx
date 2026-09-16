@@ -9,6 +9,7 @@ import useRouter from '../hooks/useRouter'
 import { appendPromptDraft } from '../hooks/usePromptHistory'
 import { useActivateBot, useListHelixOrgBots } from '../services/helixOrgService'
 import { consumeOrgBotChatDraft } from '../components/helix-org/orgBotChatDraft'
+import Session from './Session'
 
 export default function OrgBotSessionResolver() {
   const router = useRouter()
@@ -16,13 +17,15 @@ export default function OrgBotSessionResolver() {
   const botID = router.params.bot_id || ''
   const attemptedBot = useRef('')
   const [activationError, setActivationError] = useState(false)
+  const [readySessionID, setReadySessionID] = useState('')
   const {
     data: bots = [],
+    isLoading: botsLoading,
     isError: listError,
     refetch,
   } = useListHelixOrgBots({
     enabled: !!orgID && !!botID,
-    refetchInterval: 2000,
+    refetchInterval: readySessionID ? 10000 : 2000,
   })
   const bot = bots.find((candidate) => candidate.id === botID)
   const agentName = bot?.name || botID
@@ -39,11 +42,9 @@ export default function OrgBotSessionResolver() {
     if (!orgID || !sessionID) return
     const queuedDraft = consumeOrgBotChatDraft(orgID, botID)
     if (queuedDraft) appendPromptDraft(sessionID, queuedDraft)
-    router.navigateReplace('org_session', {
-      org_id: orgID,
-      session_id: sessionID,
-    })
-  }, [orgID, sessionID]) // eslint-disable-line react-hooks/exhaustive-deps
+    attemptedBot.current = `${orgID}:${botID}`
+    setReadySessionID(sessionID)
+  }, [botID, orgID, sessionID])
 
   useEffect(() => {
     const botKey = `${orgID}:${botID}`
@@ -58,6 +59,10 @@ export default function OrgBotSessionResolver() {
     activateBot.mutateAsync(botID).catch(() => setActivationError(true))
   }
 
+  if (readySessionID && readySessionID === sessionID) {
+    return <Session key={readySessionID} orgChatView sessionId={readySessionID} />
+  }
+
   return (
     <Box
       sx={{
@@ -69,7 +74,7 @@ export default function OrgBotSessionResolver() {
         gap: 2,
       }}
     >
-      {listError ? (
+      {listError || (!botsLoading && !bot) ? (
         <>
           <Typography color="error" role="alert">
             Could not find this agent.

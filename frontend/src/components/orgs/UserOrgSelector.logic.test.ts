@@ -7,11 +7,12 @@ import {
 
 describe('UserOrgSelector navigation state', () => {
   it('keeps Chat active for direct and spec-task conversations', () => {
-    const chatRoutes = ['chat', 'session']
+    const chatRoutes = ['chat', 'session', 'bot_session']
 
     expect(isNavigationRouteActive('org_chat', chatRoutes)).toBe(true)
     expect(isNavigationRouteActive('org_chat-task', chatRoutes)).toBe(true)
     expect(isNavigationRouteActive('org_session', chatRoutes)).toBe(true)
+    expect(isNavigationRouteActive('org_bot_session', chatRoutes)).toBe(true)
   })
 
   it('does not treat a project session as top-level Chat', () => {

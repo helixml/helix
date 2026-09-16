@@ -62,6 +62,42 @@ func stuckInteraction(id, sessionID string, autoWakeCount int) *types.Interactio
 	}
 }
 
+func (s *AutoWakeColdStartSuite) TestKicksDisconnectedInteractionWithPendingQuestion() {
+	stuck := stuckInteraction("int-question", "ses-question", 0)
+	stuck.PendingQuestion = &types.PendingQuestion{RequestID: "question-1"}
+
+	s.store.EXPECT().IncrementInteractionAutoWakeCount(gomock.Any(), "int-question").Return(1, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses-question").Return(&types.Session{
+		ID:    "ses-question",
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+			ProjectID: "prj_x",
+		},
+	}, nil).AnyTimes()
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
+	// No container yet, so a plain start is the right recovery. A RUNNING
+	// container takes the restart branch instead — see
+	// TestRestartsAgentWhenContainerRunningButNoWS.
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses-question").Return(false).AnyTimes()
+	startCalled := make(chan struct{}, 1)
+	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
+			startCalled <- struct{}{}
+			return &types.DesktopAgentResponse{DevContainerID: "dev_1"}, nil
+		},
+	).Times(1)
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	select {
+	case <-startCalled:
+	case <-time.After(2 * time.Second):
+		s.FailNow("pending question suppressed disconnected cold-start recovery")
+	}
+}
+
 // TestKicksAutoStartWhenNoWS: stuck interaction on a session with no live
 // WS and NO RUNNING CONTAINER triggers a goroutine call to
 // autoStartDevContainerForSession (which in turn calls StartDesktop) and
@@ -452,6 +488,9 @@ func (s *AutoWakeColdStartSuite) TestRestartsAgentWhenContainerRunningButNoWS() 
 	// restart path resets the session's crashed prompts, so seeing this call is
 	// proof a real restart happened rather than the old no-op.
 	restarted := make(chan struct{}, 1)
+	// Added by the smooth-restart work on main: the restart marks the session
+	// so the UI can show progress rather than a dead panel.
+	s.store.EXPECT().MarkSessionRestarting(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	s.store.EXPECT().ResetCrashedPromptsForSession(gomock.Any(), "ses_running_nows").DoAndReturn(
 		func(_ context.Context, _ string) (int, error) {
 			select {
@@ -471,4 +510,16 @@ func (s *AutoWakeColdStartSuite) TestRestartsAgentWhenContainerRunningButNoWS() 
 	case <-time.After(3 * time.Second):
 		s.FailNow("no restart attempted — a running container with no WS was left alone, which is the original bug")
 	}
+}
+
+func (s *AutoWakeConnectedSuite) TestPendingQuestionSuppressesConnectedWake() {
+	s.server.externalAgentWSManager.registerConnection("ses_question", &ExternalAgentWSConnection{
+		SessionID:   "ses_question",
+		ConnectedAt: time.Now().Add(-10 * time.Minute),
+		SendChan:    make(chan types.ExternalAgentCommand, 1),
+	})
+	stuck := stuckInteraction("int-question", "ses_question", 0)
+	stuck.PendingQuestion = &types.PendingQuestion{RequestID: "question-1"}
+
+	s.server.maybeAutoWake(context.Background(), stuck)
 }

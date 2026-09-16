@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
 } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -22,9 +23,7 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import BusinessIcon from "@mui/icons-material/Business";
 import PersonIcon from "@mui/icons-material/Person";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
-import CloseIcon from "@mui/icons-material/Close";
-import IconButton from "@mui/material/IconButton";
-import { Server } from "lucide-react";
+import { Coins } from "lucide-react";
 
 import useAccount from "../hooks/useAccount";
 import useApi from "../hooks/useApi";
@@ -33,19 +32,22 @@ import useSnackbar from "../hooks/useSnackbar";
 import useRouter from "../hooks/useRouter";
 import { SELECTED_ORG_STORAGE_KEY } from "../utils/localStorage";
 import { useCreateOrg } from "../services/orgService";
-import ClaudeSubscriptionConnect, {
-  useClaudeSubscriptions,
-} from "../components/account/ClaudeSubscriptionConnect";
+import ClaudeSubscriptionConnect from "../components/account/ClaudeSubscriptionConnect";
 import AnthropicLogo from "../components/providers/logos/anthropic";
 import AgentHarness from "../components/agent/AgentHarness";
 import CodexSubscriptionConnect from "../components/account/CodexSubscriptionConnect";
 import { useGetConfig } from "../services/userService";
-import { useGetWallet } from "../services/useBilling";
+import {
+  DEFAULT_TOP_UP_AMOUNT,
+  TOP_UP_AMOUNTS,
+  useGetWallet,
+} from "../services/useBilling";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
-import { useCodexSubscriptions } from "../services/codexSubscriptionsService";
 import {
   CLAUDE_SUBSCRIPTION_MODELS,
   CODEX_SUBSCRIPTION_MODELS,
+  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
+  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
 } from "../components/agent/CodingAgentForm";
 import {
   findHarnessStatus,
@@ -72,7 +74,7 @@ function getOnboardingPalette(isLight: boolean) {
     BG: isLight ? "#f5f5f7" : "#0d0d1a",
     CARD_BG: isLight ? "#ffffff" : "#0f0f1e",
     CARD_BG_ACTIVE: isLight ? "#fafafa" : "#101024",
-    CARD_BORDER: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.04)",
+    CARD_BORDER: isLight ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.14)",
 
     MENU_BG: isLight ? "#ffffff" : "#1a1a2e",
     MENU_TEXT: isLight ? "#1a1a2e" : "#fff",
@@ -80,10 +82,10 @@ function getOnboardingPalette(isLight: boolean) {
     STEP_INACTIVE: isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.15)",
 
     TEXT_PRIMARY: isLight ? "#1a1a2e" : "#fff",
-    TEXT_SECONDARY: isLight ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.6)",
-    TEXT_MUTED: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.5)",
-    TEXT_FADED: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.4)",
-    TEXT_DIM: isLight ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.3)",
+    TEXT_SECONDARY: isLight ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.85)",
+    TEXT_MUTED: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.75)",
+    TEXT_FADED: isLight ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)",
+    TEXT_DIM: isLight ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.6)",
 
     BORDER_SUBTLE: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)",
     BORDER_HOVER: isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.15)",
@@ -102,8 +104,8 @@ function getOnboardingPalette(isLight: boolean) {
       "&:hover fieldset": { borderColor: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.2)" },
       "&.Mui-focused fieldset": { borderColor: ACCENT },
     },
-    labelSx: { color: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.4)", fontSize: "0.82rem" },
-    helperSx: { color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.25)", fontSize: "0.72rem" },
+    labelSx: { color: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.7)", fontSize: "0.82rem" },
+    helperSx: { color: isLight ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)", fontSize: "0.72rem" },
     selectSx: {
       color: isLight ? "#1a1a2e" : "#fff",
       fontSize: "0.82rem",
@@ -159,6 +161,23 @@ interface StepConfig {
   subtitle: string;
 }
 
+interface OnboardingDraft {
+  activeStepType: StepType;
+  completedStepTypes: StepType[];
+  orgMode: "select" | "create";
+  selectedOrgId: string;
+  orgDisplayName: string;
+  createdOrgId: string;
+  createdOrgDuringOnboarding: boolean;
+  codingAccessOption: CodingAccessOption;
+  claudeModel: string;
+  codexModel: string;
+  helixProvider: string;
+  helixModel: string;
+  helixReasoningEffort: string;
+  topUpAmount: number;
+}
+
 const ALL_STEPS: StepConfig[] = [
   {
     type: "signin",
@@ -176,14 +195,14 @@ const ALL_STEPS: StepConfig[] = [
   {
     type: "subscription",
     icon: <CreditCardIcon />,
-    title: "Activate subscription",
-    subtitle: "Add payment method to activate your organization subscription.",
+    title: "Start your free trial",
+    subtitle: "Try Helix free for 72 hours, then continue for $499/month.",
   },
   {
     type: "provider",
-    icon: <Server size={20} />,
-    title: "Choose how to run coding agents",
-    subtitle: "Use Helix credits or connect an existing coding subscription.",
+    icon: <img src="/img/logo.png" alt="" width={20} height={20} />,
+    title: "Choose how to run your agents",
+    subtitle: "Helix needs an LLM to run your agents.",
   },
 ];
 
@@ -194,6 +213,11 @@ export default function Onboarding() {
   const router = useRouter();
   const lightTheme = useLightTheme();
   const palette = getOnboardingPalette(lightTheme.isLight);
+  const onboardingDraftKey = account.user?.id
+    ? `helix_onboarding_draft:v1:${account.user.id}`
+    : "";
+  const restoredDraftUserRef = useRef<string | null>(null);
+  const skipDraftWriteRef = useRef(false);
 
   // Step tracking
   const [activeStep, setActiveStep] = useState(1);
@@ -205,6 +229,12 @@ export default function Onboarding() {
   const { data: serverConfig, isLoading: isLoadingServerConfig } =
     useGetConfig();
   const [isSubscribing, setIsSubscribing] = useState(false);
+  const [isConfirmingSubscription, setIsConfirmingSubscription] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("success") === "true" && params.get("step") !== "provider";
+  });
+  const [isToppingUp, setIsToppingUp] = useState(false);
+  const [topUpAmount, setTopUpAmount] = useState<number>(DEFAULT_TOP_UP_AMOUNT);
 
   // Step 1: Organization
   const [orgMode, setOrgMode] = useState<"select" | "create">("select");
@@ -227,10 +257,17 @@ export default function Onboarding() {
   } = useGetWallet(
     createdOrg?.id,
     !!createdOrg?.id && !isLoadingServerConfig && serverConfig?.billing_enabled,
+    isConfirmingSubscription,
   );
   const isTrialing = wallet?.subscription_status === "trialing";
   const isSubscriptionActive =
     wallet?.subscription_status === "active" || isTrialing;
+
+  // Mirror the backend's trial eligibility (onboardingTrialPeriodDays): the
+  // 72-hour trial applies only to users who have not completed onboarding
+  // and hold no subscription. Everyone else subscribes and is charged today.
+  const trialEligible =
+    !account.user?.onboarding_completed && !wallet?.stripe_subscription_id;
 
   // Final step: choose Helix credits or an external coding subscription.
   const [codingAccessOption, setCodingAccessOption] =
@@ -284,10 +321,29 @@ export default function Onboarding() {
   const hasExistingOrgs = existingOrgs.length > 0;
 
   // External coding subscription state
-  const { data: claudeSubscriptions } = useClaudeSubscriptions();
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0;
-  const { data: codexSubscriptions } = useCodexSubscriptions();
-  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0;
+  const hasClaudeSubscription = !!findHarnessStatus(
+    harnesses,
+    TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+  )?.viewer_has_subscription;
+  const hasCodexSubscription = !!findHarnessStatus(
+    harnesses,
+    TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+  )?.viewer_has_subscription;
+
+  useEffect(() => {
+    if (codingAccessOption === "claude" && hasClaudeSubscription && !claudeModel) {
+      setClaudeModel(DEFAULT_CLAUDE_SUBSCRIPTION_MODEL);
+    }
+    if (codingAccessOption === "codex" && hasCodexSubscription && !codexModel) {
+      setCodexModel(DEFAULT_CODEX_SUBSCRIPTION_MODEL);
+    }
+  }, [
+    claudeModel,
+    codexModel,
+    codingAccessOption,
+    hasClaudeSubscription,
+    hasCodexSubscription,
+  ]);
 
   // Billing is optional on self-hosted installations; coding access is always
   // shown because it is the final onboarding choice.
@@ -315,6 +371,147 @@ export default function Onboarding() {
     [visibleSteps],
   );
 
+  useEffect(() => {
+    const userId = account.user?.id;
+    if (
+      !userId
+      || account.organizationTools.loading
+      || isLoadingServerConfig
+      || restoredDraftUserRef.current === userId
+    ) return;
+
+    try {
+      const rawDraft = localStorage.getItem(onboardingDraftKey);
+      if (!rawDraft) return;
+
+      const draft = JSON.parse(rawDraft) as Partial<OnboardingDraft>;
+      if (!draft || typeof draft !== "object") return;
+
+      const selectedOrg = typeof draft.selectedOrgId === "string"
+        ? existingOrgs.find((org) => org.id === draft.selectedOrgId)
+        : undefined;
+      const restoredOrg = typeof draft.createdOrgId === "string"
+        ? existingOrgs.find((org) => org.id === draft.createdOrgId)
+        : undefined;
+
+      if (draft.orgMode === "select" || draft.orgMode === "create") {
+        setOrgMode(draft.orgMode);
+      }
+      if (selectedOrg?.id) setSelectedOrgId(selectedOrg.id);
+      if (typeof draft.orgDisplayName === "string") {
+        setOrgDisplayName(draft.orgDisplayName);
+      }
+      if (restoredOrg?.id && restoredOrg.name) {
+        setCreatedOrg({
+          id: restoredOrg.id,
+          name: restoredOrg.name,
+          display_name: restoredOrg.display_name,
+          viewer_is_owner: restoredOrg.owner === userId
+            || !!restoredOrg.memberships?.some((membership) =>
+              membership.user_id === userId && membership.role === "owner"),
+        });
+        setCreatedOrgDuringOnboarding(draft.createdOrgDuringOnboarding === true);
+      }
+
+      if (
+        draft.codingAccessOption === "helix"
+        || draft.codingAccessOption === "claude"
+        || draft.codingAccessOption === "codex"
+      ) setCodingAccessOption(draft.codingAccessOption);
+      if (typeof draft.claudeModel === "string") setClaudeModel(draft.claudeModel);
+      if (typeof draft.codexModel === "string") setCodexModel(draft.codexModel);
+      if (typeof draft.helixProvider === "string") setHelixProvider(draft.helixProvider);
+      if (typeof draft.helixModel === "string") setHelixModel(draft.helixModel);
+      if (typeof draft.helixReasoningEffort === "string") {
+        setHelixReasoningEffort(draft.helixReasoningEffort);
+      }
+      if (
+        typeof draft.topUpAmount === "number"
+        && (TOP_UP_AMOUNTS as readonly number[]).includes(draft.topUpAmount)
+      ) setTopUpAmount(draft.topUpAmount);
+
+      if (restoredOrg) {
+        const completed = new Set<number>([0]);
+        if (Array.isArray(draft.completedStepTypes)) {
+          draft.completedStepTypes.forEach((type) => {
+            const index = visibleSteps.findIndex((step) => step.type === type);
+            if (index >= 0) completed.add(index);
+          });
+        }
+        setCompletedSteps(completed);
+
+        const activeStepIndex = visibleSteps.findIndex(
+          (step) => step.type === draft.activeStepType,
+        );
+        if (activeStepIndex >= 0) setActiveStep(activeStepIndex);
+      }
+    } catch {
+      // localStorage is optional convenience state.
+    } finally {
+      restoredDraftUserRef.current = userId;
+      skipDraftWriteRef.current = true;
+    }
+  }, [
+    account.organizationTools.loading,
+    account.user?.id,
+    existingOrgs,
+    isLoadingServerConfig,
+    onboardingDraftKey,
+    visibleSteps,
+  ]);
+
+  useEffect(() => {
+    if (!onboardingDraftKey || restoredDraftUserRef.current !== account.user?.id) return;
+    if (skipDraftWriteRef.current) {
+      skipDraftWriteRef.current = false;
+      return;
+    }
+
+    const draft: OnboardingDraft = {
+      activeStepType: getStepTypeByIndex(activeStep) || "organization",
+      completedStepTypes: visibleSteps
+        .filter((_, index) => completedSteps.has(index))
+        .map((step) => step.type),
+      orgMode,
+      selectedOrgId,
+      orgDisplayName,
+      createdOrgId: createdOrg?.id || "",
+      createdOrgDuringOnboarding,
+      codingAccessOption,
+      claudeModel,
+      codexModel,
+      helixProvider,
+      helixModel,
+      helixReasoningEffort,
+      topUpAmount,
+    };
+
+    try {
+      localStorage.setItem(onboardingDraftKey, JSON.stringify(draft));
+    } catch {
+      // localStorage is optional convenience state.
+    }
+  }, [
+    account.user?.id,
+    activeStep,
+    claudeModel,
+    codexModel,
+    codingAccessOption,
+    completedSteps,
+    createdOrg?.id,
+    createdOrgDuringOnboarding,
+    getStepTypeByIndex,
+    helixModel,
+    helixProvider,
+    helixReasoningEffort,
+    onboardingDraftKey,
+    orgDisplayName,
+    orgMode,
+    selectedOrgId,
+    topUpAmount,
+    visibleSteps,
+  ]);
+
   // Refetch wallet when organization is selected/created
   useEffect(() => {
     if (createdOrg?.id && serverConfig?.billing_enabled) {
@@ -322,26 +519,34 @@ export default function Onboarding() {
     }
   }, [createdOrg?.id, serverConfig?.billing_enabled, refetchWallet]);
 
-  // Check for successful payment return from Stripe
+  // Stripe can redirect before its subscription webhook updates our wallet.
+  // Retry briefly after the organization has been restored from the return URL.
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const success = url.searchParams.get("success");
-    if (success === "true") {
-      refetchWallet();
-      const subscriptionStepIndex = getStepIndexByType("subscription");
-      if (subscriptionStepIndex >= 0) {
-        setActiveStep(subscriptionStepIndex);
-        setCompletedSteps((prev) => {
-          const next = new Set(prev);
-          next.delete(subscriptionStepIndex);
-          return next;
-        });
+    if (!isConfirmingSubscription || !createdOrg?.id || isSubscriptionActive) return;
+
+    let cancelled = false;
+    let interval: number | undefined;
+    let attempts = 0;
+    const refresh = async () => {
+      attempts += 1;
+      const result = await refetchWallet();
+      if (cancelled) return;
+      const status = result?.data?.subscription_status;
+      if (status === "trialing" || status === "active") {
+        setIsConfirmingSubscription(false);
+        if (interval) window.clearInterval(interval);
+      } else if (attempts >= 15) {
+        if (interval) window.clearInterval(interval);
       }
-      url.searchParams.delete("success");
-      const nextUrl = `${url.pathname}${url.searchParams.toString() ? `?${url.searchParams.toString()}` : ""}`;
-      window.history.replaceState({}, "", nextUrl);
-    }
-  }, [refetchWallet, getStepIndexByType]);
+    };
+    void refresh();
+    interval = window.setInterval(refresh, 2000);
+
+    return () => {
+      cancelled = true;
+      if (interval) window.clearInterval(interval);
+    };
+  }, [createdOrg?.id, isConfirmingSubscription, isSubscriptionActive, refetchWallet]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -362,16 +567,34 @@ export default function Onboarding() {
     });
     setCreatedOrgDuringOnboarding(searchParams.get("created_org") === "true");
     const orgStepIndex = getStepIndexByType("organization");
-    setCompletedSteps((prev) => new Set([...prev, orgStepIndex]));
-    setActiveStep(orgStepIndex + 1);
+    const requestedStep = searchParams.get("step") === "provider"
+      ? getStepIndexByType("provider")
+      : orgStepIndex + 1;
+    setCompletedSteps((prev) => {
+      const next = new Set(prev);
+      for (let index = 0; index < requestedStep; index += 1) next.add(index);
+      return next;
+    });
+    setActiveStep(requestedStep);
+    if (
+      searchParams.has("success")
+      || searchParams.has("canceled")
+      || searchParams.has("session_id")
+    ) {
+      searchParams.delete("success");
+      searchParams.delete("canceled");
+      searchParams.delete("session_id");
+      window.history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}?${searchParams.toString()}`,
+      );
+    }
   }, [account.user?.id, createdOrg, existingOrgs, getStepIndexByType]);
 
   useEffect(() => {
     if (hasExistingOrgs) {
-      setOrgMode("select");
-      if (!selectedOrgId && existingOrgs[0]?.id) {
-        setSelectedOrgId(existingOrgs[0].id);
-      }
+      setSelectedOrgId((current) => current || existingOrgs[0]?.id || "");
     } else {
       setOrgMode("create");
     }
@@ -465,7 +688,12 @@ export default function Onboarding() {
           console.error("Failed to mark onboarding complete:", err);
         }
         account.dismissOnboarding();
-        localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name);
+        try {
+          localStorage.removeItem(onboardingDraftKey);
+          localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name);
+        } catch {
+          // localStorage is optional convenience state.
+        }
         if (shouldMeetChiefOfStaff) {
           router.navigateReplace("org_bot_session", {
             org_id: createdOrg.name,
@@ -496,6 +724,7 @@ export default function Onboarding() {
       helixProvider,
       helixReasoningEffort,
       helixDefaultAvailable,
+      onboardingDraftKey,
       router,
       shouldMeetChiefOfStaff,
       snackbar,
@@ -582,18 +811,32 @@ export default function Onboarding() {
     }
   }, [api, createdOrg, createdOrgDuringOnboarding, snackbar]);
 
-  const handleDismiss = useCallback(async () => {
-    account.dismissOnboarding();
+  const handleTopUp = useCallback(async () => {
+    if (!createdOrg?.id) {
+      snackbar.error("Organization not found");
+      return;
+    }
+
     try {
-      await api.getApiClient().v1UsersMeOnboardingCreate();
-    } catch (err) {
-      console.error("Failed to mark onboarding complete on dismiss:", err);
+      setIsToppingUp(true);
+      const params = new URLSearchParams({
+        org_id: createdOrg.id,
+        step: "provider",
+      });
+      if (createdOrgDuringOnboarding) params.set("created_org", "true");
+      const resp = await api.getApiClient().v1TopUpsNewCreate({
+        amount: topUpAmount,
+        org_id: createdOrg.id,
+        return_url: `/onboarding?${params.toString()}`,
+      });
+      if (resp.data) document.location = resp.data;
+    } catch (error) {
+      console.error("Top-up error:", error);
+      snackbar.error("Failed to start top-up process");
+    } finally {
+      setIsToppingUp(false);
     }
-    const org = account.organizationTools.organization;
-    if (org) {
-      router.navigateReplace("org_projects", { org_id: org.name });
-    }
-  }, [api, router]);
+  }, [api, createdOrg, createdOrgDuringOnboarding, snackbar, topUpAmount]);
 
   const userName =
     account.user?.name?.trim() ||
@@ -869,10 +1112,16 @@ export default function Onboarding() {
                   }}
                 >
                   {isTrialing
-                    ? "Your free trial is active. No payment method required - you have full access for the duration of the trial. Click Continue to proceed."
+                    ? "Your free trial is active. Click Continue to proceed."
                     : isSubscriptionActive
                       ? "Your subscription is active. Click Continue to proceed."
-                      : "Subscribe to activate your organization and unlock everything Helix offers."}
+                      : isConfirmingSubscription
+                        ? trialEligible
+                          ? "Confirming your free trial with Stripe..."
+                          : "Confirming your subscription with Stripe..."
+                        : trialEligible
+                          ? "Your card will not be charged for 72 hours. After that, your subscription automatically continues for $499/month. Cancel before the trial ends to avoid the first charge."
+                          : "Subscribe to Helix Business for $499/month, charged today."}
                 </Typography>
                 {isSubscriptionActive && wallet ? (
                   <Box sx={{ mb: 2 }}>
@@ -972,7 +1221,7 @@ export default function Onboarding() {
                   <Button
                     variant="contained"
                     onClick={handleSubscribe}
-                    disabled={isSubscribing}
+                    disabled={isSubscribing || isConfirmingSubscription}
                     sx={btnSx}
                     startIcon={
                       isSubscribing ? (
@@ -984,7 +1233,13 @@ export default function Onboarding() {
                   >
                     {isSubscribing
                       ? "Redirecting to payment..."
-                      : "Start Subscription ($499/m)"}
+                      : isConfirmingSubscription
+                        ? trialEligible
+                          ? "Confirming your trial..."
+                          : "Confirming your subscription..."
+                        : trialEligible
+                          ? "Start 72-hour free trial"
+                          : "Subscribe"}
                   </Button>
                 )}
                 <Button
@@ -1007,9 +1262,15 @@ export default function Onboarding() {
 
       case "provider": {
         const inventoryLoading = providersLoading || harnessesLoading;
+        const hasHelixCredits = !serverConfig?.billing_enabled || (wallet?.balance ?? 0) > 0;
+        const zeroCreditColor = lightTheme.isLight ? "#c2410c" : "warning.main";
+        const hasSelectedAccess =
+          (codingAccessOption === "helix" && hasHelixCredits && helixDefaultAvailable) ||
+          (codingAccessOption === "claude" && hasClaudeSubscription) ||
+          (codingAccessOption === "codex" && hasCodexSubscription);
         const canFinish =
           !inventoryLoading && !!createdOrg?.viewer_is_owner && (
-            (codingAccessOption === "helix" && helixDefaultAvailable) ||
+            (codingAccessOption === "helix" && hasHelixCredits && helixDefaultAvailable) ||
             (codingAccessOption === "claude" && hasClaudeSubscription && !!claudeModel) ||
             (codingAccessOption === "codex" && hasCodexSubscription && !!codexModel)
           );
@@ -1028,9 +1289,8 @@ export default function Onboarding() {
         }> = [
           {
             id: "helix",
-            title: "Helix Providers",
-            description:
-              "Use Helix credits for coding models. No external account required.",
+            title: "Helix Models",
+            description: "Use a Helix model. Add credits to get started.",
           },
           {
             id: "claude",
@@ -1056,21 +1316,36 @@ export default function Onboarding() {
                   mb: 2,
                 }}
               >
-                Helix Providers is selected by default. You can instead connect
-                Claude Code or Codex to use your own subscription; those runs do
-                not use Helix credits.
+                Choose how to power your AI agents: use Helix credits, or connect your Claude or ChatGPT subscription.
               </Typography>
-              {wallet && (
-                <Typography
+              {codingAccessOption === "helix" && wallet && (
+                <Box
+                  role="group"
+                  aria-label="Helix credit balance"
                   sx={{
-                    color: palette.TEXT_SECONDARY,
-                    fontSize: "0.78rem",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.25,
+                    p: 1.5,
+                    borderRadius: 1.5,
+                    border: `1px solid ${palette.CARD_BORDER}`,
+                    bgcolor: palette.OVERLAY_FAINT,
                     mb: 2,
                   }}
                 >
-                  You have {wallet.balance?.toFixed(2) || "0.00"} Helix credits.
-                  Helix credits pay for AI model usage through Helix Providers.
-                </Typography>
+                  <Box sx={{ color: hasHelixCredits ? ACCENT : zeroCreditColor, display: "flex" }}>
+                    <Coins size={22} />
+                  </Box>
+                  <Typography
+                    sx={{
+                      color: hasHelixCredits ? palette.TEXT_PRIMARY : zeroCreditColor,
+                      fontSize: "1.1rem",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {wallet.balance?.toFixed(2) || "0.00"} Helix credits
+                  </Typography>
+                </Box>
               )}
               {codingAccessOption === "helix" && !inventoryLoading && helixProvider && helixModel && !helixDefaultAvailable && (
                 <Typography color="error" sx={{ fontSize: "0.78rem", mb: 2 }}>
@@ -1100,18 +1375,25 @@ export default function Onboarding() {
                     <ButtonBase
                       key={option.id}
                       onClick={() => setCodingAccessOption(option.id)}
+                      aria-pressed={selected}
                       sx={{
-                        display: "block",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "stretch",
                         textAlign: "left",
-                        p: 1.5,
-                        minHeight: 126,
+                        p: 2,
+                        minHeight: 150,
                         borderRadius: 1.5,
                         border: `1px solid ${
                           selected ? CARD_BORDER_ACTIVE : palette.CARD_BORDER
                         }`,
                         bgcolor: selected ? ACCENT_DIM : "transparent",
                         transition: "all 0.2s",
-                        "&:hover": { borderColor: palette.BORDER_HOVER },
+                        "&:hover": { borderColor: ACCENT },
+                        "&.Mui-focusVisible": {
+                          outline: `2px solid ${ACCENT}`,
+                          outlineOffset: 2,
+                        },
                       }}
                     >
                       <Box
@@ -1123,9 +1405,11 @@ export default function Onboarding() {
                         }}
                       >
                         {option.id === "helix" ? (
-                          <Server
-                            size={18}
-                            color={selected ? ACCENT : palette.TEXT_FADED}
+                          <Box
+                            component="img"
+                            src="/img/logo.png"
+                            alt=""
+                            sx={{ width: 18, height: 18, objectFit: "contain" }}
                           />
                         ) : option.id === "claude" ? (
                           <AnthropicLogo
@@ -1166,7 +1450,9 @@ export default function Onboarding() {
                         <Typography
                           sx={{
                             color: option.connected
-                              ? ACCENT
+                              ? lightTheme.isLight
+                                ? palette.TEXT_PRIMARY
+                                : ACCENT
                               : palette.TEXT_DIM,
                             fontSize: "0.65rem",
                             fontWeight: 600,
@@ -1176,31 +1462,26 @@ export default function Onboarding() {
                           {option.connected ? "Connected" : "Not connected"}
                         </Typography>
                       )}
+                      <Typography
+                        sx={{
+                          color: selected && lightTheme.isLight
+                            ? palette.TEXT_PRIMARY
+                            : ACCENT,
+                          fontSize: "0.65rem",
+                          fontWeight: 700,
+                          mt: "auto",
+                          pt: 1,
+                        }}
+                      >
+                        {selected ? "Selected" : "Select"}
+                      </Typography>
                     </ButtonBase>
                   );
                 })}
               </Box>
 
-              {codingAccessOption === "helix" && (
+              {codingAccessOption === "helix" && !hasConfiguredHelixDefault && (
                 <Stack spacing={2} sx={{ mb: 2 }}>
-                  {hasConfiguredHelixDefault ? (
-                    <Box
-                      sx={{
-                        p: 1.5,
-                        borderRadius: 1.5,
-                        border: `1px solid ${palette.BORDER_SUBTLE}`,
-                        bgcolor: palette.OVERLAY_FAINT,
-                      }}
-                    >
-                      <Typography sx={{ color: palette.TEXT_PRIMARY, fontSize: "0.78rem", fontWeight: 600 }}>
-                        Recommended model: {helixModel}
-                      </Typography>
-                      <Typography sx={{ color: palette.TEXT_FADED, fontSize: "0.68rem", mt: 0.5 }}>
-                        Helix has selected the provider and reasoning settings for you.
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <>
                   <FormControl fullWidth>
                     <InputLabel id="onboarding-helix-provider-label">Helix provider</InputLabel>
                     <Select
@@ -1248,8 +1529,6 @@ export default function Onboarding() {
                       <MenuItem value="high">High</MenuItem>
                     </Select>
                   </FormControl>
-                    </>
-                  )}
                 </Stack>
               )}
 
@@ -1272,7 +1551,10 @@ export default function Onboarding() {
                   >
                     Connect your personal Claude subscription before continuing.
                   </Typography>
-                  <ClaudeSubscriptionConnect variant="button" />
+                  <ClaudeSubscriptionConnect
+                    variant="button"
+                    enableForOrgId={createdOrg?.id}
+                  />
                 </Box>
               )}
 
@@ -1312,7 +1594,7 @@ export default function Onboarding() {
                   >
                     Connect your personal ChatGPT subscription before continuing.
                   </Typography>
-                  <CodexSubscriptionConnect />
+                  <CodexSubscriptionConnect enableForOrgId={createdOrg?.id} />
                 </Box>
               )}
 
@@ -1333,23 +1615,50 @@ export default function Onboarding() {
                 </FormControl>
               )}
 
-              <Button
-                variant="contained"
-                onClick={handleComplete}
-                disabled={!canFinish || finishingOnboarding}
-                sx={btnSx}
-                startIcon={
-                  finishingOnboarding ? (
-                    <CircularProgress size={14} sx={{ color: "#000" }} />
-                  ) : undefined
-                }
-              >
-                {finishingOnboarding
-                  ? "Finishing setup..."
-                  : shouldMeetChiefOfStaff
-                    ? "Meet your Chief of Staff"
-                    : continueLabel}
-              </Button>
+              {codingAccessOption === "helix" && !hasHelixCredits ? (
+                <Box sx={{ display: "flex", alignItems: "flex-end", gap: 1 }}>
+                  <FormControl size="small" sx={{ minWidth: 100 }}>
+                    <InputLabel id="onboarding-topup-amount-label">Top-up amount</InputLabel>
+                    <Select
+                      labelId="onboarding-topup-amount-label"
+                      label="Top-up amount"
+                      value={topUpAmount}
+                      onChange={(event) => setTopUpAmount(Number(event.target.value))}
+                    >
+                      {TOP_UP_AMOUNTS.map((amount) => (
+                        <MenuItem key={amount} value={amount}>${amount}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Button
+                    variant="contained"
+                    onClick={handleTopUp}
+                    disabled={isToppingUp}
+                    sx={btnSx}
+                    startIcon={isToppingUp ? <CircularProgress size={14} sx={{ color: "#000" }} /> : undefined}
+                  >
+                    {isToppingUp ? "Opening checkout..." : "Add credits"}
+                  </Button>
+                </Box>
+              ) : hasSelectedAccess ? (
+                <Button
+                  variant="contained"
+                  onClick={handleComplete}
+                  disabled={!canFinish || finishingOnboarding}
+                  sx={btnSx}
+                  startIcon={
+                    finishingOnboarding ? (
+                      <CircularProgress size={14} sx={{ color: "#000" }} />
+                    ) : undefined
+                  }
+                >
+                  {finishingOnboarding
+                    ? "Finishing setup..."
+                    : shouldMeetChiefOfStaff
+                      ? "Launch Helix"
+                      : continueLabel}
+                </Button>
+              ) : null}
             </Box>
           </Fade>
         );
@@ -1375,20 +1684,6 @@ export default function Onboarding() {
         pb: 6,
       }}
     >
-      {/* Dismiss button */}
-      <IconButton
-        onClick={handleDismiss}
-        sx={{
-          position: "fixed",
-          top: 16,
-          right: 16,
-          color: palette.TEXT_DIM,
-          "&:hover": { color: palette.TEXT_SECONDARY },
-          zIndex: 1301,
-        }}
-      >
-        <CloseIcon />
-      </IconButton>
       <Box
         sx={{
           width: "100%",
@@ -1432,15 +1727,19 @@ export default function Onboarding() {
                 ? `Selected organization: ${createdOrg.display_name || createdOrg.name}`
                 : step.type === "subscription" && isSubscriptionActive
                   ? isTrialing
-                    ? "Free trial is active - no payment method required."
+                    ? "Free trial is active."
                     : "Subscription is active."
-                  : step.subtitle;
+                  : step.type === "subscription" && !trialEligible
+                    ? "Subscribe for $499/month, charged today."
+                    : step.subtitle;
             const stepTitle =
               step.type === "subscription" && isSubscriptionActive
                 ? isTrialing
                   ? "Trial active"
                   : "Subscription active"
-                : step.title;
+                : step.type === "subscription" && !trialEligible
+                  ? "Subscribe to Helix Business"
+                  : step.title;
 
             return (
               <Fade in timeout={600 + index * 150} key={index}>

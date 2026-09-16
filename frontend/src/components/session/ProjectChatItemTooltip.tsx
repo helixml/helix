@@ -5,6 +5,7 @@ import Typography from '@mui/material/Typography'
 import { BrainCircuit, Cpu, Folder, FolderGit2, GitBranch, Monitor, SquareTerminal } from 'lucide-react'
 
 import useApps from '../../hooks/useApps'
+import { TYPOGRAPHY } from '../../styles/typography'
 import AgentHarness from '../agent/AgentHarness'
 import { getProjectChatItemDetails } from './projectChatItemDetails'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
@@ -79,7 +80,14 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
       }}
       title={(
         <Box sx={{ minWidth: 170 }}>
-          <Typography sx={{ mb: rows.length ? 0.75 : 0, fontSize: '12px', fontWeight: 600, lineHeight: 1.35 }}>
+          <Typography
+            sx={{
+              mb: rows.length ? 0.75 : 0,
+              fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+              fontWeight: 600,
+              lineHeight: 1.35,
+            }}
+          >
             {item.title}
           </Typography>
           {rows.map((row) => (
@@ -87,7 +95,16 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
               <Box sx={{ width: 14, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 {row.icon}
               </Box>
-              <Typography sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '11px', lineHeight: 1.35 }}>
+              <Typography
+                sx={{
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontSize: TYPOGRAPHY.sidebar.statusFontSize,
+                  lineHeight: 1.35,
+                }}
+              >
                 {row.value}
               </Typography>
             </Box>

@@ -482,8 +482,8 @@ func (s *PostgresStore) CreateImplementationSessions(ctx context.Context, specTa
 	}
 
 	var codeAgentRuntime types.CodeAgentRuntime
-	if specTask.CodeAgentConfig != nil {
-		codeAgentRuntime = specTask.CodeAgentConfig.Runtime
+	if config := specTask.ActiveCodeAgentConfig(); config != nil {
+		codeAgentRuntime = config.Runtime
 	}
 
 	// Update spec task with Zed instance configuration
@@ -617,8 +617,8 @@ func (s *PostgresStore) SpawnWorkSession(ctx context.Context, parentSessionID st
 	}
 
 	var codeAgentRuntimeSpawn types.CodeAgentRuntime
-	if specTask.CodeAgentConfig != nil {
-		codeAgentRuntimeSpawn = specTask.CodeAgentConfig.Runtime
+	if config := specTask.ActiveCodeAgentConfig(); config != nil {
+		codeAgentRuntimeSpawn = config.Runtime
 	}
 
 	// Create new work session

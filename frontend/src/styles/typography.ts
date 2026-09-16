@@ -62,6 +62,23 @@ export const TYPOGRAPHY = {
   codeChromeFontSize: '0.6875rem',
 
   /**
+   * Chat sidebar hierarchy. These stay rem-based so interface scaling changes
+   * the navigation as one coherent surface rather than leaving fixed-pixel
+   * labels behind.
+   */
+  sidebar: {
+    sectionFontSize: '0.6875rem',
+    sectionLineHeight: 1,
+    primaryFontSize: '0.875rem',
+    primaryLineHeight: '1.25rem',
+    metadataFontSize: '0.75rem',
+    metadataLineHeight: '1rem',
+    controlFontSize: '0.8125rem',
+    statusFontSize: '0.6875rem',
+    statusLineHeight: 1,
+  },
+
+  /**
    * Grayscale antialiasing (thinner strokes) instead of the heavier platform
    * default. Only macOS engines honour it. `false` restores stem darkening.
    */
@@ -85,5 +102,7 @@ export const typographyCssVariables = (): Record<string, string> => ({
   '--helix-font-size-body': `${TYPOGRAPHY.bodyFontSize}px`,
   '--helix-font-size-chat': TYPOGRAPHY.chatFontSize,
   '--helix-font-size-code': `${TYPOGRAPHY.codeFontSize}px`,
+  '--helix-font-size-sidebar-primary': TYPOGRAPHY.sidebar.primaryFontSize,
+  '--helix-font-size-sidebar-metadata': TYPOGRAPHY.sidebar.metadataFontSize,
   '--helix-line-height-chat': `${TYPOGRAPHY.chatLineHeight}`,
 })

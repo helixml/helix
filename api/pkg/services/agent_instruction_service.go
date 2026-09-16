@@ -510,10 +510,9 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 `
 	}
 
-	// Format original prompt section - for cloned tasks, reframe as historical context
-	// Only include original prompt for cloned tasks (where the agent hasn't seen it before)
-	// For normal tasks, the agent already has the original prompt from the planning phase
-	var originalPromptSection string
+	// Implementation starts on a clean ACP thread, so the approved artifacts
+	// and original request are the complete handoff instead of planner chat.
+	originalPromptSection := "**Original Request:**\n> \"" + task.OriginalPrompt + "\""
 	if task.ClonedFromID != "" {
 		originalPromptSection = "**Original Request (for context only - any questions have already been resolved in the specs):**\n> \"" + task.OriginalPrompt + "\""
 	}
@@ -601,18 +600,14 @@ func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) strin
 // Service Methods (Database Interaction)
 // =============================================================================
 
-// SendApprovalInstruction sends a message to the agent to start implementation
-// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildApprovalInstructionPrompt
-// and send via sendChatMessageToExternalAgent instead
-func (s *AgentInstructionService) SendApprovalInstruction(
+// BuildApprovalInstruction gathers the task's approved, durable handoff.
+func (s *AgentInstructionService) BuildApprovalInstruction(
 	ctx context.Context,
-	sessionID string,
-	userID string,
 	task *types.SpecTask,
 	branchName string,
 	baseBranch string,
 	primaryRepoName string,
-) error {
+) string {
 	// Fetch guidelines from project and organization
 	guidelines, project := s.getGuidelinesForTask(ctx, task)
 	koditDoc := ""
@@ -646,11 +641,23 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	if project != nil {
 		agentToolsSection = BuildAgentToolsSection(project.AgentTools, task.AgentTools)
 	}
-	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, agentToolsSection, nonPrimaryRepoNames, screenshotBaseURL)
+	return BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, agentToolsSection, nonPrimaryRepoNames, screenshotBaseURL)
+}
+
+// SendApprovalInstructionMessage queues a prepared implementation handoff on
+// the current thread. It is retained for non-server callers that do not own the
+// live ACP switching machinery.
+func (s *AgentInstructionService) SendApprovalInstructionMessage(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	message string,
+) error {
 
 	log.Info().
 		Str("session_id", sessionID).
-		Str("branch_name", branchName).
+		Str("branch_name", task.BranchName).
 		Msg("Sending approval instruction to agent")
 
 	// Enqueue onto the session-scoped prompt queue. interrupt=false: approval
@@ -662,6 +669,20 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	}
 
 	return nil
+}
+
+// SendApprovalInstruction sends a message to the current agent thread.
+func (s *AgentInstructionService) SendApprovalInstruction(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	branchName string,
+	baseBranch string,
+	primaryRepoName string,
+) error {
+	message := s.BuildApprovalInstruction(ctx, task, branchName, baseBranch, primaryRepoName)
+	return s.SendApprovalInstructionMessage(ctx, sessionID, userID, task, message)
 }
 
 // getGuidelinesForTask fetches concatenated organization/user + project guidelines

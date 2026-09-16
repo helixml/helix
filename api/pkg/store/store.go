@@ -295,11 +295,16 @@ type Store interface {
 	// Targeted JSONB merge so it cannot race with the streaming path's
 	// full-row writes. Returns true when a row was updated.
 	MarkSessionStartingIfIdle(ctx context.Context, sessionID string) (bool, error)
-	// ClearSessionStartingStatus reverts a "starting" session back to empty
-	// status + empty message, but only when the current status is
-	// "starting". Used by the auto-wake worker on retry exhaustion so the
-	// spinner reverts to "Desktop Paused" instead of staying on
-	// "Starting Desktop..." forever.
+	// MarkSessionRestarting unconditionally flips external_agent_status to
+	// "restarting" + status_message to "Restarting desktop...". Written
+	// before StopDesktop so the teardown+boot window reads as "a boot is in
+	// flight" rather than "stopped" (StopDesktop preserves this marker).
+	MarkSessionRestarting(ctx context.Context, sessionID string) error
+	// ClearSessionStartingStatus reverts a "starting"/"restarting" session
+	// back to empty status + empty message, but only when a boot is actually
+	// marked in flight. Used by the auto-wake worker on retry exhaustion and
+	// by the restart handler's error paths, so the spinner reverts to
+	// "Desktop Paused" instead of staying on a spinner forever.
 	ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error)
 	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
 	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)     // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events
@@ -322,6 +327,8 @@ type Store interface {
 	// handleMessageCompleted. See the lost-update fix in
 	// websocket_external_agent_sync.go.
 	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
+	SetInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error)
+	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error)
 	// BindInteractionExternalAgentRequest persists the request ID before an
 	// external-agent turn is dispatched, so queued turns remain identifiable
 	// across API restarts.
@@ -615,6 +622,7 @@ type Store interface {
 	GetSpecTasksCount(ctx context.Context, query *GetSpecTasksCountQuery) (int64, error)
 	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
+	UpdateSpecTaskFields(ctx context.Context, taskID string, updates map[string]any) error
 	TransitionSpecTaskStatus(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, extraFields map[string]any) (bool, error)
 	// SetPlanningSessionIDIfEmpty atomically claims a spec task's planning_session_id
 	// slot. Returns true if this caller won the claim (row updated), false if another
@@ -668,6 +676,7 @@ type Store interface {
 	CreateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error
 	GetSpecTaskDesignReview(ctx context.Context, id string) (*types.SpecTaskDesignReview, error)
 	UpdateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error
+	UpdateSpecTaskDesignReviewDocument(ctx context.Context, reviewID, taskID string, reviewUpdates, taskUpdates map[string]any) error
 	DeleteSpecTaskDesignReview(ctx context.Context, id string) error
 	ListSpecTaskDesignReviews(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReview, error)
 	GetLatestDesignReview(ctx context.Context, specTaskID string) (*types.SpecTaskDesignReview, error)

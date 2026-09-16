@@ -15,7 +15,7 @@ import (
 
 // getSpecTaskExecutionConfig godoc
 // @Summary Get task execution configuration
-// @Description Returns the task-owned code-agent configuration. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.
+// @Description Returns the task-owned code-agent configuration for the active planning or implementation phase. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.
 // @Tags spec-driven-tasks
 // @Produce json
 // @Param taskId path string true "SpecTask ID"
@@ -51,15 +51,15 @@ func (s *HelixAPIServer) getSpecTaskExecutionConfig(w http.ResponseWriter, r *ht
 }
 
 func (s *HelixAPIServer) resolveSpecTaskExecutionConfig(ctx context.Context, task *types.SpecTask) (*types.AgentExecutionConfig, error) {
-	if task.CodeAgentConfig != nil {
-		return taskAgentExecutionConfig(task.CodeAgentConfig), nil
+	if config := task.ActiveCodeAgentConfig(); config != nil {
+		return taskAgentExecutionConfig(config), nil
 	}
 	return s.resolveExecutionConfig(ctx, task.HelixAppID, task.CodeAgentOverrides, task.PlanningSessionID)
 }
 
 // updateSpecTaskExecutionConfig godoc
 // @Summary Update task execution configuration
-// @Description Replaces a task's complete code-agent configuration or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.
+// @Description Replaces a task's planning or implementation code-agent configuration, or its sandbox resource preset. Omitting phase updates the active phase. Running sandboxes are resized in place and active code-agent changes start a fresh ACP thread; stopped sandboxes and inactive phases record changes for later.
 // @Tags spec-driven-tasks
 // @Accept json
 // @Produce json
@@ -141,8 +141,17 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 		return
 	}
 
-	// A task that has already started owns a live session; the switch has to
-	// land on it as well as on the task row.
+	phase := req.Phase
+	if phase == "" {
+		phase = types.SpecTaskPhaseForStatus(task.Status)
+	}
+	if phase != types.SpecTaskPhasePlanning && phase != types.SpecTaskPhaseImplementation {
+		http.Error(w, "phase must be planning or implementation", http.StatusBadRequest)
+		return
+	}
+
+	// A task that has already started owns a live session; an active-phase
+	// change has to land on it as well as on the task row.
 	var session *types.Session
 	if task.PlanningSessionID != "" {
 		session, err = s.Store.GetSession(ctx, task.PlanningSessionID)
@@ -153,7 +162,7 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 	}
 
 	changed, restarted, httpErr := s.applySpecTaskExecutionConfig(
-		ctx, user, task, session, req.CodeAgentConfig,
+		ctx, user, task, session, phase, req.CodeAgentConfig,
 		"The coding agent or model configuration changed for this task.",
 	)
 	if httpErr != nil {

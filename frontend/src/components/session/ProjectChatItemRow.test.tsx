@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { TYPOGRAPHY } from '../../styles/typography'
 import ProjectChatItemRow from './ProjectChatItemRow'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 
@@ -54,14 +55,34 @@ const quietTask: SidebarItem = {
   updatedAt: '2026-09-05T12:00:00Z',
   projectId: 'prj-1',
   projectName: 'keel',
-  task: { id: 'task-1', status: 'done', sandbox_state: 'absent' } as any,
+  task: {
+    id: 'task-1',
+    status: 'done',
+    sandbox_state: 'absent',
+    branch_name: 'fix/installer',
+    code_agent_config: { runtime: 'qwen_code' },
+  } as any,
 }
 
 describe('ProjectChatItemRow', () => {
   it('stacks the project name above the title only for cross-project rows', () => {
-    renderRow(quietTask)
-    expect(screen.getByText('keel')).toBeInTheDocument()
-    expect(screen.getByText('Fix the installer')).toBeInTheDocument()
+    const { container } = renderRow(quietTask)
+    const projectName = screen.getByText('keel')
+    const title = screen.getByText('Fix the installer')
+    expect(projectName).toBeInTheDocument()
+    expect(title).toBeInTheDocument()
+    expect(projectName).toHaveStyle({
+      fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+      fontWeight: '500',
+    })
+    expect(title).toHaveStyle({
+      fontSize: TYPOGRAPHY.sidebar.primaryFontSize,
+      fontWeight: '500',
+    })
+    expect(container.querySelector('.project-chat-item')).toHaveStyle({ minHeight: '78px' })
+    expect(screen.getByTestId('sidebar-item-metadata')).toHaveTextContent('fix/installer')
+    expect(screen.getByTestId('sidebar-item-harness')).toHaveStyle({ marginLeft: 'auto' })
+    expect(screen.getByRole('img', { name: 'Qwen Code' })).toBeInTheDocument()
 
     renderRow({ ...quietTask, id: 'task-2', projectName: undefined })
     expect(screen.getAllByText('keel')).toHaveLength(1)
@@ -78,6 +99,28 @@ describe('ProjectChatItemRow', () => {
       task: { id: 'task-3', status: 'implementation', sandbox_state: 'running', agent_work_state: 'working' } as any,
     })
     expect(screen.getByText('Implementation')).toBeInTheDocument()
+  })
+
+  it('explains why a planning task has no branch yet', async () => {
+    renderRow({
+      ...quietTask,
+      id: 'task-planning',
+      task: {
+        ...quietTask.task,
+        id: 'task-planning',
+        status: 'spec_generation',
+        branch_name: undefined,
+        base_branch: undefined,
+      } as any,
+    })
+
+    const branch = screen.getByTestId('sidebar-item-branch')
+    expect(branch).toHaveAttribute('data-branch-state', 'unavailable')
+    expect(branch).toHaveTextContent('n/a')
+
+    fireEvent.mouseOver(branch)
+    expect(await screen.findByText('Task is in planning mode; no branch yet.')).toBeInTheDocument()
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1)
   })
 
   it('renders the GitHub owner avatar and falls back to the folder glyph on load failure', () => {

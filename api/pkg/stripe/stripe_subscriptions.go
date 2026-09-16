@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -23,12 +24,56 @@ type SubscriptionSessionParams struct {
 	UserID           string
 	Amount           float64
 	ReturnURL        string // Optional custom return URL (overrides default success/cancel URLs)
+	TrialPeriodDays  int64  // Optional card-backed trial; zero creates the subscription without a trial
+}
+
+func subscriptionIsLive(sub *stripe.Subscription) bool {
+	return sub != nil && sub.Status != stripe.SubscriptionStatusCanceled &&
+		sub.Status != stripe.SubscriptionStatusIncompleteExpired
+}
+
+func validateOrgSubscriptionPrice(p *stripe.Price, cfg config.Stripe) error {
+	if p.UnitAmount != cfg.OrgPriceCents || string(p.Currency) != cfg.OrgPriceCurrency ||
+		p.Recurring == nil || string(p.Recurring.Interval) != cfg.OrgPriceInterval {
+		return fmt.Errorf(
+			"organization subscription price %s does not match configured %d %s/%s",
+			p.ID, cfg.OrgPriceCents, cfg.OrgPriceCurrency, cfg.OrgPriceInterval,
+		)
+	}
+	return nil
 }
 
 func (s *Stripe) GetCheckoutSessionURL(
 	params SubscriptionSessionParams,
 ) (string, error) {
 	err := s.EnabledError()
+	if err != nil {
+		return "", err
+	}
+	if params.TrialPeriodDays > 0 {
+		subscriptions, err := s.ListSubscriptions(params.StripeCustomerID)
+		if err != nil {
+			return "", fmt.Errorf("failed to check existing subscriptions: %w", err)
+		}
+		for _, sub := range subscriptions {
+			if subscriptionIsLive(sub) {
+				return "", fmt.Errorf("customer already has a live subscription")
+			}
+		}
+	}
+
+	defaultSuccessURL := s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
+	defaultCancelURL := s.cfg.AppURL + "/account?canceled=true"
+	if params.OrgID != "" {
+		defaultSuccessURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
+		defaultCancelURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
+	}
+	successURL, cancelURL, err := checkoutReturnURLs(
+		s.cfg.AppURL,
+		params.ReturnURL,
+		defaultSuccessURL,
+		defaultCancelURL,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -39,34 +84,27 @@ func (s *Stripe) GetCheckoutSessionURL(
 	}
 
 	priceParams := &stripe.PriceListParams{
+		Active: stripe.Bool(true),
 		LookupKeys: stripe.StringSlice([]string{
 			priceLookupKey,
 		}),
 	}
 	priceResult := price.List(priceParams)
 	var price *stripe.Price
-	for priceResult.Next() {
+	// Lookup keys should be unique; if Stripe returns more than one active
+	// match, consistently use the first result.
+	if priceResult.Next() {
 		price = priceResult.Price()
 	}
-	if price == nil {
-		return "", fmt.Errorf("price not found")
+	if err := priceResult.Err(); err != nil {
+		return "", fmt.Errorf("failed to find price for lookup key %s: %w", priceLookupKey, err)
 	}
-
-	var successURL, cancelURL string
-	if params.ReturnURL != "" {
-		// Use custom return URL if provided
-		successURL = s.cfg.AppURL + params.ReturnURL + "?success=true&session_id={CHECKOUT_SESSION_ID}"
-		cancelURL = s.cfg.AppURL + params.ReturnURL + "?canceled=true"
-	} else {
-		// Use default return URLs
-		successURL = s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
-		if params.OrgID != "" {
-			successURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
-		}
-
-		cancelURL = s.cfg.AppURL + "/account?canceled=true"
-		if params.OrgID != "" {
-			cancelURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
+	if price == nil {
+		return "", fmt.Errorf("price not found for lookup key %s", priceLookupKey)
+	}
+	if params.OrgID != "" {
+		if err := validateOrgSubscriptionPrice(price, s.cfg); err != nil {
+			return "", err
 		}
 	}
 
@@ -89,6 +127,10 @@ func (s *Stripe) GetCheckoutSessionURL(
 		Customer:   stripe.String(params.StripeCustomerID),
 		SuccessURL: stripe.String(successURL),
 		CancelURL:  stripe.String(cancelURL),
+	}
+	if params.TrialPeriodDays > 0 {
+		checkoutParams.PaymentMethodCollection = stripe.String("always")
+		checkoutParams.SubscriptionData.TrialPeriodDays = stripe.Int64(params.TrialPeriodDays)
 	}
 
 	newSession, err := session.New(checkoutParams)

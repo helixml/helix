@@ -8,6 +8,7 @@ package memorystore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -261,6 +262,10 @@ func (m *MemoryStore) CreateInteraction(_ context.Context, interaction *types.In
 		interaction.Updated = time.Now()
 	}
 	cp := *interaction
+	if existing, ok := m.interactions[interaction.ID]; ok {
+		cp.PendingQuestion = existing.PendingQuestion
+		cp.QuestionHistory = existing.QuestionHistory
+	}
 	m.interactions[interaction.ID] = &cp
 	return &cp, nil
 }
@@ -268,6 +273,10 @@ func (m *MemoryStore) CreateInteraction(_ context.Context, interaction *types.In
 func (m *MemoryStore) UpdateInteraction(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 	m.mu.Lock()
 	cp := *interaction
+	if existing, ok := m.interactions[interaction.ID]; ok {
+		cp.PendingQuestion = existing.PendingQuestion
+		cp.QuestionHistory = existing.QuestionHistory
+	}
 	m.interactions[interaction.ID] = &cp
 	cb := m.OnInteractionUpdated
 	m.mu.Unlock()
@@ -302,6 +311,72 @@ func (m *MemoryStore) UpdateInteractionStreamingFields(_ context.Context, intera
 		cb(&cp)
 	}
 	return nil
+}
+
+func (m *MemoryStore) SetInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error) {
+	if interactionID == "" || question == nil || question.RequestID == "" {
+		return nil, false, errors.New("interaction_id and question request_id are required")
+	}
+	m.mu.Lock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		m.mu.Unlock()
+		return nil, false, store.ErrNotFound
+	}
+	if existing.State != types.InteractionStateWaiting || existing.PendingQuestion != nil {
+		cp := *existing
+		m.mu.Unlock()
+		return &cp, false, nil
+	}
+	for _, resolved := range existing.QuestionHistory {
+		if resolved.RequestID == question.RequestID {
+			cp := *existing
+			m.mu.Unlock()
+			return &cp, false, nil
+		}
+	}
+	questionCopy := *question
+	if questionCopy.AskedAt.IsZero() {
+		questionCopy.AskedAt = time.Now()
+	}
+	existing.PendingQuestion = &questionCopy
+	existing.Updated = time.Now()
+	cp := *existing
+	cb := m.OnInteractionUpdated
+	m.mu.Unlock()
+	if cb != nil {
+		cb(&cp)
+	}
+	return &cp, true, nil
+}
+
+func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error) {
+	m.mu.Lock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		m.mu.Unlock()
+		return nil, false, store.ErrNotFound
+	}
+	if existing.PendingQuestion == nil || existing.PendingQuestion.RequestID != requestID {
+		cp := *existing
+		m.mu.Unlock()
+		return &cp, false, nil
+	}
+	existing.QuestionHistory = append(existing.QuestionHistory, types.ResolvedQuestion{
+		PendingQuestion: *existing.PendingQuestion,
+		Outcome:         outcome,
+		Answers:         answers,
+		ResolvedAt:      time.Now(),
+	})
+	existing.PendingQuestion = nil
+	existing.Updated = time.Now()
+	cp := *existing
+	cb := m.OnInteractionUpdated
+	m.mu.Unlock()
+	if cb != nil {
+		cb(&cp)
+	}
+	return &cp, true, nil
 }
 
 func (m *MemoryStore) BindInteractionExternalAgentRequest(_ context.Context, interactionID string, generationID int, requestID string) (bool, error) {
@@ -675,6 +750,18 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 				continue
 			}
 		}
+		if filters != nil && filters.PRMatch != nil {
+			matched := false
+			for _, repoPR := range t.RepoPullRequests {
+				if repoPR.RepositoryID == filters.PRMatch.RepositoryID && repoPR.PRNumber == filters.PRMatch.PRNumber {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
 		cp := *t
 		if filters != nil && filters.SortBy == "last_message" {
 			for _, interaction := range m.interactions {
@@ -728,6 +815,32 @@ func (m *MemoryStore) UpdateSpecTask(_ context.Context, task *types.SpecTask) er
 	}
 	cp := *task
 	m.specTasks[task.ID] = &cp
+	return nil
+}
+
+func (m *MemoryStore) UpdateSpecTaskFields(_ context.Context, taskID string, updates map[string]any) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	task, ok := m.specTasks[taskID]
+	if !ok {
+		return store.ErrNotFound
+	}
+	for field, value := range updates {
+		switch field {
+		case "metadata":
+			task.Metadata, _ = value.(map[string]interface{})
+		case "requirements_spec":
+			task.RequirementsSpec, _ = value.(string)
+		case "technical_design":
+			task.TechnicalDesign, _ = value.(string)
+		case "implementation_plan":
+			task.ImplementationPlan, _ = value.(string)
+		case "name":
+			task.Name, _ = value.(string)
+		case "updated_at":
+			task.UpdatedAt, _ = value.(time.Time)
+		}
+	}
 	return nil
 }
 

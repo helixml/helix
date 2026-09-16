@@ -243,6 +243,9 @@ type Project struct {
 	DefaultHelixAppID string `json:"default_helix_app_id"`
 	// CodeAgentConfig is the project default copied into each new SpecTask.
 	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty" gorm:"type:jsonb;serializer:json"`
+	// PlanningCodeAgentConfig is the planning-phase default copied into each new
+	// SpecTask. Nil preserves the historical behaviour by using CodeAgentConfig.
+	PlanningCodeAgentConfig *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty" gorm:"type:jsonb;serializer:json"`
 	// Default sandbox environment for new spec tasks. Empty values from legacy
 	// projects resolve to the full desktop runtime.
 	DefaultSandboxRuntime SandboxRuntime `json:"default_sandbox_runtime,omitempty" gorm:"size:64"`
@@ -391,6 +394,7 @@ type ProjectCreateRequest struct {
 	StartupScript                   string                    `json:"startup_script,omitempty"`
 	DefaultHelixAppID               string                    `json:"default_helix_app_id,omitempty"` // Org-agent identity only; coding projects use CodeAgentConfig
 	CodeAgentConfig                 *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	PlanningCodeAgentConfig         *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty"`
 	DefaultSandboxRuntime           SandboxRuntime            `json:"default_sandbox_runtime,omitempty"`            // Default sandbox environment for spec tasks
 	DefaultSandboxResourceOverrides *SandboxResourceOverrides `json:"default_sandbox_resource_overrides,omitempty"` // Default sandbox resources for spec tasks
 	Guidelines                      string                    `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
@@ -413,6 +417,7 @@ type ProjectUpdateRequest struct {
 	ArchiveStaleTasksDays           *int                      `json:"archive_stale_tasks_days,omitempty"`     // Idle days before a stale task is archived (1-365)
 	DefaultHelixAppID               *string                   `json:"default_helix_app_id,omitempty"`         // Org-agent identity only; coding projects use CodeAgentConfig
 	CodeAgentConfig                 *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	PlanningCodeAgentConfig         *CodeAgentExecutionConfig `json:"planning_code_agent_config,omitempty"`
 	DefaultSandboxRuntime           *SandboxRuntime           `json:"default_sandbox_runtime,omitempty"`            // Default sandbox environment for spec tasks
 	DefaultSandboxResourceOverrides *SandboxResourceOverrides `json:"default_sandbox_resource_overrides,omitempty"` // Default sandbox resources for spec tasks
 	ProjectManagerHelixAppID        *string                   `json:"project_manager_helix_app_id,omitempty"`       // Project manager agent
