@@ -8,7 +8,7 @@ import (
 func TestChiefOfStaffOnboardingOpening(t *testing.T) {
 	for _, want := range []string{
 		"Ask the owner in your normal response",
-		"Hi, I'm your new Chief of Staff. 👋\n\nWhat would you like to accomplish?",
+		"Hi, I'm your new Chief of Staff. 👋\n\nI'm here to help turn your priorities into a team that gets things done.\n\nAsk me what I can do for you?",
 		"Wait for the owner's reply before asking about key people, repositories, servers, or workflows. Ask about those naturally in follow-up messages as they become relevant, not as a checklist.",
 	} {
 		if !strings.Contains(ChiefOfStaff, want) {
