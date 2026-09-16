@@ -332,6 +332,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
       className="project-chat-item"
       role="button"
       tabIndex={0}
+      aria-current={active ? 'page' : undefined}
       onClick={() => onOpenItem(item)}
       onContextMenu={(event) => onOpenItemContextMenu(event, item)}
       onKeyDown={(event) => {
@@ -356,6 +357,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         display: 'flex',
         color: active ? sidebarColors.foreground : sidebarColors.primaryLabel,
         backgroundColor: active ? sidebarColors.rowSelected : 'transparent',
+        boxShadow: active ? `inset 0 0 0 1px ${sidebarColors.border}` : 'none',
         cursor: 'pointer',
         textAlign: 'left',
         outline: 'none',
