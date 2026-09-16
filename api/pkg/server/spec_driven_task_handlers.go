@@ -538,30 +538,16 @@ func (s *HelixAPIServer) populateSessionState(ctx context.Context, tasks []*type
 					task.SessionUpdatedAt = &session.Updated
 
 					// Live-check container status against the executor, overriding stale DB values.
-					// Only flip "running" → "stopped" when the executor says the container is gone.
-					// Never upgrade "starting" to "running" — the container may be up in Docker
-					// but RevDial hasn't connected yet, causing ScreenshotViewer 503 errors.
+					// Shared with getSession — see liveExternalAgentStatus for the rule.
 					cfg := session.Metadata
-					if cfg.ContainerName != "" && s.externalAgentExecutor != nil {
-						// Live-check the executor for "running" and "" (stopped-but-not-yet-labelled)
-						// sessions. Skip "starting" (RevDial not yet connected — upgrading it to
-						// "running" causes ScreenshotViewer 503s) and "stopped" (already terminal).
-						if cfg.ExternalAgentStatus == "running" || cfg.ExternalAgentStatus == "" {
-							_, err := s.externalAgentExecutor.GetSession(session.ID)
-							if err != nil {
-								cfg.ExternalAgentStatus = "stopped"
-							}
-						}
-					} else if cfg.ContainerName != "" {
-						cfg.ExternalAgentStatus = "stopped"
-					}
+					cfg.ExternalAgentStatus = s.liveExternalAgentStatus(session)
 
 					status := cfg.ExternalAgentStatus
 					hasContainer := cfg.ContainerName != ""
 					switch {
 					case status == "stopped" || status == "terminated_idle":
 						task.SandboxState = "absent"
-					case status == "starting":
+					case status == "starting" || status == "restarting":
 						task.SandboxState = "starting"
 					case status == "running":
 						task.SandboxState = "running"

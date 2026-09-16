@@ -25,7 +25,6 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -5882,6 +5881,20 @@ func (m *MockStore) MarkSandboxInstanceOfflineIfStale(ctx context.Context, id st
 func (mr *MockStoreMockRecorder) MarkSandboxInstanceOfflineIfStale(ctx, id, staleBefore any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSandboxInstanceOfflineIfStale", reflect.TypeOf((*MockStore)(nil).MarkSandboxInstanceOfflineIfStale), ctx, id, staleBefore)
+}
+
+// MarkSessionRestarting mocks base method.
+func (m *MockStore) MarkSessionRestarting(ctx context.Context, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkSessionRestarting", ctx, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkSessionRestarting indicates an expected call of MarkSessionRestarting.
+func (mr *MockStoreMockRecorder) MarkSessionRestarting(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSessionRestarting", reflect.TypeOf((*MockStore)(nil).MarkSessionRestarting), ctx, sessionID)
 }
 
 // MarkSessionStartingIfIdle mocks base method.
