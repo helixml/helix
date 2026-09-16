@@ -41,6 +41,10 @@ A reviewer that finished its analysis but cannot post (auth dead for any reason)
 
 The payload persists on the task's workspace; a broken token costs at most a re-dispatch, never the review.
 
-## 7. Only verified posts count
+## 7. Read discipline — speed is a feature
+
+Reviews are read-only static analysis; latency is dominated by how much you fetch. Shallow-read the diff first (changed-file list, then targeted file/range reads around the changed hunks — e.g. `gh pr diff --name-only` then `gh pr view --json files` or per-file fetches), NOT full-repo scans or repo-wide greps unless a specific finding demands them. Do not re-clone or re-fetch what the task sandbox already has (the repo is checked out at task creation; fetch only the PR ref you need). No builds, no suites, no lint (brief rule 4) — CI reads are a single API call for the head SHA. Tokens are fetched just-in-time per batch (§1); never mint tokens speculatively or repeatedly for the same auth step.
+
+## 8. Only verified posts count
 
 An activation ends with "review posted" **only** if the reviews API shows exactly one review by `REVIEWER_LOGIN` at the target commit. [scripts/post_review.sh](scripts/post_review.sh) encodes the whole rule: one POST attempt, then GET-verify; nonzero exit (never "success") unless verification passes. Never claim a review you cannot verify.

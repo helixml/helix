@@ -145,7 +145,11 @@ helix api -X PUT /orgs/REPLACE_ORG/bots/REPLACE_BOT/secrets/GH_TOKEN --input '{
 
 Without a connected App, an owner creates a fine-grained PAT secret instead (`helix secret create`) and binds it the same way. Same grant goes to the project used for dispatch if review tasks need `GH_TOKEN` in their sandbox. `get_secret` rules for actually using it: [auth-ops.md](auth-ops.md).
 
-### 5. Verify end to end
+### 5. Review-task runtime and speed
+
+Review tasks must be created with sandbox runtime **`headless-ubuntu` — NEVER `ubuntu-desktop`** (GUI startup is slow and a review needs no display) and **4 vCPUs** (8 only for genuinely huge PRs). The coordinator's instructions (step 6 of `coordinator-instructions.md`) carry these values on every `create_spectask`. Speed rules the brief and [auth-ops.md §7](auth-ops.md) enforce: reviews are static analysis + CI reads only — fresh-mint tokens just-in-time, no redundant fetches, no builds or suites; shallow diff reads and targeted file reads over full-repo scans; never re-clone what the sandbox already has.
+
+### 6. Verify end to end
 
 1. Open a test PR — then `helix api /orgs/REPLACE_ORG/triggers/REPLACE_TRIGGER/events` shows the delivery and `bot_log REPLACE_BOT` shows the activation.
 2. Coordinator dispatches exactly one `pr-review-<N>-<short>` task; it posts one review and moves itself to `done`.
@@ -167,7 +171,8 @@ Never hand-edit bot content or processor code on the box — that silently forks
 ## Hard rules (why the pipeline is shaped this way)
 
 - **Every verified review post is followed by a PR-summary refresh:** the reviewer runs `scripts/update_pr_summary.sh` to swap the `<!-- CURSOR_SUMMARY -->` block (risk line + factual Overview, footer `Reviewed by <REVIEWER_LOGIN> for commit <sha>`), replacing ONLY content between the markers and never claiming an unverified summary; risk is descriptive and never changes the verdict policy or blocks anything.
-- **Verdicts: APPROVE or COMMENT only.** Never REQUEST_CHANGES — a bot review must never block a merge. Findings ship as ≤5 short inline comments anchored to exact diff lines; the body carries only ≤2 verified-state lines + `Reviewed: <sha>` (banned: opener verdict, "Must fix:"/"Also:" sections, numbered file:line body findings, effort estimates — see reviewer-brief.md §9). Tone: zero chatiness.
+- **No builds, no test runs in reviews.** Static reading + CI-status reads for the head SHA only; at most ONE narrowly targeted `-run` test for a suspicion reading cannot settle (named in the body). CI owns compile/test execution — reviewers duplicate nothing.
+- **Verdicts: APPROVE or COMMENT only.** Never REQUEST_CHANGES — a bot review must never block a merge. APPROVE = code reads correct and CI green (or not needed). Findings ship as ≤5 short inline comments anchored to exact diff lines; the body carries only ≤2 verified-state lines + `Reviewed: <sha>` (banned: opener verdict, "Must fix:"/"Also:" sections, numbered file:line body findings, effort estimates — see reviewer-brief.md §9). Tone: zero chatiness.
 - **One review per (PR, SHA), always verified.** `scripts/post_review.sh` POSTs once and refuses to report success unless the reviews API shows exactly one review at the commit. Never claim a review you cannot verify.
 - **Self-loop discipline.** Events caused by `REVIEWER_LOGIN` never start work; the coordinator never reviews itself.
 - **Auth failures follow [auth-ops.md](auth-ops.md)** — one re-mint max, stop-with-verbatim-headers, and the salvage pattern so a finished review dies nowhere near a broken token.

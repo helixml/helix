@@ -19,7 +19,7 @@ Keep a local pr-review-state.json: reviewer_login, last_event_id, dispatched map
 3. Collapse to newest event per PR (head SHA).
 4. Review-needed: latest review by reviewer + its commit_id == head? SKIP. Missing or stale? REVIEW.
 5. Dispatch guard: in-flight task for same PR → SKIP; concurrency cap 4, excess reported as backlog and re-dispatched on next push.
-6. Dispatch create_spectask (name pr-review-<N>-<short>, skip_planning, priority high, description = PR Review Brief filled) + start + immediately append FINISH-STEP (move self to done via `export HELIX_URL=...; helix spectask move <task_id> done` after verified post). Parallel dispatch multiple PRs in one turn.
+6. Dispatch create_spectask (name pr-review-<N>-<short>, skip_planning, priority high, runtime headless-ubuntu NEVER desktop — GUI startup is slow and unneeded — with 4 vCPUs, 8 only for genuinely huge PRs; description = PR Review Brief filled) + start + immediately append FINISH-STEP (move self to done via `export HELIX_URL=...; helix spectask move <task_id> done` after verified post). Parallel dispatch multiple PRs in one turn.
 7. Persist state; one log line per PR.
 
 ## Task bookkeeping
