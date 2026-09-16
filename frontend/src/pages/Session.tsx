@@ -280,6 +280,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   }, [])
   const observerRef = useRef<IntersectionObserver | null>(null)
   const lastScrollTimeRef = useRef<number>(0)
+  const shouldFollowLatestRef = useRef(true)
 
   const [highlightAllFiles, setHighlightAllFiles] = useState(false)
   const [showCloneWindow, setShowCloneWindow] = useState(false)
@@ -541,18 +542,17 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
   // Save scroll position unconditionally before any state changes
   useEffect(() => {
+    if (!scrollContainerEl) return
+
     const saveScrollOnScroll = () => {
-      if (containerRef.current) {
-        scrollPositionRef.current = containerRef.current.scrollTop;
-      }
+      scrollPositionRef.current = scrollContainerEl.scrollTop;
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerEl
+      shouldFollowLatestRef.current = scrollTop + clientHeight >= scrollHeight - 20
     };
 
-    const container = containerRef.current;
-    if (container) {
-      container.addEventListener('scroll', saveScrollOnScroll);
-      return () => container.removeEventListener('scroll', saveScrollOnScroll);
-    }
-  }, []);
+    scrollContainerEl.addEventListener('scroll', saveScrollOnScroll);
+    return () => scrollContainerEl.removeEventListener('scroll', saveScrollOnScroll);
+  }, [scrollContainerEl]);
 
   // Add scroll handler to update visible blocks
   useEffect(() => {
@@ -623,8 +623,9 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   }, [session, saveScrollPosition, restoreScrollPosition]);
 
   // Function to scroll to bottom immediately without animation to prevent jumpiness
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((force = false) => {
     if (!containerRef.current) return
+    if (!force && !shouldFollowLatestRef.current) return
 
     const now = Date.now()
     const timeSinceLastScroll = now - lastScrollTimeRef.current
@@ -636,16 +637,19 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
         top: containerRef.current.scrollHeight,
         behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness
       })
+      shouldFollowLatestRef.current = true
       lastScrollTimeRef.current = now
     } else {
       // Wait for the remaining time before scrolling
       const waitTime = SCROLL_DEBOUNCE - timeSinceLastScroll
       setTimeout(() => {
         if (!containerRef.current) return
+        if (!force && !shouldFollowLatestRef.current) return
         containerRef.current.scrollTo({
           top: containerRef.current.scrollHeight,
           behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness
         })
+        shouldFollowLatestRef.current = true
         lastScrollTimeRef.current = Date.now()
       }, waitTime)
     }
@@ -662,14 +666,11 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
     // Wait for the bottom bar and final content to render
     const timer = setTimeout(() => {
       if (!containerRef.current) return
-      containerRef.current.scrollTo({
-        top: containerRef.current.scrollHeight,
-        behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness
-      })
+      scrollToBottom()
     }, 200)
 
     return () => clearTimeout(timer)
-  }, [isStreaming])
+  }, [isStreaming, scrollToBottom])
 
   // Add new effect for handling streaming state transitions
   useEffect(() => {
@@ -724,7 +725,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
       setFilterMap({})
       // Scroll to bottom immediately after submitting to show progress
-      scrollToBottom()
+      scrollToBottom(true)
 
       newSession = await NewInference({
         message: actualPrompt,
@@ -745,7 +746,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
       setFilterMap({})
       // Scroll to bottom immediately after submitting to show progress
-      scrollToBottom()
+      scrollToBottom(true)
 
       newSession = await api.put(`/api/v1/sessions/${session?.data?.id}`, formData)
     }
@@ -757,7 +758,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
     // Give the DOM time to update, then scroll to bottom again
     setTimeout(() => {
-      scrollToBottom()
+      scrollToBottom(true)
     }, 100)
 
     return true
@@ -842,7 +843,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
 
       // Scroll to bottom immediately after submitting to show progress
-      scrollToBottom()
+      scrollToBottom(true)
 
       newSession = await NewInference({
         regenerate: true,
@@ -862,7 +863,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
       formData.set('model_name', session?.data?.model_name || '')
 
       // Scroll to bottom immediately after submitting to show progress
-      scrollToBottom()
+      scrollToBottom(true)
 
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }
@@ -874,7 +875,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
     // Give the DOM time to update, then scroll to bottom again
     setTimeout(() => {
-      scrollToBottom()
+      scrollToBottom(true)
     }, 100)
 
   }, [
@@ -1329,6 +1330,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   useEffect(() => {
     lastLoadScrollPositionRef.current = 0
     lastScrollHeightRef.current = 0
+    shouldFollowLatestRef.current = true
     setIsLoadingBlock(false)
   }, [sessionID])
 
@@ -1434,6 +1436,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
           >
             <Box
               ref={setScrollContainerRef}
+              data-session-scroll-container
               sx={{
                 height: '100%',
                 display: 'flex',

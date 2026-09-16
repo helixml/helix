@@ -6,7 +6,7 @@
 // `useHelixOrgBot`, and driving `AgentRestartRequiredBanner.visible` off
 // `bot.restart_required`.
 
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Session from './Session'
@@ -132,5 +132,28 @@ describe('Session org chat restart banner', () => {
     render(<Session orgChatView />)
     await screen.findByText('Prompt input')
     expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()
+  })
+
+  it('does not scroll to the latest message after the user scrolls up', () => {
+    vi.useFakeTimers()
+    sessionData.interactions = [{ id: 'turn-1', state: 'waiting' }]
+    const view = render(<Session orgChatView />)
+    const container = document.querySelector<HTMLElement>('[data-session-scroll-container]')!
+    Object.defineProperties(container, {
+      scrollTop: { configurable: true, writable: true, value: 400 },
+      scrollHeight: { configurable: true, writable: true, value: 1000 },
+      clientHeight: { configurable: true, writable: true, value: 200 },
+    })
+    act(() => vi.runOnlyPendingTimers())
+    vi.mocked(Element.prototype.scrollTo).mockClear()
+
+    container.scrollTop = 200
+    fireEvent.scroll(container)
+    sessionData.interactions = [{ id: 'turn-1', state: 'complete' }]
+    view.rerender(<Session orgChatView />)
+    act(() => vi.runOnlyPendingTimers())
+
+    expect(Element.prototype.scrollTo).not.toHaveBeenCalled()
+    vi.useRealTimers()
   })
 })
