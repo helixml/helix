@@ -2592,6 +2592,13 @@ func (manager *ExternalAgentWSManager) unregisterConnection(sessionID string, co
 
 // getConnection gets an external agent connection
 func (manager *ExternalAgentWSManager) getConnection(sessionID string) (*ExternalAgentWSConnection, bool) {
+	// A nil manager has no connections. Safe on a nil receiver because this is
+	// a read-only accessor now called from the session read path, where a panic
+	// would take out GET /sessions/{id} rather than merely losing an answer —
+	// and "no manager" and "no connection" mean the same thing to every caller.
+	if manager == nil {
+		return nil, false
+	}
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
 	conn, exists := manager.connections[sessionID]
