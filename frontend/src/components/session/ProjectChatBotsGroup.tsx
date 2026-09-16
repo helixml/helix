@@ -75,7 +75,7 @@ type ProjectChatBotsGroupProps = ItemRowProps & {
 
 // Top-level list of the org's agents. Each agent is its own collapsible group
 // holding the spec tasks it created; the agent row itself opens its chat
-// session (starting the agent first if it has never run), and the menu
+// session through the stable bot route, and the menu
 // reaches the agent's settings without going through the org chart.
 const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
   orgId,

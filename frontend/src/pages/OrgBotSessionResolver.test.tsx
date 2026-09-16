@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   consumeDraft: vi.fn(),
   appendDraft: vi.fn(),
   bots: [] as Array<{ id: string; name?: string; session_id?: string }>,
+  listLoading: false,
   listError: false,
 }))
 
@@ -37,7 +38,7 @@ vi.mock('../services/helixOrgService', () => ({
     mocks.list(options)
     return {
       data: mocks.bots,
-      isLoading: false,
+      isLoading: mocks.listLoading,
       isError: mocks.listError,
       refetch: mocks.refetch,
     }
@@ -49,6 +50,7 @@ describe('OrgBotSessionResolver', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.bots = []
+    mocks.listLoading = false
     mocks.listError = false
     mocks.activate.mockResolvedValue({})
     mocks.refetch.mockResolvedValue({})
@@ -76,9 +78,13 @@ describe('OrgBotSessionResolver', () => {
 
     expect(await screen.findByTestId('resolved-session')).toHaveTextContent('ses-existing')
     expect(mocks.activate).not.toHaveBeenCalled()
-    expect(mocks.list).toHaveBeenCalledWith({
+    expect(mocks.list).toHaveBeenNthCalledWith(1, {
       enabled: true,
       refetchInterval: 2000,
+    })
+    expect(mocks.list).toHaveBeenLastCalledWith({
+      enabled: true,
+      refetchInterval: 10000,
     })
   })
 
@@ -150,5 +156,22 @@ describe('OrgBotSessionResolver', () => {
 
     expect(mocks.refetch).toHaveBeenCalledTimes(1)
     expect(mocks.activate).not.toHaveBeenCalled()
+  })
+
+  it('offers query retry when the bot no longer exists', () => {
+    render(<OrgBotSessionResolver />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Could not find this agent.',
+    )
+    expect(mocks.activate).not.toHaveBeenCalled()
+  })
+
+  it('keeps showing the lookup progress while the bot list is loading', () => {
+    mocks.listLoading = true
+    render(<OrgBotSessionResolver />)
+
+    expect(screen.getByText('Finding your agent')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

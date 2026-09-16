@@ -20,11 +20,12 @@ export default function OrgBotSessionResolver() {
   const [readySessionID, setReadySessionID] = useState('')
   const {
     data: bots = [],
+    isLoading: botsLoading,
     isError: listError,
     refetch,
   } = useListHelixOrgBots({
     enabled: !!orgID && !!botID,
-    refetchInterval: 2000,
+    refetchInterval: readySessionID ? 10000 : 2000,
   })
   const bot = bots.find((candidate) => candidate.id === botID)
   const agentName = bot?.name || botID
@@ -73,7 +74,7 @@ export default function OrgBotSessionResolver() {
         gap: 2,
       }}
     >
-      {listError ? (
+      {listError || (!botsLoading && !bot) ? (
         <>
           <Typography color="error" role="alert">
             Could not find this agent.
