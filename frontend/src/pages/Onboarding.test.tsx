@@ -802,8 +802,13 @@ describe('Onboarding', () => {
     expect(screen.getByText(/card will not be charged for 72 hours/i)).toBeInTheDocument()
     expect(screen.getByText(/trial starts with no helix credits/i)).toBeInTheDocument()
     expect(screen.getByText(/automatically continues for \$499\/month/i)).toBeInTheDocument()
-    expect(screen.getByText(/monthly credits are added when the first payment succeeds/i)).toBeInTheDocument()
     expect(screen.getByText(/cancel before the trial ends/i)).toBeInTheDocument()
+    expect(
+      screen.queryByText(/monthly credits are added/i),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/subscription fee becomes credits/i),
+    ).not.toBeInTheDocument()
   })
 
   it('offers the 72-hour trial CTA to a user who has not completed onboarding', async () => {

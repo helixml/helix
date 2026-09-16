@@ -140,7 +140,7 @@ const btnSx = {
 
 const SUBSCRIPTION_BENEFITS = [
   "Full Linux desktop sandboxes where your agents can work safely",
-  "Your entire subscription fee becomes credits for running AI models",
+  "Top up credits to run AI models whenever you need them",
   "Bring your own Claude and Codex subscriptions",
   "Collaborate with your team, set budgets, and track usage",
 ];
@@ -1120,7 +1120,7 @@ export default function Onboarding() {
                           ? "Confirming your free trial with Stripe..."
                           : "Confirming your subscription with Stripe..."
                         : trialEligible
-                          ? "Your card will not be charged for 72 hours and the trial starts with no Helix credits. After that, your subscription automatically continues for $499/month and the monthly credits are added when the first payment succeeds. Cancel before the trial ends to avoid the first charge."
+                          ? "Your card will not be charged for 72 hours and the trial starts with no Helix credits. After that, your subscription automatically continues for $499/month. Cancel before the trial ends to avoid the first charge."
                           : "Subscribe to Helix Business for $499/month, charged today."}
                 </Typography>
                 {isSubscriptionActive && wallet ? (

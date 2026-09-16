@@ -24,8 +24,20 @@ the policy and its source of truth before any code change.
 - **Product configuration**: org subscription is $499/month
   (`STRIPE_ORG_PRICE_CENTS=49900`, validated against Stripe); the credit
   amount is the Stripe product's `credits` metadata — operator-configured in
-  Stripe, deliberately never hardcoded in Helix. The $100 figure Chris
-  expected is therefore not encoded anywhere in the repo and was not assumed.
+  Stripe, deliberately never hardcoded in Helix. **Confirmed 2026-09-16 in
+  the live Stripe dashboard: the product behind the $499/month
+  `helix-org-subscription` price has no `credits` metadata**, so every
+  subscription invoice — trial conversion included — grants $0 credits
+  (webhook logs `product credits metadata missing, skipping subscription
+  topup`). The $100 figure Chris expected is not encoded anywhere and was
+  not assumed.
+- **History**: until 2026-03-12 (`413b571c2`) the webhook credited the
+  invoice's `AmountPaid` — the subscription fee literally became credits,
+  which is what the signup benefit line "Your entire subscription fee
+  becomes credits for running AI models" described. `91910128e` ("control
+  topup") switched the grant to `product.metadata.credits` so operators
+  control the per-cycle amount, but that metadata was never set on the live
+  product, silently turning the promise off.
 - **Stripe behavior**: card-backed checkout trial (`trial_period_days=3`,
   `payment_method_collection=always`) creates a `trialing` subscription plus
   a $0 invoice (auto-paid, no money moves); at trial end Stripe charges the
@@ -52,7 +64,18 @@ covers them. New test:
 
 ## Copy fix
 
-`frontend/src/pages/Onboarding.tsx` trial disclosure now states the policy
-without hardcoding the Stripe-metadata amount: the trial starts with no Helix
-credits, and the monthly credits are added when the first payment succeeds
-after the 72-hour trial.
+`frontend/src/pages/Onboarding.tsx` now states the policy as it is enforced
+today, without hardcoding the Stripe-metadata amount: the trial starts with
+no Helix credits, and the benefit line promising that the subscription fee
+becomes credits is replaced with the true statement (credits come from
+top-ups). Both lines must be revisited the moment an operator sets `credits`
+metadata on the live product — the webhook will start granting that amount
+on the next paid invoice, and the copy should then promise it again.
+
+## Open decision for the operator
+
+Whether the org subscription should include monthly credits is a product
+decision only the live Stripe config can answer today. If yes (e.g. $100/m
+per Chris, or $499/m per the pre-2026-03 behavior), add `credits: <amount>`
+to the product's metadata in the live dashboard — no code change needed. If
+no, the current copy is already accurate.
