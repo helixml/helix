@@ -118,7 +118,25 @@ func (s *Stripe) handleTopUpEvent(event stripe.Event) error {
 	// Check if this is a topup payment
 	paymentType := paymentIntent.Metadata[topUpMetadataType]
 	if paymentType != topUpMetadataTypeValue {
-		return fmt.Errorf("payment is not a topup")
+		// Not one of our payment intents (the webhook receives every
+		// payment_intent.succeeded on the account). Skip it — returning an
+		// error would make Stripe retry a delivery that can never succeed.
+		log.Info().
+			Str("payment_intent_id", paymentIntent.ID).
+			Msg("payment intent is not a topup, skipping")
+		return nil
+	}
+
+	// A zero-amount payment intent belongs to a fully discounted checkout
+	// session (the customer paid $0 and the receipt shows $0). Credit it only
+	// when the metadata carries the requested amount; without it this event
+	// alone cannot know what to credit, and checkout.session.completed — which
+	// holds the session metadata — owns the purchase instead.
+	if paymentIntent.Amount == 0 && paymentIntent.Metadata[topUpMetadataAmountCents] == "" {
+		log.Info().
+			Str("payment_intent_id", paymentIntent.ID).
+			Msg("zero amount topup without requested amount metadata, skipping")
+		return nil
 	}
 
 	amount, err := topUpAmountDollars(paymentIntent.Metadata, paymentIntent.Amount)
