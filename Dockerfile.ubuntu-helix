@@ -7,10 +7,10 @@
 # Developers can switch between desktops without version differences.
 # See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
 #
-# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-04-13).
+# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-09-16).
 # Update digests when intentionally upgrading base images.
-# - ubuntu:25.10         -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
-# - golang:1.25-bookworm -> sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547
+# - ubuntu:25.10         -> sha256:7cc5e35f6567ee8c66d2abb4aab0fd866669e6207c237c3a8f0947a5c7f17092
+# - golang:1.25-bookworm -> sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437
 
 # Global ARG: must be before the first FROM to be visible to --build-arg
 # amd64 (default): pinned nvidia/cuda digest — cache-stable, no silent updates
@@ -34,9 +34,9 @@ FROM moby/buildkit:v0.27.1-rootless@sha256:5616ed4e78a3552f3575864c8ab585c882b89
 # ====================================================================
 # Uses Debian-based golang image for GStreamer development libraries.
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
-# Pin to specific digest for stable layer caching (golang:1.25-bookworm as of 2026-04-13)
+# Pin to specific digest for stable layer caching (golang:1.25-bookworm as of 2026-09-16)
 # Update digest when intentionally upgrading Go version
-FROM golang:1.25-bookworm@sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547 AS go-build-env
+FROM golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
@@ -86,7 +86,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 #
 # Uses TARGETARCH to build the right plugins for the current platform.
 # No --platform directive, so this works on any CI runner architecture.
-FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
+FROM ubuntu:25.10@sha256:7cc5e35f6567ee8c66d2abb4aab0fd866669e6207c237c3a8f0947a5c7f17092 AS rust-build-env
 RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 ARG TARGETARCH
 WORKDIR /build
@@ -198,7 +198,7 @@ RUN if [ -f /usr/local/cuda/lib64/libnvrtc.so.12 ]; then \
 # but not in any released tag yet. The default cargo features match
 # upstream's CI for non-vulkan/non-musl Linux builds. Telemetry is
 # disabled at runtime (see ~/.config/goose/profiles below).
-FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS goose-build
+FROM ubuntu:25.10@sha256:7cc5e35f6567ee8c66d2abb4aab0fd866669e6207c237c3a8f0947a5c7f17092 AS goose-build
 RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -268,7 +268,7 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 # directory to refresh the lock, and re-test the composition. Upstream is in
 # developer preview and states there WILL be compatibility-breaking changes,
 # so treat every bump as a change that needs a live turn to verify.
-FROM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS dsh-build
+FROM node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553 AS dsh-build
 WORKDIR /opt/helix/dsh
 # node-pty is a hard dependency of dsh-subprocess-local (the bash executor's
 # process plumbing) and publishes no prebuild for Node 24, so it is compiled
@@ -298,7 +298,7 @@ _INSTALL_DSH
 #
 # The headless bridge uses GStreamer's pipewiresrc + waylandsink for
 # zero-copy DMA-BUF transfer from GNOME screen-cast to Wolf.
-FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
+FROM ubuntu:25.10@sha256:7cc5e35f6567ee8c66d2abb4aab0fd866669e6207c237c3a8f0947a5c7f17092
 RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 
 # Configure default user and set env (from GOW base-app)
