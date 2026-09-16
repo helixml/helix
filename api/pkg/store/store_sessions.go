@@ -369,12 +369,14 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 }
 
 // ClearStaleStartingSessions clears external_agent_status and status_message
-// for sessions stuck in "starting" state. Called on API startup — if the API
-// just started, no session can legitimately be mid-startup.
+// for sessions stuck in "starting" or "restarting" state. Called on API startup
+// — if the API just started, no session can legitimately be mid-startup, and a
+// restart interrupted mid-teardown would otherwise pin the session on a spinner
+// forever (nothing else clears "restarting").
 func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Session{}).
-		Where("config->>'external_agent_status' = ?", "starting").
+		Where("config->>'external_agent_status' IN ?", []string{"starting", "restarting"}).
 		Updates(map[string]interface{}{
 			"config": gorm.Expr(`config || '{"external_agent_status":"","status_message":""}'::jsonb`),
 		})
@@ -383,13 +385,15 @@ func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context) (int64, 
 
 // MarkSessionStartingIfIdle atomically flips external_agent_status to "starting"
 // and status_message to "Starting Desktop..." for the named session, but ONLY
-// if the current external_agent_status is neither "starting" nor "running".
+// if the current external_agent_status is none of "starting", "restarting" or
+// "running" — all three already mean a boot is in flight or the desktop is up.
 // Targeted JSONB merge — does NOT use GORM Save, so it can't race with the
 // streaming path's full-row writes (see auto_wake_stuck_interactions.go header
 // at lines 75-86 for the original incident this pattern guards against).
 //
 // Returns true when the row was updated. False (with err=nil) means the row
-// already showed "starting" or "running" — caller can log a no-op and move on.
+// already showed a boot-in-flight or running status — caller can log a no-op
+// and move on.
 //
 // Used by syncPromptHistory to close the cache-vs-backend race that causes
 // the "Starting Desktop..." spinner to flicker off when chatting to an idle
@@ -404,7 +408,7 @@ func (s *PostgresStore) MarkSessionStartingIfIdle(ctx context.Context, sessionID
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Session{}).
 		Where("id = ?", sessionID).
-		Where("COALESCE(config->>'external_agent_status', '') NOT IN ('starting', 'running')").
+		Where("COALESCE(config->>'external_agent_status', '') NOT IN ('starting', 'restarting', 'running')").
 		Updates(map[string]interface{}{
 			"config": gorm.Expr(`config || '{"external_agent_status":"starting","status_message":"Starting Desktop..."}'::jsonb`),
 		})
@@ -414,12 +418,39 @@ func (s *PostgresStore) MarkSessionStartingIfIdle(ctx context.Context, sessionID
 	return result.RowsAffected > 0, nil
 }
 
-// ClearSessionStartingStatus reverts external_agent_status from "starting"
-// back to empty (and clears status_message), but ONLY if the current status
-// is "starting". Used by the auto-wake worker after retry exhaustion so the
-// frontend spinner returns to "Desktop Paused" instead of sitting on
-// "Starting Desktop..." forever. Targeted JSONB merge for the same race
-// reasons as MarkSessionStartingIfIdle.
+// MarkSessionRestarting flips external_agent_status to "restarting" and
+// status_message to "Restarting desktop..." for the named session, regardless
+// of the current status — a restart is clicked precisely because the desktop is
+// running, so the MarkSessionStartingIfIdle guard would be wrong here.
+//
+// The marker is written BEFORE StopDesktop tears the container down, and
+// StopDesktop deliberately preserves it, so the whole teardown+boot window
+// reads as "a boot is in flight" rather than "stopped". Without it the session
+// briefly has no status while the container name is still set, and the live
+// executor probe in getSession downgrades it to "stopped" — which is what made
+// the UI offer a "Start sandbox" button mid-restart.
+//
+// Targeted JSONB merge (not GORM Save) for the same race reasons as
+// MarkSessionStartingIfIdle.
+func (s *PostgresStore) MarkSessionRestarting(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return errors.New("session_id is required")
+	}
+	return s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("id = ?", sessionID).
+		Updates(map[string]interface{}{
+			"config": gorm.Expr(`config || '{"external_agent_status":"restarting","status_message":"Restarting desktop..."}'::jsonb`),
+		}).Error
+}
+
+// ClearSessionStartingStatus reverts external_agent_status from "starting" or
+// "restarting" back to empty (and clears status_message), but ONLY if a boot is
+// actually marked in flight. Used by the auto-wake worker after retry
+// exhaustion, and by the restart handler on its error paths, so the frontend
+// spinner returns to "Desktop Paused" instead of sitting on "Starting
+// Desktop..." forever. Targeted JSONB merge for the same race reasons as
+// MarkSessionStartingIfIdle.
 func (s *PostgresStore) ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error) {
 	if sessionID == "" {
 		return false, errors.New("session_id is required")
@@ -427,7 +458,7 @@ func (s *PostgresStore) ClearSessionStartingStatus(ctx context.Context, sessionI
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Session{}).
 		Where("id = ?", sessionID).
-		Where("config->>'external_agent_status' = ?", "starting").
+		Where("config->>'external_agent_status' IN ?", []string{"starting", "restarting"}).
 		Updates(map[string]interface{}{
 			"config": gorm.Expr(`config || '{"external_agent_status":"","status_message":""}'::jsonb`),
 		})

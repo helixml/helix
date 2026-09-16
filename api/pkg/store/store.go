@@ -295,11 +295,16 @@ type Store interface {
 	// Targeted JSONB merge so it cannot race with the streaming path's
 	// full-row writes. Returns true when a row was updated.
 	MarkSessionStartingIfIdle(ctx context.Context, sessionID string) (bool, error)
-	// ClearSessionStartingStatus reverts a "starting" session back to empty
-	// status + empty message, but only when the current status is
-	// "starting". Used by the auto-wake worker on retry exhaustion so the
-	// spinner reverts to "Desktop Paused" instead of staying on
-	// "Starting Desktop..." forever.
+	// MarkSessionRestarting unconditionally flips external_agent_status to
+	// "restarting" + status_message to "Restarting desktop...". Written
+	// before StopDesktop so the teardown+boot window reads as "a boot is in
+	// flight" rather than "stopped" (StopDesktop preserves this marker).
+	MarkSessionRestarting(ctx context.Context, sessionID string) error
+	// ClearSessionStartingStatus reverts a "starting"/"restarting" session
+	// back to empty status + empty message, but only when a boot is actually
+	// marked in flight. Used by the auto-wake worker on retry exhaustion and
+	// by the restart handler's error paths, so the spinner reverts to
+	// "Desktop Paused" instead of staying on a spinner forever.
 	ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error)
 	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
 	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)     // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events

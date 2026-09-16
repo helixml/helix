@@ -220,8 +220,19 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 	// Resolve sandbox online-ness from the session metadata the desktop
 	// stack already maintains (external_agent_status). Missing session
 	// or lookup failure keeps the default "stopped".
+	//
+	// A boot in flight reports "starting" rather than falling through to
+	// "stopped": the bot page's indicator and its Start/Stop/Restart
+	// controls key off this field, and reporting "stopped" while a
+	// container is coming up invites the user to click Start on a bot that
+	// is already starting. The sandboxes row covers part of that window
+	// with status=pending, but not the gap before the row exists.
 	if s.SessionID != "" && o.sessions != nil {
 		if sess, err := o.sessions.GetSession(ctx, s.SessionID); err == nil && sess != nil {
+			switch sess.Metadata.ExternalAgentStatus {
+			case "starting", "restarting":
+				info.Status = "starting"
+			}
 			if sess.Metadata.ExternalAgentStatus == "running" {
 				info.Status = "running"
 				// RestartRequiredContainer is the container that was live

@@ -131,22 +131,39 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const isStarting = sandboxStateValue === "starting" || sandboxStateValue === "loading";
   const isPaused = sandboxStateValue === "absent";
   const [isResuming, setIsResuming] = useState(false);
-  // Wake signal for DesktopStreamViewer: bump a counter whenever the desktop comes
-  // back from a paused/absent state (user sent a message or clicked "Start Desktop").
-  // We only fire after having actually observed the paused state, so a normal fresh
-  // page load (loading -> running) does not count as a wake. Using the paused->reachable
-  // edge (not the transient "starting" state) makes this robust to fast resumes where
-  // polling never samples "starting".
-  const sawPausedRef = useRef(false);
+  // Wake signal for DesktopStreamViewer: bump a counter whenever the desktop
+  // RE-ENTERS "running" after having left it. DesktopStreamViewer resets its
+  // retry budget and reconnects on this signal, which is what points the
+  // transport at the new container after a wake or a restart.
+  //
+  // This used to key off the paused->reachable edge (sawPausedRef). That worked
+  // only because a restart incidentally passed through "absent": the backend
+  // cleared the status during teardown while the container name was still set,
+  // so the live probe reported "stopped". Fixing that (the desktop now reports
+  // "restarting" throughout) deletes the "absent" state from a restart
+  // entirely, so the old edge would never fire and the viewer would keep a
+  // possibly-exhausted retry budget pointed at the dead container.
+  //
+  // "Left running, then came back" strictly contains the old paused->running
+  // case (a pause always leaves running first), so it replaces that logic
+  // rather than adding to it, and it also covers running -> restarting/starting
+  // -> running. First mount (loading -> running) must NOT fire: leftRunningRef
+  // is only armed once we have actually observed a running desktop and then
+  // seen it stop being running.
+  const wasRunningRef = useRef(false);
+  const leftRunningRef = useRef(false);
   const [wakeSignal, setWakeSignal] = useState(0);
   useEffect(() => {
-    if (isPaused) {
-      sawPausedRef.current = true;
-    } else if ((isRunning || isStarting) && sawPausedRef.current) {
-      sawPausedRef.current = false;
-      setWakeSignal((n) => n + 1);
+    if (isRunning) {
+      if (leftRunningRef.current) {
+        leftRunningRef.current = false;
+        setWakeSignal((n) => n + 1);
+      }
+      wasRunningRef.current = true;
+    } else if (wasRunningRef.current) {
+      leftRunningRef.current = true;
     }
-  }, [isPaused, isRunning, isStarting]);
+  }, [isRunning]);
   // Track if we've ever been running - once running, keep stream mounted to avoid fullscreen exit
   const [hasEverBeenRunning, setHasEverBeenRunning] = useState(false);
   // Session panel state
@@ -701,8 +718,25 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                     variant="body1"
                     sx={{ color: lightTheme.isLight ? "text.primary" : "rgba(255,255,255,0.9)", fontWeight: 500 }}
                   >
-                    Reconnecting...
+                    {/* The backend's own progress text ("Restarting desktop...",
+                        then the boot's golden-cache unpack messages) is more
+                        informative than a bare "Reconnecting...". */}
+                    {startingTooLong
+                      ? "Desktop is taking longer than expected"
+                      : statusMessage || "Reconnecting..."}
                   </Typography>
+                  {/* The same 2-minute watchdog the pre-first-boot spinner uses.
+                      A wedged restart otherwise spins forever with no way out. */}
+                  {startingTooLong && !sandboxMode && (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={handleStopFromStarting}
+                      disabled={isStopping}
+                    >
+                      {isStopping ? "Stopping..." : "Stop"}
+                    </Button>
+                  )}
                 </>
               )}
             </Box>
