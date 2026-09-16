@@ -1002,10 +1002,22 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	// sessions which is bounded.
 
 	// Clear external_agent_status and persist the paused screenshot path together.
+	//
+	// EXCEPT when the status is "restarting": that marker was written by
+	// restartSessionContainer immediately before calling us, and this stop is
+	// only the first half of a restart — a boot follows straight after. Clearing
+	// it would leave the session reading as "stopped" (the container name is
+	// still set, so getSession's live probe downgrades it) for the whole
+	// teardown, which is what made the UI flash a "Start sandbox" button
+	// mid-restart. "running" and "starting" are still cleared, so stopping a
+	// booting desktop from the starting spinner behaves exactly as before.
 	if dbSession, err := h.store.GetSession(ctx, sessionID); err == nil {
-		dbSession.Metadata.ExternalAgentStatus = ""
+		restarting := dbSession.Metadata.ExternalAgentStatus == "restarting"
+		if !restarting {
+			dbSession.Metadata.ExternalAgentStatus = ""
+			dbSession.Metadata.StatusMessage = ""
+		}
 		dbSession.Metadata.PausedScreenshotPath = screenshotPath
-		dbSession.Metadata.StatusMessage = ""
 		if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
 			log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update session after stop")
 		}

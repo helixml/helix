@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -107,6 +108,7 @@ func (s *RestartSessionContainerSuite) TestRestartRecreatesContainerInOrder() {
 	session := zedSession(sessionID, userID, projectID)
 
 	// resumeSessionInternal requires the project to exist and reads repos.
+	s.store.EXPECT().MarkSessionRestarting(gomock.Any(), sessionID).Return(nil).AnyTimes()
 	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{ID: projectID, UserID: userID}, nil).AnyTimes()
 	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	// Refetch + metadata write after StartDesktop.
@@ -142,6 +144,95 @@ func (s *RestartSessionContainerSuite) TestRestartRecreatesContainerInOrder() {
 	}
 }
 
+// TestRestartMarksRestartingBeforeTeardown pins the fix for the "restart looks
+// broken" bug: the session must be marked "restarting" BEFORE StopDesktop, so
+// the whole teardown+boot window reads as a boot in flight. Without the marker
+// the session sits with an empty status and a still-set ContainerName, which
+// the live executor probe downgrades to "stopped" — the UI then renders the
+// paused placeholder and a "Start sandbox" button mid-restart.
+func (s *RestartSessionContainerSuite) TestRestartMarksRestartingBeforeTeardown() {
+	ctx := context.Background()
+	const (
+		userID    = "user_op"
+		projectID = "prj_restart"
+		sessionID = "ses_restart"
+	)
+	user := &types.User{ID: userID}
+	session := zedSession(sessionID, userID, projectID)
+
+	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{ID: projectID, UserID: userID}, nil).AnyTimes()
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil).AnyTimes()
+
+	// The load-bearing ordering: mark THEN tear down THEN boot.
+	gomock.InOrder(
+		s.store.EXPECT().MarkSessionRestarting(gomock.Any(), sessionID).Return(nil).Times(1),
+		s.executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(nil).Times(1),
+		s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(&types.DesktopAgentResponse{DevContainerID: "dev_new"}, nil).Times(1),
+	)
+	// A successful restart never clears the marker — StartDesktop owns the
+	// status from here ("starting" → "running").
+	s.store.EXPECT().ClearSessionStartingStatus(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string) (bool, error) {
+			s.Fail("successful restart must not clear the restarting marker")
+			return false, nil
+		}).AnyTimes()
+
+	s.store.EXPECT().ResetCrashedPromptsForSession(gomock.Any(), sessionID).Return(0, nil).Times(1)
+
+	pumped := make(chan struct{})
+	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), sessionID).DoAndReturn(
+		func(_ context.Context, _ string) (*types.PromptHistoryEntry, error) {
+			close(pumped)
+			return nil, nil
+		}).Times(1)
+
+	_, herr := s.server.restartSessionContainer(ctx, user, session, false)
+	s.Require().Nil(herr)
+
+	select {
+	case <-pumped:
+	case <-time.After(2 * time.Second):
+		s.Fail("processAnyPendingPrompt was not kicked after restart")
+	}
+}
+
+// TestRestartClearsRestartingOnBootFailure pins the failure path: when the boot
+// half of the restart fails, the "restarting" marker must be dropped so the UI
+// lands on the paused placeholder with the error instead of spinning forever.
+func (s *RestartSessionContainerSuite) TestRestartClearsRestartingOnBootFailure() {
+	ctx := context.Background()
+	const (
+		userID    = "user_op"
+		projectID = "prj_restart"
+		sessionID = "ses_restart"
+	)
+	user := &types.User{ID: userID}
+	session := zedSession(sessionID, userID, projectID)
+
+	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{ID: projectID, UserID: userID}, nil).AnyTimes()
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil).AnyTimes()
+
+	s.store.EXPECT().MarkSessionRestarting(gomock.Any(), sessionID).Return(nil).Times(1)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(nil).Times(1)
+	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(nil, errors.New("no capacity")).Times(1)
+
+	cleared := make(chan struct{}, 1)
+	s.store.EXPECT().ClearSessionStartingStatus(gomock.Any(), sessionID).DoAndReturn(
+		func(_ context.Context, _ string) (bool, error) {
+			cleared <- struct{}{}
+			return true, nil
+		}).Times(1)
+
+	_, herr := s.server.restartSessionContainer(ctx, user, session, false)
+	s.Require().NotNil(herr)
+	s.Equal(http.StatusInternalServerError, herr.StatusCode)
+	s.Len(cleared, 1, "a failed restart must clear the restarting marker")
+}
+
 // TestRestartClearsZedThread pins the crash-recovery semantics: when the caller
 // asks for a thread reset (resetThread=true), restart opens a FRESH thread rather
 // than reattaching to the crashed one. A wedged agent often poisons the thread
@@ -159,6 +250,7 @@ func (s *RestartSessionContainerSuite) TestRestartClearsZedThread() {
 	session := zedSession(sessionID, userID, projectID)
 	session.Metadata.ZedThreadID = "poisoned-thread" // a crashed thread to escape
 
+	s.store.EXPECT().MarkSessionRestarting(gomock.Any(), sessionID).Return(nil).AnyTimes()
 	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{ID: projectID, UserID: userID}, nil).AnyTimes()
 	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	// GetSession returns the same pointer we mutate, so resume's post-StartDesktop
@@ -216,6 +308,7 @@ func (s *RestartSessionContainerSuite) TestRestartPreservesThreadWhenNotReset() 
 	session.Metadata.ZedThreadID = "healthy-thread-keep-me"
 	s.registerFakeConn(sessionID) // absorb the preserved-thread open_thread goroutine
 
+	s.store.EXPECT().MarkSessionRestarting(gomock.Any(), sessionID).Return(nil).AnyTimes()
 	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{ID: projectID, UserID: userID}, nil).AnyTimes()
 	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
@@ -290,6 +383,7 @@ func (s *RestartSessionContainerSuite) TestButtonPreservesHealthyThreadResetsWed
 			s.registerFakeConn(sessionID) // absorb the open_thread goroutine in preserve subcases
 
 			s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
+			s.store.EXPECT().MarkSessionRestarting(gomock.Any(), sessionID).Return(nil).AnyTimes()
 			s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{ID: projectID, UserID: userID}, nil).AnyTimes()
 			s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 			s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil).AnyTimes()

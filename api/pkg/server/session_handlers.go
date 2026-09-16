@@ -27,6 +27,43 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// liveExternalAgentStatus reconciles the session's stored external_agent_status
+// against a live executor probe, and is the single place that decision is made.
+// Both getSession and listTasks call it; they used to carry inline copies that
+// had already drifted apart (the list one was right, the session one downgraded
+// in-flight boots to "stopped").
+//
+// The rule:
+//
+//   - Status "starting" or "restarting" → trust the DB. A boot is in flight.
+//     Hydra sets "starting" BEFORE the container exists, and
+//     restartSessionContainer sets "restarting" before tearing the old one
+//     down, so in both windows the executor legitimately doesn't know about the
+//     session. Downgrading here is what made the UI show "Desktop Paused" and a
+//     "Start sandbox" button for the whole 30-90s boot. It also must not
+//     UPGRADE to "running": the container can be up in Docker before RevDial
+//     connects, and claiming "running" early causes ScreenshotViewer 503s.
+//   - No ContainerName → trust the DB. Nothing to probe.
+//   - Otherwise (status "running" or "" with a container) → probe. A failed
+//     probe means the container is genuinely gone, so "stopped".
+func (apiServer *HelixAPIServer) liveExternalAgentStatus(session *types.Session) string {
+	status := session.Metadata.ExternalAgentStatus
+
+	if status == "starting" || status == "restarting" {
+		return status
+	}
+	if session.Metadata.ContainerName == "" {
+		return status
+	}
+	if apiServer.externalAgentExecutor == nil {
+		return "stopped"
+	}
+	if _, err := apiServer.externalAgentExecutor.GetSession(session.ID); err != nil {
+		return "stopped"
+	}
+	return "running"
+}
+
 // getSession godoc
 // @Summary Get a session by ID
 // @Description Get a session by ID
@@ -58,38 +95,7 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 	}
 
 	// Determine external agent status (cheap RPC, no DB).
-	//
-	// The runtime check is authoritative ONLY for sessions that already
-	// have a container_name set on the session metadata. During the
-	// auto-start window, Hydra sets ExternalAgentStatus="starting" on
-	// the session record BEFORE the container is created (so the
-	// frontend can render the "Starting Desktop..." spinner) — but at
-	// that point ContainerName is still empty, so the runtime check
-	// would compute "" and clobber the "starting" value below at line
-	// `session.Metadata.ExternalAgentStatus = agentStatus`. Result:
-	// frontend never sees the "starting" state, useSandboxState
-	// reports isPaused=true throughout the ~30-90s boot, and the user
-	// stares at a "Desktop Paused / Start Desktop" UI for the whole
-	// boot window.
-	//
-	// Fix: when there's no container yet, respect the DB-stored value
-	// (which Hydra has flipped to "starting" if a boot is in flight).
-	// Only overwrite with runtime status when we have an actual
-	// container to check. The earlier behaviour "no container → assume
-	// stopped/empty" was wrong specifically for the boot window.
-	agentStatus := session.Metadata.ExternalAgentStatus
-	if session.Metadata.ContainerName != "" {
-		if apiServer.externalAgentExecutor != nil {
-			_, execErr := apiServer.externalAgentExecutor.GetSession(session.ID)
-			if execErr != nil {
-				agentStatus = "stopped"
-			} else {
-				agentStatus = "running"
-			}
-		} else {
-			agentStatus = "stopped"
-		}
-	}
+	agentStatus := apiServer.liveExternalAgentStatus(session)
 
 	// Compute a lightweight ETag from cheap metadata — avoids loading full interactions
 	// on cache hits (the expensive part). Components: session row updated_at, interaction
@@ -2880,6 +2886,28 @@ func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *type
 
 	previousThreadID := session.Metadata.ZedThreadID
 
+	// Persist "a boot is in flight" BEFORE the teardown. A restart is a stop
+	// followed by a start, and without this marker the session spends the whole
+	// teardown with an empty status but a still-set ContainerName — which the
+	// live executor probe in getSession reads as "stopped", so the UI shows the
+	// paused placeholder and a "Start sandbox" button mid-restart. StopDesktop
+	// deliberately preserves "restarting" (it still clears "running"/"starting",
+	// so stopping a booting desktop is unaffected), and StartDesktop overwrites
+	// it with "starting" → "running" as the new container comes up.
+	if err := s.Store.MarkSessionRestarting(ctx, sessionID); err != nil {
+		// Non-fatal: the restart itself still works, the user just sees a
+		// stale status until StartDesktop writes "starting".
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to mark session restarting (continuing — UI may briefly show stopped)")
+	}
+
+	// clearRestarting drops the in-flight marker so a failed restart lands on
+	// the paused placeholder instead of a spinner that never resolves.
+	clearRestarting := func() {
+		if _, err := s.Store.ClearSessionStartingStatus(ctx, sessionID); err != nil {
+			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to clear restarting status after failed restart")
+		}
+	}
+
 	// Tear down the half-dead container so the resume path below brings up a clean
 	// one — the in-container agent process has crashed but the surrounding Zed
 	// wrapper / container may still be running with stale state. StopDesktop is
@@ -2902,6 +2930,7 @@ func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *type
 		session.Metadata.ZedThreadID = ""
 		if err := s.Store.UpdateSessionMetadata(ctx, sessionID, session.Metadata); err != nil {
 			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to clear zed thread for crash-restart")
+			clearRestarting()
 			return 0, system.NewHTTPError500(fmt.Sprintf("failed to clear zed thread for restart: %s", err.Error()))
 		}
 	}
@@ -2912,11 +2941,14 @@ func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *type
 	// files and state persist across the restart.
 	if _, err := s.resumeSessionInternal(ctx, user, session); err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to resume session during crash-restart")
+		clearRestarting()
 		return 0, system.NewHTTPError500(fmt.Sprintf("failed to restart agent: %s", err.Error()))
 	}
 
 	resetCount, err := s.Store.ResetCrashedPromptsForSession(ctx, sessionID)
 	if err != nil {
+		// No clearRestarting() here: the new container is already up and owns
+		// the status ("starting" → "running"). Only the prompt reset failed.
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to reset crashed prompts for restart")
 		return 0, system.NewHTTPError500(fmt.Sprintf("failed to reset crashed prompts: %s", err.Error()))
 	}

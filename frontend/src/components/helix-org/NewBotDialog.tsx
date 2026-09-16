@@ -105,9 +105,9 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, onCreated, presetP
     if (chiefOfStaff?.session_id) {
       appendPromptDraft(chiefOfStaff.session_id, draft)
       onClose()
-      router.navigate('org_session', {
+      router.navigate('org_bot_session', {
         org_id: organizationId,
-        session_id: chiefOfStaff.session_id,
+        bot_id: 'chief-of-staff',
       })
       return
     }
