@@ -47,6 +47,19 @@ func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
 		return nil
 	}
 
+	// A zero-amount invoice moves no money, so it is never the successful
+	// bill that grants credits. Trials produce one at subscription
+	// creation; deciding from the invoice payload itself keeps a transient
+	// subscription-fetch failure from granting the monthly allotment at
+	// trial start.
+	if invoice.AmountDue == 0 {
+		log.Info().
+			Str("invoice_id", invoice.ID).
+			Str("subscription_id", invoice.Subscription.ID).
+			Msg("skipping subscription topup for zero-value invoice")
+		return nil
+	}
+
 	wallet, err := s.store.GetWalletByStripeCustomerID(context.Background(), invoice.Customer.ID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -64,7 +77,8 @@ func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
 	// already chose the exact grant amount.
 	//
 	// Gate kept narrow on purpose:
-	//   - subscription_create + trialing: suppresses every trial's $0 invoice.
+	//   - amount_due == 0: never a real charge, no subscription fetch needed.
+	//   - subscription_create + trialing: belt for any other trial invoice.
 	//   - admin_granted + trialing: preserves the existing admin grant behavior.
 	//   - once active, the first paid invoice grants credits normally.
 	sub, subErr := subscription.Get(invoice.Subscription.ID, nil)

@@ -280,6 +280,43 @@ func Test_handleInvoicePaymentPaidEvent_ProductLookupFailure(t *testing.T) {
 	require.True(t, backend.productInvoked)
 }
 
+// Test_handleInvoicePaymentPaidEvent_ZeroValueInvoice_SkipsWithoutFetch pins
+// the credit policy for trial invoices: a zero-amount invoice moves no money,
+// so it must never grant credits, even when the live subscription lookup
+// would fail. The zero check reads the invoice payload itself, so the
+// backend has no API paths wired — any Stripe call, or any
+// UpdateWalletBalance, fails the test.
+func Test_handleInvoicePaymentPaidEvent_ZeroValueInvoice_SkipsWithoutFetch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	store := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{SecretKey: "sk_test_invoice_paid"}, store)
+
+	bts, err := os.ReadFile("testdata/paid.json")
+	require.NoError(t, err)
+	var event stripe.Event
+	require.NoError(t, json.Unmarshal(bts, &event))
+
+	// Turn the fixture into a trial's $0 subscription-create invoice.
+	var inv stripe.Invoice
+	require.NoError(t, json.Unmarshal(event.Data.Raw, &inv))
+	inv.AmountDue = 0
+	inv.Total = 0
+	raw, err := json.Marshal(inv)
+	require.NoError(t, err)
+	event.Data.Raw = raw
+
+	backend := &invoiceWebhookBackend{t: t}
+	installInvoiceWebhookBackend(t, backend)
+
+	// No store or Stripe expectations: gomock fails the test if the handler
+	// fetches anything or tries to credit.
+	require.NoError(t, s.handleInvoicePaymentPaidEvent(event))
+	require.False(t, backend.subscriptionInvoked)
+	require.False(t, backend.productInvoked)
+}
+
 // Test_handleInvoicePaymentPaidEvent_AdminGrantedTrial_SkipsAutoCredit pins
 // down the fix for the SaaS bug reported by Karolis: an admin-granted trial
 // activation produced a wallet balance N+100 instead of N, because the auto

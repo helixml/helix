@@ -800,7 +800,9 @@ describe('Onboarding', () => {
     expect(screen.queryByText(/current balance:/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/includes .*AI credits/i)).not.toBeInTheDocument()
     expect(screen.getByText(/card will not be charged for 72 hours/i)).toBeInTheDocument()
+    expect(screen.getByText(/trial starts with no helix credits/i)).toBeInTheDocument()
     expect(screen.getByText(/automatically continues for \$499\/month/i)).toBeInTheDocument()
+    expect(screen.getByText(/monthly credits are added when the first payment succeeds/i)).toBeInTheDocument()
     expect(screen.getByText(/cancel before the trial ends/i)).toBeInTheDocument()
   })
 

@@ -1120,7 +1120,7 @@ export default function Onboarding() {
                           ? "Confirming your free trial with Stripe..."
                           : "Confirming your subscription with Stripe..."
                         : trialEligible
-                          ? "Your card will not be charged for 72 hours. After that, your subscription automatically continues for $499/month. Cancel before the trial ends to avoid the first charge."
+                          ? "Your card will not be charged for 72 hours and the trial starts with no Helix credits. After that, your subscription automatically continues for $499/month and the monthly credits are added when the first payment succeeds. Cancel before the trial ends to avoid the first charge."
                           : "Subscribe to Helix Business for $499/month, charged today."}
                 </Typography>
                 {isSubscriptionActive && wallet ? (
