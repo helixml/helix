@@ -755,6 +755,35 @@ export default function Onboarding() {
   }, [account.user?.id, selectedOrgId, existingOrgs, markStepCompleteByType, snackbar]);
 
   const handleCreateOrg = useCallback(async () => {
+    // The checkout round trip can re-enter this step (redirect, refresh, or a
+    // lost draft) after the canonical organization already exists. Resolve to
+    // it instead of creating a duplicate organization.
+    if (createdOrg?.id) {
+      markStepCompleteByType("organization");
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const urlOrgId = params.get("org_id");
+    const isOwnedByViewer = (org: (typeof existingOrgs)[number]) =>
+      org.owner === account.user?.id
+      || !!org.memberships?.some((membership) =>
+        membership.user_id === account.user?.id && membership.role === "owner");
+    const canonicalOrg = existingOrgs.find((org) => org.id === urlOrgId && isOwnedByViewer(org))
+      || existingOrgs.find(isOwnedByViewer);
+    if (canonicalOrg?.id) {
+      setCreatedOrg({
+        id: canonicalOrg.id,
+        name: canonicalOrg.name,
+        display_name: canonicalOrg.display_name,
+        viewer_is_owner: true,
+      });
+      setCreatedOrgDuringOnboarding(
+        urlOrgId === canonicalOrg.id && params.get("created_org") === "true",
+      );
+      markStepCompleteByType("organization");
+      return;
+    }
+
     if (!orgDisplayName.trim()) {
       snackbar.error("Please enter an organization name");
       return;
@@ -771,6 +800,13 @@ export default function Onboarding() {
           viewer_is_owner: true,
         });
         setCreatedOrgDuringOnboarding(true);
+        // Pin the canonical organization id into the continuation state so it
+        // survives redirect and refresh even without the localStorage draft.
+        window.history.replaceState(
+          {},
+          "",
+          `/onboarding?org_id=${newOrg.id}&created_org=true`,
+        );
         await account.organizationTools.loadOrganizations();
         markStepCompleteByType("organization");
       }
@@ -779,10 +815,13 @@ export default function Onboarding() {
       snackbar.error("Failed to create organization");
     }
   }, [
-    orgDisplayName,
-    createOrgMutation,
     account.organizationTools,
+    account.user?.id,
+    createOrgMutation,
+    createdOrg?.id,
+    existingOrgs,
     markStepCompleteByType,
+    orgDisplayName,
     snackbar,
   ]);
 
