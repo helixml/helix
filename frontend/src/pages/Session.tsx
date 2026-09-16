@@ -232,9 +232,10 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
 interface SessionProps {
   previewMode?: boolean;
   orgChatView?: boolean;
+  sessionId?: string;
 }
 
-const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false }) => {
+const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, sessionId }) => {
   const snackbar = useSnackbar()
   const api = useApi()
   const router = useRouter()
@@ -243,7 +244,10 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   const { data: serverConfigData } = useGetConfig()
   const isCloud = serverConfigData?.edition === 'cloud'
 
-  let sessionID = router.params.session_id
+  const sessionID = sessionId
+    || router.params.session_id
+    || new URLSearchParams(window.location.search).get('sessionID')
+    || ''
 
   const { mutate: updateSession } = useUpdateSession(sessionID)
 
@@ -265,12 +269,6 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   })
 
   const isOwner = account.user?.id == session?.data?.owner
-
-  // If params sessionID is not set, try to get it from URL query param sessionId=
-  if (!sessionID) {
-    const urlParams = new URLSearchParams(window.location.search)
-    sessionID = urlParams.get('sessionID') || ''
-  }
 
   const containerRef = useRef<HTMLDivElement>(null)
   const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null)
@@ -300,7 +298,19 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   // this org chat surface needs it — other Session mounts (spec tasks,
   // ordinary project chat) leave org_worker_id empty, so the lookup and
   // restart-required banner stay inert there.
-  const orgWorkerId = (orgChatView && session?.data?.config?.org_worker_id) || ''
+  const orgWorkerId = (orgChatView && (
+    router.params.bot_id || session?.data?.config?.org_worker_id
+  )) || ''
+
+  useEffect(() => {
+    const orgID = router.params.org_id || ''
+    const botID = session?.data?.config?.org_worker_id || ''
+    if (!orgChatView || router.name !== 'org_session' || !orgID || !botID) return
+    router.navigateReplace('org_bot_session', {
+      org_id: orgID,
+      bot_id: botID,
+    })
+  }, [orgChatView, router.name, router.params.org_id, session?.data?.config?.org_worker_id]) // eslint-disable-line react-hooks/exhaustive-deps
   // Polled: the workspace gates Diff, Files, Browser and the terminal on the
   // agent's sandbox status, which changes underneath an open page whenever the
   // agent starts, stops or is restarted.

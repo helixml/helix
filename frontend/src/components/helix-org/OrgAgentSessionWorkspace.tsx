@@ -76,6 +76,11 @@ const loadTerminalHeight = (key: string): number => {
 export const botSandboxIndicatorState = (bot?: BotDTO): SandboxIndicatorState => {
   if (!bot) return 'running'
   if (bot.status === 'running') return 'running'
+  // A boot in flight — whether reported by the session's own lifecycle status
+  // or by the sandboxes row — must read as "starting", never "stopped".
+  // Showing "stopped" mid-restart invites a second Start click on a bot that
+  // is already coming up.
+  if (bot.status === 'starting') return 'starting'
   if (bot.sandbox_status === 'pending') return 'starting'
   return 'stopped'
 }

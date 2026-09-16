@@ -53,7 +53,12 @@ export const deriveSandboxState = (
     sandboxState = "absent";
   } else if (status === "running" || (hasContainer && desiredState === "running")) {
     sandboxState = "running";
-  } else if (status === "starting") {
+  } else if (status === "starting" || status === "restarting") {
+    // "restarting" is a distinct backend status (written before StopDesktop so
+    // the teardown half of a restart still reads as a boot in flight), but the
+    // UI treats it exactly as "starting": spinner, no Start button, stream kept
+    // mounted. The user-visible difference is carried by status_message
+    // ("Restarting desktop..."), so no consumer needs a fourth SandboxState.
     sandboxState = "starting";
   } else if (desiredState === "stopped") {
     sandboxState = "absent";

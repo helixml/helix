@@ -109,7 +109,7 @@ const SidebarContentInner: React.FC<{
   const account = useAccount()
   const appTools = useApp(params.app_id)
   const snackbar = useSnackbar()
-  const isConversationRoute = ['org_chat', 'org_chat-task', 'org_session', 'org_new'].includes(router.name)
+  const isConversationRoute = ['org_chat', 'org_chat-task', 'org_session', 'org_bot_session', 'org_new'].includes(router.name)
 
   // New file menu state
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
