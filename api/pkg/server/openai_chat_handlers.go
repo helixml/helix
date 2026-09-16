@@ -24,6 +24,8 @@ const (
 	BYTE = 1 << (10 * iota)
 	KILOBYTE
 	MEGABYTE
+
+	maxChatCompletionRequestBodyBytes = 10 * MEGABYTE
 )
 
 // POST https://app.helix.ml/v1/chat/completions
@@ -96,9 +98,14 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
+	body, err := io.ReadAll(http.MaxBytesReader(rw, r.Body, maxChatCompletionRequestBodyBytes))
 	if err != nil {
 		log.Error().Err(err).Msg("error reading body")
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			http.Error(rw, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
