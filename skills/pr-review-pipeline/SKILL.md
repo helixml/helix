@@ -23,7 +23,7 @@ GitHub repo (pull_request events)
 | `coordinator-instructions.md` | The coordinator Bot's `content` — apply verbatim to `REPLACE_BOT` (the only source of truth; edit here, not in the bot). |
 | `reviewer-brief.md` | The per-review-task brief template the coordinator pastes into each dispatched `create_spectask`. |
 | `auth-ops.md` | GitHub token doctrine — read it before touching auth, and put it on any bot that posts reviews. |
-| `scripts/post_review.sh` | Runnable asset for review tasks: posts `review.json` to GitHub and verifies via the reviews API that exactly one review exists at the commit. |
+| `scripts/post_review.sh` | Runnable asset for review tasks: posts `review.json` (event APPROVE or COMMENT — REQUEST_CHANGES is rejected; inline `comments` pass through) to GitHub and verifies via the reviews API that exactly one review exists at the commit. |
 
 ## Placeholders (REPLACE before use — the skill is repo-agnostic)
 
@@ -164,6 +164,7 @@ Never hand-edit bot content or processor code on the box — that silently forks
 
 ## Hard rules (why the pipeline is shaped this way)
 
+- **Verdicts: APPROVE or COMMENT only.** Never REQUEST_CHANGES — a bot review must never block a merge. Findings ship as ≤5 short inline comments anchored to exact diff lines; the body carries only ≤2 verified-state lines + `Reviewed: <sha>` (banned: opener verdict, "Must fix:"/"Also:" sections, numbered file:line body findings, effort estimates — see reviewer-brief.md §8). Tone: zero chatiness.
 - **One review per (PR, SHA), always verified.** `scripts/post_review.sh` POSTs once and refuses to report success unless the reviews API shows exactly one review at the commit. Never claim a review you cannot verify.
 - **Self-loop discipline.** Events caused by `REVIEWER_LOGIN` never start work; the coordinator never reviews itself.
 - **Auth failures follow [auth-ops.md](auth-ops.md)** — one re-mint max, stop-with-verbatim-headers, and the salvage pattern so a finished review dies nowhere near a broken token.

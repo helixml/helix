@@ -11,7 +11,7 @@
 #        GH_API                     (API base, default https://api.github.com; GHE override)
 #
 # review.json shape:
-#   { "event": "APPROVE" | "COMMENT" | "REQUEST_CHANGES",
+#   { "event": "APPROVE" | "COMMENT",
 #     "commit_id": "<head sha the review was written against>",
 #     "body_file": "<path to review body markdown>" }
 #
@@ -37,7 +37,15 @@ REVIEW_DIR="$(cd "$(dirname "$REVIEW_JSON")" && pwd)"
 EVENT="$(jq -re '.event' "$REVIEW_JSON")" || die "review.json missing .event"
 COMMIT="$(jq -re '.commit_id' "$REVIEW_JSON")" || die "review.json missing .commit_id"
 BODY_REL="$(jq -re '.body_file' "$REVIEW_JSON")" || die "review.json missing .body_file"
-case "$EVENT" in APPROVE|COMMENT|REQUEST_CHANGES) ;; *) die "invalid event '$EVENT' (want APPROVE|COMMENT|REQUEST_CHANGES)" ;; esac
+# Optional inline findings: [{"path":...,"line":...,"body":...}], ranges via start_line,
+# subject_type:"FILE" only when line-anchoring is impossible (one short sentence each, max 5).
+COMMENTS="$(jq -c '.comments // []' "$REVIEW_JSON")"
+if [ "$COMMENTS" != "[]" ]; then
+  jq -e 'all(.[]; .path and .body and (.line != null or .subject_type == "FILE"))' <<<"$COMMENTS" >/dev/null \
+    || die "each review.json .comments entry needs path, body, and line (or subject_type==\"FILE\")"
+  [ "$(jq 'length' <<<"$COMMENTS")" -le 5 ] || die "max 5 inline comments (operator policy)"
+fi
+case "$EVENT" in APPROVE|COMMENT) ;; *) die "invalid event '$EVENT' — APPROVE|COMMENT only; REQUEST_CHANGES is rejected by policy: a bot review must never block a merge" ;; esac
 [[ "$COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || die "commit_id must be a full 40-char sha, got '$COMMIT'"
 
 BODY_FILE="$BODY_REL"
@@ -46,8 +54,8 @@ BODY_FILE="$BODY_REL"
 
 PAYLOAD="$(mktemp)"; RESP="$(mktemp)"; HEADERS="$(mktemp)"
 trap 'rm -f "$PAYLOAD" "$RESP" "$HEADERS"' EXIT
-jq -n --arg event "$EVENT" --arg sha "$COMMIT" --rawfile body "$BODY_FILE" \
-  '{event:$event, commit_id:$sha, body:$body}' > "$PAYLOAD"
+jq -n --arg event "$EVENT" --arg sha "$COMMIT" --rawfile body "$BODY_FILE" --argjson comments "$COMMENTS" \
+  '{event:$event, commit_id:$sha, body:$body} + (if $comments == [] then {} else {comments:$comments} end)' > "$PAYLOAD"
 
 API_URL="$API/repos/$REPO/pulls/$PR/reviews"
 

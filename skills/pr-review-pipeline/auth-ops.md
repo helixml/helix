@@ -35,7 +35,7 @@ Verifying state (does a review exist? what is the head SHA?) needs no auth on a 
 
 A reviewer that finished its analysis but cannot post (auth dead for any reason) does **not** lose the work:
 
-1. Write the finished verdict + the exact review body to its own workspace disk: the body file plus a `review.json` manifest `{ "event": "APPROVE|COMMENT|REQUEST_CHANGES", "commit_id": "<sha reviewed>", "body_file": "<path>" }`.
+1. Write the finished verdict + the exact review body (and its inline `comments`) to its own workspace disk: the body file plus a `review.json` manifest `{ "event": "APPROVE|COMMENT", "commit_id": "<sha reviewed>", "body_file": "<path>" }`.
 2. Report that the verdict is on disk, with path and PR/SHA, and mark the task as needing a fresh dispatch to post.
 3. A fresh task (fresh sandbox, fresh token) runs [scripts/post_review.sh](scripts/post_review.sh) against that `review.json` and posts it.
 
