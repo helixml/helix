@@ -62,6 +62,7 @@ type openCodeConfig struct {
 	SmallModel       string                    `json:"small_model"`
 	Permission       map[string]string         `json:"permission"`
 	Agent            map[string]openCodeAgent  `json:"agent,omitempty"`
+	Plugin           []string                  `json:"plugin"`
 	Autoupdate       bool                      `json:"autoupdate"`
 	EnabledProviders []string                  `json:"enabled_providers"`
 	Provider         map[string]openCodeVendor `json:"provider"`
@@ -111,6 +112,8 @@ type openCodeModelOption struct {
 // — opencode treats everything after the first slash as the model name, which
 // is exactly the provider-prefixed id the Helix proxy routes on.
 const openCodeProviderID = "helix"
+
+const openCodeMediaBudgetPlugin = "file:///opt/helix/opencode-plugins/helix-media-budget.mjs"
 
 // DS4 Flash is useful for fast tool work but can keep choosing another agentic
 // step when its stop signal degrades. A bounded turn forces a text handoff
@@ -165,6 +168,7 @@ func (d *SettingsDaemon) buildOpenCodeConfig(baseURL string) openCodeConfig {
 			// allow disabled that safety mechanism in our headless runtime.
 			"doom_loop": "deny",
 		},
+		Plugin: []string{openCodeMediaBudgetPlugin},
 		// Never let opencode swap its own binary mid-session: the running
 		// version is pinned by the image or by the admin override, and an
 		// in-place upgrade would bypass both plus our digest check.
