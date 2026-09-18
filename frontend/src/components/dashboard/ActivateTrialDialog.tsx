@@ -45,6 +45,11 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
     // A stashed intent (granted before the user created an org) shows up as
     // trial_status "stashed"; its values prefill the form and can be undone.
     const hasStash = user?.trial_status === 'stashed';
+    const stashParts = [
+        user?.trial_days_on_first_org ? `${user.trial_days_on_first_org}d` : '',
+        user?.trial_credits_on_first_org ? `$${user.trial_credits_on_first_org}` : '',
+    ].filter(Boolean);
+    const stashSummary = stashParts.length ? ` (${stashParts.join(', ')})` : '';
 
     useEffect(() => {
         if (open) {
@@ -137,11 +142,8 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
 
                     {hasStash && (
                         <Alert severity="warning" sx={{ mb: 2 }}>
-                            This user already has a stashed trial
-                            {user?.trial_days_on_first_org ? ` (${user.trial_days_on_first_org}d` : ''}
-                            {user?.trial_credits_on_first_org ? `, $${user.trial_credits_on_first_org}` : ''}
-                            {user?.trial_days_on_first_org ? ')' : ''}. Activating replaces it; the fields are
-                            prefilled with the current values.
+                            This user already has a stashed trial{stashSummary}. Activating replaces it; the
+                            fields are prefilled with the current values.
                         </Alert>
                     )}
 

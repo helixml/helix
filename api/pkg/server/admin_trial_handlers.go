@@ -420,19 +420,33 @@ func (apiServer *HelixAPIServer) adminRevokeTrial(_ http.ResponseWriter, req *ht
 		return nil, system.NewHTTPError404("user not found")
 	}
 
+	// Clear any stashed trial intent unconditionally, BEFORE the org_id
+	// guard: consumeUserTrialIntent is best-effort, so a Stripe failure
+	// during first-org creation can leave a stash on an org-owning user.
+	// Without this, such a stuck stash could never be cleared.
+	stashedCleared := false
+	if targetUser.TrialDaysOnFirstOrg != nil || targetUser.TrialCreditsOnFirstOrg != nil {
+		targetUser.TrialDaysOnFirstOrg = nil
+		targetUser.TrialCreditsOnFirstOrg = nil
+		if _, err := apiServer.Store.UpdateUser(ctx, targetUser); err != nil {
+			return nil, system.NewHTTPError500("failed to clear trial intent: " + err.Error())
+		}
+		stashedCleared = true
+	}
+
 	ownedOrgs, err := apiServer.Store.ListOrganizations(ctx, &store.ListOrganizationsQuery{Owner: targetUserID})
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to list user organizations: " + err.Error())
 	}
 
-	// Explicit org selection: the admin picks which org's trial to revoke,
-	// mirroring the activate endpoint. No silent "oldest owned org" pick.
+	// Explicit org selection for the cancel action: the admin picks which
+	// org's trial to revoke, mirroring the activate endpoint. No silent
+	// "oldest owned org" pick. A DELETE without org_id only clears a stash
+	// (see above) — allowed even for org owners, since a leftover stash from
+	// a failed first-org application has no org to name.
 	orgID := req.URL.Query().Get("org_id")
 	cancelledOrgID := ""
-	if len(ownedOrgs) > 0 {
-		if orgID == "" {
-			return nil, system.NewHTTPError400(fmt.Sprintf("org_id is required: user owns %d organisation(s), pick which one to revoke", len(ownedOrgs)))
-		}
+	if orgID != "" {
 		selectedOrg := findOwnedOrg(ownedOrgs, orgID)
 		if selectedOrg == nil {
 			return nil, system.NewHTTPError400(fmt.Sprintf("user does not own organisation %s", orgID))
@@ -456,16 +470,8 @@ func (apiServer *HelixAPIServer) adminRevokeTrial(_ http.ResponseWriter, req *ht
 			log.Warn().Err(err).Str("wallet_id", wallet.ID).Msg("failed to persist cancelled subscription state to wallet (webhook will retry)")
 		}
 		cancelledOrgID = selectedOrg.ID
-	}
-
-	stashedCleared := false
-	if targetUser.TrialDaysOnFirstOrg != nil || targetUser.TrialCreditsOnFirstOrg != nil {
-		targetUser.TrialDaysOnFirstOrg = nil
-		targetUser.TrialCreditsOnFirstOrg = nil
-		if _, err := apiServer.Store.UpdateUser(ctx, targetUser); err != nil {
-			return nil, system.NewHTTPError500("failed to clear trial intent: " + err.Error())
-		}
-		stashedCleared = true
+	} else if len(ownedOrgs) > 0 && !stashedCleared {
+		return nil, system.NewHTTPError400(fmt.Sprintf("org_id is required: user owns %d organisation(s), pick which one to revoke", len(ownedOrgs)))
 	}
 
 	status := "noop"
