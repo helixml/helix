@@ -268,6 +268,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   const renderedItems = windowSidebarItems(filteredItems, activeItemId, pagination.visibleCount)
   const hasMore = filteredItems.length > pagination.visibleCount || tasks.length >= pagination.requestCount
   const active = bot.id === activeItemId || (!!bot.sessionId && bot.sessionId === activeItemId)
+  const showWorkingIndicator = bot.working && !active
   const statusTitle = bot.running
     ? (bot.restartRequired ? 'Running · restart required to apply changes' : 'Agent running')
     : 'Agent stopped'
@@ -396,10 +397,10 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
               height: 24,
               position: 'relative',
               flexShrink: 0,
-              '@media (hover: none)': { width: bot.working ? 48 : 24 },
+              '@media (hover: none)': { width: showWorkingIndicator ? 48 : 24 },
             }}
           >
-            {bot.working && (
+            {showWorkingIndicator && (
               <Tooltip title="Working">
                 <Box
                   className="sidebar-bot-working"
@@ -426,7 +427,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
                 sx={{
                   position: 'absolute',
                   inset: 0,
-                  '@media (hover: none)': { left: bot.working ? 24 : 0 },
+                  '@media (hover: none)': { left: showWorkingIndicator ? 24 : 0 },
                 }}
               >
                 <IconButton

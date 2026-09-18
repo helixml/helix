@@ -16,7 +16,7 @@ vi.mock('../../services/specTaskService', () => ({
   useSpecTasks: () => ({ data: [], isLoading: false, isFetching: false, isError: false }),
 }))
 
-const renderBot = (bot: SidebarBot) => render(
+const renderBot = (bot: SidebarBot, activeItemId = '') => render(
   <ProjectChatBotEntry
     orgId="org-one"
     bot={bot}
@@ -24,7 +24,7 @@ const renderBot = (bot: SidebarBot) => render(
     busy={false}
     projects={[]}
     query=""
-    activeItemId=""
+    activeItemId={activeItemId}
     relativeTimeNow={Date.now()}
     enabled
     organizationMembers={[]}
@@ -63,6 +63,23 @@ describe('ProjectChatBotEntry', () => {
       working: false,
       restartRequired: false,
     })
+
+    expect(screen.queryByRole('status', { name: 'Working' })).toBeNull()
+    expect(container.querySelector('[data-bot-status="running"]')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['bot id', 'chief'],
+    ['session id', 'ses-chief'],
+  ])('hides the working indicator when selected by %s', (_, activeItemId) => {
+    const { container } = renderBot({
+      id: 'chief',
+      name: 'Chief of Staff',
+      running: true,
+      working: true,
+      restartRequired: false,
+      sessionId: 'ses-chief',
+    }, activeItemId)
 
     expect(screen.queryByRole('status', { name: 'Working' })).toBeNull()
     expect(container.querySelector('[data-bot-status="running"]')).toBeInTheDocument()
