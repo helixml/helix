@@ -291,17 +291,16 @@ export function useAdminActivateTrial() {
 }
 
 export interface RevokeTrialInput {
-    userId: string;
-    // org_id set → cancel that org's trialing subscription (org screen).
-    // Omitted → clear any stashed trial intent on the user (user screen).
-    orgId?: string;
+    userId: string; // org owner
+    orgId: string;
 }
 
 /**
- * Hook to revoke a trial (cloud edition, admin only). With org_id: cancels
- * that org's trialing Stripe subscription and mirrors the cancelled wallet
- * state immediately. Without: clears any stashed trial intent on the user.
- * Paid subscriptions are never cancelled.
+ * Hook to revoke the trial on a specific org (cloud edition, admin only).
+ * Cancels that org's trialing Stripe subscription and mirrors the cancelled
+ * wallet state immediately. Paid subscriptions are never cancelled. The
+ * backend endpoint also clears stashed user intents (DELETE without org_id),
+ * which has no UI surface anymore.
  */
 export function useAdminRevokeTrial() {
     const api = useApi();
@@ -323,17 +322,16 @@ export function useAdminRevokeTrial() {
 }
 
 export interface GrantCreditsInput {
-    userId: string;
-    // org_id set → top up that org's wallet (org screen). Omitted → stash the
-    // grant on the user for their first owned org (user screen onboarding flow).
-    orgId?: string;
+    userId: string; // org owner
+    orgId: string;
     credits: number;
 }
 
 /**
- * Hook to grant credits (cloud edition, admin only). With org_id: tops up
- * that org's wallet regardless of subscription state. Without: grant stashed
- * on the user, applied to their first owned org.
+ * Hook to grant credits to a specific org's wallet (cloud edition, admin
+ * only). Works regardless of subscription state. The backend endpoint also
+ * stashes grants on org-less users (POST without org_id), which has no UI
+ * surface anymore.
  */
 export function useAdminGrantCredits() {
     const api = useApi();

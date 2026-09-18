@@ -29,8 +29,6 @@ import LockResetIcon from "@mui/icons-material/LockReset";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CardGiftcardIcon from "@mui/icons-material/CardGiftcard";
-import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
-import CancelIcon from "@mui/icons-material/Cancel";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { TypesAuthProvider, TypesUser } from "../../api/api";
 import {
@@ -45,8 +43,6 @@ import CreateUserDialog from "./CreateUserDialog";
 import ResetPasswordDialog from "./ResetPasswordDialog";
 import DeleteUserDialog from "./DeleteUserDialog";
 import ActivateTrialDialog from "./ActivateTrialDialog";
-import GrantCreditsDialog from "./GrantCreditsDialog";
-import RevokeTrialDialog from "./RevokeTrialDialog";
 
 // Helper function to format date for tooltip
 const formatFullDate = (dateString: string | undefined): string => {
@@ -165,8 +161,6 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
     const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [activateTrialDialogOpen, setActivateTrialDialogOpen] = useState(false);
-    const [grantCreditsDialogOpen, setGrantCreditsDialogOpen] = useState(false);
-    const [revokeTrialDialogOpen, setRevokeTrialDialogOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<TypesUser | null>(null);
     const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
     const [menuUser, setMenuUser] = useState<TypesUser | null>(null);
@@ -200,18 +194,6 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
         setSelectedUser(menuUser);
         closeMenu();
         setActivateTrialDialogOpen(true);
-    };
-
-    const handleGrantCredits = () => {
-        setSelectedUser(menuUser);
-        closeMenu();
-        setGrantCreditsDialogOpen(true);
-    };
-
-    const handleRevokeTrial = () => {
-        setSelectedUser(menuUser);
-        closeMenu();
-        setRevokeTrialDialogOpen(true);
     };
 
     const handleResetPassword = () => {
@@ -465,18 +447,6 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
                         <ListItemText>Activate trial</ListItemText>
                     </MenuItem>
                 )}
-                {isCloud && trialActiveOrStashed(menuUser) && (
-                    <MenuItem onClick={handleRevokeTrial}>
-                        <ListItemIcon><CancelIcon fontSize="small" sx={{ color: "warning.main" }} /></ListItemIcon>
-                        <ListItemText>Revoke trial</ListItemText>
-                    </MenuItem>
-                )}
-                {isCloud && (
-                    <MenuItem onClick={handleGrantCredits}>
-                        <ListItemIcon><AttachMoneyIcon fontSize="small" /></ListItemIcon>
-                        <ListItemText>Give them credits</ListItemText>
-                    </MenuItem>
-                )}
                 <MenuItem onClick={handleResetPassword}>
                     <ListItemIcon><LockResetIcon fontSize="small" /></ListItemIcon>
                     <ListItemText>Reset password</ListItemText>
@@ -508,22 +478,6 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
                 open={activateTrialDialogOpen}
                 onClose={() => {
                     setActivateTrialDialogOpen(false);
-                    setSelectedUser(null);
-                }}
-                user={selectedUser}
-            />
-            <GrantCreditsDialog
-                open={grantCreditsDialogOpen}
-                onClose={() => {
-                    setGrantCreditsDialogOpen(false);
-                    setSelectedUser(null);
-                }}
-                user={selectedUser}
-            />
-            <RevokeTrialDialog
-                open={revokeTrialDialogOpen}
-                onClose={() => {
-                    setRevokeTrialDialogOpen(false);
                     setSelectedUser(null);
                 }}
                 user={selectedUser}
