@@ -35,6 +35,7 @@ vi.mock('../../services/helixOrgService', () => ({
   useActivateBot: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useStopBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRestartBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useApplyBotConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 vi.mock('../../services/workerChatSession', () => ({
   fetchExistingWorkerSession: (projectId: string) => Promise.resolve(`session-${projectId}`),

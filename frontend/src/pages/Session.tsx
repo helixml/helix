@@ -68,7 +68,7 @@ import {
 import { splitSystemPrefix } from '../components/session/CollapsibleSystemPrefix'
 import OrgAgentSessionWorkspace from '../components/helix-org/OrgAgentSessionWorkspace'
 import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
-import { useActivateBot, useHelixOrgBot, useRestartBotAgent, useStopBotAgent } from '../services/helixOrgService'
+import { useActivateBot, useApplyBotConfig, useHelixOrgBot, useRestartBotAgent, useStopBotAgent } from '../services/helixOrgService'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -320,6 +320,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
   })
   const orgBot = orgBotDetail?.bot
   const restartOrgBotAgent = useRestartBotAgent()
+  const applyBotConfig = useApplyBotConfig()
   const activateOrgBotAgent = useActivateBot()
   const stopOrgBotAgent = useStopBotAgent()
   const orgBotLifecycleBusy = restartOrgBotAgent.isPending || activateOrgBotAgent.isPending || stopOrgBotAgent.isPending
@@ -1673,8 +1674,8 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
         key={orgWorkerId}
         visible={!!orgBot?.restart_required}
         working={!!sessionID && isStreaming}
-        busy={restartOrgBotAgent.isPending}
-        onRestart={() => { if (orgWorkerId) void restartOrgBotAgent.mutateAsync(orgWorkerId) }}
+        busy={restartOrgBotAgent.isPending || applyBotConfig.isPending}
+        onRestart={() => { if (orgWorkerId) void applyBotConfig.mutateAsync(orgWorkerId) }}
       />
       {isExternalAgent ? (
         <OrgAgentSessionWorkspace

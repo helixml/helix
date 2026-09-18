@@ -39,7 +39,6 @@ func (s *Stripe) GetTopUpSessionURL(
 	if err != nil {
 		return "", err
 	}
-
 	// Convert amount to cents for Stripe
 	amountInCents := int64(math.Round(params.Amount * 100))
 	metadata := topUpMetadata(params.UserID, params.OrgID, amountInCents)
@@ -63,6 +62,23 @@ func (s *Stripe) GetTopUpSessionURL(
 		return "", err
 	}
 
+	lineItem := &stripe.CheckoutSessionLineItemParams{Quantity: stripe.Int64(1)}
+	if amountInCents == 500 {
+		if s.cfg.PromoCreditPriceID == "" {
+			return "", fmt.Errorf("stripe promo credit price ID is required")
+		}
+		lineItem.Price = stripe.String(s.cfg.PromoCreditPriceID)
+	} else {
+		lineItem.PriceData = &stripe.CheckoutSessionLineItemPriceDataParams{
+			Currency: stripe.String("usd"),
+			ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
+				Name:        stripe.String("Helix Credits"),
+				Description: stripe.String(fmt.Sprintf("Top up of $%.2f", params.Amount)),
+			},
+			UnitAmount: stripe.Int64(amountInCents),
+		}
+	}
+
 	checkoutParams := &stripe.CheckoutSessionParams{
 		AllowPromotionCodes: stripe.Bool(true),
 		Mode:                stripe.String(string(stripe.CheckoutSessionModePayment)),
@@ -71,19 +87,7 @@ func (s *Stripe) GetTopUpSessionURL(
 		PaymentIntentData: &stripe.CheckoutSessionPaymentIntentDataParams{
 			Metadata: cloneMetadata(metadata),
 		},
-		LineItems: []*stripe.CheckoutSessionLineItemParams{
-			{
-				PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
-					Currency: stripe.String("usd"),
-					ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
-						Name:        stripe.String("Helix Credits"),
-						Description: stripe.String(fmt.Sprintf("Top up of $%.2f", params.Amount)),
-					},
-					UnitAmount: stripe.Int64(amountInCents),
-				},
-				Quantity: stripe.Int64(1),
-			},
-		},
+		LineItems:  []*stripe.CheckoutSessionLineItemParams{lineItem},
 		Customer:   stripe.String(params.StripeCustomerID),
 		SuccessURL: stripe.String(successURL),
 		CancelURL:  stripe.String(cancelURL),

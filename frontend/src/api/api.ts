@@ -14380,6 +14380,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsBotsApplyConfigCreate
+     * @summary Helix-org: apply Bot config to its running sandbox
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/apply-config
+     * @secure
+     */
+    v1OrgsBotsApplyConfigCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/apply-config`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsBotsAttachmentsDetail
      * @summary Helix-org: list bot attachments
      * @request GET:/api/v1/orgs/{org}/bots/{id}/attachments

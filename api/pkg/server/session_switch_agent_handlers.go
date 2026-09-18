@@ -321,6 +321,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	}
 
 	now := time.Now()
+	previousSession := *session
 	prevRuntime := session.Metadata.CodeAgentRuntime
 	prevAppID := session.ParentApp
 	prevThreadID := session.Metadata.ZedThreadID
@@ -342,13 +343,19 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	if _, err := apiServer.Store.UpdateSession(ctx, *session); err != nil {
 		return system.NewHTTPError500(fmt.Sprintf("failed to update session for agent switch: %v", err))
 	}
-
-	// The old ACP thread may keep emitting buffered tool output after its turn is
-	// cancelled. Once the session has been repointed, that thread is no longer a
-	// valid source for this session. Remove its routing entry before the handoff is
-	// dispatched so late events cannot fall back to the new Waiting interaction.
-	apiServer.detachSupersededExternalAgentThread(session.ID, prevThreadID)
-	apiServer.flushAndClearStreamingContext(ctx, session.ID)
+	createdInteractionIDs := make([]string, 0, 2)
+	rollback := func(message string) *system.HTTPError {
+		for _, id := range createdInteractionIDs {
+			if err := apiServer.Store.DeleteInteraction(context.WithoutCancel(ctx), id); err != nil {
+				log.Error().Err(err).Str("interaction_id", id).Msg("Failed to roll back agent switch interaction")
+			}
+		}
+		*session = previousSession
+		if _, err := apiServer.Store.UpdateSession(context.WithoutCancel(ctx), *session); err != nil {
+			message = fmt.Sprintf("%s; restore session: %v", message, err)
+		}
+		return system.NewHTTPError500(message)
+	}
 
 	// fork_seed interaction carries the prior transcript for
 	// maybePrependTranscript to inject into the new thread's first message.
@@ -368,9 +375,11 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 		PromptMessage:   transitionLabel,
 		ResponseMessage: transcript,
 	}
-	if _, err := apiServer.Store.CreateInteraction(ctx, seedInteraction); err != nil {
-		return system.NewHTTPError500(fmt.Sprintf("failed to create fork_seed interaction: %v", err))
+	seedInteraction, err = apiServer.Store.CreateInteraction(ctx, seedInteraction)
+	if err != nil {
+		return rollback(fmt.Sprintf("failed to create fork_seed interaction: %v", err))
 	}
+	createdInteractionIDs = append(createdInteractionIDs, seedInteraction.ID)
 
 	// Auto-fire a Waiting handoff turn so the new agent warms up with the prior
 	// context. Delivered either live (daemon → /agent-config-applied →
@@ -386,7 +395,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	if options.createHandoff {
 		configSnapshot, snapshotErr := apiServer.codeAgentConfigSnapshot(ctx, session)
 		if snapshotErr != nil {
-			return system.NewHTTPError500(snapshotErr.Error())
+			return rollback(snapshotErr.Error())
 		}
 		prevLabel := apiServer.agentDescriptor(ctx, prevAppID, prevRuntime, session.ModelName, "the previous agent")
 		newLabel := apiServer.agentDescriptor(ctx, childAppID, targetRuntime, session.ModelName, "the new agent")
@@ -420,15 +429,23 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 			PromptMessage:           handoffPrompt,
 			CodeAgentConfigSnapshot: configSnapshot,
 		}
-		if _, err := apiServer.Store.CreateInteraction(ctx, handoffInteraction); err != nil {
+		createdHandoff, err := apiServer.Store.CreateInteraction(ctx, handoffInteraction)
+		if err != nil {
 			if options.requireHandoff {
-				return system.NewHTTPError500(fmt.Sprintf("failed to create required handoff interaction: %v", err))
+				return rollback(fmt.Sprintf("failed to create required handoff interaction: %v", err))
 			}
 			log.Warn().Err(err).
 				Str("session_id", session.ID).
 				Msg("switch-agent: failed to create handoff interaction; agent will warm up on user's first message instead")
+		} else {
+			createdInteractionIDs = append(createdInteractionIDs, createdHandoff.ID)
 		}
 	}
+
+	// Keep the old thread routable until every required write above succeeds.
+	// Otherwise a failed switch clears the only working ACP binding.
+	apiServer.detachSupersededExternalAgentThread(session.ID, prevThreadID)
+	apiServer.flushAndClearStreamingContext(ctx, session.ID)
 
 	// Tell the daemon to rewrite Zed's config for the new agent. field="agent"
 	// is the FAST path: the daemon hot-reloads settings (no Zed restart) and
