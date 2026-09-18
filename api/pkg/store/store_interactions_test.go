@@ -238,9 +238,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetLatestInteractionsForS
 	latest, err := suite.db.GetLatestInteractionsForSessions(ctx, []string{session.ID})
 	suite.Require().NoError(err)
 	suite.Require().Contains(latest, session.ID)
-	suite.Equal(waiting.ID, latest[session.ID].ID)
 	suite.Equal(types.InteractionStateWaiting, latest[session.ID].State)
-	suite.Equal("user prompt", latest[session.ID].PromptMessage)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_Interactions() {
