@@ -40,7 +40,7 @@ const renderBot = (bot: SidebarBot) => render(
 )
 
 describe('ProjectChatBotEntry', () => {
-  it('replaces the presence dot with a trailing working indicator', () => {
+  it('keeps the online dot with a trailing working indicator', () => {
     const { container } = renderBot({
       id: 'chief',
       name: 'Chief of Staff',
@@ -52,7 +52,7 @@ describe('ProjectChatBotEntry', () => {
     const trailingSlot = screen.getByTestId('sidebar-bot-trailing-slot')
     expect(trailingSlot).toContainElement(screen.getByRole('status', { name: 'Working' }))
     expect(trailingSlot).toContainElement(screen.getByRole('button', { name: 'Settings for Chief of Staff' }))
-    expect(container.querySelector('[data-bot-status]')).toBeNull()
+    expect(container.querySelector('[data-bot-status="running"]')).toBeInTheDocument()
   })
 
   it('keeps the presence dot when the bot is idle', () => {

@@ -353,23 +353,21 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
         >
           {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </Box>
-        {!bot.working && (
-          <Tooltip title={statusTitle}>
-            <Box
-              component="span"
-              data-bot-status={bot.running ? 'running' : 'stopped'}
-              onMouseOver={(event) => event.stopPropagation()}
-              sx={{
-                width: 7,
-                height: 7,
-                borderRadius: '50%',
-                flexShrink: 0,
-                backgroundColor: bot.running ? PRESENCE_ONLINE_COLOR : PRESENCE_OFFLINE_COLOR,
-                boxShadow: bot.running && bot.restartRequired ? '0 0 0 2px rgba(251,191,36,0.55)' : 'none',
-              }}
-            />
-          </Tooltip>
-        )}
+        <Tooltip title={statusTitle}>
+          <Box
+            component="span"
+            data-bot-status={bot.running ? 'running' : 'stopped'}
+            onMouseOver={(event) => event.stopPropagation()}
+            sx={{
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              flexShrink: 0,
+              backgroundColor: bot.running ? PRESENCE_ONLINE_COLOR : PRESENCE_OFFLINE_COLOR,
+              boxShadow: bot.running && bot.restartRequired ? '0 0 0 2px rgba(251,191,36,0.55)' : 'none',
+            }}
+          />
+        </Tooltip>
         <Bot size={14} style={{ flexShrink: 0, opacity: 0.8 }} />
         <Typography
           component="span"
