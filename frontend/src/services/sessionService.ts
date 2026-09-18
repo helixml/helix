@@ -256,11 +256,11 @@ export function useUpdateSessionExecutionConfig(sessionId: string) {
   return useMutation({
     mutationFn: (request: TypesSessionExecutionConfigUpdateRequest) =>
       apiClient.v1SessionsExecutionConfigPartialUpdate(sessionId, request).then((res) => res.data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: SESSION_EXECUTION_CONFIG_QUERY_KEY(sessionId) })
-      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
-      queryClient.invalidateQueries({ queryKey: ["sessions"] })
-    },
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: SESSION_EXECUTION_CONFIG_QUERY_KEY(sessionId) }),
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) }),
+      queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+    ]),
   })
 }
 
