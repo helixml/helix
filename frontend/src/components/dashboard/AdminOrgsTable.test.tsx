@@ -16,7 +16,7 @@ vi.mock('../../services/dashboardService', () => ({
       error: null,
     }
   },
-  useAdminSetOrgPlan: () => ({ mutate: vi.fn(), isPending: false }),
+  useAdminSetOrgPlan: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useAdminActivateTrial: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useAdminRevokeTrial: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useAdminGrantCredits: () => ({ mutateAsync: vi.fn(), isPending: false }),
