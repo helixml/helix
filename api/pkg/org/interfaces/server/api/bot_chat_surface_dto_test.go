@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type chatSurfaceBotRuntime struct {
@@ -16,7 +17,10 @@ type chatSurfaceBotRuntime struct {
 }
 
 func (f chatSurfaceBotRuntime) State(_ context.Context, _ string, _ orgchart.NodeID) (orgapi.BotRuntimeInfo, error) {
-	return orgapi.BotRuntimeInfo{ProjectID: f.projectID, SessionID: f.sessionID, Status: "running"}, nil
+	return orgapi.BotRuntimeInfo{
+		ProjectID: f.projectID, SessionID: f.sessionID, Status: "running",
+		AgentWorkState: types.AgentWorkStateWorking,
+	}, nil
 }
 
 // The chat sidebar lists bots as top-level entries and opens their session
@@ -45,7 +49,8 @@ func TestRESTBotListCarriesProjectAndSession(t *testing.T) {
 	if alice == nil {
 		t.Fatalf("b-alice missing from list: %#v", got)
 	}
-	if alice["project_id"] != "prj_alice" || alice["session_id"] != "ses_alice" || alice["status"] != "running" {
+	if alice["project_id"] != "prj_alice" || alice["session_id"] != "ses_alice" ||
+		alice["status"] != "running" || alice["agent_work_state"] != "working" {
 		t.Fatalf("list row = %#v", alice)
 	}
 }

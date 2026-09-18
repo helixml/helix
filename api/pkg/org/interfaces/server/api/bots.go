@@ -68,6 +68,7 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 				if info.Status != "" {
 					dto.Status = info.Status
 				}
+				dto.AgentWorkState = info.AgentWorkState
 				dto.RestartRequired = info.RestartRequired
 				dto.ProjectID = info.ProjectID
 				dto.SessionID = info.SessionID
@@ -212,6 +213,7 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 			if info.Status != "" {
 				detail.Bot.Status = info.Status
 			}
+			detail.Bot.AgentWorkState = info.AgentWorkState
 			detail.Bot.RestartRequired = info.RestartRequired
 			detail.Bot.ProjectID = info.ProjectID
 			detail.Bot.SessionID = info.SessionID

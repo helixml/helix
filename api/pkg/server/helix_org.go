@@ -171,6 +171,7 @@ type orgWorkerRuntime struct {
 		GetSession(ctx context.Context, id string) (*types.Session, error)
 		GetApp(ctx context.Context, id string) (*types.App, error)
 		GetSandboxBySession(ctx context.Context, sessionID string) (*types.Sandbox, error)
+		GetLatestInteractionsForSessions(ctx context.Context, sessionIDs []string) (map[string]*types.Interaction, error)
 	}
 	// configs resolves the org's default sandbox config so the DTO can show
 	// what a Bot with no config of its own will actually launch with.
@@ -235,6 +236,10 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 			}
 			if sess.Metadata.ExternalAgentStatus == "running" {
 				info.Status = "running"
+				if latest, err := o.sessions.GetLatestInteractionsForSessions(ctx, []string{s.SessionID}); err == nil &&
+					latest[s.SessionID] != nil && latest[s.SessionID].State == types.InteractionStateWaiting {
+					info.AgentWorkState = types.AgentWorkStateWorking
+				}
 				// RestartRequiredContainer is the container that was live
 				// when a restart-sensitive config change was saved. Docker
 				// never reuses an id, so a match means this very container
