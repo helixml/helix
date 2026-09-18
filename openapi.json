@@ -1348,7 +1348,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the oldest owned org whose readable wallet is trialing. At most one subscription is cancelled per call. Paid (active) subscriptions are never cancelled.",
+                "description": "Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the specified owned org (org_id required when the user owns organisations; the cancelled wallet state is mirrored immediately). Paid (active) subscriptions are never cancelled.",
                 "tags": [
                     "users"
                 ],
@@ -1359,6 +1359,14 @@
                         "name": "id",
                         "in": "path",
                         "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Owned organisation whose trialing subscription to cancel (required iff the user owns an organisation)",
+                        "name": "org_id",
+                        "in": "query",
                         "schema": {
                             "type": "string"
                         }
@@ -32723,23 +32731,23 @@
                 "type": "string",
                 "enum": [
                     "local",
-                    "slack",
-                    "cron",
-                    "webhook",
-                    "github",
                     "gitlab",
+                    "github",
                     "helix_events",
-                    "email"
+                    "cron",
+                    "slack",
+                    "email",
+                    "webhook"
                 ],
                 "x-enum-varnames": [
                     "KindLocal",
-                    "KindSlack",
-                    "KindCron",
-                    "KindWebhook",
-                    "KindGitHub",
                     "KindGitLab",
+                    "KindGitHub",
                     "KindHelixEvents",
-                    "KindEmail"
+                    "KindCron",
+                    "KindSlack",
+                    "KindEmail",
+                    "KindWebhook"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -36581,6 +36589,10 @@
                     },
                     "private_key": {
                         "description": "PEM-encoded private key for JWT signing",
+                        "type": "string"
+                    },
+                    "webhook_secret": {
+                        "description": "WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review\ndeliveries with (spec task PR review feedback). Auto-generated at first\nwebhook install; one repo's secret never validates another repo's\ndeliveries, keeping orgs isolated on shared deployments.",
                         "type": "string"
                     }
                 }

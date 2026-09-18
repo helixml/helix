@@ -367,10 +367,17 @@ export function useAdminGrantCredits() {
     });
 }
 
+export interface RevokeTrialInput {
+    userId: string;
+    // org_id is REQUIRED when the user owns orgs; omitted only when clearing a
+    // stashed trial intent on a user who owns no orgs yet.
+    orgId?: string;
+}
+
 /**
  * Hook to revoke a trial on a user (cloud edition, admin only).
- * Clears any stashed intent and cancels the Stripe subscription if currently
- * trialing. Paid subscriptions are never cancelled.
+ * Clears any stashed intent and cancels the Stripe trial subscription on the
+ * explicitly selected owned org wallet. Paid subscriptions are never cancelled.
  */
 export function useAdminRevokeTrial() {
     const api = useApi();
@@ -378,8 +385,10 @@ export function useAdminRevokeTrial() {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: async (userId: string) => {
-            const response = await apiClient.v1AdminUsersTrialActivateDelete(userId);
+        mutationFn: async (input: RevokeTrialInput) => {
+            const response = await apiClient.v1AdminUsersTrialActivateDelete(input.userId, {
+                org_id: input.orgId,
+            });
             return response.data;
         },
         onSuccess: () => {

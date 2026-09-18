@@ -3547,23 +3547,23 @@ definitions:
   transport.Kind:
     enum:
     - local
-    - slack
-    - cron
-    - webhook
-    - github
     - gitlab
+    - github
     - helix_events
+    - cron
+    - slack
     - email
+    - webhook
     type: string
     x-enum-varnames:
     - KindLocal
-    - KindSlack
-    - KindCron
-    - KindWebhook
-    - KindGitHub
     - KindGitLab
+    - KindGitHub
     - KindHelixEvents
+    - KindCron
+    - KindSlack
     - KindEmail
+    - KindWebhook
   transport.ResolvedActivation:
     properties:
       address:
@@ -6414,6 +6414,13 @@ definitions:
         type: string
       private_key:
         description: PEM-encoded private key for JWT signing
+        type: string
+      webhook_secret:
+        description: |-
+          WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review
+          deliveries with (spec task PR review feedback). Auto-generated at first
+          webhook install; one repo's secret never validates another repo's
+          deliveries, keeping orgs isolated on shared deployments.
         type: string
     type: object
   types.GitLab:
@@ -14800,14 +14807,19 @@ paths:
   /api/v1/admin/users/{id}/trial-activate:
     delete:
       description: Clears any stashed trial intent on the user and cancels the trialing
-        Stripe subscription on the oldest owned org whose readable wallet is trialing.
-        At most one subscription is cancelled per call. Paid (active) subscriptions
-        are never cancelled.
+        Stripe subscription on the specified owned org (org_id required when the user
+        owns organisations; the cancelled wallet state is mirrored immediately). Paid
+        (active) subscriptions are never cancelled.
       parameters:
       - description: User ID
         in: path
         name: id
         required: true
+        type: string
+      - description: Owned organisation whose trialing subscription to cancel (required
+          iff the user owns an organisation)
+        in: query
+        name: org_id
         type: string
       produces:
       - application/json

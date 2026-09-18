@@ -36,7 +36,6 @@ import { TypesAuthProvider, TypesUser } from "../../api/api";
 import {
     useListUsers,
     useAdminApproveUser,
-    useAdminRevokeTrial,
     UserListQuery,
 } from "../../services/dashboardService";
 import { useGetConfig } from "../../services/userService";
@@ -47,6 +46,7 @@ import ResetPasswordDialog from "./ResetPasswordDialog";
 import DeleteUserDialog from "./DeleteUserDialog";
 import ActivateTrialDialog from "./ActivateTrialDialog";
 import GrantCreditsDialog from "./GrantCreditsDialog";
+import RevokeTrialDialog from "./RevokeTrialDialog";
 
 // Helper function to format date for tooltip
 const formatFullDate = (dateString: string | undefined): string => {
@@ -166,12 +166,12 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [activateTrialDialogOpen, setActivateTrialDialogOpen] = useState(false);
     const [grantCreditsDialogOpen, setGrantCreditsDialogOpen] = useState(false);
+    const [revokeTrialDialogOpen, setRevokeTrialDialogOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<TypesUser | null>(null);
     const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
     const [menuUser, setMenuUser] = useState<TypesUser | null>(null);
 
     const approveUser = useAdminApproveUser();
-    const revokeTrial = useAdminRevokeTrial();
     const snackbar = useSnackbar();
 
     const openMenu = (e: React.MouseEvent<HTMLElement>, user: TypesUser) => {
@@ -208,16 +208,10 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
         setGrantCreditsDialogOpen(true);
     };
 
-    const handleRevokeTrial = async () => {
-        if (!menuUser?.id) return;
-        const u = menuUser;
+    const handleRevokeTrial = () => {
+        setSelectedUser(menuUser);
         closeMenu();
-        try {
-            await revokeTrial.mutateAsync(u.id!);
-            snackbar.success(`Trial revoked for ${u.email || u.username}`);
-        } catch (err: any) {
-            snackbar.error(err?.response?.data?.error || err?.message || "Failed to revoke trial");
-        }
+        setRevokeTrialDialogOpen(true);
     };
 
     const handleResetPassword = () => {
@@ -522,6 +516,14 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
                 open={grantCreditsDialogOpen}
                 onClose={() => {
                     setGrantCreditsDialogOpen(false);
+                    setSelectedUser(null);
+                }}
+                user={selectedUser}
+            />
+            <RevokeTrialDialog
+                open={revokeTrialDialogOpen}
+                onClose={() => {
+                    setRevokeTrialDialogOpen(false);
                     setSelectedUser(null);
                 }}
                 user={selectedUser}
