@@ -345,6 +345,36 @@ func TestAdminRevokeTrial_ClearsStashWhenNoOrgs(t *testing.T) {
 	require.Equal(t, "cleared", resp.Status)
 }
 
+// Paid (active) subscriptions are never cancelled via this endpoint: the
+// strict Stripe backend fails on any unexpected call, so a cancel attempt
+// against sub-paid would surface as a 500 and fail the assertion below.
+func TestAdminRevokeTrial_NeverCancelsPaidSubscription(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	org := &types.Organization{ID: "org-paid", Owner: "target"}
+	wallet := &types.Wallet{ID: "wallet-paid", OrgID: "org-paid", StripeSubscriptionID: "sub-paid", SubscriptionStatus: stripeapi.SubscriptionStatusActive}
+
+	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(&types.User{ID: "target"}, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{org}, nil)
+	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-paid").Return(wallet, nil)
+
+	originalBackend := stripeapi.GetBackend(stripeapi.APIBackend)
+	stripeapi.SetBackend(stripeapi.APIBackend, &adminTrialStripeBackend{t: t})
+	t.Cleanup(func() { stripeapi.SetBackend(stripeapi.APIBackend, originalBackend) })
+	cfg := cloudBillingCfg()
+	cfg.Stripe.SecretKey = "sk_test"
+	cfg.Stripe.WebhookSigningSecret = "whsec_test"
+	s := &HelixAPIServer{
+		Store:  db,
+		Cfg:    cfg,
+		Stripe: helixstripe.NewStripe(cfg.Stripe, db),
+	}
+
+	_, err := s.adminRevokeTrial(httptest.NewRecorder(), revokeTrialRequest(t, "org-paid"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no active trial subscription")
+}
+
 // A failed consumeUserTrialIntent can leave a stash on a user who already
 // owns an org. DELETE without org_id must still clear it instead of 400ing
 // on the org-selection guard.
