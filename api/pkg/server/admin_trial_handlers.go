@@ -420,34 +420,19 @@ func (apiServer *HelixAPIServer) adminRevokeTrial(_ http.ResponseWriter, req *ht
 		return nil, system.NewHTTPError404("user not found")
 	}
 
-	// Clear any stashed trial intent unconditionally, BEFORE the org_id
-	// guard: consumeUserTrialIntent is best-effort, so a Stripe failure
-	// during first-org creation can leave a stash on an org-owning user.
-	// Without this, such a stuck stash could never be cleared.
-	stashedCleared := false
-	if targetUser.TrialDaysOnFirstOrg != nil || targetUser.TrialCreditsOnFirstOrg != nil {
-		targetUser.TrialDaysOnFirstOrg = nil
-		targetUser.TrialCreditsOnFirstOrg = nil
-		if _, err := apiServer.Store.UpdateUser(ctx, targetUser); err != nil {
-			return nil, system.NewHTTPError500("failed to clear trial intent: " + err.Error())
-		}
-		stashedCleared = true
-	}
-
 	ownedOrgs, err := apiServer.Store.ListOrganizations(ctx, &store.ListOrganizationsQuery{Owner: targetUserID})
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to list user organizations: " + err.Error())
 	}
 
-	// Explicit org selection for the cancel action: the admin picks which
-	// org's trial to revoke, mirroring the activate endpoint. No silent
-	// "oldest owned org" pick. A DELETE without org_id only clears a stash
-	// (see above) — allowed even for org owners, since a leftover stash from
-	// a failed first-org application has no org to name.
+	// Validate the org selection BEFORE any mutation, so an invalid request
+	// (unowned org, no trial on the org) never touches the user's stash.
+	hasStash := targetUser.TrialDaysOnFirstOrg != nil || targetUser.TrialCreditsOnFirstOrg != nil
 	orgID := req.URL.Query().Get("org_id")
-	cancelledOrgID := ""
+	var selectedOrg *types.Organization
+	var selectedWallet *types.Wallet
 	if orgID != "" {
-		selectedOrg := findOwnedOrg(ownedOrgs, orgID)
+		selectedOrg = findOwnedOrg(ownedOrgs, orgID)
 		if selectedOrg == nil {
 			return nil, system.NewHTTPError400(fmt.Sprintf("user does not own organisation %s", orgID))
 		}
@@ -458,20 +443,43 @@ func (apiServer *HelixAPIServer) adminRevokeTrial(_ http.ResponseWriter, req *ht
 		if wallet == nil || wallet.StripeSubscriptionID == "" || wallet.SubscriptionStatus != stripeapi.SubscriptionStatusTrialing {
 			return nil, system.NewHTTPError422(fmt.Sprintf("org %s has no active trial subscription", selectedOrg.ID))
 		}
-		if err := apiServer.Stripe.CancelTrialSubscription(ctx, wallet.StripeSubscriptionID); err != nil {
+		selectedWallet = wallet
+	} else if len(ownedOrgs) > 0 && !hasStash {
+		// Explicit org selection for the cancel action: the admin picks which
+		// org's trial to revoke, mirroring the activate endpoint. No silent
+		// "oldest owned org" pick. A DELETE without org_id is still allowed
+		// for org owners when it only clears a stash: consumeUserTrialIntent
+		// is best-effort, so a Stripe failure during first-org creation can
+		// leave a leftover stash with no org to name.
+		return nil, system.NewHTTPError400(fmt.Sprintf("org_id is required: user owns %d organisation(s), pick which one to revoke", len(ownedOrgs)))
+	}
+
+	// Mutations start here: first clear the stashed intent (if any), then
+	// cancel the selected org's trialing subscription.
+	stashedCleared := false
+	if hasStash {
+		targetUser.TrialDaysOnFirstOrg = nil
+		targetUser.TrialCreditsOnFirstOrg = nil
+		if _, err := apiServer.Store.UpdateUser(ctx, targetUser); err != nil {
+			return nil, system.NewHTTPError500("failed to clear trial intent: " + err.Error())
+		}
+		stashedCleared = true
+	}
+
+	cancelledOrgID := ""
+	if selectedWallet != nil {
+		if err := apiServer.Stripe.CancelTrialSubscription(ctx, selectedWallet.StripeSubscriptionID); err != nil {
 			return nil, system.NewHTTPError500("failed to cancel stripe subscription: " + err.Error())
 		}
 		// Mirror the cancellation onto the wallet synchronously so the admin UI
 		// reflects it on the next reload without waiting for the
 		// customer.subscription.deleted webhook (same as the activate path).
-		wallet.SubscriptionStatus = stripeapi.SubscriptionStatusCanceled
-		wallet.SubscriptionCancelAtPeriodEnd = false
-		if _, err := apiServer.Store.UpdateWallet(ctx, wallet); err != nil {
-			log.Warn().Err(err).Str("wallet_id", wallet.ID).Msg("failed to persist cancelled subscription state to wallet (webhook will retry)")
+		selectedWallet.SubscriptionStatus = stripeapi.SubscriptionStatusCanceled
+		selectedWallet.SubscriptionCancelAtPeriodEnd = false
+		if _, err := apiServer.Store.UpdateWallet(ctx, selectedWallet); err != nil {
+			log.Warn().Err(err).Str("wallet_id", selectedWallet.ID).Msg("failed to persist cancelled subscription state to wallet (webhook will retry)")
 		}
 		cancelledOrgID = selectedOrg.ID
-	} else if len(ownedOrgs) > 0 && !stashedCleared {
-		return nil, system.NewHTTPError400(fmt.Sprintf("org_id is required: user owns %d organisation(s), pick which one to revoke", len(ownedOrgs)))
 	}
 
 	status := "noop"

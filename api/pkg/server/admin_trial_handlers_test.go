@@ -375,6 +375,32 @@ func TestAdminRevokeTrial_NeverCancelsPaidSubscription(t *testing.T) {
 	require.Contains(t, err.Error(), "no active trial subscription")
 }
 
+// An invalid org selection must fail BEFORE the stash is cleared: no
+// UpdateUser expectation is set, so a stash clear on this path fails the
+// test via the strict mock.
+func TestAdminRevokeTrial_InvalidOrgLeavesStashIntact(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	days := 30
+	user := &types.User{ID: "target", TrialDaysOnFirstOrg: &days}
+
+	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(user, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{{ID: "org-owned"}}, nil)
+
+	cfg := cloudBillingCfg()
+	cfg.Stripe.SecretKey = "sk_test"
+	cfg.Stripe.WebhookSigningSecret = "whsec_test"
+	s := &HelixAPIServer{
+		Store:  db,
+		Cfg:    cfg,
+		Stripe: helixstripe.NewStripe(cfg.Stripe, db),
+	}
+
+	_, err := s.adminRevokeTrial(httptest.NewRecorder(), revokeTrialRequest(t, "org-other"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "user does not own organisation")
+}
+
 // A failed consumeUserTrialIntent can leave a stash on a user who already
 // owns an org. DELETE without org_id must still clear it instead of 400ing
 // on the org-selection guard.
