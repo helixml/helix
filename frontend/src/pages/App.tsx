@@ -40,9 +40,9 @@ import MemoriesManagement from '../components/app/MemoriesManagement'
 import HelixOrgTopNav from '../components/helix-org/HelixOrgTopNav'
 import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
 import {
+  useApplyBotConfig,
   useListHelixOrgBotDetails,
   useListHelixOrgBots,
-  useRestartBotAgent,
 } from '../services/helixOrgService'
 import { AGENT_TYPE_ZED_EXTERNAL } from '../types'
 import { isOrgAgent, usesFocusedAgentDetails } from '../utils/apps'
@@ -75,7 +75,7 @@ const App: FC = () => {
   // list (already fetched above for appIsOrgAgent) on agent_id, which is
   // the Node's AgentID — the App's own id.
   const restartBannerBot = orgAgents.find((bot) => bot.legacy_app_id === params.app_id)
-  const restartOrgAgent = useRestartBotAgent()
+  const applyBotConfig = useApplyBotConfig()
   // Get user access information from appTools
   const { userAccess } = appTools
 
@@ -172,9 +172,9 @@ const App: FC = () => {
             key={restartBannerBot?.id}
             visible={!!restartBannerBot?.restart_required}
             working={false}
-            busy={restartOrgAgent.isPending}
+            busy={applyBotConfig.isPending}
             sticky
-            onRestart={() => { if (restartBannerBot?.id) void restartOrgAgent.mutateAsync(restartBannerBot.id) }}
+            onRestart={() => { if (restartBannerBot?.id) void applyBotConfig.mutateAsync(restartBannerBot.id) }}
           />
           <Grid container>
             <Grid item xs={12} sx={{

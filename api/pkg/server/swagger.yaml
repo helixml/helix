@@ -21073,6 +21073,34 @@ paths:
       summary: 'Helix-org: manually trigger a bot activation'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/apply-config:
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: apply Bot config to its running sandbox'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/attachments:
     get:
       parameters:
