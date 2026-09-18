@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../services/dashboardService', () => ({
     useAdminActivateTrial: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
+    useAdminRevokeTrial: () => ({ mutateAsync: vi.fn(), isPending: false }),
     useAdminUserOwnedOrgs: () => ({ data: mocks.ownedOrgs, isLoading: false }),
 }));
 

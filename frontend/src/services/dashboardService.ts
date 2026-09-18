@@ -291,8 +291,11 @@ export function useAdminActivateTrial() {
 }
 
 export interface RevokeTrialInput {
-    userId: string; // org owner
-    orgId: string;
+    userId: string;
+    // orgId set → cancel that org's trialing subscription (org screen).
+    // Omitted → clear any stashed trial intent on the user (the activate
+    // dialog's "Clear stashed trial" action for org-less users).
+    orgId?: string;
 }
 
 /**

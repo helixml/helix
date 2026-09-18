@@ -212,9 +212,6 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
         if (user.id && onSelectUser) onSelectUser(user.id);
     };
 
-    const trialActiveOrStashed = (u: TypesUser | null) =>
-        Boolean(u && (u.trial_status === "active" || u.trial_status === "stashed"));
-
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
     React.useEffect(() => {
         const timer = setTimeout(() => {
@@ -441,7 +438,7 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
                         <ListItemText>Approve</ListItemText>
                     </MenuItem>
                 )}
-                {isCloud && !trialActiveOrStashed(menuUser) && (
+                {isCloud && menuUser?.trial_status !== "active" && (
                     <MenuItem onClick={handleActivateTrial}>
                         <ListItemIcon><CardGiftcardIcon fontSize="small" /></ListItemIcon>
                         <ListItemText>Activate trial</ListItemText>
