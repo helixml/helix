@@ -95,6 +95,13 @@ type PromptHistoryListRequest struct {
 	SessionID  string `json:"session_id,omitempty"` // Optional filter
 	Limit      int    `json:"limit,omitempty"`      // Max entries to return
 	Since      int64  `json:"since,omitempty"`      // Only entries after this timestamp (Unix ms)
+
+	// UserID restricts the result to one owner. Server-set only — never parsed
+	// from the query string, or a caller could read another user's rows without
+	// the spec-task/session authorization the handler performs. Left empty by
+	// the queue UI: the queue shows every prompt waiting for the agent,
+	// whoever queued it.
+	UserID string `json:"-"`
 }
 
 // PromptHistoryListResponse is the response for listing history
