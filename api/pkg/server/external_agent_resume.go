@@ -199,21 +199,13 @@ func (apiServer *HelixAPIServer) resolveWaitingInteraction(
 			continue
 		}
 
-		// Reuse an in-memory request_id for this session if one survived, else
-		// fall back to the durable column, else to the interaction id (the
-		// convention sendMessageToSpecTaskAgent uses).
-		var requestID string
-		for rid, sid := range apiServer.requestToSessionMapping {
-			if sid == helixSessionID {
-				requestID = rid
-				break
-			}
-		}
+		// The interaction owns its request_id. Session-wide mappings are only
+		// temporary thread-creation correlation and may contain unrelated turns.
+		requestID := currentInteraction.ExternalAgentRequestID
 		if requestID == "" {
-			requestID = currentInteraction.ExternalAgentRequestID
-			if requestID == "" {
-				requestID = interactionID
-			}
+			requestID = interactionID
+		}
+		if helixSession.Metadata.ZedThreadID == "" {
 			if apiServer.requestToSessionMapping == nil {
 				apiServer.requestToSessionMapping = make(map[string]string)
 			}
@@ -221,7 +213,7 @@ func (apiServer *HelixAPIServer) resolveWaitingInteraction(
 			log.Info().
 				Str("helix_session_id", helixSessionID).
 				Str("request_id", requestID).
-				Msg("🔧 [HELIX] Created request_id mapping from waiting interaction ID")
+				Msg("🔧 [HELIX] Created request_id mapping for resumed thread creation")
 		}
 
 		// If RunExternalAgent is already delivering this turn, it owns it. Return

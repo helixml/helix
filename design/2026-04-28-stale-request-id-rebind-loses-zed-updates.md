@@ -139,3 +139,56 @@ The `alreadySeen && existing == ""` branch is the new behaviour. The other two b
 
 1. **Unit test in `websocket_external_agent_sync_test.go`:** simulate the trace — register a request_id via `sendMessageToSpecTaskAgent`, fire a `message_completed` (consumes), then fire a `message_added` whose Waiting interaction differs from the consumed one, then a second `message_completed` carrying the same stale request_id. Assert: second completion is logged as `Duplicate message_completed for consumed request_id mapping — ignoring`, the mid-stream interaction is *not* marked Complete.
 2. **Manual:** dispatch a comment to a long-running spec task, wait for the first turn to complete, then trigger more agent activity (e.g. a Zed user-typed message). Confirm the new turn streams through to completion without spurious "Marked interaction as complete" events for it before its real `message_completed` arrives.
+
+## 2026-09-18 follow-up: native Zed turns reuse a completed request ID
+
+### New symptom
+
+After the April guard, a user-typed prompt in Zed could still remain in
+`Waiting` with "Incomplete interaction". Zed sent the new user message and
+assistant updates, but Helix dropped the completion and never closed the new
+interaction.
+
+### Root cause
+
+The native Zed `NewEntry` path treated the global thread request ID as the ID
+for the new turn. That global value was still the previous completed turn's
+ID because only Helix-initiated prompts updated it first. The new turn was
+therefore emitted with a consumed request ID. Helix correctly ignored the
+completion as stale, but had no distinct ID with which to complete the real
+turn.
+
+### Invariant
+
+Every user turn must get one fresh, immutable request ID. The user message,
+assistant updates, and completion for that turn must carry the same ID. A
+session-wide request map is temporary thread-creation correlation only; it is
+not an authority for routing an interaction.
+
+### Coordinated fix
+
+- Zed mints a UUID at the native user-entry boundary. External entries and
+  `simulate_input` retain their caller-supplied ID.
+- If a native follow-up arrives before the active turn stops, Zed emits the
+  follow-up under its new ID but keeps the active ID until that turn's terminal
+  event, then promotes the follow-up ID.
+- Helix matches user-message echoes by the ID carried by that message, rather
+  than scanning all session mappings.
+- Helix creates a request-to-session mapping only while a new Zed thread is
+  being created.
+- Resume uses the waiting interaction's persisted external request ID, falling
+  back to the interaction ID for legacy rows.
+- The April consumed-ID guard remains in place for delayed duplicate events.
+
+### Deployment and regression coverage
+
+Deploy the Helix mapping and resume changes first, then the Zed fresh-ID
+change. The system is protected from this failure only after both are live.
+
+Regression coverage includes distinct IDs for consecutive native Zed turns,
+preservation of IDs for simulated input, no reuse of unrelated session
+mappings, no mapping leak on existing threads, and resume from the durable
+interaction ID. Coverage also verifies cancel-before-`thread_created` keeps the
+temporary attachment mapping and overlapping native turns cannot steal each
+other's terminal event. The existing stale-completion test continues to cover
+delayed events from a completed turn.

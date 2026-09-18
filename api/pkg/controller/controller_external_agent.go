@@ -196,7 +196,9 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 
 	hooks.StoreResponseChannel(req.Session.ID, requestID, responseChan, doneChan, errorChan)
 	hooks.SetRequestInteractionMapping(requestID, interaction.ID)
-	hooks.SetRequestSessionMapping(requestID, req.Session.ID)
+	if req.Session.Metadata.ZedThreadID == "" {
+		hooks.SetRequestSessionMapping(requestID, req.Session.ID)
+	}
 
 	// Only the claim winner sends. A loser has attached its channels to the
 	// in-flight request_id above and just waits for that turn's response.
