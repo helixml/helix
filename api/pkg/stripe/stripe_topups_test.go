@@ -13,9 +13,109 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 	stripe "github.com/stripe/stripe-go/v76"
+	"github.com/stripe/stripe-go/v76/form"
 	"github.com/stripe/stripe-go/v76/webhook"
 	"go.uber.org/mock/gomock"
 )
+
+type topUpSessionBackend struct {
+	t      *testing.T
+	params *stripe.CheckoutSessionParams
+}
+
+func (b *topUpSessionBackend) Call(method, path, _ string, params stripe.ParamsContainer, v stripe.LastResponseSetter) error {
+	require.Equal(b.t, http.MethodPost, method)
+	require.Equal(b.t, "/v1/checkout/sessions", path)
+
+	checkoutParams, ok := params.(*stripe.CheckoutSessionParams)
+	require.True(b.t, ok)
+	b.params = checkoutParams
+
+	session, ok := v.(*stripe.CheckoutSession)
+	require.True(b.t, ok)
+	session.URL = "https://checkout.stripe.test/session"
+	return nil
+}
+
+func (b *topUpSessionBackend) CallStreaming(string, string, string, stripe.ParamsContainer, stripe.StreamingLastResponseSetter) error {
+	return errors.New("unexpected CallStreaming invocation")
+}
+
+func (b *topUpSessionBackend) CallRaw(string, string, string, *form.Values, *stripe.Params, stripe.LastResponseSetter) error {
+	return errors.New("unexpected CallRaw invocation")
+}
+
+func (b *topUpSessionBackend) CallMultipart(string, string, string, string, *bytes.Buffer, *stripe.Params, stripe.LastResponseSetter) error {
+	return errors.New("unexpected CallMultipart invocation")
+}
+
+func (b *topUpSessionBackend) SetMaxNetworkRetries(int64) {}
+
+func TestGetTopUpSessionURLRequiresPromoCreditPriceID(t *testing.T) {
+	backend := &topUpSessionBackend{t: t}
+	originalBackend := stripe.GetBackend(stripe.APIBackend)
+	stripe.SetBackend(stripe.APIBackend, backend)
+	t.Cleanup(func() { stripe.SetBackend(stripe.APIBackend, originalBackend) })
+
+	s := NewStripe(config.Stripe{
+		SecretKey:            "sk_test",
+		WebhookSigningSecret: "whsec_test",
+	}, nil)
+
+	_, err := s.GetTopUpSessionURL(TopUpSessionParams{Amount: 5})
+	require.EqualError(t, err, "stripe promo credit price ID is required")
+	require.Nil(t, backend.params)
+}
+
+func TestGetTopUpSessionURLUsesPromoCreditPriceForFiveDollars(t *testing.T) {
+	backend := &topUpSessionBackend{t: t}
+	originalBackend := stripe.GetBackend(stripe.APIBackend)
+	stripe.SetBackend(stripe.APIBackend, backend)
+	t.Cleanup(func() { stripe.SetBackend(stripe.APIBackend, originalBackend) })
+
+	s := NewStripe(config.Stripe{
+		AppURL:               "https://app.helix.test",
+		SecretKey:            "sk_test",
+		WebhookSigningSecret: "whsec_test",
+		PromoCreditPriceID:   "price_promo_credits",
+	}, nil)
+
+	url, err := s.GetTopUpSessionURL(TopUpSessionParams{
+		StripeCustomerID: "cus_123",
+		UserID:           "user_123",
+		Amount:           5,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://checkout.stripe.test/session", url)
+	require.True(t, *backend.params.AllowPromotionCodes)
+	require.Equal(t, stripe.CheckoutSessionModePayment, stripe.CheckoutSessionMode(*backend.params.Mode))
+	require.Len(t, backend.params.LineItems, 1)
+	require.Equal(t, "price_promo_credits", *backend.params.LineItems[0].Price)
+	require.Nil(t, backend.params.LineItems[0].PriceData)
+}
+
+func TestGetTopUpSessionURLUsesInlineProductForOtherAmounts(t *testing.T) {
+	backend := &topUpSessionBackend{t: t}
+	originalBackend := stripe.GetBackend(stripe.APIBackend)
+	stripe.SetBackend(stripe.APIBackend, backend)
+	t.Cleanup(func() { stripe.SetBackend(stripe.APIBackend, originalBackend) })
+
+	s := NewStripe(config.Stripe{
+		AppURL:               "https://app.helix.test",
+		SecretKey:            "sk_test",
+		WebhookSigningSecret: "whsec_test",
+	}, nil)
+
+	_, err := s.GetTopUpSessionURL(TopUpSessionParams{Amount: 10})
+	require.NoError(t, err)
+	require.Len(t, backend.params.LineItems, 1)
+	lineItem := backend.params.LineItems[0]
+	require.Nil(t, lineItem.Price)
+	require.Equal(t, "usd", *lineItem.PriceData.Currency)
+	require.Equal(t, "Helix Credits", *lineItem.PriceData.ProductData.Name)
+	require.Equal(t, "Top up of $10.00", *lineItem.PriceData.ProductData.Description)
+	require.Equal(t, int64(1000), *lineItem.PriceData.UnitAmount)
+}
 
 func TestHandleTopUpEvent_UsesRequestedAmountMetadata(t *testing.T) {
 	ctrl := gomock.NewController(t)
