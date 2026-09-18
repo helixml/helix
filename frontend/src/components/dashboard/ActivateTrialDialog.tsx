@@ -11,14 +11,11 @@ import {
     CircularProgress,
     IconButton,
     Typography,
-    FormControl,
-    InputLabel,
-    Select,
     MenuItem,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { TypesUser } from '../../api/api';
-import { useAdminActivateTrial, useAdminUserOwnedOrgs } from '../../services/dashboardService';
+import { useAdminActivateTrial, useAdminRevokeTrial, useAdminUserOwnedOrgs } from '../../services/dashboardService';
 import useSnackbar from '../../hooks/useSnackbar';
 
 interface ActivateTrialDialogProps {
@@ -37,30 +34,37 @@ const DEFAULT_CREDITS = 0;
 const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user }) => {
     const [days, setDays] = useState(String(DEFAULT_DAYS));
     const [credits, setCredits] = useState(String(DEFAULT_CREDITS));
-    const [orgId, setOrgId] = useState('');
     // '' = Stripe trial (uses days); 'pro' = paid plan via PlanOverride (no Stripe).
     const [plan, setPlan] = useState('');
     const [error, setError] = useState('');
     const activateTrial = useAdminActivateTrial();
+    const revokeTrial = useAdminRevokeTrial();
     const snackbar = useSnackbar();
     const { data: ownedOrgs, isLoading: isLoadingOrgs } = useAdminUserOwnedOrgs(user?.id, open);
-    const soleOwnedOrgId = ownedOrgs?.length === 1 ? ownedOrgs[0].id : '';
-    const effectiveOrgId = orgId || soleOwnedOrgId;
+
+    // A stashed intent (granted before the user created an org) shows up as
+    // trial_status "stashed"; its values prefill the form and can be undone.
+    const hasStash = user?.trial_status === 'stashed';
+    const stashParts = [
+        user?.trial_days_on_first_org ? `${user.trial_days_on_first_org}d` : '',
+        user?.trial_credits_on_first_org ? `$${user.trial_credits_on_first_org}` : '',
+    ].filter(Boolean);
+    const stashSummary = stashParts.length ? ` (${stashParts.join(', ')})` : '';
 
     useEffect(() => {
         if (open) {
-            setDays(String(DEFAULT_DAYS));
-            setCredits(String(DEFAULT_CREDITS));
-            setOrgId('');
+            setDays(String(user?.trial_days_on_first_org || DEFAULT_DAYS));
+            setCredits(String(user?.trial_credits_on_first_org ?? DEFAULT_CREDITS));
             setPlan('');
             setError('');
         }
-    }, [open, user?.id]);
+    }, [open, user?.id, user?.trial_days_on_first_org, user?.trial_credits_on_first_org]);
 
     const hasOrgs = (ownedOrgs?.length ?? 0) > 0;
 
     const handleSubmit = async () => {
         if (!user?.id) return;
+        if (hasOrgs) return; // org-owning users are handled on the org screen
         const isPaid = plan === 'pro';
         const daysNum = parseInt(days, 10);
         const creditsNum = parseFloat(credits);
@@ -72,14 +76,10 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
             setError('Credits must be zero or positive');
             return;
         }
-        if (hasOrgs && !effectiveOrgId) {
-            setError('Pick which organisation to activate');
-            return;
-        }
         try {
             const result = await activateTrial.mutateAsync({
                 userId: user.id,
-                orgId: hasOrgs ? effectiveOrgId : undefined,
+                orgId: undefined,
                 days: isPaid ? 0 : daysNum,
                 credits: creditsNum,
                 plan,
@@ -97,8 +97,20 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
         }
     };
 
+    const handleClearStash = async () => {
+        if (!user?.id) return;
+        try {
+            await revokeTrial.mutateAsync({ userId: user.id });
+            snackbar.success(`Stashed trial cleared for ${user.email || user.username}`);
+            onClose();
+        } catch (err: any) {
+            const msg = err?.response?.data?.error || err?.message || 'Failed to clear stashed trial';
+            setError(msg);
+        }
+    };
+
     const handleClose = () => {
-        if (!activateTrial.isPending) onClose();
+        if (!activateTrial.isPending && !revokeTrial.isPending) onClose();
     };
 
     return (
@@ -128,22 +140,19 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
                         </Alert>
                     )}
 
+                    {hasStash && (
+                        <Alert severity="warning" sx={{ mb: 2 }}>
+                            This user already has a stashed trial{stashSummary}. Activating replaces it; the
+                            fields are prefilled with the current values.
+                        </Alert>
+                    )}
+
                     {hasOrgs && (
-                        <FormControl fullWidth margin="normal" disabled={activateTrial.isPending}>
-                            <InputLabel id="activate-trial-org-label">Organisation</InputLabel>
-                            <Select
-                                labelId="activate-trial-org-label"
-                                label="Organisation"
-                                value={effectiveOrgId}
-                                onChange={(e) => setOrgId(e.target.value as string)}
-                            >
-                                {ownedOrgs!.map((org) => (
-                                    <MenuItem key={org.id} value={org.id}>
-                                        {org.display_name || org.name} ({org.id})
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
+                        <Alert severity="info" sx={{ mb: 2 }}>
+                            This user already owns {ownedOrgs!.length} organisation
+                            {ownedOrgs!.length === 1 ? '' : 's'}. Trials and plans for existing organisations
+                            are managed on the org screen.
+                        </Alert>
                     )}
 
                     {error && (
@@ -152,55 +161,71 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
                         </Alert>
                     )}
 
-                    <TextField
-                        select
-                        fullWidth
-                        label="Plan"
-                        value={plan}
-                        onChange={(e) => setPlan(e.target.value)}
-                        SelectProps={{ displayEmpty: true }}
-                        margin="normal"
-                        disabled={activateTrial.isPending}
-                        helperText={
-                            plan === 'pro'
-                                ? 'Paid Pro — no Stripe, no card, indefinite (for customers who paid out-of-band)'
-                                : 'Stripe trial for the chosen number of days'
-                        }
-                    >
-                        <MenuItem value="">Trial (Stripe)</MenuItem>
-                        <MenuItem value="pro">Paid — Pro (no Stripe)</MenuItem>
-                    </TextField>
+                    {!hasOrgs && (
+                        <>
+                            <TextField
+                                select
+                                fullWidth
+                                label="Plan"
+                                value={plan}
+                                onChange={(e) => setPlan(e.target.value)}
+                                SelectProps={{ displayEmpty: true }}
+                                margin="normal"
+                                disabled={activateTrial.isPending}
+                                helperText={
+                                    plan === 'pro'
+                                        ? 'Paid Pro — no Stripe, no card, indefinite (for customers who paid out-of-band)'
+                                        : 'Stripe trial for the chosen number of days'
+                                }
+                            >
+                                <MenuItem value="">Trial (Stripe)</MenuItem>
+                                <MenuItem value="pro">Paid — Pro (no Stripe)</MenuItem>
+                            </TextField>
 
-                    <TextField
-                        fullWidth
-                        label="Days"
-                        value={days}
-                        onChange={(e) => setDays(e.target.value)}
-                        margin="normal"
-                        disabled={activateTrial.isPending || plan === 'pro'}
-                        helperText={plan === 'pro' ? 'Not used for a paid plan' : 'Length of the free trial in days'}
-                    />
+                            <TextField
+                                fullWidth
+                                label="Days"
+                                value={days}
+                                onChange={(e) => setDays(e.target.value)}
+                                margin="normal"
+                                disabled={activateTrial.isPending || plan === 'pro'}
+                                helperText={plan === 'pro' ? 'Not used for a paid plan' : 'Length of the free trial in days'}
+                            />
 
-                    <TextField
-                        fullWidth
-                        label="Credits (USD)"
-                        value={credits}
-                        onChange={(e) => setCredits(e.target.value)}
-                        margin="normal"
-                        disabled={activateTrial.isPending}
-                        helperText="Credit balance added to the wallet at trial start"
-                    />
+                            <TextField
+                                fullWidth
+                                label="Credits (USD)"
+                                value={credits}
+                                onChange={(e) => setCredits(e.target.value)}
+                                margin="normal"
+                                disabled={activateTrial.isPending}
+                                helperText="Credit balance added to the wallet at trial start"
+                            />
+                        </>
+                    )}
                 </Box>
             </DialogContent>
             <DialogActions sx={{ p: 2 }}>
-                <Button onClick={handleClose} disabled={activateTrial.isPending} variant="outlined">
+                {hasStash && (
+                    <Button
+                        onClick={handleClearStash}
+                        color="warning"
+                        variant="outlined"
+                        disabled={activateTrial.isPending || revokeTrial.isPending}
+                        startIcon={revokeTrial.isPending ? <CircularProgress size={20} /> : null}
+                        sx={{ mr: 'auto' }}
+                    >
+                        {revokeTrial.isPending ? 'Clearing…' : 'Clear stashed trial'}
+                    </Button>
+                )}
+                <Button onClick={handleClose} disabled={activateTrial.isPending || revokeTrial.isPending} variant="outlined">
                     Cancel
                 </Button>
                 <Button
                     onClick={handleSubmit}
                     color="secondary"
                     variant="contained"
-                    disabled={activateTrial.isPending || isLoadingOrgs || (hasOrgs && !effectiveOrgId)}
+                    disabled={activateTrial.isPending || revokeTrial.isPending || isLoadingOrgs || hasOrgs}
                     startIcon={activateTrial.isPending ? <CircularProgress size={20} /> : null}
                 >
                     {activateTrial.isPending ? 'Activating…' : plan === 'pro' ? 'Activate paid plan' : 'Activate trial'}

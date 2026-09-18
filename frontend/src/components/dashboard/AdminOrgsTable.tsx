@@ -1,29 +1,67 @@
 import React, { FC, useEffect, useMemo, useState } from "react";
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
     Paper,
     Typography,
     Box,
     TextField,
-    CircularProgress,
-    Tooltip,
-    Chip,
     InputAdornment,
     IconButton,
     Menu,
     MenuItem,
+    Chip,
+    Tooltip,
     TablePagination,
 } from "@mui/material";
-import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
-import EditIcon from "@mui/icons-material/Edit";
+import { Search, X, EllipsisVertical, Gift, Coins, CircleSlash, BadgeDollarSign } from "lucide-react";
 import { TypesOrgDetails } from "../../api/api";
-import { useListAdminOrgs, useAdminSetOrgPlan } from "../../services/dashboardService";
+import { useListAdminOrgs } from "../../services/dashboardService";
+import SimpleTable from "../widgets/SimpleTable";
+import AdminOrgBillingDialog, { OrgBillingAction } from "./AdminOrgBillingDialog";
+import AdminOrgPlanDialog from "./AdminOrgPlanDialog";
+
+// Dedicated subscription status chip so the wallet state reads at a glance.
+const SubscriptionChip: FC<{ status?: string }> = ({ status }) => {
+    if (!status) {
+        return (
+            <Typography variant="body2" color="text.secondary">
+                None
+            </Typography>
+        );
+    }
+    const color = status === "active" ? "success" : status === "trialing" ? "warning" : "default";
+    const label = status.charAt(0).toUpperCase() + status.slice(1);
+    return <Chip label={label} size="small" color={color} variant={status === "active" ? "filled" : "outlined"} />;
+};
+
+// Plan cell: forced overrides get a chip + caption; the default state is
+// spelled out as "Auto" so "no override" is explicit rather than a dash.
+const PlanCell: FC<{ override?: string }> = ({ override }) => {
+    if (!override) {
+        return (
+            <Box>
+                <Typography variant="body2" color="text.secondary">
+                    Auto
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                    from Stripe
+                </Typography>
+            </Box>
+        );
+    }
+    return (
+        <Box>
+            <Chip
+                label={override}
+                size="small"
+                color={override === "pro" ? "success" : "default"}
+                variant="filled"
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                forced
+            </Typography>
+        </Box>
+    );
+};
 
 const AdminOrgsTable: FC = () => {
     const [searchQuery, setSearchQuery] = useState("");
@@ -37,21 +75,24 @@ const AdminOrgsTable: FC = () => {
     }), [page, rowsPerPage, debouncedSearchQuery]);
     const { data, isLoading, error } = useListAdminOrgs(query);
     const orgs = data?.organizations;
-    const setOrgPlan = useAdminSetOrgPlan();
-    const [planAnchor, setPlanAnchor] = useState<null | HTMLElement>(null);
-    const [planOrgId, setPlanOrgId] = useState<string | null>(null);
 
-    const openPlanMenu = (e: React.MouseEvent<HTMLElement>, orgId: string) => {
-        setPlanAnchor(e.currentTarget);
-        setPlanOrgId(orgId);
+    const [actionAnchor, setActionAnchor] = useState<null | HTMLElement>(null);
+    const [actionOrg, setActionOrg] = useState<TypesOrgDetails | null>(null);
+    const [billingDialog, setBillingDialog] = useState<{ action: OrgBillingAction; org: TypesOrgDetails } | null>(null);
+    const [planDialogOrg, setPlanDialogOrg] = useState<TypesOrgDetails | null>(null);
+
+    const openActionMenu = (e: React.MouseEvent<HTMLElement>, org: TypesOrgDetails) => {
+        e.stopPropagation();
+        setActionAnchor(e.currentTarget);
+        setActionOrg(org);
     };
-    const closePlanMenu = () => {
-        setPlanAnchor(null);
-        setPlanOrgId(null);
+    const closeActionMenu = () => {
+        setActionAnchor(null);
+        setActionOrg(null);
     };
-    const applyPlan = (plan: string) => {
-        if (planOrgId) setOrgPlan.mutate({ orgId: planOrgId, plan });
-        closePlanMenu();
+    const openBillingDialog = (action: OrgBillingAction) => {
+        if (actionOrg) setBillingDialog({ action, org: actionOrg });
+        closeActionMenu();
     };
 
     useEffect(() => {
@@ -62,23 +103,79 @@ const AdminOrgsTable: FC = () => {
         return () => clearTimeout(timer);
     }, [searchQuery]);
 
-    const filtered = orgs ?? [];
+    const tableData = useMemo(() => {
+        return (orgs ?? []).map((org: TypesOrgDetails) => {
+            const name = org.organization?.display_name || org.organization?.name || "N/A";
+            const projects = org.projects || [];
+            const members = org.members || [];
 
-    if (isLoading && !orgs) {
-        return (
-            <Paper
-                sx={{
-                    p: 2,
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    minHeight: 200,
-                }}
-            >
-                <CircularProgress />
-            </Paper>
-        );
-    }
+            return {
+                id: org.organization?.id || "",
+                _data: org,
+                name: (
+                    <Box>
+                        <Typography variant="body2" sx={{ fontWeight: "bold" }}>
+                            {name}
+                        </Typography>
+                        {org.organization?.name && org.organization?.display_name && org.organization.name !== org.organization.display_name && (
+                            <Typography variant="caption" color="text.secondary">
+                                {org.organization.name}
+                            </Typography>
+                        )}
+                    </Box>
+                ),
+                projects: projects.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">None</Typography>
+                ) : (
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                        {projects.map((p) => (
+                            <Chip
+                                key={p.id}
+                                label={p.name || p.id}
+                                size="small"
+                                variant="outlined"
+                            />
+                        ))}
+                    </Box>
+                ),
+                members: members.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">None</Typography>
+                ) : (
+                    <Tooltip
+                        title={members.map((m) => m.email || m.username || m.id).join(", ")}
+                    >
+                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                            {members.map((m) => (
+                                <Chip
+                                    key={m.id}
+                                    label={m.email || m.username || m.id}
+                                    size="small"
+                                    variant="outlined"
+                                />
+                            ))}
+                        </Box>
+                    </Tooltip>
+                ),
+                subscription: <SubscriptionChip status={org.wallet?.subscription_status} />,
+                plan: <PlanCell override={org.wallet?.plan_override} />,
+                balance: (
+                    <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                        {org.wallet?.balance !== undefined ? `$${org.wallet.balance.toFixed(2)}` : "N/A"}
+                    </Typography>
+                ),
+            };
+        });
+    }, [orgs]);
+
+    const getActions = (row: Record<string, any>) => (
+        <IconButton
+            size="small"
+            aria-label="organization actions"
+            onClick={(e) => openActionMenu(e, row._data as TypesOrgDetails)}
+        >
+            <EllipsisVertical size={18} />
+        </IconButton>
+    );
 
     if (error) {
         return (
@@ -110,7 +207,7 @@ const AdminOrgsTable: FC = () => {
                     InputProps={{
                         startAdornment: (
                             <InputAdornment position="start">
-                                <SearchIcon />
+                                <Search size={18} />
                             </InputAdornment>
                         ),
                         endAdornment: searchQuery && (
@@ -121,7 +218,7 @@ const AdminOrgsTable: FC = () => {
                                     edge="end"
                                     size="small"
                                 >
-                                    <ClearIcon />
+                                    <X size={18} />
                                 </IconButton>
                             </InputAdornment>
                         ),
@@ -132,133 +229,20 @@ const AdminOrgsTable: FC = () => {
                 </Typography>
             </Box>
 
-            <TableContainer>
-                <Table stickyHeader aria-label="organizations table">
-                    <TableHead>
-                        <TableRow>
-                            <TableCell>Name</TableCell>
-                            <TableCell>Projects</TableCell>
-                            <TableCell>Members</TableCell>
-                            <TableCell>Stripe Customer ID</TableCell>
-                            <TableCell>Subscription</TableCell>
-                            <TableCell>Plan</TableCell>
-                            <TableCell align="right">Wallet Credits</TableCell>
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {filtered.length === 0 ? (
-                            <TableRow>
-                                <TableCell colSpan={7} align="center">
-                                    <Typography variant="body2" color="text.secondary">
-                                        {searchQuery ? "No organizations matching your search" : "No organizations found"}
-                                    </Typography>
-                                </TableCell>
-                            </TableRow>
-                        ) : (
-                            filtered.map((org: TypesOrgDetails) => {
-                                const name = org.organization?.display_name || org.organization?.name || "N/A";
-                                const projects = org.projects || [];
-                                const members = org.members || [];
-                                const balance = org.wallet?.balance;
-
-                                return (
-                                    <TableRow key={org.organization?.id} hover>
-                                        <TableCell>
-                                            <Typography variant="body2" sx={{ fontWeight: "medium" }}>
-                                                {name}
-                                            </Typography>
-                                            {org.organization?.name && org.organization?.display_name && org.organization.name !== org.organization.display_name && (
-                                                <Typography variant="caption" color="text.secondary">
-                                                    {org.organization.name}
-                                                </Typography>
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            {projects.length === 0 ? (
-                                                <Typography variant="body2" color="text.secondary">None</Typography>
-                                            ) : (
-                                                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                                                    {projects.map((p) => (
-                                                        <Chip
-                                                            key={p.id}
-                                                            label={p.name || p.id}
-                                                            size="small"
-                                                            variant="outlined"
-                                                        />
-                                                    ))}
-                                                </Box>
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            {members.length === 0 ? (
-                                                <Typography variant="body2" color="text.secondary">None</Typography>
-                                            ) : (
-                                                <Tooltip
-                                                    title={members.map((m) => m.email || m.username || m.id).join(", ")}
-                                                >
-                                                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                                                        {members.map((m) => (
-                                                            <Chip
-                                                                key={m.id}
-                                                                label={m.email || m.username || m.id}
-                                                                size="small"
-                                                                variant="outlined"
-                                                            />
-                                                        ))}
-                                                    </Box>
-                                                </Tooltip>
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}>
-                                                {org.wallet?.stripe_customer_id || "N/A"}
-                                            </Typography>
-                                        </TableCell>
-                                        <TableCell>
-                                            {org.wallet?.subscription_status ? (
-                                                <Chip
-                                                    label={org.wallet.subscription_status}
-                                                    size="small"
-                                                    color={org.wallet.subscription_status === "active" ? "success" : "default"}
-                                                    variant={org.wallet.subscription_status === "active" ? "filled" : "outlined"}
-                                                />
-                                            ) : (
-                                                <Typography variant="body2" color="text.secondary">None</Typography>
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                                {org.wallet?.plan_override ? (
-                                                    <Chip
-                                                        label={org.wallet.plan_override}
-                                                        size="small"
-                                                        color={org.wallet.plan_override === "pro" ? "success" : "default"}
-                                                    />
-                                                ) : (
-                                                    <Typography variant="body2" color="text.secondary">—</Typography>
-                                                )}
-                                                <IconButton
-                                                    size="small"
-                                                    aria-label="set plan"
-                                                    disabled={setOrgPlan.isPending}
-                                                    onClick={(e) => openPlanMenu(e, org.organization?.id || "")}
-                                                >
-                                                    <EditIcon fontSize="small" />
-                                                </IconButton>
-                                            </Box>
-                                        </TableCell>
-                                        <TableCell align="right">
-                                            <Typography variant="body2">
-                                                {balance !== undefined ? `$${balance.toFixed(2)}` : "N/A"}
-                                            </Typography>
-                                        </TableCell>
-                                    </TableRow>
-                                );
-                            })
-                        )}
-                    </TableBody>
-                </Table>
-            </TableContainer>
+            <SimpleTable
+                authenticated={true}
+                loading={isLoading}
+                fields={[
+                    { name: "name", title: "Name" },
+                    { name: "projects", title: "Projects" },
+                    { name: "members", title: "Members" },
+                    { name: "subscription", title: "Subscription" },
+                    { name: "plan", title: "Plan" },
+                    { name: "balance", title: "Wallet Credits", numeric: true },
+                ]}
+                data={tableData}
+                getActions={getActions}
+            />
 
             {(data?.totalCount ?? 0) > 0 && (
                 <TablePagination
@@ -276,11 +260,41 @@ const AdminOrgsTable: FC = () => {
                 />
             )}
 
-            <Menu anchorEl={planAnchor} open={Boolean(planAnchor)} onClose={closePlanMenu}>
-                <MenuItem onClick={() => applyPlan("pro")}>Set Pro (paid, no Stripe)</MenuItem>
-                <MenuItem onClick={() => applyPlan("free")}>Set Free</MenuItem>
-                <MenuItem onClick={() => applyPlan("")}>Clear override (use Stripe)</MenuItem>
+            <Menu anchorEl={actionAnchor} open={Boolean(actionAnchor)} onClose={closeActionMenu}>
+                <MenuItem onClick={() => { setPlanDialogOrg(actionOrg); closeActionMenu(); }}>
+                    <BadgeDollarSign size={16} style={{ marginRight: 8 }} />
+                    Set plan…
+                </MenuItem>
+                {actionOrg?.wallet?.subscription_status !== "trialing" &&
+                    actionOrg?.wallet?.subscription_status !== "active" && (
+                        <MenuItem onClick={() => openBillingDialog("activate")}>
+                            <Gift size={16} style={{ marginRight: 8 }} />
+                            Activate trial…
+                        </MenuItem>
+                    )}
+                {actionOrg?.wallet?.subscription_status === "trialing" && (
+                    <MenuItem onClick={() => openBillingDialog("revoke")}>
+                        <CircleSlash size={16} style={{ marginRight: 8 }} />
+                        Revoke trial…
+                    </MenuItem>
+                )}
+                <MenuItem onClick={() => openBillingDialog("credits")}>
+                    <Coins size={16} style={{ marginRight: 8 }} />
+                    Grant credits…
+                </MenuItem>
             </Menu>
+
+            <AdminOrgBillingDialog
+                open={Boolean(billingDialog)}
+                action={billingDialog?.action || "activate"}
+                org={billingDialog?.org || null}
+                onClose={() => setBillingDialog(null)}
+            />
+            <AdminOrgPlanDialog
+                open={Boolean(planDialogOrg)}
+                org={planDialogOrg}
+                onClose={() => setPlanDialogOrg(null)}
+            />
         </Paper>
     );
 };
