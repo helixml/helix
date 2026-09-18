@@ -13,6 +13,7 @@ import {
     Radio,
     RadioGroup,
     FormControlLabel,
+    Divider,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { TypesOrgDetails } from '../../api/api';
@@ -27,11 +28,6 @@ interface AdminOrgPlanDialogProps {
 
 const PLAN_OPTIONS = [
     {
-        value: '',
-        label: 'Follow Stripe',
-        description: "No override — the plan comes from the org's Stripe subscription.",
-    },
-    {
         value: 'pro',
         label: 'Force Pro',
         description: "Paid tier regardless of Stripe — for customers who paid out-of-band. Never reverted by a Stripe webhook.",
@@ -42,6 +38,13 @@ const PLAN_OPTIONS = [
         description: 'Free tier regardless of Stripe. Use to cap usage without cancelling a subscription.',
     },
 ];
+
+// Not a plan choice — the recovery action that undoes a forced override.
+// Only offered when there is actually an override to remove.
+const REMOVE_OVERRIDE_OPTION = {
+    label: 'Remove override (back to Stripe)',
+    description: "Delete the forced plan — the org returns to whatever its Stripe subscription says.",
+};
 
 const AdminOrgPlanDialog: FC<AdminOrgPlanDialogProps> = ({ open, onClose, org }) => {
     const [plan, setPlan] = useState('');
@@ -140,6 +143,37 @@ const AdminOrgPlanDialog: FC<AdminOrgPlanDialogProps> = ({ open, onClose, org })
                                 />
                             </Box>
                         ))}
+                        {currentOverride && (
+                            <>
+                                <Divider sx={{ my: 1.5 }} />
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                                    Undo the forced plan:
+                                </Typography>
+                                <Box
+                                    sx={{
+                                        border: '1px solid',
+                                        borderColor: plan === '' ? 'action.selected' : 'divider',
+                                        borderRadius: 1,
+                                        px: 1.5,
+                                        py: 0.5,
+                                    }}
+                                >
+                                    <FormControlLabel
+                                        value=""
+                                        control={<Radio size="small" />}
+                                        label={
+                                            <Box sx={{ py: 0.5 }}>
+                                                <Typography variant="body2">{REMOVE_OVERRIDE_OPTION.label}</Typography>
+                                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                                    {REMOVE_OVERRIDE_OPTION.description}
+                                                </Typography>
+                                            </Box>
+                                        }
+                                        disabled={setOrgPlan.isPending}
+                                    />
+                                </Box>
+                            </>
+                        )}
                     </RadioGroup>
                 </Box>
             </DialogContent>
@@ -151,7 +185,7 @@ const AdminOrgPlanDialog: FC<AdminOrgPlanDialogProps> = ({ open, onClose, org })
                     onClick={handleSubmit}
                     color="secondary"
                     variant="contained"
-                    disabled={setOrgPlan.isPending}
+                    disabled={setOrgPlan.isPending || plan === currentOverride}
                     startIcon={setOrgPlan.isPending ? <CircularProgress size={20} /> : null}
                 >
                     {setOrgPlan.isPending ? 'Applying…' : 'Apply plan'}
