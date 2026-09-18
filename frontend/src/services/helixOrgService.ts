@@ -443,6 +443,24 @@ export function useRestartBotAgent(orgIDOverride?: string) {
   })
 }
 
+// Applies restart-sensitive Bot config by recreating its existing container.
+// The apply-config endpoint preserves the healthy ACP thread and sends no activation.
+export function useApplyBotConfig(orgIDOverride?: string) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID: baseOrgID } = useHelixOrgBase()
+  const orgID = orgIDOverride ?? baseOrgID
+  return useMutation({
+    mutationFn: async (botId: string) => {
+      await api.getApiClient().v1OrgsBotsApplyConfigCreate(botId, orgID)
+    },
+    onSuccess: (_data, botId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+    },
+  })
+}
+
 export function useListHelixOrgBots(options?: { enabled?: boolean; refetchInterval?: number | false }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
