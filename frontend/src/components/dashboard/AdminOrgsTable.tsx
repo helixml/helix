@@ -21,9 +21,11 @@ import {
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import EditIcon from "@mui/icons-material/Edit";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { TypesOrgDetails } from "../../api/api";
 import { useListAdminOrgs, useAdminSetOrgPlan } from "../../services/dashboardService";
+import useSnackbar from "../../hooks/useSnackbar";
+import AdminOrgBillingDialog, { OrgBillingAction } from "./AdminOrgBillingDialog";
 
 const AdminOrgsTable: FC = () => {
     const [searchQuery, setSearchQuery] = useState("");
@@ -38,20 +40,32 @@ const AdminOrgsTable: FC = () => {
     const { data, isLoading, error } = useListAdminOrgs(query);
     const orgs = data?.organizations;
     const setOrgPlan = useAdminSetOrgPlan();
-    const [planAnchor, setPlanAnchor] = useState<null | HTMLElement>(null);
-    const [planOrgId, setPlanOrgId] = useState<string | null>(null);
+    const snackbar = useSnackbar();
+    const [actionAnchor, setActionAnchor] = useState<null | HTMLElement>(null);
+    const [actionOrg, setActionOrg] = useState<TypesOrgDetails | null>(null);
+    const [billingDialog, setBillingDialog] = useState<{ action: OrgBillingAction; org: TypesOrgDetails } | null>(null);
 
-    const openPlanMenu = (e: React.MouseEvent<HTMLElement>, orgId: string) => {
-        setPlanAnchor(e.currentTarget);
-        setPlanOrgId(orgId);
+    const openActionMenu = (e: React.MouseEvent<HTMLElement>, org: TypesOrgDetails) => {
+        setActionAnchor(e.currentTarget);
+        setActionOrg(org);
     };
-    const closePlanMenu = () => {
-        setPlanAnchor(null);
-        setPlanOrgId(null);
+    const closeActionMenu = () => {
+        setActionAnchor(null);
+        setActionOrg(null);
     };
     const applyPlan = (plan: string) => {
-        if (planOrgId) setOrgPlan.mutate({ orgId: planOrgId, plan });
-        closePlanMenu();
+        const orgId = actionOrg?.organization?.id;
+        if (orgId) {
+            setOrgPlan.mutate({ orgId, plan }, {
+                onSuccess: () => snackbar.success(plan ? `Plan set to ${plan} on ${actionOrg?.organization?.display_name || actionOrg?.organization?.name}` : `Plan override cleared on ${actionOrg?.organization?.display_name || actionOrg?.organization?.name}`),
+                onError: (err: any) => snackbar.error(err?.response?.data?.error || err?.message || "Failed to set plan"),
+            });
+        }
+        closeActionMenu();
+    };
+    const openBillingDialog = (action: OrgBillingAction) => {
+        if (actionOrg) setBillingDialog({ action, org: actionOrg });
+        closeActionMenu();
     };
 
     useEffect(() => {
@@ -239,11 +253,10 @@ const AdminOrgsTable: FC = () => {
                                                 )}
                                                 <IconButton
                                                     size="small"
-                                                    aria-label="set plan"
-                                                    disabled={setOrgPlan.isPending}
-                                                    onClick={(e) => openPlanMenu(e, org.organization?.id || "")}
+                                                    aria-label="organization actions"
+                                                    onClick={(e) => openActionMenu(e, org)}
                                                 >
-                                                    <EditIcon fontSize="small" />
+                                                    <MoreVertIcon fontSize="small" />
                                                 </IconButton>
                                             </Box>
                                         </TableCell>
@@ -276,11 +289,26 @@ const AdminOrgsTable: FC = () => {
                 />
             )}
 
-            <Menu anchorEl={planAnchor} open={Boolean(planAnchor)} onClose={closePlanMenu}>
+            <Menu anchorEl={actionAnchor} open={Boolean(actionAnchor)} onClose={closeActionMenu}>
                 <MenuItem onClick={() => applyPlan("pro")}>Set Pro (paid, no Stripe)</MenuItem>
                 <MenuItem onClick={() => applyPlan("free")}>Set Free</MenuItem>
                 <MenuItem onClick={() => applyPlan("")}>Clear override (use Stripe)</MenuItem>
+                {actionOrg?.wallet?.subscription_status !== "trialing" &&
+                    actionOrg?.wallet?.subscription_status !== "active" && (
+                        <MenuItem onClick={() => openBillingDialog("activate")}>Activate trial…</MenuItem>
+                    )}
+                {actionOrg?.wallet?.subscription_status === "trialing" && (
+                    <MenuItem onClick={() => openBillingDialog("revoke")}>Revoke trial…</MenuItem>
+                )}
+                <MenuItem onClick={() => openBillingDialog("credits")}>Grant credits…</MenuItem>
             </Menu>
+
+            <AdminOrgBillingDialog
+                open={Boolean(billingDialog)}
+                action={billingDialog?.action || "activate"}
+                org={billingDialog?.org || null}
+                onClose={() => setBillingDialog(null)}
+            />
         </Paper>
     );
 };

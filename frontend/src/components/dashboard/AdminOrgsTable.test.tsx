@@ -17,6 +17,9 @@ vi.mock('../../services/dashboardService', () => ({
     }
   },
   useAdminSetOrgPlan: () => ({ mutate: vi.fn(), isPending: false }),
+  useAdminActivateTrial: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useAdminRevokeTrial: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useAdminGrantCredits: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 
 describe('AdminOrgsTable', () => {
