@@ -140,6 +140,12 @@ definitions:
         type: string
       agent_runtime:
         type: string
+      agent_work_state:
+        allOf:
+        - $ref: '#/definitions/types.AgentWorkState'
+        description: |-
+          AgentWorkState is "working" only while the running Bot's latest
+          interaction is still waiting for its external agent.
       code_agent_credential_type:
         $ref: '#/definitions/types.CodeAgentCredentialType'
       code_agent_runtime:

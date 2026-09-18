@@ -644,10 +644,10 @@ func (s *PostgresStore) GetLatestInteractionsForSessions(ctx context.Context, se
 
 	var interactions []*types.Interaction
 	err := s.gdb.WithContext(ctx).
-		Raw(`SELECT DISTINCT ON (session_id) *
+		Raw(`SELECT DISTINCT ON (session_id) session_id, state
 		     FROM interactions
 		     WHERE session_id IN ?
-		     ORDER BY session_id, created DESC, generation_id DESC`, sessionIDs).
+		     ORDER BY session_id, updated DESC, generation_id DESC`, sessionIDs).
 		Scan(&interactions).Error
 	if err != nil {
 		return nil, err
