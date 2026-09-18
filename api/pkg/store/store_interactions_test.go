@@ -210,6 +210,39 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetInteractionsSummary() 
 	}
 }
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_GetLatestInteractionsForSessionsUsesUpdated() {
+	ctx := context.Background()
+	userID := "user-latest-interaction-test"
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: userID, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	base := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	waiting := &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+		Created: base.Add(time.Minute), Updated: base.Add(3 * time.Minute), PromptMessage: "user prompt",
+	}
+	copiedHire := &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: userID,
+		GenerationID: 1, State: types.InteractionStateComplete, Trigger: "org_hire",
+		Created: base.Add(2 * time.Minute), Updated: base, PromptMessage: "copied hire prompt",
+	}
+	_, err = suite.db.CreateInteraction(ctx, waiting)
+	suite.Require().NoError(err)
+	_, err = suite.db.CreateInteraction(ctx, copiedHire)
+	suite.Require().NoError(err)
+
+	latest, err := suite.db.GetLatestInteractionsForSessions(ctx, []string{session.ID})
+	suite.Require().NoError(err)
+	suite.Require().Contains(latest, session.ID)
+	suite.Equal(waiting.ID, latest[session.ID].ID)
+	suite.Equal(types.InteractionStateWaiting, latest[session.ID].State)
+	suite.Equal("user prompt", latest[session.ID].PromptMessage)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_Interactions() {
 	userID := "user-id-1"
 	// Create a sample session
