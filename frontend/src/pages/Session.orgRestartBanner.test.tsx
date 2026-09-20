@@ -1,12 +1,12 @@
 // Covers the restart-required banner mount on the full-page org session
-// chat surface (route `org_session`, `<Session orgChatView />`). This is a
+// chat surface (`<Session orgChatView />`). This is a
 // heavy page component with many data hooks; every one is mocked below so
 // the test exercises only the wiring this change touches: deriving the bot
 // id from `session.data.config.org_worker_id`, looking the bot up via
 // `useHelixOrgBot`, and driving `AgentRestartRequiredBanner.visible` off
 // `bot.restart_required`.
 
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Session from './Session'
@@ -32,9 +32,12 @@ Element.prototype.scrollTo = vi.fn()
 const mocks = vi.hoisted(() => ({
   router: {
     params: { org_id: 'acme', session_id: 'ses-1' } as Record<string, string>,
+    name: 'org_bot_session',
     navigate: vi.fn(),
+    navigateReplace: vi.fn(),
     setParams: vi.fn(),
   },
+  getSession: vi.fn(),
   restartRequired: false,
   restartMutateAsync: vi.fn(),
   restartIsPending: false,
@@ -77,7 +80,10 @@ vi.mock('../contexts/streaming', () => ({
   useStreaming: () => ({ NewInference: vi.fn(), setCurrentSessionId: vi.fn() }),
 }))
 vi.mock('../services/sessionService', () => ({
-  useGetSession: () => ({ data: { data: sessionData }, refetch: vi.fn() }),
+  useGetSession: (sessionId: string) => {
+    mocks.getSession(sessionId)
+    return { data: { data: sessionData }, refetch: vi.fn() }
+  },
   useUpdateSession: () => ({ mutate: vi.fn() }),
   useGetSessionIdleStatus: () => ({ data: undefined }),
   useGetSessionExecutionConfig: () => ({ data: undefined }),
@@ -98,6 +104,7 @@ vi.mock('../services/helixOrgService', () => ({
     mutateAsync: mocks.restartMutateAsync,
     isPending: mocks.restartIsPending,
   }),
+  useApplyBotConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useActivateBot: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useStopBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
@@ -116,6 +123,9 @@ vi.mock('../components/common/RobustPromptInput', () => ({ default: () => <div>P
 describe('Session org chat restart banner', () => {
   beforeEach(() => {
     mocks.router.params = { org_id: 'acme', session_id: 'ses-1' }
+    mocks.router.name = 'org_bot_session'
+    mocks.router.navigateReplace.mockReset()
+    mocks.getSession.mockReset()
     mocks.restartRequired = false
     mocks.restartMutateAsync.mockReset()
     mocks.restartIsPending = false
@@ -132,5 +142,45 @@ describe('Session org chat restart banner', () => {
     render(<Session orgChatView />)
     await screen.findByText('Prompt input')
     expect(screen.queryByTestId('agent-restart-required-banner')).toBeNull()
+  })
+
+  it('does not scroll to the latest message after the user scrolls up', () => {
+    vi.useFakeTimers()
+    sessionData.interactions = [{ id: 'turn-1', state: 'waiting' }]
+    const view = render(<Session orgChatView />)
+    const container = document.querySelector<HTMLElement>('[data-session-scroll-container]')!
+    Object.defineProperties(container, {
+      scrollTop: { configurable: true, writable: true, value: 400 },
+      scrollHeight: { configurable: true, writable: true, value: 1000 },
+      clientHeight: { configurable: true, writable: true, value: 200 },
+    })
+    act(() => vi.runOnlyPendingTimers())
+    vi.mocked(Element.prototype.scrollTo).mockClear()
+
+    container.scrollTop = 200
+    fireEvent.scroll(container)
+    sessionData.interactions = [{ id: 'turn-1', state: 'complete' }]
+    view.rerender(<Session orgChatView />)
+    act(() => vi.runOnlyPendingTimers())
+
+    expect(Element.prototype.scrollTo).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('loads an explicitly resolved session without requiring it in the URL', async () => {
+    mocks.router.params = { org_id: 'acme', bot_id: 'bot-one' }
+    render(<Session orgChatView sessionId="ses-current" />)
+
+    expect(mocks.getSession).toHaveBeenCalledWith('ses-current')
+  })
+
+  it('replaces a legacy org-bot session URL with the stable bot URL', async () => {
+    mocks.router.name = 'org_session'
+    render(<Session orgChatView />)
+
+    expect(mocks.router.navigateReplace).toHaveBeenCalledWith('org_bot_session', {
+      org_id: 'acme',
+      bot_id: 'bot-one',
+    })
   })
 })

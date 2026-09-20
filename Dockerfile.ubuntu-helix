@@ -1372,6 +1372,7 @@ RUN chmod +x /usr/local/bin/goose
 # pinned release into the shared cache below instead of using this binary.
 # Keep OPENCODE_VERSION, OPENCODE_SHA256_* , sandbox-versions.txt and
 # pkg/opencode.BakedVersion in sync.
+COPY --chown=root:root --chmod=0644 desktop/shared/opencode-plugins/helix-media-budget.mjs /opt/helix/opencode-plugins/helix-media-budget.mjs
 ARG OPENCODE_VERSION=1.18.18
 ARG OPENCODE_SHA256_AMD64=0cddc222418b8553669905a8980c0cda7088f00da24d83d6ac76b01c9fdb2aaf
 ARG OPENCODE_SHA256_ARM64=dcb1b5ec5687b43f87749560021f9203f3809e0ce5ae44ff9be8ae17083fe4ba

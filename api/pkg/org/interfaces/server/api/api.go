@@ -63,6 +63,10 @@ type ProjectEnsurer interface {
 	Ensure(ctx context.Context, orgID string, botID orgchart.NodeID) (projectID, agentAppID, repoID string, err error)
 }
 
+type BotConfigApplier interface {
+	ApplyConfig(ctx context.Context, orgID string, botID orgchart.NodeID) error
+}
+
 // Deps is the JSON API's wiring.
 //
 // PublicURL / DBPath / EnvsDir are the operational state the settings
@@ -118,6 +122,7 @@ type Deps struct {
 	// BotDesktopStopper stops the desktop only (session + transcript kept).
 	// nil → stopBotAgent returns 501.
 	BotDesktopStopper BotDesktopStopper
+	BotConfigApplier  BotConfigApplier
 
 	// GitHubInbound builds the inbound GitHub-webhook handler for an org
 	// (the transport reads matching triggers + appends events). Built at
@@ -341,6 +346,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "POST /bots/{id}/activate", Handler: http.HandlerFunc(a.activateBot)},
 		{Pattern: "POST /bots/{id}/stop", Handler: http.HandlerFunc(a.stopBot)},
 		{Pattern: "POST /bots/{id}/restart", Handler: http.HandlerFunc(a.restartBot)},
+		{Pattern: "POST /bots/{id}/apply-config", Handler: http.HandlerFunc(a.applyBotConfig)},
 		// Reporting lines are many-to-many — add/remove individual
 		// manager edges rather than replacing a single parent.
 		{Pattern: "POST /bots/{id}/parents", Handler: http.HandlerFunc(a.addBotParent)},

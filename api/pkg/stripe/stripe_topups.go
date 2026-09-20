@@ -39,7 +39,6 @@ func (s *Stripe) GetTopUpSessionURL(
 	if err != nil {
 		return "", err
 	}
-
 	// Convert amount to cents for Stripe
 	amountInCents := int64(math.Round(params.Amount * 100))
 	metadata := topUpMetadata(params.UserID, params.OrgID, amountInCents)
@@ -63,6 +62,23 @@ func (s *Stripe) GetTopUpSessionURL(
 		return "", err
 	}
 
+	lineItem := &stripe.CheckoutSessionLineItemParams{Quantity: stripe.Int64(1)}
+	if amountInCents == 500 {
+		if s.cfg.PromoCreditPriceID == "" {
+			return "", fmt.Errorf("stripe promo credit price ID is required")
+		}
+		lineItem.Price = stripe.String(s.cfg.PromoCreditPriceID)
+	} else {
+		lineItem.PriceData = &stripe.CheckoutSessionLineItemPriceDataParams{
+			Currency: stripe.String("usd"),
+			ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
+				Name:        stripe.String("Helix Credits"),
+				Description: stripe.String(fmt.Sprintf("Top up of $%.2f", params.Amount)),
+			},
+			UnitAmount: stripe.Int64(amountInCents),
+		}
+	}
+
 	checkoutParams := &stripe.CheckoutSessionParams{
 		AllowPromotionCodes: stripe.Bool(true),
 		Mode:                stripe.String(string(stripe.CheckoutSessionModePayment)),
@@ -71,19 +87,7 @@ func (s *Stripe) GetTopUpSessionURL(
 		PaymentIntentData: &stripe.CheckoutSessionPaymentIntentDataParams{
 			Metadata: cloneMetadata(metadata),
 		},
-		LineItems: []*stripe.CheckoutSessionLineItemParams{
-			{
-				PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
-					Currency: stripe.String("usd"),
-					ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
-						Name:        stripe.String("Helix Credits"),
-						Description: stripe.String(fmt.Sprintf("Top up of $%.2f", params.Amount)),
-					},
-					UnitAmount: stripe.Int64(amountInCents),
-				},
-				Quantity: stripe.Int64(1),
-			},
-		},
+		LineItems:  []*stripe.CheckoutSessionLineItemParams{lineItem},
 		Customer:   stripe.String(params.StripeCustomerID),
 		SuccessURL: stripe.String(successURL),
 		CancelURL:  stripe.String(cancelURL),
@@ -118,7 +122,25 @@ func (s *Stripe) handleTopUpEvent(event stripe.Event) error {
 	// Check if this is a topup payment
 	paymentType := paymentIntent.Metadata[topUpMetadataType]
 	if paymentType != topUpMetadataTypeValue {
-		return fmt.Errorf("payment is not a topup")
+		// Not one of our payment intents (the webhook receives every
+		// payment_intent.succeeded on the account). Skip it — returning an
+		// error would make Stripe retry a delivery that can never succeed.
+		log.Info().
+			Str("payment_intent_id", paymentIntent.ID).
+			Msg("payment intent is not a topup, skipping")
+		return nil
+	}
+
+	// A zero-amount payment intent belongs to a fully discounted checkout
+	// session (the customer paid $0 and the receipt shows $0). Credit it only
+	// when the metadata carries the requested amount; without it this event
+	// alone cannot know what to credit, and checkout.session.completed — which
+	// holds the session metadata — owns the purchase instead.
+	if paymentIntent.Amount == 0 && paymentIntent.Metadata[topUpMetadataAmountCents] == "" {
+		log.Info().
+			Str("payment_intent_id", paymentIntent.ID).
+			Msg("zero amount topup without requested amount metadata, skipping")
+		return nil
 	}
 
 	amount, err := topUpAmountDollars(paymentIntent.Metadata, paymentIntent.Amount)

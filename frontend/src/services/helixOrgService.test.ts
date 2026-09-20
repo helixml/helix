@@ -9,7 +9,7 @@ const countTriggers = (pattern: RegExp) => triggerSource.match(pattern)?.length 
 
 describe('Helix Org Bot API argument order', () => {
   it('passes Bot and organization IDs in generated-client order', () => {
-    expect(count(/v1OrgsBots[A-Za-z0-9]*\(/g)).toBe(16)
+    expect(count(/v1OrgsBots[A-Za-z0-9]*\(/g)).toBe(17)
     expect(count(/v1OrgsBotsDetail\(orgID\)/g)).toBe(1)
     expect(count(/v1OrgsBotsCreate\(orgID, payload\)/g)).toBe(1)
     expect(count(/v1OrgsBotsPartialUpdate\(orgID, id, body\)/g)).toBe(1)
@@ -17,6 +17,7 @@ describe('Helix Org Bot API argument order', () => {
     expect(count(/v1OrgsBotsActivateCreate\(botId, orgID\)/g)).toBe(1)
     expect(count(/v1OrgsBotsStopCreate\(botId, orgID\)/g)).toBe(1)
     expect(count(/v1OrgsBotsRestartCreate\(botId, orgID\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsApplyConfigCreate\(botId, orgID\)/g)).toBe(1)
     expect(count(/v1OrgsBotsDetail2\(botId, orgID\)/g)).toBe(2)
     expect(count(/v1OrgsBotsParentsCreate\(botID, orgID, \{ parent_id: parentID \}\)/g)).toBe(1)
     expect(count(/v1OrgsBotsParentsDelete\(botID, parentID, orgID\)/g)).toBe(1)

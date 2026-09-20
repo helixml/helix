@@ -731,6 +731,77 @@ describe('Onboarding', () => {
     ))
   })
 
+  it('pins the created organization id into the URL so it survives refresh without a draft', async () => {
+    mockState.walletStatus = 'not_subscribed'
+    setAccountWithOrgs([])
+    mockCreateOrgMutateAsync.mockResolvedValue({
+      id: 'org-2',
+      name: 'new-org',
+      display_name: 'New Org',
+    })
+    const firstRender = renderOnboarding()
+
+    fireEvent.change(screen.getByLabelText('Organization name'), {
+      target: { value: 'New Org' },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Create organization' }))
+    })
+    expect(window.location.search).toBe('?org_id=org-2&created_org=true')
+    firstRender.unmount()
+
+    // Refresh loses the localStorage draft; the URL must still restore the
+    // canonical organization instead of offering to create another one.
+    setAccountWithOrgs([
+      { id: 'org-2', name: 'new-org', display_name: 'New Org', owner: 'user-1' },
+    ])
+    localStorage.clear()
+    renderOnboarding()
+
+    await waitFor(() => {
+      expect(screen.getByText('Selected organization: New Org')).toBeInTheDocument()
+    })
+    expect(mockCreateOrgMutateAsync).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: 'Create organization' })).not.toBeInTheDocument()
+    expect(mockV1TopUpsNewCreate).not.toHaveBeenCalled()
+  })
+
+  it('resolves create to the owned organization instead of a duplicate when round-trip state was lost', async () => {
+    mockState.walletStatus = 'not_subscribed'
+    localStorage.setItem(onboardingDraftKey, JSON.stringify({
+      activeStepType: 'organization',
+      completedStepTypes: ['signin'],
+      orgMode: 'create',
+      selectedOrgId: '',
+      orgDisplayName: 'My Org',
+      createdOrgId: '',
+      createdOrgDuringOnboarding: true,
+    }))
+    renderOnboarding()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Create organization' })).toBeEnabled()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Create organization' }))
+    })
+
+    expect(mockCreateOrgMutateAsync).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(screen.getByText('Selected organization: My Org')).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /start 72-hour free trial/i })).toBeEnabled()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /start 72-hour free trial/i }))
+    })
+    expect(mockV1SubscriptionNewCreate).toHaveBeenCalledWith({
+      org_id: 'org-1',
+      return_url: '/onboarding?org_id=org-1',
+    })
+  })
+
   it('restores a new self-hosted organization after Stripe returns', async () => {
     mockState.edition = 'self-hosted'
     mockState.walletStatus = 'not_subscribed'

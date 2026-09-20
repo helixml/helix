@@ -37,6 +37,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/triggers"
 	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/briefing"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -220,8 +221,19 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 	// Resolve sandbox online-ness from the session metadata the desktop
 	// stack already maintains (external_agent_status). Missing session
 	// or lookup failure keeps the default "stopped".
+	//
+	// A boot in flight reports "starting" rather than falling through to
+	// "stopped": the bot page's indicator and its Start/Stop/Restart
+	// controls key off this field, and reporting "stopped" while a
+	// container is coming up invites the user to click Start on a bot that
+	// is already starting. The sandboxes row covers part of that window
+	// with status=pending, but not the gap before the row exists.
 	if s.SessionID != "" && o.sessions != nil {
 		if sess, err := o.sessions.GetSession(ctx, s.SessionID); err == nil && sess != nil {
+			switch sess.Metadata.ExternalAgentStatus {
+			case "starting", "restarting":
+				info.Status = "starting"
+			}
 			if sess.Metadata.ExternalAgentStatus == "running" {
 				info.Status = "running"
 				// RestartRequiredContainer is the container that was live
@@ -336,6 +348,71 @@ func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID 
 type botSessionResetter struct {
 	client *inProcHelixClient
 	st     *helixorgstore.Store
+}
+
+type botConfigApplier struct {
+	client interface {
+		GetAppConfig(ctx context.Context, id string) (types.AppConfig, error)
+		SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string, launch runtimehelix.SessionLaunchConfig) error
+	}
+	store   *helixorgstore.Store
+	configs *configregistry.Registry
+	restart func(ctx context.Context, sessionID string) error
+}
+
+func (a botConfigApplier) ApplyConfig(ctx context.Context, orgID string, botID orgchart.NodeID) error {
+	bot, err := a.store.Nodes.Get(ctx, orgID, botID)
+	if err != nil {
+		return fmt.Errorf("get bot: %w", err)
+	}
+	state, err := runtimehelix.LoadState(ctx, a.store, orgID, botID)
+	if err != nil {
+		return err
+	}
+	if state.SessionID == "" {
+		return errors.New("bot has no session to restart")
+	}
+
+	mandate := bot.Content
+	if bot.AgentID != "" {
+		appConfig, err := a.client.GetAppConfig(ctx, bot.AgentID)
+		if err != nil {
+			return fmt.Errorf("get canonical agent instructions: %w", err)
+		}
+		if len(appConfig.Helix.Assistants) != 1 {
+			return fmt.Errorf("linked agent %s must contain exactly one assistant", bot.AgentID)
+		}
+		mandate = appConfig.Helix.Assistants[0].SystemPrompt
+	}
+	orgRuntime, orgResources := a.configs.GetDefaultSandboxConfig(ctx, orgID)
+	launch := runtimehelix.EffectiveLaunchConfig(bot, orgRuntime, orgResources)
+	sessionName := bot.Name
+	if sessionName == "" {
+		sessionName = string(botID)
+	}
+	if err := a.client.SyncAgentProfile(ctx, state.SessionID, sessionName, string(botID), briefing.BuildInstructions(botID, mandate), launch); err != nil {
+		return err
+	}
+
+	return a.restart(ctx, state.SessionID)
+}
+
+func (s *HelixAPIServer) restartOrgBotSessionWithPreservedThread(ctx context.Context, sessionID string) error {
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("reload session: %w", err)
+	}
+	user, err := s.Store.GetUser(ctx, &helixstore.GetUserQuery{ID: session.Owner})
+	if err != nil {
+		return fmt.Errorf("get session owner: %w", err)
+	}
+	if user == nil {
+		return errors.New("session owner not found")
+	}
+	if _, herr := s.restartSessionContainer(ctx, user, session, false); herr != nil {
+		return errors.New(herr.Error())
+	}
+	return nil
 }
 
 // StopDesktop stops the external-agent container for a session without
@@ -1259,6 +1336,9 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		// work; REST stop/restart now go through Activations.
 		BotSessionResetter: sessionResetter,
 		BotDesktopStopper:  sessionResetter,
+		BotConfigApplier: botConfigApplier{
+			client: inProcClient, store: st, configs: configReg, restart: cfg.APIServer.restartOrgBotSessionWithPreservedThread,
+		},
 		// GitHubInbound builds the inbound github transport per org — it
 		// reads matching topics + appends events, so it holds the store
 		// here in the composition root rather than in the api adapter.

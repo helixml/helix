@@ -229,7 +229,7 @@ const ProjectChatSidebar: FC<{
   const archiveSession = useArchiveSession()
   const archiveSpecTask = useArchiveSpecTask()
   const { data: pinnedChats = [] } = usePinnedChats(!!account.user?.id)
-  const activeItemId = router.params.taskId || router.params.session_id || ''
+  const activeItemId = router.params.taskId || router.params.bot_id || router.params.session_id || ''
   // The account context loads memberships once; presence needs the polled
   // list, which also carries the `online` flag.
   const { data: liveMembers } = useOrganizationMembers(orgId, {

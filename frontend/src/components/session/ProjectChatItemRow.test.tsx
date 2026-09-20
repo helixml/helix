@@ -34,10 +34,10 @@ afterEach(() => {
 
 const NOW = Date.parse('2026-09-07T12:00:00Z')
 
-const renderRow = (item: SidebarItem) => render(
+const renderRow = (item: SidebarItem, active = false) => render(
   <ProjectChatItemRow
     item={item}
-    active={false}
+    active={active}
     relativeTimeNow={NOW}
     archivingItemId={null}
     organizationMembers={[]}
@@ -65,6 +65,17 @@ const quietTask: SidebarItem = {
 }
 
 describe('ProjectChatItemRow', () => {
+  it('subtly highlights the currently selected task', () => {
+    const { container } = renderRow(quietTask, true)
+    const row = container.querySelector('.project-chat-item')
+
+    expect(row).toHaveAttribute('aria-current', 'page')
+    expect(row).toHaveStyle({
+      backgroundColor: 'rgba(241, 243, 247, 0.11)',
+      boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.08)',
+    })
+  })
+
   it('stacks the project name above the title only for cross-project rows', () => {
     const { container } = renderRow(quietTask)
     const projectName = screen.getByText('keel')

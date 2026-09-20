@@ -687,6 +687,45 @@ func (a *apiHandler) restartBot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// applyBotConfig recreates the Bot's existing container with its latest
+// persisted launch config while preserving its session and healthy ACP thread.
+//
+// @Summary Helix-org: apply Bot config to its running sandbox
+// @Tags HelixOrg
+// @Param id path string true "Bot ID"
+// @Success 202
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 500 {object} api.ErrorResponse
+// @Failure 501 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/bots/{id}/apply-config [post]
+func (a *apiHandler) applyBotConfig(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if a.deps.BotConfigApplier == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("bot config apply is not wired in this deployment"))
+		return
+	}
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.NodeID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
+		return
+	}
+	if _, err := a.deps.Queries.GetBot(ctx, orgID, id); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
+		return
+	}
+	if err := a.deps.BotConfigApplier.ApplyConfig(ctx, orgID, id); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("apply bot %s config: %w", id, err))
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
 // ---- helpers ------------------------------------------------------------
 
 // managerIDs returns the ids of the managers the given bot reports to,
