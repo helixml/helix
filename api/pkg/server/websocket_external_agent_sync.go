@@ -1590,18 +1590,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		// Zed echoes the sent user message back as message_added(role=user), which would
 		// otherwise create a duplicate interaction and overwrite the mapping, causing the
 		// assistant response to land in the wrong interaction (Bug 1 fix).
-		// Check requestToInteractionMapping: if any request maps to this session via
-		// requestToSessionMapping, a pre-created interaction already exists.
+		// Match only the request_id carried by this message. Session-wide scans can
+		// select an unrelated or already-completed turn.
 		apiServer.contextMappingsMutex.RLock()
-		var existingInteractionID string
-		for reqID, sessID := range apiServer.requestToSessionMapping {
-			if sessID == helixSessionID {
-				if intID, ok := apiServer.requestToInteractionMapping[reqID]; ok {
-					existingInteractionID = intID
-					break
-				}
-			}
-		}
+		existingInteractionID := apiServer.requestToInteractionMapping[messageRequestID]
 		apiServer.contextMappingsMutex.RUnlock()
 
 		if existingInteractionID != "" {
@@ -2000,10 +1992,6 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				Msg("🛡️ [HELIX] Ignoring stale request_id rebind (mapping previously consumed by completion)")
 		case existing != newInteractionID:
 			apiServer.requestToInteractionMapping[requestID] = newInteractionID
-			if apiServer.requestToSessionMapping == nil {
-				apiServer.requestToSessionMapping = make(map[string]string)
-			}
-			apiServer.requestToSessionMapping[requestID] = helixSessionID
 			apiServer.contextMappingsMutex.Unlock()
 			log.Info().
 				Str("session_id", helixSessionID).
@@ -2011,10 +1999,6 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				Str("interaction_id", newInteractionID).
 				Msg("🗺️ [HELIX] Populated requestToInteractionMapping from streaming context (Zed-initiated message)")
 		default:
-			if apiServer.requestToSessionMapping == nil {
-				apiServer.requestToSessionMapping = make(map[string]string)
-			}
-			apiServer.requestToSessionMapping[requestID] = helixSessionID
 			apiServer.contextMappingsMutex.Unlock()
 		}
 
@@ -3899,26 +3883,29 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	}
 	apiServer.backfillCommentLinkageForPrompt(ctx, prompt.ID, requestID, createdInteraction.ID)
 
-	// Store request_id->session mapping so thread_created can find the right session
-	// (needed for the FIRST message when ZedThreadID is empty and Zed will create a
-	// new thread). The interaction → prompt link no longer lives in an in-memory map;
+	// Store request_id->session mapping only when thread_created will consume it.
+	// The interaction → prompt link no longer lives in an in-memory map;
 	// it's persisted on the Interaction.PromptID column at create time, so it
 	// survives API restart and reconnect-driven re-delivery.
 	apiServer.contextMappingsMutex.Lock()
-	if apiServer.requestToSessionMapping == nil {
-		apiServer.requestToSessionMapping = make(map[string]string)
+	if threadNotEstablished {
+		if apiServer.requestToSessionMapping == nil {
+			apiServer.requestToSessionMapping = make(map[string]string)
+		}
+		apiServer.requestToSessionMapping[requestID] = sessionID
 	}
-	apiServer.requestToSessionMapping[requestID] = sessionID
 	// Map request_id → interaction_id for FIFO queue matching
 	if apiServer.requestToInteractionMapping == nil {
 		apiServer.requestToInteractionMapping = make(map[string]string)
 	}
 	apiServer.requestToInteractionMapping[requestID] = createdInteraction.ID
 	apiServer.contextMappingsMutex.Unlock()
-	log.Info().
-		Str("request_id", requestID).
-		Str("session_id", sessionID).
-		Msg("🔗 [QUEUE] Stored request_id->session mapping for thread creation")
+	if threadNotEstablished {
+		log.Info().
+			Str("request_id", requestID).
+			Str("session_id", sessionID).
+			Msg("🔗 [QUEUE] Stored request_id->session mapping for thread creation")
+	}
 
 	// Forked sessions: prepend parent transcript on the first outgoing message
 	// (when ZedThreadID is empty so Zed will create a new thread). No-op on

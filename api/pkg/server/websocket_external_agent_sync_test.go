@@ -834,6 +834,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionR
 			"message_id":    "msg-echo-1",
 			"content":       "Your implementation has been approved",
 			"role":          "user",
+			"request_id":    requestID,
 		},
 	}
 
@@ -843,6 +844,34 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionR
 	// requestToInteractionMapping must still contain the pre-created interaction (not removed by echo)
 	s.Equal(preCreatedID, s.server.requestToInteractionMapping[requestID],
 		"requestToInteractionMapping must not be removed by Zed user-message echo")
+}
+
+func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_DoesNotReuseUnrelatedSessionMapping() {
+	s.server.contextMappings["thread-native"] = "ses_native"
+	s.server.requestToSessionMapping["req-old"] = "ses_native"
+	s.server.requestToInteractionMapping["req-old"] = "int-old"
+
+	session := &types.Session{ID: "ses_native", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			s.Equal("req-new", interaction.ExternalAgentRequestID)
+			interaction.ID = "int-new"
+			return interaction, nil
+		},
+	)
+
+	err := s.server.handleMessageAdded("agent-1", &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-native",
+			"message_id":    "msg-native",
+			"content":       "new native turn",
+			"role":          "user",
+			"request_id":    "req-new",
+		},
+	})
+	s.NoError(err)
 }
 
 func (s *WebSocketSyncSuite) TestMessageAdded_ContextMappingMiss_DBFallback() {
@@ -1986,11 +2015,13 @@ func (s *WebSocketSyncSuite) TestSendQueuedPrompt_NoWS_PersistsPromptIDOnInterac
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{}, int64(0), nil,
 	)
-	var capturedPromptID string
+	var capturedPromptID, capturedRequestID string
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 			capturedPromptID = interaction.PromptID
-			return &types.Interaction{ID: "int-nows", SessionID: "ses_nows", PromptID: interaction.PromptID}, nil
+			capturedRequestID = interaction.ExternalAgentRequestID
+			interaction.ID = "int-nows"
+			return interaction, nil
 		},
 	)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
@@ -2012,6 +2043,30 @@ func (s *WebSocketSyncSuite) TestSendQueuedPrompt_NoWS_PersistsPromptIDOnInterac
 	// in-memory interactionToPromptMapping was the source of the 6-day stuck
 	// prompts in design/2026-04-30-queue-and-other-stuck-state-bugs.md.
 	s.Equal("prompt-nows", capturedPromptID, "Interaction.PromptID must be persisted on creation")
+	s.Equal("ses_nows", s.server.requestToSessionMapping[capturedRequestID])
+}
+
+func (s *WebSocketSyncSuite) TestSendQueuedPrompt_ExistingThreadDoesNotLeakSessionMapping() {
+	session := &types.Session{
+		ID: "ses_existing_thread", Owner: "user-1",
+		Metadata: types.SessionMetadata{ZedThreadID: "thread-existing"},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).AnyTimes()
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			interaction.ID = "int-existing-thread"
+			return interaction, nil
+		},
+	)
+	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+
+	err := s.server.sendQueuedPromptToSession(context.Background(), session.ID, &types.PromptHistoryEntry{
+		ID: "prompt-existing-thread", SessionID: session.ID, Content: "continue",
+	})
+	s.NoError(err)
+	time.Sleep(50 * time.Millisecond)
+	s.Empty(s.server.requestToSessionMapping)
 }
 
 func (s *WebSocketSyncSuite) TestSendQueuedPrompt_BusyWithOwnInteraction_ReturnsSuccess() {
@@ -2166,6 +2221,7 @@ func (s *WebSocketSyncSuite) TestStreamingContext_FirstSightRequestID_RegistersM
 	s.server.contextMappingsMutex.Unlock()
 	s.True(exists)
 	s.Equal("int-fresh", mapped, "first-sight request_id must be registered for completion routing")
+	s.Empty(s.server.requestToSessionMapping, "streaming must not create a thread-creation mapping")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2438,7 +2494,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_MissingZedThreadReplaysDirectIn
 	}}
 	interaction := &types.Interaction{
 		ID: "int-prime", SessionID: "ses_prime", State: types.InteractionStateWaiting,
-		PromptMessage: "direct Prime request",
+		PromptMessage: "direct Prime request", ExternalAgentRequestID: "req-prime",
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_prime").Return(session, nil).AnyTimes()
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
@@ -3726,7 +3782,7 @@ func (s *WebSocketSyncSuite) TestCancelActiveTurn_InterruptsQueuedTurnBeforeDisp
 	s.Equal("cancelled", status)
 }
 
-func (s *WebSocketSyncSuite) TestCancelActiveTurn_AfterRestartUsesDurableRequestAndWaitsForAck() {
+func (s *WebSocketSyncSuite) TestCancelActiveTurn_BeforeThreadCreatedPreservesAttachmentMapping() {
 	now := time.Now()
 	session := &types.Session{ID: "ses_restart_cancel", Owner: "usr_test", GenerationID: 1}
 	waiting := &types.Interaction{
@@ -3882,7 +3938,10 @@ func (s *WebSocketSyncSuite) TestCancelActiveTurn_LegacyMemoryMappingRequiresAge
 
 func (s *WebSocketSyncSuite) TestCancelActiveTurn_CancelsQueuedDuplicatesAndDispatchedTurn() {
 	now := time.Now()
-	session := &types.Session{ID: "ses_duplicate_cancel", Owner: "usr_test", GenerationID: 1}
+	session := &types.Session{
+		ID: "ses_duplicate_cancel", Owner: "usr_test", GenerationID: 1,
+		Metadata: types.SessionMetadata{ZedThreadID: "thread-existing"},
+	}
 	queuedOne := &types.Interaction{ID: "int_queued_one", SessionID: session.ID, GenerationID: 1, State: types.InteractionStateWaiting}
 	queuedTwo := &types.Interaction{ID: "int_queued_two", SessionID: session.ID, GenerationID: 1, State: types.InteractionStateWaiting}
 	active := &types.Interaction{
@@ -3957,6 +4016,7 @@ func (s *WebSocketSyncSuite) TestCancelActiveTurn_CancelsQueuedDuplicatesAndDisp
 		}))
 	}
 	got := <-result
+	s.Empty(s.server.requestToSessionMapping)
 	s.NoError(got.err)
 	s.Equal("cancelled", got.status)
 }
@@ -4054,23 +4114,22 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_FallbackCreatesMapping
 	s.Equal("Fix the bug", state.PendingQueue[0].Data["message"])
 }
 
-func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_UsesExistingMapping() {
-	// Scenario: sendMessageToSpecTaskAgent already populated requestToSessionMapping.
-	// the resume path should use the existing request_id, not create a new one.
+func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_UsesDurableRequestID() {
 	sessionID := "ses_test456"
-	existingReqID := "req_from_send"
+	staleReqID := "req_from_old_turn"
+	durableReqID := "req_from_waiting_interaction"
 	interactionID := "int_waiting2"
 
-	s.server.requestToSessionMapping[existingReqID] = sessionID
+	s.server.requestToSessionMapping[staleReqID] = sessionID
 
 	session := &types.Session{
 		ID:           sessionID,
 		GenerationID: 1,
-		Metadata:     types.SessionMetadata{},
+		Metadata:     types.SessionMetadata{ZedThreadID: "thread-existing"},
 	}
 
 	interactions := []*types.Interaction{
-		{ID: interactionID, State: types.InteractionStateWaiting, PromptMessage: "Deploy to prod"},
+		{ID: interactionID, State: types.InteractionStateWaiting, PromptMessage: "Deploy to prod", ExternalAgentRequestID: durableReqID},
 	}
 
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(interactions, int64(1), nil)
@@ -4082,20 +4141,17 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_UsesExistingMapping() 
 
 	requestID := s.server.deliverWaitingInteractionNow(context.Background(), session)
 
-	// Existing mapping should still be there, unchanged
-	s.Equal(sessionID, s.server.requestToSessionMapping[existingReqID])
-
-	// No new mapping should be created for the interaction ID
-	_, fallbackExists := s.server.requestToSessionMapping[interactionID]
-	s.False(fallbackExists, "should not create fallback mapping when existing one found")
+	s.Equal(sessionID, s.server.requestToSessionMapping[staleReqID])
+	_, durableMappingExists := s.server.requestToSessionMapping[durableReqID]
+	s.False(durableMappingExists, "existing-thread resume must not create a thread-creation mapping")
 
 	// Command should use the existing request_id
 	s.server.externalAgentWSManager.readinessMu.Lock()
 	state := s.server.externalAgentWSManager.readinessState[sessionID]
 	s.server.externalAgentWSManager.readinessMu.Unlock()
 	s.Require().Len(state.PendingQueue, 1)
-	s.Equal(existingReqID, state.PendingQueue[0].Data["request_id"])
-	s.Equal(existingReqID, requestID)
+	s.Equal(durableReqID, state.PendingQueue[0].Data["request_id"])
+	s.Equal(durableReqID, requestID)
 }
 
 func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_NoWaitingInteraction() {
@@ -4200,6 +4256,7 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_ResumesExistingThread(
 	s.server.externalAgentWSManager.readinessMu.Unlock()
 	s.Require().Len(state.PendingQueue, 1)
 	s.Equal(zedThreadID, state.PendingQueue[0].Data["acp_thread_id"])
+	s.Empty(s.server.requestToSessionMapping)
 }
 
 // --- handleUserCreatedThread tests ---
