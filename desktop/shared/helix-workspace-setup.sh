@@ -728,9 +728,10 @@ if [ -d "$SKILLS_SEED/skills" ]; then
     fi
 fi
 
-# Browser profile (Chrome / Chromium): symlink ~/.config/google-chrome and
-# ~/.config/chromium to persistent storage so tabs, history, bookmarks and
-# extensions survive container restarts. Same pattern as ~/.claude above.
+# Browser profile (Chrome / Chromium): chrome-devtools-mcp uses this persistent
+# directory explicitly via --user-data-dir. Symlink the normal Chrome and
+# Chromium config paths to the same profile so a browser opened from the desktop
+# hands off to the MCP-controlled instance instead of creating a second profile.
 # Only $WORK_DIR is bind-mounted persistent — see api/pkg/sandbox/controller_provision.go.
 #
 # Note: arm64 uses Chromium (apt) and amd64 uses Google Chrome (deb). Both write
