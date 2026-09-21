@@ -52,6 +52,8 @@ type Client interface {
 	ListKnowledgeVersions(ctx context.Context, f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error)
 
 	FilestoreList(ctx context.Context, path string) ([]filestore.Item, error)
+	FilestoreGet(ctx context.Context, path string) (*filestore.Item, error)
+	FilestoreRead(ctx context.Context, path string) ([]byte, error)
 	FilestoreUpload(ctx context.Context, path string, file io.Reader) error
 	FilestoreDelete(ctx context.Context, path string) error
 
@@ -95,6 +97,12 @@ type Client interface {
 	ApplyProject(ctx context.Context, req *types.ProjectApplyRequest) (*types.ProjectApplyResponse, error)
 	GetProject(ctx context.Context, projectID string) (*types.Project, error)
 	ListProjects(ctx context.Context, organizationID string) ([]*types.Project, error)
+
+	// Spec tasks
+	ListSpecTasks(ctx context.Context, f *SpecTaskFilter) ([]*types.SpecTask, error)
+	GetSpecTask(ctx context.Context, taskID string) (*types.SpecTask, error)
+	CreateSpecTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error)
+	FindSpecTaskByName(ctx context.Context, projectID, name string) (*types.SpecTask, error)
 
 	// Project artifacts
 	ListArtifacts(ctx context.Context, projectID string) ([]*types.Artifact, error)
@@ -157,6 +165,9 @@ type HelixClient struct {
 const (
 	DefaultURL = "https://app.helix.ml"
 )
+
+// ErrNotFound is returned when a requested resource does not exist.
+var ErrNotFound = errors.New("not found")
 
 func NewClientFromEnv() (*HelixClient, error) {
 	cfg, err := config.LoadCliConfig()

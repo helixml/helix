@@ -136,8 +136,8 @@ func TestRunExternalAgentBlocking(t *testing.T) {
 	assert.Equal(t, "full response from db", result.FullResponse)
 	assert.NotEmpty(t, result.RequestID)
 	assert.Equal(t, "interaction-1", waitingInteractionID)
-	assert.Equal(t, "session-1", mappedSessionID)
-	assert.Equal(t, result.RequestID, mappedRequestID)
+	assert.Empty(t, mappedSessionID)
+	assert.Empty(t, mappedRequestID)
 	assert.True(t, cleanupCalled)
 }
 
