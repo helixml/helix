@@ -3552,24 +3552,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - local
-    - gitlab
-    - github
-    - helix_events
     - cron
+    - helix_events
+    - github
+    - gitlab
     - slack
-    - email
     - webhook
+    - local
+    - email
     type: string
     x-enum-varnames:
-    - KindLocal
-    - KindGitLab
-    - KindGitHub
-    - KindHelixEvents
     - KindCron
+    - KindHelixEvents
+    - KindGitHub
+    - KindGitLab
     - KindSlack
-    - KindEmail
     - KindWebhook
+    - KindLocal
+    - KindEmail
   transport.ResolvedActivation:
     properties:
       address:
@@ -6421,6 +6421,8 @@ definitions:
       private_key:
         description: PEM-encoded private key for JWT signing
         type: string
+      review_bot_user_id:
+        type: integer
       webhook_secret:
         description: |-
           WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review
@@ -6716,6 +6718,8 @@ definitions:
         type: string
       password:
         type: string
+      review_bot_user_id:
+        type: integer
       username:
         type: string
     type: object

@@ -940,6 +940,12 @@ func (s *GitRepositoryService) UpdateRepository(
 	if request.AzureDevOps != nil {
 		existing.AzureDevOps = request.AzureDevOps
 	}
+	if request.ReviewBotUserID != nil {
+		if existing.GitHub == nil {
+			existing.GitHub = &types.GitHub{}
+		}
+		existing.GitHub.ReviewBotUserID = *request.ReviewBotUserID
+	}
 
 	// Check if we're enabling Kodit indexing (must check before modifying existing)
 	shouldRegisterKodit := s.koditService != nil &&

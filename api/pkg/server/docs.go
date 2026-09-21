@@ -28246,24 +28246,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "local",
-                "gitlab",
-                "github",
-                "helix_events",
                 "cron",
+                "helix_events",
+                "github",
+                "gitlab",
                 "slack",
-                "email",
-                "webhook"
+                "webhook",
+                "local",
+                "email"
             ],
             "x-enum-varnames": [
-                "KindLocal",
-                "KindGitLab",
-                "KindGitHub",
-                "KindHelixEvents",
                 "KindCron",
+                "KindHelixEvents",
+                "KindGitHub",
+                "KindGitLab",
                 "KindSlack",
-                "KindEmail",
-                "KindWebhook"
+                "KindWebhook",
+                "KindLocal",
+                "KindEmail"
             ]
         },
         "transport.ResolvedActivation": {
@@ -32107,6 +32107,9 @@ const docTemplate = `{
                     "description": "PEM-encoded private key for JWT signing",
                     "type": "string"
                 },
+                "review_bot_user_id": {
+                    "type": "integer"
+                },
                 "webhook_secret": {
                     "description": "WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review\ndeliveries with (spec task PR review feedback). Auto-generated at first\nwebhook install; one repo's secret never validates another repo's\ndeliveries, keeping orgs isolated on shared deployments.",
                     "type": "string"
@@ -32527,6 +32530,9 @@ const docTemplate = `{
                 },
                 "password": {
                     "type": "string"
+                },
+                "review_bot_user_id": {
+                    "type": "integer"
                 },
                 "username": {
                     "type": "string"
