@@ -11406,6 +11406,315 @@
                 }
             }
         },
+        "/api/v1/organizations/{id}/webhook-endpoints": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List organization webhook endpoints",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.WebhookEndpoint"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a Standard Webhooks endpoint. The signing secret is returned once.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Create an organization webhook endpoint",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "$ref": "#/components/requestBodies/server.webhookEndpointRequest"
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.webhookEndpointSecretResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update an organization webhook endpoint",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "$ref": "#/components/requestBodies/server.webhookEndpointRequest"
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.WebhookEndpoint"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Disable an organization webhook endpoint",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List recent webhook deliveries",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/server.webhookDeliveryView"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries/{delivery_id}/replay": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Replay a webhook delivery",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Webhook delivery ID",
+                        "name": "delivery_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.WebhookDelivery"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/rotate-secret": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the new secret once. Helix signs with both keys for a 24-hour overlap.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Rotate a webhook signing secret",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.webhookEndpointSecretResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{org_id}/code-agent-harnesses": {
             "get": {
                 "security": [
@@ -27758,6 +28067,17 @@
                 "description": "Trigger configuration",
                 "required": true
             },
+            "server.webhookEndpointRequest": {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/server.webhookEndpointRequest"
+                        }
+                    }
+                },
+                "description": "Webhook endpoint",
+                "required": true
+            },
             "types.MoveProjectRequest": {
                 "content": {
                     "application/json": {
@@ -32602,6 +32922,84 @@
                     }
                 }
             },
+            "server.webhookDeliveryView": {
+                "type": "object",
+                "properties": {
+                    "attempt_count": {
+                        "type": "integer"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "delivered_at": {
+                        "type": "string"
+                    },
+                    "endpoint_id": {
+                        "type": "string"
+                    },
+                    "event_id": {
+                        "type": "string"
+                    },
+                    "event_type": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "last_attempt_at": {
+                        "type": "string"
+                    },
+                    "last_error": {
+                        "type": "string"
+                    },
+                    "last_status_code": {
+                        "type": "integer"
+                    },
+                    "next_attempt_at": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/types.WebhookDeliveryStatus"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.webhookEndpointRequest": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "url": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.webhookEndpointSecretResponse": {
+                "type": "object",
+                "properties": {
+                    "endpoint": {
+                        "$ref": "#/components/schemas/types.WebhookEndpoint"
+                    },
+                    "secret": {
+                        "type": "string"
+                    }
+                }
+            },
             "services.StartupScriptVersion": {
                 "type": "object",
                 "properties": {
@@ -32797,24 +33195,24 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
-                    "cron",
-                    "helix_events",
-                    "github",
                     "gitlab",
-                    "slack",
-                    "webhook",
                     "local",
-                    "email"
+                    "slack",
+                    "cron",
+                    "email",
+                    "webhook",
+                    "github",
+                    "helix_events"
                 ],
                 "x-enum-varnames": [
-                    "KindCron",
-                    "KindHelixEvents",
-                    "KindGitHub",
                     "KindGitLab",
-                    "KindSlack",
-                    "KindWebhook",
                     "KindLocal",
-                    "KindEmail"
+                    "KindSlack",
+                    "KindCron",
+                    "KindEmail",
+                    "KindWebhook",
+                    "KindGitHub",
+                    "KindHelixEvents"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -46633,6 +47031,124 @@
                     "WebServiceDeployStatusLive",
                     "WebServiceDeployStatusFailed",
                     "WebServiceDeployStatusSuperseded"
+                ]
+            },
+            "types.WebhookDelivery": {
+                "type": "object",
+                "properties": {
+                    "attempt_count": {
+                        "type": "integer"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "delivered_at": {
+                        "type": "string"
+                    },
+                    "endpoint_id": {
+                        "type": "string"
+                    },
+                    "event_id": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "last_attempt_at": {
+                        "type": "string"
+                    },
+                    "last_error": {
+                        "type": "string"
+                    },
+                    "last_status_code": {
+                        "type": "integer"
+                    },
+                    "next_attempt_at": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/types.WebhookDeliveryStatus"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.WebhookDeliveryStatus": {
+                "type": "string",
+                "enum": [
+                    "pending",
+                    "processing",
+                    "retrying",
+                    "delivered",
+                    "failed",
+                    "disabled"
+                ],
+                "x-enum-varnames": [
+                    "WebhookDeliveryStatusPending",
+                    "WebhookDeliveryStatusProcessing",
+                    "WebhookDeliveryStatusRetrying",
+                    "WebhookDeliveryStatusDelivered",
+                    "WebhookDeliveryStatusFailed",
+                    "WebhookDeliveryStatusDisabled"
+                ]
+            },
+            "types.WebhookEndpoint": {
+                "type": "object",
+                "properties": {
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "created_by": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "disabled_reason": {
+                        "type": "string"
+                    },
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "secret_preview": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/types.WebhookEndpointStatus"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    },
+                    "updated_by": {
+                        "type": "string"
+                    },
+                    "url": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.WebhookEndpointStatus": {
+                "type": "string",
+                "enum": [
+                    "active",
+                    "disabled"
+                ],
+                "x-enum-varnames": [
+                    "WebhookEndpointStatusActive",
+                    "WebhookEndpointStatusDisabled"
                 ]
             },
             "types.WebsiteCrawler": {

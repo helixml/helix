@@ -3410,6 +3410,57 @@ definitions:
       vendor:
         $ref: '#/definitions/types.GPUVendor'
     type: object
+  server.webhookDeliveryView:
+    properties:
+      attempt_count:
+        type: integer
+      created_at:
+        type: string
+      delivered_at:
+        type: string
+      endpoint_id:
+        type: string
+      event_id:
+        type: string
+      event_type:
+        type: string
+      id:
+        type: string
+      last_attempt_at:
+        type: string
+      last_error:
+        type: string
+      last_status_code:
+        type: integer
+      next_attempt_at:
+        type: string
+      status:
+        $ref: '#/definitions/types.WebhookDeliveryStatus'
+      updated_at:
+        type: string
+    type: object
+  server.webhookEndpointRequest:
+    properties:
+      description:
+        type: string
+      enabled:
+        type: boolean
+      events:
+        items:
+          type: string
+        type: array
+      project_id:
+        type: string
+      url:
+        type: string
+    type: object
+  server.webhookEndpointSecretResponse:
+    properties:
+      endpoint:
+        $ref: '#/definitions/types.WebhookEndpoint'
+      secret:
+        type: string
+    type: object
   services.StartupScriptVersion:
     properties:
       author:
@@ -3552,24 +3603,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - cron
-    - helix_events
-    - github
     - gitlab
-    - slack
-    - webhook
     - local
+    - slack
+    - cron
     - email
+    - webhook
+    - github
+    - helix_events
     type: string
     x-enum-varnames:
-    - KindCron
-    - KindHelixEvents
-    - KindGitHub
     - KindGitLab
-    - KindSlack
-    - KindWebhook
     - KindLocal
+    - KindSlack
+    - KindCron
     - KindEmail
+    - KindWebhook
+    - KindGitHub
+    - KindHelixEvents
   transport.ResolvedActivation:
     properties:
       address:
@@ -13834,6 +13885,88 @@ definitions:
     - WebServiceDeployStatusLive
     - WebServiceDeployStatusFailed
     - WebServiceDeployStatusSuperseded
+  types.WebhookDelivery:
+    properties:
+      attempt_count:
+        type: integer
+      created_at:
+        type: string
+      delivered_at:
+        type: string
+      endpoint_id:
+        type: string
+      event_id:
+        type: string
+      id:
+        type: string
+      last_attempt_at:
+        type: string
+      last_error:
+        type: string
+      last_status_code:
+        type: integer
+      next_attempt_at:
+        type: string
+      status:
+        $ref: '#/definitions/types.WebhookDeliveryStatus'
+      updated_at:
+        type: string
+    type: object
+  types.WebhookDeliveryStatus:
+    enum:
+    - pending
+    - processing
+    - retrying
+    - delivered
+    - failed
+    - disabled
+    type: string
+    x-enum-varnames:
+    - WebhookDeliveryStatusPending
+    - WebhookDeliveryStatusProcessing
+    - WebhookDeliveryStatusRetrying
+    - WebhookDeliveryStatusDelivered
+    - WebhookDeliveryStatusFailed
+    - WebhookDeliveryStatusDisabled
+  types.WebhookEndpoint:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      disabled_reason:
+        type: string
+      events:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      organization_id:
+        type: string
+      project_id:
+        type: string
+      secret_preview:
+        type: string
+      status:
+        $ref: '#/definitions/types.WebhookEndpointStatus'
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      url:
+        type: string
+    type: object
+  types.WebhookEndpointStatus:
+    enum:
+    - active
+    - disabled
+    type: string
+    x-enum-varnames:
+    - WebhookEndpointStatusActive
+    - WebhookEndpointStatusDisabled
   types.WebsiteCrawler:
     properties:
       enabled:
@@ -20212,6 +20345,178 @@ paths:
       security:
       - BearerAuth: []
       summary: Look up a user by email within the context of an organization
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/webhook-endpoints:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.WebhookEndpoint'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List organization webhook endpoints
+      tags:
+      - organizations
+    post:
+      description: Creates a Standard Webhooks endpoint. The signing secret is returned
+        once.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Webhook endpoint
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.webhookEndpointRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/server.webhookEndpointSecretResponse'
+      security:
+      - BearerAuth: []
+      summary: Create an organization webhook endpoint
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}:
+    delete:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Webhook endpoint ID
+        in: path
+        name: endpoint_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Disable an organization webhook endpoint
+      tags:
+      - organizations
+    put:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Webhook endpoint ID
+        in: path
+        name: endpoint_id
+        required: true
+        type: string
+      - description: Webhook endpoint
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.webhookEndpointRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.WebhookEndpoint'
+      security:
+      - BearerAuth: []
+      summary: Update an organization webhook endpoint
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Webhook endpoint ID
+        in: path
+        name: endpoint_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.webhookDeliveryView'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List recent webhook deliveries
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries/{delivery_id}/replay:
+    post:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Webhook endpoint ID
+        in: path
+        name: endpoint_id
+        required: true
+        type: string
+      - description: Webhook delivery ID
+        in: path
+        name: delivery_id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/types.WebhookDelivery'
+      security:
+      - BearerAuth: []
+      summary: Replay a webhook delivery
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/rotate-secret:
+    post:
+      description: Returns the new secret once. Helix signs with both keys for a 24-hour
+        overlap.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Webhook endpoint ID
+        in: path
+        name: endpoint_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.webhookEndpointSecretResponse'
+      security:
+      - BearerAuth: []
+      summary: Rotate a webhook signing secret
       tags:
       - organizations
   /api/v1/organizations/{org_id}/code-agent-harnesses:

@@ -25,6 +25,7 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
+	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -132,6 +133,21 @@ func (mr *MockStoreMockRecorder) ClaimPromptForSending(ctx, promptID any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimPromptForSending", reflect.TypeOf((*MockStore)(nil).ClaimPromptForSending), ctx, promptID)
 }
 
+// ClaimWebhookDeliveries mocks base method.
+func (m *MockStore) ClaimWebhookDeliveries(ctx context.Context, now, lockedUntil time.Time, limit int) ([]*types.WebhookDelivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimWebhookDeliveries", ctx, now, lockedUntil, limit)
+	ret0, _ := ret[0].([]*types.WebhookDelivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimWebhookDeliveries indicates an expected call of ClaimWebhookDeliveries.
+func (mr *MockStoreMockRecorder) ClaimWebhookDeliveries(ctx, now, lockedUntil, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimWebhookDeliveries", reflect.TypeOf((*MockStore)(nil).ClaimWebhookDeliveries), ctx, now, lockedUntil, limit)
+}
+
 // CleanupExpiredAttentionEvents mocks base method.
 func (m *MockStore) CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error) {
 	m.ctrl.T.Helper()
@@ -218,6 +234,20 @@ func (m *MockStore) ClearStaleStartingSessions(ctx context.Context) (int64, erro
 func (mr *MockStoreMockRecorder) ClearStaleStartingSessions(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearStaleStartingSessions", reflect.TypeOf((*MockStore)(nil).ClearStaleStartingSessions), ctx)
+}
+
+// CompleteWebhookDelivery mocks base method.
+func (m *MockStore) CompleteWebhookDelivery(ctx context.Context, update *WebhookDeliveryUpdate) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CompleteWebhookDelivery", ctx, update)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CompleteWebhookDelivery indicates an expected call of CompleteWebhookDelivery.
+func (mr *MockStoreMockRecorder) CompleteWebhookDelivery(ctx, update any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteWebhookDelivery", reflect.TypeOf((*MockStore)(nil).CompleteWebhookDelivery), ctx, update)
 }
 
 // ConsumePendingInvitations mocks base method.
@@ -1328,6 +1358,20 @@ func (mr *MockStoreMockRecorder) CreateWebServiceDeploy(ctx, d any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWebServiceDeploy", reflect.TypeOf((*MockStore)(nil).CreateWebServiceDeploy), ctx, d)
 }
 
+// CreateWebhookEndpoint mocks base method.
+func (m *MockStore) CreateWebhookEndpoint(ctx context.Context, endpoint *types.WebhookEndpoint) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateWebhookEndpoint", ctx, endpoint)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateWebhookEndpoint indicates an expected call of CreateWebhookEndpoint.
+func (mr *MockStoreMockRecorder) CreateWebhookEndpoint(ctx, endpoint any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWebhookEndpoint", reflect.TypeOf((*MockStore)(nil).CreateWebhookEndpoint), ctx, endpoint)
+}
+
 // DecrementSandboxContainerCount mocks base method.
 func (m *MockStore) DecrementSandboxContainerCount(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -2280,6 +2324,20 @@ func (m *MockStore) DetachRepositoryFromProject(ctx context.Context, projectID, 
 func (mr *MockStoreMockRecorder) DetachRepositoryFromProject(ctx, projectID, repoID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DetachRepositoryFromProject", reflect.TypeOf((*MockStore)(nil).DetachRepositoryFromProject), ctx, projectID, repoID)
+}
+
+// DisableWebhookEndpoint mocks base method.
+func (m *MockStore) DisableWebhookEndpoint(ctx context.Context, organizationID, endpointID, reason, updatedBy string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DisableWebhookEndpoint", ctx, organizationID, endpointID, reason, updatedBy)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DisableWebhookEndpoint indicates an expected call of DisableWebhookEndpoint.
+func (mr *MockStoreMockRecorder) DisableWebhookEndpoint(ctx, organizationID, endpointID, reason, updatedBy any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisableWebhookEndpoint", reflect.TypeOf((*MockStore)(nil).DisableWebhookEndpoint), ctx, organizationID, endpointID, reason, updatedBy)
 }
 
 // DismissAttentionEventsForTask mocks base method.
@@ -4323,6 +4381,51 @@ func (mr *MockStoreMockRecorder) GetWalletByUser(ctx, userID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWalletByUser", reflect.TypeOf((*MockStore)(nil).GetWalletByUser), ctx, userID)
 }
 
+// GetWebhookDelivery mocks base method.
+func (m *MockStore) GetWebhookDelivery(ctx context.Context, endpointID, deliveryID string) (*types.WebhookDelivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWebhookDelivery", ctx, endpointID, deliveryID)
+	ret0, _ := ret[0].(*types.WebhookDelivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWebhookDelivery indicates an expected call of GetWebhookDelivery.
+func (mr *MockStoreMockRecorder) GetWebhookDelivery(ctx, endpointID, deliveryID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebhookDelivery", reflect.TypeOf((*MockStore)(nil).GetWebhookDelivery), ctx, endpointID, deliveryID)
+}
+
+// GetWebhookEndpoint mocks base method.
+func (m *MockStore) GetWebhookEndpoint(ctx context.Context, organizationID, endpointID string) (*types.WebhookEndpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWebhookEndpoint", ctx, organizationID, endpointID)
+	ret0, _ := ret[0].(*types.WebhookEndpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWebhookEndpoint indicates an expected call of GetWebhookEndpoint.
+func (mr *MockStoreMockRecorder) GetWebhookEndpoint(ctx, organizationID, endpointID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebhookEndpoint", reflect.TypeOf((*MockStore)(nil).GetWebhookEndpoint), ctx, organizationID, endpointID)
+}
+
+// GetWebhookEvent mocks base method.
+func (m *MockStore) GetWebhookEvent(ctx context.Context, eventID string) (*types.WebhookEvent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWebhookEvent", ctx, eventID)
+	ret0, _ := ret[0].(*types.WebhookEvent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWebhookEvent indicates an expected call of GetWebhookEvent.
+func (mr *MockStoreMockRecorder) GetWebhookEvent(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebhookEvent", reflect.TypeOf((*MockStore)(nil).GetWebhookEvent), ctx, eventID)
+}
+
 // GetZedSettingsOverride mocks base method.
 func (m *MockStore) GetZedSettingsOverride(ctx context.Context, sessionID string) (*types.ZedSettingsOverride, error) {
 	m.ctrl.T.Helper()
@@ -5722,6 +5825,36 @@ func (mr *MockStoreMockRecorder) ListWebServiceDeploys(ctx, projectID, limit any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWebServiceDeploys", reflect.TypeOf((*MockStore)(nil).ListWebServiceDeploys), ctx, projectID, limit)
 }
 
+// ListWebhookDeliveries mocks base method.
+func (m *MockStore) ListWebhookDeliveries(ctx context.Context, endpointID string, limit int) ([]*types.WebhookDelivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWebhookDeliveries", ctx, endpointID, limit)
+	ret0, _ := ret[0].([]*types.WebhookDelivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWebhookDeliveries indicates an expected call of ListWebhookDeliveries.
+func (mr *MockStoreMockRecorder) ListWebhookDeliveries(ctx, endpointID, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWebhookDeliveries", reflect.TypeOf((*MockStore)(nil).ListWebhookDeliveries), ctx, endpointID, limit)
+}
+
+// ListWebhookEndpoints mocks base method.
+func (m *MockStore) ListWebhookEndpoints(ctx context.Context, organizationID string) ([]*types.WebhookEndpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWebhookEndpoints", ctx, organizationID)
+	ret0, _ := ret[0].([]*types.WebhookEndpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWebhookEndpoints indicates an expected call of ListWebhookEndpoints.
+func (mr *MockStoreMockRecorder) ListWebhookEndpoints(ctx, organizationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWebhookEndpoints", reflect.TypeOf((*MockStore)(nil).ListWebhookEndpoints), ctx, organizationID)
+}
+
 // ListWorkSessionsBySpecTask mocks base method.
 func (m *MockStore) ListWorkSessionsBySpecTask(ctx context.Context, specTaskID string, phase *types.SpecTaskPhase) ([]*types.SpecTaskWorkSession, error) {
 	m.ctrl.T.Helper()
@@ -5999,6 +6132,20 @@ func (mr *MockStoreMockRecorder) RemoveSpecTaskLabel(ctx, taskID, label any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveSpecTaskLabel", reflect.TypeOf((*MockStore)(nil).RemoveSpecTaskLabel), ctx, taskID, label)
 }
 
+// ReplayWebhookDelivery mocks base method.
+func (m *MockStore) ReplayWebhookDelivery(ctx context.Context, endpointID, deliveryID string, now time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplayWebhookDelivery", ctx, endpointID, deliveryID, now)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReplayWebhookDelivery indicates an expected call of ReplayWebhookDelivery.
+func (mr *MockStoreMockRecorder) ReplayWebhookDelivery(ctx, endpointID, deliveryID, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplayWebhookDelivery", reflect.TypeOf((*MockStore)(nil).ReplayWebhookDelivery), ctx, endpointID, deliveryID, now)
+}
+
 // RequestInteractionCancellationIfWaiting mocks base method.
 func (m *MockStore) RequestInteractionCancellationIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error) {
 	m.ctrl.T.Helper()
@@ -6129,6 +6276,20 @@ func (m *MockStore) RotateVHostRouteHostname(ctx context.Context, id, newHostnam
 func (mr *MockStoreMockRecorder) RotateVHostRouteHostname(ctx, id, newHostname any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateVHostRouteHostname", reflect.TypeOf((*MockStore)(nil).RotateVHostRouteHostname), ctx, id, newHostname)
+}
+
+// RotateWebhookEndpointSecret mocks base method.
+func (m *MockStore) RotateWebhookEndpointSecret(ctx context.Context, endpoint *types.WebhookEndpoint) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RotateWebhookEndpointSecret", ctx, endpoint)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RotateWebhookEndpointSecret indicates an expected call of RotateWebhookEndpointSecret.
+func (mr *MockStoreMockRecorder) RotateWebhookEndpointSecret(ctx, endpoint any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateWebhookEndpointSecret", reflect.TypeOf((*MockStore)(nil).RotateWebhookEndpointSecret), ctx, endpoint)
 }
 
 // SearchUsers mocks base method.
@@ -7477,6 +7638,20 @@ func (m *MockStore) UpdateWebServiceDeploy(ctx context.Context, id string, updat
 func (mr *MockStoreMockRecorder) UpdateWebServiceDeploy(ctx, id, updates any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWebServiceDeploy", reflect.TypeOf((*MockStore)(nil).UpdateWebServiceDeploy), ctx, id, updates)
+}
+
+// UpdateWebhookEndpointConfig mocks base method.
+func (m *MockStore) UpdateWebhookEndpointConfig(ctx context.Context, endpoint *types.WebhookEndpoint) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWebhookEndpointConfig", ctx, endpoint)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateWebhookEndpointConfig indicates an expected call of UpdateWebhookEndpointConfig.
+func (mr *MockStoreMockRecorder) UpdateWebhookEndpointConfig(ctx, endpoint any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWebhookEndpointConfig", reflect.TypeOf((*MockStore)(nil).UpdateWebhookEndpointConfig), ctx, endpoint)
 }
 
 // UpsertOrgCodeAgentHarnesses mocks base method.
