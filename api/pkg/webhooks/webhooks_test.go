@@ -2,6 +2,7 @@ package webhooks
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -100,7 +101,7 @@ func TestParseRetryAfter(t *testing.T) {
 }
 
 func TestDeliveryUsesStandardWebhookHeaders(t *testing.T) {
-	secret := "whsec_c3RhbmRhcmQtd2ViaG9va3Mta2V5"
+	secret := "whsec_" + base64.StdEncoding.EncodeToString([]byte("standard-webhooks-test-key"))
 	key := []byte("01234567890123456789012345678901")
 	encrypted, err := helixcrypto.EncryptAES256GCM([]byte(secret), key)
 	require.NoError(t, err)
