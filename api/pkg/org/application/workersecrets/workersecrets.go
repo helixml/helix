@@ -153,6 +153,19 @@ func (s *Service) Get(ctx context.Context, orgID string, workerID orgchart.NodeI
 	}
 	b, err := s.repo.Get(ctx, orgID, workerID, strings.TrimSpace(name))
 	if err != nil {
+		// A miss here is a statement about this Worker's bindings, not about
+		// whether the value is reachable in the container. A project-scoped
+		// secret may also be injected as an environment variable at container
+		// creation (subject to its dev/prod scope), so the same name can still
+		// be set. Agents read this string at the exact point they decide whether
+		// to keep looking, and a bare "record not found" reads as a verdict — say
+		// what it actually means and what to try next. Suggest an existence check
+		// rather than printing: the value must not reach a log or transcript.
+		if errors.Is(err, store.ErrNotFound) {
+			return workersecret.Resolved{}, fmt.Errorf(
+				"no credential named %q is bound to this worker: that describes this worker's bindings, not whether the value is reachable here — a project-scoped secret of that name may also be injected into the container environment, so test whether it is set (test -n, without printing it) before concluding the credential cannot be read: %w",
+				strings.TrimSpace(name), err)
+		}
 		return workersecret.Resolved{}, err
 	}
 	res, err := s.resolver.Resolve(ctx, b)
