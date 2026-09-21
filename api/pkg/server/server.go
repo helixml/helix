@@ -56,6 +56,7 @@ import (
 	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
+	"github.com/helixml/helix/api/pkg/webhooks"
 	"github.com/helixml/helix/api/pkg/webservice"
 
 	_ "net/http/pprof" // enable profiling
@@ -810,6 +811,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// (Helix-hosted repos already auto-deploy via the git post-receive hook.)
 	go webservice.NewGitHubDeployWatcher(apiServer.Store, apiServer.webServiceController, apiServer.gitRepositoryService).Start(ctx)
 
+	// Deliver durable, signed Standard Webhooks events from the transactional outbox.
+	go webhooks.NewDispatcher(apiServer.Store, apiServer.getEncryptionKey, apiServer.Cfg.Webhooks).Start(ctx)
+
 	// Reap stale runner registrations: sandbox_instances rows whose
 	// last_seen is older than the stale-threshold get their status
 	// flipped to "offline" so the admin UI + the FindAvailable selector
@@ -1300,6 +1304,13 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/organizations/{id}/api_keys", apiServer.listOrgAPIKeys).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{id}/api_keys", apiServer.createOrgAPIKey).Methods(http.MethodPost)
 	authRouter.HandleFunc("/organizations/{id}/api_keys/{key}", apiServer.deleteOrgAPIKey).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/webhook-endpoints", apiServer.listWebhookEndpoints).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/webhook-endpoints", apiServer.createWebhookEndpoint).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}/webhook-endpoints/{endpoint_id}", apiServer.updateWebhookEndpoint).Methods(http.MethodPut)
+	authRouter.HandleFunc("/organizations/{id}/webhook-endpoints/{endpoint_id}", apiServer.deleteWebhookEndpoint).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/webhook-endpoints/{endpoint_id}/rotate-secret", apiServer.rotateWebhookEndpointSecret).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries", apiServer.listWebhookDeliveries).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries/{delivery_id}/replay", apiServer.replayWebhookDelivery).Methods(http.MethodPost)
 
 	// Coding-agent harness policy. Providers remain independent organization
 	// endpoints; tasks combine an enabled harness with a provider/model.

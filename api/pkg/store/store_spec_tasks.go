@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // specTaskPRMatchJSON is the containment probe marshaled for the PRMatch
@@ -47,7 +48,13 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 			return err
 		}
 
-		return nil
+		return enqueueWebhookEventTx(tx, types.WebhookEventSpecTaskCreated, task.OrganizationID, task.ProjectID, types.SpecTaskWebhookData{
+			SpecTaskID:      task.ID,
+			ProjectID:       task.ProjectID,
+			OrganizationID:  task.OrganizationID,
+			Status:          task.Status,
+			StatusUpdatedAt: task.StatusUpdatedAt,
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create spec task: %w", err)
@@ -122,6 +129,13 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 	task.UpdatedAt = time.Now()
 
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var previous struct {
+			Status types.SpecTaskStatus
+		}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Model(&types.SpecTask{}).
+			Select("status").Where("id = ?", task.ID).Take(&previous).Error; err != nil {
+			return err
+		}
 		result := tx.Omit("DependsOn").Save(task)
 		if result.Error != nil {
 			return result.Error
@@ -134,7 +148,17 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 			return err
 		}
 
-		return nil
+		if previous.Status == task.Status {
+			return nil
+		}
+		return enqueueWebhookEventTx(tx, types.WebhookEventSpecTaskStatusChanged, task.OrganizationID, task.ProjectID, types.SpecTaskWebhookData{
+			SpecTaskID:      task.ID,
+			ProjectID:       task.ProjectID,
+			OrganizationID:  task.OrganizationID,
+			Status:          task.Status,
+			PreviousStatus:  previous.Status,
+			StatusUpdatedAt: task.StatusUpdatedAt,
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update spec task: %w", err)
