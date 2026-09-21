@@ -254,6 +254,9 @@ func (apiServer *HelixAPIServer) adminActivateTrial(_ http.ResponseWriter, req *
 		if selectedOrg == nil {
 			plan := types.PlanOverridePro
 			targetUser.PlanOnFirstOrg = &plan
+			targetUser.TrialDaysOnFirstOrg = nil
+			targetUser.TrialCreditsOnFirstOrg = nil
+			targetUser.PendingAdminCreditsOnFirstOrg = nil
 			targetUser.Waitlisted = false
 			if body.Credits > 0 {
 				c := body.Credits
@@ -294,12 +297,16 @@ func (apiServer *HelixAPIServer) adminActivateTrial(_ http.ResponseWriter, req *
 	}
 
 	// Path A: no owned org yet. Stash intent on the user; consumeUserTrialIntent
-	// will apply it when they create their first org.
+	// will apply it when they create their first org. Activation replaces the
+	// whole pending intent, so any prior plan/credit stash is dropped — mixing
+	// a trial with a plan override would apply both to the first wallet.
 	if selectedOrg == nil {
 		days := body.Days
 		credits := body.Credits
 		targetUser.TrialDaysOnFirstOrg = &days
 		targetUser.TrialCreditsOnFirstOrg = &credits
+		targetUser.PlanOnFirstOrg = nil
+		targetUser.PendingAdminCreditsOnFirstOrg = nil
 		targetUser.Waitlisted = false
 		updated, err := apiServer.Store.UpdateUser(ctx, targetUser)
 		if err != nil {
@@ -426,8 +433,11 @@ func (apiServer *HelixAPIServer) adminRevokeTrial(_ http.ResponseWriter, req *ht
 	}
 
 	// Validate the org selection BEFORE any mutation, so an invalid request
-	// (unowned org, no trial on the org) never touches the user's stash.
-	hasStash := targetUser.TrialDaysOnFirstOrg != nil || targetUser.TrialCreditsOnFirstOrg != nil
+	// (unowned org, no trial on the org) never touches the user's stash. A
+	// stash is any pending first-org intent: trial days/credits, a paid-plan
+	// override, or stashed admin credits.
+	hasStash := targetUser.TrialDaysOnFirstOrg != nil || targetUser.TrialCreditsOnFirstOrg != nil ||
+		targetUser.PlanOnFirstOrg != nil || targetUser.PendingAdminCreditsOnFirstOrg != nil
 	orgID := req.URL.Query().Get("org_id")
 	var selectedOrg *types.Organization
 	var selectedWallet *types.Wallet
@@ -460,6 +470,8 @@ func (apiServer *HelixAPIServer) adminRevokeTrial(_ http.ResponseWriter, req *ht
 	if hasStash {
 		targetUser.TrialDaysOnFirstOrg = nil
 		targetUser.TrialCreditsOnFirstOrg = nil
+		targetUser.PlanOnFirstOrg = nil
+		targetUser.PendingAdminCreditsOnFirstOrg = nil
 		if _, err := apiServer.Store.UpdateUser(ctx, targetUser); err != nil {
 			return nil, system.NewHTTPError500("failed to clear trial intent: " + err.Error())
 		}

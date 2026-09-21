@@ -42,12 +42,20 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
     const snackbar = useSnackbar();
     const { data: ownedOrgs, isLoading: isLoadingOrgs } = useAdminUserOwnedOrgs(user?.id, open);
 
-    // A stashed intent (granted before the user created an org) shows up as
-    // trial_status "stashed"; its values prefill the form and can be undone.
-    const hasStash = user?.trial_status === 'stashed';
+    // A stashed intent (granted before the user created an org) can be a
+    // trial (days/credits), a paid-plan override, or stashed admin credits —
+    // any of them prefills the form and can be undone via Clear.
+    const hasStash = Boolean(
+        user?.trial_days_on_first_org ||
+        user?.trial_credits_on_first_org ||
+        user?.plan_on_first_org ||
+        user?.pending_admin_credits_on_first_org
+    );
     const stashParts = [
         user?.trial_days_on_first_org ? `${user.trial_days_on_first_org}d` : '',
         user?.trial_credits_on_first_org ? `$${user.trial_credits_on_first_org}` : '',
+        user?.plan_on_first_org ? `${user.plan_on_first_org} plan` : '',
+        user?.pending_admin_credits_on_first_org ? `$${user.pending_admin_credits_on_first_org} credits` : '',
     ].filter(Boolean);
     const stashSummary = stashParts.length ? ` (${stashParts.join(', ')})` : '';
 
@@ -55,10 +63,10 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
         if (open) {
             setDays(String(user?.trial_days_on_first_org || DEFAULT_DAYS));
             setCredits(String(user?.trial_credits_on_first_org ?? DEFAULT_CREDITS));
-            setPlan('');
+            setPlan(user?.plan_on_first_org === 'pro' ? 'pro' : '');
             setError('');
         }
-    }, [open, user?.id, user?.trial_days_on_first_org, user?.trial_credits_on_first_org]);
+    }, [open, user?.id, user?.trial_days_on_first_org, user?.trial_credits_on_first_org, user?.plan_on_first_org]);
 
     const hasOrgs = (ownedOrgs?.length ?? 0) > 0;
 
@@ -101,10 +109,10 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
         if (!user?.id) return;
         try {
             await revokeTrial.mutateAsync({ userId: user.id });
-            snackbar.success(`Stashed trial cleared for ${user.email || user.username}`);
+            snackbar.success(`Stashed grant cleared for ${user.email || user.username}`);
             onClose();
         } catch (err: any) {
-            const msg = err?.response?.data?.error || err?.message || 'Failed to clear stashed trial';
+            const msg = err?.response?.data?.error || err?.message || 'Failed to clear stashed grant';
             setError(msg);
         }
     };
@@ -142,7 +150,7 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
 
                     {hasStash && (
                         <Alert severity="warning" sx={{ mb: 2 }}>
-                            This user already has a stashed trial{stashSummary}. Activating replaces it; the
+                            This user already has a stashed grant{stashSummary}. Activating replaces it; the
                             fields are prefilled with the current values.
                         </Alert>
                     )}
@@ -215,7 +223,7 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
                         startIcon={revokeTrial.isPending ? <CircularProgress size={20} /> : null}
                         sx={{ mr: 'auto' }}
                     >
-                        {revokeTrial.isPending ? 'Clearing…' : 'Clear stashed trial'}
+                        {revokeTrial.isPending ? 'Clearing…' : 'Clear stashed grant'}
                     </Button>
                 )}
                 <Button onClick={handleClose} disabled={activateTrial.isPending || revokeTrial.isPending} variant="outlined">

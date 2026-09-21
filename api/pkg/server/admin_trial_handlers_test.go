@@ -401,6 +401,60 @@ func TestAdminRevokeTrial_InvalidOrgLeavesStashIntact(t *testing.T) {
 	require.Contains(t, err.Error(), "user does not own organisation")
 }
 
+// A credits- or plan-only stash is invisible to the trial enrichment but
+// must still be clearable: revoke drops all pending first-org intents.
+func TestAdminRevokeTrial_ClearsPlanAndCreditStashes(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	plan := types.PlanOverridePro
+	credits := 50.0
+	user := &types.User{ID: "target", PlanOnFirstOrg: &plan, PendingAdminCreditsOnFirstOrg: &credits}
+
+	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(user, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return(nil, nil)
+	db.EXPECT().UpdateUser(gomock.Any(), user).DoAndReturn(func(_ context.Context, got *types.User) (*types.User, error) {
+		require.Nil(t, got.PlanOnFirstOrg)
+		require.Nil(t, got.PendingAdminCreditsOnFirstOrg)
+		return got, nil
+	})
+
+	cfg := cloudBillingCfg()
+	cfg.Stripe.SecretKey = "sk_test"
+	cfg.Stripe.WebhookSigningSecret = "whsec_test"
+	s := &HelixAPIServer{
+		Store:  db,
+		Cfg:    cfg,
+		Stripe: helixstripe.NewStripe(cfg.Stripe, db),
+	}
+
+	resp, err := s.adminRevokeTrial(httptest.NewRecorder(), revokeTrialRequest(t, ""))
+	require.NoError(t, err)
+	require.Equal(t, "cleared", resp.Status)
+}
+
+// Activating replaces the whole pending intent: stashing a trial drops a
+// prior plan override so the first wallet never gets both.
+func TestAdminActivateTrial_TrialStashReplacesPlanStash(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	plan := types.PlanOverridePro
+	user := &types.User{ID: "target", PlanOnFirstOrg: &plan}
+
+	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(user, nil)
+	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return(nil, nil)
+	db.EXPECT().UpdateUser(gomock.Any(), user).DoAndReturn(func(_ context.Context, got *types.User) (*types.User, error) {
+		require.NotNil(t, got.TrialDaysOnFirstOrg)
+		require.Nil(t, got.PlanOnFirstOrg)
+		require.Nil(t, got.PendingAdminCreditsOnFirstOrg)
+		return got, nil
+	})
+
+	s := &HelixAPIServer{Store: db, Cfg: cloudBillingCfg()}
+	resp, err := s.adminActivateTrial(httptest.NewRecorder(), activateTrialRequest(t, ActivateTrialRequest{Days: 30}))
+	require.NoError(t, err)
+	require.Equal(t, "stashed", resp.Status)
+}
+
 // A failed consumeUserTrialIntent can leave a stash on a user who already
 // owns an org. DELETE without org_id must still clear it instead of 400ing
 // on the org-selection guard.

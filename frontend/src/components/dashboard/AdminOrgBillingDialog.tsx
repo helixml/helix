@@ -66,12 +66,12 @@ const AdminOrgBillingDialog: FC<AdminOrgBillingDialogProps> = ({ open, onClose, 
         try {
             if (action === 'activate') {
                 const daysNum = parseInt(days, 10);
-                const creditsNum = parseFloat(credits) || 0;
+                const creditsNum = parseFloat(credits);
                 if (!Number.isFinite(daysNum) || daysNum <= 0) {
                     setError('Days must be a positive number');
                     return;
                 }
-                if (creditsNum < 0) {
+                if (!Number.isFinite(creditsNum) || creditsNum < 0) {
                     setError('Credits must be zero or positive');
                     return;
                 }
