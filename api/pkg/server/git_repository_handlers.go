@@ -21,6 +21,50 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+func redactGitRepository(repo *types.GitRepository) *types.GitRepository {
+	if repo == nil {
+		return nil
+	}
+
+	redacted := *repo
+	redacted.Password = ""
+	if repo.GitHub != nil {
+		github := *repo.GitHub
+		github.PersonalAccessToken = ""
+		github.PrivateKey = ""
+		github.WebhookSecret = ""
+		redacted.GitHub = &github
+	}
+	if repo.GitLab != nil {
+		gitlab := *repo.GitLab
+		gitlab.PersonalAccessToken = ""
+		redacted.GitLab = &gitlab
+	}
+	if repo.AzureDevOps != nil {
+		azureDevOps := *repo.AzureDevOps
+		azureDevOps.PersonalAccessToken = ""
+		azureDevOps.ClientSecret = ""
+		redacted.AzureDevOps = &azureDevOps
+	}
+	if repo.Bitbucket != nil {
+		bitbucket := *repo.Bitbucket
+		bitbucket.AppPassword = ""
+		redacted.Bitbucket = &bitbucket
+	}
+	return &redacted
+}
+
+func redactGitRepositories(repos []*types.GitRepository) []*types.GitRepository {
+	if repos == nil {
+		return nil
+	}
+	redacted := make([]*types.GitRepository, len(repos))
+	for i, repo := range repos {
+		redacted[i] = redactGitRepository(repo)
+	}
+	return redacted
+}
+
 // createGitRepository creates a new git repository
 // @Summary Create git repository
 // @Description Create a new git repository on the server
@@ -161,7 +205,7 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(repository)
+	json.NewEncoder(w).Encode(redactGitRepository(repository))
 }
 
 // getGitRepository retrieves repository information by ID
@@ -197,7 +241,7 @@ func (s *HelixAPIServer) getGitRepository(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeResponse(w, repository, http.StatusOK)
+	writeResponse(w, redactGitRepository(repository), http.StatusOK)
 }
 
 // updateGitRepository updates an existing git repository
@@ -270,7 +314,7 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(repository)
+	json.NewEncoder(w).Encode(redactGitRepository(repository))
 }
 
 // deleteGitRepository deletes a git repository
@@ -403,7 +447,7 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 		repositories = authorizedRepos
 	}
 
-	writeResponseWithETag(w, r, repositories)
+	writeResponseWithETag(w, r, redactGitRepositories(repositories))
 }
 
 // createSampleRepository creates a sample/demo repository
@@ -472,7 +516,7 @@ func (s *HelixAPIServer) createSampleRepository(w http.ResponseWriter, r *http.R
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(repository)
+	json.NewEncoder(w).Encode(redactGitRepository(repository))
 }
 
 // getGitRepositoryCloneCommand returns the git clone command for a repository
@@ -627,7 +671,7 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 	}
 
 	response := InitializeSampleRepositoriesResponse{
-		CreatedRepositories: createdRepositories,
+		CreatedRepositories: redactGitRepositories(createdRepositories),
 		CreatedCount:        len(createdRepositories),
 		Errors:              errors,
 		Success:             len(errors) == 0,

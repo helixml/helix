@@ -1169,7 +1169,7 @@ func (s *HelixAPIServer) getProjectRepositories(_ http.ResponseWriter, r *http.R
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return repos, nil
+	return redactGitRepositories(repos), nil
 }
 
 // setProjectPrimaryRepository godoc

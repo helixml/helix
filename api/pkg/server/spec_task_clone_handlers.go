@@ -361,7 +361,7 @@ func (s *HelixAPIServer) listReposWithoutProjects(w http.ResponseWriter, r *http
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(repos)
+	json.NewEncoder(w).Encode(redactGitRepositories(repos))
 }
 
 // QuickCreateProjectRequest for creating a project from a repo
