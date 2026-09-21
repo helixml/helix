@@ -2288,13 +2288,13 @@ export enum TransportFieldType {
 
 export enum TransportKind {
   KindLocal = "local",
-  KindSlack = "slack",
-  KindCron = "cron",
-  KindWebhook = "webhook",
-  KindGitHub = "github",
   KindGitLab = "gitlab",
+  KindGitHub = "github",
   KindHelixEvents = "helix_events",
+  KindCron = "cron",
+  KindSlack = "slack",
   KindEmail = "email",
+  KindWebhook = "webhook",
 }
 
 export interface TransportResolvedActivation {
@@ -4103,6 +4103,13 @@ export interface TypesGitHub {
   personal_access_token?: string;
   /** PEM-encoded private key for JWT signing */
   private_key?: string;
+  /**
+   * WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review
+   * deliveries with (spec task PR review feedback). Auto-generated at first
+   * webhook install; one repo's secret never validates another repo's
+   * deliveries, keeping orgs isolated on shared deployments.
+   */
+  webhook_secret?: string;
 }
 
 export interface TypesGitLab {
@@ -9484,7 +9491,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the oldest owned org whose readable wallet is trialing. At most one subscription is cancelled per call. Paid (active) subscriptions are never cancelled.
+     * @description Clears any stashed trial intent on the user and cancels the trialing Stripe subscription on the specified owned org (org_id required when the user owns organisations; the cancelled wallet state is mirrored immediately). Paid (active) subscriptions are never cancelled.
      *
      * @tags users
      * @name V1AdminUsersTrialActivateDelete
@@ -9492,10 +9499,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/admin/users/{id}/trial-activate
      * @secure
      */
-    v1AdminUsersTrialActivateDelete: (id: string, params: RequestParams = {}) =>
+    v1AdminUsersTrialActivateDelete: (
+      id: string,
+      query?: {
+        /** Owned organisation whose trialing subscription to cancel (required iff the user owns an organisation) */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<ServerActivateTrialResponse, any>({
         path: `/api/v1/admin/users/${id}/trial-activate`,
         method: "DELETE",
+        query: query,
         secure: true,
         format: "json",
         ...params,

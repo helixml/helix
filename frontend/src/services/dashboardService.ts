@@ -245,8 +245,16 @@ export function useAdminDeleteUser() {
     });
 }
 
+export interface SetOrgPlanInput {
+    orgId: string;
+    plan: string; // "pro" | "free" | "" (clear → derive from Stripe)
+}
+
 export interface ActivateTrialInput {
     userId: string;
+    // org_id set → activate directly on that owned org's wallet (org screen).
+    // Omitted → stash the intent on the user, applied when they create their
+    // first org (user screen onboarding flow).
     orgId?: string;
     days?: number;
     credits?: number;
@@ -255,49 +263,10 @@ export interface ActivateTrialInput {
     plan?: string;
 }
 
-export interface SetOrgPlanInput {
-    orgId: string;
-    plan: string; // "pro" | "free" | "" (clear → derive from Stripe)
-}
-
-export interface GrantCreditsInput {
-    userId: string;
-    credits: number;
-    // org_id is REQUIRED when the user owns one or more orgs; omitted only
-    // when the grant is stashed against a user who owns no orgs yet.
-    orgId?: string;
-}
-
-export interface OwnedOrgSummary {
-    id: string;
-    name: string;
-    display_name?: string;
-}
-
 /**
- * Hook to fetch the organisations a target user owns (cloud edition, admin
- * only). Used by the Grant Credits dialog to populate its org picker so the
- * admin's choice is explicit rather than a silent "oldest owned" pick.
- */
-export function useAdminUserOwnedOrgs(userId: string | undefined, enabled: boolean) {
-    const api = useApi();
-    const apiClient = api.getApiClient();
-
-    return useQuery({
-        queryKey: ["admin-user-owned-orgs", userId],
-        enabled: !!userId && enabled,
-        queryFn: async () => {
-            const response = await apiClient.v1AdminUsersOwnedOrgsDetail(userId!);
-            return (response.data as OwnedOrgSummary[]) ?? [];
-        },
-    });
-}
-
-/**
- * Hook to activate a trial on a user (cloud edition, admin only).
- * If the user has no orgs yet, the intent is stashed and applied when they
- * create their first org. Otherwise the Stripe trial subscription is created
- * on the explicitly selected owned org wallet immediately.
+ * Hook to activate a trial for a user (cloud edition, admin only).
+ * With org_id: Stripe trial subscription on that org's wallet immediately.
+ * Without: intent stashed on the user, consumed on their first owned org.
  */
 export function useAdminActivateTrial() {
     const api = useApi();
@@ -316,9 +285,102 @@ export function useAdminActivateTrial() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users"] });
+            queryClient.invalidateQueries({ queryKey: adminOrgsQueryKey() });
         },
     });
 }
+
+export interface RevokeTrialInput {
+    userId: string;
+    // orgId set → cancel that org's trialing subscription (org screen).
+    // Omitted → clear any stashed trial intent on the user (the activate
+    // dialog's "Clear stashed trial" action for org-less users).
+    orgId?: string;
+}
+
+/**
+ * Hook to revoke the trial on a specific org (cloud edition, admin only).
+ * Cancels that org's trialing Stripe subscription and mirrors the cancelled
+ * wallet state immediately. Paid subscriptions are never cancelled. The
+ * backend endpoint also clears stashed user intents (DELETE without org_id),
+ * which has no UI surface anymore.
+ */
+export function useAdminRevokeTrial() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (input: RevokeTrialInput) => {
+            const response = await apiClient.v1AdminUsersTrialActivateDelete(input.userId, {
+                org_id: input.orgId,
+            });
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+            queryClient.invalidateQueries({ queryKey: adminOrgsQueryKey() });
+        },
+    });
+}
+
+export interface GrantCreditsInput {
+    userId: string; // org owner
+    orgId: string;
+    credits: number;
+}
+
+/**
+ * Hook to grant credits to a specific org's wallet (cloud edition, admin
+ * only). Works regardless of subscription state. The backend endpoint also
+ * stashes grants on org-less users (POST without org_id), which has no UI
+ * surface anymore.
+ */
+export function useAdminGrantCredits() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (input: GrantCreditsInput) => {
+            const response = await apiClient.v1AdminUsersCreditsCreate(input.userId, {
+                credits: input.credits,
+                org_id: input.orgId,
+            });
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+            queryClient.invalidateQueries({ queryKey: adminOrgsQueryKey() });
+        },
+    });
+}
+
+export interface OwnedOrgSummary {
+    id: string;
+    name: string;
+    display_name?: string;
+}
+
+/**
+ * Hook to fetch the organisations a target user owns (cloud edition, admin
+ * only). Used by the user-level trial/credit dialogs to route between the
+ * stash flow (no orgs yet) and a pointer to the org screen (already owns).
+ */
+export function useAdminUserOwnedOrgs(userId: string | undefined, enabled: boolean) {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+
+    return useQuery({
+        queryKey: ["admin-user-owned-orgs", userId],
+        enabled: !!userId && enabled,
+        queryFn: async () => {
+            const response = await apiClient.v1AdminUsersOwnedOrgsDetail(userId!);
+            return (response.data as OwnedOrgSummary[]) ?? [];
+        },
+    });
+}
+
 
 /**
  * Hook to set an organization's plan override (cloud edition, admin only).
@@ -338,52 +400,6 @@ export function useAdminSetOrgPlan() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: adminOrgsQueryKey() });
-        },
-    });
-}
-
-/**
- * Hook to grant credits to a user (cloud edition, admin only). Unlike
- * useAdminActivateTrial, this works regardless of subscription state: the
- * wallet on the user's oldest owned org is topped up directly, or the grant
- * is stashed on the user if they have no orgs yet.
- */
-export function useAdminGrantCredits() {
-    const api = useApi();
-    const apiClient = api.getApiClient();
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: async (input: GrantCreditsInput) => {
-            const response = await apiClient.v1AdminUsersCreditsCreate(input.userId, {
-                credits: input.credits,
-                org_id: input.orgId,
-            });
-            return response.data;
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["users"] });
-        },
-    });
-}
-
-/**
- * Hook to revoke a trial on a user (cloud edition, admin only).
- * Clears any stashed intent and cancels the Stripe subscription if currently
- * trialing. Paid subscriptions are never cancelled.
- */
-export function useAdminRevokeTrial() {
-    const api = useApi();
-    const apiClient = api.getApiClient();
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: async (userId: string) => {
-            const response = await apiClient.v1AdminUsersTrialActivateDelete(userId);
-            return response.data;
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["users"] });
         },
     });
 }
