@@ -258,6 +258,9 @@ type BotRuntimeInfo struct {
 	// desktop is online (external_agent_status == running), else
 	// "stopped". Empty when the status could not be resolved.
 	Status string
+	// AgentWorkState is "working" only when the running session's latest
+	// interaction is waiting for its external agent.
+	AgentWorkState types.AgentWorkState
 	// RestartRequired is true when the bot's sandbox is running but is
 	// still serving config from before the operator's last save: tools,
 	// instructions, or the agent's model/provider/runtime/effort, all of

@@ -96,6 +96,11 @@ export interface ApiBotChatDTO {
 export interface ApiBotDTO {
   agent_model?: string;
   agent_runtime?: string;
+  /**
+   * AgentWorkState is "working" only while the running Bot's latest
+   * interaction is still waiting for its external agent.
+   */
+  agent_work_state?: TypesAgentWorkState;
   code_agent_credential_type?: TypesCodeAgentCredentialType;
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;

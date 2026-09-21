@@ -23489,6 +23489,14 @@ const docTemplate = `{
                 "agent_runtime": {
                     "type": "string"
                 },
+                "agent_work_state": {
+                    "description": "AgentWorkState is \"working\" only while the running Bot's latest\ninteraction is still waiting for its external agent.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentWorkState"
+                        }
+                    ]
+                },
                 "code_agent_credential_type": {
                     "$ref": "#/definitions/types.CodeAgentCredentialType"
                 },

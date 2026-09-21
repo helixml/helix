@@ -621,6 +621,7 @@ export type SidebarBot = {
   id: string
   name: string
   running: boolean
+  working: boolean
   restartRequired: boolean
   agentAppId?: string
   projectId?: string
@@ -637,6 +638,7 @@ export const toSidebarBots = (bots: BotDTO[]): SidebarBot[] => (
       id: bot.id!,
       name: bot.name || bot.id!,
       running: bot.status === 'running',
+      working: bot.status === 'running' && bot.agent_work_state === 'working',
       restartRequired: !!bot.restart_required,
       agentAppId: bot.legacy_app_id || undefined,
       projectId: bot.project_id || undefined,

@@ -34,6 +34,7 @@ import { TYPOGRAPHY } from '../../styles/typography'
 import { PRESENCE_OFFLINE_COLOR, PRESENCE_ONLINE_COLOR } from '../widgets/PresenceDot'
 import ProjectChatItemRow from './ProjectChatItemRow'
 import ProjectChatShowMore from './ProjectChatShowMore'
+import StreamingIndicator from './StreamingIndicator'
 import {
   buildPersonChatItems,
   filterProjectChatGroups,
@@ -220,7 +221,7 @@ type ProjectChatBotEntryProps = ItemRowProps & {
 // viewer can read. Tasks only — the agent's own chat is the row itself. A
 // search opens the group so its tasks can match, and hides it when neither the
 // agent's name nor any task does.
-const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
+export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   orgId,
   bot,
   collapsed,
@@ -267,6 +268,7 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   const renderedItems = windowSidebarItems(filteredItems, activeItemId, pagination.visibleCount)
   const hasMore = filteredItems.length > pagination.visibleCount || tasks.length >= pagination.requestCount
   const active = bot.id === activeItemId || (!!bot.sessionId && bot.sessionId === activeItemId)
+  const showWorkingIndicator = bot.working && !active
   const statusTitle = bot.running
     ? (bot.restartRequired ? 'Running · restart required to apply changes' : 'Agent running')
     : 'Agent stopped'
@@ -313,7 +315,11 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             backgroundColor: active ? sidebarColors.rowSelected : sidebarColors.rowHover,
           },
           '&:hover .sidebar-bot-settings, &:focus-within .sidebar-bot-settings': { opacity: 1 },
-          '@media (hover: none)': { '& .sidebar-bot-settings': { opacity: 1 } },
+          '&:hover .sidebar-bot-working, &:focus-within .sidebar-bot-working': { opacity: 0 },
+          '@media (hover: none)': {
+            '& .sidebar-bot-settings': { opacity: 1 },
+            '& .sidebar-bot-working': { opacity: 1 },
+          },
         }}
       >
         <Box
@@ -380,26 +386,67 @@ const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
           {bot.name}
         </Typography>
         {busy ? (
-          <CircularProgress size={12} color="inherit" sx={{ mr: 0.5 }} />
+          <Box sx={{ width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CircularProgress size={12} color="inherit" />
+          </Box>
         ) : (
-          <Tooltip title="Agent settings">
-            <span>
-              <IconButton
-                className="sidebar-bot-settings"
-                size="small"
-                aria-label={`Settings for ${bot.name}`}
-                disabled={!bot.agentAppId}
-                onMouseOver={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onOpenSettings()
+          <Box
+            data-testid="sidebar-bot-trailing-slot"
+            sx={{
+              width: 24,
+              height: 24,
+              position: 'relative',
+              flexShrink: 0,
+              '@media (hover: none)': { width: showWorkingIndicator ? 48 : 24 },
+            }}
+          >
+            {showWorkingIndicator && (
+              <Tooltip title="Working">
+                <Box
+                  className="sidebar-bot-working"
+                  component="span"
+                  role="status"
+                  aria-label="Working"
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'opacity 100ms ease',
+                    '@media (hover: none)': { right: 24 },
+                  }}
+                >
+                  <StreamingIndicator compact />
+                </Box>
+              </Tooltip>
+            )}
+            <Tooltip title="Agent settings">
+              <Box
+                component="span"
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  '@media (hover: none)': { left: showWorkingIndicator ? 24 : 0 },
                 }}
-                sx={{ width: 24, height: 24, opacity: 0, color: 'inherit', transition: 'opacity 100ms ease' }}
               >
-                <Settings size={14} />
-              </IconButton>
-            </span>
-          </Tooltip>
+                <IconButton
+                  className="sidebar-bot-settings"
+                  size="small"
+                  aria-label={`Settings for ${bot.name}`}
+                  disabled={!bot.agentAppId}
+                  onMouseOver={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onOpenSettings()
+                  }}
+                  sx={{ width: 24, height: 24, opacity: 0, color: 'inherit', transition: 'opacity 100ms ease' }}
+                >
+                  <Settings size={14} />
+                </IconButton>
+              </Box>
+            </Tooltip>
+          </Box>
         )}
       </Box>
       {open && tasksQuery.isError && (
