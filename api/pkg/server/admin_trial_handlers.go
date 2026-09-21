@@ -515,7 +515,9 @@ func (apiServer *HelixAPIServer) adminRevokeTrial(_ http.ResponseWriter, req *ht
 
 // enrichUserTrialDisplay sets the transient TrialStatus / TrialOrgID /
 // TrialEndsAt fields on a user for the admin users list.
-//   - "stashed" — admin granted a trial but the user has not yet created an org.
+//   - "stashed" — an admin grant (trial days/credits, a paid-plan override,
+//     or stashed credits) is parked on the user, who has not yet created an
+//     org (or its application failed).
 //   - "active"  — wallet on one of the user's owned orgs is currently trialing.
 //   - ""        — neither (field is omitted from JSON via omitempty).
 //
@@ -524,7 +526,10 @@ func (apiServer *HelixAPIServer) enrichUserTrialDisplay(ctx context.Context, u *
 	if u == nil {
 		return
 	}
-	if u.TrialDaysOnFirstOrg != nil && *u.TrialDaysOnFirstOrg > 0 {
+	if u.TrialDaysOnFirstOrg != nil && *u.TrialDaysOnFirstOrg > 0 ||
+		u.TrialCreditsOnFirstOrg != nil ||
+		u.PlanOnFirstOrg != nil ||
+		u.PendingAdminCreditsOnFirstOrg != nil {
 		u.TrialStatus = "stashed"
 		return
 	}

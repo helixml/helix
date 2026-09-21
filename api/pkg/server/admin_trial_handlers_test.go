@@ -166,6 +166,17 @@ func TestEnrichUserTrialDisplay_FindsTrialOnNonFirstOrg(t *testing.T) {
 	require.Equal(t, int64(1234), *user.TrialEndsAt)
 }
 
+// Plan- or credit-only stashes must also surface as "stashed" in the users
+// list, not just trial-day stashes.
+func TestEnrichUserTrialDisplay_MarksPlanAndCreditStashes(t *testing.T) {
+	plan := types.PlanOverridePro
+	credits := 50.0
+	user := &types.User{ID: "target", PlanOnFirstOrg: &plan, PendingAdminCreditsOnFirstOrg: &credits}
+
+	(&HelixAPIServer{Store: store.NewMockStore(gomock.NewController(t))}).enrichUserTrialDisplay(context.Background(), user)
+	require.Equal(t, "stashed", user.TrialStatus)
+}
+
 type adminTrialStripeBackend struct {
 	t *testing.T
 }

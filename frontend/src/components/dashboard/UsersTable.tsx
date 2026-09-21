@@ -111,7 +111,7 @@ const TrialChip: FC<{ user: TypesUser }> = ({ user }) => {
     if (status === "stashed") {
         const days = user.trial_days_on_first_org;
         return (
-            <Tooltip title="Trial granted but the user has not yet created an organization.">
+            <Tooltip title="Admin grant (trial, plan, or credits) stashed until the user creates an organisation.">
                 <Chip
                     label={days ? `Pending (${days}d)` : "Pending"}
                     size="small"
