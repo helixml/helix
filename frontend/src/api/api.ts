@@ -2292,14 +2292,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindLocal = "local",
-  KindGitLab = "gitlab",
-  KindGitHub = "github",
-  KindHelixEvents = "helix_events",
   KindCron = "cron",
+  KindHelixEvents = "helix_events",
+  KindGitHub = "github",
+  KindGitLab = "gitlab",
   KindSlack = "slack",
-  KindEmail = "email",
   KindWebhook = "webhook",
+  KindLocal = "local",
+  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -4108,6 +4108,7 @@ export interface TypesGitHub {
   personal_access_token?: string;
   /** PEM-encoded private key for JWT signing */
   private_key?: string;
+  review_bot_user_id?: number;
   /**
    * WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review
    * deliveries with (spec task PR review feedback). Auto-generated at first
@@ -4283,6 +4284,7 @@ export interface TypesGitRepositoryUpdateRequest {
   /** OAuth connection for authentication */
   oauth_connection_id?: string;
   password?: string;
+  review_bot_user_id?: number;
   username?: string;
 }
 

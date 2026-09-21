@@ -14,9 +14,9 @@ import (
 // fakeStore embeds store.Store and overrides only the methods we need.
 type fakeStore struct {
 	store.Store
-	repo               *types.GitRepository
-	deleted            bool
-	koditRepoRefCount  int64
+	repo              *types.GitRepository
+	deleted           bool
+	koditRepoRefCount int64
 }
 
 func (f *fakeStore) GetGitRepository(_ context.Context, _ string) (*types.GitRepository, error) {
@@ -28,6 +28,11 @@ func (f *fakeStore) GetGitRepository(_ context.Context, _ string) (*types.GitRep
 
 func (f *fakeStore) DeleteGitRepository(_ context.Context, _ string) error {
 	f.deleted = true
+	return nil
+}
+
+func (f *fakeStore) UpdateGitRepository(_ context.Context, repo *types.GitRepository) error {
+	f.repo = repo
 	return nil
 }
 
@@ -69,7 +74,7 @@ func (f *fakeKodit) GetRepositoryStatus(_ context.Context, _ int64) (tracking.Re
 	return tracking.RepositoryStatusSummary{}, f.err
 }
 func (f *fakeKodit) RescanCommit(_ context.Context, _ int64, _ string) error { return f.err }
-func (f *fakeKodit) RescanAllRepositories(_ context.Context) error            { return f.err }
+func (f *fakeKodit) RescanAllRepositories(_ context.Context) error           { return f.err }
 func (f *fakeKodit) ListRepositories(_ context.Context, _, _ int) ([]repository.Repository, int64, error) {
 	return nil, 0, f.err
 }
@@ -92,7 +97,7 @@ func (f *fakeKodit) ListAllTasks(_ context.Context, _, _ int) ([]KoditPendingTas
 func (f *fakeKodit) ActiveTasks(_ context.Context) ([]KoditActiveTask, error) {
 	return nil, f.err
 }
-func (f *fakeKodit) DeleteTask(_ context.Context, _ int64) error { return f.err }
+func (f *fakeKodit) DeleteTask(_ context.Context, _ int64) error                { return f.err }
 func (f *fakeKodit) UpdateTaskPriority(_ context.Context, _ int64, _ int) error { return f.err }
 func (f *fakeKodit) GetWikiTree(_ context.Context, _ int64) ([]KoditWikiTreeNode, error) {
 	return nil, f.err
@@ -124,6 +129,65 @@ func (f *fakeKodit) UpdateChunkingConfig(_ context.Context, _ int64, _, _, _ int
 }
 func (f *fakeKodit) RenderPageImage(_ context.Context, _ int64, _ string, _ int) ([]byte, error) {
 	return nil, nil
+}
+
+func TestUpdateRepository_ReviewBotUserID(t *testing.T) {
+	originalGitHub := types.GitHub{
+		PersonalAccessToken: "token",
+		BaseURL:             "https://github.example.com",
+		WebhookSecret:       "secret",
+		AppID:               1,
+		InstallationID:      2,
+		PrivateKey:          "key",
+		ReviewBotUserID:     123,
+	}
+	storedGitHub := originalGitHub
+	st := &fakeStore{repo: &types.GitRepository{ID: "repo-1", GitHub: &storedGitHub}}
+	svc := NewGitRepositoryService(st, t.TempDir(), "http://localhost:8080", "test", "test@test.com")
+
+	updated, err := svc.UpdateRepository(t.Context(), "repo-1", &types.GitRepositoryUpdateRequest{}, "")
+	if err != nil {
+		t.Fatalf("UpdateRepository() error: %v", err)
+	}
+	if *updated.GitHub != originalGitHub {
+		t.Fatalf("omitted review bot ID changed GitHub settings: %#v", *updated.GitHub)
+	}
+
+	reviewBotUserID := int64(291906607)
+	updated, err = svc.UpdateRepository(t.Context(), "repo-1", &types.GitRepositoryUpdateRequest{
+		ReviewBotUserID: &reviewBotUserID,
+	}, "")
+	if err != nil {
+		t.Fatalf("UpdateRepository() set error: %v", err)
+	}
+	want := originalGitHub
+	want.ReviewBotUserID = reviewBotUserID
+	if *updated.GitHub != want {
+		t.Fatalf("GitHub settings = %#v, want %#v", *updated.GitHub, want)
+	}
+
+	zero := int64(0)
+	updated, err = svc.UpdateRepository(t.Context(), "repo-1", &types.GitRepositoryUpdateRequest{
+		ReviewBotUserID: &zero,
+	}, "")
+	if err != nil {
+		t.Fatalf("UpdateRepository() clear error: %v", err)
+	}
+	want.ReviewBotUserID = 0
+	if *updated.GitHub != want {
+		t.Fatalf("GitHub settings after clear = %#v, want %#v", *updated.GitHub, want)
+	}
+
+	st.repo.GitHub = nil
+	updated, err = svc.UpdateRepository(t.Context(), "repo-1", &types.GitRepositoryUpdateRequest{
+		ReviewBotUserID: &reviewBotUserID,
+	}, "")
+	if err != nil {
+		t.Fatalf("UpdateRepository() initialize error: %v", err)
+	}
+	if updated.GitHub == nil || updated.GitHub.ReviewBotUserID != 291906607 {
+		t.Fatalf("GitHub settings were not initialized: %#v", updated.GitHub)
+	}
 }
 
 func TestDeleteRepository_DeletesFromKodit(t *testing.T) {
