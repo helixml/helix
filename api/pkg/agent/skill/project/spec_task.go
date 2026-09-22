@@ -3,19 +3,28 @@ package project
 import (
 	"fmt"
 	"time"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
+
+func requirePublishedSpecTask(task *types.SpecTask) error {
+	if task == nil || task.Status == types.TaskStatusPreparing {
+		return fmt.Errorf("spec task not found")
+	}
+	return nil
+}
 
 // SpecTaskSummary is a summary of a spec task
 type SpecTaskSummary struct {
-	ID               string              `json:"id"`
-	Name             string              `json:"name"`
-	Description      string              `json:"description"`
-	Status           string              `json:"status"`
-	Priority         string              `json:"priority"`
-	BranchName       string              `json:"branch_name,omitempty"`
-	RepoPullRequests []RepoPRSummary     `json:"repo_pull_requests,omitempty"`
-	StartedAt        *time.Time          `json:"started_at,omitempty"`
-	CompletedAt      *time.Time          `json:"completed_at,omitempty"`
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Description      string          `json:"description"`
+	Status           string          `json:"status"`
+	Priority         string          `json:"priority"`
+	BranchName       string          `json:"branch_name,omitempty"`
+	RepoPullRequests []RepoPRSummary `json:"repo_pull_requests,omitempty"`
+	StartedAt        *time.Time      `json:"started_at,omitempty"`
+	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
 }
 
 // RepoPRSummary is a summary of a pull request for a repository
