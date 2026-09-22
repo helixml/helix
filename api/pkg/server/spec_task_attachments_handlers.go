@@ -135,8 +135,8 @@ func prepareSpecTaskAttachment(name string, body []byte, caption string) (*prepa
 	}, nil
 }
 
-func prepareInlineSpecTaskAttachments(inputs []types.SpecTaskInlineAttachment) ([]*preparedSpecTaskAttachment, error) {
-	return prepareInlineSpecTaskAttachmentsWithLimits(
+func validateInlineSpecTaskAttachments(inputs []types.SpecTaskInlineAttachment) error {
+	return validateInlineSpecTaskAttachmentsWithLimits(
 		inputs,
 		types.SpecTaskAttachmentMaxPerTask,
 		types.SpecTaskAttachmentMaxBytes,
@@ -144,61 +144,60 @@ func prepareInlineSpecTaskAttachments(inputs []types.SpecTaskInlineAttachment) (
 	)
 }
 
-func prepareInlineSpecTaskAttachmentsWithLimits(
+func validateInlineSpecTaskAttachmentsWithLimits(
 	inputs []types.SpecTaskInlineAttachment,
 	maxCount int,
 	maxFileBytes int,
 	maxTotalBytes int,
-) ([]*preparedSpecTaskAttachment, error) {
+) error {
 	if len(inputs) > maxCount {
-		return nil, &specTaskAttachmentInputError{
+		return &specTaskAttachmentInputError{
 			status:  http.StatusBadRequest,
 			message: fmt.Sprintf("too many attachments — limit is %d per task", maxCount),
 		}
 	}
 
-	prepared := make([]*preparedSpecTaskAttachment, 0, len(inputs))
 	seen := make(map[string]struct{}, len(inputs))
 	totalBytes := 0
 	for _, input := range inputs {
 		if strings.TrimSpace(input.Name) == "" {
-			return nil, &specTaskAttachmentInputError{
+			return &specTaskAttachmentInputError{
 				status:  http.StatusBadRequest,
 				message: "attachment name is required",
 			}
 		}
 		if input.ContentBase64 == "" {
-			return nil, &specTaskAttachmentInputError{
+			return &specTaskAttachmentInputError{
 				status:  http.StatusBadRequest,
 				message: fmt.Sprintf("content_base64 is required for %s", input.Name),
 			}
 		}
 		if len(input.ContentBase64) > base64.StdEncoding.EncodedLen(maxFileBytes) {
-			return nil, &specTaskAttachmentInputError{
+			return &specTaskAttachmentInputError{
 				status:  http.StatusRequestEntityTooLarge,
 				message: fmt.Sprintf("%s exceeds max size", input.Name),
 			}
 		}
 		body, err := base64.StdEncoding.DecodeString(input.ContentBase64)
 		if err != nil {
-			return nil, &specTaskAttachmentInputError{
+			return &specTaskAttachmentInputError{
 				status:  http.StatusBadRequest,
 				message: fmt.Sprintf("invalid base64 content for %s", input.Name),
 			}
 		}
 		if len(body) > maxFileBytes {
-			return nil, &specTaskAttachmentInputError{
+			return &specTaskAttachmentInputError{
 				status:  http.StatusRequestEntityTooLarge,
 				message: fmt.Sprintf("%s exceeds max size", input.Name),
 			}
 		}
 		attachment, err := prepareSpecTaskAttachment(input.Name, body, input.Caption)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		totalBytes += len(body)
 		if totalBytes > maxTotalBytes {
-			return nil, &specTaskAttachmentInputError{
+			return &specTaskAttachmentInputError{
 				status: http.StatusRequestEntityTooLarge,
 				message: fmt.Sprintf(
 					"inline attachments exceed total size limit of %d bytes",
@@ -207,15 +206,26 @@ func prepareInlineSpecTaskAttachmentsWithLimits(
 			}
 		}
 		if _, exists := seen[attachment.filename]; exists {
-			return nil, &specTaskAttachmentInputError{
+			return &specTaskAttachmentInputError{
 				status:  http.StatusBadRequest,
 				message: fmt.Sprintf("duplicate attachment filename: %s", attachment.filename),
 			}
 		}
 		seen[attachment.filename] = struct{}{}
-		prepared = append(prepared, attachment)
+		attachment.body = nil
 	}
-	return prepared, nil
+	return nil
+}
+
+func prepareInlineSpecTaskAttachment(input types.SpecTaskInlineAttachment) (*preparedSpecTaskAttachment, error) {
+	body, err := base64.StdEncoding.DecodeString(input.ContentBase64)
+	if err != nil {
+		return nil, &specTaskAttachmentInputError{
+			status:  http.StatusBadRequest,
+			message: fmt.Sprintf("invalid base64 content for %s", input.Name),
+		}
+	}
+	return prepareSpecTaskAttachment(input.Name, body, input.Caption)
 }
 
 func writeSpecTaskAttachmentInputError(w http.ResponseWriter, err error) {
@@ -259,21 +269,6 @@ func (s *HelixAPIServer) persistSpecTaskAttachment(
 		return nil, fmt.Errorf("create attachment row: %w", err)
 	}
 	return row, nil
-}
-
-func (s *HelixAPIServer) persistInlineSpecTaskAttachments(
-	ctx context.Context,
-	taskID string,
-	projectID string,
-	userID string,
-	attachments []*preparedSpecTaskAttachment,
-) error {
-	for _, attachment := range attachments {
-		if _, err := s.persistSpecTaskAttachment(ctx, taskID, projectID, userID, attachment); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (s *HelixAPIServer) cleanupInlineSpecTaskAttachments(ctx context.Context, taskID string) {

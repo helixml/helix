@@ -226,11 +226,11 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	inlineAttachments, err := prepareInlineSpecTaskAttachments(req.Attachments)
-	if err != nil {
+	if err := validateInlineSpecTaskAttachments(req.Attachments); err != nil {
 		writeSpecTaskAttachmentInputError(w, err)
 		return
 	}
+	inlineAttachments := req.Attachments
 	// Drop the encoded payload before passing the request deeper. Attachment-bearing
 	// tasks are first created in a durable, non-dispatchable preparing state.
 	req.Attachments = nil
@@ -248,13 +248,25 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if len(inlineAttachments) > 0 {
-		if err := s.persistInlineSpecTaskAttachments(ctx, task.ID, req.ProjectID, user.ID, inlineAttachments); err != nil {
-			s.cleanupFailedInlineSpecTask(ctx, task.ID)
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to persist inline task attachments")
-			http.Error(w, "failed to save task attachments", http.StatusInternalServerError)
-			return
+		for i := range inlineAttachments {
+			attachment, prepareErr := prepareInlineSpecTaskAttachment(inlineAttachments[i])
+			inlineAttachments[i].ContentBase64 = ""
+			if prepareErr != nil {
+				s.cleanupFailedInlineSpecTask(ctx, task.ID)
+				writeSpecTaskAttachmentInputError(w, prepareErr)
+				return
+			}
+			_, persistErr := s.persistSpecTaskAttachment(ctx, task.ID, req.ProjectID, user.ID, attachment)
+			attachment.body = nil
+			if persistErr != nil {
+				s.cleanupFailedInlineSpecTask(ctx, task.ID)
+				log.Error().Err(persistErr).Str("task_id", task.ID).Msg("Failed to persist inline task attachment")
+				http.Error(w, "failed to save task attachments", http.StatusInternalServerError)
+				return
+			}
 		}
 		if err := s.specDrivenTaskService.PublishTaskFromPromptAttachments(ctx, task, &req); err != nil {
+			s.cleanupFailedInlineSpecTask(ctx, task.ID)
 			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to publish task after attachment ingestion")
 			http.Error(w, "failed to publish task attachments", http.StatusInternalServerError)
 			return

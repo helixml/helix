@@ -241,6 +241,91 @@ func TestCreateTaskFromPromptPublishesOnlyAfterInlineAttachmentsPersist(t *testi
 	require.Equal(t, types.TaskStatusQueuedImplementation, created.Status)
 }
 
+func TestCreateTaskFromPromptCleansUpWhenAttachmentPublicationFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	mockFilestore := filestore.NewMockFileStore(ctrl)
+	ctx := context.Background()
+	user := types.User{ID: "user-1", Email: "user@example.com"}
+	project := &types.Project{
+		ID:     "project-1",
+		UserID: user.ID,
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime:        types.CodeAgentRuntimeCodexCLI,
+			CredentialType: types.CodeAgentCredentialTypeAPIKey,
+			ProviderRef:    "provider-1",
+			Model:          "model-1",
+		},
+	}
+
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).AnyTimes()
+	mockStore.EXPECT().IncrementGlobalTaskNumber(gomock.Any()).Return(42, nil)
+	var taskID string
+	mockStore.EXPECT().CreateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, task *types.SpecTask) error {
+		taskID = task.ID
+		return nil
+	})
+	mockFilestore.EXPECT().CreateFolder(gomock.Any(), gomock.Any()).Return(filestore.Item{Directory: true}, nil)
+	mockFilestore.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(filestore.Item{Path: "/attachments/brief.md"}, nil)
+	mockStore.EXPECT().CreateSpecTaskAttachment(gomock.Any(), gomock.Any()).Return(nil)
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		gomock.Any(),
+		gomock.Any(),
+		[]types.SpecTaskStatus{types.TaskStatusPreparing},
+		types.TaskStatusQueuedImplementation,
+		nil,
+	).Return(false, errors.New("database unavailable"))
+	mockStore.EXPECT().DeleteSpecTaskAttachmentsByTaskID(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, gotTaskID string) error {
+		require.Equal(t, taskID, gotTaskID)
+		return nil
+	})
+	mockFilestore.EXPECT().Delete(gomock.Any(), gomock.Any()).Return(nil)
+	mockStore.EXPECT().DeleteSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, gotTaskID string) error {
+		require.Equal(t, taskID, gotTaskID)
+		return nil
+	})
+
+	service := services.NewSpecDrivenTaskService(
+		mockStore, nil, "test-agent", nil, nil, nil, nil, nil, services.NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+	cfg := &config.ServerConfig{}
+	server := &HelixAPIServer{
+		Cfg:   cfg,
+		Store: mockStore,
+		Controller: &controller.Controller{
+			Ctx: ctx,
+			Options: controller.Options{
+				Config:    cfg,
+				Store:     mockStore,
+				Filestore: mockFilestore,
+			},
+		},
+		specDrivenTaskService: service,
+	}
+
+	requestBody, err := json.Marshal(types.CreateTaskRequest{
+		ProjectID:      project.ID,
+		Prompt:         "Use the attached engagement brief",
+		JustDoItMode:   true,
+		AutoStart:      true,
+		SandboxRuntime: types.SandboxRuntimeHeadlessUbuntu,
+		Attachments: []types.SpecTaskInlineAttachment{{
+			Name:          "brief.md",
+			ContentBase64: base64.StdEncoding.EncodeToString([]byte("# Rules of engagement\n")),
+		}},
+	})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/from-prompt", bytes.NewReader(requestBody))
+	req = req.WithContext(setRequestUser(req.Context(), user))
+	response := httptest.NewRecorder()
+
+	server.createTaskFromPrompt(response, req)
+
+	require.Equal(t, http.StatusInternalServerError, response.Code)
+	require.NotEmpty(t, taskID)
+}
+
 func TestPrepareInlineSpecTaskAttachmentsRejectsInvalidInput(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -306,7 +391,7 @@ func TestPrepareInlineSpecTaskAttachmentsRejectsInvalidInput(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := prepareInlineSpecTaskAttachments(test.inputs)
+			err := validateInlineSpecTaskAttachments(test.inputs)
 			var inputErr *specTaskAttachmentInputError
 			require.ErrorAs(t, err, &inputErr)
 			require.Equal(t, test.wantStatus, inputErr.status)
@@ -360,7 +445,7 @@ func TestPrepareInlineSpecTaskAttachmentsEnforcesAllSizeLimits(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := prepareInlineSpecTaskAttachmentsWithLimits(
+			err := validateInlineSpecTaskAttachmentsWithLimits(
 				test.inputs,
 				test.maxCount,
 				test.maxFileBytes,
