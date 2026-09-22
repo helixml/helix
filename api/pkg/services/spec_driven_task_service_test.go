@@ -1114,3 +1114,203 @@ func TestIsNonRetryableIdentityError(t *testing.T) {
 		})
 	}
 }
+
+// A design review is approved days after it was created, by which point the
+// idle reaper has stopped the planning desktop. ApproveSpecs must claim the
+// handoff, kick the wake, and hand back ErrDesktopStarting without touching the
+// container — the two RevDial exec calls would fail with "no connection" and
+// abort the approval before the agent was ever messaged.
+func TestSpecDrivenTaskService_ApproveSpecs_DefersWhenDesktopIsStopped(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	execCalls := 0
+	readinessCalls := 0
+	var observedWait time.Duration
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		nil,
+		nil,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.ExecInDesktop = func(context.Context, string, []string) error {
+		execCalls++
+		return nil
+	}
+	service.EnsureDesktopReady = func(_ context.Context, _ string, wait time.Duration) (bool, error) {
+		readinessCalls++
+		observedWait = wait
+		return false, nil
+	}
+	service.EnqueueMessageToAgent = func(context.Context, *types.SpecTask, string, bool, string) error {
+		t.Fatal("agent must not be messaged before the desktop is ready")
+		return nil
+	}
+
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:                "task-cold-desktop",
+		ProjectID:         "project-1",
+		CreatedBy:         "user-1",
+		Status:            types.TaskStatusSpecApproved,
+		PlanningSessionID: "session-1",
+		SpecApproval:      &types.SpecApprovalResponse{Approved: true},
+		BranchMode:        types.BranchModeNew,
+		TaskNumber:        46,
+		Name:              "cold-desktop-task",
+		CodeAgentConfig:   testSpecTaskCodeAgentConfig(),
+	}
+	project := &types.Project{ID: "project-1", DefaultRepoID: "repo-1"}
+	repo := &types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}
+
+	mockStore.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	// Once, not twice: the second lookup lives in BuildApprovalInstruction,
+	// which is downstream of the readiness gate and must not run.
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).Times(1)
+	mockStore.EXPECT().GetGitRepository(ctx, repo.ID).Return(repo, nil)
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).
+		Return([]*types.GitRepository{repo}, nil).AnyTimes()
+	// The handoff marker must still be claimed: it is what lets the
+	// orchestrator finish the job once the desktop comes up.
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx, task.ID, gomock.Any(), types.TaskStatusImplementationQueued, gomock.Any(),
+	).Return(true, nil)
+
+	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: task.ID})
+
+	require.ErrorIs(t, err, ErrDesktopStarting)
+	assert.Equal(t, 1, readinessCalls)
+	assert.Zero(t, observedWait, "the request path must not block on a desktop boot")
+	assert.Zero(t, execCalls, "no container command may run against a stopped desktop")
+	assert.Equal(t, types.TaskStatusImplementationQueued, task.Status)
+}
+
+// DriveImplementationHandoff is the orchestrator's entry point: same body, but
+// it waits for the desktop instead of deferring, and completes the handoff.
+func TestSpecDrivenTaskService_DriveImplementationHandoff_WaitsThenCompletes(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	var observedWait time.Duration
+	execCalls := 0
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		nil,
+		nil,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.ExecInDesktop = func(context.Context, string, []string) error {
+		execCalls++
+		return nil
+	}
+	service.EnsureDesktopReady = func(_ context.Context, _ string, wait time.Duration) (bool, error) {
+		observedWait = wait
+		return true, nil
+	}
+	service.EnqueueMessageToAgent = func(context.Context, *types.SpecTask, string, bool, string) error {
+		return nil
+	}
+
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:                "task-redrive",
+		ProjectID:         "project-1",
+		CreatedBy:         "user-1",
+		Status:            types.TaskStatusSpecApproved,
+		PlanningSessionID: "session-1",
+		SpecApproval:      &types.SpecApprovalResponse{Approved: true},
+		BranchMode:        types.BranchModeNew,
+		TaskNumber:        47,
+		Name:              "redrive-task",
+		CodeAgentConfig:   testSpecTaskCodeAgentConfig(),
+	}
+	project := &types.Project{ID: "project-1", DefaultRepoID: "repo-1"}
+	repo := &types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}
+
+	mockStore.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).Times(2)
+	mockStore.EXPECT().GetGitRepository(ctx, repo.ID).Return(repo, nil)
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).
+		Return([]*types.GitRepository{repo}, nil).AnyTimes()
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx, task.ID, gomock.Any(), types.TaskStatusImplementationQueued, gomock.Any(),
+	).Return(true, nil)
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx, task.ID, gomock.Any(), types.TaskStatusImplementation, gomock.Any(),
+	).Return(true, nil)
+
+	require.NoError(t, service.DriveImplementationHandoff(ctx, &types.SpecTask{ID: task.ID}))
+	assert.Equal(t, desktopWakeTimeout, observedWait)
+	assert.NotZero(t, execCalls, "the branch checkout must run once the desktop is up")
+}
+
+// Re-driving an already-claimed handoff must not re-fetch from the external
+// remote. The 10s retry loop used to do exactly that, hitting GitHub on every
+// tick for as long as the handoff stayed stuck.
+//
+// gitRepositoryService is nil here, so calling SyncBaseBranch would panic —
+// that is the probe: the test passing means the call was skipped.
+func TestSpecDrivenTaskService_ApproveSpecs_SkipsBaseSyncWhenHandoffClaimed(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		nil,
+		nil,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.ExecInDesktop = func(context.Context, string, []string) error { return nil }
+	service.EnqueueMessageToAgent = func(context.Context, *types.SpecTask, string, bool, string) error {
+		return nil
+	}
+
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:                "task-claimed",
+		ProjectID:         "project-1",
+		CreatedBy:         "user-1",
+		Status:            types.TaskStatusImplementationQueued,
+		PlanningSessionID: "session-1",
+		SpecApproval:      &types.SpecApprovalResponse{Approved: true},
+		BranchMode:        types.BranchModeNew,
+		BranchName:        "feature/003343-claimed",
+		BaseBranch:        "main",
+		TaskNumber:        48,
+		Name:              "claimed-task",
+		CodeAgentConfig:   testSpecTaskCodeAgentConfig(),
+	}
+	project := &types.Project{ID: "project-1", DefaultRepoID: "repo-1"}
+	repo := &types.GitRepository{
+		ID:            "repo-1",
+		Name:          "helix",
+		DefaultBranch: "main",
+		ExternalURL:   "https://github.com/helixml/helix",
+	}
+
+	mockStore.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).Times(2)
+	mockStore.EXPECT().GetGitRepository(ctx, repo.ID).Return(repo, nil)
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).
+		Return([]*types.GitRepository{repo}, nil).AnyTimes()
+	// No implementation_queued transition: the handoff is already claimed.
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx, task.ID, gomock.Any(), types.TaskStatusImplementation, gomock.Any(),
+	).Return(true, nil)
+
+	require.NoError(t, service.DriveImplementationHandoff(ctx, &types.SpecTask{ID: task.ID}))
+}

@@ -1556,3 +1556,161 @@ func TestShouldArchiveStaleTask(t *testing.T) {
 		})
 	}
 }
+
+// handoffWorkflowService drives handleImplementationQueued with a scripted
+// outcome so the backoff schedule can be asserted without real desktops.
+type handoffWorkflowService struct {
+	countingSpecTaskWorkflowService
+	mu    sync.Mutex
+	calls int
+	err   error
+	done  chan struct{}
+}
+
+func (h *handoffWorkflowService) DriveImplementationHandoff(context.Context, *types.SpecTask) error {
+	h.mu.Lock()
+	h.calls++
+	err := h.err
+	h.mu.Unlock()
+	if h.done != nil {
+		h.done <- struct{}{}
+	}
+	return err
+}
+
+func (h *handoffWorkflowService) callCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.calls
+}
+
+// The old loop re-ran ApproveSpecs on every ~10s tick forever — 167 identical
+// failures in 27 minutes were measured live. One attempt may be in flight per
+// task, and the next one is gated by the backoff schedule.
+func (s *SpecTaskOrchestratorTestSuite) TestHandleImplementationQueued_SingleFlightAndBackoff() {
+	ctx := context.Background()
+	workflow := &handoffWorkflowService{err: fmt.Errorf("boom"), done: make(chan struct{}, 1)}
+	orchestrator := &SpecTaskOrchestrator{store: s.store, specTaskService: workflow}
+
+	task := &types.SpecTask{ID: "task-handoff", Status: types.TaskStatusImplementationQueued}
+
+	s.Require().NoError(orchestrator.handleImplementationQueued(ctx, task))
+	<-workflow.done
+	orchestrator.wg.Wait()
+	s.Equal(1, workflow.callCount())
+
+	// The failure scheduled the next attempt one base interval out, so an
+	// immediate tick is a no-op rather than a second identical attempt.
+	s.Require().NoError(orchestrator.handleImplementationQueued(ctx, task))
+	orchestrator.wg.Wait()
+	s.Equal(1, workflow.callCount())
+
+	orchestrator.handoffMu.Lock()
+	state := orchestrator.handoffAttempts[task.ID]
+	s.Require().NotNil(state)
+	s.Equal(1, state.attempts)
+	s.False(state.gaveUp)
+	s.WithinDuration(time.Now().Add(handoffRetryBaseDelay), state.nextAttemptAt, 2*time.Second)
+	orchestrator.handoffMu.Unlock()
+}
+
+// The delay doubles per failure and stops at the ceiling; the budget is what
+// ends the loop, and only then does the user see the error.
+func (s *SpecTaskOrchestratorTestSuite) TestRecordHandoffAttempt_BackoffSchedule() {
+	ctx := context.Background()
+	orchestrator := &SpecTaskOrchestrator{store: s.store}
+	taskID := "task-backoff"
+
+	for _, expected := range []time.Duration{10 * time.Second, 20 * time.Second, 40 * time.Second} {
+		s.Require().True(orchestrator.claimHandoffAttempt(taskID))
+		orchestrator.handoffMu.Lock()
+		// Pretend no time has passed so the budget doesn't expire mid-schedule.
+		orchestrator.handoffAttempts[taskID].firstAttemptAt = time.Now()
+		orchestrator.handoffMu.Unlock()
+
+		orchestrator.recordHandoffAttempt(ctx, taskID, fmt.Errorf("boom"))
+
+		orchestrator.handoffMu.Lock()
+		state := orchestrator.handoffAttempts[taskID]
+		s.WithinDuration(time.Now().Add(expected), state.nextAttemptAt, 2*time.Second)
+		s.False(state.gaveUp)
+		state.nextAttemptAt = time.Time{} // let the next claim through
+		orchestrator.handoffMu.Unlock()
+	}
+
+	// Past the ceiling the delay stops growing.
+	orchestrator.handoffMu.Lock()
+	orchestrator.handoffAttempts[taskID].attempts = 30
+	orchestrator.handoffMu.Unlock()
+	s.Require().True(orchestrator.claimHandoffAttempt(taskID))
+	orchestrator.recordHandoffAttempt(ctx, taskID, fmt.Errorf("boom"))
+	orchestrator.handoffMu.Lock()
+	s.WithinDuration(time.Now().Add(handoffRetryMaxDelay), orchestrator.handoffAttempts[taskID].nextAttemptAt, 2*time.Second)
+	orchestrator.handoffMu.Unlock()
+}
+
+// A desktop that is still booting must not burn a retry, and must never write
+// the transient state into spec_tasks.metadata.error — that field renders as
+// the "Desktop paused" detail line on the task page.
+func (s *SpecTaskOrchestratorTestSuite) TestRecordHandoffAttempt_ColdStartIsNotAFailure() {
+	ctx := context.Background()
+	orchestrator := &SpecTaskOrchestrator{store: s.store}
+	taskID := "task-cold"
+
+	s.Require().True(orchestrator.claimHandoffAttempt(taskID))
+	orchestrator.recordHandoffAttempt(ctx, taskID, ErrDesktopStarting)
+
+	orchestrator.handoffMu.Lock()
+	state := orchestrator.handoffAttempts[taskID]
+	s.Equal(0, state.attempts)
+	s.False(state.gaveUp)
+	s.WithinDuration(time.Now().Add(handoffRetryBaseDelay), state.nextAttemptAt, 2*time.Second)
+	orchestrator.handoffMu.Unlock()
+}
+
+// Once the retry budget is spent, the real reason is persisted once and the
+// loop stops instead of running silently forever.
+func (s *SpecTaskOrchestratorTestSuite) TestRecordHandoffAttempt_PersistsErrorOnceWhenBudgetSpent() {
+	ctx := context.Background()
+	orchestrator := &SpecTaskOrchestrator{store: s.store}
+	taskID := "task-gave-up"
+
+	s.store.EXPECT().GetSpecTask(gomock.Any(), taskID).
+		Return(&types.SpecTask{ID: taskID}, nil).Times(1)
+	s.store.EXPECT().UpdateSpecTaskFields(gomock.Any(), taskID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, fields map[string]any) error {
+			metadata, ok := fields["metadata"].(map[string]interface{})
+			s.Require().True(ok)
+			s.Equal("boom", metadata["error"])
+			return nil
+		}).Times(1)
+
+	s.Require().True(orchestrator.claimHandoffAttempt(taskID))
+	orchestrator.handoffMu.Lock()
+	orchestrator.handoffAttempts[taskID].firstAttemptAt = time.Now().Add(-handoffRetryBudget - time.Minute)
+	orchestrator.handoffMu.Unlock()
+
+	orchestrator.recordHandoffAttempt(ctx, taskID, fmt.Errorf("boom"))
+
+	orchestrator.handoffMu.Lock()
+	s.True(orchestrator.handoffAttempts[taskID].gaveUp)
+	orchestrator.handoffMu.Unlock()
+
+	// A later tick must not start another attempt.
+	s.False(orchestrator.claimHandoffAttempt(taskID))
+}
+
+// A successful handoff clears the attempt state so a future re-queue starts clean.
+func (s *SpecTaskOrchestratorTestSuite) TestRecordHandoffAttempt_ClearsStateOnSuccess() {
+	ctx := context.Background()
+	orchestrator := &SpecTaskOrchestrator{store: s.store}
+	taskID := "task-ok"
+
+	s.Require().True(orchestrator.claimHandoffAttempt(taskID))
+	orchestrator.recordHandoffAttempt(ctx, taskID, nil)
+
+	orchestrator.handoffMu.Lock()
+	_, present := orchestrator.handoffAttempts[taskID]
+	orchestrator.handoffMu.Unlock()
+	s.False(present)
+}

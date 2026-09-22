@@ -662,3 +662,93 @@ func (s *CommentTimerSuite) TestReconcileStuckInFlightComment_SkipsActive() {
 type errNotFound struct{}
 
 func (errNotFound) Error() string { return "not found" }
+
+// Approving a design review whose planning desktop has been idle-stopped must
+// succeed: the server starts the desktop and finishes the handoff itself. It
+// used to 500 with "failed to connect to desktop … via RevDial: no connection"
+// and leave the review at in_review while the task sat in implementation_queued.
+func TestSubmitDesignReviewApproveSucceedsWhenDesktopIsStopped(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+
+	task := &types.SpecTask{
+		ID:                "spt_1",
+		ProjectID:         "prj_1",
+		CreatedBy:         "usr_1",
+		Status:            types.TaskStatusSpecApproved,
+		PlanningSessionID: "ses_1",
+		BranchMode:        types.BranchModeNew,
+		TaskNumber:        49,
+		Name:              "stopped-desktop-approval",
+		SpecApproval:      &types.SpecApprovalResponse{Approved: true},
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime:        types.CodeAgentRuntimeZedAgent,
+			CredentialType: types.CodeAgentCredentialTypeAPIKey,
+			ProviderRef:    "provider-test",
+			Model:          "model-test",
+		},
+	}
+	review := &types.SpecTaskDesignReview{
+		ID:         "stdr_1",
+		SpecTaskID: task.ID,
+		Status:     types.SpecTaskDesignReviewStatusInReview,
+	}
+	project := &types.Project{ID: task.ProjectID, DefaultRepoID: "repo_1"}
+	repo := &types.GitRepository{ID: project.DefaultRepoID, Name: "helix", DefaultBranch: "main"}
+
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil).AnyTimes()
+	mockStore.EXPECT().GetSpecTaskDesignReview(gomock.Any(), review.ID).Return(review, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).AnyTimes()
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), repo.ID).Return(repo, nil).AnyTimes()
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).
+		Return([]*types.GitRepository{repo}, nil).AnyTimes()
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		gomock.Any(), task.ID, gomock.Any(), types.TaskStatusImplementationQueued, gomock.Any(),
+	).Return(true, nil)
+	// UpdateSpecTaskFields is how the RevDial error used to reach the UI's
+	// "Desktop paused" detail line. A stopped desktop must not write it.
+	mockStore.EXPECT().UpdateSpecTaskFields(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, fields map[string]any) error {
+			t.Fatalf("transient desktop state must not be persisted onto the task: %v", fields)
+			return nil
+		}).AnyTimes()
+
+	reviewWrites := 0
+	mockStore.EXPECT().UpdateSpecTaskDesignReview(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, updated *types.SpecTaskDesignReview) error {
+			reviewWrites++
+			require.Equal(t, types.SpecTaskDesignReviewStatusApproved, updated.Status)
+			require.NotNil(t, updated.ApprovedAt)
+			return nil
+		}).AnyTimes()
+
+	specService := services.NewSpecDrivenTaskService(
+		mockStore, nil, "test-helix-agent", nil, nil, nil, nil, nil,
+		services.NewDisabledKoditService(),
+	)
+	specService.ExecInDesktop = func(context.Context, string, []string) error {
+		t.Fatal("no container command may run against a stopped desktop")
+		return nil
+	}
+	specService.EnsureDesktopReady = func(context.Context, string, time.Duration) (bool, error) {
+		return false, nil
+	}
+
+	body, err := json.Marshal(types.SpecTaskDesignReviewSubmitRequest{
+		Decision:       "approve",
+		OverallComment: "ship it",
+	})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/spt_1/design-reviews/stdr_1/submit", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"spec_task_id": task.ID, "review_id": review.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: task.CreatedBy}))
+	response := httptest.NewRecorder()
+
+	server := &HelixAPIServer{Store: mockStore, specDrivenTaskService: specService}
+	server.submitDesignReview(response, req)
+
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.Equal(t, types.SpecTaskDesignReviewStatusApproved, review.Status)
+	require.GreaterOrEqual(t, reviewWrites, 1, "the human's decision must be persisted")
+	require.Equal(t, types.TaskStatusImplementationQueued, task.Status)
+}
