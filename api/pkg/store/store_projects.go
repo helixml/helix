@@ -2,10 +2,12 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
 )
 
 // CreateProject creates a new project
@@ -26,6 +28,9 @@ func (s *PostgresStore) GetProject(ctx context.Context, projectID string) (*type
 	var project types.Project
 	err := s.gdb.WithContext(ctx).Where("id = ?", projectID).First(&project).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
 		return nil, fmt.Errorf("error getting project: %w", err)
 	}
 	return &project, nil

@@ -340,7 +340,7 @@ func (s *HelixAPIServer) listProjectSecrets(_ http.ResponseWriter, r *http.Reque
 	// Verify user has access to the project (owner or org member)
 	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, system.NewHTTPError404("Project not found")
+			return nil, projectSecretNotFound(projectID, err)
 		}
 		return nil, system.NewHTTPError403("Access denied")
 	}
@@ -383,7 +383,7 @@ func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Requ
 	// Verify user has access to the project (owner or org member with create permission)
 	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionCreate); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, system.NewHTTPError404("Project not found")
+			return nil, projectSecretNotFound(projectID, err)
 		}
 		return nil, system.NewHTTPError403("Access denied")
 	}
@@ -435,6 +435,17 @@ func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Requ
 	createdSecret.Value = nil
 
 	return createdSecret, nil
+}
+
+func projectSecretNotFound(projectKey string, resolutionErr error) *system.HTTPError {
+	log.Warn().
+		Err(resolutionErr).
+		Str("project_key", projectKey).
+		Msg("project secret route could not resolve project")
+	return system.NewHTTPError404(fmt.Sprintf(
+		"project not found: %s (did you mean the prj_... ID?)",
+		projectKey,
+	))
 }
 
 // GetProjectSecretsAsEnvVars retrieves project secrets scoped to the given
