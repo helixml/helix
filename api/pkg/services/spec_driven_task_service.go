@@ -373,17 +373,23 @@ func (s *SpecDrivenTaskService) PublishTaskFromPromptAttachments(
 		return fmt.Errorf("prepared task is required")
 	}
 
-	// Existing-branch tasks with an open PR publish directly into pull_request.
-	// Detection is safe here because attachment ingestion has completed and the
-	// preparing state cannot be observed by dispatchers.
+	targetStatus := types.TaskStatusBacklog
+	var extraFields map[string]any
+	// Existing-branch tasks with an open PR still publish through the same CAS;
+	// no code path may write a preparing task unconditionally.
 	if task.BranchMode == types.BranchModeExisting && task.BranchName != "" && s.gitRepositoryService != nil {
-		if s.detectAndLinkExistingPR(ctx, task, task.ProjectID, task.BranchName) {
-			return nil
+		if repoPR, found := s.findExistingPullRequest(ctx, task.ProjectID, task.BranchName); found {
+			task.RepoPullRequests = append(task.RepoPullRequests, *repoPR)
+			repoPullRequestsJSON, err := json.Marshal(task.RepoPullRequests)
+			if err != nil {
+				return fmt.Errorf("encode existing pull request linkage: %w", err)
+			}
+			targetStatus = types.TaskStatusPullRequest
+			extraFields = map[string]any{"repo_pull_requests": string(repoPullRequestsJSON)}
 		}
 	}
 
-	targetStatus := types.TaskStatusBacklog
-	if req.AutoStart {
+	if targetStatus != types.TaskStatusPullRequest && req.AutoStart {
 		if req.JustDoItMode {
 			targetStatus = types.TaskStatusQueuedImplementation
 		} else {
@@ -395,7 +401,7 @@ func (s *SpecDrivenTaskService) PublishTaskFromPromptAttachments(
 		task.ID,
 		[]types.SpecTaskStatus{types.TaskStatusPreparing},
 		targetStatus,
-		nil,
+		extraFields,
 	)
 	if err != nil {
 		return fmt.Errorf("publish prepared task: %w", err)
@@ -1939,23 +1945,40 @@ func isTaskInactive(task *types.SpecTask) bool {
 // Returns true if a PR was found and linked, false otherwise
 // The task is updated in-place and saved to the database
 func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, task *types.SpecTask, projectID, branchName string) bool {
+	repoPR, found := s.findExistingPullRequest(ctx, projectID, branchName)
+	if !found {
+		return false
+	}
+
+	now := time.Now()
+	task.RepoPullRequests = append(task.RepoPullRequests, *repoPR)
+	task.Status = types.TaskStatusPullRequest
+	task.StatusUpdatedAt = &now
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with PR info")
+		return false
+	}
+	return true
+}
+
+func (s *SpecDrivenTaskService) findExistingPullRequest(ctx context.Context, projectID, branchName string) (*types.RepoPR, bool) {
 	// Get project to find the default repository
 	project, err := s.store.GetProject(ctx, projectID)
 	if err != nil || project == nil {
 		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project for PR detection")
-		return false
+		return nil, false
 	}
 
 	if project.DefaultRepoID == "" {
 		log.Debug().Str("project_id", projectID).Msg("Project has no default repo, skipping PR detection")
-		return false
+		return nil, false
 	}
 
 	// List PRs from the repository
 	prs, err := s.gitRepositoryService.ListPullRequests(ctx, project.DefaultRepoID)
 	if err != nil {
 		log.Warn().Err(err).Str("repo_id", project.DefaultRepoID).Msg("Failed to list PRs for detection")
-		return false
+		return nil, false
 	}
 
 	// Find an open PR with matching source branch
@@ -1983,31 +2006,18 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 				repoName = repo.Name
 			}
 
-			// Update task with PR info via RepoPullRequests
-			now := time.Now()
-			task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
+			return &types.RepoPR{
 				RepositoryID:   project.DefaultRepoID,
 				RepositoryName: repoName,
 				PRID:           pr.ID,
 				PRNumber:       pr.Number,
 				PRURL:          pr.URL,
 				PRState:        string(pr.State),
-			})
-			task.Status = types.TaskStatusPullRequest
-			task.StatusUpdatedAt = &now
-
-			// Save updated task
-			err = s.store.UpdateSpecTask(ctx, task)
-			if err != nil {
-				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with PR info")
-				return false
-			}
-
-			return true
+			}, true
 		}
 	}
 
-	return false
+	return nil, false
 }
 
 // SessionAPIKeyRequest specifies the scope for a session-scoped ephemeral API key.

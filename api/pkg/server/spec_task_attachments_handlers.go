@@ -26,6 +26,7 @@ import (
 // just-do-it tasks impossible to correct. Once delivery has reached a PR the
 // task input is terminal and uploads are locked again.
 var specTaskAttachmentUploadReadOnlyStatuses = map[types.SpecTaskStatus]bool{
+	types.TaskStatusPreparing:   true,
 	types.TaskStatusPullRequest: true,
 	types.TaskStatusDone:        true,
 }
@@ -34,6 +35,7 @@ var specTaskAttachmentUploadReadOnlyStatuses = map[types.SpecTaskStatus]bool{
 // also requires removing it from helix-specs. A corrected file can still be
 // uploaded and the running agent is notified.
 var specTaskAttachmentDeleteReadOnlyStatuses = map[types.SpecTaskStatus]bool{
+	types.TaskStatusPreparing:            true,
 	types.TaskStatusSpecApproved:         true,
 	types.TaskStatusImplementationQueued: true,
 	types.TaskStatusImplementation:       true,
@@ -84,6 +86,16 @@ func prepareSpecTaskAttachment(name string, body []byte, caption string) (*prepa
 		return nil, &specTaskAttachmentInputError{
 			status:  http.StatusBadRequest,
 			message: fmt.Sprintf("invalid filename: %s", name),
+		}
+	}
+	if len(filename) > types.SpecTaskAttachmentFilenameMaxBytes {
+		return nil, &specTaskAttachmentInputError{
+			status: http.StatusBadRequest,
+			message: fmt.Sprintf(
+				"filename %s exceeds %d bytes",
+				filename,
+				types.SpecTaskAttachmentFilenameMaxBytes,
+			),
 		}
 	}
 	mimeType := detectAttachmentMime(filename, body)
@@ -224,7 +236,7 @@ func (s *HelixAPIServer) persistSpecTaskAttachment(
 ) (*types.SpecTaskAttachment, error) {
 	attID := system.GenerateSpecTaskAttachmentID()
 	storageName := fmt.Sprintf("%s__%s", attID, attachment.filename)
-	item, err := s.Controller.FilestoreSpecTaskAttachmentUpload(taskID, storageName, bytes.NewReader(attachment.body))
+	item, err := s.Controller.FilestoreSpecTaskAttachmentUpload(ctx, taskID, storageName, bytes.NewReader(attachment.body))
 	if err != nil {
 		return nil, fmt.Errorf("write attachment to filestore: %w", err)
 	}
@@ -241,7 +253,7 @@ func (s *HelixAPIServer) persistSpecTaskAttachment(
 		FilestorePath: item.Path,
 	}
 	if err := s.Store.CreateSpecTaskAttachment(ctx, row); err != nil {
-		if deleteErr := s.Controller.FilestoreSpecTaskAttachmentDelete(item.Path); deleteErr != nil {
+		if deleteErr := s.Controller.FilestoreSpecTaskAttachmentDelete(ctx, item.Path); deleteErr != nil {
 			log.Warn().Err(deleteErr).Str("path", item.Path).Msg("Failed to delete attachment blob after row creation failed")
 		}
 		return nil, fmt.Errorf("create attachment row: %w", err)
@@ -271,7 +283,7 @@ func (s *HelixAPIServer) cleanupInlineSpecTaskAttachments(ctx context.Context, t
 	if err := s.Store.DeleteSpecTaskAttachmentsByTaskID(ctx, taskID); err != nil {
 		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete inline attachment rows")
 	}
-	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(taskID); err != nil {
+	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(ctx, taskID); err != nil {
 		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete inline attachment blobs")
 	}
 }
@@ -568,7 +580,7 @@ func (s *HelixAPIServer) deleteSpecTaskAttachment(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err := s.Controller.FilestoreSpecTaskAttachmentDelete(att.FilestorePath); err != nil {
+	if err := s.Controller.FilestoreSpecTaskAttachmentDelete(ctx, att.FilestorePath); err != nil {
 		log.Warn().Err(err).Str("path", att.FilestorePath).Msg("Failed to delete attachment blob — continuing to delete row")
 	}
 	if err := s.Store.DeleteSpecTaskAttachment(ctx, attID); err != nil {

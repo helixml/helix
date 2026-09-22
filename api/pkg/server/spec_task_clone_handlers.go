@@ -47,6 +47,9 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Source task not found: %v", err), http.StatusNotFound)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, sourceTask) {
+		return
+	}
 
 	// Get the latest design review specs if available - these contain learnings
 	// from implementation that were pushed to helix-specs during the task.

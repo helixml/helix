@@ -729,6 +729,9 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 	defer m.mu.RUnlock()
 	out := make([]*types.SpecTask, 0, len(m.specTasks))
 	for _, t := range m.specTasks {
+		if filters != nil && containsSpecTaskStatus(filters.ExcludeStatuses, t.Status) {
+			continue
+		}
 		if filters != nil && filters.PlanningSessionID != "" && t.PlanningSessionID != filters.PlanningSessionID {
 			continue
 		}
@@ -802,6 +805,15 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 		out = out[:filters.Limit]
 	}
 	return out, nil
+}
+
+func containsSpecTaskStatus(statuses []types.SpecTaskStatus, status types.SpecTaskStatus) bool {
+	for _, candidate := range statuses {
+		if candidate == status {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *MemoryStore) UpdateSpecTask(_ context.Context, task *types.SpecTask) error {

@@ -128,7 +128,11 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	}
 
 	// Detach from request context so DB mutations complete even if client disconnects
-	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	timeout := 30 * time.Second
+	if len(req.Attachments) > 0 {
+		timeout = types.SpecTaskInlineAttachmentIngestionTimeout
+	}
+	ctx, cancel := detachContext(r.Context(), timeout)
 	defer cancel()
 
 	// Authorize user to create task in the project
@@ -299,6 +303,10 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
+	if task.Status == types.TaskStatusPreparing {
+		http.Error(w, "SpecTask not found", http.StatusNotFound)
+		return
+	}
 
 	user := getRequestUser(r)
 	if user == nil {
@@ -331,6 +339,14 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
+}
+
+func rejectPreparingSpecTaskMutation(w http.ResponseWriter, task *types.SpecTask) bool {
+	if task == nil || task.Status != types.TaskStatusPreparing {
+		return false
+	}
+	http.Error(w, "task attachment intake is still in progress", http.StatusConflict)
+	return true
 }
 
 // orgBotForRequestUser names the Org Bot behind a request, or "".
@@ -468,6 +484,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		IncludeArchived:    query.Get("include_archived") == "true",
 		ArchivedOnly:       query.Get("archived_only") == "true",
 		Labels:             labelFilter,
+		ExcludeStatuses:    []types.SpecTaskStatus{types.TaskStatusPreparing},
 	}
 
 	tasks, err := s.Store.ListSpecTasks(ctx, filters)
@@ -1160,6 +1177,9 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
 
 	// Verify task is in backlog status
 	if task.Status != types.TaskStatusBacklog {
@@ -1310,6 +1330,9 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// Authorize user to update task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if rejectPreparingSpecTaskMutation(w, task) {
 		return
 	}
 
@@ -1504,6 +1527,9 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
 
 	// It must be archived to be deleted
 	if !task.Archived {
@@ -1517,7 +1543,7 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 	if err := s.Store.DeleteSpecTaskAttachmentsByTaskID(ctx, taskID); err != nil {
 		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment rows for task")
 	}
-	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(taskID); err != nil {
+	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(ctx, taskID); err != nil {
 		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment blobs for task")
 	}
 
@@ -1583,6 +1609,9 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	// Authorize user to archive task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if rejectPreparingSpecTaskMutation(w, task) {
 		return
 	}
 

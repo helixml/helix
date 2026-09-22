@@ -69,7 +69,7 @@ const (
 	// defaultArchiveStaleTasksDays is used when a project enabled stale
 	// archiving without a configured day count.
 	defaultArchiveStaleTasksDays = 6
-	attachmentPreparationTimeout = 5 * time.Minute
+	attachmentPreparationTimeout = types.SpecTaskInlineAttachmentIngestionTimeout + time.Minute
 )
 
 // ContainerExecutor defines the interface for container lifecycle management

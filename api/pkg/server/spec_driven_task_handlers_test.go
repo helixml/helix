@@ -292,4 +292,5 @@ func TestListTasks_FiltersByCreatorOrgBot(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.Code)
 	require.NotNil(t, captured)
 	require.Equal(t, "chief-of-staff", captured.CreatedByOrgBot)
+	require.Equal(t, []types.SpecTaskStatus{types.TaskStatusPreparing}, captured.ExcludeStatuses)
 }

@@ -72,6 +72,7 @@ func TestSpecTaskAttachmentUploadsStayOpenWhileAgentIsWorking(t *testing.T) {
 		assert.False(t, specTaskAttachmentUploadsLocked(status), "expected uploads unlocked for %s", status)
 	}
 	for _, status := range []types.SpecTaskStatus{
+		types.TaskStatusPreparing,
 		types.TaskStatusPullRequest,
 		types.TaskStatusDone,
 	} {

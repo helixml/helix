@@ -557,6 +557,7 @@ type SpecGeneration struct {
 type SpecTaskFilters struct {
 	ProjectID          string           `json:"project_id,omitempty"`
 	Status             SpecTaskStatus   `json:"status,omitempty"`
+	ExcludeStatuses    []SpecTaskStatus `json:"exclude_statuses,omitempty"`
 	UserID             string           `json:"user_id,omitempty"`
 	FilterParticipants bool             `json:"filter_participants,omitempty"`
 	ParticipantIDs     []string         `json:"participant_ids,omitempty"` // Created by or assigned to any selected user
@@ -703,10 +704,12 @@ func (SpecTaskAttachment) TableName() string {
 
 // SpecTask attachment limits
 const (
-	SpecTaskAttachmentMaxBytes        = 100 * 1024 * 1024 // 100 MB per file
-	SpecTaskAttachmentMaxPerTask      = 500               // 500 files per task
-	SpecTaskInlineAttachmentsMaxBytes = 100 * 1024 * 1024 // 100 MB total per JSON request
-	SpecTaskAttachmentCaptionMaxRunes = 1024
+	SpecTaskAttachmentMaxBytes               = 100 * 1024 * 1024 // 100 MB per file
+	SpecTaskAttachmentMaxPerTask             = 500               // 500 files per task
+	SpecTaskInlineAttachmentsMaxBytes        = 100 * 1024 * 1024 // 100 MB total per JSON request
+	SpecTaskAttachmentCaptionMaxRunes        = 1024
+	SpecTaskAttachmentFilenameMaxBytes       = 255
+	SpecTaskInlineAttachmentIngestionTimeout = 10 * time.Minute
 )
 
 // SpecTaskAttachmentAllowedMimeTypes is the allowlist of MIME types accepted for upload.

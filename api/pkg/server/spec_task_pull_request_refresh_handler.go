@@ -40,6 +40,9 @@ func (s *HelixAPIServer) refreshSpecTaskPullRequest(w http.ResponseWriter, r *ht
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
 	if s.specTaskOrchestrator == nil {
 		http.Error(w, "spec task orchestrator unavailable", http.StatusServiceUnavailable)
 		return

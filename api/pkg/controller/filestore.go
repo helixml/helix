@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -291,9 +292,9 @@ func (c *Controller) FilestoreAppDelete(appID, path string) error {
 
 // ensureFilestoreSpecTaskAttachmentsPath ensures the spec-task attachments folder exists
 // and returns the absolute filestore path for {filename}.
-func (c *Controller) ensureFilestoreSpecTaskAttachmentsPath(specTaskID, filename string) (string, error) {
+func (c *Controller) ensureFilestoreSpecTaskAttachmentsPath(ctx context.Context, specTaskID, filename string) (string, error) {
 	prefix := filestore.GetSpecTaskAttachmentsPrefix(c.Options.Config.Controller.FilePrefixGlobal, specTaskID)
-	if _, err := c.Options.Filestore.CreateFolder(c.Ctx, prefix); err != nil {
+	if _, err := c.Options.Filestore.CreateFolder(ctx, prefix); err != nil {
 		return "", err
 	}
 	return filepath.Join(prefix, filename), nil
@@ -301,12 +302,12 @@ func (c *Controller) ensureFilestoreSpecTaskAttachmentsPath(specTaskID, filename
 
 // FilestoreSpecTaskAttachmentUpload writes a SpecTask attachment to the filestore.
 // Returns the resulting filestore item.
-func (c *Controller) FilestoreSpecTaskAttachmentUpload(specTaskID, filename string, r io.Reader) (filestore.Item, error) {
-	fullPath, err := c.ensureFilestoreSpecTaskAttachmentsPath(specTaskID, filename)
+func (c *Controller) FilestoreSpecTaskAttachmentUpload(ctx context.Context, specTaskID, filename string, r io.Reader) (filestore.Item, error) {
+	fullPath, err := c.ensureFilestoreSpecTaskAttachmentsPath(ctx, specTaskID, filename)
 	if err != nil {
 		return filestore.Item{}, err
 	}
-	return c.Options.Filestore.WriteFile(c.Ctx, fullPath, r)
+	return c.Options.Filestore.WriteFile(ctx, fullPath, r)
 }
 
 // FilestoreSpecTaskAttachmentDownload returns a reader for a SpecTask attachment by its
@@ -316,15 +317,15 @@ func (c *Controller) FilestoreSpecTaskAttachmentDownload(absolutePath string) (i
 }
 
 // FilestoreSpecTaskAttachmentDelete deletes a SpecTask attachment by its absolute path.
-func (c *Controller) FilestoreSpecTaskAttachmentDelete(absolutePath string) error {
-	return c.Options.Filestore.Delete(c.Ctx, absolutePath)
+func (c *Controller) FilestoreSpecTaskAttachmentDelete(ctx context.Context, absolutePath string) error {
+	return c.Options.Filestore.Delete(ctx, absolutePath)
 }
 
 // FilestoreSpecTaskAttachmentsDeleteAll removes the whole attachments folder for a task.
 // Safe to call when the task is being deleted.
-func (c *Controller) FilestoreSpecTaskAttachmentsDeleteAll(specTaskID string) error {
+func (c *Controller) FilestoreSpecTaskAttachmentsDeleteAll(ctx context.Context, specTaskID string) error {
 	prefix := filestore.GetSpecTaskAttachmentsPrefix(c.Options.Config.Controller.FilePrefixGlobal, specTaskID)
-	return c.Options.Filestore.Delete(c.Ctx, prefix)
+	return c.Options.Filestore.Delete(ctx, prefix)
 }
 
 // IsAppPath checks if a path is within an app's filestore

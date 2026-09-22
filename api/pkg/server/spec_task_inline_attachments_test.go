@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -33,6 +34,13 @@ func TestSpecTaskInlineAttachmentOpenAPIRequiresPayloadFields(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(document, &schema))
 	require.ElementsMatch(t, []string{"name", "content_base64"}, schema.Definitions["types.SpecTaskInlineAttachment"].Required)
+}
+
+func requireInlineAttachmentIngestionLease(t *testing.T, operationCtx context.Context) {
+	t.Helper()
+	deadline, ok := operationCtx.Deadline()
+	require.True(t, ok)
+	require.Greater(t, time.Until(deadline), 9*time.Minute)
 }
 
 func TestCreateTaskFromPromptCleansUpFailedInlineAttachmentIngestion(t *testing.T) {
@@ -60,7 +68,12 @@ func TestCreateTaskFromPromptCleansUpFailedInlineAttachmentIngestion(t *testing.
 		require.Equal(t, types.TaskStatusPreparing, task.Status)
 		return nil
 	})
-	mockFilestore.EXPECT().CreateFolder(gomock.Any(), gomock.Any()).Return(filestore.Item{Directory: true}, nil)
+	mockFilestore.EXPECT().CreateFolder(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(operationCtx context.Context, _ string) (filestore.Item, error) {
+			requireInlineAttachmentIngestionLease(t, operationCtx)
+			return filestore.Item{Directory: true}, nil
+		},
+	)
 	mockFilestore.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(filestore.Item{Path: "/attachments/brief.md"}, nil)
 	mockStore.EXPECT().CreateSpecTaskAttachment(gomock.Any(), gomock.Any()).Return(errors.New("database unavailable"))
 	// The first delete removes the just-written blob; the second removes the
@@ -149,7 +162,8 @@ func TestCreateTaskFromPromptPublishesOnlyAfterInlineAttachmentsPersist(t *testi
 	attachmentCreated := false
 	var attachmentRow *types.SpecTaskAttachment
 	mockStore.EXPECT().CreateSpecTaskAttachment(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, attachment *types.SpecTaskAttachment) error {
+		DoAndReturn(func(operationCtx context.Context, attachment *types.SpecTaskAttachment) error {
+			requireInlineAttachmentIngestionLease(t, operationCtx)
 			attachmentCreated = true
 			attachmentRow = attachment
 			return nil
@@ -278,6 +292,15 @@ func TestPrepareInlineSpecTaskAttachmentsRejectsInvalidInput(t *testing.T) {
 			inputs:     []types.SpecTaskInlineAttachment{{Name: "brief.md", ContentBase64: base64.StdEncoding.EncodeToString([]byte("brief")), Caption: strings.Repeat("x", types.SpecTaskAttachmentCaptionMaxRunes+1)}},
 			wantStatus: http.StatusBadRequest,
 			wantError:  "caption for brief.md exceeds 1024 characters",
+		},
+		{
+			name: "filename too long",
+			inputs: []types.SpecTaskInlineAttachment{{
+				Name:          strings.Repeat("a", types.SpecTaskAttachmentFilenameMaxBytes-2) + ".md",
+				ContentBase64: base64.StdEncoding.EncodeToString([]byte("brief")),
+			}},
+			wantStatus: http.StatusBadRequest,
+			wantError:  "exceeds 255 bytes",
 		},
 	}
 
