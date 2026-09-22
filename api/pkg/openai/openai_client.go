@@ -708,6 +708,10 @@ type openAIClientInterceptor struct {
 // Do intercepts requests to the OpenAI API and modifies the body to be compatible with TogetherAI,
 // or others, and implements universal rate limiting for all providers
 func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) {
+	if vals, ok := GetContextValues(req.Context()); ok && vals.RequestID != "" {
+		req.Header.Set(types.HelixRequestIDHeader, vals.RequestID)
+	}
+
 	// Log TLS configuration state for debugging enterprise deployments
 	// This helps diagnose when TOOLS_TLS_SKIP_VERIFY isn't being applied correctly
 	tlsSkipVerify := false

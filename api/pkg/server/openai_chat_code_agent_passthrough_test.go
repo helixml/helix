@@ -34,9 +34,10 @@ const harnessSystemPrompt = "You are an AI coding agent running inside a Helix s
 type fakeOpenAI struct {
 	server *httptest.Server
 
-	mu     sync.Mutex
-	bodies []string
-	paths  []string
+	mu         sync.Mutex
+	bodies     []string
+	paths      []string
+	requestIDs []string
 }
 
 func newFakeOpenAI(t *testing.T) *fakeOpenAI {
@@ -48,6 +49,7 @@ func newFakeOpenAI(t *testing.T) *fakeOpenAI {
 		f.mu.Lock()
 		f.bodies = append(f.bodies, string(body))
 		f.paths = append(f.paths, r.URL.Path)
+		f.requestIDs = append(f.requestIDs, r.Header.Get(types.HelixRequestIDHeader))
 		f.mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
@@ -276,6 +278,8 @@ func TestCodeAgentChatCompletionForwardsHarnessRequestUnmodified(t *testing.T) {
 	require.Empty(t, call.AppID, "a code-agent call must not be attributed to an App")
 	require.Equal(t, types.CodeAgentRuntimeOpenCode, call.CodeAgentRuntime)
 	require.Equal(t, "spt_test", call.SpecTaskID)
+	require.True(t, strings.HasPrefix(call.RequestID, "req_"))
+	require.Equal(t, call.RequestID, upstream.requestIDs[0])
 
 	var original, forwarded map[string]any
 	require.NoError(t, json.Unmarshal(call.OriginalRequest, &original))

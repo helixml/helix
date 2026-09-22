@@ -88,6 +88,7 @@ func (m *LoggingMiddleware) UsageLogStores() []LogStore {
 }
 
 func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	ctx = oai.EnsureRequestID(ctx)
 	start := time.Now()
 	resp, err := m.client.CreateChatCompletion(ctx, request)
 	if err != nil {
@@ -112,6 +113,7 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 }
 
 func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	ctx = oai.EnsureRequestID(ctx)
 	start := time.Now()
 
 	upstream, err := m.client.CreateChatCompletionStream(ctx, request)
@@ -402,6 +404,7 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 
 	llmCall := &types.LLMCall{
 		Created:            createdAt,
+		RequestID:          vals.RequestID,
 		AppID:              appID,
 		SessionID:          vals.SessionID,
 		CodeAgentRuntime:   vals.CodeAgentRuntime,

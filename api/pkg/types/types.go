@@ -2636,7 +2636,8 @@ type RunnerLLMInferenceRequest struct {
 	// RequestID is generated when a new request
 	// is received on the internal Helix OpenAI client
 	// to generate a chat completions call
-	RequestID string
+	RequestID      string
+	HelixRequestID string
 
 	CreatedAt time.Time
 
@@ -2690,6 +2691,7 @@ const (
 // done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
 	ID               string           `json:"id" gorm:"primaryKey"`
+	RequestID        string           `json:"request_id" gorm:"index"`
 	AppID            string           `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
 	OrganizationID   string           `json:"organization_id" gorm:"index"`
 	UserID           string           `json:"user_id" gorm:"index"`

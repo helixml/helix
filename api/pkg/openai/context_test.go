@@ -37,6 +37,7 @@ func TestSetContextValues(t *testing.T) {
 
 		existingVals := &ContextValues{
 			OwnerID:         "old-owner",
+			RequestID:       "req-correlation",
 			SessionID:       "old-session",
 			OriginalRequest: originalRequest,
 		}
@@ -54,6 +55,7 @@ func TestSetContextValues(t *testing.T) {
 		assert.Equal(t, "new-owner", got.OwnerID)
 		assert.Equal(t, "new-session", got.SessionID)
 		assert.Equal(t, "new-project", got.ProjectID)
+		assert.Equal(t, "req-correlation", got.RequestID)
 		assert.Equal(t, originalRequest, got.OriginalRequest)
 	})
 

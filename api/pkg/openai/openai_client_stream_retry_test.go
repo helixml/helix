@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 )
@@ -27,9 +28,11 @@ func writeStreamOK(w http.ResponseWriter) {
 // aborted the whole turn.
 func TestCreateChatCompletionStream_RetriesUpstream502(t *testing.T) {
 	called := 0
+	requestID := "req_retry_correlation"
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called++
+		require.Equal(t, requestID, r.Header.Get(types.HelixRequestIDHeader))
 		if called > 2 {
 			writeStreamOK(w)
 			return
@@ -41,7 +44,8 @@ func TestCreateChatCompletionStream_RetriesUpstream502(t *testing.T) {
 
 	client := New("test", ts.URL, true)
 
-	stream, err := client.CreateChatCompletionStream(context.Background(), openai.ChatCompletionRequest{})
+	ctx := SetContextValues(context.Background(), &ContextValues{RequestID: requestID})
+	stream, err := client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{})
 	require.NoError(t, err)
 	defer stream.Close()
 

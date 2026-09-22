@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	SessionIDHeader     = "X-Session-ID"
-	InteractionIDHeader = "X-Interaction-ID"
+	SessionIDHeader      = "X-Session-ID"
+	InteractionIDHeader  = "X-Interaction-ID"
+	HelixRequestIDHeader = "X-Helix-Request-ID"
 )
 
 type Request struct {

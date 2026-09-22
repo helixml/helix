@@ -22,7 +22,7 @@ func (d *staticRevDialer) Dial(_ context.Context, _ string) (net.Conn, error) {
 	return d.conn, nil
 }
 
-func TestDispatchAndPublishSessionIDHeader(t *testing.T) {
+func TestDispatchAndPublishCorrelationHeaders(t *testing.T) {
 	tests := []struct {
 		name          string
 		sessionID     string
@@ -62,9 +62,10 @@ func TestDispatchAndPublishSessionIDHeader(t *testing.T) {
 				dialer: &staticRevDialer{conn: clientConn},
 			}
 			server.dispatchAndPublish(&types.RunnerLLMInferenceRequest{
-				RequestID: "req-test",
-				OwnerID:   "user-test",
-				SessionID: test.sessionID,
+				RequestID:      "req-test",
+				HelixRequestID: "req-correlation",
+				OwnerID:        "user-test",
+				SessionID:      test.sessionID,
 			}, "sandbox-test", "/v1/chat/completions", []byte(`{"model":"test"}`))
 
 			upstream := <-result
@@ -74,6 +75,7 @@ func TestDispatchAndPublishSessionIDHeader(t *testing.T) {
 			if test.wantHeaderSet {
 				require.Equal(t, []string{test.wantHeader}, header)
 			}
+			require.Equal(t, "req-correlation", upstream.request.Header.Get(types.HelixRequestIDHeader))
 		})
 	}
 }

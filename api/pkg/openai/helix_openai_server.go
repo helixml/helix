@@ -298,6 +298,9 @@ func (c *InternalHelixServer) dispatchAndPublish(req *types.RunnerLLMInferenceRe
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if req.HelixRequestID != "" {
+		httpReq.Header.Set(types.HelixRequestIDHeader, req.HelixRequestID)
+	}
 	if req.SessionID != "" {
 		httpReq.Header.Set(types.SessionIDHeader, req.SessionID)
 	}
