@@ -75,7 +75,7 @@ func TestDispatchAndPublishCorrelationHeaders(t *testing.T) {
 			if test.wantHeaderSet {
 				require.Equal(t, []string{test.wantHeader}, header)
 			}
-			require.Equal(t, "req-correlation", upstream.request.Header.Get(types.HelixRequestIDHeader))
+			require.Equal(t, "req-correlation", upstream.request.Header.Get(types.RequestIDHeader))
 		})
 	}
 }

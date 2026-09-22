@@ -49,7 +49,7 @@ func newFakeOpenAI(t *testing.T) *fakeOpenAI {
 		f.mu.Lock()
 		f.bodies = append(f.bodies, string(body))
 		f.paths = append(f.paths, r.URL.Path)
-		f.requestIDs = append(f.requestIDs, r.Header.Get(types.HelixRequestIDHeader))
+		f.requestIDs = append(f.requestIDs, r.Header.Get(types.RequestIDHeader))
 		f.mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")

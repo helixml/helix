@@ -709,7 +709,7 @@ type openAIClientInterceptor struct {
 // or others, and implements universal rate limiting for all providers
 func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) {
 	if vals, ok := GetContextValues(req.Context()); ok && vals.RequestID != "" {
-		req.Header.Set(types.HelixRequestIDHeader, vals.RequestID)
+		req.Header.Set(types.RequestIDHeader, vals.RequestID)
 	}
 
 	// Log TLS configuration state for debugging enterprise deployments

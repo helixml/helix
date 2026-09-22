@@ -32,7 +32,7 @@ func TestCreateChatCompletionStream_RetriesUpstream502(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called++
-		require.Equal(t, requestID, r.Header.Get(types.HelixRequestIDHeader))
+		require.Equal(t, requestID, r.Header.Get(types.RequestIDHeader))
 		if called > 2 {
 			writeStreamOK(w)
 			return

@@ -242,7 +242,7 @@ func TestCreateChatCompletionStreamLogsLatestUsageSnapshot(t *testing.T) {
 
 	requestIDs := make(chan string, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestIDs <- r.Header.Get(types.HelixRequestIDHeader)
+		requestIDs <- r.Header.Get(types.RequestIDHeader)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(streamBody.String()))
 	}))
