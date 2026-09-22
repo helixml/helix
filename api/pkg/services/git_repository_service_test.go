@@ -277,6 +277,40 @@ func TestCloneRepositoryAsyncSerializesDuplicateRequests(t *testing.T) {
 	assert.Equal(t, "http://localhost:8080/git/"+repo.ID, repo.CloneURL)
 }
 
+func TestCloneRepositoryAsyncFinalizesExistingClone(t *testing.T) {
+	filestoreBase := t.TempDir()
+	repoID := "repo-repair-won"
+	repoPath := filepath.Join(filestoreBase, "git-repositories", repoID)
+	require.NoError(t, giteagit.InitRepository(t.Context(), repoPath, true, "sha1"))
+
+	st := &cloneTestStore{repo: &types.GitRepository{
+		ID:            repoID,
+		ExternalURL:   "https://github.com/org/repo",
+		IsExternal:    true,
+		Status:        types.GitRepositoryStatusCloning,
+		LocalPath:     repoPath,
+		CloneProgress: &types.CloneProgress{Phase: "starting", StartedAt: time.Now()},
+		CloneError:    "stale error",
+	}}
+	svc := NewGitRepositoryService(st, filestoreBase, "http://localhost:8080", "test", "test@test.com")
+
+	completed := make(chan string, 1)
+	svc.CloneRepositoryAsync(st.repo, func(path string) { completed <- path })
+	select {
+	case path := <-completed:
+		assert.Equal(t, repoPath, path)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for existing clone finalization")
+	}
+
+	repo, err := st.GetGitRepository(t.Context(), repoID)
+	require.NoError(t, err)
+	assert.Equal(t, types.GitRepositoryStatusActive, repo.Status)
+	assert.Equal(t, "http://localhost:8080/git/"+repo.ID, repo.CloneURL)
+	assert.Nil(t, repo.CloneProgress)
+	assert.Empty(t, repo.CloneError)
+}
+
 func TestDeleteRepository_DeletesFromKodit(t *testing.T) {
 	kodit := &fakeKodit{enabled: true}
 	st := &fakeStore{

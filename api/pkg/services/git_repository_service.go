@@ -664,6 +664,16 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 				repo, openErr := giteagit.OpenRepository(ctx, gitRepo.LocalPath)
 				if openErr == nil {
 					repo.Close()
+					if gitRepo.Status != types.GitRepositoryStatusActive || gitRepo.CloneURL == "" || gitRepo.CloneProgress != nil || gitRepo.CloneError != "" {
+						gitRepo.Status = types.GitRepositoryStatusActive
+						gitRepo.CloneURL = s.generateCloneURL(gitRepo.ID)
+						gitRepo.CloneProgress = nil
+						gitRepo.CloneError = ""
+						gitRepo.UpdatedAt = time.Now()
+						if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+							return fmt.Errorf("failed to persist existing repository metadata: %w", err)
+						}
+					}
 					callbackPath = gitRepo.LocalPath
 					return nil
 				}
