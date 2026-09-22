@@ -2691,7 +2691,7 @@ const (
 // done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
 	ID               string           `json:"id" gorm:"primaryKey"`
-	RequestID        string           `json:"request_id" gorm:"index"`
+	RequestID        string           `json:"request_id"`
 	AppID            string           `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
 	OrganizationID   string           `json:"organization_id" gorm:"index"`
 	UserID           string           `json:"user_id" gorm:"index"`

@@ -72,3 +72,40 @@ func TestSetContextValues(t *testing.T) {
 		assert.Nil(t, got)
 	})
 }
+
+func TestEnsureRequestID(t *testing.T) {
+	t.Run("generates without context values", func(t *testing.T) {
+		ctx := EnsureRequestID(context.Background())
+
+		got, ok := GetContextValues(ctx)
+		require.True(t, ok)
+		assert.Contains(t, got.RequestID, "req_")
+	})
+
+	t.Run("generates and preserves existing values", func(t *testing.T) {
+		ctx := SetContextValues(context.Background(), &ContextValues{
+			OwnerID:   "owner-123",
+			SessionID: "session-456",
+		})
+		ctx = EnsureRequestID(ctx)
+
+		got, ok := GetContextValues(ctx)
+		require.True(t, ok)
+		assert.Contains(t, got.RequestID, "req_")
+		assert.Equal(t, "owner-123", got.OwnerID)
+		assert.Equal(t, "session-456", got.SessionID)
+	})
+
+	t.Run("preserves existing request ID", func(t *testing.T) {
+		ctx := SetContextValues(context.Background(), &ContextValues{
+			OwnerID:   "owner-123",
+			RequestID: "req-existing",
+		})
+		ctx = EnsureRequestID(ctx)
+
+		got, ok := GetContextValues(ctx)
+		require.True(t, ok)
+		assert.Equal(t, "req-existing", got.RequestID)
+		assert.Equal(t, "owner-123", got.OwnerID)
+	})
+}
