@@ -54,6 +54,11 @@ export default function OrgBotSessionResolver() {
     activateBot.mutateAsync(botID).catch(() => setActivationError(true))
   }, [bot?.id, botID, orgID, sessionID]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (listError || botsLoading || bot || botID !== 'chief-of-staff' || !orgID) return
+    router.navigateReplace('org_chat', { org_id: orgID })
+  }, [bot, botID, botsLoading, listError, orgID]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const retryActivation = () => {
     setActivationError(false)
     activateBot.mutateAsync(botID).catch(() => setActivationError(true))
