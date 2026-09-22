@@ -1548,12 +1548,17 @@ func (s *HelixAPIServer) ensureDesktopReadyForSession(ctx context.Context, sessi
 		Dur("wait", wait).
 		Msg("Planning desktop is not connected; starting it for the implementation handoff")
 
-	if err := s.startDevContainerForSession(ctx, session); err != nil {
-		return false, err
+	if wait <= 0 {
+		// Request path: StartDesktop waits for the desktop bridge (~25s), which
+		// would eat most of the handler's 30s budget. Kick the same start
+		// asynchronously — autoStartDevContainerForSession is a thin wrapper
+		// around startDevContainerForSession — and let the orchestrator finish.
+		go s.autoStartDevContainerForSession(sessionID)
+		return false, nil
 	}
 
-	if wait <= 0 {
-		return false, nil
+	if err := s.startDevContainerForSession(ctx, session); err != nil {
+		return false, err
 	}
 
 	if err := s.waitForExternalAgentReady(ctx, sessionID, wait); err != nil {
