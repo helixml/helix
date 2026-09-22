@@ -204,7 +204,7 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 
 		currentBalance := wallet.Balance
 		if currentBalance+amount < 0 {
-			return fmt.Errorf("insufficient balance: current balance %.2f, attempted to deduct %.2f",
+			return fmt.Errorf("%s: current balance %.2f, attempted to deduct %.2f", types.ErrorInsufficientBalance,
 				currentBalance, -amount)
 		}
 
