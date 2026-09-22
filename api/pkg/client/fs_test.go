@@ -39,22 +39,13 @@ func TestFilestoreUploadSendsDirectoryAndMultipartFilename(t *testing.T) {
 	))
 }
 
-func TestFilestoreUploadNormalizesWindowsPathSeparators(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "engagements/prj_1/retests", r.URL.Query().Get("path"))
-		require.NoError(t, r.ParseMultipartForm(1<<20))
-		require.Equal(t, "retest_1.json", r.MultipartForm.File["files"][0].Filename)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	client, err := NewClient(server.URL, "test-key", false)
+func TestNormalizeFilestoreUploadPath(t *testing.T) {
+	got, err := normalizeFilestoreUploadPath(`engagements\prj_1\retests\retest_1.json`, "windows")
 	require.NoError(t, err)
-	require.NoError(t, client.FilestoreUpload(
-		context.Background(),
-		`engagements\prj_1\retests\retest_1.json`,
-		strings.NewReader("receipt"),
-	))
+	require.Equal(t, "engagements/prj_1/retests/retest_1.json", got)
+
+	_, err = normalizeFilestoreUploadPath(`engagements\prj_1\retests\retest_1.json`, "linux")
+	require.EqualError(t, err, "path contains backslashes; use forward slashes on linux")
 }
 
 func TestFilestoreUploadRequiresDestinationFilename(t *testing.T) {

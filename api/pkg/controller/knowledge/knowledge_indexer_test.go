@@ -171,6 +171,22 @@ func (suite *IndexerSuite) TestIndex() {
 	suite.reconciler.wg.Wait()
 }
 
+func (suite *IndexerSuite) TestGetLocalFilestorePathRejectsAppScopedTraversal() {
+	suite.cfg.Controller.FilePrefixGlobal = "dev"
+	suite.cfg.FileStore.LocalFSPath = "/var/lib/helix"
+	knowledge := &types.Knowledge{
+		AppID: "app_1",
+		Source: types.KnowledgeSource{
+			Filestore: &types.KnowledgeSourceHelixFilestore{
+				Path: "apps/app_1/../../app_2/secret",
+			},
+		},
+	}
+
+	_, err := suite.reconciler.getLocalFilestorePath(knowledge)
+	suite.ErrorContains(err, "path escapes filestore scope")
+}
+
 func (suite *IndexerSuite) TestIndex_ErrorNoFiles() {
 	knowledge := &types.Knowledge{
 		ID:    "knowledge_id",

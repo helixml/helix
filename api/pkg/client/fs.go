@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	pathpkg "path"
+	"runtime"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -47,7 +48,11 @@ func (c *HelixClient) FilestoreDelete(ctx context.Context, path string) error {
 }
 
 func (c *HelixClient) FilestoreUpload(ctx context.Context, path string, file io.Reader) error {
-	path = strings.ReplaceAll(path, `\`, "/")
+	var err error
+	path, err = normalizeFilestoreUploadPath(path, runtime.GOOS)
+	if err != nil {
+		return err
+	}
 	if path == "" {
 		return fmt.Errorf("path is required")
 	}
@@ -110,6 +115,16 @@ func (c *HelixClient) FilestoreUpload(ctx context.Context, path string, file io.
 	}
 
 	return nil
+}
+
+func normalizeFilestoreUploadPath(path, goos string) (string, error) {
+	if !strings.Contains(path, `\`) {
+		return path, nil
+	}
+	if goos != "windows" {
+		return "", fmt.Errorf("path contains backslashes; use forward slashes on %s", goos)
+	}
+	return strings.ReplaceAll(path, `\`, "/"), nil
 }
 
 // FilestoreGet returns the metadata for one filestore path. The API responds

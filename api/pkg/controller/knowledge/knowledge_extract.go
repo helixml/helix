@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/extract"
@@ -261,34 +260,9 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 		Str("path", k.Source.Filestore.Path).
 		Msgf("Getting files from filestore")
 
-	// Determine the physical storage path based on the knowledge path
-	var path string
-
-	// If the path already has the app prefix, use it directly
-	if strings.HasPrefix(k.Source.Filestore.Path, fmt.Sprintf("apps/%s/", k.AppID)) {
-		// The path already includes the apps/app_id prefix
-		appPrefix := filestore.GetAppPrefix(r.config.Controller.FilePrefixGlobal, k.AppID)
-		relativePath := strings.TrimPrefix(k.Source.Filestore.Path, fmt.Sprintf("apps/%s/", k.AppID))
-		path = filepath.Join(appPrefix, relativePath)
-
-		log.Debug().
-			Str("knowledge_id", k.ID).
-			Str("app_id", k.AppID).
-			Str("path_type", "already_prefixed").
-			Str("physical_path", path).
-			Msgf("Using already prefixed path")
-	} else {
-		// Simple path (like "pdfs") - construct the app-scoped path
-		appPrefix := filestore.GetAppPrefix(r.config.Controller.FilePrefixGlobal, k.AppID)
-		path = filepath.Join(appPrefix, k.Source.Filestore.Path)
-
-		log.Debug().
-			Str("knowledge_id", k.ID).
-			Str("app_id", k.AppID).
-			Str("path_type", "simple").
-			Str("logical_path", k.Source.Filestore.Path).
-			Str("physical_path", path).
-			Msgf("Using inferred app-scoped path")
+	path, err := scopedKnowledgeFilestorePath(r.config.Controller.FilePrefixGlobal, k.AppID, k.Source.Filestore.Path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid knowledge filestore path: %w", err)
 	}
 
 	log.Info().
@@ -407,7 +381,7 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 		return nil
 	}
 
-	err := recursiveList(path)
+	err = recursiveList(path)
 	if err != nil {
 		return nil, err
 	}

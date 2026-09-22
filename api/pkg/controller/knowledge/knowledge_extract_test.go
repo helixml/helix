@@ -93,6 +93,22 @@ func (suite *ExtractorSuite) Test_getIndexingData_CrawlerEnabled() {
 	suite.Contains(string(data[0].Data), "Hello, world!")
 }
 
+func (suite *ExtractorSuite) TestGetFilestoreFilesRejectsAppScopedTraversal() {
+	suite.cfg.Controller.FilePrefixGlobal = "dev"
+	knowledge := &types.Knowledge{
+		ID:    "knowledge_id",
+		AppID: "app_1",
+		Source: types.KnowledgeSource{
+			Filestore: &types.KnowledgeSourceHelixFilestore{
+				Path: "apps/app_1/../../app_2/secret",
+			},
+		},
+	}
+
+	_, err := suite.reconciler.getFilestoreFiles(suite.ctx, suite.filestore, knowledge)
+	suite.ErrorContains(err, "path escapes filestore scope")
+}
+
 func (suite *ExtractorSuite) Test_getIndexingData_CrawlerDisabled_ExtractDisabled() {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintln(w, "Hello, world!")
@@ -213,7 +229,7 @@ func TestIsMicrosoftOAuthProvider(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "empty provider",
+			name:     "empty provider",
 			provider: types.OAuthProvider{},
 			expected: false,
 		},
