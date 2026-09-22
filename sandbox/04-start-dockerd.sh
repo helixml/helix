@@ -26,6 +26,8 @@ echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
 source /usr/local/lib/helix-sandbox-network-policy.sh
 # shellcheck source=/usr/local/lib/helix-desktop-image-gc.sh
 source /usr/local/lib/helix-desktop-image-gc.sh
+# shellcheck source=/usr/local/lib/helix-desktop-image-metadata.sh
+source /usr/local/lib/helix-desktop-image-metadata.sh
 
 # ================================================================================
 # Configure dockerd with DNS and optional NVIDIA runtime
@@ -246,20 +248,24 @@ load_desktop_image() {
     local NAME="$1"
     local REQUIRED="${2:-false}"
     local IMAGE_NAME="helix-${NAME}"
-    local REF_FILE="/opt/images/${IMAGE_NAME}.ref"
-    local VERSION_FILE="/opt/images/${IMAGE_NAME}.version"
+    local IMAGE_DIR="${HELIX_DESKTOP_IMAGE_DIR:-/opt/images}"
+    local LOCAL_REGISTRY="${HELIX_LOCAL_DESKTOP_REGISTRY:-registry:5000}"
+    local REF_FILE="${IMAGE_DIR}/${IMAGE_NAME}.ref"
+    local VERSION_FILE="${IMAGE_DIR}/${IMAGE_NAME}.version"
 
     # Read expected version from .version file
-    if [ ! -f "$VERSION_FILE" ]; then
+    if ! desktop_metadata_file_has_value "$VERSION_FILE" && ! recover_missing_desktop_version "$NAME"; then
         if [ "$REQUIRED" = "true" ]; then
             echo "⚠️  ${IMAGE_NAME} version file missing: ${VERSION_FILE}"
+            diagnose_desktop_image_failure "$NAME"
             return 1
         else
             echo "ℹ️  ${IMAGE_NAME} not configured (no version file)"
             return 0  # OK for optional images
         fi
     fi
-    local VERSION=$(cat "$VERSION_FILE")
+    local VERSION
+    VERSION=$(awk 'NF { print $1; exit }' "$VERSION_FILE")
 
     # Check if the EXACT version already exists
     # We only skip the pull if the specific version tag exists.
@@ -274,7 +280,7 @@ load_desktop_image() {
     # cache and the image sometimes ends up as registry:5000/IMAGE:VERSION
     # without the local IMAGE:VERSION tag that Hydra needs. The root cause
     # isn't fully understood yet, but re-tagging is a cheap fix.
-    local REGISTRY_PREFIXED="registry:5000/${IMAGE_NAME}:${VERSION}"
+    local REGISTRY_PREFIXED="${LOCAL_REGISTRY}/${IMAGE_NAME}:${VERSION}"
     local PREFIXED_ID=$(docker images "${REGISTRY_PREFIXED}" --format '{{.ID}}' 2>/dev/null || echo "")
     if [ -n "$PREFIXED_ID" ]; then
         echo "🔄 Found ${REGISTRY_PREFIXED} without local tag — re-tagging as ${IMAGE_NAME}:${VERSION}"
@@ -302,7 +308,7 @@ load_desktop_image() {
         local IMAGE_ID=$(docker images "$REGISTRY_REF" --format '{{.ID}}' 2>/dev/null || echo "")
         if [ -n "$IMAGE_ID" ]; then
             echo "✅ ${REGISTRY_REF} already pulled (ID: ${IMAGE_ID})"
-            echo "$REGISTRY_REF" > "/opt/images/${IMAGE_NAME}.runtime-ref"
+            echo "$REGISTRY_REF" > "${IMAGE_DIR}/${IMAGE_NAME}.runtime-ref"
             return 0
         fi
 
@@ -310,7 +316,7 @@ load_desktop_image() {
         echo "🔄 Pulling ${REGISTRY_REF} from registry..."
         if docker pull "$REGISTRY_REF" 2>&1; then
             echo "✅ ${REGISTRY_REF} pulled successfully"
-            echo "$REGISTRY_REF" > "/opt/images/${IMAGE_NAME}.runtime-ref"
+            echo "$REGISTRY_REF" > "${IMAGE_DIR}/${IMAGE_NAME}.runtime-ref"
             # Tag as local name for Hydra compatibility
             docker tag "$REGISTRY_REF" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
             return 0
@@ -325,7 +331,7 @@ load_desktop_image() {
     # container restart mid-transfer). Pull it directly instead of crash-looping
     # the whole sandbox host. Harmless in prod: registry:5000 won't resolve / be
     # populated, so this falls through to the FATAL below.
-    local LOCAL_REGISTRY_REF="registry:5000/${IMAGE_NAME}:${VERSION}"
+    local LOCAL_REGISTRY_REF="${LOCAL_REGISTRY}/${IMAGE_NAME}:${VERSION}"
     echo "🔄 Local fallback: trying ${LOCAL_REGISTRY_REF} ..."
     if docker pull "$LOCAL_REGISTRY_REF" 2>&1; then
         docker tag "$LOCAL_REGISTRY_REF" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
@@ -337,6 +343,7 @@ load_desktop_image() {
     # Image not available
     if [ "$REQUIRED" = "true" ]; then
         echo "❌ FATAL: ${IMAGE_NAME} is a REQUIRED production desktop image and is not available."
+        diagnose_desktop_image_failure "$NAME"
         echo "   In development: Run './stack build-${NAME}' to build and transfer"
         echo "   In production: Check .ref file, registry access, and free disk space."
         echo "   Boot will abort so the operator can fix this rather than silently"
@@ -347,6 +354,8 @@ load_desktop_image() {
     echo "ℹ️  ${IMAGE_NAME} not configured (optional)"
     return 0
 }
+
+restore_desktop_image_metadata
 
 # Reclaim obsolete, unreferenced versions before pulling. This is what lets a
 # nearly-full deployment upgrade into the release containing the GC fix. The
