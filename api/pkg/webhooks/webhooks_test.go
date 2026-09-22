@@ -101,7 +101,7 @@ func TestParseRetryAfter(t *testing.T) {
 }
 
 func TestDeliveryUsesStandardWebhookHeaders(t *testing.T) {
-	secret := base64.StdEncoding.EncodeToString([]byte("standard webhook delivery test key"))
+	secret := "whsec_" + base64.StdEncoding.EncodeToString([]byte("standard webhook delivery test key"))
 	key := []byte("01234567890123456789012345678901")
 	encrypted, err := helixcrypto.EncryptAES256GCM([]byte(secret), key)
 	require.NoError(t, err)
