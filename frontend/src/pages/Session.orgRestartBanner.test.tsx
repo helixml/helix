@@ -189,15 +189,11 @@ describe('Session org chat restart banner', () => {
     })
   })
 
-  it('links an org bot session back to the Org Chart', async () => {
+  it('uses the non-clickable org context crumb for an org bot session', async () => {
     render(<Session orgChatView />)
     await screen.findByText('Prompt input')
 
-    expect(mocks.pageProps?.breadcrumbs).toEqual([{
-      title: 'Org Chart',
-      routeName: 'helix_org_chart',
-      params: { org_id: 'acme' },
-      useOrgRouter: false,
-    }])
+    expect(mocks.pageProps?.breadcrumbs).toEqual([])
+    expect(mocks.pageProps?.orgBreadcrumbs).toBe(true)
   })
 })
