@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
@@ -98,6 +99,22 @@ func prepareSpecTaskAttachment(name string, body []byte, caption string) (*prepa
 			message: fmt.Sprintf("%s contains a <script> tag — SVG with scripts is not allowed", name),
 		}
 	}
+	if strings.ContainsRune(caption, '\x00') {
+		return nil, &specTaskAttachmentInputError{
+			status:  http.StatusBadRequest,
+			message: fmt.Sprintf("caption for %s contains a NUL byte", name),
+		}
+	}
+	if utf8.RuneCountInString(caption) > types.SpecTaskAttachmentCaptionMaxRunes {
+		return nil, &specTaskAttachmentInputError{
+			status: http.StatusBadRequest,
+			message: fmt.Sprintf(
+				"caption for %s exceeds %d characters",
+				name,
+				types.SpecTaskAttachmentCaptionMaxRunes,
+			),
+		}
+	}
 	return &preparedSpecTaskAttachment{
 		filename: filename,
 		mimeType: mimeType,
@@ -107,10 +124,24 @@ func prepareSpecTaskAttachment(name string, body []byte, caption string) (*prepa
 }
 
 func prepareInlineSpecTaskAttachments(inputs []types.SpecTaskInlineAttachment) ([]*preparedSpecTaskAttachment, error) {
-	if len(inputs) > types.SpecTaskAttachmentMaxPerTask {
+	return prepareInlineSpecTaskAttachmentsWithLimits(
+		inputs,
+		types.SpecTaskAttachmentMaxPerTask,
+		types.SpecTaskAttachmentMaxBytes,
+		types.SpecTaskInlineAttachmentsMaxBytes,
+	)
+}
+
+func prepareInlineSpecTaskAttachmentsWithLimits(
+	inputs []types.SpecTaskInlineAttachment,
+	maxCount int,
+	maxFileBytes int,
+	maxTotalBytes int,
+) ([]*preparedSpecTaskAttachment, error) {
+	if len(inputs) > maxCount {
 		return nil, &specTaskAttachmentInputError{
 			status:  http.StatusBadRequest,
-			message: fmt.Sprintf("too many attachments — limit is %d per task", types.SpecTaskAttachmentMaxPerTask),
+			message: fmt.Sprintf("too many attachments — limit is %d per task", maxCount),
 		}
 	}
 
@@ -118,7 +149,19 @@ func prepareInlineSpecTaskAttachments(inputs []types.SpecTaskInlineAttachment) (
 	seen := make(map[string]struct{}, len(inputs))
 	totalBytes := 0
 	for _, input := range inputs {
-		if len(input.ContentBase64) > base64.StdEncoding.EncodedLen(types.SpecTaskAttachmentMaxBytes) {
+		if strings.TrimSpace(input.Name) == "" {
+			return nil, &specTaskAttachmentInputError{
+				status:  http.StatusBadRequest,
+				message: "attachment name is required",
+			}
+		}
+		if input.ContentBase64 == "" {
+			return nil, &specTaskAttachmentInputError{
+				status:  http.StatusBadRequest,
+				message: fmt.Sprintf("content_base64 is required for %s", input.Name),
+			}
+		}
+		if len(input.ContentBase64) > base64.StdEncoding.EncodedLen(maxFileBytes) {
 			return nil, &specTaskAttachmentInputError{
 				status:  http.StatusRequestEntityTooLarge,
 				message: fmt.Sprintf("%s exceeds max size", input.Name),
@@ -131,17 +174,23 @@ func prepareInlineSpecTaskAttachments(inputs []types.SpecTaskInlineAttachment) (
 				message: fmt.Sprintf("invalid base64 content for %s", input.Name),
 			}
 		}
+		if len(body) > maxFileBytes {
+			return nil, &specTaskAttachmentInputError{
+				status:  http.StatusRequestEntityTooLarge,
+				message: fmt.Sprintf("%s exceeds max size", input.Name),
+			}
+		}
 		attachment, err := prepareSpecTaskAttachment(input.Name, body, input.Caption)
 		if err != nil {
 			return nil, err
 		}
 		totalBytes += len(body)
-		if totalBytes > types.SpecTaskInlineAttachmentsMaxBytes {
+		if totalBytes > maxTotalBytes {
 			return nil, &specTaskAttachmentInputError{
 				status: http.StatusRequestEntityTooLarge,
 				message: fmt.Sprintf(
 					"inline attachments exceed total size limit of %d bytes",
-					types.SpecTaskInlineAttachmentsMaxBytes,
+					maxTotalBytes,
 				),
 			}
 		}
@@ -200,34 +249,39 @@ func (s *HelixAPIServer) persistSpecTaskAttachment(
 	return row, nil
 }
 
-func (s *HelixAPIServer) precreateInlineSpecTaskAttachments(
+func (s *HelixAPIServer) persistInlineSpecTaskAttachments(
 	ctx context.Context,
+	taskID string,
 	projectID string,
 	userID string,
 	attachments []*preparedSpecTaskAttachment,
-) (string, error) {
-	if len(attachments) == 0 {
-		return "", nil
-	}
-	taskID := system.GenerateSpecTaskID()
+) error {
 	for _, attachment := range attachments {
 		if _, err := s.persistSpecTaskAttachment(ctx, taskID, projectID, userID, attachment); err != nil {
-			s.cleanupPrecreatedSpecTaskAttachments(ctx, taskID)
-			return "", err
+			return err
 		}
 	}
-	return taskID, nil
+	return nil
 }
 
-func (s *HelixAPIServer) cleanupPrecreatedSpecTaskAttachments(ctx context.Context, taskID string) {
+func (s *HelixAPIServer) cleanupInlineSpecTaskAttachments(ctx context.Context, taskID string) {
 	if taskID == "" {
 		return
 	}
 	if err := s.Store.DeleteSpecTaskAttachmentsByTaskID(ctx, taskID); err != nil {
-		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete pre-created attachment rows")
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete inline attachment rows")
 	}
 	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(taskID); err != nil {
-		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete pre-created attachment blobs")
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete inline attachment blobs")
+	}
+}
+
+func (s *HelixAPIServer) cleanupFailedInlineSpecTask(ctx context.Context, taskID string) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	s.cleanupInlineSpecTaskAttachments(cleanupCtx, taskID)
+	if err := s.Store.DeleteSpecTask(cleanupCtx, taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete task after inline attachment ingestion failed")
 	}
 }
 

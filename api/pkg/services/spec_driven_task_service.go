@@ -140,26 +140,22 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
-	return s.createTaskFromPrompt(ctx, req, "")
+	return s.createTaskFromPrompt(ctx, req, false)
 }
 
-// CreateTaskFromPromptWithID creates a task with an ID allocated by the API server.
-// This lets the server persist inline attachments before publishing the task row.
-func (s *SpecDrivenTaskService) CreateTaskFromPromptWithID(
+// CreateTaskFromPromptPreparingAttachments creates a durable, non-dispatchable task
+// that owns attachment blobs and rows while the request is ingesting them.
+func (s *SpecDrivenTaskService) CreateTaskFromPromptPreparingAttachments(
 	ctx context.Context,
 	req *types.CreateTaskRequest,
-	taskID string,
 ) (*types.SpecTask, error) {
-	if taskID == "" {
-		return nil, fmt.Errorf("preallocated task ID is required")
-	}
-	return s.createTaskFromPrompt(ctx, req, taskID)
+	return s.createTaskFromPrompt(ctx, req, true)
 }
 
 func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	ctx context.Context,
 	req *types.CreateTaskRequest,
-	taskID string,
+	preparingAttachments bool,
 ) (*types.SpecTask, error) {
 	if req.AppID != "" {
 		return nil, fmt.Errorf("app_id is no longer supported; provide code_agent_config")
@@ -266,12 +262,12 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 		assigneeID = req.UserID
 		planningStartedBy = req.UserID
 	}
-
-	if taskID == "" {
-		taskID = generateTaskID()
+	if preparingAttachments {
+		initialStatus = types.TaskStatusPreparing
 	}
+
 	task := &types.SpecTask{
-		ID:                       taskID,
+		ID:                       generateTaskID(),
 		ProjectID:                req.ProjectID,
 		UserID:                   req.UserID,
 		OrganizationID:           organizationID,
@@ -343,7 +339,7 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 
 	// PR DETECTION: Check if the existing branch has an open PR
 	// If so, update the task to start in pull_request status
-	if branchMode == types.BranchModeExisting && req.WorkingBranch != "" && s.gitRepositoryService != nil {
+	if !preparingAttachments && branchMode == types.BranchModeExisting && req.WorkingBranch != "" && s.gitRepositoryService != nil {
 		prDetected := s.detectAndLinkExistingPR(ctx, task, req.ProjectID, req.WorkingBranch)
 		if prDetected {
 			log.Info().
@@ -364,6 +360,54 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	// This allows WIP limits to be enforced on the planning column
 
 	return task, nil
+}
+
+// PublishTaskFromPromptAttachments atomically makes a prepared task visible to
+// dispatchers after its attachment rows and blobs are durable.
+func (s *SpecDrivenTaskService) PublishTaskFromPromptAttachments(
+	ctx context.Context,
+	task *types.SpecTask,
+	req *types.CreateTaskRequest,
+) error {
+	if task == nil || task.ID == "" {
+		return fmt.Errorf("prepared task is required")
+	}
+
+	// Existing-branch tasks with an open PR publish directly into pull_request.
+	// Detection is safe here because attachment ingestion has completed and the
+	// preparing state cannot be observed by dispatchers.
+	if task.BranchMode == types.BranchModeExisting && task.BranchName != "" && s.gitRepositoryService != nil {
+		if s.detectAndLinkExistingPR(ctx, task, task.ProjectID, task.BranchName) {
+			return nil
+		}
+	}
+
+	targetStatus := types.TaskStatusBacklog
+	if req.AutoStart {
+		if req.JustDoItMode {
+			targetStatus = types.TaskStatusQueuedImplementation
+		} else {
+			targetStatus = types.TaskStatusQueuedSpecGeneration
+		}
+	}
+	transitioned, err := s.store.TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusPreparing},
+		targetStatus,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("publish prepared task: %w", err)
+	}
+	if !transitioned {
+		return fmt.Errorf("prepared task %s is no longer in preparing status", task.ID)
+	}
+	now := time.Now()
+	task.Status = targetStatus
+	task.StatusUpdatedAt = &now
+	task.UpdatedAt = now
+	return nil
 }
 
 // StartSpecGeneration kicks off spec generation with a Helix agent

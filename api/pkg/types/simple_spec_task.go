@@ -280,8 +280,8 @@ type CreateTaskRequest struct {
 // SpecTaskInlineAttachment is attachment content submitted with CreateTaskRequest.
 // The API validates and stores it through the same path as multipart attachments.
 type SpecTaskInlineAttachment struct {
-	Name          string `json:"name"`           // Filename visible in the task workspace.
-	ContentBase64 string `json:"content_base64"` // Standard base64-encoded file bytes.
+	Name          string `json:"name" validate:"required"`           // Filename visible in the task workspace.
+	ContentBase64 string `json:"content_base64" validate:"required"` // Standard base64-encoded file bytes.
 	Caption       string `json:"caption,omitempty"`
 }
 
@@ -628,7 +628,8 @@ func (s SpecTaskStatus) String() string {
 // Two-phase workflow status constants
 const (
 	// Phase 1: Specification Generation (Helix Agent)
-	TaskStatusBacklog SpecTaskStatus = "backlog" // Initial state, waiting for spec generation
+	TaskStatusPreparing SpecTaskStatus = "preparing" // Internal intake state; never dispatched
+	TaskStatusBacklog   SpecTaskStatus = "backlog"   // Initial state, waiting for spec generation
 
 	TaskStatusQueuedImplementation SpecTaskStatus = "queued_implementation"  // Transitional state, waiting for the orchestrator to pick it up
 	TaskStatusQueuedSpecGeneration SpecTaskStatus = "queued_spec_generation" // Transitional state, waiting for the orchestrator to pick it up
@@ -705,6 +706,7 @@ const (
 	SpecTaskAttachmentMaxBytes        = 100 * 1024 * 1024 // 100 MB per file
 	SpecTaskAttachmentMaxPerTask      = 500               // 500 files per task
 	SpecTaskInlineAttachmentsMaxBytes = 100 * 1024 * 1024 // 100 MB total per JSON request
+	SpecTaskAttachmentCaptionMaxRunes = 1024
 )
 
 // SpecTaskAttachmentAllowedMimeTypes is the allowlist of MIME types accepted for upload.

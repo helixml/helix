@@ -11835,6 +11835,9 @@ definitions:
       name:
         description: Filename visible in the task workspace.
         type: string
+    required:
+    - content_base64
+    - name
     type: object
   types.SpecTaskPhase:
     enum:
@@ -11860,6 +11863,7 @@ definitions:
     - SpecTaskPriorityCritical
   types.SpecTaskStatus:
     enum:
+    - preparing
     - backlog
     - queued_implementation
     - queued_spec_generation
@@ -11882,6 +11886,7 @@ definitions:
       TaskStatusImplementationFailed: Implementation failed
       TaskStatusImplementationQueued: Waiting for Zed agent pickup
       TaskStatusImplementationReview: Code review (PR created)
+      TaskStatusPreparing: Internal intake state; never dispatched
       TaskStatusPullRequest: 'External repo: PR opened, awaiting merge'
       TaskStatusQueuedImplementation: Transitional state, waiting for the orchestrator
         to pick it up
@@ -11893,6 +11898,7 @@ definitions:
       TaskStatusSpecReview: Human reviewing generated specs
       TaskStatusSpecRevision: Human requested spec changes
     x-enum-varnames:
+    - TaskStatusPreparing
     - TaskStatusBacklog
     - TaskStatusQueuedImplementation
     - TaskStatusQueuedSpecGeneration

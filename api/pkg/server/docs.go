@@ -39615,6 +39615,10 @@ const docTemplate = `{
         },
         "types.SpecTaskInlineAttachment": {
             "type": "object",
+            "required": [
+                "content_base64",
+                "name"
+            ],
             "properties": {
                 "caption": {
                     "type": "string"
@@ -39660,6 +39664,7 @@ const docTemplate = `{
         "types.SpecTaskStatus": {
             "type": "string",
             "enum": [
+                "preparing",
                 "backlog",
                 "queued_implementation",
                 "queued_spec_generation",
@@ -39682,6 +39687,7 @@ const docTemplate = `{
                 "TaskStatusImplementationFailed": "Implementation failed",
                 "TaskStatusImplementationQueued": "Waiting for Zed agent pickup",
                 "TaskStatusImplementationReview": "Code review (PR created)",
+                "TaskStatusPreparing": "Internal intake state; never dispatched",
                 "TaskStatusPullRequest": "External repo: PR opened, awaiting merge",
                 "TaskStatusQueuedImplementation": "Transitional state, waiting for the orchestrator to pick it up",
                 "TaskStatusQueuedSpecGeneration": "Transitional state, waiting for the orchestrator to pick it up",
@@ -39692,6 +39698,7 @@ const docTemplate = `{
                 "TaskStatusSpecRevision": "Human requested spec changes"
             },
             "x-enum-varnames": [
+                "TaskStatusPreparing",
                 "TaskStatusBacklog",
                 "TaskStatusQueuedImplementation",
                 "TaskStatusQueuedSpecGeneration",

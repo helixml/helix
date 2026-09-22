@@ -2,11 +2,89 @@ package services
 
 import (
 	"context"
+	"strings"
 
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/helixml/helix/api/pkg/types"
 	"go.uber.org/mock/gomock"
 )
+
+// TestFromPromptInlineAttachmentStagesIntoJDIPrompt composes the from-prompt
+// intake lifecycle with the exact staging and prompt path used by JDI. It proves
+// a published task can read the durable attachment row, commit its bytes to the
+// workspace branch, and tell the headless agent the resulting sandbox path.
+func (s *GitIntegrationSuite) TestFromPromptInlineAttachmentStagesIntoJDIPrompt() {
+	require := s.Require()
+	project := &types.Project{
+		ID:            "proj-inline-jdi",
+		DefaultRepoID: "test-repo",
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime:        types.CodeAgentRuntimeCodexCLI,
+			CredentialType: types.CodeAgentCredentialTypeAPIKey,
+			ProviderRef:    "provider-1",
+			Model:          "model-1",
+		},
+	}
+	s.mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).AnyTimes()
+	s.mockStore.EXPECT().IncrementGlobalTaskNumber(gomock.Any()).Return(3265, nil)
+	var persisted *types.SpecTask
+	s.mockStore.EXPECT().CreateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			persisted = task
+			require.Equal(types.TaskStatusPreparing, task.Status)
+			return nil
+		},
+	)
+	s.mockStore.EXPECT().TransitionSpecTaskStatus(
+		gomock.Any(),
+		gomock.Any(),
+		[]types.SpecTaskStatus{types.TaskStatusPreparing},
+		types.TaskStatusQueuedImplementation,
+		nil,
+	).Return(true, nil)
+
+	var enqueued []stageEnqueue
+	svc := s.newStageService(&enqueued)
+	req := &types.CreateTaskRequest{
+		ProjectID:      project.ID,
+		UserID:         "test-user",
+		Prompt:         "Run the engagement using the attached brief",
+		JustDoItMode:   true,
+		AutoStart:      true,
+		SandboxRuntime: types.SandboxRuntimeHeadlessUbuntu,
+	}
+	task, err := svc.CreateTaskFromPromptPreparingAttachments(s.ctx, req)
+	require.NoError(err)
+	require.Same(persisted, task)
+
+	attachment := &types.SpecTaskAttachment{
+		ID:            "att-inline-jdi",
+		SpecTaskID:    task.ID,
+		ProjectID:     project.ID,
+		UserID:        "test-user",
+		Filename:      "engagement-brief.md",
+		MimeType:      "text/markdown",
+		SizeBytes:     128,
+		Caption:       "rules of engagement",
+		FilestorePath: "/filestore/att-inline-jdi__engagement-brief.md",
+	}
+	s.mockStore.EXPECT().ListSpecTaskAttachments(gomock.Any(), task.ID).
+		Return([]*types.SpecTaskAttachment{attachment}, nil)
+	s.mockStore.EXPECT().UpdateSpecTaskAttachment(gomock.Any(), attachment).Return(nil)
+
+	require.NoError(svc.PublishTaskFromPromptAttachments(s.ctx, task, req))
+	require.Equal(types.TaskStatusQueuedImplementation, task.Status)
+	attachmentsSection, err := svc.stageAttachmentsAndBuildPromptSection(s.ctx, task, project)
+	require.NoError(err)
+	prompt := buildJustDoItPrompt(req.Prompt, "", "test-repo", "", attachmentsSection, "", "")
+
+	workspacePath := "design/tasks/" + task.DesignDocPath + "/attachments/engagement-brief.md"
+	content, ok := s.upstreamFileOnBranch(SpecsBranchName, workspacePath)
+	require.True(ok, "inline attachment must be committed to the JDI workspace branch")
+	require.Equal("fake-bytes-for-"+attachment.FilestorePath, strings.TrimSuffix(content, "\n"))
+	require.Contains(prompt, workspacePath)
+	require.Contains(prompt, "rules of engagement")
+}
 
 // stageEnqueue captures a call to the fake EnqueueMessageToAgent so tests can assert
 // whether (and how) the agent was notified about a late-arriving attachment.

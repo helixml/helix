@@ -227,36 +227,34 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		writeSpecTaskAttachmentInputError(w, err)
 		return
 	}
-	// Drop the encoded payload before passing the request deeper. Attachment rows
-	// are created first so a queued task cannot be observed without its inputs.
+	// Drop the encoded payload before passing the request deeper. Attachment-bearing
+	// tasks are first created in a durable, non-dispatchable preparing state.
 	req.Attachments = nil
-	preallocatedTaskID := ""
-	if len(inlineAttachments) > 0 {
-		preallocatedTaskID, err = s.precreateInlineSpecTaskAttachments(
-			ctx,
-			req.ProjectID,
-			user.ID,
-			inlineAttachments,
-		)
-		if err != nil {
-			log.Error().Err(err).Str("project_id", req.ProjectID).Msg("Failed to persist inline task attachments")
-			http.Error(w, "failed to save task attachments", http.StatusInternalServerError)
-			return
-		}
-	}
 
 	// Create task via spec-driven service
 	var task *types.SpecTask
-	if preallocatedTaskID == "" {
+	if len(inlineAttachments) == 0 {
 		task, err = s.specDrivenTaskService.CreateTaskFromPrompt(ctx, &req)
 	} else {
-		task, err = s.specDrivenTaskService.CreateTaskFromPromptWithID(ctx, &req, preallocatedTaskID)
+		task, err = s.specDrivenTaskService.CreateTaskFromPromptPreparingAttachments(ctx, &req)
 	}
 	if err != nil {
-		s.cleanupPrecreatedSpecTaskAttachments(ctx, preallocatedTaskID)
 		log.Error().Err(err).Msg("Failed to create task from prompt")
 		http.Error(w, fmt.Sprintf("failed to create task: %v", err), http.StatusInternalServerError)
 		return
+	}
+	if len(inlineAttachments) > 0 {
+		if err := s.persistInlineSpecTaskAttachments(ctx, task.ID, req.ProjectID, user.ID, inlineAttachments); err != nil {
+			s.cleanupFailedInlineSpecTask(ctx, task.ID)
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to persist inline task attachments")
+			http.Error(w, "failed to save task attachments", http.StatusInternalServerError)
+			return
+		}
+		if err := s.specDrivenTaskService.PublishTaskFromPromptAttachments(ctx, task, &req); err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to publish task after attachment ingestion")
+			http.Error(w, "failed to publish task attachments", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Log audit event for task creation

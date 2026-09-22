@@ -7492,9 +7492,9 @@ export interface TypesSpecTaskExecutionConfigUpdateResponse {
 export interface TypesSpecTaskInlineAttachment {
   caption?: string;
   /** Standard base64-encoded file bytes. */
-  content_base64?: string;
+  content_base64: string;
   /** Filename visible in the task workspace. */
-  name?: string;
+  name: string;
 }
 
 export enum TypesSpecTaskPhase {
@@ -7511,6 +7511,7 @@ export enum TypesSpecTaskPriority {
 }
 
 export enum TypesSpecTaskStatus {
+  TaskStatusPreparing = "preparing",
   TaskStatusBacklog = "backlog",
   TaskStatusQueuedImplementation = "queued_implementation",
   TaskStatusQueuedSpecGeneration = "queued_spec_generation",
