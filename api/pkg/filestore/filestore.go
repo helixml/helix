@@ -2,8 +2,10 @@ package filestore
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 )
 
 type Item struct {
@@ -53,6 +55,26 @@ type FileStore interface {
 	Rename(ctx context.Context, path string, newPath string) (Item, error)
 	Delete(ctx context.Context, path string) error
 	CopyFile(ctx context.Context, from string, to string) error
+}
+
+// CleanRelativePath normalizes a filestore-relative path and rejects paths
+// that would escape the caller's user or app scope when joined to its root.
+func CleanRelativePath(path string) (string, error) {
+	cleaned := filepath.Clean(path)
+	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes filestore scope: %s", path)
+	}
+	return cleaned, nil
+}
+
+// JoinScopedPath joins a relative path to a filestore scope root without
+// allowing traversal into another user's or app's namespace.
+func JoinScopedPath(scopeRoot, path string) (string, error) {
+	cleaned, err := CleanRelativePath(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(scopeRoot, cleaned), nil
 }
 
 func GetUserPrefix(filestorePrefix, userID string) string {

@@ -12,6 +12,7 @@ func TestFilestoreUploadDestination(t *testing.T) {
 		requestPath      string
 		uploadedFilename string
 		want             string
+		wantError        bool
 	}{
 		{
 			name:             "directory path appends multipart filename",
@@ -43,11 +44,23 @@ func TestFilestoreUploadDestination(t *testing.T) {
 			uploadedFilename: "receipt.json",
 			want:             "receipt.json",
 		},
+		{
+			name:             "parent traversal is rejected",
+			requestPath:      "../../users/other-user",
+			uploadedFilename: "receipt.json",
+			wantError:        true,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			require.Equal(t, test.want, filestoreUploadDestination(test.requestPath, test.uploadedFilename))
+			got, err := filestoreUploadDestination(test.requestPath, test.uploadedFilename)
+			if test.wantError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
 		})
 	}
 }

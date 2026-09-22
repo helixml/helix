@@ -497,8 +497,13 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			relativePath := path[len("apps/")+len(appID):]
 			relativePath = strings.TrimPrefix(relativePath, "/")
 
+			destination, err := filestoreUploadDestination(relativePath, fileHeader.Filename)
+			if err != nil {
+				return false, fmt.Errorf("invalid upload path: %w", err)
+			}
+
 			// Use the app-specific upload method
-			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, filestoreUploadDestination(relativePath, fileHeader.Filename), file)
+			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, destination, file)
 			if err != nil {
 				return false, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
@@ -525,7 +530,12 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		}
 		defer file.Close()
 
-		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filestoreUploadDestination(path, fileHeader.Filename), file)
+		destination, err := filestoreUploadDestination(path, fileHeader.Filename)
+		if err != nil {
+			return false, fmt.Errorf("invalid upload path: %w", err)
+		}
+
+		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), destination, file)
 		if err != nil {
 			return false, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
@@ -534,19 +544,22 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 	return true, nil
 }
 
-func filestoreUploadDestination(requestPath, uploadedFilename string) string {
+func filestoreUploadDestination(requestPath, uploadedFilename string) (string, error) {
 	filename := filepath.Base(uploadedFilename)
-	cleanPath := filepath.Clean(requestPath)
+	cleanPath, err := filestore.CleanRelativePath(requestPath)
+	if err != nil {
+		return "", err
+	}
 	if requestPath == "" || cleanPath == "." {
-		return filename
+		return filename, nil
 	}
 	if strings.HasSuffix(requestPath, "/") {
-		return filepath.Join(cleanPath, filename)
+		return filepath.Join(cleanPath, filename), nil
 	}
 	if filepath.Base(cleanPath) == filename {
-		return cleanPath
+		return cleanPath, nil
 	}
-	return filepath.Join(cleanPath, filename)
+	return filepath.Join(cleanPath, filename), nil
 }
 
 // in this case the path contains the full /dev/users/XXX/sessions/XXX path

@@ -55,16 +55,14 @@ func GetSessionResultsFolder(sessionID string) string {
 
 func (c *Controller) GetFilestoreUserPath(ctx types.OwnerContext, path string) (string, error) {
 	userPrefix := filestore.GetUserPrefix(c.Options.Config.Controller.FilePrefixGlobal, ctx.Owner)
-
-	return filepath.Join(userPrefix, path), nil
+	return filestore.JoinScopedPath(userPrefix, path)
 }
 
 // GetFilestoreAppPath returns a path scoped to the app's directory
 // This uses the app-scoped structure: {filestorePrefix}/apps/{appID}/{path}
 func (c *Controller) GetFilestoreAppPath(appID, path string) (string, error) {
 	appPrefix := filestore.GetAppPrefix(c.Options.Config.Controller.FilePrefixGlobal, appID)
-
-	return filepath.Join(appPrefix, path), nil
+	return filestore.JoinScopedPath(appPrefix, path)
 }
 
 // GetFilestoreAppKnowledgePath returns a path scoped to the app's knowledge directory
@@ -93,7 +91,10 @@ func (c *Controller) GetFilestoreAppKnowledgePath(_ types.OwnerContext, appID, k
 			Msgf("Stripped app prefix from path")
 	}
 
-	finalPath := filepath.Join(appPrefix, knowledgePath)
+	finalPath, err := filestore.JoinScopedPath(appPrefix, knowledgePath)
+	if err != nil {
+		return "", err
+	}
 
 	log.Debug().
 		Str("app_id", appID).
@@ -241,8 +242,7 @@ func (c *Controller) ensureFilestoreAppPath(appID, path string) (string, error) 
 		return "", err
 	}
 
-	fullPath := filepath.Join(appPrefix, path)
-	return fullPath, nil
+	return filestore.JoinScopedPath(appPrefix, path)
 }
 
 // FilestoreAppList lists files in an app's directory
