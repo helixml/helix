@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/helixml/helix/api/pkg/server/wsprotocol"
 	"github.com/helixml/helix/api/pkg/system"
@@ -206,20 +207,39 @@ func truncateTranscriptMiddleOut(blocks []string, budget int) (string, int) {
 	// Neither end fitted a whole block — a single oversized block. Cut bytes so
 	// the framing at the top and the latest state at the bottom both survive.
 	if headText == "" && head < len(blocks) {
-		headText = blocks[head][:minInt(headBudget, len(blocks[head]))]
+		headText = cutHeadOnRuneBoundary(blocks[head], headBudget)
 	}
 	if tailText == "" && tail > 0 {
-		last := blocks[tail-1]
-		tailText = last[len(last)-minInt(tailBudget, len(last)):]
+		tailText = cutTailOnRuneBoundary(blocks[tail-1], tailBudget)
 	}
 	return headText + transcriptElisionNotice + tailText, tail - head
 }
 
-func minInt(a, b int) int {
-	if a < b {
-		return a
+// cutHeadOnRuneBoundary returns at most n bytes from the front of s, shrinking
+// the cut so it never lands inside a multi-byte rune. Transcripts are full of
+// em-dashes and emoji; a naive byte slice emits a replacement character right
+// where the model is reading.
+func cutHeadOnRuneBoundary(s string, n int) string {
+	if n >= len(s) {
+		return s
 	}
-	return b
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+// cutTailOnRuneBoundary returns at most n bytes from the end of s, moving the
+// start forward to the next rune boundary.
+func cutTailOnRuneBoundary(s string, n int) string {
+	if n >= len(s) {
+		return s
+	}
+	start := len(s) - n
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return s[start:]
 }
 
 // serializeInteractionBlock formats one complete interaction as a "**User:** …"

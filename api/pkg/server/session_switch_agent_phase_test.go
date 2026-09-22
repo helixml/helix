@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
@@ -282,6 +283,19 @@ func TestSerializeTranscript_MiddleOutCutsInsideASingleBlock(t *testing.T) {
 	assert.True(t, stats.truncated)
 	assert.Contains(t, out, "FRAMING-HEAD")
 	assert.Contains(t, out, "LATEST-TAIL")
+}
+
+// Planning transcripts are full of em-dashes and emoji. A naive byte slice puts
+// a replacement character right where the model starts and stops reading.
+func TestSerializeTranscript_MiddleOutDoesNotSplitRunes(t *testing.T) {
+	only := "**User:** " + strings.Repeat("—", 20_000)
+	interactions := []*types.Interaction{{State: types.InteractionStateComplete, PromptMessage: only}}
+
+	const budget = 9_999 // deliberately not a multiple of 3
+	out, _ := serializeTranscriptWithMode(interactions, budget, truncateMiddleOut)
+	assert.LessOrEqual(t, len(out), budget)
+	assert.True(t, utf8.ValidString(out), "the elided transcript must stay valid UTF-8")
+	assert.NotContains(t, out, "�")
 }
 
 func TestSerializeTranscript_EmptyWhenNothingComplete(t *testing.T) {
