@@ -187,3 +187,26 @@ that already happened; a handoff failure belongs on the task, not on the review.
   or external (like `SyncBaseBranch`) must be done once at claim time, not on every
   re-drive.
 - Don't put transient infrastructure states in `spec_tasks.metadata.error`.
+
+## Verified end to end
+
+Reproduced and fixed against a live spec task in a dev stack — not a unit test.
+
+Task `spt_01m350s7scgewm0bvcpm6df6p1` was planned by a real Zed, reached `spec_review`, and
+its planning desktop was then stopped (container removed,
+`config.external_agent_status = 'stopped'`) — the exact reported state.
+
+Clicking **Approve**:
+
+- returned 200 and rendered **"Starting Desktop…"**, not "Desktop paused";
+- persisted the review as `approved` immediately;
+- claimed `implementation_queued` with `metadata.error` left NULL;
+- started the desktop, reached `implementation`, and delivered the IMPLEMENTATION prompt as a
+  real interaction in the agent thread;
+- and the woken agent **acted on it**: checked out `feature/000006-add-changelogmd-at`,
+  merged `origin/main`, created `CHANGELOG.md`, committed
+  `docs(changelog): add CHANGELOG.md with Unreleased section`, and pushed. Confirmed
+  server-side in the bare repo (`f9896f0`, `CHANGELOG.md` present).
+
+Retry behaviour on the same run: **one** handoff attempt logged (against 167 in 27 minutes
+before) and **zero** `SyncBaseBranch` fetches during the re-drive.
