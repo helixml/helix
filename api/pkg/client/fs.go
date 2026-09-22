@@ -8,7 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"path/filepath"
+	pathpkg "path"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -50,11 +50,22 @@ func (c *HelixClient) FilestoreUpload(ctx context.Context, path string, file io.
 	if path == "" {
 		return fmt.Errorf("path is required")
 	}
+	if strings.HasSuffix(path, "/") {
+		return fmt.Errorf("path must include a filename")
+	}
+	filename := pathpkg.Base(path)
+	directory := pathpkg.Dir(path)
+	if filename == "." || filename == "/" {
+		return fmt.Errorf("path must include a filename")
+	}
+	if directory == "." {
+		directory = ""
+	}
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	part, err := writer.CreateFormFile("files", filepath.Base(path))
+	part, err := writer.CreateFormFile("files", filename)
 	if err != nil {
 		return err
 	}
@@ -69,15 +80,12 @@ func (c *HelixClient) FilestoreUpload(ctx context.Context, path string, file io.
 		return err
 	}
 
-	// Remove the filename from the path as it would create a directory named as a filename
-	path = filepath.Dir(path)
-
 	url := url.URL{
 		Path: "/filestore/upload",
 	}
 
 	query := url.Query()
-	query.Add("path", path)
+	query.Add("path", directory)
 	url.RawQuery = query.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+url.String(), body)

@@ -4,51 +4,44 @@ import (
 	"context"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/spf13/cobra"
 )
 
 func init() {
-	rootCmd.AddCommand(uploadCmd)
+	rootCmd.AddCommand(newWriteCmd())
 }
 
+// NewUploadCmd returns a fresh top-level compatibility shortcut. Cobra commands
+// have exactly one parent, so this must not return the command already mounted
+// under `filesystem` or it disappears from that command's help and routing.
 func NewUploadCmd() *cobra.Command {
-	return uploadCmd
+	cmd := newWriteCmd()
+	cmd.Use = "upload <local_file_path> <remote_file_path>"
+	cmd.Aliases = nil
+	cmd.Short = "Upload a file to the Helix filestore"
+	return cmd
 }
 
-var uploadCmd = &cobra.Command{
-	Use:   "upload <local_file_path> <remote_file_path>",
-	Short: "Upload a file to the Helix filestore",
-	Long:  `Upload a local file to the specified path in the Helix filestore.`,
-	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Check parameters
-		if len(args) != 2 {
-			return fmt.Errorf("expected 2 arguments, got %d", len(args))
-		}
-
-		localPath := args[0]
-		remotePath := args[1]
-
-		if localPath == "" || remotePath == "" {
-			return fmt.Errorf("local file path and remote file path are required")
-		}
-
-		apiClient, err := client.NewClientFromEnv()
-		if err != nil {
-			return err
-		}
-		ctx := cmd.Context()
-
-		err = UploadFiles(ctx, apiClient, localPath, remotePath)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	},
+func newWriteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "write <local_file_path> <remote_file_path>",
+		Aliases: []string{"upload"},
+		Short:   "Write a local file to an exact Helix filestore path",
+		Long:    `Write a local file, or a directory recursively, to the specified Helix filestore path.`,
+		Args:    cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			apiClient, err := client.NewClientFromEnv()
+			if err != nil {
+				return err
+			}
+			return UploadFiles(cmd.Context(), apiClient, args[0], args[1])
+		},
+	}
 }
 
 // UploadFiles upload files to the Helix filestore. If localPath is a directory, it will upload all files recursively in the directory
@@ -74,7 +67,7 @@ func UploadFiles(ctx context.Context, apiClient client.Client, localPath string,
 				return err
 			}
 
-			remoteFilePath := filepath.Join(remotePath, relativePath)
+			remoteFilePath := pathpkg.Join(remotePath, filepath.ToSlash(relativePath))
 			err = UploadFile(ctx, apiClient, path, remoteFilePath)
 			if err != nil {
 				return err
@@ -92,6 +85,9 @@ func UploadFiles(ctx context.Context, apiClient client.Client, localPath string,
 }
 
 func UploadFile(ctx context.Context, apiClient client.Client, localPath string, remotePath string) error {
+	if strings.TrimSpace(remotePath) == "" || strings.HasSuffix(remotePath, "/") {
+		return fmt.Errorf("remote file path must include a filename")
+	}
 	file, err := os.Open(localPath)
 	if err != nil {
 		return fmt.Errorf("failed to open local file: %w", err)

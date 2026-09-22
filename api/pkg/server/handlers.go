@@ -443,11 +443,11 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 
 // filestoreUpload godoc
 // @Summary Upload files to filestore
-// @Description Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field
+// @Description Upload one or more files to the filestore. The path may be a directory, in which case multipart filenames are appended, or the exact full path when its basename matches the multipart filename.
 // @Tags    filestore
 // @Accept  multipart/form-data
 // @Produce json
-// @Param   path query string true "Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')"
+// @Param   path query string true "Destination directory or exact full file path (e.g., 'documents' or 'documents/report.json')"
 // @Param   files formData file true "Files to upload (multipart form data)"
 // @Success 200 {object} object{success=bool} "Upload success status"
 // @Router /api/v1/filestore/upload [post]
@@ -497,14 +497,8 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			relativePath := path[len("apps/")+len(appID):]
 			relativePath = strings.TrimPrefix(relativePath, "/")
 
-			// Strip filename from path if it contains the filename to prevent duplication
-			if strings.HasSuffix(relativePath, fileHeader.Filename) {
-				relativePath = strings.TrimSuffix(relativePath, fileHeader.Filename)
-				relativePath = strings.TrimSuffix(relativePath, "/")
-			}
-
 			// Use the app-specific upload method
-			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, filepath.Join(relativePath, fileHeader.Filename), file)
+			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, filestoreUploadDestination(relativePath, fileHeader.Filename), file)
 			if err != nil {
 				return false, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
@@ -531,20 +525,25 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		}
 		defer file.Close()
 
-		// Strip filename from path if it contains the filename to prevent duplication
-		uploadPath := path
-		if strings.HasSuffix(uploadPath, fileHeader.Filename) {
-			uploadPath = strings.TrimSuffix(uploadPath, fileHeader.Filename)
-			uploadPath = strings.TrimSuffix(uploadPath, "/")
-		}
-
-		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filepath.Join(uploadPath, fileHeader.Filename), file)
+		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filestoreUploadDestination(path, fileHeader.Filename), file)
 		if err != nil {
 			return false, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
 	}
 
 	return true, nil
+}
+
+func filestoreUploadDestination(requestPath, uploadedFilename string) string {
+	filename := filepath.Base(uploadedFilename)
+	cleanPath := filepath.Clean(requestPath)
+	if requestPath == "" || cleanPath == "." {
+		return filename
+	}
+	if filepath.Base(cleanPath) == filename {
+		return cleanPath
+	}
+	return filepath.Join(cleanPath, filename)
 }
 
 // in this case the path contains the full /dev/users/XXX/sessions/XXX path
