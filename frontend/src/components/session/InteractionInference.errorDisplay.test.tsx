@@ -38,11 +38,15 @@ const baseProps = {
 describe("InteractionInference error display", () => {
   it("offers Retry while the failure is the latest thing that happened", () => {
     render(
-      <InteractionInference {...baseProps} error="agent turn aborted" />,
+      <InteractionInference
+        {...baseProps}
+        error="agent turn aborted: insufficient balance"
+      />,
     );
 
+    expect(screen.getByText("Turn failed")).toBeInTheDocument();
     expect(
-      screen.getByText(/The system has encountered an error/),
+      screen.getByText("agent turn aborted: insufficient balance"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
   });
@@ -60,14 +64,14 @@ describe("InteractionInference error display", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
     expect(
-      screen.queryByText(/The system has encountered an error/),
+      screen.queryByRole("button", { name: /Retry/i }),
     ).not.toBeInTheDocument();
+    expect(screen.queryByText("Turn failed")).not.toBeInTheDocument();
     // Not erased, though: the turn did fail and its work was abandoned.
     expect(
       screen.getByText(/This turn was interrupted and did not finish/),
     ).toBeInTheDocument();
-    expect(screen.getByText("view the details")).toBeInTheDocument();
+    expect(screen.getByText("agent turn aborted")).toBeInTheDocument();
   });
 });

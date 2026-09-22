@@ -1,11 +1,10 @@
 import React, { FC, useState, useEffect, useMemo } from "react";
 import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import ReplayIcon from "@mui/icons-material/Replay";
-import TerminalWindow from "../widgets/TerminalWindow";
-import ClickLink from "../widgets/ClickLink";
 import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
@@ -523,7 +522,6 @@ export const InteractionInference: FC<{
 }) => {
   const account = useAccount();
   const router = useRouter();
-  const [viewingError, setViewingError] = useState(false);
   const [viewingExport, setViewingExport] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const [userMessageExpanded, setUserMessageExpanded] = useState(false);
@@ -1052,16 +1050,18 @@ export const InteractionInference: FC<{
           <Cell grow>
             <Typography variant="caption" color="text.secondary">
               This turn was interrupted and did not finish. The session
-              continued afterwards -
-              <ClickLink
-                sx={{ pl: 0.5, pr: 0.5 }}
-                onClick={() => {
-                  setViewingError(true);
-                }}
-              >
-                view the details
-              </ClickLink>
-              .
+              continued afterwards.
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{
+                display: "block",
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {error}
             </Typography>
           </Cell>
         </Row>
@@ -1074,19 +1074,13 @@ export const InteractionInference: FC<{
         >
           <Cell grow>
             <Alert severity="error">
-              The system has encountered an error -
-              <ClickLink
-                sx={{
-                  pl: 0.5,
-                  pr: 0.5,
-                }}
-                onClick={() => {
-                  setViewingError(true);
-                }}
+              <AlertTitle>Turn failed</AlertTitle>
+              <Typography
+                variant="body2"
+                sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
               >
-                click here
-              </ClickLink>
-              to view the details.
+                {error}
+              </Typography>
             </Alert>
           </Cell>
           {onRegenerate && !message && (
@@ -1117,16 +1111,6 @@ export const InteractionInference: FC<{
             </Cell>
           )}
         </Row>
-      )}
-      {viewingError && (
-        <TerminalWindow
-          open
-          title="Error"
-          data={error}
-          onClose={() => {
-            setViewingError(false);
-          }}
-        />
       )}
       {viewingExport && (
         <ExportDocument
