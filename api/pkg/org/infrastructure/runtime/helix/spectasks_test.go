@@ -51,6 +51,16 @@ func (f *fakeSpecTaskStore) ListSpecTasks(_ context.Context, filters *types.Spec
 		if filters.Status != "" && t.Status != filters.Status {
 			continue
 		}
+		excluded := false
+		for _, status := range filters.ExcludeStatuses {
+			if t.Status == status {
+				excluded = true
+				break
+			}
+		}
+		if excluded {
+			continue
+		}
 		out = append(out, t)
 	}
 	return out, nil
@@ -208,6 +218,36 @@ func TestSpecTasks_CreateInOwnProject(t *testing.T) {
 	}
 	if got.TaskNumber == 0 || got.DesignDocPath == "" {
 		t.Errorf("expected task number + design doc path, got %d / %q", got.TaskNumber, got.DesignDocPath)
+	}
+}
+
+func TestSpecTasks_HidesPreparingTasksFromWorkers(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.NodeID("w-alice")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_01abc", "app_x", "repo_y", "ses_z")
+
+	fs := newFakeSpecTaskStore()
+	fs.projects["prj_01abc"] = &types.Project{ID: "prj_01abc", OrganizationID: "org-test"}
+	fs.tasks["task-visible"] = &types.SpecTask{ID: "task-visible", ProjectID: "prj_01abc", Status: types.TaskStatusBacklog}
+	fs.tasks["task-preparing"] = &types.SpecTask{ID: "task-preparing", ProjectID: "prj_01abc", Status: types.TaskStatusPreparing}
+	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+
+	views, err := st.List(context.Background(), "org-test", wid, "", runtime.ListSpecTasksFilter{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(views) != 1 || views[0].ID != "task-visible" {
+		t.Fatalf("List returned %#v, want only task-visible", views)
+	}
+	if _, err := st.Get(context.Background(), "org-test", wid, "", "task-preparing"); err == nil {
+		t.Fatal("expected preparing task to be hidden from Get")
+	}
+	if _, err := st.StartPlanning(context.Background(), "org-test", wid, "", "task-preparing"); err == nil {
+		t.Fatal("expected preparing task to be immutable through StartPlanning")
 	}
 }
 

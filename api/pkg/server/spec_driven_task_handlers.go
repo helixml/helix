@@ -103,6 +103,10 @@ func (s *HelixAPIServer) validateAssigneeIsOrgMember(ctx context.Context, orgID,
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/spec-tasks/from-prompt [post]
 func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Request) {
+	s.createTaskFromPromptWithMaxRequestBytes(w, r, specTaskFromPromptMaxRequestBytes())
+}
+
+func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.ResponseWriter, r *http.Request, requestMaxBytes int64) {
 	addCorsHeaders(w)
 	if r.Method == http.MethodOptions {
 		return
@@ -115,7 +119,7 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	}
 
 	var req types.CreateTaskRequest
-	r.Body = http.MaxBytesReader(w, r.Body, specTaskFromPromptMaxRequestBytes())
+	r.Body = http.MaxBytesReader(w, r.Body, requestMaxBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("Failed to decode create task request")
 		var maxBytesErr *http.MaxBytesError
@@ -1043,6 +1047,7 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 	tasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
 		ProjectID:       projectID,
 		IncludeArchived: false,
+		ExcludeStatuses: []types.SpecTaskStatus{types.TaskStatusPreparing},
 	})
 	if err != nil {
 		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to list tasks for batch progress")

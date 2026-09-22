@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -35,6 +36,22 @@ func TestSpecTaskInlineAttachmentOpenAPIRequiresPayloadFields(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(document, &schema))
 	require.ElementsMatch(t, []string{"name", "content_base64"}, schema.Definitions["types.SpecTaskInlineAttachment"].Required)
+}
+
+func TestCreateTaskFromPromptRejectsRequestBodyOverConfiguredLimit(t *testing.T) {
+	server := &HelixAPIServer{}
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/spec-tasks/from-prompt",
+		strings.NewReader(`{"project_id":"project-1","prompt":"this body is intentionally over the configured test limit"}`),
+	)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1"}))
+	response := httptest.NewRecorder()
+
+	server.createTaskFromPromptWithMaxRequestBytes(response, req, 32)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, response.Code)
+	require.Contains(t, response.Body.String(), "request body exceeds inline attachment size limit")
 }
 
 func requireInlineAttachmentIngestionLease(t *testing.T, operationCtx context.Context) {
@@ -496,6 +513,31 @@ func TestPersistSpecTaskAttachmentCleansBlobWhenUploadFinalizationFails(t *testi
 
 	_, err = server.persistSpecTaskAttachment(context.Background(), "task-1", "project-1", "user-1", attachment)
 	require.ErrorContains(t, err, "write attachment to filestore")
+}
+
+func TestUploadSpecTaskAttachmentsReportsPreparingIntake(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	user := types.User{ID: "user-1"}
+	task := &types.SpecTask{
+		ID:        "task-1",
+		ProjectID: "project-1",
+		Status:    types.TaskStatusPreparing,
+	}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{
+		ID: task.ProjectID, UserID: user.ID,
+	}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/"+task.ID+"/attachments", nil)
+	req = req.WithContext(setRequestUser(req.Context(), user))
+	req = mux.SetURLVars(req, map[string]string{"taskId": task.ID})
+	response := httptest.NewRecorder()
+
+	server.uploadSpecTaskAttachments(response, req)
+
+	require.Equal(t, http.StatusConflict, response.Code)
+	require.Contains(t, response.Body.String(), "attachment intake is still in progress")
 }
 
 func TestPrepareInlineSpecTaskAttachmentsEnforcesAllSizeLimits(t *testing.T) {

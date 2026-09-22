@@ -340,6 +340,9 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
 	if specTaskAttachmentUploadsLocked(task.Status) {
 		http.Error(w, "task has reached pull request delivery — attachments are read-only", http.StatusConflict)
 		return
@@ -569,6 +572,9 @@ func (s *HelixAPIServer) deleteSpecTaskAttachment(w http.ResponseWriter, r *http
 	}
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if rejectPreparingSpecTaskMutation(w, task) {
 		return
 	}
 	if specTaskAttachmentDeletesLocked(task.Status) {
