@@ -1069,11 +1069,11 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleSpecApproved_SelfHealsNilSpecA
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestIsDeletedProjectError() {
-	// GORM "record not found" errors should match
-	assert.True(s.T(), isDeletedProjectError(fmt.Errorf("failed to get project: record not found")))
-	assert.True(s.T(), isDeletedProjectError(fmt.Errorf("record not found")))
+	assert.True(s.T(), isDeletedProjectError(store.ErrNotFound))
+	assert.True(s.T(), isDeletedProjectError(fmt.Errorf("failed to get project: %w", store.ErrNotFound)))
 
-	// Domain errors containing "not found" but NOT "record not found" should NOT match
+	// Text alone must not classify an unrelated error as a deleted project.
+	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("record not found")))
 	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("spec approval not found")))
 	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("failed to approve specs: spec approval not found")))
 	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("default repository not set for project")))

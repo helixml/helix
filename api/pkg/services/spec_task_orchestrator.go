@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -15,11 +16,10 @@ import (
 
 //go:generate mockgen -source $GOFILE -destination spec_task_orchestrator_mocks.go -package $GOPACKAGE
 
-// isDeletedProjectError returns true for GORM "record not found" errors that
-// indicate a task references a deleted project. Used to suppress expected noise
-// in orchestrator loops. Must NOT match domain errors like "spec approval not found".
+// isDeletedProjectError returns true when a task references a deleted project.
+// It must not match unrelated domain errors whose text happens to say "not found".
 func isDeletedProjectError(err error) bool {
-	return strings.Contains(err.Error(), "record not found")
+	return errors.Is(err, store.ErrNotFound)
 }
 
 // SpecTaskOrchestrator orchestrates SpecTasks through the complete workflow
