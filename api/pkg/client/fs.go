@@ -47,6 +47,7 @@ func (c *HelixClient) FilestoreDelete(ctx context.Context, path string) error {
 }
 
 func (c *HelixClient) FilestoreUpload(ctx context.Context, path string, file io.Reader) error {
+	path = strings.ReplaceAll(path, `\`, "/")
 	if path == "" {
 		return fmt.Errorf("path is required")
 	}

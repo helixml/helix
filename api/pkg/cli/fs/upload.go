@@ -47,6 +47,10 @@ func newWriteCmd() *cobra.Command {
 // UploadFiles upload files to the Helix filestore. If localPath is a directory, it will upload all files recursively in the directory
 // to the remote path. If localPath is a file, it will upload the file to the remote path.
 func UploadFiles(ctx context.Context, apiClient client.Client, localPath string, remotePath string) error {
+	if strings.TrimSpace(remotePath) == "" {
+		return fmt.Errorf("remote file path is required")
+	}
+
 	fileInfo, err := os.Stat(localPath)
 	if err != nil {
 		return fmt.Errorf("failed to get file info: %w", err)

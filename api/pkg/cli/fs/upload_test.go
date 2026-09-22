@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -21,4 +22,9 @@ func TestUploadShortcutDoesNotRemoveFilesystemWriteCommand(t *testing.T) {
 	require.NoError(t, err)
 	require.Same(t, nestedBefore, nestedAfter)
 	require.Same(t, filesystemCmd, nestedAfter.Parent())
+}
+
+func TestUploadFilesRequiresRemotePathForDirectory(t *testing.T) {
+	err := UploadFiles(context.Background(), nil, t.TempDir(), " ")
+	require.EqualError(t, err, "remote file path is required")
 }
