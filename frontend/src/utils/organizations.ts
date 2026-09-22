@@ -1,7 +1,11 @@
 import { TypesOrganization, TypesOrganizationRole, TypesOrganizationMembership } from '../api/api'
 
 export function orgLandingRoute(): string {
-  return 'org_chat'
+  return 'org_bot_session'
+}
+
+export function orgLandingParams(orgID: string): { org_id: string, bot_id: string } {
+  return { org_id: orgID, bot_id: 'chief-of-staff' }
 }
 
 /**

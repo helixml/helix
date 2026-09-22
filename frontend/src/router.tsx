@@ -58,7 +58,7 @@ import HelixOrgTopicsRetired from './pages/HelixOrgTopicsRetired'
 import HelixOrgProcessorDetail from './pages/HelixOrgProcessorDetail'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
-import { orgLandingRoute } from './utils/organizations'
+import { orgLandingParams, orgLandingRoute } from './utils/organizations'
 import { getSelectedOrg } from './utils/localStorage'
 
 // extend the base router5 route to add metadata and self rendering
@@ -757,7 +757,7 @@ const initialPath = window.location.pathname
 router.start()
 
 if (storedOrg) {
-  router.navigate(orgLandingRoute(), { org_id: storedOrg }, { replace: true })
+  router.navigate(orgLandingRoute(), orgLandingParams(storedOrg), { replace: true })
 } else if (initialPath === '/' || initialPath === '') {
   // On mobile, UserOrgSelector may not be mounted (temporary Drawer is closed),
   // so its auto-select effect won't fire. Redirect to /orgs so users can pick one.
