@@ -5251,7 +5251,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field",
+                "description": "Upload one or more files to the filestore. The path may be a directory, in which case multipart filenames are appended, or the exact full path when its basename matches the multipart filename.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -5265,7 +5265,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')",
+                        "description": "Destination directory or exact full file path (e.g., 'documents' or 'documents/report.json')",
                         "name": "path",
                         "in": "query",
                         "required": true

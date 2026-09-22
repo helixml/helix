@@ -11641,7 +11641,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field
+     * @description Upload one or more files to the filestore. The path may be a directory, in which case multipart filenames are appended, or the exact full path when its basename matches the multipart filename.
      *
      * @tags filestore
      * @name V1FilestoreUploadCreate
@@ -11651,7 +11651,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      */
     v1FilestoreUploadCreate: (
       query: {
-        /** Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder') */
+        /** Destination directory or exact full file path (e.g., 'documents' or 'documents/report.json') */
         path: string;
       },
       data: {

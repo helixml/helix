@@ -7,7 +7,6 @@ import (
 	"io"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -17,7 +16,6 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
-	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -395,14 +393,9 @@ func (r *Reconciler) getLocalFilestorePath(k *types.Knowledge) (string, error) {
 		return "", fmt.Errorf("knowledge must be associated with an app")
 	}
 
-	var logicalPath string
-	appPrefix := filestore.GetAppPrefix(r.config.Controller.FilePrefixGlobal, k.AppID)
-
-	if strings.HasPrefix(k.Source.Filestore.Path, fmt.Sprintf("apps/%s/", k.AppID)) {
-		relativePath := strings.TrimPrefix(k.Source.Filestore.Path, fmt.Sprintf("apps/%s/", k.AppID))
-		logicalPath = filepath.Join(appPrefix, relativePath)
-	} else {
-		logicalPath = filepath.Join(appPrefix, k.Source.Filestore.Path)
+	logicalPath, err := scopedKnowledgeFilestorePath(r.config.Controller.FilePrefixGlobal, k.AppID, k.Source.Filestore.Path)
+	if err != nil {
+		return "", fmt.Errorf("invalid knowledge filestore path: %w", err)
 	}
 
 	return filepath.Join(r.config.FileStore.LocalFSPath, logicalPath), nil
