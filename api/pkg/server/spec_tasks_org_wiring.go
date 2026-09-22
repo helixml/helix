@@ -20,7 +20,13 @@ type specTaskWorkflow struct {
 }
 
 func (w specTaskWorkflow) ApproveSpecs(ctx context.Context, task *types.SpecTask) error {
-	return w.apiServer.specDrivenTaskService.ApproveSpecs(ctx, task)
+	err := w.apiServer.specDrivenTaskService.ApproveSpecs(ctx, task)
+	if errors.Is(err, services.ErrDesktopStarting) {
+		// The handoff is durably claimed and the planning desktop is booting;
+		// the orchestrator finishes it. Not a failure for the caller.
+		return nil
+	}
+	return err
 }
 
 func (w specTaskWorkflow) EnsurePullRequests(ctx context.Context, task *types.SpecTask, primaryRepoID, userID string) error {

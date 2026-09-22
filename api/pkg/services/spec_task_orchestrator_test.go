@@ -648,6 +648,10 @@ func (s *countingSpecTaskWorkflowService) ApproveSpecs(context.Context, *types.S
 	return nil
 }
 
+func (s *countingSpecTaskWorkflowService) DriveImplementationHandoff(context.Context, *types.SpecTask) error {
+	return nil
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_ClaimsAcrossOrchestrators() {
 	ctx := context.Background()
 	task := &types.SpecTask{

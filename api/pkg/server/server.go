@@ -642,6 +642,9 @@ func NewServer(
 	apiServer.specDrivenTaskService.TransitionToImplementation = apiServer.transitionSpecTaskToImplementation
 	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
 	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
+	// Set the desktop-readiness gate so the implementation handoff wakes a
+	// stopped planning desktop instead of failing on "no RevDial connection".
+	apiServer.specDrivenTaskService.EnsureDesktopReady = apiServer.ensureDesktopReadyForSession
 	// Wire project-secret injection into HydraExecutor so every desktop container
 	// (spec task, exploratory session, resume) picks up project secrets without
 	// each caller having to remember. Desktop containers are the "dev"

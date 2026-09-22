@@ -34,6 +34,7 @@ type specTaskWorkflowService interface {
 	StartSpecGeneration(ctx context.Context, task *types.SpecTask)
 	StartJustDoItMode(ctx context.Context, task *types.SpecTask)
 	ApproveSpecs(ctx context.Context, task *types.SpecTask) error
+	DriveImplementationHandoff(ctx context.Context, task *types.SpecTask) error
 }
 
 type SpecTaskOrchestrator struct {
@@ -53,6 +54,8 @@ type SpecTaskOrchestrator struct {
 	prPollMu              sync.Mutex
 	prPollLast            map[string]time.Time
 	prPollInFlight        map[string]struct{}
+	handoffMu             sync.Mutex
+	handoffAttempts       map[string]*handoffAttemptState
 	testMode              bool
 }
 
@@ -108,6 +111,7 @@ func NewSpecTaskOrchestrator(
 		orchestrationInterval: 10 * time.Second, // Check every 10 seconds
 		prPollLast:            make(map[string]time.Time),
 		prPollInFlight:        make(map[string]struct{}),
+		handoffAttempts:       make(map[string]*handoffAttemptState),
 		testMode:              false,
 	}
 }
@@ -927,11 +931,150 @@ func (o *SpecTaskOrchestrator) handleSpecRevision(ctx context.Context, task *typ
 // handleImplementationQueued re-drives the durable planning→implementation
 // handoff marker. ApproveSpecs only commits implementation after the Waiting
 // handoff exists, so retries are safe after API restarts or transient failures.
+//
+// The attempt runs on a detached goroutine: waking a stopped planning desktop
+// takes 90-150s, far longer than one orchestration tick, and processTask must
+// stay non-blocking. At most one attempt per task is in flight, and failures
+// back off exponentially rather than re-running every 10s forever.
 func (o *SpecTaskOrchestrator) handleImplementationQueued(ctx context.Context, task *types.SpecTask) error {
-	log.Info().
-		Str("task_id", task.ID).
-		Msg("Retrying pending implementation handoff")
-	return o.specTaskService.ApproveSpecs(ctx, task)
+	if !o.claimHandoffAttempt(task.ID) {
+		return nil
+	}
+
+	snapshot := *task
+	o.wg.Add(1)
+	go func() {
+		defer o.wg.Done()
+		attemptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), handoffAttemptTimeout)
+		defer cancel()
+
+		log.Info().
+			Str("task_id", snapshot.ID).
+			Msg("Driving pending implementation handoff")
+
+		err := o.specTaskService.DriveImplementationHandoff(attemptCtx, &snapshot)
+		o.recordHandoffAttempt(attemptCtx, snapshot.ID, err)
+	}()
+
+	return nil
+}
+
+const (
+	// handoffRetryBaseDelay is the first backoff interval after a failed
+	// implementation handoff attempt; it doubles up to handoffRetryMaxDelay.
+	handoffRetryBaseDelay = 10 * time.Second
+	handoffRetryMaxDelay  = 5 * time.Minute
+	// handoffColdStartGrace mirrors the cold-start window the stuck-interaction
+	// watchdog allows: a desktop that is still booting is not a failed attempt.
+	handoffColdStartGrace = 5 * time.Minute
+	// handoffRetryBudget bounds how long we keep retrying real failures before
+	// surfacing the error to the user and giving up.
+	handoffRetryBudget = 20 * time.Minute
+	// handoffAttemptTimeout bounds a single attempt, which may wait out a cold
+	// desktop boot and then run git operations in the container.
+	handoffAttemptTimeout = 10 * time.Minute
+)
+
+// handoffAttemptState tracks retry pacing for one task's implementation handoff.
+// In-memory by design: an API restart resetting backoff is harmless and lets a
+// task that gave up be retried once the operator has fixed whatever broke.
+type handoffAttemptState struct {
+	firstAttemptAt time.Time
+	attempts       int
+	nextAttemptAt  time.Time
+	inFlight       bool
+	gaveUp         bool
+}
+
+// claimHandoffAttempt reports whether this tick may start a handoff attempt,
+// enforcing single-flight and the backoff schedule.
+func (o *SpecTaskOrchestrator) claimHandoffAttempt(taskID string) bool {
+	o.handoffMu.Lock()
+	defer o.handoffMu.Unlock()
+
+	if o.handoffAttempts == nil {
+		o.handoffAttempts = make(map[string]*handoffAttemptState)
+	}
+	state, ok := o.handoffAttempts[taskID]
+	if !ok {
+		state = &handoffAttemptState{firstAttemptAt: time.Now()}
+		o.handoffAttempts[taskID] = state
+	}
+	if state.inFlight || state.gaveUp || time.Now().Before(state.nextAttemptAt) {
+		return false
+	}
+	state.inFlight = true
+	return true
+}
+
+// recordHandoffAttempt updates the retry schedule from an attempt's outcome.
+func (o *SpecTaskOrchestrator) recordHandoffAttempt(ctx context.Context, taskID string, attemptErr error) {
+	o.handoffMu.Lock()
+	state, ok := o.handoffAttempts[taskID]
+	if !ok {
+		o.handoffMu.Unlock()
+		return
+	}
+	state.inFlight = false
+
+	switch {
+	case attemptErr == nil, errors.Is(attemptErr, ErrImplementationHandoffAlreadyClaimed):
+		delete(o.handoffAttempts, taskID)
+		o.handoffMu.Unlock()
+		return
+	case errors.Is(attemptErr, ErrDesktopStarting) &&
+		time.Since(state.firstAttemptAt) < handoffColdStartGrace:
+		// Still booting inside the cold-start window. Come back at the base
+		// interval without burning a failure or escalating the backoff.
+		state.nextAttemptAt = time.Now().Add(handoffRetryBaseDelay)
+		o.handoffMu.Unlock()
+		return
+	}
+
+	state.attempts++
+	delay := handoffRetryBaseDelay << (state.attempts - 1)
+	if delay > handoffRetryMaxDelay || delay <= 0 {
+		delay = handoffRetryMaxDelay
+	}
+	state.nextAttemptAt = time.Now().Add(delay)
+	gaveUp := time.Since(state.firstAttemptAt) >= handoffRetryBudget
+	state.gaveUp = gaveUp
+	attempts := state.attempts
+	o.handoffMu.Unlock()
+
+	log.Warn().Err(attemptErr).
+		Str("task_id", taskID).
+		Int("attempts", attempts).
+		Dur("retry_in", delay).
+		Bool("gave_up", gaveUp).
+		Msg("Implementation handoff attempt failed")
+
+	if gaveUp {
+		o.persistHandoffFailure(ctx, taskID, attemptErr)
+	}
+}
+
+// persistHandoffFailure writes the real reason onto the task so the user sees
+// it instead of a silent background loop. Only called once, when the retry
+// budget is exhausted — transient "desktop is starting" states must never land
+// here, because spec_tasks.metadata.error renders as the "Desktop paused"
+// detail line in the UI.
+func (o *SpecTaskOrchestrator) persistHandoffFailure(ctx context.Context, taskID string, handoffErr error) {
+	ctx = context.WithoutCancel(ctx)
+	task, err := o.store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to load task to persist handoff failure")
+		return
+	}
+	metadata := make(map[string]interface{}, len(task.Metadata)+2)
+	for key, value := range task.Metadata {
+		metadata[key] = value
+	}
+	metadata["error"] = handoffErr.Error()
+	metadata["error_timestamp"] = time.Now().Format(time.RFC3339)
+	if err := o.store.UpdateSpecTaskFields(ctx, taskID, map[string]any{"metadata": metadata}); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to persist handoff failure")
+	}
 }
 
 // NOTE: Implementation prompts are now handled by agent_instruction_service.go:SendApprovalInstruction
@@ -1032,9 +1175,11 @@ func (o *SpecTaskOrchestrator) handleSpecApproved(ctx context.Context, task *typ
 		Str("task_id", task.ID).
 		Msg("Processing approved spec")
 
-	// Task is approved, move to implementation
+	// Task is approved, move to implementation. ErrDesktopStarting means the
+	// handoff is claimed and the planning desktop is booting — the task is now
+	// implementation_queued and handleImplementationQueued drives it from there.
 	err := o.specTaskService.ApproveSpecs(ctx, task)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrDesktopStarting) {
 		return fmt.Errorf("failed to approve specs: %w", err)
 	}
 	return nil

@@ -46,6 +46,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import ReconnectingWebSocket from "reconnecting-websocket";
 import { applyPatch } from "../../utils/patchUtils";
+import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import {
   useDesignReview,
   useDesignReviewComments,
@@ -1384,6 +1385,13 @@ export default function DesignReviewContent({
         decision: "approve",
         overall_comment: overallComment || undefined,
       });
+
+      // Approval wakes a stopped planning desktop server-side. Flip the cached
+      // session to "starting" now so the spinner engages immediately instead of
+      // flashing "Desktop paused" until the next 3s poll.
+      if (planningSessionId) {
+        optimisticallyMarkSessionStarting(queryClient, planningSessionId);
+      }
 
       snackbar.success("Design approved! Agent starting implementation...");
       setShowSubmitDialog(false);

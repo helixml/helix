@@ -483,6 +483,37 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 	writeResponse(w, review, http.StatusOK)
 }
 
+// approveSpecsForReview drives the planning→implementation handoff for an
+// approved design review. It reports whether the caller may continue; when it
+// returns false it has already written the error response.
+//
+// ErrDesktopStarting is a success: the handoff is durably claimed and the
+// planning desktop is booting, so the orchestrator will finish it. Approving is
+// the user telling us they want the task to proceed, which necessarily means
+// the desktop must run — a stopped sandbox is ours to fix, not to report. It
+// must not reach persistSpecApprovalError, whose output renders as the
+// "Desktop paused" detail line on the task page.
+func (s *HelixAPIServer) approveSpecsForReview(ctx context.Context, w http.ResponseWriter, specTask *types.SpecTask) bool {
+	err := s.specDrivenTaskService.ApproveSpecs(ctx, specTask)
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, services.ErrDesktopStarting):
+		log.Info().
+			Str("spec_task_id", specTask.ID).
+			Str("session_id", specTask.PlanningSessionID).
+			Msg("[DesignReview] Approved; planning desktop is starting, handoff continues in the orchestrator")
+		return true
+	case errors.Is(err, services.ErrImplementationHandoffAlreadyClaimed):
+		http.Error(w, err.Error(), http.StatusConflict)
+		return false
+	default:
+		s.persistSpecApprovalError(ctx, specTask.ID, err)
+		http.Error(w, fmt.Sprintf("failed to start implementation: %v", err), http.StatusInternalServerError)
+		return false
+	}
+}
+
 // submitDesignReview approves or requests changes for a design review
 // @Summary Submit design review decision
 // @Description Approve or request changes for a design review
@@ -554,6 +585,15 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		review.ApprovedAt = &now
 		review.OverallComment = req.OverallComment
 
+		// Persist the human's decision before driving the handoff. The review
+		// records a decision that has already happened; a handoff that is still
+		// in progress (or that fails) must not leave the review stuck at
+		// in_review while the task has advanced to implementation_queued.
+		if err := s.Store.UpdateSpecTaskDesignReview(ctx, review); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		switch specTask.Status {
 		case types.TaskStatusSpecReview, types.TaskStatusSpecRevision, types.TaskStatusSpecGeneration:
 			if reason, validationErr := s.validateSpecTaskAgentConfig(ctx, specTask, user.ID, types.SpecTaskPhaseImplementation); validationErr != nil {
@@ -612,23 +652,11 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 				s.auditLogService.LogTaskApproved(ctx, specTask, user.ID, user.Email)
 			}
 
-			if err := s.specDrivenTaskService.ApproveSpecs(ctx, specTask); err != nil {
-				if errors.Is(err, services.ErrImplementationHandoffAlreadyClaimed) {
-					http.Error(w, err.Error(), http.StatusConflict)
-					return
-				}
-				s.persistSpecApprovalError(ctx, specTask.ID, err)
-				http.Error(w, fmt.Sprintf("failed to start implementation: %v", err), http.StatusInternalServerError)
+			if !s.approveSpecsForReview(ctx, w, specTask) {
 				return
 			}
 		case types.TaskStatusSpecApproved, types.TaskStatusImplementationQueued:
-			if err := s.specDrivenTaskService.ApproveSpecs(ctx, specTask); err != nil {
-				if errors.Is(err, services.ErrImplementationHandoffAlreadyClaimed) {
-					http.Error(w, err.Error(), http.StatusConflict)
-					return
-				}
-				s.persistSpecApprovalError(ctx, specTask.ID, err)
-				http.Error(w, fmt.Sprintf("failed to start implementation: %v", err), http.StatusInternalServerError)
+			if !s.approveSpecsForReview(ctx, w, specTask) {
 				return
 			}
 		default:
@@ -1470,6 +1498,71 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 		Msg("✅ Dev container auto-started, agent will reconnect via WebSocket")
 
 	return nil
+}
+
+// ensureDesktopReadyForSession reports whether sessionID's desktop is connected
+// and usable for RevDial exec, starting it when it is not. It is the readiness
+// gate SpecDrivenTaskService.ApproveSpecs uses before its container-dependent
+// steps (git identity sync, feature-branch checkout).
+//
+// The readiness signal is the external-agent WebSocket, not the desktop bridge.
+// An idle-stopped desktop is destroyed (container + zvol), so a restart re-runs
+// helix-workspace-setup.sh and re-clones the repos; the bridge comes up long
+// before /home/retro/work/<repo> exists. start-zed-core.sh waits for
+// ~/.helix-setup-complete before launching Zed, and Zed dials the WS afterwards,
+// so "WS connected" is the existing proxy for "workspace is ready".
+//
+// Starting goes through startDevContainerForSession — the one canonical wake
+// path, shared with resumeSession and the auto-wake watchdog. No second
+// mechanism, no fallback path.
+//
+// wait == 0 kicks the start and returns immediately (request path, 30s budget);
+// wait > 0 blocks up to wait for the WS (orchestrator path). An error is
+// returned only when the start itself is refused or fails.
+func (s *HelixAPIServer) ensureDesktopReadyForSession(ctx context.Context, sessionID string, wait time.Duration) (bool, error) {
+	if sessionID == "" {
+		return false, fmt.Errorf("ensureDesktopReadyForSession: empty session ID")
+	}
+
+	if conn, connected := s.externalAgentWSManager.getConnection(sessionID); connected && conn != nil {
+		return true, nil
+	}
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return false, fmt.Errorf("load session %s: %w", sessionID, err)
+	}
+	if session == nil {
+		return false, fmt.Errorf("session %s not found", sessionID)
+	}
+
+	// Flip the session to "starting" up front so the UI spinner engages on the
+	// very next poll instead of rendering "Desktop paused" while we boot.
+	if _, err := s.Store.MarkSessionStartingIfIdle(ctx, sessionID); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).
+			Msg("ensureDesktopReadyForSession: failed to mark session starting; spinner may flicker")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Dur("wait", wait).
+		Msg("Planning desktop is not connected; starting it for the implementation handoff")
+
+	if err := s.startDevContainerForSession(ctx, session); err != nil {
+		return false, err
+	}
+
+	if wait <= 0 {
+		return false, nil
+	}
+
+	if err := s.waitForExternalAgentReady(ctx, sessionID, wait); err != nil {
+		// Still booting is not a failure — the caller retries with backoff.
+		log.Info().Err(err).Str("session_id", sessionID).
+			Msg("Planning desktop did not connect within the wait window; handoff stays queued")
+		return false, nil
+	}
+	return true, nil
 }
 
 // startDevContainerForSpecTask is a thin wrapper that loads the spec task's planning

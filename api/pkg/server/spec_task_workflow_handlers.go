@@ -97,7 +97,13 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			if err := s.specDrivenTaskService.ApproveSpecs(context.Background(), specTask); err != nil {
+			err := s.specDrivenTaskService.ApproveSpecs(context.Background(), specTask)
+			switch {
+			case err == nil:
+			case errors.Is(err, services.ErrDesktopStarting):
+				log.Info().Str("task_id", specTaskID).
+					Msg("Auto-approval claimed the handoff; planning desktop is starting")
+			default:
 				log.Error().Err(err).Str("task_id", specTaskID).Msg("Failed to process auto-approval")
 			}
 		}()

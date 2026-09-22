@@ -781,7 +781,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // the "paused/stopped" UI and treat the desktop as starting so the user sees "Starting Desktop"
   // immediately after clicking "Start Planning" rather than a confusing flash of the stopped state.
   const isQueuedForPlanning = task?.status === "queued_spec_generation";
-  const effectiveIsDesktopPaused = isDesktopPaused && !isQueuedForPlanning;
+  // implementation_queued is the same situation one phase later: the design was
+  // approved, the server is waking the planning desktop and will deliver the
+  // implementation instruction itself. Showing "Desktop paused — start the
+  // desktop to interact with it" here tells the user to fix something we are
+  // already fixing (and, done by hand, would make them click Approve again).
+  const isAwaitingImplementationHandoff = task?.status === "implementation_queued";
+  const isDesktopStartingForTask = isQueuedForPlanning || isAwaitingImplementationHandoff;
+  const effectiveIsDesktopPaused = isDesktopPaused && !isDesktopStartingForTask;
   const sandboxIndicatorState: SandboxIndicatorState = isDesktopRunning
     ? "running"
     : isDesktopStarting
@@ -2807,7 +2814,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       startupErrorMessage={desktopStartupMessage}
                       connectSubscriptionLabel={connectSubscriptionLabel}
                       onConnectSubscription={connectSubscription}
-                      initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
+                      initialSandboxState={isDesktopStartingForTask ? "starting" : undefined}
                     />
                   ))}
                 {currentView === "browser" &&
@@ -3081,7 +3088,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     startupErrorMessage={desktopStartupMessage}
                     connectSubscriptionLabel={connectSubscriptionLabel}
                     onConnectSubscription={connectSubscription}
-                    initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
+                    initialSandboxState={isDesktopStartingForTask ? "starting" : undefined}
                   />
                 )}
               </Box>

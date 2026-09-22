@@ -27,11 +27,30 @@ const (
 
 var ErrImplementationHandoffAlreadyClaimed = errors.New("implementation handoff is already being started")
 
+// ErrDesktopStarting reports that the implementation handoff has been durably
+// claimed (task is in implementation_queued) but the planning desktop was not
+// running, so the container-dependent steps were deferred. The desktop start
+// has been kicked off; the orchestrator re-drives the handoff via
+// DriveImplementationHandoff once the desktop is connected.
+//
+// This is NOT a user-visible failure: handlers map it to HTTP 200 and must not
+// persist it onto spec_tasks.metadata.error (which renders as the "Desktop
+// paused" detail line in the UI).
+var ErrDesktopStarting = errors.New("planning desktop is starting; implementation handoff will continue once it is ready")
+
 // RequestMappingRegistrar is a function type for registering request-to-session mappings
 type RequestMappingRegistrar func(requestID, sessionID string)
 
 // DesktopExecFunc executes a command inside a running desktop container via RevDial.
 type DesktopExecFunc func(ctx context.Context, sessionID string, command []string) error
+
+// DesktopReadinessFunc reports whether sessionID's desktop is connected and
+// usable for RevDial exec. When it is not, the implementation kicks the
+// canonical desktop start path and, if wait > 0, blocks up to wait for the
+// external-agent WebSocket to come up. It returns an error only when the start
+// itself is refused or fails — a desktop that is merely still booting returns
+// (false, nil).
+type DesktopReadinessFunc func(ctx context.Context, sessionID string, wait time.Duration) (bool, error)
 
 // AttachmentBlobReader reads the bytes of a SpecTask attachment from the filestore.
 // Injected by the server so this service doesn't need to import the controller package.
@@ -61,6 +80,7 @@ type SpecDrivenTaskService struct {
 	auditLogService            *AuditLogService          // Service for audit logging
 	koditService               KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
 	ExecInDesktop              DesktopExecFunc           // Callback to exec commands in running desktop containers
+	EnsureDesktopReady         DesktopReadinessFunc      // Callback to wake a stopped desktop before container-dependent work
 	ReadAttachmentBlob         AttachmentBlobReader      // Callback to load attachment bytes from filestore
 	TransitionToImplementation SpecTaskPhaseTransitioner // Callback owned by the API server's live agent-switching machinery
 	wg                         sync.WaitGroup
@@ -1283,8 +1303,32 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 	return nil
 }
 
-// ApproveSpecs handles human approval of generated specs
+// desktopWakeTimeout bounds how long a re-driven implementation handoff waits
+// for a cold planning desktop. A stopped desktop is destroyed, not suspended, so
+// a restart re-runs workspace setup and re-clones the repos — 90-150s is normal.
+const desktopWakeTimeout = 4 * time.Minute
+
+// ApproveSpecs handles human approval of generated specs.
+//
+// Request-path entry point: it never blocks on a desktop boot (handlers run
+// under a 30s budget). When the planning desktop is not connected, the handoff
+// is durably claimed as implementation_queued, the desktop start is kicked off,
+// and ErrDesktopStarting is returned for the caller to map to a success
+// response. The orchestrator then finishes the handoff via
+// DriveImplementationHandoff. When the desktop is already connected this is
+// byte-for-byte the previous fully-synchronous behaviour.
 func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.SpecTask) error {
+	return s.approveSpecs(ctx, task, 0)
+}
+
+// DriveImplementationHandoff re-drives the durable implementation_queued marker
+// from the orchestrator, waiting for the planning desktop to come up rather than
+// returning ErrDesktopStarting. Shares its whole body with ApproveSpecs.
+func (s *SpecDrivenTaskService) DriveImplementationHandoff(ctx context.Context, task *types.SpecTask) error {
+	return s.approveSpecs(ctx, task, desktopWakeTimeout)
+}
+
+func (s *SpecDrivenTaskService) approveSpecs(ctx context.Context, task *types.SpecTask, desktopWait time.Duration) error {
 	task, err := s.store.GetSpecTask(ctx, task.ID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
@@ -1353,7 +1397,14 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			return fmt.Errorf("default branch not set for repository, please set it")
 		}
 
-		if repo.ExternalURL != "" {
+		// Re-driving an already-claimed handoff must not re-fetch from the
+		// external remote. The base branch was synced and persisted
+		// (base_branch / branch_name) when the handoff was claimed, so repeating
+		// it buys nothing and used to mean a GitHub fetch on every orchestrator
+		// tick for as long as the handoff stayed stuck.
+		alreadyClaimed := task.Status == types.TaskStatusImplementationQueued
+
+		if repo.ExternalURL != "" && !alreadyClaimed {
 			log.Info().Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Msg("ApproveSpecs: syncing base branch from remote")
 
 			// Use SyncBaseBranch which handles divergence detection
@@ -1447,6 +1498,27 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// Update git identity in the running container to match the approver,
 		// so implementation commits are attributed to the user who approved specs.
 		sessionID := task.PlanningSessionID
+
+		// Design review is an *asynchronous* human decision — days can pass
+		// between the specs being pushed and Approve being clicked, and
+		// HELIX_DESKTOP_IDLE_TIMEOUT (1h) reaps the planning desktop long
+		// before that. The next two steps both need a live RevDial connection,
+		// so wake the desktop first rather than failing and telling the user to
+		// start it by hand. The handoff marker above is already durable, so
+		// deferring here is safe and re-drivable.
+		ready, err := s.ensureDesktopReady(ctx, sessionID, desktopWait)
+		if err != nil {
+			// A refused or failed start is a real error — surface it.
+			return fmt.Errorf("start planning desktop for implementation handoff: %w", err)
+		}
+		if !ready {
+			log.Info().
+				Str("task_id", task.ID).
+				Str("session_id", sessionID).
+				Dur("waited", desktopWait).
+				Msg("[ApproveSpecs] Planning desktop not ready yet; handoff stays queued for the orchestrator")
+			return ErrDesktopStarting
+		}
 
 		if err := s.syncGitIdentityToUser(ctx, task, task.SpecApprovedBy, "approver"); err != nil {
 			// Don't fail the whole approval — push-time credentials already
@@ -1603,6 +1675,21 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 	}
 
 	return nil
+}
+
+// ensureDesktopReady gates the container-dependent parts of the implementation
+// handoff on a live desktop, starting it when it is stopped.
+//
+// Returns ready=true when the exec calls that follow can be expected to work.
+// In test mode, when there is no session, or when no readiness callback is
+// wired, it reports ready so the downstream calls keep their existing no-op
+// behaviour. An error means the start was genuinely refused or failed; a
+// desktop that is merely still booting is (false, nil).
+func (s *SpecDrivenTaskService) ensureDesktopReady(ctx context.Context, sessionID string, wait time.Duration) (bool, error) {
+	if s.testMode || sessionID == "" || s.EnsureDesktopReady == nil {
+		return true, nil
+	}
+	return s.EnsureDesktopReady(ctx, sessionID, wait)
 }
 
 // syncGitIdentityToUser updates the container's global git user.name and

@@ -826,7 +826,9 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 	// Approval is not complete until the durable implementation handoff exists.
 	// Returning 200 before this point leaves the approver with a task that can be
 	// stuck without any visible failure.
-	if err := s.specDrivenTaskService.ApproveSpecs(ctx, existingTask); err != nil {
+	// ErrDesktopStarting is not a failure: the handoff is claimed and the
+	// planning desktop is waking, so the orchestrator finishes the job.
+	if err := s.specDrivenTaskService.ApproveSpecs(ctx, existingTask); err != nil && !errors.Is(err, services.ErrDesktopStarting) {
 		if errors.Is(err, services.ErrImplementationHandoffAlreadyClaimed) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
