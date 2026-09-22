@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"path"
 	"path/filepath"
 	"sort"
@@ -2905,14 +2906,10 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 	for _, repoSpec := range resolvedRepos {
 		// Find-or-create git repository by external URL
 		repo, err := s.Store.GetGitRepositoryByExternalURL(r.Context(), orgID, repoSpec.URL)
+		repairedExistingRepo := false
 		if err != nil {
 			if err != store.ErrNotFound {
 				return nil, system.NewHTTPError500(fmt.Sprintf("failed to look up repository %s: %v", repoSpec.URL, err))
-			}
-			// Create it
-			branch := repoSpec.DefaultBranch
-			if branch == "" {
-				branch = "main"
 			}
 			// Derive a short human-readable name from the URL (e.g. "robot-hq" from
 			// "https://github.com/binocarlos/robot-hq"). This name is used as the
@@ -2922,20 +2919,52 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			if repoName == "" || repoName == "." {
 				repoName = repoSpec.URL
 			}
-			repo = &types.GitRepository{
-				ID:             system.GenerateUUID(),
+			if s.gitRepositoryService == nil {
+				return nil, system.NewHTTPError500("git repository service is not configured")
+			}
+			repo, err = s.gitRepositoryService.CreateRepository(r.Context(), &types.GitRepositoryCreateRequest{
 				Name:           repoName,
-				OrganizationID: orgID,
 				OwnerID:        user.ID,
+				OrganizationID: orgID,
 				RepoType:       types.GitRepositoryTypeCode,
 				IsExternal:     true,
 				ExternalURL:    repoSpec.URL,
-				CloneURL:       repoSpec.URL,
-				DefaultBranch:  branch,
-				Status:         types.GitRepositoryStatusActive,
-			}
-			if err := s.Store.CreateGitRepository(r.Context(), repo); err != nil {
+				ExternalType:   externalRepositoryTypeForURL(repoSpec.URL),
+				DefaultBranch:  repoSpec.DefaultBranch,
+				CreatorName:    user.FullName,
+				CreatorEmail:   user.Email,
+			})
+			if err != nil {
 				return nil, system.NewHTTPError500(fmt.Sprintf("failed to create repository %s: %v", repoSpec.URL, err))
+			}
+			if repo.ExternalURL == "" || repo.CloneURL == "" || repo.LocalPath == "" {
+				return nil, system.NewHTTPError500(fmt.Sprintf("created repository %s is incomplete", repoSpec.URL))
+			}
+		} else if repo.LocalPath == "" {
+			if s.gitRepositoryService == nil {
+				return nil, system.NewHTTPError500("git repository service is not configured")
+			}
+			var repairedRepo *types.GitRepository
+			err = s.gitRepositoryService.WithRepoLock(repo.ID, func() error {
+				var repairErr error
+				repairedRepo, repairErr = s.gitRepositoryService.GetRepository(r.Context(), repo.ID)
+				return repairErr
+			})
+			if err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to repair repository %s: %v", repoSpec.URL, err))
+			}
+			repo = repairedRepo
+			repairedExistingRepo = true
+		}
+		if repairedExistingRepo && repo.ExternalType == "" {
+			externalType := externalRepositoryTypeForURL(repoSpec.URL)
+			if externalType != "" {
+				repo, err = s.gitRepositoryService.UpdateRepository(r.Context(), repo.ID, &types.GitRepositoryUpdateRequest{
+					ExternalType: externalType,
+				}, "")
+				if err != nil {
+					return nil, system.NewHTTPError500(fmt.Sprintf("failed to repair repository provider %s: %v", repoSpec.URL, err))
+				}
 			}
 		}
 		if err := s.Store.AttachRepositoryToProject(r.Context(), project.ID, repo.ID); err != nil {
@@ -3189,6 +3218,28 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		Created:    wasCreated,
 		AgentAppID: agentAppID,
 	}, nil
+}
+
+func externalRepositoryTypeForURL(repoURL string) types.ExternalRepositoryType {
+	parsed, err := url.Parse(repoURL)
+	if err != nil {
+		return ""
+	}
+	switch strings.ToLower(parsed.Hostname()) {
+	case "github.com":
+		return types.ExternalRepositoryTypeGitHub
+	case "gitlab.com":
+		return types.ExternalRepositoryTypeGitLab
+	case "bitbucket.org":
+		return types.ExternalRepositoryTypeBitbucket
+	case "dev.azure.com":
+		return types.ExternalRepositoryTypeADO
+	default:
+		if strings.HasSuffix(strings.ToLower(parsed.Hostname()), ".visualstudio.com") {
+			return types.ExternalRepositoryTypeADO
+		}
+		return ""
+	}
 }
 
 // preserveAssistantSkillsFromExisting copies skill / prompt fields from an
