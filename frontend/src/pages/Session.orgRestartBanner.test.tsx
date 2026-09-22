@@ -49,6 +49,7 @@ const sessionData = {
   name: 'Org bot session',
   owner: 'user-1',
   organization_id: 'acme',
+  project_id: '',
   type: 'text',
   mode: 'inference',
   interactions: [] as unknown[],
@@ -95,7 +96,9 @@ vi.mock('../services/userService', () => ({
   useGetConfig: () => ({ data: { edition: 'self-hosted' } }),
 }))
 vi.mock('../services/projectService', () => ({
-  useGetProject: () => ({ data: undefined }),
+  useGetProject: (projectId: string) => ({
+    data: projectId ? { id: projectId, name: 'Test project' } : undefined,
+  }),
 }))
 vi.mock('../services/helixOrgService', () => ({
   useHelixOrgBot: (botId?: string) => ({
@@ -134,6 +137,8 @@ describe('Session org chat restart banner', () => {
     mocks.restartMutateAsync.mockReset()
     mocks.restartIsPending = false
     mocks.pageProps = undefined
+    sessionData.project_id = ''
+    sessionData.config.org_worker_id = 'bot-one'
   })
 
   it('shows the restart banner when the session bot reports stale config', async () => {
@@ -195,5 +200,21 @@ describe('Session org chat restart banner', () => {
 
     expect(mocks.pageProps?.breadcrumbs).toEqual([])
     expect(mocks.pageProps?.orgBreadcrumbs).toBe(true)
+  })
+
+  it('keeps project breadcrumbs for an org chat without a bot', async () => {
+    sessionData.project_id = 'project-one'
+    sessionData.config.org_worker_id = ''
+    render(<Session orgChatView />)
+    await screen.findByText('Prompt input')
+
+    expect(mocks.pageProps?.breadcrumbs).toEqual([
+      { title: 'Projects', routeName: 'projects' },
+      {
+        title: 'Test project',
+        routeName: 'project-specs',
+        params: { id: 'project-one' },
+      },
+    ])
   })
 })
