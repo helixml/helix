@@ -30,10 +30,16 @@ func isDeletedProjectError(err error) bool {
 // PR creation for repos whose branches weren't ready at initial "Open PR" time.
 type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string, userID string) error
 
+type specTaskWorkflowService interface {
+	StartSpecGeneration(ctx context.Context, task *types.SpecTask)
+	StartJustDoItMode(ctx context.Context, task *types.SpecTask)
+	ApproveSpecs(ctx context.Context, task *types.SpecTask) error
+}
+
 type SpecTaskOrchestrator struct {
 	store                 store.Store
 	gitService            GitService
-	specTaskService       *SpecDrivenTaskService
+	specTaskService       specTaskWorkflowService
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
 	attentionService      *AttentionService
@@ -773,16 +779,26 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 		return nil
 	}
 
-	// Claim capacity before launching the goroutine. This closes the gap between
-	// an explicit start entering queued_implementation and StartJustDoItMode
-	// eventually persisting implementation.
+	// Claim capacity before launching the goroutine. The claim must be durable:
+	// projectLock only serializes one API process, while multiple replicas can
+	// observe the same queued task concurrently.
 	now := time.Now()
+	claimed, err := o.store.TransitionSpecTaskStatus(
+		ctx,
+		latestTask.ID,
+		[]types.SpecTaskStatus{types.TaskStatusQueuedImplementation},
+		types.TaskStatusImplementation,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to reserve implementation WIP slot: %w", err)
+	}
+	if !claimed {
+		return nil
+	}
 	latestTask.Status = types.TaskStatusImplementation
 	latestTask.StatusUpdatedAt = &now
 	latestTask.UpdatedAt = now
-	if err := o.store.UpdateSpecTask(ctx, latestTask); err != nil {
-		return fmt.Errorf("failed to reserve implementation WIP slot: %w", err)
-	}
 
 	o.wg.Add(1)
 	go func() {
