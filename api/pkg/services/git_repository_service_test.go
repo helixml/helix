@@ -3,7 +3,9 @@ package services
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	giteagit "code.gitea.io/gitea/modules/git"
 	"github.com/helixml/helix/api/pkg/store"
@@ -14,6 +16,27 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type cloneTestStore struct {
+	store.Store
+	mu   sync.Mutex
+	repo *types.GitRepository
+}
+
+func (s *cloneTestStore) GetGitRepository(_ context.Context, _ string) (*types.GitRepository, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	copy := *s.repo
+	return &copy, nil
+}
+
+func (s *cloneTestStore) UpdateGitRepository(_ context.Context, repo *types.GitRepository) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	copy := *repo
+	s.repo = &copy
+	return nil
+}
 
 // fakeStore embeds store.Store and overrides only the methods we need.
 type fakeStore struct {
@@ -216,6 +239,42 @@ func TestGetRepositoryRepairsIncompleteExternalMetadata(t *testing.T) {
 	assert.Equal(t, "http://localhost:8080/git/"+repoID, repo.CloneURL)
 	assert.Equal(t, repo.LocalPath, st.repo.LocalPath)
 	assert.Equal(t, repo.CloneURL, st.repo.CloneURL)
+}
+
+func TestCloneRepositoryAsyncSerializesDuplicateRequests(t *testing.T) {
+	filestoreBase := t.TempDir()
+	upstreamPath := filepath.Join(t.TempDir(), "upstream.git")
+	require.NoError(t, giteagit.InitRepository(t.Context(), upstreamPath, true, "sha1"))
+
+	st := &cloneTestStore{repo: &types.GitRepository{
+		ID:          "repo-clone-race",
+		ExternalURL: upstreamPath,
+		IsExternal:  true,
+		Status:      types.GitRepositoryStatusCloning,
+	}}
+	svc := NewGitRepositoryService(st, filestoreBase, "http://localhost:8080", "test", "test@test.com")
+	repoID := st.repo.ID
+	cloneRequest := st.repo
+
+	completed := make(chan string, 2)
+	svc.CloneRepositoryAsync(cloneRequest, func(path string) { completed <- path })
+	svc.CloneRepositoryAsync(cloneRequest, func(path string) { completed <- path })
+
+	wantPath := filepath.Join(filestoreBase, "git-repositories", repoID)
+	for range 2 {
+		select {
+		case path := <-completed:
+			assert.Equal(t, wantPath, path)
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for serialized clone")
+		}
+	}
+
+	repo, err := st.GetGitRepository(t.Context(), repoID)
+	require.NoError(t, err)
+	assert.Equal(t, types.GitRepositoryStatusActive, repo.Status)
+	assert.Equal(t, wantPath, repo.LocalPath)
+	assert.Equal(t, "http://localhost:8080/git/"+repo.ID, repo.CloneURL)
 }
 
 func TestDeleteRepository_DeletesFromKodit(t *testing.T) {
