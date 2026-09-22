@@ -9,6 +9,7 @@ import useRouter from '../hooks/useRouter'
 import { appendPromptDraft } from '../hooks/usePromptHistory'
 import { useActivateBot, useListHelixOrgBots } from '../services/helixOrgService'
 import { consumeOrgBotChatDraft } from '../components/helix-org/orgBotChatDraft'
+import { CHIEF_OF_STAFF_BOT_ID } from '../utils/organizations'
 import Session from './Session'
 
 export default function OrgBotSessionResolver() {
@@ -55,7 +56,7 @@ export default function OrgBotSessionResolver() {
   }, [bot?.id, botID, orgID, sessionID]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (listError || botsLoading || bot || botID !== 'chief-of-staff' || !orgID) return
+    if (listError || botsLoading || bot || botID !== CHIEF_OF_STAFF_BOT_ID || !orgID) return
     router.navigateReplace('org_chat', { org_id: orgID })
   }, [bot, botID, botsLoading, listError, orgID]) // eslint-disable-line react-hooks/exhaustive-deps
 

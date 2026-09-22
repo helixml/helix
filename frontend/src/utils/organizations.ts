@@ -1,11 +1,13 @@
 import { TypesOrganization, TypesOrganizationRole, TypesOrganizationMembership } from '../api/api'
 
+export const CHIEF_OF_STAFF_BOT_ID = 'chief-of-staff'
+
 export function orgLandingRoute(): string {
   return 'org_bot_session'
 }
 
 export function orgLandingParams(orgID: string): { org_id: string, bot_id: string } {
-  return { org_id: orgID, bot_id: 'chief-of-staff' }
+  return { org_id: orgID, bot_id: CHIEF_OF_STAFF_BOT_ID }
 }
 
 /**
