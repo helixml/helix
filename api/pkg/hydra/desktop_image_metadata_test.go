@@ -114,6 +114,32 @@ func TestRecoverDesktopVersionFromLocalRegistry(t *testing.T) {
 	require.Contains(t, string(output), "adopted version 2ac5fd from local registry fallback")
 }
 
+func TestRecoverDesktopVersionRejectsUnwritablePointer(t *testing.T) {
+	tmp := t.TempDir()
+	imagesDir := filepath.Join(tmp, "images")
+	seedDir := filepath.Join(tmp, "seed")
+	binDir := filepath.Join(tmp, "bin")
+	versionPath := filepath.Join(imagesDir, "helix-ubuntu.version")
+	registryRequest := filepath.Join(tmp, "registry-request")
+	require.NoError(t, os.MkdirAll(versionPath, 0o755))
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	writeExecutable(t, filepath.Join(binDir, "docker"), "#!/bin/bash\nif [ \"$1\" = images ]; then printf '%s\\n' 'helix-ubuntu 2ac5fd'; fi\n")
+	writeExecutable(t, filepath.Join(binDir, "curl"), "#!/bin/bash\ntouch \"$REGISTRY_REQUEST\"\n")
+
+	cmd := exec.Command("bash", "-c", `source "$1"; if recover_missing_desktop_version ubuntu; then exit 1; fi`, "bash", desktopImageMetadataScript(t))
+	cmd.Env = append(os.Environ(),
+		"PATH="+binDir+":"+os.Getenv("PATH"),
+		"HELIX_DESKTOP_IMAGE_DIR="+imagesDir,
+		"HELIX_DESKTOP_IMAGE_SEED_DIR="+seedDir,
+		"REGISTRY_REQUEST="+registryRequest,
+	)
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+	require.Contains(t, string(output), "Cannot write desktop image version pointer: "+versionPath)
+	require.NotContains(t, string(output), "adopted version")
+	require.NoFileExists(t, registryRequest)
+}
+
 func TestRecoverDesktopVersionRejectsAmbiguousFallbacks(t *testing.T) {
 	tmp := t.TempDir()
 	imagesDir := filepath.Join(tmp, "images")

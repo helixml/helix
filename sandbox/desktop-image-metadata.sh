@@ -69,6 +69,16 @@ select_single_desktop_tag() {
     printf '%s\n' "$candidates" | awk 'NF { print; exit }'
 }
 
+write_desktop_version() {
+    local version_file="$1"
+    local version="$2"
+
+    if ! printf '%s\n' "$version" > "$version_file"; then
+        echo "⚠️  Cannot write desktop image version pointer: ${version_file}"
+        return 1
+    fi
+}
+
 recover_missing_desktop_version() {
     local name="$1"
     local image_name="helix-${name}"
@@ -94,7 +104,9 @@ recover_missing_desktop_version() {
     echo "🔎 ${image_name}: bundled seed unavailable; checking nested Docker image store"
     candidates=$(desktop_image_candidate_tags "$image_name")
     if version=$(select_single_desktop_tag "$candidates"); then
-        printf '%s\n' "$version" > "$version_file"
+        if ! write_desktop_version "$version_file" "$version"; then
+            return 1
+        fi
         echo "♻️  ${image_name}: adopted version ${version} from nested Docker image store"
         return 0
     fi
@@ -103,7 +115,9 @@ recover_missing_desktop_version() {
     echo "🔎 ${image_name}: checking local registry fallback ${registry_api}"
     candidates=$(curl -fsS --max-time 5 "$registry_api" 2>/dev/null | jq -r '.tags[]?' 2>/dev/null | awk '$0 != "latest" && $0 != "<none>"' | sort -u || true)
     if version=$(select_single_desktop_tag "$candidates"); then
-        printf '%s\n' "$version" > "$version_file"
+        if ! write_desktop_version "$version_file" "$version"; then
+            return 1
+        fi
         echo "♻️  ${image_name}: adopted version ${version} from local registry fallback"
         return 0
     fi
