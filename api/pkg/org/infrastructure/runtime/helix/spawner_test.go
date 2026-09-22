@@ -661,6 +661,23 @@ func TestSpawnerTimeoutEmitsExitError(t *testing.T) {
 	}
 }
 
+func TestPollUntilDoneMarksInsufficientBalanceNonRetryable(t *testing.T) {
+	t.Parallel()
+	fc := &fakeHelixClient{
+		outputs: []types.SessionOutputResponse{{
+			InteractionID: "int-current",
+			Status:        "error",
+			Output:        "Provider failed: Insufficient balance",
+		}},
+	}
+	cfg := SpawnerConfig{Client: fc, PollInitial: time.Millisecond, PollMax: time.Millisecond}
+
+	err := cfg.pollUntilDone(context.Background(), "ses-test", "", func(string) {})
+	if !errors.Is(err, activation.ErrNonRetryable) {
+		t.Fatalf("error = %v, want activation.ErrNonRetryable", err)
+	}
+}
+
 func TestSpawnerReleasesQueueWhenRestartDeletesSession(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)

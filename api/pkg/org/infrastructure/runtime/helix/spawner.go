@@ -554,6 +554,9 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID, priorIntera
 			observedCurrentInteraction = true
 			if IsTerminalOutput(out) {
 				if out.Status == "error" {
+					if strings.Contains(strings.ToLower(out.Output), "insufficient balance") {
+						return fmt.Errorf("%w: session error: %s", activation.ErrNonRetryable, briefing.OneLine(out.Output, 500))
+					}
 					return fmt.Errorf("session error: %s", briefing.OneLine(out.Output, 500))
 				}
 				return nil
