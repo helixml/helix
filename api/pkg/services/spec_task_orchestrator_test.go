@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -54,6 +56,44 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
 	s.executor.EXPECT().StopDesktop(ctx, "session-456").Return(nil)
 
 	err := s.orchestrator.handleDone(ctx, task)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestPreparingTaskWaitsForAttachmentIngestion() {
+	task := &types.SpecTask{
+		ID:        "task-preparing",
+		Status:    types.TaskStatusPreparing,
+		UpdatedAt: time.Now(),
+	}
+
+	err := s.orchestrator.processTask(context.Background(), task)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestStalePreparingTaskIsReconciledWithOwnedInputs() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:           "task-interrupted",
+		Status:       types.TaskStatusPreparing,
+		JustDoItMode: true,
+		UpdatedAt:    time.Now().Add(-attachmentPreparationTimeout - time.Minute),
+		Metadata:     map[string]interface{}{"source": "from-prompt"},
+	}
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusPreparing},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, fields map[string]any) (bool, error) {
+		metadata, ok := fields["metadata"].(map[string]interface{})
+		s.Require().True(ok)
+		s.Equal("from-prompt", metadata["source"])
+		s.Contains(metadata["error"], "attachment ingestion was interrupted")
+		return true, nil
+	})
+
+	err := s.orchestrator.processTask(ctx, task)
 	s.Require().NoError(err)
 }
 
@@ -592,6 +632,82 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_RespectsI
 	err := s.orchestrator.handleQueuedImplementation(ctx, task)
 	s.Require().NoError(err)
 	s.Equal(types.TaskStatusQueuedImplementation, task.Status)
+}
+
+type countingSpecTaskWorkflowService struct {
+	justDoItStarts atomic.Int32
+}
+
+func (s *countingSpecTaskWorkflowService) StartSpecGeneration(context.Context, *types.SpecTask) {}
+
+func (s *countingSpecTaskWorkflowService) StartJustDoItMode(context.Context, *types.SpecTask) {
+	s.justDoItStarts.Add(1)
+}
+
+func (s *countingSpecTaskWorkflowService) ApproveSpecs(context.Context, *types.SpecTask) error {
+	return nil
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_ClaimsAcrossOrchestrators() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-jdi-race",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusQueuedImplementation,
+	}
+	project := &types.Project{ID: task.ProjectID}
+	workflow := &countingSpecTaskWorkflowService{}
+
+	newTaskSnapshot := func() *types.SpecTask {
+		copy := *task
+		return &copy
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).
+		DoAndReturn(func(context.Context, string) (*types.SpecTask, error) {
+			return newTaskSnapshot(), nil
+		}).Times(2)
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(project, nil).Times(2)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     task.ProjectID,
+		WithDependsOn: true,
+	}).DoAndReturn(func(context.Context, *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+		return []*types.SpecTask{newTaskSnapshot()}, nil
+	}).Times(2)
+
+	var claimAttempts atomic.Int32
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusQueuedImplementation},
+		types.TaskStatusImplementation,
+		nil,
+	).DoAndReturn(func(context.Context, string, []types.SpecTaskStatus, types.SpecTaskStatus, map[string]any) (bool, error) {
+		return claimAttempts.Add(1) == 1, nil
+	}).Times(2)
+
+	first := &SpecTaskOrchestrator{store: s.store, specTaskService: workflow}
+	second := &SpecTaskOrchestrator{store: s.store, specTaskService: workflow}
+
+	var callers sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, orchestrator := range []*SpecTaskOrchestrator{first, second} {
+		callers.Add(1)
+		go func(orchestrator *SpecTaskOrchestrator) {
+			defer callers.Done()
+			errs <- orchestrator.handleQueuedImplementation(ctx, newTaskSnapshot())
+		}(orchestrator)
+	}
+	callers.Wait()
+	close(errs)
+	for err := range errs {
+		s.Require().NoError(err)
+	}
+	first.wg.Wait()
+	second.wg.Wait()
+
+	s.Equal(int32(2), claimAttempts.Load())
+	s.Equal(int32(1), workflow.justDoItStarts.Load())
 }
 
 // handleQueuedImplementation claims the WIP slot before launching the agent, so

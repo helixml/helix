@@ -9497,6 +9497,277 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/organizations/{id}/webhook-endpoints": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List organization webhook endpoints",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.WebhookEndpoint"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a Standard Webhooks endpoint. The signing secret is returned once.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Create an organization webhook endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Webhook endpoint",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.webhookEndpointRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.webhookEndpointSecretResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update an organization webhook endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Webhook endpoint",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.webhookEndpointRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WebhookEndpoint"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Disable an organization webhook endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List recent webhook deliveries",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.webhookDeliveryView"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries/{delivery_id}/replay": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Replay a webhook delivery",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook delivery ID",
+                        "name": "delivery_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/types.WebhookDelivery"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/rotate-secret": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the new secret once. Helix signs with both keys for a 24-hour overlap.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Rotate a webhook signing secret",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook endpoint ID",
+                        "name": "endpoint_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.webhookEndpointSecretResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{org_id}/code-agent-harnesses": {
             "get": {
                 "security": [
@@ -19602,6 +19873,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.APIError"
                         }
                     },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -28051,6 +28328,84 @@ const docTemplate = `{
                 }
             }
         },
+        "server.webhookDeliveryView": {
+            "type": "object",
+            "properties": {
+                "attempt_count": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "delivered_at": {
+                    "type": "string"
+                },
+                "endpoint_id": {
+                    "type": "string"
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_attempt_at": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_status_code": {
+                    "type": "integer"
+                },
+                "next_attempt_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.WebhookDeliveryStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.webhookEndpointRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.webhookEndpointSecretResponse": {
+            "type": "object",
+            "properties": {
+                "endpoint": {
+                    "$ref": "#/definitions/types.WebhookEndpoint"
+                },
+                "secret": {
+                    "type": "string"
+                }
+            }
+        },
         "services.StartupScriptVersion": {
             "type": "object",
             "properties": {
@@ -28246,24 +28601,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "cron",
-                "helix_events",
-                "github",
                 "gitlab",
-                "slack",
-                "webhook",
                 "local",
-                "email"
+                "slack",
+                "cron",
+                "email",
+                "webhook",
+                "github",
+                "helix_events"
             ],
             "x-enum-varnames": [
-                "KindCron",
-                "KindHelixEvents",
-                "KindGitHub",
                 "KindGitLab",
-                "KindSlack",
-                "KindWebhook",
                 "KindLocal",
-                "KindEmail"
+                "KindSlack",
+                "KindCron",
+                "KindEmail",
+                "KindWebhook",
+                "KindGitHub",
+                "KindHelixEvents"
             ]
         },
         "transport.ResolvedActivation": {
@@ -31150,6 +31505,13 @@ const docTemplate = `{
                 "assignee_id": {
                     "description": "Optional: team member assigned to the task",
                     "type": "string"
+                },
+                "attachments": {
+                    "description": "Attachments are validated and stored before the task is exposed to dispatchers.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskInlineAttachment"
+                    }
                 },
                 "auto_start": {
                     "description": "Optional: Skip backlog and start immediately, regardless of project auto-start setting",
@@ -39251,6 +39613,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SpecTaskInlineAttachment": {
+            "type": "object",
+            "required": [
+                "content_base64",
+                "name"
+            ],
+            "properties": {
+                "caption": {
+                    "type": "string"
+                },
+                "content_base64": {
+                    "description": "Standard base64-encoded file bytes.",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Filename visible in the task workspace.",
+                    "type": "string"
+                }
+            }
+        },
         "types.SpecTaskPhase": {
             "type": "string",
             "enum": [
@@ -39282,6 +39664,7 @@ const docTemplate = `{
         "types.SpecTaskStatus": {
             "type": "string",
             "enum": [
+                "preparing",
                 "backlog",
                 "queued_implementation",
                 "queued_spec_generation",
@@ -39304,6 +39687,7 @@ const docTemplate = `{
                 "TaskStatusImplementationFailed": "Implementation failed",
                 "TaskStatusImplementationQueued": "Waiting for Zed agent pickup",
                 "TaskStatusImplementationReview": "Code review (PR created)",
+                "TaskStatusPreparing": "Internal intake state; never dispatched",
                 "TaskStatusPullRequest": "External repo: PR opened, awaiting merge",
                 "TaskStatusQueuedImplementation": "Transitional state, waiting for the orchestrator to pick it up",
                 "TaskStatusQueuedSpecGeneration": "Transitional state, waiting for the orchestrator to pick it up",
@@ -39314,6 +39698,7 @@ const docTemplate = `{
                 "TaskStatusSpecRevision": "Human requested spec changes"
             },
             "x-enum-varnames": [
+                "TaskStatusPreparing",
                 "TaskStatusBacklog",
                 "TaskStatusQueuedImplementation",
                 "TaskStatusQueuedSpecGeneration",
@@ -42082,6 +42467,124 @@ const docTemplate = `{
                 "WebServiceDeployStatusLive",
                 "WebServiceDeployStatusFailed",
                 "WebServiceDeployStatusSuperseded"
+            ]
+        },
+        "types.WebhookDelivery": {
+            "type": "object",
+            "properties": {
+                "attempt_count": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "delivered_at": {
+                    "type": "string"
+                },
+                "endpoint_id": {
+                    "type": "string"
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_attempt_at": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_status_code": {
+                    "type": "integer"
+                },
+                "next_attempt_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.WebhookDeliveryStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WebhookDeliveryStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "processing",
+                "retrying",
+                "delivered",
+                "failed",
+                "disabled"
+            ],
+            "x-enum-varnames": [
+                "WebhookDeliveryStatusPending",
+                "WebhookDeliveryStatusProcessing",
+                "WebhookDeliveryStatusRetrying",
+                "WebhookDeliveryStatusDelivered",
+                "WebhookDeliveryStatusFailed",
+                "WebhookDeliveryStatusDisabled"
+            ]
+        },
+        "types.WebhookEndpoint": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "disabled_reason": {
+                    "type": "string"
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "secret_preview": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.WebhookEndpointStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WebhookEndpointStatus": {
+            "type": "string",
+            "enum": [
+                "active",
+                "disabled"
+            ],
+            "x-enum-varnames": [
+                "WebhookEndpointStatusActive",
+                "WebhookEndpointStatusDisabled"
             ]
         },
         "types.WebsiteCrawler": {

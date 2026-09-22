@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -105,6 +106,39 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	assert.NotEmpty(t, task.DesignDocPath)
 
 	// Note: Goroutine will fail gracefully, we only test the synchronous part
+}
+
+func TestSpecDrivenTaskService_PreparingAttachmentTaskDefersCreationAudit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(
+		mockStore, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	var auditWG sync.WaitGroup
+	service.SetAuditLogWaitGroup(&auditWG)
+	ctx := context.Background()
+	config := testSpecTaskCodeAgentConfig()
+	mockStore.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID: "project-1", CodeAgentConfig: config,
+	}, nil)
+	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
+	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			require.Equal(t, types.TaskStatusPreparing, task.Status)
+			return nil
+		},
+	)
+	mockStore.EXPECT().CreateProjectAuditLog(gomock.Any(), gomock.Any()).Times(0)
+
+	task, err := service.CreateTaskFromPromptPreparingAttachments(ctx, &types.CreateTaskRequest{
+		ProjectID: "project-1",
+		Prompt:    "Use the attached brief",
+		UserID:    "user-1",
+		UserEmail: "user@example.com",
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.TaskStatusPreparing, task.Status)
+	auditWG.Wait()
 }
 
 func TestSpecDrivenTaskService_SnapshotsProjectPhaseAgents(t *testing.T) {

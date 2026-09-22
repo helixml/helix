@@ -33,7 +33,14 @@ func (s *PostgresStore) CreateArtifact(ctx context.Context, artifact *types.Arti
 		if err := tx.Create(version).Error; err != nil {
 			return fmt.Errorf("create artifact version: %w", err)
 		}
-		return nil
+		return enqueueWebhookEventTx(tx, types.WebhookEventArtifactPublished, artifact.OrganizationID, artifact.ProjectID, types.ArtifactWebhookData{
+			ArtifactID:       artifact.ID,
+			ProjectID:        artifact.ProjectID,
+			OrganizationID:   artifact.OrganizationID,
+			ActiveVersionID:  artifact.ActiveVersionID,
+			Kind:             artifact.Kind,
+			SourceSpecTaskID: version.SourceSpecTaskID,
+		})
 	})
 }
 
@@ -135,7 +142,18 @@ func (s *PostgresStore) UpdateArtifact(ctx context.Context, artifact *types.Arti
 		if err := tx.Model(&current).Select(fields).Updates(artifact).Error; err != nil {
 			return fmt.Errorf("update artifact: %w", err)
 		}
-		return nil
+		if version == nil {
+			return nil
+		}
+		data := types.ArtifactWebhookData{
+			ArtifactID:      artifact.ID,
+			ProjectID:       artifact.ProjectID,
+			OrganizationID:  artifact.OrganizationID,
+			ActiveVersionID: artifact.ActiveVersionID,
+			Kind:            artifact.Kind,
+		}
+		data.SourceSpecTaskID = version.SourceSpecTaskID
+		return enqueueWebhookEventTx(tx, types.WebhookEventArtifactPublished, artifact.OrganizationID, artifact.ProjectID, data)
 	})
 }
 

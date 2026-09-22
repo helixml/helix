@@ -37,6 +37,7 @@ type ServerConfig struct {
 	Organizations      Organizations
 	Sandboxes          Sandboxes
 	Compute            Compute
+	Webhooks           Webhooks
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
 	// Inactivity is measured as the time since the last interaction was created or updated
@@ -149,6 +150,14 @@ type ServerConfig struct {
 	Edition string `envconfig:"HELIX_EDITION" default:""`
 
 	SBMessage string `envconfig:"SB_MESSAGE" default:""`
+}
+
+// Webhooks controls the in-process durable outbound delivery worker.
+type Webhooks struct {
+	AllowPrivateEndpoints bool          `envconfig:"WEBHOOK_ALLOW_PRIVATE_ENDPOINTS" default:"false" description:"Allow HTTP and private-network webhook destinations. Development only."`
+	DeliveryTimeout       time.Duration `envconfig:"WEBHOOK_DELIVERY_TIMEOUT" default:"20s" description:"Timeout for one outbound webhook attempt."`
+	WorkerInterval        time.Duration `envconfig:"WEBHOOK_WORKER_INTERVAL" default:"2s" description:"How often the webhook outbox is scanned."`
+	MaxAttempts           int           `envconfig:"WEBHOOK_MAX_ATTEMPTS" default:"8" description:"Maximum delivery attempts before a webhook delivery is marked failed."`
 }
 
 // Sandboxes configures the user-facing Sandboxes API.

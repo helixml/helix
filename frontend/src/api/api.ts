@@ -2208,6 +2208,35 @@ export interface ServerRunnerProfileSaveRequest {
   vendor?: TypesGPUVendor;
 }
 
+export interface ServerWebhookDeliveryView {
+  attempt_count?: number;
+  created_at?: string;
+  delivered_at?: string;
+  endpoint_id?: string;
+  event_id?: string;
+  event_type?: string;
+  id?: string;
+  last_attempt_at?: string;
+  last_error?: string;
+  last_status_code?: number;
+  next_attempt_at?: string;
+  status?: TypesWebhookDeliveryStatus;
+  updated_at?: string;
+}
+
+export interface ServerWebhookEndpointRequest {
+  description?: string;
+  enabled?: boolean;
+  events?: string[];
+  project_id?: string;
+  url?: string;
+}
+
+export interface ServerWebhookEndpointSecretResponse {
+  endpoint?: TypesWebhookEndpoint;
+  secret?: string;
+}
+
 export interface ServicesStartupScriptVersion {
   author?: string;
   commit_hash?: string;
@@ -2292,14 +2321,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindCron = "cron",
-  KindHelixEvents = "helix_events",
-  KindGitHub = "github",
   KindGitLab = "gitlab",
-  KindSlack = "slack",
-  KindWebhook = "webhook",
   KindLocal = "local",
+  KindSlack = "slack",
+  KindCron = "cron",
   KindEmail = "email",
+  KindWebhook = "webhook",
+  KindGitHub = "github",
+  KindHelixEvents = "helix_events",
 }
 
 export interface TransportResolvedActivation {
@@ -3661,6 +3690,8 @@ export interface TypesCreateSecretRequest {
 export interface TypesCreateTaskRequest {
   /** Optional: team member assigned to the task */
   assignee_id?: string;
+  /** Attachments are validated and stored before the task is exposed to dispatchers. */
+  attachments?: TypesSpecTaskInlineAttachment[];
   /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
   auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
@@ -7458,6 +7489,14 @@ export interface TypesSpecTaskExecutionConfigUpdateResponse {
   task?: TypesSpecTask;
 }
 
+export interface TypesSpecTaskInlineAttachment {
+  caption?: string;
+  /** Standard base64-encoded file bytes. */
+  content_base64: string;
+  /** Filename visible in the task workspace. */
+  name: string;
+}
+
 export enum TypesSpecTaskPhase {
   SpecTaskPhasePlanning = "planning",
   SpecTaskPhaseImplementation = "implementation",
@@ -7472,6 +7511,7 @@ export enum TypesSpecTaskPriority {
 }
 
 export enum TypesSpecTaskStatus {
+  TaskStatusPreparing = "preparing",
   TaskStatusBacklog = "backlog",
   TaskStatusQueuedImplementation = "queued_implementation",
   TaskStatusQueuedSpecGeneration = "queued_spec_generation",
@@ -8725,6 +8765,51 @@ export enum TypesWebServiceDeployStatus {
   WebServiceDeployStatusLive = "live",
   WebServiceDeployStatusFailed = "failed",
   WebServiceDeployStatusSuperseded = "superseded",
+}
+
+export interface TypesWebhookDelivery {
+  attempt_count?: number;
+  created_at?: string;
+  delivered_at?: string;
+  endpoint_id?: string;
+  event_id?: string;
+  id?: string;
+  last_attempt_at?: string;
+  last_error?: string;
+  last_status_code?: number;
+  next_attempt_at?: string;
+  status?: TypesWebhookDeliveryStatus;
+  updated_at?: string;
+}
+
+export enum TypesWebhookDeliveryStatus {
+  WebhookDeliveryStatusPending = "pending",
+  WebhookDeliveryStatusProcessing = "processing",
+  WebhookDeliveryStatusRetrying = "retrying",
+  WebhookDeliveryStatusDelivered = "delivered",
+  WebhookDeliveryStatusFailed = "failed",
+  WebhookDeliveryStatusDisabled = "disabled",
+}
+
+export interface TypesWebhookEndpoint {
+  created_at?: string;
+  created_by?: string;
+  description?: string;
+  disabled_reason?: string;
+  events?: string[];
+  id?: string;
+  organization_id?: string;
+  project_id?: string;
+  secret_preview?: string;
+  status?: TypesWebhookEndpointStatus;
+  updated_at?: string;
+  updated_by?: string;
+  url?: string;
+}
+
+export enum TypesWebhookEndpointStatus {
+  WebhookEndpointStatusActive = "active",
+  WebhookEndpointStatusDisabled = "disabled",
 }
 
 export interface TypesWebsiteCrawler {
@@ -13644,6 +13729,141 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/organizations/${id}/users/lookup`,
         method: "GET",
         query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsDetail
+     * @summary List organization webhook endpoints
+     * @request GET:/api/v1/organizations/{id}/webhook-endpoints
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesWebhookEndpoint[], any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Creates a Standard Webhooks endpoint. The signing secret is returned once.
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsCreate
+     * @summary Create an organization webhook endpoint
+     * @request POST:/api/v1/organizations/{id}/webhook-endpoints
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsCreate: (
+      id: string,
+      request: ServerWebhookEndpointRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerWebhookEndpointSecretResponse, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints`,
+        method: "POST",
+        body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsDelete
+     * @summary Disable an organization webhook endpoint
+     * @request DELETE:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsDelete: (id: string, endpointId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsUpdate
+     * @summary Update an organization webhook endpoint
+     * @request PUT:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsUpdate: (
+      id: string,
+      endpointId: string,
+      request: ServerWebhookEndpointRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWebhookEndpoint, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsDeliveriesDetail
+     * @summary List recent webhook deliveries
+     * @request GET:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsDeliveriesDetail: (id: string, endpointId: string, params: RequestParams = {}) =>
+      this.request<ServerWebhookDeliveryView[], any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}/deliveries`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsDeliveriesReplayCreate
+     * @summary Replay a webhook delivery
+     * @request POST:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/deliveries/{delivery_id}/replay
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsDeliveriesReplayCreate: (
+      id: string,
+      endpointId: string,
+      deliveryId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWebhookDelivery, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}/deliveries/${deliveryId}/replay`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns the new secret once. Helix signs with both keys for a 24-hour overlap.
+     *
+     * @tags organizations
+     * @name V1OrganizationsWebhookEndpointsRotateSecretCreate
+     * @summary Rotate a webhook signing secret
+     * @request POST:/api/v1/organizations/{id}/webhook-endpoints/{endpoint_id}/rotate-secret
+     * @secure
+     */
+    v1OrganizationsWebhookEndpointsRotateSecretCreate: (id: string, endpointId: string, params: RequestParams = {}) =>
+      this.request<ServerWebhookEndpointSecretResponse, any>({
+        path: `/api/v1/organizations/${id}/webhook-endpoints/${endpointId}/rotate-secret`,
+        method: "POST",
         secure: true,
         ...params,
       }),

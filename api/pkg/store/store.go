@@ -780,6 +780,20 @@ type Store interface {
 	UpdateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error
 	ListArtifactVersions(ctx context.Context, artifactID string) ([]*types.ArtifactVersion, error)
 	DeleteArtifact(ctx context.Context, artifactID string) error
+
+	// Durable Standard Webhooks endpoints, outbox events, and delivery attempts.
+	CreateWebhookEndpoint(ctx context.Context, endpoint *types.WebhookEndpoint) error
+	GetWebhookEndpoint(ctx context.Context, organizationID, endpointID string) (*types.WebhookEndpoint, error)
+	ListWebhookEndpoints(ctx context.Context, organizationID string) ([]*types.WebhookEndpoint, error)
+	UpdateWebhookEndpointConfig(ctx context.Context, endpoint *types.WebhookEndpoint) error
+	RotateWebhookEndpointSecret(ctx context.Context, endpoint *types.WebhookEndpoint) error
+	DisableWebhookEndpoint(ctx context.Context, organizationID, endpointID, reason, updatedBy string) error
+	ListWebhookDeliveries(ctx context.Context, endpointID string, limit int) ([]*types.WebhookDelivery, error)
+	GetWebhookDelivery(ctx context.Context, endpointID, deliveryID string) (*types.WebhookDelivery, error)
+	GetWebhookEvent(ctx context.Context, eventID string) (*types.WebhookEvent, error)
+	ClaimWebhookDeliveries(ctx context.Context, now, lockedUntil time.Time, limit int) ([]*types.WebhookDelivery, error)
+	CompleteWebhookDelivery(ctx context.Context, update *WebhookDeliveryUpdate) error
+	ReplayWebhookDelivery(ctx context.Context, endpointID, deliveryID string, now time.Time) error
 	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
 	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
 	DetachRepositoryFromProject(ctx context.Context, projectID string, repoID string) error // NOTE: signature changed to include projectID

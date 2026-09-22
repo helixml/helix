@@ -215,6 +215,9 @@ func (s *PostgresStore) runMigrations() error {
 		&types.Project{},
 		&types.Artifact{},
 		&types.ArtifactVersion{},
+		&types.WebhookEndpoint{},
+		&types.WebhookEvent{},
+		&types.WebhookDelivery{},
 		&types.ProjectAuditLog{}, // Audit trail for project activity
 		&types.OrgAuditLog{},     // Audit trail for Helix org activity
 		&types.SampleProject{},

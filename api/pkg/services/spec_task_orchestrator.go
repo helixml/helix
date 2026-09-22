@@ -30,10 +30,16 @@ func isDeletedProjectError(err error) bool {
 // PR creation for repos whose branches weren't ready at initial "Open PR" time.
 type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string, userID string) error
 
+type specTaskWorkflowService interface {
+	StartSpecGeneration(ctx context.Context, task *types.SpecTask)
+	StartJustDoItMode(ctx context.Context, task *types.SpecTask)
+	ApproveSpecs(ctx context.Context, task *types.SpecTask) error
+}
+
 type SpecTaskOrchestrator struct {
 	store                 store.Store
 	gitService            GitService
-	specTaskService       *SpecDrivenTaskService
+	specTaskService       specTaskWorkflowService
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
 	attentionService      *AttentionService
@@ -63,6 +69,7 @@ const (
 	// defaultArchiveStaleTasksDays is used when a project enabled stale
 	// archiving without a configured day count.
 	defaultArchiveStaleTasksDays = 6
+	attachmentPreparationTimeout = types.SpecTaskInlineAttachmentIngestionTimeout + time.Minute
 )
 
 // ContainerExecutor defines the interface for container lifecycle management
@@ -172,6 +179,7 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 
 	subscription, err := o.store.SubscribeForTasks(ctx, &store.SpecTaskSubscriptionFilter{
 		Statuses: []types.SpecTaskStatus{
+			types.TaskStatusPreparing,
 			types.TaskStatusBacklog,
 			types.TaskStatusQueuedSpecGeneration,
 			types.TaskStatusQueuedImplementation,
@@ -280,6 +288,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 
 	// Filter to only active tasks (PR polling is handled by a separate scheduler)
 	activeStatuses := map[types.SpecTaskStatus]bool{
+		types.TaskStatusPreparing:            true,
 		types.TaskStatusBacklog:              true,
 		types.TaskStatusQueuedSpecGeneration: true,
 		types.TaskStatusQueuedImplementation: true,
@@ -323,6 +332,8 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.SpecTask) error {
 	// State machine for task workflow
 	switch task.Status {
+	case types.TaskStatusPreparing:
+		return o.handlePreparingTask(ctx, task)
 	case types.TaskStatusBacklog:
 		return o.handleBacklog(ctx, task)
 	case types.TaskStatusQueuedSpecGeneration:
@@ -348,6 +359,42 @@ func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.Spec
 	default:
 		return nil
 	}
+}
+
+// handlePreparingTask reconciles a request that died while ingesting inline
+// attachments. The task row owns any partial blobs/metadata, and the conditional
+// transition cannot overwrite a request that successfully published meanwhile.
+func (o *SpecTaskOrchestrator) handlePreparingTask(ctx context.Context, task *types.SpecTask) error {
+	lastUpdated := task.UpdatedAt
+	if lastUpdated.IsZero() {
+		lastUpdated = task.CreatedAt
+	}
+	if time.Since(lastUpdated) < attachmentPreparationTimeout {
+		return nil
+	}
+
+	failureStatus := types.TaskStatusSpecFailed
+	if task.JustDoItMode {
+		failureStatus = types.TaskStatusImplementationFailed
+	}
+	metadata := make(map[string]interface{}, len(task.Metadata)+2)
+	for key, value := range task.Metadata {
+		metadata[key] = value
+	}
+	metadata["error"] = "inline attachment ingestion was interrupted before the task was published"
+	metadata["error_timestamp"] = time.Now().Format(time.RFC3339)
+
+	_, err := o.store.TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusPreparing},
+		failureStatus,
+		map[string]any{"metadata": metadata},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to reconcile interrupted attachment ingestion: %w", err)
+	}
+	return nil
 }
 
 // handleBacklog handles tasks in backlog state - creates external agent and starts planning
@@ -773,16 +820,26 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 		return nil
 	}
 
-	// Claim capacity before launching the goroutine. This closes the gap between
-	// an explicit start entering queued_implementation and StartJustDoItMode
-	// eventually persisting implementation.
+	// Claim capacity before launching the goroutine. The claim must be durable:
+	// projectLock only serializes one API process, while multiple replicas can
+	// observe the same queued task concurrently.
 	now := time.Now()
+	claimed, err := o.store.TransitionSpecTaskStatus(
+		ctx,
+		latestTask.ID,
+		[]types.SpecTaskStatus{types.TaskStatusQueuedImplementation},
+		types.TaskStatusImplementation,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to reserve implementation WIP slot: %w", err)
+	}
+	if !claimed {
+		return nil
+	}
 	latestTask.Status = types.TaskStatusImplementation
 	latestTask.StatusUpdatedAt = &now
 	latestTask.UpdatedAt = now
-	if err := o.store.UpdateSpecTask(ctx, latestTask); err != nil {
-		return fmt.Errorf("failed to reserve implementation WIP slot: %w", err)
-	}
 
 	o.wg.Add(1)
 	go func() {
