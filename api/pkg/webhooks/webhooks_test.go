@@ -65,8 +65,8 @@ func TestValidateEndpointURL(t *testing.T) {
 
 func TestSignIncludesCurrentAndUnexpiredPreviousSecret(t *testing.T) {
 	key := []byte("01234567890123456789012345678901")
-	current := "whsec_Y3VycmVudC1zaWduaW5nLWtleQ=="
-	previous := "whsec_cHJldmlvdXMtc2lnbmluZy1rZXk="
+	current := base64.StdEncoding.EncodeToString([]byte("current standard webhook test key"))
+	previous := base64.StdEncoding.EncodeToString([]byte("previous standard webhook test key"))
 	currentEncrypted, err := helixcrypto.EncryptAES256GCM([]byte(current), key)
 	require.NoError(t, err)
 	previousEncrypted, err := helixcrypto.EncryptAES256GCM([]byte(previous), key)
@@ -101,7 +101,7 @@ func TestParseRetryAfter(t *testing.T) {
 }
 
 func TestDeliveryUsesStandardWebhookHeaders(t *testing.T) {
-	secret := "whsec_" + base64.StdEncoding.EncodeToString([]byte("standard-webhooks-test-key"))
+	secret := base64.StdEncoding.EncodeToString([]byte("standard webhook delivery test key"))
 	key := []byte("01234567890123456789012345678901")
 	encrypted, err := helixcrypto.EncryptAES256GCM([]byte(secret), key)
 	require.NoError(t, err)
