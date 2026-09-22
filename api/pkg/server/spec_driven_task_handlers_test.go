@@ -292,4 +292,27 @@ func TestListTasks_FiltersByCreatorOrgBot(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.Code)
 	require.NotNil(t, captured)
 	require.Equal(t, "chief-of-staff", captured.CreatedByOrgBot)
+	require.Equal(t, []types.SpecTaskStatus{types.TaskStatusPreparing}, captured.ExcludeStatuses)
+}
+
+func TestBatchTaskProgressExcludesPreparingTasks(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	user := types.User{ID: "user1"}
+	mockStore.EXPECT().GetProject(gomock.Any(), "project1").Return(&types.Project{ID: "project1", UserID: user.ID}, nil)
+	mockStore.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+			require.Equal(t, []types.SpecTaskStatus{types.TaskStatusPreparing}, filters.ExcludeStatuses)
+			return nil, nil
+		},
+	)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/project1/tasks-progress", nil)
+	req = req.WithContext(setRequestUser(req.Context(), user))
+	req = mux.SetURLVars(req, map[string]string{"id": "project1"})
+	response := httptest.NewRecorder()
+
+	server.getBatchTaskProgress(response, req)
+
+	require.Equal(t, http.StatusOK, response.Code)
 }

@@ -99,9 +99,14 @@ func (s *HelixAPIServer) validateAssigneeIsOrgMember(ctx context.Context, orgID,
 // @Param   request body types.CreateTaskRequest true "Task creation request"
 // @Success 201 {object} types.SpecTask
 // @Failure 400 {object} types.APIError
+// @Failure 413 {object} types.APIError
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/spec-tasks/from-prompt [post]
 func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Request) {
+	s.createTaskFromPromptWithMaxRequestBytes(w, r, specTaskFromPromptMaxRequestBytes())
+}
+
+func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.ResponseWriter, r *http.Request, requestMaxBytes int64) {
 	addCorsHeaders(w)
 	if r.Method == http.MethodOptions {
 		return
@@ -114,14 +119,24 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	}
 
 	var req types.CreateTaskRequest
+	r.Body = http.MaxBytesReader(w, r.Body, requestMaxBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("Failed to decode create task request")
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body exceeds inline attachment size limit", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	// Detach from request context so DB mutations complete even if client disconnects
-	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	timeout := 30 * time.Second
+	if len(req.Attachments) > 0 {
+		timeout = types.SpecTaskInlineAttachmentIngestionTimeout
+	}
+	ctx, cancel := detachContext(r.Context(), timeout)
 	defer cancel()
 
 	// Authorize user to create task in the project
@@ -215,12 +230,51 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	if err := validateInlineSpecTaskAttachments(req.Attachments); err != nil {
+		writeSpecTaskAttachmentInputError(w, err)
+		return
+	}
+	inlineAttachments := req.Attachments
+	// Drop the encoded payload before passing the request deeper. Attachment-bearing
+	// tasks are first created in a durable, non-dispatchable preparing state.
+	req.Attachments = nil
+
 	// Create task via spec-driven service
-	task, err := s.specDrivenTaskService.CreateTaskFromPrompt(ctx, &req)
+	var task *types.SpecTask
+	if len(inlineAttachments) == 0 {
+		task, err = s.specDrivenTaskService.CreateTaskFromPrompt(ctx, &req)
+	} else {
+		task, err = s.specDrivenTaskService.CreateTaskFromPromptPreparingAttachments(ctx, &req)
+	}
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create task from prompt")
 		http.Error(w, fmt.Sprintf("failed to create task: %v", err), http.StatusInternalServerError)
 		return
+	}
+	if len(inlineAttachments) > 0 {
+		for i := range inlineAttachments {
+			attachment, prepareErr := prepareInlineSpecTaskAttachment(inlineAttachments[i])
+			inlineAttachments[i].ContentBase64 = ""
+			if prepareErr != nil {
+				s.cleanupFailedInlineSpecTask(ctx, task.ID)
+				writeSpecTaskAttachmentInputError(w, prepareErr)
+				return
+			}
+			_, persistErr := s.persistSpecTaskAttachment(ctx, task.ID, req.ProjectID, user.ID, attachment)
+			attachment.body = nil
+			if persistErr != nil {
+				s.cleanupFailedInlineSpecTask(ctx, task.ID)
+				log.Error().Err(persistErr).Str("task_id", task.ID).Msg("Failed to persist inline task attachment")
+				http.Error(w, "failed to save task attachments", http.StatusInternalServerError)
+				return
+			}
+		}
+		if err := s.specDrivenTaskService.PublishTaskFromPromptAttachments(ctx, task, &req); err != nil {
+			s.cleanupFailedInlineSpecTask(ctx, task.ID)
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to publish task after attachment ingestion")
+			http.Error(w, "failed to publish task attachments", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Log audit event for task creation
@@ -265,6 +319,10 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
+	if task.Status == types.TaskStatusPreparing {
+		http.Error(w, "SpecTask not found", http.StatusNotFound)
+		return
+	}
 
 	user := getRequestUser(r)
 	if user == nil {
@@ -297,6 +355,14 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
+}
+
+func rejectPreparingSpecTaskMutation(w http.ResponseWriter, task *types.SpecTask) bool {
+	if task == nil || task.Status != types.TaskStatusPreparing {
+		return false
+	}
+	http.Error(w, "task attachment intake is still in progress", http.StatusConflict)
+	return true
 }
 
 // orgBotForRequestUser names the Org Bot behind a request, or "".
@@ -434,6 +500,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		IncludeArchived:    query.Get("include_archived") == "true",
 		ArchivedOnly:       query.Get("archived_only") == "true",
 		Labels:             labelFilter,
+		ExcludeStatuses:    []types.SpecTaskStatus{types.TaskStatusPreparing},
 	}
 
 	tasks, err := s.Store.ListSpecTasks(ctx, filters)
@@ -980,6 +1047,7 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 	tasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
 		ProjectID:       projectID,
 		IncludeArchived: false,
+		ExcludeStatuses: []types.SpecTaskStatus{types.TaskStatusPreparing},
 	})
 	if err != nil {
 		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to list tasks for batch progress")
@@ -1124,6 +1192,9 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	// Authorize user to start planning in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if rejectPreparingSpecTaskMutation(w, task) {
 		return
 	}
 
@@ -1276,6 +1347,13 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// Authorize user to update task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
+	if updateReq.Status == types.TaskStatusPreparing {
+		http.Error(w, "preparing is an internal task status", http.StatusBadRequest)
 		return
 	}
 
@@ -1470,6 +1548,9 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
 
 	// It must be archived to be deleted
 	if !task.Archived {
@@ -1483,7 +1564,7 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 	if err := s.Store.DeleteSpecTaskAttachmentsByTaskID(ctx, taskID); err != nil {
 		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment rows for task")
 	}
-	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(taskID); err != nil {
+	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(ctx, taskID); err != nil {
 		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment blobs for task")
 	}
 
@@ -1549,6 +1630,9 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	// Authorize user to archive task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if rejectPreparingSpecTaskMutation(w, task) {
 		return
 	}
 

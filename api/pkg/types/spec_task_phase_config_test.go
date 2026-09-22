@@ -26,6 +26,7 @@ func TestSpecTaskActiveCodeAgentConfigFollowsStatus(t *testing.T) {
 	task := &SpecTask{CodeAgentConfig: implementation, PlanningCodeAgentConfig: planning}
 
 	for _, status := range []SpecTaskStatus{
+		TaskStatusPreparing,
 		TaskStatusBacklog,
 		TaskStatusSpecGeneration,
 		TaskStatusSpecReview,

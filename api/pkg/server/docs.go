@@ -19873,6 +19873,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.APIError"
                         }
                     },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -31500,6 +31506,13 @@ const docTemplate = `{
                     "description": "Optional: team member assigned to the task",
                     "type": "string"
                 },
+                "attachments": {
+                    "description": "Attachments are validated and stored before the task is exposed to dispatchers.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskInlineAttachment"
+                    }
+                },
                 "auto_start": {
                     "description": "Optional: Skip backlog and start immediately, regardless of project auto-start setting",
                     "type": "boolean"
@@ -39600,6 +39613,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SpecTaskInlineAttachment": {
+            "type": "object",
+            "required": [
+                "content_base64",
+                "name"
+            ],
+            "properties": {
+                "caption": {
+                    "type": "string"
+                },
+                "content_base64": {
+                    "description": "Standard base64-encoded file bytes.",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Filename visible in the task workspace.",
+                    "type": "string"
+                }
+            }
+        },
         "types.SpecTaskPhase": {
             "type": "string",
             "enum": [
@@ -39631,6 +39664,7 @@ const docTemplate = `{
         "types.SpecTaskStatus": {
             "type": "string",
             "enum": [
+                "preparing",
                 "backlog",
                 "queued_implementation",
                 "queued_spec_generation",
@@ -39653,6 +39687,7 @@ const docTemplate = `{
                 "TaskStatusImplementationFailed": "Implementation failed",
                 "TaskStatusImplementationQueued": "Waiting for Zed agent pickup",
                 "TaskStatusImplementationReview": "Code review (PR created)",
+                "TaskStatusPreparing": "Internal intake state; never dispatched",
                 "TaskStatusPullRequest": "External repo: PR opened, awaiting merge",
                 "TaskStatusQueuedImplementation": "Transitional state, waiting for the orchestrator to pick it up",
                 "TaskStatusQueuedSpecGeneration": "Transitional state, waiting for the orchestrator to pick it up",
@@ -39663,6 +39698,7 @@ const docTemplate = `{
                 "TaskStatusSpecRevision": "Human requested spec changes"
             },
             "x-enum-varnames": [
+                "TaskStatusPreparing",
                 "TaskStatusBacklog",
                 "TaskStatusQueuedImplementation",
                 "TaskStatusQueuedSpecGeneration",

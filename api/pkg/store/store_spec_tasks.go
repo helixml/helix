@@ -47,6 +47,9 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		if err := syncSpecTaskDependsOn(ctx, tx, task); err != nil {
 			return err
 		}
+		if task.Status == types.TaskStatusPreparing {
+			return nil
+		}
 
 		return enqueueWebhookEventTx(tx, types.WebhookEventSpecTaskCreated, task.OrganizationID, task.ProjectID, types.SpecTaskWebhookData{
 			SpecTaskID:      task.ID,
@@ -66,7 +69,9 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		Str("status", task.Status.String()).
 		Msg("Created spec task")
 
-	_ = s.notifyTaskUpdates(ctx, StoreEventOperationCreated, task)
+	if task.Status != types.TaskStatusPreparing {
+		_ = s.notifyTaskUpdates(ctx, StoreEventOperationCreated, task)
+	}
 
 	return nil
 }
@@ -240,22 +245,59 @@ func (s *PostgresStore) TransitionSpecTaskStatus(
 		fromStrs[i] = string(st)
 	}
 
-	result := s.gdb.WithContext(ctx).
-		Model(&types.SpecTask{}).
-		Where("id = ? AND status IN ?", taskID, fromStrs).
-		Updates(updates)
+	var updated types.SpecTask
+	transitioned := false
+	published := false
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var previous struct {
+			Status types.SpecTaskStatus
+		}
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Model(&types.SpecTask{}).
+			Select("status").
+			Where("id = ? AND status IN ?", taskID, fromStrs).
+			Take(&previous).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 
-	if result.Error != nil {
-		return false, fmt.Errorf("failed to transition spec task status: %w", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return false, nil
-	}
+		result := tx.Model(&types.SpecTask{}).
+			Where("id = ? AND status = ?", taskID, previous.Status).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		if err := tx.Where("id = ?", taskID).Take(&updated).Error; err != nil {
+			return err
+		}
 
-	updated, err := s.GetSpecTask(ctx, taskID)
+		if previous.Status == types.TaskStatusPreparing {
+			if err := enqueueWebhookEventTx(tx, types.WebhookEventSpecTaskCreated, updated.OrganizationID, updated.ProjectID, types.SpecTaskWebhookData{
+				SpecTaskID:      updated.ID,
+				ProjectID:       updated.ProjectID,
+				OrganizationID:  updated.OrganizationID,
+				Status:          updated.Status,
+				StatusUpdatedAt: updated.StatusUpdatedAt,
+			}); err != nil {
+				return err
+			}
+			published = true
+		}
+
+		transitioned = true
+		return nil
+	})
 	if err != nil {
-		log.Warn().Err(err).Str("task_id", taskID).Msg("Transitioned spec task but failed to re-fetch for notification")
-		return true, nil
+		return false, fmt.Errorf("failed to transition spec task status: %w", err)
+	}
+	if !transitioned {
+		return false, nil
 	}
 
 	log.Info().
@@ -263,7 +305,11 @@ func (s *PostgresStore) TransitionSpecTaskStatus(
 		Str("new_status", string(newStatus)).
 		Msg("Atomically transitioned spec task status")
 
-	_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, updated)
+	operation := StoreEventOperationUpdated
+	if published {
+		operation = StoreEventOperationCreated
+	}
+	_ = s.notifyTaskUpdates(ctx, operation, &updated)
 	return true, nil
 }
 
@@ -501,6 +547,9 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	}
 	if filters.Status != "" {
 		db = db.Where("status = ?", filters.Status)
+	}
+	if len(filters.ExcludeStatuses) > 0 {
+		db = db.Where("status NOT IN ?", filters.ExcludeStatuses)
 	}
 	if filters.UserID != "" {
 		db = db.Where("created_by = ?", filters.UserID)

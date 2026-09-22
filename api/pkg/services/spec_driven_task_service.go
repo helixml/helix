@@ -140,6 +140,23 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+	return s.createTaskFromPrompt(ctx, req, false)
+}
+
+// CreateTaskFromPromptPreparingAttachments creates a durable, non-dispatchable task
+// that owns attachment blobs and rows while the request is ingesting them.
+func (s *SpecDrivenTaskService) CreateTaskFromPromptPreparingAttachments(
+	ctx context.Context,
+	req *types.CreateTaskRequest,
+) (*types.SpecTask, error) {
+	return s.createTaskFromPrompt(ctx, req, true)
+}
+
+func (s *SpecDrivenTaskService) createTaskFromPrompt(
+	ctx context.Context,
+	req *types.CreateTaskRequest,
+	preparingAttachments bool,
+) (*types.SpecTask, error) {
 	if req.AppID != "" {
 		return nil, fmt.Errorf("app_id is no longer supported; provide code_agent_config")
 	}
@@ -245,6 +262,9 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		assigneeID = req.UserID
 		planningStartedBy = req.UserID
 	}
+	if preparingAttachments {
+		initialStatus = types.TaskStatusPreparing
+	}
 
 	task := &types.SpecTask{
 		ID:                       generateTaskID(),
@@ -319,7 +339,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 
 	// PR DETECTION: Check if the existing branch has an open PR
 	// If so, update the task to start in pull_request status
-	if branchMode == types.BranchModeExisting && req.WorkingBranch != "" && s.gitRepositoryService != nil {
+	if !preparingAttachments && branchMode == types.BranchModeExisting && req.WorkingBranch != "" && s.gitRepositoryService != nil {
 		prDetected := s.detectAndLinkExistingPR(ctx, task, req.ProjectID, req.WorkingBranch)
 		if prDetected {
 			log.Info().
@@ -331,7 +351,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	}
 
 	// Log audit event for task creation
-	if s.auditLogService != nil {
+	if !preparingAttachments && s.auditLogService != nil {
 		s.auditLogService.LogTaskCreated(ctx, task, req.UserID, req.UserEmail)
 	}
 
@@ -340,6 +360,60 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	// This allows WIP limits to be enforced on the planning column
 
 	return task, nil
+}
+
+// PublishTaskFromPromptAttachments atomically makes a prepared task visible to
+// dispatchers after its attachment rows and blobs are durable.
+func (s *SpecDrivenTaskService) PublishTaskFromPromptAttachments(
+	ctx context.Context,
+	task *types.SpecTask,
+	req *types.CreateTaskRequest,
+) error {
+	if task == nil || task.ID == "" {
+		return fmt.Errorf("prepared task is required")
+	}
+
+	targetStatus := types.TaskStatusBacklog
+	var extraFields map[string]any
+	// Existing-branch tasks with an open PR still publish through the same CAS;
+	// no code path may write a preparing task unconditionally.
+	if task.BranchMode == types.BranchModeExisting && task.BranchName != "" && s.gitRepositoryService != nil {
+		if repoPR, found := s.findExistingPullRequest(ctx, task.ProjectID, task.BranchName); found {
+			task.RepoPullRequests = append(task.RepoPullRequests, *repoPR)
+			repoPullRequestsJSON, err := json.Marshal(task.RepoPullRequests)
+			if err != nil {
+				return fmt.Errorf("encode existing pull request linkage: %w", err)
+			}
+			targetStatus = types.TaskStatusPullRequest
+			extraFields = map[string]any{"repo_pull_requests": string(repoPullRequestsJSON)}
+		}
+	}
+
+	if targetStatus != types.TaskStatusPullRequest && req.AutoStart {
+		if req.JustDoItMode {
+			targetStatus = types.TaskStatusQueuedImplementation
+		} else {
+			targetStatus = types.TaskStatusQueuedSpecGeneration
+		}
+	}
+	transitioned, err := s.store.TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusPreparing},
+		targetStatus,
+		extraFields,
+	)
+	if err != nil {
+		return fmt.Errorf("publish prepared task: %w", err)
+	}
+	if !transitioned {
+		return fmt.Errorf("prepared task %s is no longer in preparing status", task.ID)
+	}
+	now := time.Now()
+	task.Status = targetStatus
+	task.StatusUpdatedAt = &now
+	task.UpdatedAt = now
+	return nil
 }
 
 // StartSpecGeneration kicks off spec generation with a Helix agent
@@ -1871,23 +1945,40 @@ func isTaskInactive(task *types.SpecTask) bool {
 // Returns true if a PR was found and linked, false otherwise
 // The task is updated in-place and saved to the database
 func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, task *types.SpecTask, projectID, branchName string) bool {
+	repoPR, found := s.findExistingPullRequest(ctx, projectID, branchName)
+	if !found {
+		return false
+	}
+
+	now := time.Now()
+	task.RepoPullRequests = append(task.RepoPullRequests, *repoPR)
+	task.Status = types.TaskStatusPullRequest
+	task.StatusUpdatedAt = &now
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with PR info")
+		return false
+	}
+	return true
+}
+
+func (s *SpecDrivenTaskService) findExistingPullRequest(ctx context.Context, projectID, branchName string) (*types.RepoPR, bool) {
 	// Get project to find the default repository
 	project, err := s.store.GetProject(ctx, projectID)
 	if err != nil || project == nil {
 		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project for PR detection")
-		return false
+		return nil, false
 	}
 
 	if project.DefaultRepoID == "" {
 		log.Debug().Str("project_id", projectID).Msg("Project has no default repo, skipping PR detection")
-		return false
+		return nil, false
 	}
 
 	// List PRs from the repository
 	prs, err := s.gitRepositoryService.ListPullRequests(ctx, project.DefaultRepoID)
 	if err != nil {
 		log.Warn().Err(err).Str("repo_id", project.DefaultRepoID).Msg("Failed to list PRs for detection")
-		return false
+		return nil, false
 	}
 
 	// Find an open PR with matching source branch
@@ -1915,31 +2006,18 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 				repoName = repo.Name
 			}
 
-			// Update task with PR info via RepoPullRequests
-			now := time.Now()
-			task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
+			return &types.RepoPR{
 				RepositoryID:   project.DefaultRepoID,
 				RepositoryName: repoName,
 				PRID:           pr.ID,
 				PRNumber:       pr.Number,
 				PRURL:          pr.URL,
 				PRState:        string(pr.State),
-			})
-			task.Status = types.TaskStatusPullRequest
-			task.StatusUpdatedAt = &now
-
-			// Save updated task
-			err = s.store.UpdateSpecTask(ctx, task)
-			if err != nil {
-				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with PR info")
-				return false
-			}
-
-			return true
+			}, true
 		}
 	}
 
-	return false
+	return nil, false
 }
 
 // SessionAPIKeyRequest specifies the scope for a session-scoped ephemeral API key.

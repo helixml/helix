@@ -271,8 +271,18 @@ type CreateTaskRequest struct {
 	GooseRecipeParams         map[string]string `json:"goose_recipe_params,omitempty"`
 	PlanningGooseRecipeName   string            `json:"planning_goose_recipe_name,omitempty"`
 	PlanningGooseRecipeParams map[string]string `json:"planning_goose_recipe_params,omitempty"`
+	// Attachments are validated and stored before the task is exposed to dispatchers.
+	Attachments []SpecTaskInlineAttachment `json:"attachments,omitempty"`
 
 	// Git repositories are now managed at the project level - no task-level repo selection needed
+}
+
+// SpecTaskInlineAttachment is attachment content submitted with CreateTaskRequest.
+// The API validates and stores it through the same path as multipart attachments.
+type SpecTaskInlineAttachment struct {
+	Name          string `json:"name" validate:"required"`           // Filename visible in the task workspace.
+	ContentBase64 string `json:"content_base64" validate:"required"` // Standard base64-encoded file bytes.
+	Caption       string `json:"caption,omitempty"`
 }
 
 // SpecTask represents a task following Kiro's actual spec-driven approach
@@ -547,6 +557,7 @@ type SpecGeneration struct {
 type SpecTaskFilters struct {
 	ProjectID          string           `json:"project_id,omitempty"`
 	Status             SpecTaskStatus   `json:"status,omitempty"`
+	ExcludeStatuses    []SpecTaskStatus `json:"exclude_statuses,omitempty"`
 	UserID             string           `json:"user_id,omitempty"`
 	FilterParticipants bool             `json:"filter_participants,omitempty"`
 	ParticipantIDs     []string         `json:"participant_ids,omitempty"` // Created by or assigned to any selected user
@@ -618,7 +629,8 @@ func (s SpecTaskStatus) String() string {
 // Two-phase workflow status constants
 const (
 	// Phase 1: Specification Generation (Helix Agent)
-	TaskStatusBacklog SpecTaskStatus = "backlog" // Initial state, waiting for spec generation
+	TaskStatusPreparing SpecTaskStatus = "preparing" // Internal intake state; never dispatched
+	TaskStatusBacklog   SpecTaskStatus = "backlog"   // Initial state, waiting for spec generation
 
 	TaskStatusQueuedImplementation SpecTaskStatus = "queued_implementation"  // Transitional state, waiting for the orchestrator to pick it up
 	TaskStatusQueuedSpecGeneration SpecTaskStatus = "queued_spec_generation" // Transitional state, waiting for the orchestrator to pick it up
@@ -692,8 +704,16 @@ func (SpecTaskAttachment) TableName() string {
 
 // SpecTask attachment limits
 const (
-	SpecTaskAttachmentMaxBytes   = 100 * 1024 * 1024 // 100 MB per file
-	SpecTaskAttachmentMaxPerTask = 500               // 500 files per task
+	SpecTaskAttachmentMaxBytes        = 100 * 1024 * 1024 // 100 MB per file
+	SpecTaskAttachmentMaxPerTask      = 500               // 500 files per task
+	SpecTaskInlineAttachmentsMaxBytes = 100 * 1024 * 1024 // 100 MB total per JSON request
+	SpecTaskAttachmentCaptionMaxRunes = 1024
+	// Filestore objects use "<30-byte attachment ID>__<filename>" as one path
+	// component. Keep that component within the common NAME_MAX of 255 bytes.
+	SpecTaskAttachmentStorageNameMaxBytes    = 255
+	SpecTaskAttachmentStoragePrefixBytes     = 32
+	SpecTaskAttachmentFilenameMaxBytes       = SpecTaskAttachmentStorageNameMaxBytes - SpecTaskAttachmentStoragePrefixBytes
+	SpecTaskInlineAttachmentIngestionTimeout = 10 * time.Minute
 )
 
 // SpecTaskAttachmentAllowedMimeTypes is the allowlist of MIME types accepted for upload.

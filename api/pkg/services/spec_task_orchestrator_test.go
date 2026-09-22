@@ -59,6 +59,44 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
 	s.Require().NoError(err)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestPreparingTaskWaitsForAttachmentIngestion() {
+	task := &types.SpecTask{
+		ID:        "task-preparing",
+		Status:    types.TaskStatusPreparing,
+		UpdatedAt: time.Now(),
+	}
+
+	err := s.orchestrator.processTask(context.Background(), task)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestStalePreparingTaskIsReconciledWithOwnedInputs() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:           "task-interrupted",
+		Status:       types.TaskStatusPreparing,
+		JustDoItMode: true,
+		UpdatedAt:    time.Now().Add(-attachmentPreparationTimeout - time.Minute),
+		Metadata:     map[string]interface{}{"source": "from-prompt"},
+	}
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		[]types.SpecTaskStatus{types.TaskStatusPreparing},
+		types.TaskStatusImplementationFailed,
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, fields map[string]any) (bool, error) {
+		metadata, ok := fields["metadata"].(map[string]interface{})
+		s.Require().True(ok)
+		s.Equal("from-prompt", metadata["source"])
+		s.Contains(metadata["error"], "attachment ingestion was interrupted")
+		return true, nil
+	})
+
+	err := s.orchestrator.processTask(ctx, task)
+	s.Require().NoError(err)
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_KeepAliveSkipsStop() {
 	ctx := context.Background()
 	task := &types.SpecTask{
