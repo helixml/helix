@@ -108,7 +108,7 @@ func (c *Controller) billSandbox(ctx context.Context, settings *types.SystemSett
 		SandboxPricingType: pricingType,
 		TransactionType:    types.TransactionTypeUsage,
 	}); err != nil {
-		if strings.Contains(err.Error(), "insufficient balance") {
+		if strings.Contains(err.Error(), types.ErrorInsufficientBalance) {
 			if deleteErr := c.Delete(ctx, sb.ID); deleteErr != nil {
 				return fmt.Errorf("stop sandbox after insufficient credits: %w", deleteErr)
 			}

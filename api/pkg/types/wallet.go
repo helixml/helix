@@ -34,6 +34,8 @@ type Wallet struct {
 	Balance float64 `json:"balance"`
 }
 
+const ErrorInsufficientBalance = "insufficient balance"
+
 // Plan override values for Wallet.PlanOverride.
 const (
 	PlanOverridePro  = "pro"

@@ -171,7 +171,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	}
 
 	if !hasEnoughBalance {
-		return nil, nil, fmt.Errorf("insufficient balance")
+		return nil, nil, errors.New(types.ErrorInsufficientBalance)
 	}
 
 	// Evaluate and add OAuth tokens
@@ -371,7 +371,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	}
 
 	if !hasEnoughBalance {
-		return nil, nil, fmt.Errorf("insufficient balance")
+		return nil, nil, errors.New(types.ErrorInsufficientBalance)
 	}
 
 	// Evaluate and add OAuth tokens
@@ -532,7 +532,7 @@ func (c *Controller) preflightHelixAgentModels(ctx context.Context, user *types.
 	}
 
 	if !hasEnoughBalance {
-		return fmt.Errorf("insufficient balance")
+		return errors.New(types.ErrorInsufficientBalance)
 	}
 
 	return nil
