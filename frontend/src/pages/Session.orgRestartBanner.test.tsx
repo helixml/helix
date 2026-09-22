@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
   restartRequired: false,
   restartMutateAsync: vi.fn(),
   restartIsPending: false,
+  pageProps: undefined as Record<string, unknown> | undefined,
 }))
 
 const sessionData = {
@@ -109,7 +110,10 @@ vi.mock('../services/helixOrgService', () => ({
   useStopBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 vi.mock('../components/system/Page', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  default: ({ children, ...props }: { children: React.ReactNode }) => {
+    mocks.pageProps = props
+    return <div>{children}</div>
+  },
 }))
 vi.mock('../components/helix-org/OrgAgentSessionWorkspace', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -129,6 +133,7 @@ describe('Session org chat restart banner', () => {
     mocks.restartRequired = false
     mocks.restartMutateAsync.mockReset()
     mocks.restartIsPending = false
+    mocks.pageProps = undefined
   })
 
   it('shows the restart banner when the session bot reports stale config', async () => {
@@ -182,5 +187,17 @@ describe('Session org chat restart banner', () => {
       org_id: 'acme',
       bot_id: 'bot-one',
     })
+  })
+
+  it('links an org bot session back to the Org Chart', async () => {
+    render(<Session orgChatView />)
+    await screen.findByText('Prompt input')
+
+    expect(mocks.pageProps?.breadcrumbs).toEqual([{
+      title: 'Org Chart',
+      routeName: 'helix_org_chart',
+      params: { org_id: 'acme' },
+      useOrgRouter: false,
+    }])
   })
 })

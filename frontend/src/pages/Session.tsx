@@ -1611,7 +1611,14 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
 
   if (!orgChatView) return sessionContent
 
-  const breadcrumbs = sessionProject
+  const breadcrumbs = orgWorkerId
+    ? [{
+        title: 'Org Chart',
+        routeName: 'helix_org_chart',
+        params: { org_id: router.params.org_id },
+        useOrgRouter: false,
+      }]
+    : sessionProject
     ? [
         { title: 'Projects', routeName: 'projects' },
         {
