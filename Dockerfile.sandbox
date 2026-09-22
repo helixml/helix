@@ -212,11 +212,13 @@ _INSTALL_NVIDIA_TOOLKIT
 # Copy sandbox-images directory containing:
 # - .ref: registry path for production (e.g., "ghcr.io/helixml/helix-sway:v1.2.3")
 # - .version: image hash tag for dev (e.g., "abc123")
-# Keep an immutable seed outside /opt/images so a runtime bind mount or volume
-# cannot hide the metadata baked into the sandbox image. Startup restores
-# missing pointers into /opt/images before resolving desktop images.
-COPY sandbox-images/ /opt/images-seed/
-RUN mkdir -p /opt/images && cp -a /opt/images-seed/. /opt/images/
+# Keep an immutable metadata seed outside /opt/images so a runtime bind mount
+# or volume cannot hide the pointers baked into the sandbox image. Copy the
+# multi-gigabyte image archives only once; the seed contains metadata only.
+COPY sandbox-images/ /opt/images/
+RUN mkdir -p /opt/images-seed && \
+    find /opt/images -maxdepth 1 -type f \( -name 'helix-*.version' -o -name 'helix-*.ref' \) \
+        -exec cp {} /opt/images-seed/ \;
 
 # ====================================================================
 # Copy GOW-style overlay (init system)
