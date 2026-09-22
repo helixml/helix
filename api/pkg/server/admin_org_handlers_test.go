@@ -31,6 +31,7 @@ func TestAdminListOrganizationsPaginatesFilteredResults(t *testing.T) {
 	}
 
 	mockStore.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{}).Return(organizations, nil)
+	mockStore.EXPECT().ListUsers(gomock.Any(), &store.ListUsersQuery{Query: "match"}).Return(nil, int64(0), nil)
 	mockStore.EXPECT().ListWallets(gomock.Any(), &store.ListWalletsQuery{
 		OwnerIDs: []string{"org_b"}, OwnerType: types.OwnerTypeOrg,
 	}).Return([]*types.Wallet{}, nil)
@@ -54,6 +55,41 @@ func TestAdminListOrganizationsPaginatesFilteredResults(t *testing.T) {
 	assert.Equal(t, 2, response.TotalPages)
 	require.Len(t, response.Organizations, 1)
 	assert.Equal(t, "org_b", response.Organizations[0].Organization.ID)
+}
+
+func TestAdminListOrganizationsSearchesOwnerEmail(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	organizations := []*types.Organization{
+		{ID: "org_match", DisplayName: "Unrelated", Owner: "user_match"},
+		{ID: "org_other", DisplayName: "Other", Owner: "user_other"},
+	}
+
+	mockStore.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{}).Return(organizations, nil)
+	mockStore.EXPECT().ListUsers(gomock.Any(), &store.ListUsersQuery{Query: "owner@example.com"}).Return(
+		[]*types.User{{ID: "user_match", Email: "Owner@Example.com"}}, int64(1), nil,
+	)
+	mockStore.EXPECT().ListWallets(gomock.Any(), &store.ListWalletsQuery{
+		OwnerIDs: []string{"org_match"}, OwnerType: types.OwnerTypeOrg,
+	}).Return([]*types.Wallet{}, nil)
+	mockStore.EXPECT().ListOrganizationMemberships(gomock.Any(), &store.ListOrganizationMembershipsQuery{
+		OrganizationID: "org_match",
+	}).Return([]*types.OrganizationMembership{}, nil)
+	mockStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
+		OrganizationID: "org_match",
+	}).Return([]*types.Project{}, nil)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest("GET", "/api/v1/admin/orgs?query=owner@example.com", nil)
+	server.adminListOrganizations(recorder, request)
+
+	require.Equal(t, 200, recorder.Code)
+	var response AdminOrganizationsResponse
+	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
+	assert.Equal(t, 1, response.TotalCount)
+	require.Len(t, response.Organizations, 1)
+	assert.Equal(t, "org_match", response.Organizations[0].Organization.ID)
 }
 
 func TestAdminListOrganizationsHandlesOverflowingPage(t *testing.T) {

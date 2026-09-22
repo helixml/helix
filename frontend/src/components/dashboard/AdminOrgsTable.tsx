@@ -199,7 +199,7 @@ const AdminOrgsTable: FC = () => {
                 }}
             >
                 <TextField
-                    label="Search organizations"
+                    label="Search organizations or owner email"
                     size="small"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}

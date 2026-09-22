@@ -725,7 +725,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List organizations with server-side pagination and name search",
+                "description": "List organizations with server-side pagination and name or owner email search",
                 "tags": [
                     "organizations"
                 ],
@@ -745,7 +745,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Search organization display name or name",
+                        "description": "Search organization display name, name, or owner email",
                         "name": "query",
                         "in": "query"
                     }

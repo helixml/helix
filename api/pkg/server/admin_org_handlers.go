@@ -84,11 +84,11 @@ func (apiServer *HelixAPIServer) adminSetOrgPlan(rw http.ResponseWriter, r *http
 
 // adminListOrganizations godoc
 // @Summary List organizations with wallets (admin only)
-// @Description List organizations with server-side pagination and name search
+// @Description List organizations with server-side pagination and name or owner email search
 // @Tags    organizations
 // @Param page query int false "Page number (default: 1)"
 // @Param per_page query int false "Organizations per page (default: 25, max: 100)"
-// @Param query query string false "Search organization display name or name"
+// @Param query query string false "Search organization display name, name, or owner email"
 // @Success 200 {object} AdminOrganizationsResponse
 // @Router /api/v1/admin/orgs [get]
 // @Security BearerAuth
@@ -111,9 +111,23 @@ func (apiServer *HelixAPIServer) adminListOrganizations(rw http.ResponseWriter, 
 	})
 	search := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("query")))
 	if search != "" {
+		users, _, err := apiServer.Store.ListUsers(r.Context(), &store.ListUsersQuery{Query: search})
+		if err != nil {
+			log.Err(err).Msg("error searching organization owners")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		matchingOwnerIDs := make(map[string]struct{}, len(users))
+		for _, user := range users {
+			if strings.Contains(strings.ToLower(user.Email), search) {
+				matchingOwnerIDs[user.ID] = struct{}{}
+			}
+		}
+
 		filtered := organizations[:0]
 		for _, org := range organizations {
-			if strings.Contains(organizationSearchName(org), search) {
+			_, ownerEmailMatches := matchingOwnerIDs[org.Owner]
+			if strings.Contains(organizationSearchName(org), search) || ownerEmailMatches {
 				filtered = append(filtered, org)
 			}
 		}
