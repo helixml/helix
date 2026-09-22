@@ -23,23 +23,73 @@ const maxTranscriptBytes = 400_000
 // because newer ones are more likely to be load-bearing on the user's intent.
 const transcriptTruncationNotice = "[Note: earlier turns truncated to fit context limit.]\n\n"
 
+// transcriptElisionNotice marks the gap middle-out truncation leaves behind, so
+// the model knows the middle is missing rather than inferring a discontinuity.
+const transcriptElisionNotice = "\n\n[Note: the middle of this transcript was elided to fit the context limit. " +
+	"The earliest turns (framing, constraints, rejected approaches) and the most recent turns are preserved.]\n\n"
+
+const transcriptBlockSeparator = "\n\n"
+
+// transcriptTruncationMode selects which end of an over-budget transcript to
+// keep.
+type transcriptTruncationMode int
+
+const (
+	// truncateOldestFirst drops the oldest turns. Correct for a generic agent
+	// switch, where the user's latest intent is what matters.
+	truncateOldestFirst transcriptTruncationMode = iota
+	// truncateMiddleOut keeps both ends. Correct for a planning→implementation
+	// handoff, where the earliest turns hold the framing, the constraints and
+	// the rejected approaches — which the approved specs do not record.
+	truncateMiddleOut
+)
+
+func (m transcriptTruncationMode) String() string {
+	if m == truncateMiddleOut {
+		return "middle_out"
+	}
+	return "oldest_first"
+}
+
+// transcriptStats explains what serialization did, so an empty or truncated
+// result is not indistinguishable from "there was nothing to send".
+type transcriptStats struct {
+	blocks             int
+	skippedNotComplete int
+	skippedForkMarkers int
+	originalBytes      int
+	finalBytes         int
+	truncated          bool
+	blocksDropped      int
+}
+
 // serializeTranscript turns a chronological list of interactions into a markdown
-// transcript suitable for seeding a forked session's new agent. The output is
-// stored once on the child's fork_seed.ResponseMessage at fork time and re-read
-// by maybePrependTranscript when the first real user message goes out.
+// transcript suitable for seeding a forked session's new agent, dropping the
+// oldest turns when over budget. See serializeTranscriptWithMode.
+func serializeTranscript(interactions []*types.Interaction, maxBytes int) string {
+	transcript, _ := serializeTranscriptWithMode(interactions, maxBytes, truncateOldestFirst)
+	return transcript
+}
+
+// serializeTranscriptWithMode is serializeTranscript with an explicit
+// truncation mode and a stats report. The output is stored once on the child's
+// fork_seed.ResponseMessage at fork time and re-read by maybePrependTranscript
+// when the first real user message goes out.
 //
 // Skips:
-//   - fork_seed interactions (the seed itself shouldn't recursively appear)
+//   - fork_seed / fork_handoff interactions (the seed itself shouldn't
+//     recursively appear; the handoff is meta-prompt, not conversation)
 //   - interactions in non-Complete state (partial / errored turns add noise)
-//
-// Truncates from the *front* when the byte budget is exceeded so the most
-// recent context (and the user's latest intent) wins.
-func serializeTranscript(interactions []*types.Interaction, maxBytes int) string {
+func serializeTranscriptWithMode(
+	interactions []*types.Interaction,
+	maxBytes int,
+	mode transcriptTruncationMode,
+) (string, transcriptStats) {
+	var stats transcriptStats
 	if len(interactions) == 0 {
-		return ""
+		return "", stats
 	}
 
-	// Build per-interaction blocks first so we can truncate from the front.
 	blocks := make([]string, 0, len(interactions))
 	for _, in := range interactions {
 		if in == nil {
@@ -52,9 +102,11 @@ func serializeTranscript(interactions []*types.Interaction, maxBytes int) string
 		// content is meta-prompt, not real conversation).
 		if in.Trigger == types.InteractionTriggerForkSeed ||
 			in.Trigger == types.InteractionTriggerForkHandoff {
+			stats.skippedForkMarkers++
 			continue
 		}
 		if in.State != types.InteractionStateComplete {
+			stats.skippedNotComplete++
 			continue
 		}
 		block := serializeInteractionBlock(in)
@@ -63,18 +115,30 @@ func serializeTranscript(interactions []*types.Interaction, maxBytes int) string
 		}
 		blocks = append(blocks, block)
 	}
+	stats.blocks = len(blocks)
 
 	if len(blocks) == 0 {
-		return ""
+		return "", stats
 	}
 
-	transcript := strings.Join(blocks, "\n\n")
-	if maxBytes > 0 && len(transcript) > maxBytes {
+	transcript := strings.Join(blocks, transcriptBlockSeparator)
+	stats.originalBytes = len(transcript)
+	stats.finalBytes = len(transcript)
+	if maxBytes <= 0 || len(transcript) <= maxBytes {
+		return transcript, stats
+	}
+
+	stats.truncated = true
+	if mode == truncateMiddleOut {
+		transcript, stats.blocksDropped = truncateTranscriptMiddleOut(blocks, maxBytes-len(transcriptElisionNotice))
+	} else {
+		kept := len(blocks)
 		// Drop oldest blocks until we fit, then prepend the notice.
 		for len(blocks) > 1 && len(transcript) > maxBytes-len(transcriptTruncationNotice) {
 			blocks = blocks[1:]
-			transcript = strings.Join(blocks, "\n\n")
+			transcript = strings.Join(blocks, transcriptBlockSeparator)
 		}
+		stats.blocksDropped = kept - len(blocks)
 		transcript = transcriptTruncationNotice + transcript
 		// Final hard cap: a single huge block can still exceed the limit;
 		// truncate the head of the block content rather than dropping it.
@@ -82,7 +146,80 @@ func serializeTranscript(interactions []*types.Interaction, maxBytes int) string
 			transcript = transcriptTruncationNotice + transcript[len(transcript)-(maxBytes-len(transcriptTruncationNotice)):]
 		}
 	}
-	return transcript
+	stats.finalBytes = len(transcript)
+
+	// Truncation was completely invisible before: that is how a transcript at
+	// 98% of the ceiling went unnoticed.
+	log.Warn().
+		Int("original_bytes", stats.originalBytes).
+		Int("final_bytes", stats.finalBytes).
+		Int("max_bytes", maxBytes).
+		Int("blocks", stats.blocks).
+		Int("blocks_dropped", stats.blocksDropped).
+		Str("mode", mode.String()).
+		Msg("transcript seed exceeded the byte budget and was truncated")
+
+	return transcript, stats
+}
+
+// truncateTranscriptMiddleOut keeps the head and tail of a block list within
+// budget bytes and elides the middle. Whole blocks are preferred, but a
+// planning session is typically one to three very large blocks, so block
+// selection alone would never fit — when a single block exceeds its half of the
+// budget it is cut at the byte level. Returns the transcript and how many whole
+// blocks were dropped.
+func truncateTranscriptMiddleOut(blocks []string, budget int) (string, int) {
+	if budget <= 0 || len(blocks) == 0 {
+		return transcriptElisionNotice, len(blocks)
+	}
+	headBudget := budget / 2
+	tailBudget := budget - headBudget
+
+	head, headUsed := 0, 0
+	for head < len(blocks) {
+		cost := len(blocks[head])
+		if head > 0 {
+			cost += len(transcriptBlockSeparator)
+		}
+		if headUsed+cost > headBudget {
+			break
+		}
+		headUsed += cost
+		head++
+	}
+	tail, tailUsed := len(blocks), 0
+	for tail > head {
+		cost := len(blocks[tail-1])
+		if tail < len(blocks) {
+			cost += len(transcriptBlockSeparator)
+		}
+		if tailUsed+cost > tailBudget {
+			break
+		}
+		tailUsed += cost
+		tail--
+	}
+
+	headText := strings.Join(blocks[:head], transcriptBlockSeparator)
+	tailText := strings.Join(blocks[tail:], transcriptBlockSeparator)
+
+	// Neither end fitted a whole block — a single oversized block. Cut bytes so
+	// the framing at the top and the latest state at the bottom both survive.
+	if headText == "" && head < len(blocks) {
+		headText = blocks[head][:minInt(headBudget, len(blocks[head]))]
+	}
+	if tailText == "" && tail > 0 {
+		last := blocks[tail-1]
+		tailText = last[len(last)-minInt(tailBudget, len(last)):]
+	}
+	return headText + transcriptElisionNotice + tailText, tail - head
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // serializeInteractionBlock formats one complete interaction as a "**User:** …"
