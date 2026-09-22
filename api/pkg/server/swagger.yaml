@@ -5767,6 +5767,12 @@ definitions:
       assignee_id:
         description: 'Optional: team member assigned to the task'
         type: string
+      attachments:
+        description: Attachments are validated and stored before the task is exposed
+          to dispatchers.
+        items:
+          $ref: '#/definitions/types.SpecTaskInlineAttachment'
+        type: array
       auto_start:
         description: 'Optional: Skip backlog and start immediately, regardless of
           project auto-start setting'
@@ -11818,6 +11824,17 @@ definitions:
         type: boolean
       task:
         $ref: '#/definitions/types.SpecTask'
+    type: object
+  types.SpecTaskInlineAttachment:
+    properties:
+      caption:
+        type: string
+      content_base64:
+        description: Standard base64-encoded file bytes.
+        type: string
+      name:
+        description: Filename visible in the task workspace.
+        type: string
     type: object
   types.SpecTaskPhase:
     enum:
@@ -28208,6 +28225,10 @@ paths:
             $ref: '#/definitions/types.SpecTask'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "413":
+          description: Request Entity Too Large
           schema:
             $ref: '#/definitions/types.APIError'
         "500":

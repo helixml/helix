@@ -3690,6 +3690,8 @@ export interface TypesCreateSecretRequest {
 export interface TypesCreateTaskRequest {
   /** Optional: team member assigned to the task */
   assignee_id?: string;
+  /** Attachments are validated and stored before the task is exposed to dispatchers. */
+  attachments?: TypesSpecTaskInlineAttachment[];
   /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
   auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
@@ -7485,6 +7487,14 @@ export interface TypesSpecTaskExecutionConfigUpdateResponse {
   agent_thread_restarted?: boolean;
   sandbox_resources_applied?: boolean;
   task?: TypesSpecTask;
+}
+
+export interface TypesSpecTaskInlineAttachment {
+  caption?: string;
+  /** Standard base64-encoded file bytes. */
+  content_base64?: string;
+  /** Filename visible in the task workspace. */
+  name?: string;
 }
 
 export enum TypesSpecTaskPhase {

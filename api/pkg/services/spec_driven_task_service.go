@@ -140,6 +140,27 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+	return s.createTaskFromPrompt(ctx, req, "")
+}
+
+// CreateTaskFromPromptWithID creates a task with an ID allocated by the API server.
+// This lets the server persist inline attachments before publishing the task row.
+func (s *SpecDrivenTaskService) CreateTaskFromPromptWithID(
+	ctx context.Context,
+	req *types.CreateTaskRequest,
+	taskID string,
+) (*types.SpecTask, error) {
+	if taskID == "" {
+		return nil, fmt.Errorf("preallocated task ID is required")
+	}
+	return s.createTaskFromPrompt(ctx, req, taskID)
+}
+
+func (s *SpecDrivenTaskService) createTaskFromPrompt(
+	ctx context.Context,
+	req *types.CreateTaskRequest,
+	taskID string,
+) (*types.SpecTask, error) {
 	if req.AppID != "" {
 		return nil, fmt.Errorf("app_id is no longer supported; provide code_agent_config")
 	}
@@ -246,8 +267,11 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		planningStartedBy = req.UserID
 	}
 
+	if taskID == "" {
+		taskID = generateTaskID()
+	}
 	task := &types.SpecTask{
-		ID:                       generateTaskID(),
+		ID:                       taskID,
 		ProjectID:                req.ProjectID,
 		UserID:                   req.UserID,
 		OrganizationID:           organizationID,

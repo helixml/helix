@@ -271,8 +271,18 @@ type CreateTaskRequest struct {
 	GooseRecipeParams         map[string]string `json:"goose_recipe_params,omitempty"`
 	PlanningGooseRecipeName   string            `json:"planning_goose_recipe_name,omitempty"`
 	PlanningGooseRecipeParams map[string]string `json:"planning_goose_recipe_params,omitempty"`
+	// Attachments are validated and stored before the task is exposed to dispatchers.
+	Attachments []SpecTaskInlineAttachment `json:"attachments,omitempty"`
 
 	// Git repositories are now managed at the project level - no task-level repo selection needed
+}
+
+// SpecTaskInlineAttachment is attachment content submitted with CreateTaskRequest.
+// The API validates and stores it through the same path as multipart attachments.
+type SpecTaskInlineAttachment struct {
+	Name          string `json:"name"`           // Filename visible in the task workspace.
+	ContentBase64 string `json:"content_base64"` // Standard base64-encoded file bytes.
+	Caption       string `json:"caption,omitempty"`
 }
 
 // SpecTask represents a task following Kiro's actual spec-driven approach
@@ -692,8 +702,9 @@ func (SpecTaskAttachment) TableName() string {
 
 // SpecTask attachment limits
 const (
-	SpecTaskAttachmentMaxBytes   = 100 * 1024 * 1024 // 100 MB per file
-	SpecTaskAttachmentMaxPerTask = 500               // 500 files per task
+	SpecTaskAttachmentMaxBytes        = 100 * 1024 * 1024 // 100 MB per file
+	SpecTaskAttachmentMaxPerTask      = 500               // 500 files per task
+	SpecTaskInlineAttachmentsMaxBytes = 100 * 1024 * 1024 // 100 MB total per JSON request
 )
 
 // SpecTaskAttachmentAllowedMimeTypes is the allowlist of MIME types accepted for upload.

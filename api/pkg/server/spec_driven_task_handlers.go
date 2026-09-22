@@ -99,6 +99,7 @@ func (s *HelixAPIServer) validateAssigneeIsOrgMember(ctx context.Context, orgID,
 // @Param   request body types.CreateTaskRequest true "Task creation request"
 // @Success 201 {object} types.SpecTask
 // @Failure 400 {object} types.APIError
+// @Failure 413 {object} types.APIError
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/spec-tasks/from-prompt [post]
 func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Request) {
@@ -114,8 +115,14 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	}
 
 	var req types.CreateTaskRequest
+	r.Body = http.MaxBytesReader(w, r.Body, specTaskFromPromptMaxRequestBytes())
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("Failed to decode create task request")
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body exceeds inline attachment size limit", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -215,9 +222,38 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	// Create task via spec-driven service
-	task, err := s.specDrivenTaskService.CreateTaskFromPrompt(ctx, &req)
+	inlineAttachments, err := prepareInlineSpecTaskAttachments(req.Attachments)
 	if err != nil {
+		writeSpecTaskAttachmentInputError(w, err)
+		return
+	}
+	// Drop the encoded payload before passing the request deeper. Attachment rows
+	// are created first so a queued task cannot be observed without its inputs.
+	req.Attachments = nil
+	preallocatedTaskID := ""
+	if len(inlineAttachments) > 0 {
+		preallocatedTaskID, err = s.precreateInlineSpecTaskAttachments(
+			ctx,
+			req.ProjectID,
+			user.ID,
+			inlineAttachments,
+		)
+		if err != nil {
+			log.Error().Err(err).Str("project_id", req.ProjectID).Msg("Failed to persist inline task attachments")
+			http.Error(w, "failed to save task attachments", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Create task via spec-driven service
+	var task *types.SpecTask
+	if preallocatedTaskID == "" {
+		task, err = s.specDrivenTaskService.CreateTaskFromPrompt(ctx, &req)
+	} else {
+		task, err = s.specDrivenTaskService.CreateTaskFromPromptWithID(ctx, &req, preallocatedTaskID)
+	}
+	if err != nil {
+		s.cleanupPrecreatedSpecTaskAttachments(ctx, preallocatedTaskID)
 		log.Error().Err(err).Msg("Failed to create task from prompt")
 		http.Error(w, fmt.Sprintf("failed to create task: %v", err), http.StatusInternalServerError)
 		return
