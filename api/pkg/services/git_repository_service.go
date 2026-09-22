@@ -755,6 +755,7 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 		gitRepo.Branches = make([]string, len(storedRepo.Branches))
 		copy(gitRepo.Branches, storedRepo.Branches)
 	}
+	metadataNeedsRepair := gitRepo.ExternalURL != "" && gitRepo.LocalPath == ""
 
 	// Got from database - verify the LocalPath exists if this is not external
 	if gitRepo.ExternalURL == "" {
@@ -776,6 +777,12 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 	err = s.updateRepositoryFromGit(ctx, &gitRepo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update repository info from git: %w", err)
+	}
+	if metadataNeedsRepair {
+		gitRepo.CloneURL = s.generateCloneURL(gitRepo.ID)
+		if err := s.store.UpdateGitRepository(ctx, &gitRepo); err != nil {
+			return nil, fmt.Errorf("failed to persist repaired repository metadata: %w", err)
+		}
 	}
 
 	return &gitRepo, nil

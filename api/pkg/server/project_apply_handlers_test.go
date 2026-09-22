@@ -28,10 +28,24 @@ type ApplyProjectSuite struct {
 type applyProjectGitRepositoryService struct {
 	gitRepositoryServicer
 	createRepository func(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error)
+	getRepository    func(ctx context.Context, repoID string) (*types.GitRepository, error)
+	updateRepository func(ctx context.Context, repoID string, request *types.GitRepositoryUpdateRequest, koditAPIKey string) (*types.GitRepository, error)
 }
 
 func (s *applyProjectGitRepositoryService) CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
 	return s.createRepository(ctx, request)
+}
+
+func (s *applyProjectGitRepositoryService) GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error) {
+	return s.getRepository(ctx, repoID)
+}
+
+func (s *applyProjectGitRepositoryService) UpdateRepository(ctx context.Context, repoID string, request *types.GitRepositoryUpdateRequest, koditAPIKey string) (*types.GitRepository, error) {
+	return s.updateRepository(ctx, repoID, request, koditAPIKey)
+}
+
+func (s *applyProjectGitRepositoryService) WithRepoLock(_ string, fn func() error) error {
+	return fn()
 }
 
 func TestApplyProjectSuite(t *testing.T) {
@@ -409,11 +423,59 @@ func (s *ApplyProjectSuite) TestExternalRepositoryTypeForURL() {
 	}
 }
 
+func (s *ApplyProjectSuite) TestApply_ExistingIncompleteRepoIsRepaired() {
+	existingRepo := &types.GitRepository{
+		ID:           "repo-incomplete-123",
+		ExternalURL:  "https://github.com/org/my-repo",
+		CloneURL:     "https://github.com/org/my-repo",
+		IsExternal:   true,
+		LocalPath:    "",
+		ExternalType: "",
+	}
+	req := types.ProjectApplyRequest{
+		Name: "repo-project",
+		Spec: types.ProjectSpec{
+			Repository: &types.ProjectRepositorySpec{URL: existingRepo.ExternalURL},
+		},
+	}
+
+	s.store.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return([]*types.Project{}, nil)
+	s.store.EXPECT().CreateProject(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, project *types.Project) (*types.Project, error) { return project, nil },
+	)
+	s.store.EXPECT().GetGitRepositoryByExternalURL(gomock.Any(), "", existingRepo.ExternalURL).Return(existingRepo, nil)
+
+	repairedRepo := *existingRepo
+	repairedRepo.LocalPath = "/tmp/git-repositories/repo-incomplete-123"
+	repairedRepo.CloneURL = "http://helix.test/git/repo-incomplete-123"
+	s.server.gitRepositoryService = &applyProjectGitRepositoryService{
+		getRepository: func(_ context.Context, repoID string) (*types.GitRepository, error) {
+			s.Equal(existingRepo.ID, repoID)
+			return &repairedRepo, nil
+		},
+		updateRepository: func(_ context.Context, repoID string, request *types.GitRepositoryUpdateRequest, _ string) (*types.GitRepository, error) {
+			s.Equal(existingRepo.ID, repoID)
+			s.Equal(types.ExternalRepositoryTypeGitHub, request.ExternalType)
+			repairedRepo.ExternalType = request.ExternalType
+			return &repairedRepo, nil
+		},
+	}
+
+	s.store.EXPECT().AttachRepositoryToProject(gomock.Any(), gomock.Any(), existingRepo.ID).Return(nil)
+	s.store.EXPECT().SetProjectPrimaryRepository(gomock.Any(), gomock.Any(), existingRepo.ID).Return(nil)
+
+	resp, httpErr := s.server.applyProject(httptest.NewRecorder(), s.applyRequest(req))
+	s.Nil(httpErr)
+	s.True(resp.Created)
+}
+
 // TestApply_RepoAttachedWhenAlreadyExists: repository URL already registered → attach without creating.
 func (s *ApplyProjectSuite) TestApply_RepoAttachedWhenAlreadyExists() {
 	existingRepo := &types.GitRepository{
 		ID:          "repo-already-123",
 		ExternalURL: "https://github.com/org/my-repo",
+		CloneURL:    "http://helix.test/git/repo-already-123",
+		LocalPath:   "/tmp/git-repositories/repo-already-123",
 	}
 	req := types.ProjectApplyRequest{
 		Name: "repo-project",
@@ -466,8 +528,18 @@ func (s *ApplyProjectSuite) TestApply_MultiRepo_PrimarySetCorrectly() {
 		CreateProject(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, p *types.Project) (*types.Project, error) { return p, nil })
 
-	frontendRepo := &types.GitRepository{ID: "repo-frontend"}
-	backendRepo := &types.GitRepository{ID: "repo-backend"}
+	frontendRepo := &types.GitRepository{
+		ID:          "repo-frontend",
+		ExternalURL: "https://github.com/org/frontend",
+		CloneURL:    "http://helix.test/git/repo-frontend",
+		LocalPath:   "/tmp/git-repositories/repo-frontend",
+	}
+	backendRepo := &types.GitRepository{
+		ID:          "repo-backend",
+		ExternalURL: "https://github.com/org/backend",
+		CloneURL:    "http://helix.test/git/repo-backend",
+		LocalPath:   "/tmp/git-repositories/repo-backend",
+	}
 
 	s.store.EXPECT().
 		GetGitRepositoryByExternalURL(gomock.Any(), "", "https://github.com/org/frontend").

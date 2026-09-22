@@ -2906,6 +2906,7 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 	for _, repoSpec := range resolvedRepos {
 		// Find-or-create git repository by external URL
 		repo, err := s.Store.GetGitRepositoryByExternalURL(r.Context(), orgID, repoSpec.URL)
+		repairedExistingRepo := false
 		if err != nil {
 			if err != store.ErrNotFound {
 				return nil, system.NewHTTPError500(fmt.Sprintf("failed to look up repository %s: %v", repoSpec.URL, err))
@@ -2938,6 +2939,32 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			}
 			if repo.ExternalURL == "" || repo.CloneURL == "" || repo.LocalPath == "" {
 				return nil, system.NewHTTPError500(fmt.Sprintf("created repository %s is incomplete", repoSpec.URL))
+			}
+		} else if repo.LocalPath == "" {
+			if s.gitRepositoryService == nil {
+				return nil, system.NewHTTPError500("git repository service is not configured")
+			}
+			var repairedRepo *types.GitRepository
+			err = s.gitRepositoryService.WithRepoLock(repo.ID, func() error {
+				var repairErr error
+				repairedRepo, repairErr = s.gitRepositoryService.GetRepository(r.Context(), repo.ID)
+				return repairErr
+			})
+			if err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to repair repository %s: %v", repoSpec.URL, err))
+			}
+			repo = repairedRepo
+			repairedExistingRepo = true
+		}
+		if repairedExistingRepo && repo.ExternalType == "" {
+			externalType := externalRepositoryTypeForURL(repoSpec.URL)
+			if externalType != "" {
+				repo, err = s.gitRepositoryService.UpdateRepository(r.Context(), repo.ID, &types.GitRepositoryUpdateRequest{
+					ExternalType: externalType,
+				}, "")
+				if err != nil {
+					return nil, system.NewHTTPError500(fmt.Sprintf("failed to repair repository provider %s: %v", repoSpec.URL, err))
+				}
 			}
 		}
 		if err := s.Store.AttachRepositoryToProject(r.Context(), project.ID, repo.ID); err != nil {

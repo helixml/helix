@@ -2,13 +2,17 @@ package services
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
+	giteagit "code.gitea.io/gitea/modules/git"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/kodit/domain/enrichment"
 	"github.com/helixml/kodit/domain/repository"
 	"github.com/helixml/kodit/domain/tracking"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeStore embeds store.Store and overrides only the methods we need.
@@ -188,6 +192,30 @@ func TestUpdateRepository_ReviewBotUserID(t *testing.T) {
 	if updated.GitHub == nil || updated.GitHub.ReviewBotUserID != 291906607 {
 		t.Fatalf("GitHub settings were not initialized: %#v", updated.GitHub)
 	}
+}
+
+func TestGetRepositoryRepairsIncompleteExternalMetadata(t *testing.T) {
+	filestoreBase := t.TempDir()
+	repoID := "repo-incomplete"
+	repoPath := filepath.Join(filestoreBase, "git-repositories", repoID)
+	require.NoError(t, giteagit.InitRepository(t.Context(), repoPath, true, "sha1"))
+
+	st := &fakeStore{repo: &types.GitRepository{
+		ID:            repoID,
+		ExternalURL:   "https://github.com/org/repo",
+		CloneURL:      "https://github.com/org/repo",
+		IsExternal:    true,
+		DefaultBranch: "main",
+	}}
+	svc := NewGitRepositoryService(st, filestoreBase, "http://localhost:8080", "test", "test@test.com")
+
+	repo, err := svc.GetRepository(t.Context(), repoID)
+	require.NoError(t, err)
+	require.NotNil(t, repo)
+	assert.Equal(t, repoPath, repo.LocalPath)
+	assert.Equal(t, "http://localhost:8080/git/"+repoID, repo.CloneURL)
+	assert.Equal(t, repo.LocalPath, st.repo.LocalPath)
+	assert.Equal(t, repo.CloneURL, st.repo.CloneURL)
 }
 
 func TestDeleteRepository_DeletesFromKodit(t *testing.T) {
