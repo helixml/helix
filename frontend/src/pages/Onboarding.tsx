@@ -1145,8 +1145,8 @@ export default function Onboarding() {
                 </Typography>
                 <Typography
                   sx={{
-                    color: palette.TEXT_MUTED,
-                    fontSize: "0.8rem",
+                    color: palette.TEXT_SECONDARY,
+                    fontSize: "0.76rem",
                     mb: 1.5,
                   }}
                 >
@@ -1166,8 +1166,8 @@ export default function Onboarding() {
                   <Box sx={{ mb: 2 }}>
                     <Typography
                       sx={{
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        color: palette.TEXT_SECONDARY,
+                        fontSize: "0.76rem",
                         mb: 0.5,
                       }}
                     >
@@ -1175,8 +1175,8 @@ export default function Onboarding() {
                     </Typography>
                     <Typography
                       sx={{
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        color: palette.TEXT_SECONDARY,
+                        fontSize: "0.76rem",
                         mb: 0.5,
                       }}
                     >
@@ -1185,8 +1185,8 @@ export default function Onboarding() {
                     </Typography>
                     <Typography
                       sx={{
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        color: palette.TEXT_SECONDARY,
+                        fontSize: "0.76rem",
                         mb: 0.5,
                       }}
                     >
@@ -1197,8 +1197,8 @@ export default function Onboarding() {
                     </Typography>
                     <Typography
                       sx={{
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        color: palette.TEXT_SECONDARY,
+                        fontSize: "0.76rem",
                         mb: 0.5,
                       }}
                     >
@@ -1209,8 +1209,8 @@ export default function Onboarding() {
                     </Typography>
                     <Typography
                       sx={{
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.75rem",
+                        color: palette.TEXT_SECONDARY,
+                        fontSize: "0.76rem",
                       }}
                     >
                       Current balance: ${wallet.balance?.toFixed(2) || "0.00"}{" "}
