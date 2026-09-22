@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -57,14 +58,17 @@ type FileStore interface {
 	CopyFile(ctx context.Context, from string, to string) error
 }
 
-// CleanRelativePath normalizes a filestore-relative path and rejects paths
+// CleanRelativePath normalizes a logical filestore path and rejects paths
 // that would escape the caller's user or app scope when joined to its root.
-func CleanRelativePath(path string) (string, error) {
-	cleaned := filepath.Clean(path)
-	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path escapes filestore scope: %s", path)
+// A leading separator denotes the root of that scope, not the host filesystem.
+func CleanRelativePath(rawPath string) (string, error) {
+	normalized := strings.ReplaceAll(rawPath, `\`, "/")
+	normalized = strings.TrimLeft(normalized, "/")
+	cleaned := path.Clean(normalized)
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("path escapes filestore scope: %s", rawPath)
 	}
-	return cleaned, nil
+	return filepath.FromSlash(cleaned), nil
 }
 
 // JoinScopedPath joins a relative path to a filestore scope root without

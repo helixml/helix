@@ -16,9 +16,14 @@ func TestJoinScopedPath(t *testing.T) {
 	}{
 		{name: "nested path", path: "engagements/prj_1/receipt.json", want: filepath.Join("dev/users/user-1", "engagements/prj_1/receipt.json")},
 		{name: "scope root", path: "", want: filepath.Join("dev/users/user-1")},
+		{name: "slash scope root", path: "/", want: filepath.Join("dev/users/user-1")},
+		{name: "root relative documents path", path: "/documents/report.txt", want: filepath.Join("dev/users/user-1", "documents/report.txt")},
+		{name: "root relative session path", path: "/sessions/ses_1/result.txt", want: filepath.Join("dev/users/user-1", "sessions/ses_1/result.txt")},
+		{name: "windows separators", path: `\documents\report.txt`, want: filepath.Join("dev/users/user-1", "documents/report.txt")},
 		{name: "parent traversal", path: "../../users/user-2/secret.json", wantError: true},
+		{name: "root relative parent traversal", path: "/../../users/user-2/secret.json", wantError: true},
+		{name: "windows parent traversal", path: `\..\..\users\user-2\secret.json`, wantError: true},
 		{name: "parent directory", path: "..", wantError: true},
-		{name: "absolute path", path: filepath.Join(string(filepath.Separator), "dev", "users", "user-2"), wantError: true},
 	}
 
 	for _, test := range tests {
