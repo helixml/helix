@@ -240,7 +240,9 @@ func TestCreateChatCompletionStreamLogsLatestUsageSnapshot(t *testing.T) {
 	}
 	streamBody.WriteString("data: [DONE]\n\n")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	requestIDs := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestIDs <- r.Header.Get(types.RequestIDHeader)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(streamBody.String()))
 	}))
@@ -273,6 +275,9 @@ func TestCreateChatCompletionStreamLogsLatestUsageSnapshot(t *testing.T) {
 
 	require.Equal(t, 1, len(captured.calls))
 	call := <-captured.calls
+	requestID := <-requestIDs
+	assert.True(t, strings.HasPrefix(requestID, "req_"))
+	assert.Equal(t, requestID, call.RequestID)
 	assert.Equal(t, int64(100), call.PromptTokens)
 	assert.Equal(t, int64(2), call.CompletionTokens)
 	assert.Equal(t, int64(102), call.TotalTokens)
@@ -385,7 +390,7 @@ func Test_logLLMCall_WithoutBillingLogger(t *testing.T) {
 	mw.client = mockClient
 	mw.billingLogger = nil // Explicitly set to nil
 
-	mockClient.EXPECT().CreateChatCompletion(ctx, *req).Return(*resp, nil)
+	mockClient.EXPECT().CreateChatCompletion(gomock.Any(), *req).Return(*resp, nil)
 
 	mockClient.EXPECT().BaseURL().Return("https://api.openai.com/v1")
 
@@ -454,7 +459,7 @@ func Test_logLLMCall_WithBillingLogger_User(t *testing.T) {
 
 	// Create a mock model info provider
 
-	mockClient.EXPECT().CreateChatCompletion(ctx, *req).Return(*resp, nil)
+	mockClient.EXPECT().CreateChatCompletion(gomock.Any(), *req).Return(*resp, nil)
 
 	mockClient.EXPECT().BaseURL().Return("https://api.openai.com/v1")
 
@@ -550,7 +555,7 @@ func Test_logLLMCall_WithBillingLogger_Org(t *testing.T) {
 
 	// Create a mock model info provider
 
-	mockClient.EXPECT().CreateChatCompletion(ctx, *req).Return(*resp, nil)
+	mockClient.EXPECT().CreateChatCompletion(gomock.Any(), *req).Return(*resp, nil)
 
 	mockClient.EXPECT().BaseURL().Return("https://api.openai.com/v1")
 
