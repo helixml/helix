@@ -540,6 +540,9 @@ func filestoreUploadDestination(requestPath, uploadedFilename string) string {
 	if requestPath == "" || cleanPath == "." {
 		return filename
 	}
+	if strings.HasSuffix(requestPath, "/") {
+		return filepath.Join(cleanPath, filename)
+	}
 	if filepath.Base(cleanPath) == filename {
 		return cleanPath
 	}

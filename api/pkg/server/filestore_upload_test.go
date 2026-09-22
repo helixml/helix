@@ -32,6 +32,12 @@ func TestFilestoreUploadDestination(t *testing.T) {
 			want:             "engagements/prj_1/my-retest_1.json/retest_1.json",
 		},
 		{
+			name:             "trailing slash disambiguates matching directory name",
+			requestPath:      "engagements/prj_1/retest_1.json/",
+			uploadedFilename: "retest_1.json",
+			want:             "engagements/prj_1/retest_1.json/retest_1.json",
+		},
+		{
 			name:             "empty path writes at user root",
 			requestPath:      "",
 			uploadedFilename: "receipt.json",
