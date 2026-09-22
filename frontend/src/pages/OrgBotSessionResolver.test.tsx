@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   bots: [] as Array<{ id: string; name?: string; session_id?: string }>,
   listLoading: false,
   listError: false,
+  params: { org_id: 'my-org', bot_id: 'chief-of-staff' } as Record<string, string>,
+  navigateReplace: vi.fn(),
 }))
 
 vi.mock('../components/helix-org/orgBotChatDraft', () => ({
@@ -23,7 +25,8 @@ vi.mock('../hooks/usePromptHistory', () => ({
 
 vi.mock('../hooks/useRouter', () => ({
   default: () => ({
-    params: { org_id: 'my-org', bot_id: 'chief-of-staff' },
+    params: mocks.params,
+    navigateReplace: mocks.navigateReplace,
   }),
 }))
 
@@ -52,6 +55,8 @@ describe('OrgBotSessionResolver', () => {
     mocks.bots = []
     mocks.listLoading = false
     mocks.listError = false
+    mocks.params = { org_id: 'my-org', bot_id: 'chief-of-staff' }
+    mocks.navigateReplace.mockReset()
     mocks.activate.mockResolvedValue({})
     mocks.refetch.mockResolvedValue({})
     mocks.consumeDraft.mockReturnValue('')
@@ -158,13 +163,21 @@ describe('OrgBotSessionResolver', () => {
     expect(mocks.activate).not.toHaveBeenCalled()
   })
 
-  it('offers query retry when the bot no longer exists', () => {
+  it('returns to Chat when the landing Chief of Staff no longer exists', async () => {
     render(<OrgBotSessionResolver />)
 
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Could not find this agent.',
-    )
+    await waitFor(() => expect(mocks.navigateReplace).toHaveBeenCalledWith('org_chat', {
+      org_id: 'my-org',
+    }))
     expect(mocks.activate).not.toHaveBeenCalled()
+  })
+
+  it('keeps the missing-agent error for a non-landing bot', () => {
+    mocks.params = { org_id: 'my-org', bot_id: 'deleted-bot' }
+    render(<OrgBotSessionResolver />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not find this agent.')
+    expect(mocks.navigateReplace).not.toHaveBeenCalled()
   })
 
   it('keeps showing the lookup progress while the bot list is loading', () => {

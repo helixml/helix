@@ -88,12 +88,13 @@ func (c *InternalHelixServer) CreateChatCompletion(requestCtx context.Context, r
 
 	// Enqueue the request, it will be picked up by the runner
 	err = c.enqueueRequest(&types.RunnerLLMInferenceRequest{
-		RequestID:     requestID,
-		CreatedAt:     time.Now(),
-		OwnerID:       vals.OwnerID,
-		SessionID:     vals.SessionID,
-		InteractionID: vals.InteractionID,
-		Request:       &request,
+		RequestID:      requestID,
+		HelixRequestID: vals.RequestID,
+		CreatedAt:      time.Now(),
+		OwnerID:        vals.OwnerID,
+		SessionID:      vals.SessionID,
+		InteractionID:  vals.InteractionID,
+		Request:        &request,
 	})
 	if err != nil {
 		return openai.ChatCompletionResponse{}, fmt.Errorf("error enqueuing request: %w", err)
@@ -208,12 +209,13 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 
 	// Enqueue the request, it will be picked up by the runner
 	err = c.enqueueRequest(&types.RunnerLLMInferenceRequest{
-		RequestID:     requestID,
-		CreatedAt:     time.Now(),
-		OwnerID:       vals.OwnerID,
-		SessionID:     vals.SessionID,
-		InteractionID: vals.InteractionID,
-		Request:       &request,
+		RequestID:      requestID,
+		HelixRequestID: vals.RequestID,
+		CreatedAt:      time.Now(),
+		OwnerID:        vals.OwnerID,
+		SessionID:      vals.SessionID,
+		InteractionID:  vals.InteractionID,
+		Request:        &request,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error enqueuing request: %w", err)
