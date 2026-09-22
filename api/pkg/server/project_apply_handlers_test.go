@@ -25,6 +25,15 @@ type ApplyProjectSuite struct {
 	server  *HelixAPIServer
 }
 
+type applyProjectGitRepositoryService struct {
+	gitRepositoryServicer
+	createRepository func(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error)
+}
+
+func (s *applyProjectGitRepositoryService) CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
+	return s.createRepository(ctx, request)
+}
+
 func TestApplyProjectSuite(t *testing.T) {
 	suite.Run(t, new(ApplyProjectSuite))
 }
@@ -352,22 +361,52 @@ func (s *ApplyProjectSuite) TestApply_RepoCreatedWhenNotFound() {
 		GetGitRepositoryByExternalURL(gomock.Any(), "", "https://github.com/org/my-repo").
 		Return(nil, store.ErrNotFound)
 
-	s.store.EXPECT().
-		CreateGitRepository(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, r *types.GitRepository) error {
-			s.Equal("https://github.com/org/my-repo", r.ExternalURL)
-			s.Equal("main", r.DefaultBranch)
-			s.True(r.IsExternal)
-			return nil
-		})
+	s.server.gitRepositoryService = &applyProjectGitRepositoryService{
+		createRepository: func(_ context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
+			s.Equal("my-repo", request.Name)
+			s.Equal("https://github.com/org/my-repo", request.ExternalURL)
+			s.Equal(types.ExternalRepositoryTypeGitHub, request.ExternalType)
+			s.Equal("main", request.DefaultBranch)
+			s.True(request.IsExternal)
+			return &types.GitRepository{
+				ID:            "repo-cloned-123",
+				Name:          request.Name,
+				ExternalURL:   request.ExternalURL,
+				ExternalType:  request.ExternalType,
+				CloneURL:      "http://helix.test/git/repo-cloned-123",
+				LocalPath:     "/tmp/git-repositories/repo-cloned-123",
+				DefaultBranch: request.DefaultBranch,
+			}, nil
+		},
+	}
 
-	s.store.EXPECT().AttachRepositoryToProject(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-	s.store.EXPECT().SetProjectPrimaryRepository(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	s.store.EXPECT().AttachRepositoryToProject(gomock.Any(), gomock.Any(), "repo-cloned-123").Return(nil)
+	s.store.EXPECT().SetProjectPrimaryRepository(gomock.Any(), gomock.Any(), "repo-cloned-123").Return(nil)
 
 	rec := httptest.NewRecorder()
 	resp, httpErr := s.server.applyProject(rec, s.applyRequest(req))
 	s.Nil(httpErr)
 	s.True(resp.Created)
+}
+
+func (s *ApplyProjectSuite) TestExternalRepositoryTypeForURL() {
+	tests := []struct {
+		url      string
+		expected types.ExternalRepositoryType
+	}{
+		{url: "https://github.com/org/repo", expected: types.ExternalRepositoryTypeGitHub},
+		{url: "ssh://git@gitlab.com/org/repo.git", expected: types.ExternalRepositoryTypeGitLab},
+		{url: "https://bitbucket.org/org/repo", expected: types.ExternalRepositoryTypeBitbucket},
+		{url: "https://dev.azure.com/org/project/_git/repo", expected: types.ExternalRepositoryTypeADO},
+		{url: "https://org.visualstudio.com/project/_git/repo", expected: types.ExternalRepositoryTypeADO},
+		{url: "https://github.com.example.org/org/repo", expected: ""},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.url, func() {
+			s.Equal(tt.expected, externalRepositoryTypeForURL(tt.url))
+		})
+	}
 }
 
 // TestApply_RepoAttachedWhenAlreadyExists: repository URL already registered → attach without creating.
