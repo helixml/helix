@@ -704,11 +704,15 @@ func (SpecTaskAttachment) TableName() string {
 
 // SpecTask attachment limits
 const (
-	SpecTaskAttachmentMaxBytes               = 100 * 1024 * 1024 // 100 MB per file
-	SpecTaskAttachmentMaxPerTask             = 500               // 500 files per task
-	SpecTaskInlineAttachmentsMaxBytes        = 100 * 1024 * 1024 // 100 MB total per JSON request
-	SpecTaskAttachmentCaptionMaxRunes        = 1024
-	SpecTaskAttachmentFilenameMaxBytes       = 255
+	SpecTaskAttachmentMaxBytes        = 100 * 1024 * 1024 // 100 MB per file
+	SpecTaskAttachmentMaxPerTask      = 500               // 500 files per task
+	SpecTaskInlineAttachmentsMaxBytes = 100 * 1024 * 1024 // 100 MB total per JSON request
+	SpecTaskAttachmentCaptionMaxRunes = 1024
+	// Filestore objects use "<30-byte attachment ID>__<filename>" as one path
+	// component. Keep that component within the common NAME_MAX of 255 bytes.
+	SpecTaskAttachmentStorageNameMaxBytes    = 255
+	SpecTaskAttachmentStoragePrefixBytes     = 32
+	SpecTaskAttachmentFilenameMaxBytes       = SpecTaskAttachmentStorageNameMaxBytes - SpecTaskAttachmentStoragePrefixBytes
 	SpecTaskInlineAttachmentIngestionTimeout = 10 * time.Minute
 )
 

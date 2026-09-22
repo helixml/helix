@@ -1347,6 +1347,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if rejectPreparingSpecTaskMutation(w, task) {
 		return
 	}
+	if updateReq.Status == types.TaskStatusPreparing {
+		http.Error(w, "preparing is an internal task status", http.StatusBadRequest)
+		return
+	}
 
 	// Update fields if provided
 	if updateReq.Status != "" {

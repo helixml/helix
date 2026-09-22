@@ -39,7 +39,14 @@ func TestPreparingSpecTaskPublishesCreatedWebhookOnlyOnTransition(t *testing.T) 
 		UpdatedAt:       now,
 	}).Error)
 
-	st := &PostgresStore{gdb: db, pubsub: pubsub.NewNoop()}
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	st := &PostgresStore{gdb: db, pubsub: ps}
+	getEvents, cleanup := collectEvents(t, st, &StoreEventSubscriptionFilter{
+		ResourceType: StoreEventResourceTypeSpecTask,
+		ResourceID:   "task-1",
+	})
+	defer cleanup()
 	task := &types.SpecTask{
 		ID:             "task-1",
 		OrganizationID: "org-1",
@@ -53,6 +60,8 @@ func TestPreparingSpecTaskPublishesCreatedWebhookOnlyOnTransition(t *testing.T) 
 	var count int64
 	require.NoError(t, db.Model(&types.WebhookEvent{}).Count(&count).Error)
 	require.Zero(t, count)
+	time.Sleep(50 * time.Millisecond)
+	require.Empty(t, getEvents())
 
 	transitioned, err := st.TransitionSpecTaskStatus(
 		context.Background(),
@@ -71,6 +80,12 @@ func TestPreparingSpecTaskPublishesCreatedWebhookOnlyOnTransition(t *testing.T) 
 	require.NoError(t, json.Unmarshal(event.Data, &data))
 	require.Equal(t, task.ID, data.SpecTaskID)
 	require.Equal(t, types.TaskStatusBacklog, data.Status)
+	storeEvents := waitForEvents(t, getEvents, 1)
+	require.Len(t, storeEvents, 1)
+	require.Equal(t, StoreEventOperationCreated, storeEvents[0].Operation)
+	var published types.SpecTask
+	require.NoError(t, storeEvents[0].UnmarshalResource(&published))
+	require.Equal(t, types.TaskStatusBacklog, published.Status)
 }
 
 func TestEnqueueWebhookEventTxMatchesScopeAndFilter(t *testing.T) {

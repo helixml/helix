@@ -69,7 +69,9 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		Str("status", task.Status.String()).
 		Msg("Created spec task")
 
-	_ = s.notifyTaskUpdates(ctx, StoreEventOperationCreated, task)
+	if task.Status != types.TaskStatusPreparing {
+		_ = s.notifyTaskUpdates(ctx, StoreEventOperationCreated, task)
+	}
 
 	return nil
 }
@@ -245,6 +247,7 @@ func (s *PostgresStore) TransitionSpecTaskStatus(
 
 	var updated types.SpecTask
 	transitioned := false
+	published := false
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var previous struct {
 			Status types.SpecTaskStatus
@@ -284,6 +287,7 @@ func (s *PostgresStore) TransitionSpecTaskStatus(
 			}); err != nil {
 				return err
 			}
+			published = true
 		}
 
 		transitioned = true
@@ -301,7 +305,11 @@ func (s *PostgresStore) TransitionSpecTaskStatus(
 		Str("new_status", string(newStatus)).
 		Msg("Atomically transitioned spec task status")
 
-	_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, &updated)
+	operation := StoreEventOperationUpdated
+	if published {
+		operation = StoreEventOperationCreated
+	}
+	_ = s.notifyTaskUpdates(ctx, operation, &updated)
 	return true, nil
 }
 

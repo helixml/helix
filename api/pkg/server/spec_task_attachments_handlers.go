@@ -248,6 +248,7 @@ func (s *HelixAPIServer) persistSpecTaskAttachment(
 	storageName := fmt.Sprintf("%s__%s", attID, attachment.filename)
 	item, err := s.Controller.FilestoreSpecTaskAttachmentUpload(ctx, taskID, storageName, bytes.NewReader(attachment.body))
 	if err != nil {
+		s.cleanupFailedSpecTaskAttachmentBlob(ctx, item.Path)
 		return nil, fmt.Errorf("write attachment to filestore: %w", err)
 	}
 
@@ -263,12 +264,21 @@ func (s *HelixAPIServer) persistSpecTaskAttachment(
 		FilestorePath: item.Path,
 	}
 	if err := s.Store.CreateSpecTaskAttachment(ctx, row); err != nil {
-		if deleteErr := s.Controller.FilestoreSpecTaskAttachmentDelete(ctx, item.Path); deleteErr != nil {
-			log.Warn().Err(deleteErr).Str("path", item.Path).Msg("Failed to delete attachment blob after row creation failed")
-		}
+		s.cleanupFailedSpecTaskAttachmentBlob(ctx, item.Path)
 		return nil, fmt.Errorf("create attachment row: %w", err)
 	}
 	return row, nil
+}
+
+func (s *HelixAPIServer) cleanupFailedSpecTaskAttachmentBlob(ctx context.Context, path string) {
+	if path == "" {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if err := s.Controller.FilestoreSpecTaskAttachmentDelete(cleanupCtx, path); err != nil {
+		log.Warn().Err(err).Str("path", path).Msg("Failed to delete attachment blob after persistence failed")
+	}
 }
 
 func (s *HelixAPIServer) cleanupInlineSpecTaskAttachments(ctx context.Context, taskID string) {

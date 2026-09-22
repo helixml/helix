@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -385,7 +386,7 @@ func TestPrepareInlineSpecTaskAttachmentsRejectsInvalidInput(t *testing.T) {
 				ContentBase64: base64.StdEncoding.EncodeToString([]byte("brief")),
 			}},
 			wantStatus: http.StatusBadRequest,
-			wantError:  "exceeds 255 bytes",
+			wantError:  "exceeds 223 bytes",
 		},
 	}
 
@@ -398,6 +399,103 @@ func TestPrepareInlineSpecTaskAttachmentsRejectsInvalidInput(t *testing.T) {
 			require.Contains(t, inputErr.message, test.wantError)
 		})
 	}
+}
+
+func TestPersistSpecTaskAttachmentAcceptsFilesystemBoundaryFilename(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	root := t.TempDir()
+	fs := filestore.NewFileSystemStorage(root, "", "")
+	cfg := &config.ServerConfig{}
+	server := &HelixAPIServer{
+		Store: mockStore,
+		Controller: &controller.Controller{
+			Ctx: context.Background(),
+			Options: controller.Options{
+				Config:    cfg,
+				Store:     mockStore,
+				Filestore: fs,
+			},
+		},
+	}
+	filename := strings.Repeat("a", types.SpecTaskAttachmentFilenameMaxBytes-len(".md")) + ".md"
+	attachment, err := prepareSpecTaskAttachment(filename, []byte("boundary"), "")
+	require.NoError(t, err)
+	mockStore.EXPECT().CreateSpecTaskAttachment(gomock.Any(), gomock.Any()).Return(nil)
+
+	row, err := server.persistSpecTaskAttachment(context.Background(), "task-1", "project-1", "user-1", attachment)
+	require.NoError(t, err)
+	require.Len(t, []byte(filepath.Base(row.FilestorePath)), types.SpecTaskAttachmentStorageNameMaxBytes)
+	_, err = os.Stat(filepath.Join(root, row.FilestorePath))
+	require.NoError(t, err)
+}
+
+func TestPersistSpecTaskAttachmentUsesFreshCleanupContextAfterCancellation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	mockFilestore := filestore.NewMockFileStore(ctrl)
+	cfg := &config.ServerConfig{}
+	server := &HelixAPIServer{
+		Store: mockStore,
+		Controller: &controller.Controller{
+			Ctx: context.Background(),
+			Options: controller.Options{
+				Config:    cfg,
+				Store:     mockStore,
+				Filestore: mockFilestore,
+			},
+		},
+	}
+	attachment, err := prepareSpecTaskAttachment("brief.md", []byte("brief"), "")
+	require.NoError(t, err)
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	mockFilestore.EXPECT().CreateFolder(gomock.Any(), gomock.Any()).Return(filestore.Item{Directory: true}, nil)
+	mockFilestore.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(filestore.Item{Path: "/attachments/brief.md"}, nil)
+	mockStore.EXPECT().CreateSpecTaskAttachment(gomock.Any(), gomock.Any()).Return(errors.New("database unavailable"))
+	mockFilestore.EXPECT().Delete(gomock.Any(), "/attachments/brief.md").DoAndReturn(func(cleanupCtx context.Context, _ string) error {
+		require.NoError(t, cleanupCtx.Err())
+		return nil
+	})
+
+	_, err = server.persistSpecTaskAttachment(canceledCtx, "task-1", "project-1", "user-1", attachment)
+	require.ErrorContains(t, err, "create attachment row")
+}
+
+func TestPersistSpecTaskAttachmentCleansBlobWhenUploadFinalizationFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	mockFilestore := filestore.NewMockFileStore(ctrl)
+	cfg := &config.ServerConfig{}
+	server := &HelixAPIServer{
+		Store: mockStore,
+		Controller: &controller.Controller{
+			Ctx: context.Background(),
+			Options: controller.Options{
+				Config:    cfg,
+				Store:     mockStore,
+				Filestore: mockFilestore,
+			},
+		},
+	}
+	attachment, err := prepareSpecTaskAttachment("brief.md", []byte("brief"), "")
+	require.NoError(t, err)
+	mockFilestore.EXPECT().CreateFolder(gomock.Any(), gomock.Any()).Return(filestore.Item{Directory: true}, nil)
+	var writtenPath string
+	mockFilestore.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, path string, _ io.Reader) (filestore.Item, error) {
+			writtenPath = path
+			return filestore.Item{}, errors.New("attributes unavailable")
+		},
+	)
+	mockFilestore.EXPECT().Delete(gomock.Any(), gomock.Any()).DoAndReturn(func(cleanupCtx context.Context, path string) error {
+		require.NoError(t, cleanupCtx.Err())
+		require.Equal(t, writtenPath, path)
+		return nil
+	})
+
+	_, err = server.persistSpecTaskAttachment(context.Background(), "task-1", "project-1", "user-1", attachment)
+	require.ErrorContains(t, err, "write attachment to filestore")
 }
 
 func TestPrepareInlineSpecTaskAttachmentsEnforcesAllSizeLimits(t *testing.T) {

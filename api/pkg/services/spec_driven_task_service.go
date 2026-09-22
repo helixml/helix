@@ -351,7 +351,7 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	}
 
 	// Log audit event for task creation
-	if s.auditLogService != nil {
+	if !preparingAttachments && s.auditLogService != nil {
 		s.auditLogService.LogTaskCreated(ctx, task, req.UserID, req.UserEmail)
 	}
 

@@ -307,7 +307,11 @@ func (c *Controller) FilestoreSpecTaskAttachmentUpload(ctx context.Context, spec
 	if err != nil {
 		return filestore.Item{}, err
 	}
-	return c.Options.Filestore.WriteFile(ctx, fullPath, r)
+	item, err := c.Options.Filestore.WriteFile(ctx, fullPath, r)
+	if err != nil && item.Path == "" {
+		item.Path = fullPath
+	}
+	return item, err
 }
 
 // FilestoreSpecTaskAttachmentDownload returns a reader for a SpecTask attachment by its

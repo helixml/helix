@@ -155,6 +155,36 @@ func (s *SpecTaskUpdateSuite) TestPreparingTaskCannotBeUpdated() {
 	s.Equal(http.StatusConflict, rr.Code)
 }
 
+func (s *SpecTaskUpdateSuite) TestTaskCannotBeUpdatedIntoPreparing() {
+	const (
+		userID    = "user_enter_preparing_test"
+		projectID = "project_enter_preparing_test"
+		taskID    = "task_enter_preparing_test"
+	)
+
+	task := &types.SpecTask{
+		ID:        taskID,
+		ProjectID: projectID,
+		Status:    types.TaskStatusBacklog,
+	}
+	project := &types.Project{ID: projectID, UserID: userID}
+
+	s.store.EXPECT().GetSpecTask(gomock.Any(), taskID).Return(task, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(project, nil)
+
+	requestBody, err := json.Marshal(types.SpecTaskUpdateRequest{Status: types.TaskStatusPreparing})
+	s.Require().NoError(err)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/spec-tasks/"+taskID, bytes.NewReader(requestBody))
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: userID}))
+	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
+	rr := httptest.NewRecorder()
+
+	s.server.updateSpecTask(rr, req)
+
+	s.Equal(http.StatusBadRequest, rr.Code)
+	s.Contains(rr.Body.String(), "internal task status")
+}
+
 func stringPointer(value string) *string {
 	return &value
 }
