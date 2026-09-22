@@ -56,7 +56,7 @@ func (c *HelixClient) FilestoreUpload(ctx context.Context, path string, file io.
 	}
 	filename := pathpkg.Base(path)
 	directory := pathpkg.Dir(path)
-	if filename == "." || filename == "/" {
+	if filename == "." || filename == ".." || filename == "/" {
 		return fmt.Errorf("path must include a filename")
 	}
 	if directory == "." {

@@ -60,6 +60,9 @@ func TestFilestoreUploadNormalizesWindowsPathSeparators(t *testing.T) {
 func TestFilestoreUploadRequiresDestinationFilename(t *testing.T) {
 	client, err := NewClient("http://example.test", "test-key", false)
 	require.NoError(t, err)
-	err = client.FilestoreUpload(context.Background(), "engagements/prj_1/retests/", strings.NewReader("receipt"))
-	require.EqualError(t, err, "path must include a filename")
+
+	for _, path := range []string{"engagements/prj_1/retests/", ".", ".."} {
+		err = client.FilestoreUpload(context.Background(), path, strings.NewReader("receipt"))
+		require.EqualError(t, err, "path must include a filename")
+	}
 }

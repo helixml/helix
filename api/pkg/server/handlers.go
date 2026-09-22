@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	pathpkg "path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -493,11 +494,7 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			}
 			defer file.Close()
 
-			// Extract the relative path within the app
-			relativePath := path[len("apps/")+len(appID):]
-			relativePath = strings.TrimPrefix(relativePath, "/")
-
-			destination, err := filestoreUploadDestination(relativePath, fileHeader.Filename)
+			destination, err := filestoreAppUploadDestination(path, appID, fileHeader.Filename)
 			if err != nil {
 				return false, fmt.Errorf("invalid upload path: %w", err)
 			}
@@ -545,7 +542,13 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 }
 
 func filestoreUploadDestination(requestPath, uploadedFilename string) (string, error) {
-	filename := filepath.Base(uploadedFilename)
+	if uploadedFilename == "" {
+		return "", fmt.Errorf("uploaded filename is required")
+	}
+	filename := pathpkg.Base(strings.ReplaceAll(uploadedFilename, `\`, "/"))
+	if filename == "." || filename == ".." || filename == "/" {
+		return "", fmt.Errorf("invalid uploaded filename: %s", uploadedFilename)
+	}
 	cleanPath, err := filestore.CleanRelativePath(requestPath)
 	if err != nil {
 		return "", err
@@ -560,6 +563,16 @@ func filestoreUploadDestination(requestPath, uploadedFilename string) (string, e
 		return cleanPath, nil
 	}
 	return filepath.Join(cleanPath, filename), nil
+}
+
+func filestoreAppUploadDestination(requestPath, appID, uploadedFilename string) (string, error) {
+	appPrefix := pathpkg.Join("apps", appID)
+	if requestPath != appPrefix && !strings.HasPrefix(requestPath, appPrefix+"/") {
+		return "", fmt.Errorf("path is outside app scope: %s", requestPath)
+	}
+	relativePath := strings.TrimPrefix(requestPath, appPrefix)
+	relativePath = strings.TrimPrefix(relativePath, "/")
+	return filestoreUploadDestination(relativePath, uploadedFilename)
 }
 
 // in this case the path contains the full /dev/users/XXX/sessions/XXX path

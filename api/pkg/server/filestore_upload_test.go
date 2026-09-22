@@ -1,6 +1,7 @@
 package server
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -50,6 +51,12 @@ func TestFilestoreUploadDestination(t *testing.T) {
 			uploadedFilename: "receipt.json",
 			wantError:        true,
 		},
+		{
+			name:             "empty multipart filename is rejected",
+			requestPath:      "engagements/prj_1/retests",
+			uploadedFilename: "",
+			wantError:        true,
+		},
 	}
 
 	for _, test := range tests {
@@ -61,6 +68,53 @@ func TestFilestoreUploadDestination(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, test.want, got)
+		})
+	}
+}
+
+func TestFilestoreAppUploadDestination(t *testing.T) {
+	tests := []struct {
+		name        string
+		requestPath string
+		appID       string
+		want        string
+		wantError   bool
+	}{
+		{
+			name:        "app directory path appends multipart filename",
+			requestPath: "apps/app_1/documents",
+			appID:       "app_1",
+			want:        "documents/report.txt",
+		},
+		{
+			name:        "app exact full path remains exact",
+			requestPath: "apps/app_1/documents/report.txt",
+			appID:       "app_1",
+			want:        "documents/report.txt",
+		},
+		{
+			name:        "app root writes at app root",
+			requestPath: "apps/app_1",
+			appID:       "app_1",
+			want:        "report.txt",
+		},
+		{
+			name:        "different app prefix is rejected",
+			requestPath: "apps/app_10/documents",
+			appID:       "app_1",
+			wantError:   true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := filestoreAppUploadDestination(test.requestPath, test.appID, "report.txt")
+			if test.wantError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.want, filepath.ToSlash(got))
 		})
 	}
 }
