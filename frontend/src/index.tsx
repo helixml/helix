@@ -7,6 +7,7 @@ import ErrorBoundary from './components/system/ErrorBoundary'
 import { isMobileOrTablet } from './utils/isMobileOrTablet'
 import { logErrorToSession, getRecentErrors, clearErrorLog } from './utils/errorSessionLog'
 import { copyTextToClipboard } from './utils/clipboard'
+import { isOpaqueScriptError } from './utils/mobileErrorNoise'
 
 const win = (window as any)
 win.setUserFunctions = []
@@ -36,6 +37,16 @@ win.emitEvent = (ev: any) => {
 // cascade where: error → white page → Safari auto-reloads → same error → repeat.
 // On desktop, errors propagate normally (dev tools available).
 if (isMobileOrTablet()) {
+  function reportError(message: string) {
+    try {
+      if (typeof win.emitError === 'function') {
+        win.emitError(new Error(message))
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   function renderErrorOverlay(message: string, stack?: string, skipLog?: boolean) {
     const overlay = document.getElementById('error-overlay')
     if (!overlay) return
@@ -47,13 +58,7 @@ if (isMobileOrTablet()) {
     }
 
     // Forward to Sentry/analytics
-    try {
-      if (typeof win.emitError === 'function') {
-        win.emitError(new Error(message))
-      }
-    } catch {
-      // ignore
-    }
+    reportError(message)
 
     const previousErrors = getRecentErrors()
     const previousHtml = previousErrors.length > 1
@@ -109,19 +114,18 @@ if (isMobileOrTablet()) {
   // when you've actually seen them — don't speculate.
   //   - runtime.sendMessage / Tab not found: iPad Safari, no extensions
   //     installed; appears to come from a WebKit-internal extension shim.
-  const NOISE_PATTERNS: RegExp[] = [
-    /runtime\.sendMessage.*Tab not found/i,
-  ]
+  //   - Script error: opaque cross-origin errors from browser-injected scripts;
+  //     same-origin application failures include actionable details instead.
 
-  function isNoise(message: string): boolean {
-    return NOISE_PATTERNS.some(p => p.test(message))
-  }
+  const isKnownNoise = (message: string) => /runtime\.sendMessage.*Tab not found/i.test(message)
 
-  window.onerror = (message, _source, _lineno, _colno, error) => {
+  window.onerror = (message, source, lineno, colno, error) => {
     const msg = String(message)
-    if (!isNoise(msg)) {
-      renderErrorOverlay(msg, error?.stack)
+    if (isKnownNoise(msg) || isOpaqueScriptError(msg, source, lineno, colno, error)) {
+      reportError(msg)
+      return true
     }
+    renderErrorOverlay(msg, error?.stack)
     // Return true to prevent default browser error handling (which causes the white page)
     return true
   }
@@ -129,7 +133,10 @@ if (isMobileOrTablet()) {
   window.addEventListener('unhandledrejection', (event) => {
     const reason = event.reason
     const msg = reason?.message || String(reason) || 'Unhandled promise rejection'
-    if (isNoise(msg)) return
+    if (isKnownNoise(msg)) {
+      reportError(msg)
+      return
+    }
     renderErrorOverlay(msg, reason?.stack)
   })
 
