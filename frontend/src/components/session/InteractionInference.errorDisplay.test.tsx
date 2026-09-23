@@ -1,9 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InteractionInference } from "./InteractionInference";
 
-const { navigate } = vi.hoisted(() => ({ navigate: vi.fn() }));
+const { navigate, wallet } = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  wallet: { balance: 0 },
+}));
 
 // Only the chrome around the error block matters here, so the heavy content
 // renderers are stubbed out. The error block itself is the real thing.
@@ -28,6 +31,9 @@ vi.mock("../../hooks/useRouter", () => ({
 vi.mock("../../services/interactionsService", () => ({
   useUpdateInteractionFeedback: () => ({ updateFeedback: vi.fn() }),
 }));
+vi.mock("../../services/useBilling", () => ({
+  useGetWallet: () => ({ data: wallet }),
+}));
 
 const baseProps = {
   serverConfig: { filestore_prefix: "/api/v1/filestore" } as any,
@@ -38,7 +44,12 @@ const baseProps = {
 };
 
 describe("InteractionInference error display", () => {
-  it("offers Retry while the failure is the latest thing that happened", () => {
+  beforeEach(() => {
+    wallet.balance = 0;
+    navigate.mockClear();
+  });
+
+  it("offers Add credits instead of Retry when the balance is empty", () => {
     render(
       <InteractionInference
         {...baseProps}
@@ -50,9 +61,27 @@ describe("InteractionInference error display", () => {
     expect(
       screen.getByText("agent turn aborted: insufficient balance"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Retry/i }),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add credits" }));
     expect(navigate).toHaveBeenCalledWith("org_billing", { org_id: "org_1" });
+  });
+
+  it("offers Retry once credits are available", () => {
+    wallet.balance = 5;
+
+    render(
+      <InteractionInference
+        {...baseProps}
+        error="agent turn aborted: insufficient balance"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add credits" }),
+    ).not.toBeInTheDocument();
   });
 
   it("does not offer credits for unrelated failures", () => {

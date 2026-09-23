@@ -5,6 +5,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import ReplayIcon from "@mui/icons-material/Replay";
+import { useGetWallet } from "../../services/useBilling";
 import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
@@ -544,8 +545,14 @@ export const InteractionInference: FC<{
     session.id || "",
     interaction.id || "",
   );
-  const showAddCredits = !!error
-    && /insufficient balance/i.test(error)
+  const isInsufficientBalance = !!error && /insufficient balance/i.test(error);
+  const { data: wallet } = useGetWallet(
+    router.params.org_id,
+    isInsufficientBalance && !!router.params.org_id,
+  );
+  const hasCredits = (wallet?.balance ?? 0) > 0;
+  const showAddCredits = isInsufficientBalance
+    && !hasCredits
     && !!router.params.org_id;
   const handleCancel =
     externalHandleCancel ||
@@ -1086,7 +1093,8 @@ export const InteractionInference: FC<{
               </Typography>
               {showAddCredits && (
                 <Button
-                  color="inherit"
+                  variant="contained"
+                  color="secondary"
                   size="small"
                   sx={{ mt: 1 }}
                   onClick={() =>
@@ -1100,7 +1108,9 @@ export const InteractionInference: FC<{
               )}
             </Alert>
           </Cell>
-          {onRegenerate && !message && (
+          {onRegenerate
+            && !message
+            && (!isInsufficientBalance || hasCredits) && (
             <Cell
               sx={{
                 ml: 2,
