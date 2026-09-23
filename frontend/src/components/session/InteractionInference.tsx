@@ -554,6 +554,14 @@ export const InteractionInference: FC<{
   const showAddCredits = isInsufficientBalance
     && !hasCredits
     && !!router.params.org_id;
+  const errorTitle = isInsufficientBalance
+    ? "More credits needed"
+    : "We couldn’t complete that request";
+  const errorMessage = isInsufficientBalance
+    ? hasCredits
+      ? "Credits are available now. Retry to continue."
+      : "Your organization doesn’t have enough credits. Add credits to continue."
+    : error;
   const handleCancel =
     externalHandleCancel ||
     (() => {
@@ -1084,12 +1092,12 @@ export const InteractionInference: FC<{
         >
           <Cell grow>
             <Alert severity="error">
-              <AlertTitle>Turn failed</AlertTitle>
+              <AlertTitle>{errorTitle}</AlertTitle>
               <Typography
                 variant="body2"
                 sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
               >
-                {error}
+                {errorMessage}
               </Typography>
               {showAddCredits && (
                 <Button

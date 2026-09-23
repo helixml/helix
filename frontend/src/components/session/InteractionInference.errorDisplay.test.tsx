@@ -57,10 +57,17 @@ describe("InteractionInference error display", () => {
       />,
     );
 
-    expect(screen.getByText("Turn failed")).toBeInTheDocument();
     expect(
-      screen.getByText("agent turn aborted: insufficient balance"),
+      screen.getByText("More credits needed"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Your organization doesn’t have enough credits. Add credits to continue.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("agent turn aborted: insufficient balance"),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Retry/i }),
     ).not.toBeInTheDocument();
@@ -80,6 +87,9 @@ describe("InteractionInference error display", () => {
 
     expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
     expect(
+      screen.getByText("Credits are available now. Retry to continue."),
+    ).toBeInTheDocument();
+    expect(
       screen.queryByRole("button", { name: "Add credits" }),
     ).not.toBeInTheDocument();
   });
@@ -87,6 +97,10 @@ describe("InteractionInference error display", () => {
   it("does not offer credits for unrelated failures", () => {
     render(<InteractionInference {...baseProps} error="agent turn timed out" />);
 
+    expect(
+      screen.getByText("We couldn’t complete that request"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("agent turn timed out")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Add credits" }),
     ).not.toBeInTheDocument();
@@ -108,7 +122,9 @@ describe("InteractionInference error display", () => {
     expect(
       screen.queryByRole("button", { name: /Retry/i }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByText("Turn failed")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("We couldn’t complete that request"),
+    ).not.toBeInTheDocument();
     // Not erased, though: the turn did fail and its work was abandoned.
     expect(
       screen.getByText(/This turn was interrupted and did not finish/),
