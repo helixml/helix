@@ -70,8 +70,9 @@ def render_prompt(variant):
 def ensure_bot(v):
     body = {"name": v.get("name", v["id"]), "content": render_prompt(v), "code_agent_runtime": v["runtime"],
             "provider": v["provider"], "model": v["model"], "preserve_context": True}
-    if v.get("reasoning_effort"):
-        body["reasoning_effort"] = v["reasoning_effort"]
+    for k in ("reasoning_effort", "sandbox_runtime"):
+        if v.get(k):
+            body[k] = v[k]
     try:
         api("GET", f"/orgs/{ORG}/bots/{v['id']}")
         api("PATCH", f"/orgs/{ORG}/bots/{v['id']}", body)

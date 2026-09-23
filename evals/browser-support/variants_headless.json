@@ -1,0 +1,10 @@
+[
+ {
+  "id": "sup-opencode-glm-headless",
+  "name": "Support opencode/glm headless",
+  "runtime": "opencode",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "glm-5.3-flash",
+  "sandbox_runtime": "headless-ubuntu"
+ }
+]

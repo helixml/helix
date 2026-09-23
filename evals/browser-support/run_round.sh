@@ -12,4 +12,4 @@ case "$ROUND" in
   playbook) for b in $BOTS; do ./push_skills.sh "$b"; done; VARIANTS=variants_playbook.json ;;
   *) echo "unknown round $ROUND"; exit 1 ;;
 esac
-python3 run_eval.py --variants "$VARIANTS" --tag "$ROUND" --parallel 3 "$@"
+python3 run_eval.py --variants "$VARIANTS" --questions questions_all.json --tag "$ROUND" --parallel 3 --timeout 1200 "$@"
