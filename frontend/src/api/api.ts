@@ -2321,14 +2321,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindGitLab = "gitlab",
-  KindLocal = "local",
-  KindSlack = "slack",
-  KindCron = "cron",
-  KindEmail = "email",
   KindWebhook = "webhook",
+  KindGitLab = "gitlab",
+  KindSlack = "slack",
   KindGitHub = "github",
+  KindEmail = "email",
   KindHelixEvents = "helix_events",
+  KindCron = "cron",
+  KindLocal = "local",
 }
 
 export interface TransportResolvedActivation {
@@ -4667,6 +4667,7 @@ export interface TypesLLMCall {
   prompt_tokens?: number;
   provider?: string;
   request?: number[];
+  request_id?: string;
   response?: number[];
   session_id?: string;
   spec_task_id?: string;
@@ -5080,7 +5081,7 @@ export interface TypesOrgComputeUsage {
 }
 
 export interface TypesOrgDetails {
-  members?: TypesUser[];
+  members?: TypesOrganizationMembership[];
   organization?: TypesOrganization;
   projects?: TypesProject[];
   wallet?: TypesWallet;
@@ -6805,6 +6806,21 @@ export interface TypesSessionInfo {
 
 export interface TypesSessionMetadata {
   active_tools?: string[];
+  /**
+   * AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop
+   * settings-sync daemon's /agent-config-applied callback for the most recent
+   * in-place switch. They are the explicit "the fast hot-reload path worked"
+   * signal that agentSwitchRestartFallback consults instead of deciding purely
+   * on a timer — without them a confirmed-applied config was still restarted
+   * 5s later, killing Zed mid-new_session().
+   *
+   * AgentHandoffDeliveredAt is only set when the handoff actually reached a
+   * live connection; a callback with nothing delivered is not evidence the
+   * turn is moving. Persisted (not an in-memory map) so it is correct when the
+   * callback lands on a different API replica than the fallback goroutine.
+   */
+  agent_config_applied_at?: string;
+  agent_handoff_delivered_at?: string;
   /**
    * AgentSwitchedAt is set when the agent framework is switched IN PLACE on
    * this same session (no fork / new container) — see
@@ -9417,7 +9433,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List organizations with server-side pagination and name search
+     * @description List organizations with server-side pagination and name or owner email search
      *
      * @tags organizations
      * @name V1AdminOrgsList
@@ -9431,7 +9447,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         page?: number;
         /** Organizations per page (default: 25, max: 100) */
         per_page?: number;
-        /** Search organization display name or name */
+        /** Search organization display name, name, or owner email */
         query?: string;
       },
       params: RequestParams = {},
