@@ -550,7 +550,8 @@ export const InteractionInference: FC<{
     router.params.org_id,
     isInsufficientBalance && !!router.params.org_id,
   );
-  const hasCredits = (wallet?.balance ?? 0) > 0;
+  const hasCredits = (wallet?.balance ?? 0)
+    >= (serverConfig?.minimum_inference_balance ?? 0.01);
   const showAddCredits = isInsufficientBalance
     && !hasCredits
     && !!router.params.org_id;

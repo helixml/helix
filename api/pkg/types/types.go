@@ -1231,6 +1231,7 @@ type ServerConfigForFrontend struct {
 	FilestorePrefix                        string       `json:"filestore_prefix"`
 	StripeEnabled                          bool         `json:"stripe_enabled"`              // Stripe top-ups enabled
 	BillingEnabled                         bool         `json:"billing_enabled"`             // Charging for usage
+	MinimumInferenceBalance                float64      `json:"minimum_inference_balance"`   // Minimum wallet balance required for inference
 	RequireActiveSubscription              bool         `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
 	SentryDSNFrontend                      string       `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string       `json:"google_analytics_frontend"`

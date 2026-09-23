@@ -36,7 +36,10 @@ vi.mock("../../services/useBilling", () => ({
 }));
 
 const baseProps = {
-  serverConfig: { filestore_prefix: "/api/v1/filestore" } as any,
+  serverConfig: {
+    filestore_prefix: "/api/v1/filestore",
+    minimum_inference_balance: 0.01,
+  } as any,
   session: { id: "ses_1" } as any,
   interaction: { id: "int_1", prompt_message: "Do the work" } as any,
   isFromAssistant: true,
@@ -92,6 +95,24 @@ describe("InteractionInference error display", () => {
     expect(
       screen.queryByRole("button", { name: "Add credits" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps Add credits visible below the minimum inference balance", () => {
+    wallet.balance = 0.005;
+
+    render(
+      <InteractionInference
+        {...baseProps}
+        error="agent turn aborted: insufficient balance"
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /Retry/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Add credits" }),
+    ).toBeInTheDocument();
   });
 
   it("does not offer credits for unrelated failures", () => {

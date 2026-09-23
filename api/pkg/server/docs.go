@@ -28601,23 +28601,23 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "gitlab",
                 "local",
+                "gitlab",
+                "github",
+                "webhook",
                 "slack",
                 "cron",
                 "email",
-                "webhook",
-                "github",
                 "helix_events"
             ],
             "x-enum-varnames": [
-                "KindGitLab",
                 "KindLocal",
+                "KindGitLab",
+                "KindGitHub",
+                "KindWebhook",
                 "KindSlack",
                 "KindCron",
                 "KindEmail",
-                "KindWebhook",
-                "KindGitHub",
                 "KindHelixEvents"
             ]
         },
@@ -33636,6 +33636,9 @@ const docTemplate = `{
                         "type": "integer"
                     }
                 },
+                "request_id": {
+                    "type": "string"
+                },
                 "response": {
                     "type": "array",
                     "items": {
@@ -37585,6 +37588,10 @@ const docTemplate = `{
                     "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited. Note: /config is unauthenticated, so this is the\nFree-tier floor; real enforcement uses the resolved per-user/per-org cap.",
                     "type": "integer"
                 },
+                "minimum_inference_balance": {
+                    "description": "Minimum wallet balance required for inference",
+                    "type": "number"
+                },
                 "onboarding_helix_model": {
                     "type": "string"
                 },
@@ -38182,6 +38189,13 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "agent_config_applied_at": {
+                    "description": "AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop\nsettings-sync daemon's /agent-config-applied callback for the most recent\nin-place switch. They are the explicit \"the fast hot-reload path worked\"\nsignal that agentSwitchRestartFallback consults instead of deciding purely\non a timer — without them a confirmed-applied config was still restarted\n5s later, killing Zed mid-new_session().\n\nAgentHandoffDeliveredAt is only set when the handoff actually reached a\nlive connection; a callback with nothing delivered is not evidence the\nturn is moving. Persisted (not an in-memory map) so it is correct when the\ncallback lands on a different API replica than the fallback goroutine.",
+                    "type": "string"
+                },
+                "agent_handoff_delivered_at": {
+                    "type": "string"
                 },
                 "agent_switched_at": {
                     "description": "AgentSwitchedAt is set when the agent framework is switched IN PLACE on\nthis same session (no fork / new container) — see\ndesign/tasks/002111_so-we-recently-added-a/design.md. It marks that a\nfork_seed interaction carrying the prior thread's transcript exists on\nTHIS session, so maybePrependTranscript seeds the new Zed thread even\nthough ParentSessionID is empty (the session continues from itself).",
