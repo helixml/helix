@@ -339,6 +339,11 @@ func GenerateZedMCPConfig(
 			"--chrome-arg=--no-first-run",
 			"--chrome-arg=--disable-infobars",
 			"--chrome-arg=--disable-extensions",
+			// chrome-devtools-mcp reports usage statistics and sends
+			// performance-trace URLs to Google's CrUX API by default;
+			// sandboxes must not phone home (air-gapped installs).
+			"--no-usage-statistics",
+			"--no-performance-crux",
 		},
 		Env: map[string]string{
 			// Point to the actual browser binary (Chromium on ARM64, Chrome on amd64).

@@ -52,6 +52,8 @@ func TestGenerateZedMCPConfigUsesPersistentChromeProfile(t *testing.T) {
 		if assert.NotEmpty(t, chrome.Args) {
 			assert.Equal(t, "--user-data-dir=/home/retro/work/.chrome-state", chrome.Args[0])
 			assert.Contains(t, chrome.Args, "--chrome-arg=--ozone-platform=wayland")
+			assert.Contains(t, chrome.Args, "--no-usage-statistics")
+			assert.Contains(t, chrome.Args, "--no-performance-crux")
 		}
 	}
 }
