@@ -181,6 +181,8 @@ generic "agent turn aborted" in the UI.
 | Model | Accepts | **Rejects** | Default |
 |---|---|---|---|
 | `qwen3.8-27b` | `none`, `low`, `medium`, `xhigh` | **`high`**, `max`, `minimal` | `xhigh` |
+| `qwen3.8-flash-next` | `low`, `medium`, `xhigh` | **`high`**, `max`, `minimal` | `xhigh` |
+| `glm-5.3-flash` | *(none — every value accepted and ignored)* | — | — |
 | `deepseek-v4-flash` / `-pro` | `high`, `xhigh` | — | `high` |
 | Claude Opus 5 / 4.8 / 4.7, Sonnet 5, Fable 5 | `low`…`max` incl. `xhigh` | — | `high` |
 | Claude Opus 4.6 / Sonnet 4.6 | `low`, `medium`, `high`, `max` | **`xhigh`** | `high` |
@@ -202,7 +204,7 @@ suffixed builds (`deepseek-v4-flash-0731`, `qwen3.8-27b-instruct`, `provider/mod
 resolve without their own row. Adding a model is a data edit — append a profile, no code
 change. It reaches the frontend two ways:
 
-- `types.OpenAIModel.ReasoningEfforts` on `/v1/provider-endpoints?load_models=true` —
+- `types.OpenAIModel.ReasoningEfforts` on `/v1/provider-endpoints?with_models=true` —
   deliberately **separate from `ModelInfo`**, because a non-nil `ModelInfo` is what the
   Anthropic proxy and usage handlers read as "this model is priceable". Self-hosted models
   have effort profiles but no pricing entry, so the two must not be conflated.
