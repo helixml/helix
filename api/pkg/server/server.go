@@ -643,15 +643,7 @@ func NewServer(
 	apiServer.specDrivenTaskService.TransitionToImplementation = apiServer.transitionSpecTaskToImplementation
 	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
 	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
-	apiServer.specDrivenTaskService.WakeDesktop = func(sessionID string) {
-		if _, inflight := apiServer.desktopWakeInflight.LoadOrStore(sessionID, struct{}{}); inflight {
-			return
-		}
-		go func() {
-			defer apiServer.desktopWakeInflight.Delete(sessionID)
-			apiServer.autoStartDevContainerForSession(sessionID)
-		}()
-	}
+	apiServer.specDrivenTaskService.WakeDesktop = apiServer.requestDesktopWake
 	// Wire project-secret injection into HydraExecutor so every desktop container
 	// (spec task, exploratory session, resume) picks up project secrets without
 	// each caller having to remember. Desktop containers are the "dev"
@@ -750,6 +742,16 @@ func NewServer(
 	}
 
 	return apiServer, nil
+}
+
+func (s *HelixAPIServer) requestDesktopWake(sessionID string) {
+	if _, inflight := s.desktopWakeInflight.LoadOrStore(sessionID, struct{}{}); inflight {
+		return
+	}
+	go func() {
+		defer s.desktopWakeInflight.Delete(sessionID)
+		s.autoStartDevContainerForSession(sessionID)
+	}()
 }
 
 // oidcSignupNotifier implements auth.OIDCEventHandler to send Slack
