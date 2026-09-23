@@ -158,6 +158,7 @@ type HelixAPIServer struct {
 	pendingCancelRetries        sync.Map               // interaction_id -> struct{}; dedupes durable cancel retries
 	pendingQuestionActions      sync.Map               // interaction_id/request_id -> struct{}; dedupes answer/cancel races
 	autoRestartInflight         sync.Map               // session_id -> struct{}: dedupes concurrent auto-restart triggers (zero value ready)
+	desktopWakeInflight         sync.Map               // session_id -> struct{}: dedupes implementation handoff wake requests
 	promptDrainMutexes          sync.Map               // session_id -> *sync.Mutex: serialises queue-drain dispatch per session (zero value ready). See lockPromptDrain.
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
 	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
@@ -642,6 +643,7 @@ func NewServer(
 	apiServer.specDrivenTaskService.TransitionToImplementation = apiServer.transitionSpecTaskToImplementation
 	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
 	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
+	apiServer.specDrivenTaskService.WakeDesktop = apiServer.requestDesktopWake
 	// Wire project-secret injection into HydraExecutor so every desktop container
 	// (spec task, exploratory session, resume) picks up project secrets without
 	// each caller having to remember. Desktop containers are the "dev"
@@ -740,6 +742,16 @@ func NewServer(
 	}
 
 	return apiServer, nil
+}
+
+func (s *HelixAPIServer) requestDesktopWake(sessionID string) {
+	if _, inflight := s.desktopWakeInflight.LoadOrStore(sessionID, struct{}{}); inflight {
+		return
+	}
+	go func() {
+		defer s.desktopWakeInflight.Delete(sessionID)
+		s.autoStartDevContainerForSession(sessionID)
+	}()
 }
 
 // oidcSignupNotifier implements auth.OIDCEventHandler to send Slack

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/connman"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -32,6 +33,9 @@ type RequestMappingRegistrar func(requestID, sessionID string)
 
 // DesktopExecFunc executes a command inside a running desktop container via RevDial.
 type DesktopExecFunc func(ctx context.Context, sessionID string, command []string) error
+
+// DesktopWakeFunc requests startup of a stopped desktop.
+type DesktopWakeFunc func(sessionID string)
 
 // AttachmentBlobReader reads the bytes of a SpecTask attachment from the filestore.
 // Injected by the server so this service doesn't need to import the controller package.
@@ -61,6 +65,7 @@ type SpecDrivenTaskService struct {
 	auditLogService            *AuditLogService          // Service for audit logging
 	koditService               KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
 	ExecInDesktop              DesktopExecFunc           // Callback to exec commands in running desktop containers
+	WakeDesktop                DesktopWakeFunc           // Callback to start a stopped desktop after a failed exec
 	ReadAttachmentBlob         AttachmentBlobReader      // Callback to load attachment bytes from filestore
 	TransitionToImplementation SpecTaskPhaseTransitioner // Callback owned by the API server's live agent-switching machinery
 	wg                         sync.WaitGroup
@@ -1473,6 +1478,14 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// failure leaves implementation_queued so the orchestrator can retry.
 		if task.BranchMode == types.BranchModeNew {
 			if err := s.ensureFeatureBranchInContainer(ctx, sessionID, repo.Name, branchName, effectiveBaseBranch); err != nil {
+				desktopDisconnected := errors.Is(err, connman.ErrNoConnection) || errors.Is(err, connman.ErrReconnectTimeout)
+				if desktopDisconnected && s.WakeDesktop != nil {
+					s.WakeDesktop(sessionID)
+					log.Info().
+						Str("task_id", task.ID).Str("session_id", sessionID).
+						Msg("Implementation handoff queued while stopped desktop restarts")
+					return nil
+				}
 				log.Error().Err(err).
 					Str("task_id", task.ID).Str("session_id", sessionID).
 					Str("repo", repo.Name).Str("branch", branchName).Str("base", effectiveBaseBranch).
