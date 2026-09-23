@@ -752,6 +752,15 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		agentName = "dsh"
 		model = fmt.Sprintf("%s/%s", providerName, modelName)
 
+	case types.CodeAgentRuntimeGooseCode:
+		// Goose: `goose acp` as a custom agent_server, reaching every
+		// provider through Helix's OpenAI-compatible proxy (the daemon maps
+		// apiType "openai" to GOOSE_PROVIDER=openai + OPENAI_BASE_URL).
+		baseURL = helixURL + "/v1"
+		apiType = "openai"
+		agentName = "goose"
+		model = fmt.Sprintf("%s/%s", providerName, modelName)
+
 	case types.CodeAgentRuntimeCodexCLI:
 		agentName = "codex"
 		model = modelName
