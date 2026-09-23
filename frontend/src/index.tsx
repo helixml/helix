@@ -7,6 +7,7 @@ import ErrorBoundary from './components/system/ErrorBoundary'
 import { isMobileOrTablet } from './utils/isMobileOrTablet'
 import { logErrorToSession, getRecentErrors, clearErrorLog } from './utils/errorSessionLog'
 import { copyTextToClipboard } from './utils/clipboard'
+import { isMobileErrorNoise } from './utils/mobileErrorNoise'
 
 const win = (window as any)
 win.setUserFunctions = []
@@ -109,17 +110,12 @@ if (isMobileOrTablet()) {
   // when you've actually seen them — don't speculate.
   //   - runtime.sendMessage / Tab not found: iPad Safari, no extensions
   //     installed; appears to come from a WebKit-internal extension shim.
-  const NOISE_PATTERNS: RegExp[] = [
-    /runtime\.sendMessage.*Tab not found/i,
-  ]
-
-  function isNoise(message: string): boolean {
-    return NOISE_PATTERNS.some(p => p.test(message))
-  }
+  //   - Script error: opaque cross-origin errors from browser-injected scripts;
+  //     same-origin application failures include actionable details instead.
 
   window.onerror = (message, _source, _lineno, _colno, error) => {
     const msg = String(message)
-    if (!isNoise(msg)) {
+    if (!isMobileErrorNoise(msg)) {
       renderErrorOverlay(msg, error?.stack)
     }
     // Return true to prevent default browser error handling (which causes the white page)
@@ -129,7 +125,7 @@ if (isMobileOrTablet()) {
   window.addEventListener('unhandledrejection', (event) => {
     const reason = event.reason
     const msg = reason?.message || String(reason) || 'Unhandled promise rejection'
-    if (isNoise(msg)) return
+    if (isMobileErrorNoise(msg)) return
     renderErrorOverlay(msg, reason?.stack)
   })
 
