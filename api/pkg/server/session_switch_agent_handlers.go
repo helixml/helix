@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -148,9 +149,63 @@ func sessionUsesAgentRuntime(session *types.Session, runtime types.CodeAgentRunt
 		(runtime == types.CodeAgentRuntimeZedAgent && session.Metadata.ZedAgentName == "")
 }
 
-// transitionSpecTaskToImplementation preserves the task's Helix session and
-// sandbox while starting a clean ACP thread with the implementation agent. The
-// approved documents, not the planner transcript, are the phase handoff.
+// phaseHandoffTranscriptNote is appended to the implementation instruction on
+// the genuine-switch path, where the planning transcript is prepended to the
+// new thread's first message. Kept to one line on purpose: a long "review the
+// transcript and acknowledge" instruction makes the model emit a large summary
+// before the user can continue, which is the bulk of the perceived latency.
+const phaseHandoffTranscriptNote = "\n\n[System: the planning conversation is included above as background context. " +
+	"Do not summarise or restate it — begin implementing per the instructions above.]"
+
+// specTaskPhaseConfigEquivalent reports whether a task's planning and
+// implementation phases resolve to the same rendered agent configuration.
+//
+// The daemon's config comes from /sessions/{id}/zed-config, which builds it
+// from specTask.ActiveCodeAgentConfig() plus GooseRecipeForPhase — so the whole
+// execution config matters, not just the runtime. Two claude_code configs
+// differing in model, reasoning effort or service tier really do change
+// settings.json, and the new model only takes effect on a new thread.
+//
+// The common default is PlanningCodeAgentConfig == nil, which makes
+// CodeAgentConfigForPhase return the same pointer for both phases.
+func specTaskPhaseConfigEquivalent(task *types.SpecTask) bool {
+	if task == nil {
+		return false
+	}
+	planning := task.CodeAgentConfigForPhase(types.SpecTaskPhasePlanning)
+	implementation := task.CodeAgentConfigForPhase(types.SpecTaskPhaseImplementation)
+	if planning != implementation {
+		if planning == nil || implementation == nil {
+			return false
+		}
+		if !reflect.DeepEqual(*planning, *implementation) {
+			return false
+		}
+	}
+	planningRecipe, planningParams := task.GooseRecipeForPhase(types.SpecTaskPhasePlanning)
+	implementationRecipe, implementationParams := task.GooseRecipeForPhase(types.SpecTaskPhaseImplementation)
+	if planningRecipe != implementationRecipe {
+		return false
+	}
+	if len(planningParams) == 0 && len(implementationParams) == 0 {
+		return true
+	}
+	return reflect.DeepEqual(planningParams, implementationParams)
+}
+
+// transitionSpecTaskToImplementation moves a task's session into the
+// implementation phase. Two paths:
+//
+// Path 1 — the planning and implementation harnesses are identical (the
+// default claude_code→claude_code case). Nothing about the rendered config
+// changes, so there is nothing for the daemon to rewrite and nothing for Zed to
+// hot-reload. The instruction is enqueued on the existing ACP thread, which
+// keeps every bit of planning context and costs nothing. This is the pre-#3222
+// behaviour.
+//
+// Path 2 — a genuine harness switch. A new thread is unavoidable (the new agent
+// cannot adopt the old agent's ACP session), so the planning transcript is
+// carried into it via the fork_seed.
 func (apiServer *HelixAPIServer) transitionSpecTaskToImplementation(
 	ctx context.Context,
 	task *types.SpecTask,
@@ -173,6 +228,36 @@ func (apiServer *HelixAPIServer) transitionSpecTaskToImplementation(
 		return nil
 	}
 
+	// Fail conservative: any difference, or any doubt, takes Path 2.
+	sameHarness := specTaskPhaseConfigEquivalent(task) &&
+		sessionUsesAgentRuntime(session, config.Runtime) &&
+		session.ParentApp == ""
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("session_id", session.ID).
+		Bool("same_harness", sameHarness).
+		Str("target_runtime", string(config.Runtime)).
+		Str("session_runtime", string(session.Metadata.CodeAgentRuntime)).
+		Str("zed_thread_id", session.Metadata.ZedThreadID).
+		Msg("spec-task: implementation transition path selected")
+
+	if sameHarness {
+		if apiServer.hasImplementationInstruction(ctx, session, prompt) {
+			return nil
+		}
+		if session.Metadata.Phase != string(types.SpecTaskPhaseImplementation) {
+			session.Metadata.Phase = string(types.SpecTaskPhaseImplementation)
+			if _, err := apiServer.Store.UpdateSession(ctx, *session); err != nil {
+				return fmt.Errorf("persist implementation phase: %w", err)
+			}
+		}
+		// Same thread, same agent, same container. interrupt=false defers
+		// behind an in-flight planning turn instead of interleaving two
+		// prompts on one ACP thread.
+		return apiServer.enqueueSpecTaskAgentMessage(ctx, task, prompt, false, "")
+	}
+
 	live := apiServer.hasRunningAgentContainer(ctx, session.ID)
 	if live {
 		if err := apiServer.cancelTurnsForSwitch(ctx, session.ID); err != nil {
@@ -184,13 +269,13 @@ func (apiServer *HelixAPIServer) transitionSpecTaskToImplementation(
 
 	session.Metadata.Phase = string(types.SpecTaskPhaseImplementation)
 	if switchErr := apiServer.switchAgentInPlaceForNextTurn(ctx, session, config.Runtime, "", agentSwitchOptions{
-		createHandoff:   true,
-		requireHandoff:  true,
-		handoffPrompt:   prompt,
-		transitionLabel: "Switching to implementation harness configuration",
-		omitTranscript:  true,
-		deliverLive:     live,
-		clearParentApp:  true,
+		createHandoff:      true,
+		requireHandoff:     true,
+		handoffPrompt:      prompt + phaseHandoffTranscriptNote,
+		transitionLabel:    "Switching to implementation harness configuration",
+		keepTranscriptEnds: true,
+		deliverLive:        live,
+		clearParentApp:     true,
 	}); switchErr != nil {
 		return fmt.Errorf("switch task to implementation agent: %s", switchErr.Message)
 	}
@@ -225,9 +310,14 @@ type agentSwitchOptions struct {
 	handoffReason   string
 	handoffPrompt   string
 	transitionLabel string
-	omitTranscript  bool
-	deliverLive     bool
-	clearParentApp  bool
+	// keepTranscriptEnds selects middle-out truncation for the seed transcript.
+	// The phase handoff sets it because the earliest planning turns hold the
+	// framing, the constraints and the rejected approaches — exactly what the
+	// specs do not record. Generic switches keep oldest-first truncation, where
+	// recent turns matter most.
+	keepTranscriptEnds bool
+	deliverLive        bool
+	clearParentApp     bool
 }
 
 func (apiServer *HelixAPIServer) hasImplementationHandoff(ctx context.Context, session *types.Session, prompt string) bool {
@@ -244,6 +334,36 @@ func (apiServer *HelixAPIServer) hasImplementationHandoff(ctx context.Context, s
 			interaction.Trigger == types.InteractionTriggerForkHandoff &&
 			interaction.PromptMessage == prompt &&
 			interaction.State != types.InteractionStateError {
+			return true
+		}
+	}
+	return false
+}
+
+// hasImplementationInstruction is the Path 1 idempotency guard. Path 1 creates
+// no fork_handoff, so hasImplementationHandoff cannot see it; the instruction
+// lives either on an interaction or on a still-pending prompt-queue row.
+func (apiServer *HelixAPIServer) hasImplementationInstruction(ctx context.Context, session *types.Session, prompt string) bool {
+	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: session.GenerationID,
+		PerPage:      10_000,
+	})
+	if err == nil {
+		for _, interaction := range interactions {
+			if interaction != nil &&
+				interaction.PromptMessage == prompt &&
+				interaction.State != types.InteractionStateError {
+				return true
+			}
+		}
+	}
+	entries, err := apiServer.Store.ListPromptHistoryBySession(ctx, session.ID)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry != nil && entry.Content == prompt && entry.Status != "failed" {
 			return true
 		}
 	}
@@ -306,10 +426,11 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 		return system.NewHTTPError500(fmt.Sprintf("failed to load interactions: %v", err))
 	}
 
-	transcript := ""
-	if !options.omitTranscript {
-		transcript = serializeTranscript(interactions, maxTranscriptBytes)
+	mode := truncateOldestFirst
+	if options.keepTranscriptEnds {
+		mode = truncateMiddleOut
 	}
+	transcript, stats := serializeTranscriptWithMode(interactions, maxTranscriptBytes, mode)
 	completedCount := 0
 	for _, in := range interactions {
 		if in == nil || in.Trigger == types.InteractionTriggerForkSeed {
@@ -318,6 +439,19 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 		if in.State == types.InteractionStateComplete {
 			completedCount++
 		}
+	}
+
+	// An empty serialisation from a non-empty interaction list reads exactly
+	// like "there was nothing to send". It is reachable by construction: the
+	// caller cancels in-flight turns before this runs, and serializeTranscript
+	// skips anything not Complete.
+	if transcript == "" && len(interactions) > 0 {
+		log.Warn().
+			Str("session_id", session.ID).
+			Int("interactions", len(interactions)).
+			Int("skipped_not_complete", stats.skippedNotComplete).
+			Int("skipped_fork_markers", stats.skippedForkMarkers).
+			Msg("switch-agent: serialized an EMPTY transcript from a non-empty interaction list; the new thread starts blind")
 	}
 
 	now := time.Now()
@@ -506,39 +640,138 @@ func (apiServer *HelixAPIServer) detachSupersededExternalAgentThread(sessionID, 
 // needs to cover settings hot-reload + thread spin-up, not the LLM response.
 const switchAgentLiveDeliveryTimeout = 9 * time.Second
 
+// switchAgentAppliedThreadTimeout is the budget that replaces the 9s one once
+// the daemon has confirmed the config is on disk AND Helix has handed the turn
+// to a live Zed connection. At that point the only thing left to wait for is
+// new_session(), so the clock restarts from the callback with a budget that
+// covers a COLD one (observed worst case: 69s agent connect + 11s new_session,
+// after a restart; on the warm path connect is instant).
+//
+// The point is the explicit signal, not a bigger magic number: without the
+// callback the 9s budget is unchanged.
+const switchAgentAppliedThreadTimeout = 60 * time.Second
+
+// switchAgentFallbackPollInterval is how often the fallback re-reads the
+// session. Polling rather than sleeping the whole budget means the goroutine
+// exits as soon as thread_created lands — nothing is slower than a single sleep.
+const switchAgentFallbackPollInterval = time.Second
+
 // agentSwitchRestartFallback waits for the live hot-reload path to create a new
-// Zed thread; if it hasn't within the timeout, it requests a clean Zed restart
+// Zed thread; if it hasn't within the budget, it requests a clean Zed restart
 // (field="agent_restart") so the reconnect path delivers the pending handoff.
 // No-ops if the session already got a new thread, was switched again, or paused.
+//
+// The budget is evidence-driven: /agent-config-applied records
+// AgentHandoffDeliveredAt on the session, and seeing it re-bases the deadline
+// instead of killing a Zed that is already mid-new_session().
 func (apiServer *HelixAPIServer) agentSwitchRestartFallback(ctx context.Context, sessionID string, switchedAt time.Time) {
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(switchAgentLiveDeliveryTimeout):
-	}
+	deadline := switchedAt.Add(switchAgentLiveDeliveryTimeout)
+	budget := "live_delivery"
 
-	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	ticker := time.NewTicker(switchAgentFallbackPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		session, err := apiServer.Store.GetSession(ctx, sessionID)
+		if err != nil {
+			log.Warn().Err(err).Str("session_id", sessionID).Msg("switch-agent fallback: failed to reload session")
+			return
+		}
+		// Live path succeeded — a new thread was created.
+		if session.Metadata.ZedThreadID != "" {
+			return
+		}
+		// A newer switch superseded this one — let its own fallback handle it.
+		if !session.Metadata.AgentSwitchedAt.Equal(switchedAt) {
+			return
+		}
+		// Session paused/forked away in the meantime — don't touch it.
+		if session.Metadata.Paused {
+			return
+		}
+
+		// The daemon confirmed the config AND Helix delivered the handoff to a
+		// live connection. Restarting now would kill a Zed that is provably
+		// working on the new thread.
+		if delivered := session.Metadata.AgentHandoffDeliveredAt; delivered.After(switchedAt) {
+			if extended := delivered.Add(switchAgentAppliedThreadTimeout); extended.After(deadline) {
+				deadline = extended
+				budget = "applied_thread"
+			}
+		}
+
+		if time.Now().Before(deadline) {
+			continue
+		}
+
+		log.Info().
+			Str("session_id", sessionID).
+			Str("expired_budget", budget).
+			Time("switched_at", switchedAt).
+			Time("config_applied_at", session.Metadata.AgentConfigAppliedAt).
+			Time("handoff_delivered_at", session.Metadata.AgentHandoffDeliveredAt).
+			Msg("switch-agent fallback: no new thread from live hot-reload, requesting Zed restart")
+		// Helix is about to kill the Zed process this turn was handed to, so
+		// the dispatch is provably dead. Clearing it makes the reconnect's
+		// decideResume return "deliver" immediately instead of waiting out the
+		// 180s silence budget of attach_and_verify.
+		apiServer.invalidateDispatchForRequestedRestart(ctx, session)
+		apiServer.publishAgentConfigChange(ctx, session, "agent_restart")
+		return
+	}
+}
+
+// invalidateDispatchForRequestedRestart clears ExternalAgentDispatchedAt on the
+// session's waiting interactions, so the reconnect after a Helix-requested Zed
+// restart re-delivers instead of attaching to a turn that died with the
+// process.
+//
+// Deliberately narrow: only for the restart this code requested (the caller),
+// only while ZedThreadID is empty, only for interactions still waiting on the
+// current generation. An ordinary API-restart reconnect must keep
+// attach_and_verify — there Zed survives and may really be running the turn.
+func (apiServer *HelixAPIServer) invalidateDispatchForRequestedRestart(ctx context.Context, session *types.Session) {
+	if session == nil || session.Metadata.ZedThreadID != "" {
+		return
+	}
+	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: session.GenerationID,
+		PerPage:      1000,
+	})
 	if err != nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("switch-agent fallback: failed to reload session")
+		log.Warn().Err(err).Str("session_id", session.ID).
+			Msg("switch-agent fallback: could not list interactions to invalidate the dispatch we are about to kill")
 		return
 	}
-	// Live path succeeded — a new thread was created.
-	if session.Metadata.ZedThreadID != "" {
-		return
+	for _, interaction := range interactions {
+		if interaction == nil ||
+			interaction.State != types.InteractionStateWaiting ||
+			interaction.ExternalAgentDispatchedAt == nil ||
+			interaction.ExternalAgentRequestID == "" {
+			continue
+		}
+		if err := apiServer.Store.ClearInteractionExternalAgentDispatched(
+			ctx, interaction.ID, interaction.GenerationID, interaction.ExternalAgentRequestID,
+		); err != nil {
+			log.Warn().Err(err).
+				Str("interaction_id", interaction.ID).
+				Msg("switch-agent fallback: failed to invalidate dispatch before requested Zed restart")
+			continue
+		}
+		apiServer.releaseInteractionDispatch(interaction.ID)
+		log.Info().
+			Str("session_id", session.ID).
+			Str("interaction_id", interaction.ID).
+			Str("request_id", interaction.ExternalAgentRequestID).
+			Msg("switch-agent fallback: invalidated the dispatch Helix is about to kill; reconnect will re-deliver")
 	}
-	// A newer switch superseded this one — let its own fallback handle it.
-	if !session.Metadata.AgentSwitchedAt.Equal(switchedAt) {
-		return
-	}
-	// Session paused/forked away in the meantime — don't touch it.
-	if session.Metadata.Paused {
-		return
-	}
-	log.Info().
-		Str("session_id", sessionID).
-		Dur("after", switchAgentLiveDeliveryTimeout).
-		Msg("switch-agent fallback: no new thread from live hot-reload, requesting Zed restart")
-	apiServer.publishAgentConfigChange(ctx, session, "agent_restart")
 }
 
 // publishAgentConfigChange notifies the session's in-desktop settings-sync
@@ -598,6 +831,26 @@ func (apiServer *HelixAPIServer) agentConfigApplied(_ http.ResponseWriter, req *
 	// after the daemon hot-reloaded the new agent's config, so no restart is
 	// needed. If there's no live connection, queueOrSend holds it and the
 	// restart fallback will eventually fire.
-	apiServer.deliverWaitingInteractionNow(ctx, session)
+	requestID := apiServer.deliverWaitingInteractionNow(ctx, session)
+
+	// Record the callback so agentSwitchRestartFallback can credit the fast
+	// path instead of deciding purely on a 9s timer. The delivered timestamp is
+	// only set when a live connection actually took the turn — a callback with
+	// nothing delivered is not evidence the turn is moving.
+	now := time.Now()
+	session.Metadata.AgentConfigAppliedAt = now
+	if requestID != "" {
+		session.Metadata.AgentHandoffDeliveredAt = now
+	}
+	if _, err := apiServer.Store.UpdateSession(ctx, *session); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).
+			Msg("switch-agent: failed to record agent-config-applied on the session; the restart fallback will fall back to its 9s budget")
+	}
+	log.Info().
+		Str("session_id", sessionID).
+		Bool("delivered", requestID != "").
+		Str("request_id", requestID).
+		Msg("switch-agent: daemon reported agent config applied")
+
 	return &AgentConfigAppliedResponse{Status: "ok"}, nil
 }
