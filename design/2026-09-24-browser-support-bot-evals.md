@@ -52,6 +52,23 @@ Harness: `evals/browser-support/`.
 
 ## Findings (product issues hit while setting this up)
 
+0. **BLOCKER for shipping finding 1 — ACP thread IDs are routed through one
+   global map.** `message_added` / `message_completed` resolve the Helix
+   session with `contextMappings[acp_thread_id]`
+   (`websocket_external_agent_sync.go:1263`, `:3032`), a server-wide map, not
+   scoped to the WebSocket connection that sent the event. Goose's ACP session
+   ids are date-sequential (`20260923_1`), so two Goose sandboxes started the
+   same day both produce `20260923_1`. Observed live: `sup-goose-glm`
+   (`ses_…6x5gp77`) and `sup-goose-qwen` (`ses_…dzdn5p`) ran concurrently and
+   117 of the events for thread `20260923_1` were delivered to the Qwen
+   session — the GLM bot's activation never completed (runner timed out at
+   600s) while the Qwen bot's turns completed in 3s carrying the GLM bot's
+   tool calls. Every other harness uses random/UUID ids, and before finding 1
+   `goose_code` silently ran Zed's agent (UUID threads), so the collision was
+   unreachable. **Fixing Goose routing alone would make cross-session — and
+   cross-user — message delivery reachable.** The goose fix therefore stays
+   off the PR until the mapping is keyed by (agent connection, thread id).
+
 1. **`goose_code` never ran Goose** — fixed in this branch. `buildCodeAgentConfig`
    and `CodeAgentRuntime.ZedAgentName()` had no Goose case, so `AgentName`
    fell through to `zed-agent`: settings-sync-daemon wrote an
