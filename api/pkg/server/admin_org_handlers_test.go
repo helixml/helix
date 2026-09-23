@@ -75,7 +75,11 @@ func TestAdminListOrganizationsSearchesOwnerEmail(t *testing.T) {
 	}).Return([]*types.Wallet{}, nil)
 	mockStore.EXPECT().ListOrganizationMemberships(gomock.Any(), &store.ListOrganizationMembershipsQuery{
 		OrganizationID: "org_match",
-	}).Return([]*types.OrganizationMembership{}, nil)
+	}).Return([]*types.OrganizationMembership{{
+		UserID: "user_match",
+		Role:   types.OrganizationRoleOwner,
+		User:   types.User{ID: "user_match", Email: "Owner@Example.com"},
+	}}, nil)
 	mockStore.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
 		OrganizationID: "org_match",
 	}).Return([]*types.Project{}, nil)
@@ -90,6 +94,9 @@ func TestAdminListOrganizationsSearchesOwnerEmail(t *testing.T) {
 	assert.Equal(t, 1, response.TotalCount)
 	require.Len(t, response.Organizations, 1)
 	assert.Equal(t, "org_match", response.Organizations[0].Organization.ID)
+	require.Len(t, response.Organizations[0].Members, 1)
+	assert.Equal(t, types.OrganizationRoleOwner, response.Organizations[0].Members[0].Role)
+	assert.Equal(t, "Owner@Example.com", response.Organizations[0].Members[0].User.Email)
 }
 
 func TestAdminListOrganizationsHandlesOverflowingPage(t *testing.T) {

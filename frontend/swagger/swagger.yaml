@@ -3603,24 +3603,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - gitlab
-    - local
-    - slack
-    - cron
-    - email
     - webhook
+    - gitlab
+    - slack
     - github
+    - email
     - helix_events
+    - cron
+    - local
     type: string
     x-enum-varnames:
-    - KindGitLab
-    - KindLocal
-    - KindSlack
-    - KindCron
-    - KindEmail
     - KindWebhook
+    - KindGitLab
+    - KindSlack
     - KindGitHub
+    - KindEmail
     - KindHelixEvents
+    - KindCron
+    - KindLocal
   transport.ResolvedActivation:
     properties:
       address:
@@ -7335,6 +7335,8 @@ definitions:
         items:
           type: integer
         type: array
+      request_id:
+        type: string
       response:
         items:
           type: integer
@@ -8016,7 +8018,7 @@ definitions:
     properties:
       members:
         items:
-          $ref: '#/definitions/types.User'
+          $ref: '#/definitions/types.OrganizationMembership'
         type: array
       organization:
         $ref: '#/definitions/types.Organization'
@@ -10725,6 +10727,22 @@ definitions:
         items:
           type: string
         type: array
+      agent_config_applied_at:
+        description: |-
+          AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop
+          settings-sync daemon's /agent-config-applied callback for the most recent
+          in-place switch. They are the explicit "the fast hot-reload path worked"
+          signal that agentSwitchRestartFallback consults instead of deciding purely
+          on a timer — without them a confirmed-applied config was still restarted
+          5s later, killing Zed mid-new_session().
+
+          AgentHandoffDeliveredAt is only set when the handoff actually reached a
+          live connection; a callback with nothing delivered is not evidence the
+          turn is moving. Persisted (not an in-memory map) so it is correct when the
+          callback lands on a different API replica than the fallback goroutine.
+        type: string
+      agent_handoff_delivered_at:
+        type: string
       agent_switched_at:
         description: |-
           AgentSwitchedAt is set when the agent framework is switched IN PLACE on

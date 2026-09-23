@@ -109,6 +109,13 @@ const AdminOrgsTable: FC = () => {
             const projects = org.projects || [];
             const members = org.members || [];
 
+            const memberLabel = (member: (typeof members)[number]) => {
+                const user = member.user;
+                const name = user?.email || user?.username || user?.id || member.user_id;
+                const role = member.role ? member.role.charAt(0).toUpperCase() + member.role.slice(1) : "Member";
+                return `${name} (${role})`;
+            };
+
             return {
                 id: org.organization?.id || "",
                 _data: org,
@@ -142,13 +149,13 @@ const AdminOrgsTable: FC = () => {
                     <Typography variant="body2" color="text.secondary">None</Typography>
                 ) : (
                     <Tooltip
-                        title={members.map((m) => m.email || m.username || m.id).join(", ")}
+                        title={members.map(memberLabel).join(", ")}
                     >
                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
                             {members.map((m) => (
                                 <Chip
-                                    key={m.id}
-                                    label={m.email || m.username || m.id}
+                                    key={m.user_id}
+                                    label={memberLabel(m)}
                                     size="small"
                                     variant="outlined"
                                 />
