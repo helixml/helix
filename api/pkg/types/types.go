@@ -586,6 +586,20 @@ type SessionMetadata struct {
 	// though ParentSessionID is empty (the session continues from itself).
 	AgentSwitchedAt time.Time `json:"agent_switched_at,omitempty"`
 
+	// AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop
+	// settings-sync daemon's /agent-config-applied callback for the most recent
+	// in-place switch. They are the explicit "the fast hot-reload path worked"
+	// signal that agentSwitchRestartFallback consults instead of deciding purely
+	// on a timer — without them a confirmed-applied config was still restarted
+	// 5s later, killing Zed mid-new_session().
+	//
+	// AgentHandoffDeliveredAt is only set when the handoff actually reached a
+	// live connection; a callback with nothing delivered is not evidence the
+	// turn is moving. Persisted (not an in-memory map) so it is correct when the
+	// callback lands on a different API replica than the fallback goroutine.
+	AgentConfigAppliedAt    time.Time `json:"agent_config_applied_at,omitempty"`
+	AgentHandoffDeliveredAt time.Time `json:"agent_handoff_delivered_at,omitempty"`
+
 	// Pause state — sessions cannot accept new messages while paused.
 	// PausedReason is the only producer in v1: "forked_to:<child_id>".
 	Paused       bool      `json:"paused,omitempty"`

@@ -98,7 +98,10 @@ func TestSwitchAgentInPlace_MutatesSessionAndSeeds(t *testing.T) {
 	assert.Equal(t, types.InteractionStateWaiting, handoff.State, "handoff must be Waiting so the reconnect resume path delivers it on reconnect")
 }
 
-func TestSwitchAgentInPlace_CleanHandoffOmitsPlannerTranscript(t *testing.T) {
+// The phase handoff used to omit the planner transcript, which left the
+// implementation agent starting blind. A genuine harness switch cannot keep the
+// ACP thread, so the transcript is now carried into the new one.
+func TestSwitchAgentInPlace_PhaseHandoffCarriesPlannerTranscript(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
 	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
@@ -111,10 +114,10 @@ func TestSwitchAgentInPlace_CleanHandoffOmitsPlannerTranscript(t *testing.T) {
 	seedParentWithInteractions(t, mem, session, 2)
 
 	httpErr := srv.switchAgentInPlaceForNextTurn(ctx, session, types.CodeAgentRuntimeCodexCLI, "app_target", agentSwitchOptions{
-		createHandoff:   true,
-		handoffPrompt:   "Implement the approved plan.",
-		transitionLabel: "Switching to implementation harness configuration",
-		omitTranscript:  true,
+		createHandoff:      true,
+		handoffPrompt:      "Implement the approved plan.",
+		transitionLabel:    "Switching to implementation harness configuration",
+		keepTranscriptEnds: true,
 	})
 	require.Nil(t, httpErr)
 
@@ -132,7 +135,8 @@ func TestSwitchAgentInPlace_CleanHandoffOmitsPlannerTranscript(t *testing.T) {
 		}
 	}
 	require.NotNil(t, seed)
-	assert.Empty(t, seed.ResponseMessage)
+	assert.NotEmpty(t, seed.ResponseMessage, "the implementation agent must not start blind")
+	assert.Contains(t, seed.ResponseMessage, "**User:**")
 	assert.Equal(t, "Switching to implementation harness configuration", seed.PromptMessage)
 	require.NotNil(t, handoff)
 	assert.Equal(t, "Implement the approved plan.", handoff.PromptMessage)
@@ -146,10 +150,10 @@ func TestSwitchAgentInPlace_ImplementationHandoffRunsWithSameRuntime(t *testing.
 	seedParentWithInteractions(t, mem, session, 1)
 
 	httpErr := srv.switchAgentInPlaceForNextTurn(ctx, session, types.CodeAgentRuntimeClaudeCode, "app_parent", agentSwitchOptions{
-		createHandoff:   true,
-		handoffPrompt:   "Implement the approved plan.",
-		transitionLabel: "Switching to implementation harness configuration",
-		omitTranscript:  true,
+		createHandoff:      true,
+		handoffPrompt:      "Implement the approved plan.",
+		transitionLabel:    "Switching to implementation harness configuration",
+		keepTranscriptEnds: true,
 	})
 	require.Nil(t, httpErr)
 

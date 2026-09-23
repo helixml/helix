@@ -33,6 +33,21 @@ export function splitSystemPrefix(message: string): SplitResult {
     return { prefix: null, userText: message, label: null, kind: null };
   }
 
+  // The approval anchor is checked FIRST because the implementation prompt also
+  // carries an "**Original Request:**" block. Matching USER_REQUEST_SPLIT first
+  // would label the post-approval prompt "Planning Instructions (cloned task)",
+  // which is both wrong and the opposite phase. This only became visible when
+  // the same-harness phase transition started delivering that prompt as an
+  // ordinary user turn instead of a (never-rendered) fork_handoff.
+  if (APPROVAL_PROMPT_ANCHOR.test(message)) {
+    return {
+      prefix: message.trim(),
+      userText: "",
+      label: null,
+      kind: "approval",
+    };
+  }
+
   const match = message.match(USER_REQUEST_SPLIT);
   if (match) {
     return {
@@ -40,15 +55,6 @@ export function splitSystemPrefix(message: string): SplitResult {
       userText: match[3].trim(),
       label: match[2],
       kind: "user-request",
-    };
-  }
-
-  if (APPROVAL_PROMPT_ANCHOR.test(message)) {
-    return {
-      prefix: message.trim(),
-      userText: "",
-      label: null,
-      kind: "approval",
     };
   }
 
