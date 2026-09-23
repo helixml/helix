@@ -5,6 +5,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import ReplayIcon from "@mui/icons-material/Replay";
+import { useGetWallet } from "../../services/useBilling";
 import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
@@ -544,9 +545,24 @@ export const InteractionInference: FC<{
     session.id || "",
     interaction.id || "",
   );
-  const showAddCredits = !!error
-    && /insufficient balance/i.test(error)
+  const isInsufficientBalance = !!error && /insufficient balance/i.test(error);
+  const { data: wallet } = useGetWallet(
+    router.params.org_id,
+    isInsufficientBalance && !!router.params.org_id,
+  );
+  const hasCredits = (wallet?.balance ?? 0)
+    >= (serverConfig?.minimum_inference_balance ?? 0.01);
+  const showAddCredits = isInsufficientBalance
+    && !hasCredits
     && !!router.params.org_id;
+  const errorTitle = isInsufficientBalance
+    ? "More credits needed"
+    : "We couldn’t complete that request";
+  const errorMessage = isInsufficientBalance
+    ? hasCredits
+      ? "Credits are available now. Retry to continue."
+      : "Your organization doesn’t have enough credits. Add credits to continue."
+    : error;
   const handleCancel =
     externalHandleCancel ||
     (() => {
@@ -1077,16 +1093,17 @@ export const InteractionInference: FC<{
         >
           <Cell grow>
             <Alert severity="error">
-              <AlertTitle>Turn failed</AlertTitle>
+              <AlertTitle>{errorTitle}</AlertTitle>
               <Typography
                 variant="body2"
                 sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
               >
-                {error}
+                {errorMessage}
               </Typography>
               {showAddCredits && (
                 <Button
-                  color="inherit"
+                  variant="contained"
+                  color="secondary"
                   size="small"
                   sx={{ mt: 1 }}
                   onClick={() =>
@@ -1100,7 +1117,9 @@ export const InteractionInference: FC<{
               )}
             </Alert>
           </Cell>
-          {onRegenerate && !message && (
+          {onRegenerate
+            && !message
+            && (!isInsufficientBalance || hasCredits) && (
             <Cell
               sx={{
                 ml: 2,

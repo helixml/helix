@@ -28601,24 +28601,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "webhook",
-                "gitlab",
                 "slack",
-                "github",
-                "email",
+                "local",
                 "helix_events",
+                "webhook",
+                "email",
                 "cron",
-                "local"
+                "github",
+                "gitlab"
             ],
             "x-enum-varnames": [
-                "KindWebhook",
-                "KindGitLab",
                 "KindSlack",
-                "KindGitHub",
-                "KindEmail",
+                "KindLocal",
                 "KindHelixEvents",
+                "KindWebhook",
+                "KindEmail",
                 "KindCron",
-                "KindLocal"
+                "KindGitHub",
+                "KindGitLab"
             ]
         },
         "transport.ResolvedActivation": {
@@ -37587,6 +37587,10 @@ const docTemplate = `{
                 "max_concurrent_desktops": {
                     "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited. Note: /config is unauthenticated, so this is the\nFree-tier floor; real enforcement uses the resolved per-user/per-org cap.",
                     "type": "integer"
+                },
+                "minimum_inference_balance": {
+                    "description": "Minimum wallet balance required for inference",
+                    "type": "number"
                 },
                 "onboarding_helix_model": {
                     "type": "string"

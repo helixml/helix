@@ -3603,24 +3603,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - webhook
-    - gitlab
     - slack
-    - github
-    - email
-    - helix_events
-    - cron
     - local
+    - helix_events
+    - webhook
+    - email
+    - cron
+    - github
+    - gitlab
     type: string
     x-enum-varnames:
-    - KindWebhook
-    - KindGitLab
     - KindSlack
-    - KindGitHub
-    - KindEmail
-    - KindHelixEvents
-    - KindCron
     - KindLocal
+    - KindHelixEvents
+    - KindWebhook
+    - KindEmail
+    - KindCron
+    - KindGitHub
+    - KindGitLab
   transport.ResolvedActivation:
     properties:
       address:
@@ -10284,6 +10284,9 @@ definitions:
           -1 = unlimited. Note: /config is unauthenticated, so this is the
           Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
         type: integer
+      minimum_inference_balance:
+        description: Minimum wallet balance required for inference
+        type: number
       onboarding_helix_model:
         type: string
       onboarding_helix_model_effort:

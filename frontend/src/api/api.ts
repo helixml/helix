@@ -2321,14 +2321,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindWebhook = "webhook",
-  KindGitLab = "gitlab",
   KindSlack = "slack",
-  KindGitHub = "github",
-  KindEmail = "email",
-  KindHelixEvents = "helix_events",
-  KindCron = "cron",
   KindLocal = "local",
+  KindHelixEvents = "helix_events",
+  KindWebhook = "webhook",
+  KindEmail = "email",
+  KindCron = "cron",
+  KindGitHub = "github",
+  KindGitLab = "gitlab",
 }
 
 export interface TransportResolvedActivation {
@@ -6516,6 +6516,8 @@ export interface TypesServerConfigForFrontend {
    * Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
    */
   max_concurrent_desktops?: number;
+  /** Minimum wallet balance required for inference */
+  minimum_inference_balance?: number;
   onboarding_helix_model?: string;
   onboarding_helix_model_effort?: string;
   /**
