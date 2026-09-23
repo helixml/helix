@@ -92,6 +92,37 @@ func Test_GetQwen38FlashNextVisionModalities(t *testing.T) {
 	}
 }
 
+func Test_GetGLM53FlashPricing(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	for _, modelID := range []string{"glm-5.3-flash", "z-ai/glm-5.3-flash"} {
+		t.Run(modelID, func(t *testing.T) {
+			modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+				Provider: "bunker",
+				Model:    modelID,
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, "glm-5.3-flash", modelInfo.ProviderModelID)
+			assert.Equal(t, "z-ai/glm-5.3-flash", modelInfo.Slug)
+			assert.Equal(t, 1_310_720, modelInfo.ContextLength)
+			assert.Equal(t, []types.Modality{
+				types.ModalityText,
+				types.ModalityImage,
+				types.Modality("video"),
+			}, modelInfo.InputModalities)
+			assert.Equal(t, []types.Modality{types.ModalityText}, modelInfo.OutputModalities)
+			assert.Equal(t, 131_072, modelInfo.MaxCompletionTokens)
+			assert.Contains(t, modelInfo.SupportedParameters, "reasoning_effort")
+			assert.Contains(t, modelInfo.SupportedParameters, "tools")
+			assert.Equal(t, "0.00000015", modelInfo.Pricing.Prompt)
+			assert.Equal(t, "0.0000005", modelInfo.Pricing.Completion)
+			assert.Equal(t, "0.00000005", modelInfo.Pricing.InputCacheRead)
+		})
+	}
+}
+
 func Test_GetClaude5Pricing(t *testing.T) {
 	b, err := NewBaseModelInfoProvider()
 	require.NoError(t, err)
