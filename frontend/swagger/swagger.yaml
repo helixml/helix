@@ -14724,7 +14724,8 @@ paths:
       - organizations
   /api/v1/admin/orgs:
     get:
-      description: List organizations with server-side pagination and name search
+      description: List organizations with server-side pagination and name or owner
+        email search
       parameters:
       - description: 'Page number (default: 1)'
         in: query
@@ -14734,7 +14735,7 @@ paths:
         in: query
         name: per_page
         type: integer
-      - description: Search organization display name or name
+      - description: Search organization display name, name, or owner email
         in: query
         name: query
         type: string

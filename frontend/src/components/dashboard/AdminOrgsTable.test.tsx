@@ -38,7 +38,7 @@ describe('AdminOrgsTable', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Go to next page' }))
     expect(mocks.queries.at(-1)).toMatchObject({ page: 2, per_page: 25 })
 
-    fireEvent.change(screen.getByLabelText('Search organizations'), { target: { value: 'acme' } })
+    fireEvent.change(screen.getByLabelText('Search organizations or owner email'), { target: { value: 'acme' } })
     act(() => vi.advanceTimersByTime(300))
 
     expect(mocks.queries.at(-1)).toEqual({ page: 1, per_page: 25, query: 'acme' })
