@@ -728,6 +728,29 @@ if [ -d "$SKILLS_SEED/skills" ]; then
     fi
 fi
 
+# Project skills (<primary repo>/.agents/skills/<name>/SKILL.md). Harnesses only
+# scan .agents/skills relative to their cwd, and org-bot sessions run with cwd
+# $WORK_DIR rather than inside the repo, so link them into the global skill
+# dirs every harness reads. A project skill replaces a Helix skill of the same
+# name. Links from a previous repo or a removed skill are cleared first.
+link_project_skills() {
+    local repo_skills="$WORK_DIR/$HELIX_PRIMARY_REPO_NAME/.agents/skills"
+    local skills_home skill_dir
+    for skills_home in ~/.agents/skills ~/.claude/skills; do
+        mkdir -p "$skills_home" 2>/dev/null || continue
+        find "$skills_home" -maxdepth 1 -type l -lname "$WORK_DIR/*/.agents/skills/*" -delete 2>/dev/null || true
+        for skill_dir in "$repo_skills"/*/; do
+            [ -f "${skill_dir}SKILL.md" ] || continue
+            ln -sfn "${skill_dir%/}" "$skills_home/$(basename "$skill_dir")" \
+                || echo "  Project skills: cannot link $(basename "$skill_dir") into $skills_home"
+        done
+    done
+    echo "  Project skills: $(ls -d "$repo_skills"/*/ 2>/dev/null | xargs -r -n1 basename | tr '\n' ' ' || true)"
+}
+if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
+    link_project_skills
+fi
+
 # Browser profile (Chrome / Chromium): chrome-devtools-mcp uses this persistent
 # directory explicitly via --user-data-dir. Symlink the normal Chrome and
 # Chromium config paths to the same profile so a browser opened from the desktop
