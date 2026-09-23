@@ -28601,24 +28601,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "local",
-                "gitlab",
-                "github",
-                "webhook",
                 "slack",
-                "cron",
+                "local",
+                "helix_events",
+                "webhook",
                 "email",
-                "helix_events"
+                "cron",
+                "github",
+                "gitlab"
             ],
             "x-enum-varnames": [
-                "KindLocal",
-                "KindGitLab",
-                "KindGitHub",
-                "KindWebhook",
                 "KindSlack",
-                "KindCron",
+                "KindLocal",
+                "KindHelixEvents",
+                "KindWebhook",
                 "KindEmail",
-                "KindHelixEvents"
+                "KindCron",
+                "KindGitHub",
+                "KindGitLab"
             ]
         },
         "transport.ResolvedActivation": {
@@ -34575,7 +34575,7 @@ const docTemplate = `{
                 "members": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/types.User"
+                        "$ref": "#/definitions/types.OrganizationMembership"
                     }
                 },
                 "organization": {

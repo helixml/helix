@@ -186,11 +186,6 @@ func (apiServer *HelixAPIServer) adminListOrganizations(rw http.ResponseWriter, 
 				return err
 			}
 
-			members := make([]types.User, 0, len(memberships))
-			for _, membership := range memberships {
-				members = append(members, membership.User)
-			}
-
 			projects, err := apiServer.Store.ListProjects(groupContext, &store.ListProjectsQuery{
 				OrganizationID: org.ID,
 			})
@@ -206,7 +201,7 @@ func (apiServer *HelixAPIServer) adminListOrganizations(rw http.ResponseWriter, 
 			result[i] = types.OrgDetails{
 				Organization: *org,
 				Wallet:       walletsByOrgID[org.ID],
-				Members:      members,
+				Members:      memberships,
 				Projects:     orgProjects,
 			}
 			return nil

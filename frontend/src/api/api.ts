@@ -2321,14 +2321,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindLocal = "local",
-  KindGitLab = "gitlab",
-  KindGitHub = "github",
-  KindWebhook = "webhook",
   KindSlack = "slack",
-  KindCron = "cron",
-  KindEmail = "email",
+  KindLocal = "local",
   KindHelixEvents = "helix_events",
+  KindWebhook = "webhook",
+  KindEmail = "email",
+  KindCron = "cron",
+  KindGitHub = "github",
+  KindGitLab = "gitlab",
 }
 
 export interface TransportResolvedActivation {
@@ -5081,7 +5081,7 @@ export interface TypesOrgComputeUsage {
 }
 
 export interface TypesOrgDetails {
-  members?: TypesUser[];
+  members?: TypesOrganizationMembership[];
   organization?: TypesOrganization;
   projects?: TypesProject[];
   wallet?: TypesWallet;
