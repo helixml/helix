@@ -1,7 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { InteractionInference } from "./InteractionInference";
+
+const { navigate } = vi.hoisted(() => ({ navigate: vi.fn() }));
 
 // Only the chrome around the error block matters here, so the heavy content
 // renderers are stubbed out. The error block itself is the real thing.
@@ -21,7 +23,7 @@ vi.mock("../../hooks/useAccount", () => ({
   default: () => ({ user: { id: "usr_1" }, admin: false, serverConfig: {} }),
 }));
 vi.mock("../../hooks/useRouter", () => ({
-  default: () => ({ navigate: vi.fn(), params: {} }),
+  default: () => ({ navigate, params: { org_id: "org_1" } }),
 }));
 vi.mock("../../services/interactionsService", () => ({
   useUpdateInteractionFeedback: () => ({ updateFeedback: vi.fn() }),
@@ -49,6 +51,16 @@ describe("InteractionInference error display", () => {
       screen.getByText("agent turn aborted: insufficient balance"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add credits" }));
+    expect(navigate).toHaveBeenCalledWith("org_billing", { org_id: "org_1" });
+  });
+
+  it("does not offer credits for unrelated failures", () => {
+    render(<InteractionInference {...baseProps} error="agent turn timed out" />);
+
+    expect(
+      screen.queryByRole("button", { name: "Add credits" }),
+    ).not.toBeInTheDocument();
   });
 
   it("withholds Retry once the session has recovered", () => {

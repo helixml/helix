@@ -544,6 +544,9 @@ export const InteractionInference: FC<{
     session.id || "",
     interaction.id || "",
   );
+  const showAddCredits = !!error
+    && /insufficient balance/i.test(error)
+    && !!router.params.org_id;
   const handleCancel =
     externalHandleCancel ||
     (() => {
@@ -1081,6 +1084,20 @@ export const InteractionInference: FC<{
               >
                 {error}
               </Typography>
+              {showAddCredits && (
+                <Button
+                  color="inherit"
+                  size="small"
+                  sx={{ mt: 1 }}
+                  onClick={() =>
+                    router.navigate("org_billing", {
+                      org_id: router.params.org_id,
+                    })
+                  }
+                >
+                  Add credits
+                </Button>
+              )}
             </Alert>
           </Cell>
           {onRegenerate && !message && (
