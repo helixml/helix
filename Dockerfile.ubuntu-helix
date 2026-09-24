@@ -1055,9 +1055,14 @@ RUN mkdir -p /etc/skel/.config/google-chrome && \
 # logs then show `chrome-devtools context server failed to start: Context
 # server request timeout` (180s). Going via the global binary avoids npx
 # entirely and removes the contention.
-RUN npm install -g \
+#
+# HOME is /home/retro here, so root-run npm would leave a root-owned
+# ~/.npm cache and every later `npm install` by the agent fails with EACCES.
+# Build-time installs use a throwaway cache instead.
+RUN npm_config_cache=/tmp/npm-build-cache npm install -g \
         chrome-devtools-mcp@0.25.0 \
         @modelcontextprotocol/server-github@2025.4.8 \
+    && rm -rf /tmp/npm-build-cache \
     && fc-cache -f -v
 
 # URL capture script for Claude Code OAuth login flow.
@@ -1080,7 +1085,7 @@ RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-codex-aut
 # Build and pack the package, then install globally from the tarball
 COPY mcp-servers/drone-ci/package.json mcp-servers/drone-ci/package-lock.json mcp-servers/drone-ci/tsconfig.json /tmp/drone-ci-mcp/
 COPY mcp-servers/drone-ci/src /tmp/drone-ci-mcp/src/
-RUN cd /tmp/drone-ci-mcp && npm install && npm run build && npm pack && npm install -g helix-drone-ci-mcp-*.tgz && rm -rf /tmp/drone-ci-mcp
+RUN export npm_config_cache=/tmp/npm-build-cache && cd /tmp/drone-ci-mcp && npm install && npm run build && npm pack && npm install -g helix-drone-ci-mcp-*.tgz && rm -rf /tmp/drone-ci-mcp /tmp/npm-build-cache
 
 # Chrome MCP server configuration for headless mode
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
