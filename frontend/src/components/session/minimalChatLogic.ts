@@ -34,6 +34,9 @@ export function seedPromptIndex(minimal: boolean, hasOlderInteractions: boolean)
  * `hasSent` covers the gap between the customer clicking send and the server
  * count catching up on the next poll. Without it the welcome screen flashes
  * back for a beat after they have already spoken.
+ *
+ * `isLoading` covers the first load and session switches, before the interaction
+ * count is known. Until then, zero is only a fallback value, not an empty chat.
  */
 export function shouldShowWelcome(
   minimal: boolean,
