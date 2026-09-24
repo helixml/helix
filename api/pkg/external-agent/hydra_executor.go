@@ -1037,15 +1037,15 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 }
 
 // DeleteWorkspace deletes a stopped session's workspace directory on the
-// sandbox host that last ran it. Stop the desktop first: hydra refuses while
-// the session still has a container.
-func (h *HydraExecutor) DeleteWorkspace(ctx context.Context, sessionID string) error {
+// sandbox host that ran it. The caller reads sandboxID before stopping the
+// desktop, since a stop can clear it from the session. Stop the desktop
+// first: hydra refuses while the session still has a container.
+func (h *HydraExecutor) DeleteWorkspace(ctx context.Context, sessionID, sandboxID string) error {
 	if sessionID == "" {
 		return fmt.Errorf("session ID is required to delete a workspace")
 	}
-	sandboxID := "local"
-	if dbSession, err := h.store.GetSessionIncludingDeleted(ctx, sessionID); err == nil && dbSession.SandboxID != "" {
-		sandboxID = dbSession.SandboxID
+	if sandboxID == "" {
+		sandboxID = "local"
 	}
 	hydraClient := hydra.NewRevDialClient(h.connman, fmt.Sprintf("hydra-%s", sandboxID))
 	if err := hydraClient.DeleteSessionWorkspace(ctx, sessionID); err != nil {
