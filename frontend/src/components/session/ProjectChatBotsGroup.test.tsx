@@ -118,4 +118,16 @@ describe('ProjectChatBotEntry', () => {
     expect(container.querySelector('[data-instance-status="running"]')).toBeInTheDocument()
     botInstances.data = []
   })
+
+  it('shows the instance count on a collapsed bot', () => {
+    botInstances.data = [
+      { session_id: 'ses_1', name: 'One', sandbox_status: 'running' },
+      { session_id: 'ses_2', name: 'Two', sandbox_status: '' },
+    ]
+    renderBot({ id: 'b-broker', name: 'Broker', running: false, working: false, restartRequired: false })
+
+    expect(screen.getByTestId('sidebar-bot-instance-count')).toHaveTextContent('2')
+    expect(screen.queryByText('One')).toBeNull()
+    botInstances.data = []
+  })
 })

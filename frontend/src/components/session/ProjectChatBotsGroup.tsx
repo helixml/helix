@@ -302,10 +302,13 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   const tasks = tasksQuery.data || []
   // Instances are live sandboxes, not archivable work, so the Archived view
   // leaves them out.
+  // Fetched while collapsed too, more slowly, so a collapsed bot can still
+  // show that it has instances running.
   const instancesQuery = useBotInstances(bot.id, {
-    enabled: enabled && open && !archived,
-    refetchInterval: 10000,
+    enabled: enabled && !archived,
+    refetchInterval: open ? 10000 : 30000,
   })
+  const instanceCount = archived ? 0 : (instancesQuery.data || []).length
   const pinnedAtByItemKey = pinnedAtByItemKeyFrom(pinnedChats)
   const instanceItems = archived ? [] : (instancesQuery.data || []).map((instance) => (
     botInstanceSidebarItem(instance, bot.id, pinnedAtByItemKey)
@@ -432,6 +435,32 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
         >
           {bot.name}
         </Typography>
+        {!open && instanceCount > 0 && (
+          <Tooltip title={`${instanceCount} instance${instanceCount === 1 ? '' : 's'}`}>
+            <Box
+              component="span"
+              data-testid="sidebar-bot-instance-count"
+              onMouseOver={(event) => event.stopPropagation()}
+              sx={{
+                flexShrink: 0,
+                minWidth: 18,
+                height: 18,
+                px: 0.5,
+                borderRadius: '9px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+                lineHeight: 1,
+                fontVariantNumeric: 'tabular-nums',
+                color: sidebarColors.mutedForeground,
+                border: `1px solid ${sidebarColors.border}`,
+              }}
+            >
+              {instanceCount}
+            </Box>
+          </Tooltip>
+        )}
         {busy ? (
           <Box sx={{ width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <CircularProgress size={12} color="inherit" />
