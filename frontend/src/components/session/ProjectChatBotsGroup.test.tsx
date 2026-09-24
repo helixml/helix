@@ -40,7 +40,7 @@ const renderBot = (bot: SidebarBot, activeItemId = '') => render(
 )
 
 describe('ProjectChatBotEntry', () => {
-  it('keeps the online dot with a trailing working indicator', () => {
+  it('keeps the online dot with a trailing working label', () => {
     const { container } = renderBot({
       id: 'chief',
       name: 'Chief of Staff',
@@ -50,7 +50,10 @@ describe('ProjectChatBotEntry', () => {
     })
 
     const trailingSlot = screen.getByTestId('sidebar-bot-trailing-slot')
-    expect(trailingSlot).toContainElement(screen.getByRole('status', { name: 'Working' }))
+    const workingLabel = screen.getByRole('status', { name: 'Working' })
+    expect(workingLabel).toHaveTextContent('Working')
+    expect(workingLabel).toHaveStyle({ color: '#34d399' })
+    expect(trailingSlot).toContainElement(workingLabel)
     expect(trailingSlot).toContainElement(screen.getByRole('button', { name: 'Settings for Chief of Staff' }))
     expect(container.querySelector('[data-bot-status="running"]')).toBeInTheDocument()
   })

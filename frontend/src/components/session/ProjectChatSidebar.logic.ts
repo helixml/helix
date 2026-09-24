@@ -10,6 +10,8 @@ export type SidebarStatus = {
   tooltip?: string
 }
 
+export const SIDEBAR_WORKING_COLOR = '#34d399'
+
 export type SidebarItem = {
   id: string
   kind: 'session' | 'spec-task'
@@ -362,7 +364,12 @@ const getSidebarWorkflowStatus = (task?: SpecTask): SidebarStatus | null => {
     case 'spec_approved':
       return { label: 'Approved', color: '#34d399' }
     case 'implementation':
-      return { label: 'Implementation', color: '#34d399' }
+      return {
+        label: task.agent_work_state === 'working' && task.sandbox_state !== 'absent'
+          ? 'Working'
+          : 'Implementation',
+        color: SIDEBAR_WORKING_COLOR,
+      }
     case 'implementation_review':
       return { label: 'Review', color: '#fb923c' }
     case 'pull_request':
