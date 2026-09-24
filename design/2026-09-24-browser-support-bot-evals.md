@@ -432,4 +432,4 @@ servers and the logged-in Chrome all survived a 10-minute freeze.
 | 14 TLS disabled | Open — plan W1 #7. |
 | 15 WIP slots after stop | Open — plan W1 #5. |
 | 16 archived task keeps running | **Fixed**: an archived task is never started from the backlog / queues. |
-| Spec-task first message has no browser | **Fixed in Zed** (`agent_servers`): stdio MCP servers are read from settings for `session/new` instead of the async runtime configuration. |
+| Spec-task first message has no browser | **Fixed in Zed** (`agent_servers`): stdio MCP servers are read from settings for `session/new` instead of the async runtime configuration. Live on image `538c72`: OpenCode spec tasks' first LLM call now carries 48 (headless) / 62 (desktop) tools incl. all 29 browser tools (was 10 / no browser), 0 shell fallbacks, turns 20–27 s (was 56 s headless). DeepSeek Harness still starts without MCP tools — a separate, DSH-side race (plan W1 #2b). |

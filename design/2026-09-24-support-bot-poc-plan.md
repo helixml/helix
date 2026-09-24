@@ -76,6 +76,7 @@ never-started bot; npm cache ownership.
 |---|---|---|
 | 1 | `zed_agent` bots lose their instructions on every new thread | Zed fork: treat `$ZED_WORK_DIR/AGENTS.md` as a rules file for the native agent, or Helix prefixes the re-read nudge when a turn starts a new thread. Needs a decision. |
 | 2 | DeepSeek Harness tool calls invisible in Helix | Trace the ACP `tool_call` updates DSH emits vs what `external_websocket_sync` forwards. |
+| 2b | DeepSeek Harness starts its first turn without MCP tools (14 built-ins, no browser) even after the Zed fix | Not Zed: DSH takes MCP servers from `~/.config/helix-dsh/mcp.cordis.json` via `cordis-plugin-include`, which the daemon writes before DSH spawns (verified: file at 11:15:37 with 4 servers, spawn 11:15:56), but the included `dsh-mcp-client` plugins register their tools asynchronously and the first prompt is answered before they finish. Fix in the composition: await include-loaded plugins before the ACP agent accepts `session/prompt`. |
 | 3 | `llm_calls.interaction_id` is `n/a` for bot sessions | Thread the interaction id through the proxy request context. |
 | 4 | New org via API: wallet not found → no subscription → 5-min "agent not ready" | Create the wallet with the org; surface billing refusal as an immediate error. |
 | 5 | Finished spec tasks keep implementation WIP slots after `stop-agent` | Decide whether stop should release the slot. |
