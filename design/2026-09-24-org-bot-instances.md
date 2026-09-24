@@ -176,6 +176,33 @@ A real instance skips even the warm-up, so it is ready sooner still.
 - DeepSeek Harness tool calls are now visible in Helix (155–166 counted per
   arm), where the evals doc's finding 7 had them invisible.
 
+### Browser stall: cause and fix
+
+- **Cause:** the `h4` outlier was a Chrome profile lock, not a hung page.
+  DeepSeek Harness (and Goose) start a new `chrome-devtools-mcp` for every
+  ACP session (so every cleared thread) and never stop the old ones. Each
+  launched its own Chrome on `/home/retro/work/.chrome-state`; the surviving
+  Chrome held the profile lock, so the new server failed with "The browser is
+  already running". The agent then killed Chrome by hand (10 `bash` calls,
+  ~190 s).
+- **How often across all eval rounds:** DeepSeek Harness 2/145 questions,
+  Goose 7/50, OpenCode / Qwen Code / Zed 0.
+- **Fix:** `helix-chrome-devtools-mcp` now starts one detached Chrome per
+  sandbox with a loopback debugging port (under `flock`) and every MCP server
+  attaches with `--browserUrl`.
+- **Reproduced before/after in a sandbox:** with two overlapping MCP
+  servers, the old wrapper fails the second navigate; the new one serves
+  three from one Chrome.
+- **End to end on image `7a6706`, DeepSeek Harness instance, 12 questions:**
+  12/12, 0 lock errors, 0 `bash` fallbacks, 262 s total and 106 LLM calls
+  (vs 822 s / 178 in the stalled run). `h4` took 11 s.
+- **Not established:** why the calls also dropped. It is one run, and the
+  mock access log that would show logins surviving across threads was not
+  recording.
+
+**Still open:** the harness leaks one idle MCP server process per cleared
+thread (the fix removes the lock conflict, not the leak).
+
 ## Verification results (2026-09-24, dev stack, `unmanned-org`)
 
 Phase 1 was applied temporarily to the dev API and Hydra, then reverted.
