@@ -38,9 +38,9 @@ import { TYPOGRAPHY } from '../../styles/typography'
 import { PRESENCE_OFFLINE_COLOR, PRESENCE_ONLINE_COLOR } from '../widgets/PresenceDot'
 import ProjectChatItemRow from './ProjectChatItemRow'
 import ProjectChatShowMore from './ProjectChatShowMore'
-import StreamingIndicator from './StreamingIndicator'
 import {
   botInstanceSidebarItem,
+  SIDEBAR_WORKING_COLOR,
   buildPersonChatItems,
   filterProjectChatGroups,
   pinnedAtByItemKeyFrom,
@@ -440,16 +440,16 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
           <Box
             data-testid="sidebar-bot-trailing-slot"
             sx={{
-              width: 24,
+              width: showWorkingIndicator ? 64 : 24,
               height: 24,
               position: 'relative',
               flexShrink: 0,
-              '@media (hover: none)': { width: showWorkingIndicator ? 48 : 24 },
+              '@media (hover: none)': { width: showWorkingIndicator ? 88 : 24 },
             }}
           >
             {showWorkingIndicator && (
               <Tooltip title="Working">
-                <Box
+                <Typography
                   className="sidebar-bot-working"
                   component="span"
                   role="status"
@@ -460,12 +460,15 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    color: SIDEBAR_WORKING_COLOR,
+                    fontSize: TYPOGRAPHY.sidebar.statusFontSize,
+                    lineHeight: TYPOGRAPHY.sidebar.statusLineHeight,
                     transition: 'opacity 100ms ease',
                     '@media (hover: none)': { right: 24 },
                   }}
                 >
-                  <StreamingIndicator compact />
-                </Box>
+                  Working
+                </Typography>
               </Tooltip>
             )}
             <Tooltip title="Agent settings">
@@ -473,8 +476,10 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
                 component="span"
                 sx={{
                   position: 'absolute',
-                  inset: 0,
-                  '@media (hover: none)': { left: showWorkingIndicator ? 24 : 0 },
+                  top: 0,
+                  right: 0,
+                  width: 24,
+                  height: 24,
                 }}
               >
                 <IconButton

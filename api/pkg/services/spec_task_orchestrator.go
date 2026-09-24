@@ -87,9 +87,6 @@ type GitService interface {
 	GetPullRequest(ctx context.Context, repoID, prID string) (*types.PullRequest, error)
 	GetCIStatus(ctx context.Context, repoID, prID, headSHA string) (*types.CIStatus, error)
 	ListPullRequests(ctx context.Context, repoID string) ([]*types.PullRequest, error)
-	GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error)
-	IsBranchMerged(ctx context.Context, repoID, branchName, targetBranch string) (bool, error)
-	IsCommitInBranch(ctx context.Context, repoID, commitSHA, targetBranch string) (bool, error)
 }
 
 // NewSpecTaskOrchestrator creates a new orchestrator
@@ -1152,9 +1149,8 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 		}
 	}
 
-	// Always call processExternalPullRequestStatus even with no tracked PRs —
-	// it has a fallback that checks if the branch was merged to main directly
-	// (e.g. PR was created and merged on GitHub before we could link it).
+	// Process tracked PRs. With none tracked, this leaves the task pending so
+	// an unchanged branch cannot be mistaken for merged work.
 	return o.processExternalPullRequestStatus(ctx, task)
 }
 
@@ -1273,55 +1269,6 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 	if updated {
 		task.UpdatedAt = time.Now()
 		return o.store.UpdateSpecTask(ctx, task)
-	}
-
-	// If no PRs are tracked (or all PRs are closed), check if the branch has
-	// been merged to main directly. This handles cases where the PR was created
-	// and merged on GitHub before we could link it, or where the branch was
-	// identical to main (no commits between them).
-	if !anyOpen && task.BranchName != "" {
-		project, err := o.store.GetProject(ctx, task.ProjectID)
-		if err != nil {
-			log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to get project for branch-merge check")
-			return nil
-		}
-		if project.DefaultRepoID == "" {
-			return nil
-		}
-		repo, err := o.store.GetGitRepository(ctx, project.DefaultRepoID)
-		if err != nil {
-			log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to get repo for branch-merge check")
-			return nil
-		}
-
-		merged, mergeErr := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
-		if mergeErr != nil {
-			if task.LastPushCommitHash != "" {
-				merged, mergeErr = o.gitService.IsCommitInBranch(ctx, project.DefaultRepoID, task.LastPushCommitHash, repo.DefaultBranch)
-				if mergeErr != nil {
-					log.Debug().Err(mergeErr).Str("task_id", task.ID).Msg("Failed to check if commit is in main")
-					return nil
-				}
-			} else {
-				log.Debug().Err(mergeErr).Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Failed to check if branch is merged")
-				return nil
-			}
-		}
-
-		if merged {
-			log.Info().Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Detected merged branch, moving task to done")
-			now := time.Now()
-			task.Status = types.TaskStatusDone
-			task.MergedToMain = true
-			task.MergedAt = &now
-			task.CompletedAt = &now
-			task.UpdatedAt = now
-			if err := o.store.UpdateSpecTask(ctx, task); err != nil {
-				return err
-			}
-			DismissTaskAttentionEvents(ctx, o.store, task.ID)
-			return nil
-		}
 	}
 
 	return nil

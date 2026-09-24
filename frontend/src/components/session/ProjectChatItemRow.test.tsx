@@ -109,7 +109,7 @@ describe('ProjectChatItemRow', () => {
       id: 'task-3',
       task: { id: 'task-3', status: 'implementation', sandbox_state: 'running', agent_work_state: 'working' } as any,
     })
-    expect(screen.getByText('Implementation')).toBeInTheDocument()
+    expect(screen.getByText('Working')).toBeInTheDocument()
   })
 
   it('explains why a planning task has no branch yet', async () => {
