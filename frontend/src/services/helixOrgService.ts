@@ -11,6 +11,9 @@ import {
   ApiBotChatDTO,
   ApiBotDTO,
   ApiBotDetailDTO,
+  ApiBotInstanceDTO,
+  ApiCreateBotInstanceRequest,
+  TypesBotInstanceProfile,
   ApiCreateBotRequest,
   ApiCreateBotResponse,
   ApiGitHubReposResponse,
@@ -32,6 +35,8 @@ import {
 // null checks are off project-wide so plain aliases suffice.
 export type BotBadge = ApiBotBadge
 export type BotDTO = ApiBotDTO
+export type BotInstanceDTO = ApiBotInstanceDTO
+export type BotInstanceProfile = TypesBotInstanceProfile
 export type BotDetailDTO = Omit<ApiBotDetailDTO, 'bot'> & { bot?: BotDTO }
 export type BotActivateDTO = ApiBotActivateDTO
 export type BotChatDTO = ApiBotChatDTO
@@ -79,6 +84,7 @@ export const QUERY_KEYS = {
   assetHealth: (orgID: string, id: string) => ['helix-org', orgID, 'assets', id, 'health'] as const,
   workerSecrets: (orgID: string, id: string) => ['helix-org', orgID, 'bots', id, 'secrets'] as const,
   availableWorkerSecrets: (orgID: string, id: string) => ['helix-org', orgID, 'bots', id, 'available-secrets'] as const,
+  botInstances: (orgID: string, id: string) => ['helix-org', orgID, 'bots', id, 'instances'] as const,
 }
 
 export function useWorkerSecrets(botID?: string) {
@@ -457,6 +463,47 @@ export function useApplyBotConfig(orgIDOverride?: string) {
     onSuccess: (_data, botId) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+    },
+  })
+}
+
+// useBotInstances lists a bot's instances (extra sessions with their own
+// sandbox), newest first.
+export function useBotInstances(botID?: string, options?: { enabled?: boolean; refetchInterval?: number | false }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.botInstances(orgID, botID ?? ''),
+    queryFn: async () => ((await api.getApiClient().v1OrgsBotsInstancesDetail(botID!, orgID)).data ?? []) as BotInstanceDTO[],
+    enabled: !!orgID && !!botID && (options?.enabled ?? true),
+    refetchInterval: options?.refetchInterval,
+  })
+}
+
+export function useCreateBotInstance() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ botId, request }: { botId: string; request: ApiCreateBotInstanceRequest }) =>
+      (await api.getApiClient().v1OrgsBotsInstancesCreate(botId, orgID, request)).data as BotInstanceDTO,
+    onSuccess: (_data, { botId }) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.botInstances(orgID, botId) })
+    },
+  })
+}
+
+// useDeleteBotInstance deletes an instance's sandbox, workspace and chat.
+export function useDeleteBotInstance() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ botId, sessionId }: { botId: string; sessionId: string }) => {
+      await api.getApiClient().v1OrgsBotsInstancesDelete(botId, sessionId, orgID)
+    },
+    onSuccess: (_data, { botId }) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.botInstances(orgID, botId) })
     },
   })
 }

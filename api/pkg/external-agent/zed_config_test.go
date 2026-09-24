@@ -864,7 +864,7 @@ func TestApplyBotInstanceProfile(t *testing.T) {
 			"helix-session":   {URL: "http://api/mcp/session"},
 			"helix":           {URL: "http://api/mcp/helix-org"},
 			"kodit":           {URL: "http://api/mcp/kodit"},
-			"crm":             {URL: "http://api/mcp/external/crm"},
+			"my-crm":          {URL: "http://api/mcp/external/my-crm"},
 		}
 	}
 	keys := func(c ZedMCPConfig) []string {
@@ -889,8 +889,8 @@ func TestApplyBotInstanceProfile(t *testing.T) {
 	})
 	t.Run("tools bring the org server, project MCPs by name", func(t *testing.T) {
 		c := ZedMCPConfig{ContextServers: servers()}
-		profile := types.BotInstanceProfile{MCPServers: []string{"chrome-devtools", "crm"}, Tools: []string{"chat"}}
+		profile := types.BotInstanceProfile{MCPServers: []string{"chrome-devtools", "My CRM"}, Tools: []string{"chat"}}
 		c.ApplyBotInstanceProfile(&profile)
-		require.Equal(t, []string{"chrome-devtools", "crm", "helix"}, keys(c))
+		require.Equal(t, []string{"chrome-devtools", "helix", "my-crm"}, keys(c))
 	})
 }

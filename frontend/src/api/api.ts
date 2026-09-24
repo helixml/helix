@@ -117,6 +117,11 @@ export interface ApiBotDTO {
   effective_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   effective_sandbox_runtime?: TypesSandboxRuntime;
   id?: string;
+  /**
+   * InstanceProfile is the effective profile of this Bot's instances (the
+   * default when the Bot never configured one).
+   */
+  instance_profile?: TypesBotInstanceProfile;
   legacy_app_id?: string;
   model?: string;
   /**
@@ -180,6 +185,21 @@ export interface ApiBotDetailDTO {
   project_id?: string;
 }
 
+export interface ApiBotInstanceDTO {
+  bot_id?: string;
+  created_at?: string;
+  name?: string;
+  owner?: string;
+  sandbox_runtime?: TypesSandboxRuntime;
+  /**
+   * SandboxStatus is the sandbox's external agent status: "" (stopped),
+   * "starting", "running", "restarting", "terminated_idle" …
+   */
+  sandbox_status?: string;
+  session_id?: string;
+  updated_at?: string;
+}
+
 export interface ApiChartPositionDTO {
   id?: string;
   /** Kind is bot | topic | processor | asset (matches the ReactFlow node id prefix). */
@@ -198,6 +218,17 @@ export interface ApiCreateAssetRequest {
   name?: string;
   notes_for_bots?: string;
   server?: ApiServerAssetWriteRequest;
+}
+
+export interface ApiCreateBotInstanceRequest {
+  /** Message is queued as the instance's first turn. */
+  message?: string;
+  name?: string;
+  /**
+   * SandboxRuntime overrides the Bot's instance profile runtime:
+   * "headless-ubuntu" or "ubuntu-desktop".
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
 }
 
 export interface ApiCreateBotRequest {
@@ -498,6 +529,11 @@ export interface ApiUpdateBotRequest {
   code_agent_credential_type?: TypesCodeAgentCredentialType;
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
+  /**
+   * InstanceProfile replaces the profile of the Bot's instances. It applies
+   * to new instances and to existing ones on their next sandbox start.
+   */
+  instance_profile?: TypesBotInstanceProfile;
   model?: string;
   name?: string;
   preserve_context?: boolean;
@@ -2321,14 +2357,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindSlack = "slack",
-  KindLocal = "local",
-  KindHelixEvents = "helix_events",
-  KindWebhook = "webhook",
-  KindEmail = "email",
-  KindCron = "cron",
-  KindGitHub = "github",
   KindGitLab = "gitlab",
+  KindGitHub = "github",
+  KindHelixEvents = "helix_events",
+  KindEmail = "email",
+  KindSlack = "slack",
+  KindWebhook = "webhook",
+  KindCron = "cron",
+  KindLocal = "local",
 }
 
 export interface TransportResolvedActivation {
@@ -3050,6 +3086,30 @@ export interface TypesBitbucket {
 
 export interface TypesBoardSettings {
   wip_limits?: TypesWIPLimits;
+}
+
+export interface TypesBotInstanceProfile {
+  /**
+   * HelixSkills links the helix-* agent skills. The project repo's own
+   * skills are always linked.
+   */
+  helix_skills?: boolean;
+  /**
+   * MCPServers lists the context servers kept in an instance's agent
+   * config: built-in names above or the bot project's own MCP servers.
+   * Every other server is removed.
+   */
+  mcp_servers?: string[];
+  /**
+   * SandboxRuntime is the default runtime for new instances. Empty means the
+   * bot's own runtime.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
+  /**
+   * Tools lists the helix-org tools an instance may call. The served set is
+   * Tools ∩ the bot's own tools. Empty removes the org tools server.
+   */
+  tools?: string[];
 }
 
 export enum TypesBranchMode {
@@ -6864,6 +6924,12 @@ export interface TypesSessionMetadata {
    */
   auto_restart_on_crash?: boolean;
   avatar?: string;
+  /**
+   * BotInstance is set on org bot instance sessions (SessionRole
+   * SessionRoleOrgBotInstance): the bot's instance profile as of the last
+   * sync, which shapes the instance's MCP servers, org tools and skills.
+   */
+  bot_instance?: TypesBotInstanceProfile;
   /** Webhook URL to POST on session completion */
   callback_url?: string;
   /**
@@ -14728,6 +14794,64 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ApiBotChatDTO, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/bots/${id}/chat`,
         method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsInstancesDetail
+     * @summary Helix-org: list a bot's instances
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/instances
+     * @secure
+     */
+    v1OrgsBotsInstancesDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotInstanceDTO[], ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/instances`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsInstancesCreate
+     * @summary Helix-org: create a bot instance
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/instances
+     * @secure
+     */
+    v1OrgsBotsInstancesCreate: (
+      id: string,
+      org: string,
+      request: ApiCreateBotInstanceRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiBotInstanceDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/instances`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsInstancesDelete
+     * @summary Helix-org: delete a bot instance
+     * @request DELETE:/api/v1/orgs/{org}/bots/{id}/instances/{session_id}
+     * @secure
+     */
+    v1OrgsBotsInstancesDelete: (id: string, sessionId: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/instances/${sessionId}`,
+        method: "DELETE",
         secure: true,
         ...params,
       }),

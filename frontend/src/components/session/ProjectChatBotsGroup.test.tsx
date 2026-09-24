@@ -16,11 +16,20 @@ vi.mock('../../services/specTaskService', () => ({
   useSpecTasks: () => ({ data: [], isLoading: false, isFetching: false, isError: false }),
 }))
 
-const renderBot = (bot: SidebarBot, activeItemId = '') => render(
+const botInstances = vi.hoisted(() => ({ data: [] as Array<Record<string, string>> }))
+vi.mock('../../services/helixOrgService', () => ({
+  useBotInstances: () => ({ data: botInstances.data, isLoading: false, isFetching: false, isError: false }),
+}))
+
+vi.mock('../../hooks/useApps', () => ({
+  default: () => ({ apps: [] }),
+}))
+
+const renderBot = (bot: SidebarBot, activeItemId = '', collapsed = true) => render(
   <ProjectChatBotEntry
     orgId="org-one"
     bot={bot}
-    collapsed
+    collapsed={collapsed}
     busy={false}
     projects={[]}
     query=""
@@ -83,5 +92,27 @@ describe('ProjectChatBotEntry', () => {
 
     expect(screen.queryByRole('status', { name: 'Working' })).toBeNull()
     expect(container.querySelector('[data-bot-status="running"]')).toBeInTheDocument()
+  })
+
+  it('lists instances under the bot with a delete action and sandbox status', () => {
+    botInstances.data = [{
+      session_id: 'ses_instance',
+      name: 'Broker for ACME',
+      sandbox_status: 'running',
+      created_at: '2026-09-24T12:00:00Z',
+      updated_at: '2026-09-24T12:05:00Z',
+    }]
+    const { container } = renderBot({
+      id: 'b-broker',
+      name: 'Broker',
+      running: false,
+      working: false,
+      restartRequired: false,
+    }, '', false)
+
+    expect(screen.getByText('Broker for ACME')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete instance Broker for ACME' })).toBeInTheDocument()
+    expect(container.querySelector('[data-instance-status="running"]')).toBeInTheDocument()
+    botInstances.data = []
   })
 })

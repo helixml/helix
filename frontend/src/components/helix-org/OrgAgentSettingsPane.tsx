@@ -23,6 +23,7 @@ import { SandboxIndicatorState } from '../tasks/SandboxStatusIndicator'
 import SharePreviewSection from '../tasks/SharePreviewSection'
 import { PRESENCE_OFFLINE_COLOR, PRESENCE_ONLINE_COLOR } from '../widgets/PresenceDot'
 import { sandboxRuntimeLabel, sandboxSizeLabel } from './BotSandboxForm'
+import BotInstanceProfileSettings from './BotInstanceProfileSettings'
 
 interface OrgAgentSettingsPaneProps {
   bot: BotDTO
@@ -248,6 +249,9 @@ const OrgAgentSettingsPane: FC<OrgAgentSettingsPaneProps> = ({ bot, sessionId, o
           </Section>
           <Section sx={panelSx} title="Org tools" description="Helix organization capabilities available to this agent.">
             <OrgAgentSettings agentID={agentID} section="tools" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />
+          </Section>
+          <Section sx={panelSx} title="Instances" description="What each instance of this agent gets. Instances start with only a browser; enable more here. Changes apply on each instance's next start.">
+            <BotInstanceProfileSettings detail={detail} readOnly={false} />
           </Section>
           <Section sx={panelSx} title="Triggers" description="What starts this agent: a Trigger directly, or the output of a Processor.">
             <OrgAgentSettings agentID={agentID} section="subscriptions" readOnly={false} embedded detail={detail} onCanonicalUpdate={onSaved} />

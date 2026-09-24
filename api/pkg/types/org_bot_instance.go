@@ -62,11 +62,3 @@ func (p BotInstanceProfile) Validate() error {
 	}
 	return nil
 }
-
-// KeepsMCPServer reports whether an instance keeps the named context server.
-func (p BotInstanceProfile) KeepsMCPServer(name string) bool {
-	if name == InstanceMCPServerHelixOrg {
-		return len(p.Tools) > 0
-	}
-	return slices.Contains(p.MCPServers, name)
-}

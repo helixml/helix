@@ -897,8 +897,15 @@ func (c *ZedMCPConfig) ApplyBotInstanceProfile(profile *types.BotInstanceProfile
 	if profile == nil {
 		return
 	}
+	// Server keys are sanitized names; compare the profile's names the same
+	// way so a project MCP named "My CRM" matches its "my-crm" key.
+	keep := make(map[string]bool, len(profile.MCPServers)+1)
+	for _, name := range profile.MCPServers {
+		keep[sanitizeName(name)] = true
+	}
+	keep[types.InstanceMCPServerHelixOrg] = len(profile.Tools) > 0
 	for name := range c.ContextServers {
-		if !profile.KeepsMCPServer(name) {
+		if !keep[name] {
 			delete(c.ContextServers, name)
 		}
 	}

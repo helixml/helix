@@ -69,6 +69,7 @@ import { splitSystemPrefix } from '../components/session/CollapsibleSystemPrefix
 import OrgAgentSessionWorkspace from '../components/helix-org/OrgAgentSessionWorkspace'
 import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
 import { useActivateBot, useApplyBotConfig, useHelixOrgBot, useRestartBotAgent, useStopBotAgent } from '../services/helixOrgService'
+import { isBotInstanceSessionMetadata } from '../components/session/ProjectChatSidebar.logic'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -298,19 +299,23 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
   // this org chat surface needs it — other Session mounts (spec tasks,
   // ordinary project chat) leave org_worker_id empty, so the lookup and
   // restart-required banner stay inert there.
-  const orgWorkerId = (orgChatView && (
+  // A bot instance is its own session with its own sandbox: it gets the plain
+  // external-agent controls, not the bot's (which act on the bot's main
+  // session).
+  const isBotInstance = isBotInstanceSessionMetadata(session?.data?.config)
+  const orgWorkerId = (orgChatView && !isBotInstance && (
     router.params.bot_id || session?.data?.config?.org_worker_id
   )) || ''
 
   useEffect(() => {
     const orgID = router.params.org_id || ''
     const botID = session?.data?.config?.org_worker_id || ''
-    if (!orgChatView || router.name !== 'org_session' || !orgID || !botID) return
+    if (!orgChatView || router.name !== 'org_session' || !orgID || !botID || isBotInstance) return
     router.navigateReplace('org_bot_session', {
       org_id: orgID,
       bot_id: botID,
     })
-  }, [orgChatView, router.name, router.params.org_id, session?.data?.config?.org_worker_id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [orgChatView, router.name, router.params.org_id, session?.data?.config?.org_worker_id, isBotInstance]) // eslint-disable-line react-hooks/exhaustive-deps
   // Polled: the workspace gates Diff, Files, Browser and the terminal on the
   // agent's sandbox status, which changes underneath an open page whenever the
   // agent starts, stops or is restarted.

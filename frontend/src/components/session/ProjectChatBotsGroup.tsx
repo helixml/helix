@@ -12,19 +12,23 @@ import {
   ChevronRight,
   ExternalLink,
   MessageSquare,
+  Monitor,
   Play,
   RotateCcw,
   Settings,
   Square,
+  Terminal,
 } from 'lucide-react'
 
-import type { TypesOrganizationMembership, TypesPinnedChat, TypesProject, TypesUser } from '../../api/api'
+import type { TypesOrganizationMembership, TypesPinnedChat, TypesProject, TypesSandboxRuntime, TypesUser } from '../../api/api'
 import useIsPhone from '../../hooks/useIsPhone'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import {
   useActivateBot,
+  useBotInstances,
+  useCreateBotInstance,
   useRestartBotAgent,
   useStopBotAgent,
 } from '../../services/helixOrgService'
@@ -36,6 +40,7 @@ import ProjectChatItemRow from './ProjectChatItemRow'
 import ProjectChatShowMore from './ProjectChatShowMore'
 import StreamingIndicator from './StreamingIndicator'
 import {
+  botInstanceSidebarItem,
   buildPersonChatItems,
   filterProjectChatGroups,
   pinnedAtByItemKeyFrom,
@@ -91,6 +96,7 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
   const activateBot = useActivateBot()
   const stopBot = useStopBotAgent()
   const restartBot = useRestartBotAgent()
+  const createInstance = useCreateBotInstance()
   const [menu, setMenu] = useState<BotMenuState>(null)
   const [busyBotId, setBusyBotId] = useState<string | null>(null)
   const orgSlug = (router.params.org_id as string) || ''
@@ -110,6 +116,25 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
       }
     } catch (error: any) {
       snackbar.error(error?.response?.data?.error ?? error?.message ?? `Failed to ${action} ${bot.name}`)
+    } finally {
+      setBusyBotId(null)
+    }
+  }
+
+  const startInstance = async (bot: SidebarBot, runtime: 'ubuntu-desktop' | 'headless-ubuntu') => {
+    setBusyBotId(bot.id)
+    try {
+      const instance = await createInstance.mutateAsync({
+        botId: bot.id,
+        request: { sandbox_runtime: runtime as TypesSandboxRuntime },
+      })
+      snackbar.success(`Starting a new ${bot.name} instance…`)
+      if (instance.session_id) {
+        router.navigate('org_session', { org_id: orgSlug || orgId, session_id: instance.session_id })
+        onOpenSession()
+      }
+    } catch (error: any) {
+      snackbar.error(error?.response?.data?.error ?? error?.message ?? `Failed to start a ${bot.name} instance`)
     } finally {
       setBusyBotId(null)
     }
@@ -173,6 +198,18 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
           </MenuItem>
         )}
         {menu && (
+          <MenuItem onClick={() => { const { bot } = menu; closeMenu(); void startInstance(bot, 'ubuntu-desktop') }}>
+            <Monitor size={menuIconSize} style={{ marginRight: 10 }} />
+            New desktop instance
+          </MenuItem>
+        )}
+        {menu && (
+          <MenuItem onClick={() => { const { bot } = menu; closeMenu(); void startInstance(bot, 'headless-ubuntu') }}>
+            <Terminal size={menuIconSize} style={{ marginRight: 10 }} />
+            New headless instance
+          </MenuItem>
+        )}
+        {menu && (
           <MenuItem disabled={!menu.bot.agentAppId} onClick={() => { closeMenu(); openSettings(menu.bot) }}>
             <Settings size={menuIconSize} style={{ marginRight: 10 }} />
             Agent settings
@@ -217,10 +254,10 @@ type ProjectChatBotEntryProps = ItemRowProps & {
   onOpenMenu: (event: MouseEvent<HTMLElement>) => void
 }
 
-// One agent: its row plus the spec tasks it created, across every project the
-// viewer can read. Tasks only — the agent's own chat is the row itself. A
-// search opens the group so its tasks can match, and hides it when neither the
-// agent's name nor any task does.
+// One agent: its row plus its instances and the spec tasks it created, across
+// every project the viewer can read. The agent's own chat is the row itself. A
+// search opens the group so its items can match, and hides it when neither the
+// agent's name nor any item does.
 export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   orgId,
   bot,
@@ -263,7 +300,17 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
     refetchInterval: archived ? false : 10000,
   })
   const tasks = tasksQuery.data || []
-  const items = buildPersonChatItems(projects, tasks, [], threadSortOrder, pinnedAtByItemKeyFrom(pinnedChats))
+  // Instances are live sandboxes, not archivable work, so the Archived view
+  // leaves them out.
+  const instancesQuery = useBotInstances(bot.id, {
+    enabled: enabled && open && !archived,
+    refetchInterval: 10000,
+  })
+  const pinnedAtByItemKey = pinnedAtByItemKeyFrom(pinnedChats)
+  const instanceItems = archived ? [] : (instancesQuery.data || []).map((instance) => (
+    botInstanceSidebarItem(instance, bot.id, pinnedAtByItemKey)
+  ))
+  const items = [...instanceItems, ...buildPersonChatItems(projects, tasks, [], threadSortOrder, pinnedAtByItemKey)]
   const filteredItems = filterProjectChatGroups([{ id: bot.id, name: bot.name, items }], query)[0]?.items || []
   const renderedItems = windowSidebarItems(filteredItems, activeItemId, pagination.visibleCount)
   const hasMore = filteredItems.length > pagination.visibleCount || tasks.length >= pagination.requestCount
@@ -273,7 +320,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
     ? (bot.restartRequired ? 'Running · restart required to apply changes' : 'Agent running')
     : 'Agent stopped'
 
-  if (searching && !tasksQuery.isLoading && filteredItems.length === 0 && !sidebarBotMatchesQuery(bot, query)) {
+  if (searching && !tasksQuery.isLoading && !instancesQuery.isLoading && filteredItems.length === 0 && !sidebarBotMatchesQuery(bot, query)) {
     return null
   }
 

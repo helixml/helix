@@ -4,7 +4,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { Archive, ArchiveRestore, GitBranch, Pin } from 'lucide-react'
+import { Archive, ArchiveRestore, GitBranch, Pin, Trash2 } from 'lucide-react'
 
 import type { TypesOrganizationMembership, TypesUser } from '../../api/api'
 import useApps from '../../hooks/useApps'
@@ -14,6 +14,8 @@ import { getSidebarColors } from '../../styles/themeTokens'
 import { TYPOGRAPHY } from '../../styles/typography'
 import AgentHarness from '../agent/AgentHarness'
 import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
+import { PRESENCE_OFFLINE_COLOR, PRESENCE_ONLINE_COLOR } from '../widgets/PresenceDot'
+import { deriveSandboxState } from '../external-agent/sandboxState'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
 import { activeStatusDotPulse, ProjectRowIcon, StackedTaskStatusIcons, TaskStatusIcons } from './ProjectChatItemBadges'
 import { getProjectChatItemDetails, resolveProjectChatItemBranch } from './projectChatItemDetails'
@@ -70,6 +72,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   // device, so the reader knows where each piece of work lives without
   // hovering.
   const stacked = !!projectName
+  const isBotInstance = !!item.botInstanceOf
   const archiveVerb = archived ? 'Unarchive' : 'Archive'
   const status = item.kind === 'spec-task' ? getSidebarTaskStatus(item.task) : null
   const isAgentWorking = item.kind === 'spec-task' && item.task?.agent_work_state === 'working'
@@ -148,12 +151,14 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
       >
         {showStatusAsTime ? status!.label : compactRelativeTime(item.updatedAt, relativeTimeNow)}
       </Typography>
-      <Tooltip title={`${archiveVerb} ${item.kind === 'spec-task' ? 'task' : 'chat'}`}>
+      <Tooltip title={isBotInstance ? 'Delete instance' : `${archiveVerb} ${item.kind === 'spec-task' ? 'task' : 'chat'}`}>
         <IconButton
           className="sidebar-item-archive"
           size="small"
           disabled={isArchiving}
-          aria-label={`${archiveVerb} ${item.kind === 'spec-task' ? 'task' : 'chat'} ${item.title}`}
+          aria-label={isBotInstance
+            ? `Delete instance ${item.title}`
+            : `${archiveVerb} ${item.kind === 'spec-task' ? 'task' : 'chat'} ${item.title}`}
           onMouseOver={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation()
@@ -173,18 +178,45 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
         >
           {isArchiving
             ? <CircularProgress size={12} color="inherit" />
-            : archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+            : isBotInstance ? <Trash2 size={14} /> : archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
         </IconButton>
       </Tooltip>
     </Box>
   )
 
-  const statusIcons = item.kind === 'spec-task' && (
+  const instanceSandboxState = isBotInstance ? deriveSandboxState(item.session?.metadata).sandboxState : undefined
+  const instanceStatusTitle = instanceSandboxState === 'running'
+    ? 'Sandbox running'
+    : instanceSandboxState === 'starting' ? 'Sandbox starting' : 'Sandbox stopped'
+  const statusIcons = item.kind === 'spec-task' ? (
     <TaskStatusIcons
       status={status}
       pullRequestIcon={pullRequestIcon}
       isAgentWorking={isAgentWorking}
     />
+  ) : isBotInstance && (
+    <Tooltip title={instanceStatusTitle}>
+      <Box
+        component="span"
+        data-instance-status={instanceSandboxState}
+        onMouseOver={(event) => event.stopPropagation()}
+        sx={{ width: 14, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}
+      >
+        <Box
+          component="span"
+          sx={{
+            width: 7,
+            height: 7,
+            borderRadius: '50%',
+            backgroundColor: instanceSandboxState === 'absent' ? PRESENCE_OFFLINE_COLOR : PRESENCE_ONLINE_COLOR,
+            ...(instanceSandboxState === 'starting' && {
+              animation: `${activeStatusDotPulse} 2s ease-in-out infinite`,
+              '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+            }),
+          }}
+        />
+      </Box>
+    </Tooltip>
   )
 
   const titleNode = (
