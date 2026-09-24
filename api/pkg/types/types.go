@@ -2140,6 +2140,10 @@ type DesktopAgent struct {
 	// the sandbox billing row to the bot. Never accepted from callers.
 	OrgWorkerID   string `json:"-"`
 	OrgWorkerName string `json:"-"`
+	// NoContainerEngine runs the sandbox unprivileged with no Docker or
+	// Podman inside. Set for org bot instances, which serve untrusted users
+	// and never build or run containers. Never accepted from callers.
+	NoContainerEngine bool `json:"-"`
 
 	// Branch configuration (for starting on correct branch)
 	BranchMode    string `json:"branch_mode,omitempty"`    // "new" or "existing"

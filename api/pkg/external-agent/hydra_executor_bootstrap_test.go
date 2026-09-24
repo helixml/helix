@@ -135,6 +135,20 @@ func TestApplySessionBootstrapInstanceSkills(t *testing.T) {
 					t.Fatalf("agent env = %v, want %v", agent.Env, tc.want)
 				}
 			}
+			if !agent.NoContainerEngine {
+				t.Fatal("an instance must run without a container engine")
+			}
 		})
+	}
+}
+
+func TestApplySessionBootstrapKeepsContainerEngineForBotMainSession(t *testing.T) {
+	agent := &types.DesktopAgent{SessionID: "ses_main"}
+	err := applySessionBootstrap(types.SessionMetadata{OrgWorkerID: "b-broker", RuntimeInstructions: "broker instructions"}, agent)
+	if err != nil {
+		t.Fatalf("applySessionBootstrap: %v", err)
+	}
+	if agent.NoContainerEngine {
+		t.Fatal("a bot's main session keeps its container engine")
 	}
 }

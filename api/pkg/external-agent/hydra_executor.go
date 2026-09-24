@@ -443,11 +443,12 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	isolation := externalAgentIsolation(containerType)
+	isolation := externalAgentIsolation(containerType, agent.NoContainerEngine)
 	log.Info().
 		Str("session_id", agent.SessionID).
 		Bool("privileged", isolation.privileged).
 		Bool("rootless_container_engine", isolation.rootlessContainerEngine).
+		Bool("browser_sandbox", isolation.browserSandbox).
 		Msg("Configuring per-session container engine")
 
 	// Build mounts - includes Docker volume for /var/lib/docker
@@ -471,6 +472,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Network:                 "bridge",
 		Privileged:              isolation.privileged,
 		RootlessContainerEngine: isolation.rootlessContainerEngine,
+		BrowserSandbox:          isolation.browserSandbox,
 		ProjectID:               agent.ProjectID,
 		GoldenBuild:             agent.GoldenBuild,
 		VCPUs:                   agent.VCPUs,
@@ -857,9 +859,12 @@ func applySessionBootstrap(metadata types.SessionMetadata, agent *types.DesktopA
 		agent.MemoryMB = resources.MemoryMB
 	}
 	agent.Env = append(agent.Env, "HELIX_WORKER_ID="+workerID)
+	if metadata.BotInstance != nil {
+		agent.NoContainerEngine = true
+	}
 	if metadata.BotInstance != nil && !metadata.BotInstance.HelixSkills {
 		// helix-workspace-setup.sh links the default helix-* skills when
-		// HELIX_SKILLS is empty; "none" names no skill, so nothing is linked.
+		// HELIX_SKILLS is empty; "none" links none and skips their refresh.
 		// The project repo's own skills are linked either way.
 		agent.Env = append(agent.Env, "HELIX_SKILLS=none")
 	}
@@ -1628,6 +1633,9 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	if containerType == "headless" {
 		env = setContainerEnv(env, "HELIX_HEADLESS", "1")
 	}
+	if agent.NoContainerEngine {
+		env = setContainerEnv(env, "HELIX_CONTAINER_ENGINE", "none")
+	}
 
 	return env
 }
@@ -1635,9 +1643,16 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 type containerIsolation struct {
 	privileged              bool
 	rootlessContainerEngine bool
+	browserSandbox          bool
 }
 
-func externalAgentIsolation(containerType string) containerIsolation {
+// externalAgentIsolation decides the per-session container engine. Without
+// one the container is unprivileged, runs no engine, and may only create the
+// namespaces Chrome's renderer sandbox needs.
+func externalAgentIsolation(containerType string, noContainerEngine bool) containerIsolation {
+	if noContainerEngine {
+		return containerIsolation{browserSandbox: true}
+	}
 	if containerType == "headless" {
 		return containerIsolation{rootlessContainerEngine: true}
 	}
@@ -1687,15 +1702,17 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		},
 	}
 
-	containerDataDestination := "/var/lib/docker"
-	if containerType == "headless" {
-		containerDataDestination = "/home/retro/.local/share/containers"
+	if !agent.NoContainerEngine {
+		containerDataDestination := "/var/lib/docker"
+		if containerType == "headless" {
+			containerDataDestination = "/home/retro/.local/share/containers"
+		}
+		mounts = append(mounts, hydra.MountConfig{
+			Source:      fmt.Sprintf("docker-data-%s", agent.SessionID),
+			Destination: containerDataDestination,
+			Type:        "volume",
+		})
 	}
-	mounts = append(mounts, hydra.MountConfig{
-		Source:      fmt.Sprintf("docker-data-%s", agent.SessionID),
-		Destination: containerDataDestination,
-		Type:        "volume",
-	})
 
 	// Shared cache for admin-pinned agent binaries (currently opencode).
 	// Host-level, not per-session: the opencode release archive is ~60MB, so

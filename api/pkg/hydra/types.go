@@ -114,6 +114,12 @@ type CreateDevContainerRequest struct {
 	// using Privileged instead.
 	RootlessContainerEngine bool `json:"rootless_container_engine,omitempty"`
 
+	// BrowserSandbox lets an unprivileged container without a container
+	// engine create the user namespaces Chrome's renderer sandbox needs
+	// (Docker's default seccomp profile plus namespace creation). Used by org
+	// bot instances, which browse untrusted pages.
+	BrowserSandbox bool `json:"browser_sandbox,omitempty"`
+
 	// ProjectID for golden Docker cache lookup (per-project overlayfs)
 	ProjectID string `json:"project_id,omitempty"`
 
