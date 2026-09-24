@@ -230,6 +230,11 @@ SKILLS_DIR="$WORK_DIR/.helix-skills"
 SKILLS_DEFAULT="helix-cli helix-artifacts helix-spec-tasks helix-board helix-files"
 SKILLS_REPO="${HELIX_SKILLS_REPO:-https://github.com/helixml/skills.git}"
 SKILLS_REF="${HELIX_SKILLS_REF-main}"
+# HELIX_SKILLS=none links no skill, so a refresh would only delay setup on a
+# network fetch nothing reads.
+if [ "${HELIX_SKILLS:-}" = "none" ]; then
+    SKILLS_REF=""
+fi
 SKILLS_FETCH_PID=""
 SKILLS_FETCH_ERR=/dev/null
 if [ -d "$SKILLS_SEED/skills" ]; then
@@ -689,7 +694,8 @@ echo "  Claude: ~/.claude.json -> $CLAUDE_STATE_DIR/.claude.json"
 #
 #   HELIX_SKILLS_REPO  upstream to refresh from (default github.com/helixml/skills)
 #   HELIX_SKILLS_REF   branch/tag/sha to track (default main; empty = never refresh)
-#   HELIX_SKILLS       space-separated skill names to link, or "all"
+#   HELIX_SKILLS       space-separated skill names to link, "all", or "none"
+#                      (links nothing and skips the refresh)
 #                      (default: helix-cli helix-artifacts helix-spec-tasks helix-board helix-files)
 #
 # Nothing in here may abort workspace setup (the script runs under set -e):
@@ -706,7 +712,9 @@ setup_helix_skills() {
         [ "$SKILLS_FETCH_ERR" != /dev/null ] && rm -f "$SKILLS_FETCH_ERR"
     fi
     local selected="${HELIX_SKILLS:-$SKILLS_DEFAULT}"
-    if [ "$selected" = "all" ]; then
+    if [ "$selected" = "none" ]; then
+        selected=""
+    elif [ "$selected" = "all" ]; then
         selected=$(cd "$SKILLS_DIR/skills" 2>/dev/null && ls -d */ 2>/dev/null | tr -d / | tr '\n' ' ') || true
     fi
     local linked="" skill
