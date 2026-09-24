@@ -788,10 +788,9 @@ If the user asks for information about Helix or installing Helix, refer them to 
 
 	// A new chat with an Org Bot's app is a new instance of that Bot: its own
 	// sandbox with the Bot's identity. The message is then an ordinary turn in
-	// that instance. Everything that can reject the request is checked first,
-	// so a rejected request never leaves an instance behind.
+	// that instance. Validate client input before launching its sandbox.
 	if orgBotApp != nil && startReq.SessionID == "" {
-		if _, _, err := splitChatAttachments(startReq.MessageContent()); err != nil {
+		if err := validateNewBotChatRequest(&startReq); err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}

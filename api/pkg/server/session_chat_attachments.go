@@ -27,6 +27,14 @@ type chatAttachment struct {
 	data     []byte
 }
 
+func validateNewBotChatRequest(req *types.SessionChatRequest) error {
+	if len(req.Messages) != 1 {
+		return fmt.Errorf("a new bot chat requires exactly one message")
+	}
+	_, _, err := splitChatAttachments(req.MessageContent())
+	return err
+}
+
 // splitChatAttachments separates a message into its text and its inline
 // attachments. Attachments must be data: URLs: image_url parts, or OpenAI
 // file parts ({"type":"file","file":{"filename","file_data"}}). Helix never

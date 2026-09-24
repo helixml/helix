@@ -60,6 +60,15 @@ func TestSplitChatAttachmentsRejectsWhatItCannotDeliver(t *testing.T) {
 	}
 }
 
+func TestValidateNewBotChatRequest(t *testing.T) {
+	message := &types.Message{Role: "user", Content: jsonParts(t, `{"parts":["hello"]}`)}
+	for _, messages := range [][]*types.Message{nil, {message, message}} {
+		err := validateNewBotChatRequest(&types.SessionChatRequest{Messages: messages})
+		require.ErrorContains(t, err, "exactly one message")
+	}
+	require.NoError(t, validateNewBotChatRequest(&types.SessionChatRequest{Messages: []*types.Message{message}}))
+}
+
 func TestBotInstanceTurnWebhookOnlyForInstances(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	st := store.NewMockStore(ctrl)
@@ -84,4 +93,14 @@ func TestBotInstanceTurnWebhookOnlyForInstances(t *testing.T) {
 	mainSession := instanceSession()
 	mainSession.Metadata.SessionRole = "exploratory"
 	server.enqueueBotInstanceTurnWebhook(context.Background(), mainSession, interaction)
+}
+
+func TestBotInstanceChatFailureDoesNotEmitForQueuedAttempt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	server := &HelixAPIServer{Store: store.NewMockStore(ctrl)}
+	server.enqueueBotInstanceChatFailure(context.Background(), &types.Interaction{
+		SessionID: "ses_instance",
+		PromptID:  "prompt_retryable",
+		State:     types.InteractionStateError,
+	})
 }
