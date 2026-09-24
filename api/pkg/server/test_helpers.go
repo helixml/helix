@@ -59,7 +59,7 @@ func NewTestServer(s store.Store, ps pubsub.PubSub) *HelixAPIServer {
 		Controller:                  ctrl,
 		externalAgentWSManager:      NewExternalAgentWSManager(),
 		externalAgentRunnerManager:  NewExternalAgentRunnerManager(),
-		contextMappings:             make(map[string]string),
+		contextMappings:             make(map[threadRouteKey]string),
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
 		interactionDispatchClaims:   make(map[string]dispatchClaim),
@@ -187,7 +187,7 @@ func (s *HelixAPIServer) ContextMappings() map[string]string {
 	defer s.contextMappingsMutex.RUnlock()
 	cp := make(map[string]string, len(s.contextMappings))
 	for k, v := range s.contextMappings {
-		cp[k] = v
+		cp[k.thread] = v
 	}
 	return cp
 }

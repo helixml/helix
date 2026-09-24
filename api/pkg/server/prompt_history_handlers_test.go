@@ -49,7 +49,7 @@ func (s *PromptHistoryHandlersSuite) SetupTest() {
 		},
 		externalAgentWSManager:      NewExternalAgentWSManager(),
 		externalAgentRunnerManager:  NewExternalAgentRunnerManager(),
-		contextMappings:             make(map[string]string),
+		contextMappings:             make(map[threadRouteKey]string),
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
 		pendingCancelChannels:       make(map[string]chan string),
