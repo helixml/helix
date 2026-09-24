@@ -1137,9 +1137,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishes
 }
 
 // makePullRequestTask returns a task in pull_request status with the given
-// number of tracked PRs and no branch (so the branch-merge fallback path
-// inside processExternalPullRequestStatus early-exits without needing
-// store/repo mocks).
+// number of tracked PRs.
 func makePullRequestTask(prCount int) *types.SpecTask {
 	prs := make([]types.RepoPR, prCount)
 	for i := 0; i < prCount; i++ {
@@ -1153,7 +1151,6 @@ func makePullRequestTask(prCount int) *types.SpecTask {
 	return &types.SpecTask{
 		ID:               "task-pr-1",
 		Status:           types.TaskStatusPullRequest,
-		BranchName:       "", // skips IsBranchMerged fallback
 		RepoPullRequests: prs,
 	}
 }
@@ -1412,34 +1409,15 @@ func (s *SpecTaskOrchestratorTestSuite) TestCheckTaskForExternalPRActivity_NoPRD
 	s.False(task.MergedToMain)
 }
 
-// Production-realistic case: task has a BranchName set, all PRs error, so
-// the IsBranchMerged fallback runs. With active PR branches (commits not
-// in default), IsBranchMerged returns false and the task correctly stays
-// in pull_request. Important regression test because my primary fix only
-// addresses the allMerged-true path; the fallback path is a separate
-// transition site that could in principle wrongly transition on stale
-// repo state. This test pins the safe production-typical scenario.
-func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllErrorsWithBranch_FallbackDoesNotTransition() {
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_NoTrackedPR_StaysInPullRequest() {
 	ctx := context.Background()
-	task := makePullRequestTask(1)
-	task.BranchName = "feature/active-work"
-	task.ProjectID = "proj-1"
+	task := &types.SpecTask{
+		ID:         "task-no-pr",
+		ProjectID:  "proj-1",
+		BranchName: "feature/empty",
+		Status:     types.TaskStatusPullRequest,
+	}
 
-	s.gitService.EXPECT().
-		GetPullRequest(ctx, "repo-1", "1").
-		Return(nil, fmt.Errorf("simulated gitlab 502"))
-	s.store.EXPECT().
-		GetProject(ctx, "proj-1").
-		Return(&types.Project{ID: "proj-1", DefaultRepoID: "repo-default"}, nil)
-	s.store.EXPECT().
-		GetGitRepository(ctx, "repo-default").
-		Return(&types.GitRepository{ID: "repo-default", DefaultBranch: "main"}, nil)
-	// Active PR branch: HEAD has commits not in default → not an ancestor.
-	s.gitService.EXPECT().
-		IsBranchMerged(ctx, "repo-default", "feature/active-work", "main").
-		Return(false, nil)
-
-	// No UpdateSpecTask — fallback found nothing, no state changed.
 	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
 	s.Require().NoError(err)
 
