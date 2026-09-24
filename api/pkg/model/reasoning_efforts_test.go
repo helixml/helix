@@ -15,16 +15,21 @@ import (
 // offer by default — while accepting "xhigh". Getting this backwards 400s every
 // request of the turn and aborts it with no work done.
 func TestQwen38RejectsHighAcceptsXHigh(t *testing.T) {
-	profile, ok := LookupReasoningEfforts("qwen3.8-27b")
-	require.True(t, ok, "qwen3.8-27b must be in the curated table")
+	for _, modelID := range []string{"qwen3.8-27b", "qwen3.8-flash-next"} {
+		t.Run(modelID, func(t *testing.T) {
+			profile, ok := LookupReasoningEfforts(modelID)
+			require.True(t, ok, "%s must be in the curated table", modelID)
 
-	assert.Contains(t, profile.Supported, "xhigh")
-	assert.Contains(t, profile.Supported, "medium")
-	assert.Contains(t, profile.Supported, "low")
-	assert.NotContains(t, profile.Supported, "high")
-	assert.Contains(t, profile.Rejected, "high")
-	assert.Equal(t, "xhigh", profile.Default)
-	assert.Equal(t, types.EffortSourceProbed, profile.Source)
+			assert.Equal(t, modelID, profile.Family)
+			assert.Contains(t, profile.Supported, "xhigh")
+			assert.Contains(t, profile.Supported, "medium")
+			assert.Contains(t, profile.Supported, "low")
+			assert.NotContains(t, profile.Supported, "high")
+			assert.Contains(t, profile.Rejected, "high")
+			assert.Equal(t, "xhigh", profile.Default)
+			assert.Equal(t, types.EffortSourceProbed, profile.Source)
+		})
+	}
 }
 
 // TestClaudeUsesOutputConfigEffort guards the parameter name. Claude reads
@@ -59,7 +64,7 @@ func TestClaude46GenerationRejectsXHigh(t *testing.T) {
 // TestModelsWithoutEffortSupport covers the models that take no effort value at
 // all — the UI must render no selector rather than a default one.
 func TestModelsWithoutEffortSupport(t *testing.T) {
-	for _, modelID := range []string{"claude-sonnet-4-5", "claude-haiku-4-5"} {
+	for _, modelID := range []string{"claude-sonnet-4-5", "claude-haiku-4-5", "glm-5.3-flash"} {
 		t.Run(modelID, func(t *testing.T) {
 			profile, ok := LookupReasoningEfforts(modelID)
 			require.True(t, ok)

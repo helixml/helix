@@ -99,7 +99,7 @@ func (s *WebSocketSyncSuite) SetupTest() {
 		},
 		externalAgentWSManager:      NewExternalAgentWSManager(),
 		externalAgentRunnerManager:  NewExternalAgentRunnerManager(),
-		contextMappings:             make(map[string]string),
+		contextMappings:             make(map[threadRouteKey]string),
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
 		pendingCancelChannels:       make(map[string]chan string),
@@ -121,6 +121,7 @@ func (s *WebSocketSyncSuite) TearDownTest() {
 // ──────────────────────────────────────────────────────────────────────────────
 
 func (s *WebSocketSyncSuite) TestThreadCreated_Priority1_RequestIDMapping() {
+	s.connectAs("agent-1", "user-1")
 	// Setup: request_id → session mapping exists
 	s.server.requestToSessionMapping["req-123"] = "ses_existing"
 
@@ -155,7 +156,7 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority1_RequestIDMapping() {
 	s.NoError(err)
 
 	// Verify contextMappings populated
-	s.Equal("ses_existing", s.server.contextMappings["thread-abc"])
+	s.Equal("ses_existing", s.server.contextMappings[routeKey("agent-1", "thread-abc")])
 
 	// Verify requestToSessionMapping entry deleted
 	_, exists := s.server.requestToSessionMapping["req-123"]
@@ -163,6 +164,7 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority1_RequestIDMapping() {
 }
 
 func (s *WebSocketSyncSuite) TestThreadCreated_Priority2_SessionIDReuse() {
+	s.connectAs("agent-1", "user-1")
 	// syncMsg has SessionID set (Helix-initiated request)
 	existingSession := &types.Session{
 		ID:    "ses_reuse",
@@ -192,10 +194,11 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority2_SessionIDReuse() {
 	err := s.server.handleThreadCreated("agent-1", syncMsg)
 	s.NoError(err)
 
-	s.Equal("ses_reuse", s.server.contextMappings["thread-def"])
+	s.Equal("ses_reuse", s.server.contextMappings[routeKey("agent-1", "thread-def")])
 }
 
 func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_NewSession() {
+	s.connectAs("agent-1", "user-1")
 	// No request_id mapping, no sessionID → creates new session
 	s.server.externalAgentUserMapping["agent-1"] = "user-1"
 
@@ -236,7 +239,7 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_NewSession() {
 	s.NoError(err)
 
 	// Verify contextMappings populated
-	s.Equal("ses_new", s.server.contextMappings["thread-new"])
+	s.Equal("ses_new", s.server.contextMappings[routeKey("agent-1", "thread-new")])
 }
 
 func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_SpectaskLink() {
@@ -271,7 +274,7 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_SpectaskLink() {
 			SpecTaskID: "spec-task-123",
 		},
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_original").Return(originalSession, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_original").Return(originalSession, nil).AnyTimes()
 
 	// getAgentNameForSession looks up the spec task and app to determine agent name.
 	// For this test, return a spec task with no app (so it defaults to "zed-agent").
@@ -346,7 +349,7 @@ func (s *WebSocketSyncSuite) TestThreadCreated_StoreError() {
 // ──────────────────────────────────────────────────────────────────────────────
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
-	s.server.contextMappings["thread-1"] = "ses_1"
+	s.server.contextMappings[routeKey("agent-1", "thread-1")] = "ses_1"
 
 	session := &types.Session{
 		ID:    "ses_1",
@@ -404,7 +407,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 
 func (s *WebSocketSyncSuite) TestMessageAdded_RedactsMintedCredentialBeforeStorageAndPublish() {
 	const secret = "xoxb-test-secret"
-	s.server.contextMappings["thread-secret"] = "ses_secret"
+	s.server.contextMappings[routeKey("agent-1", "thread-secret")] = "ses_secret"
 	s.server.recordCredential("org-1", "slack", secret)
 	recorder := &recordingPubSub{NoopPubSub: pubsub.NewNoop()}
 	s.server.pubsub = recorder
@@ -460,7 +463,7 @@ func (s *WebSocketSyncSuite) TestCredentialRedaction_LeavesOrdinaryContentUnchan
 }
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantSameMessageID_StreamingUpdate() {
-	s.server.contextMappings["thread-2"] = "ses_2"
+	s.server.contextMappings[routeKey("agent-1", "thread-2")] = "ses_2"
 
 	session := &types.Session{
 		ID:    "ses_2",
@@ -510,7 +513,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantSameMessageID_StreamingUp
 }
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry() {
-	s.server.contextMappings["thread-3"] = "ses_3"
+	s.server.contextMappings[routeKey("agent-1", "thread-3")] = "ses_3"
 
 	session := &types.Session{
 		ID:    "ses_3",
@@ -568,7 +571,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry()
 // This closes the cause-#1 gap where a mid-turn pause left the persisted
 // interaction (and thus the poll-fallback / reload snapshot) badly stale.
 func (s *WebSocketSyncSuite) TestMessageAdded_TrailingDBFlush() {
-	s.server.contextMappings["thread-tf"] = "ses_tf"
+	s.server.contextMappings[routeKey("agent-1", "thread-tf")] = "ses_tf"
 
 	session := &types.Session{ID: "ses_tf", Owner: "user-1"}
 	existingInteraction := &types.Interaction{
@@ -644,7 +647,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_TrailingDBFlush() {
 // landed in int-current's response_entries; the validator then rejected the
 // build for ISOLATION VIOLATION. The handler must drop the replay.
 func (s *WebSocketSyncSuite) TestMessageAdded_PriorInteractionMessageIDsAreFiltered() {
-	s.server.contextMappings["thread-leak"] = "ses_leak"
+	s.server.contextMappings[routeKey("agent-1", "thread-leak")] = "ses_leak"
 
 	session := &types.Session{
 		ID:    "ses_leak",
@@ -719,7 +722,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_PriorInteractionMessageIDsAreFilte
 // dedup distinguishes a true replay (same id+content) from renumbered new
 // content (same id, different content).
 func (s *WebSocketSyncSuite) TestMessageAdded_WrapperRestartRenumberedMessageIDsAreAccepted() {
-	s.server.contextMappings["thread-restart"] = "ses_restart"
+	s.server.contextMappings[routeKey("agent-1", "thread-restart")] = "ses_restart"
 
 	session := &types.Session{ID: "ses_restart", Owner: "user-1"}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_restart").Return(session, nil)
@@ -775,7 +778,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_WrapperRestartRenumberedMessageIDs
 }
 
 func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage() {
-	s.server.contextMappings["thread-user"] = "ses_user"
+	s.server.contextMappings[routeKey("agent-1", "thread-user")] = "ses_user"
 
 	session := &types.Session{
 		ID:           "ses_user",
@@ -817,7 +820,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage() {
 // the subsequent Zed echo of the user message must NOT create a duplicate interaction and must
 // NOT overwrite the mapping. This ensures the assistant response lands in the pre-created interaction.
 func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionReuse() {
-	s.server.contextMappings["thread-spec"] = "ses_spec"
+	s.server.contextMappings[routeKey("agent-1", "thread-spec")] = "ses_spec"
 
 	// Simulate sendMessageToSpecTaskAgent having pre-created an interaction
 	preCreatedID := "int-pre-created"
@@ -847,7 +850,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionR
 }
 
 func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_DoesNotReuseUnrelatedSessionMapping() {
-	s.server.contextMappings["thread-native"] = "ses_native"
+	s.server.contextMappings[routeKey("agent-1", "thread-native")] = "ses_native"
 	s.server.requestToSessionMapping["req-old"] = "ses_native"
 	s.server.requestToInteractionMapping["req-old"] = "int-old"
 
@@ -887,8 +890,8 @@ func (s *WebSocketSyncSuite) TestMessageAdded_ContextMappingMiss_DBFallback() {
 	// findSessionByZedThreadID calls ListSessions
 	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Session{session}, int64(1), nil,
-	)
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_fallback").Return(session, nil)
+	).AnyTimes()
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_fallback").Return(session, nil).AnyTimes()
 
 	createdInteraction := &types.Interaction{
 		ID:        "int-fb",
@@ -906,11 +909,11 @@ func (s *WebSocketSyncSuite) TestMessageAdded_ContextMappingMiss_DBFallback() {
 		},
 	}
 
-	err := s.server.handleMessageAdded("agent-1", syncMsg)
+	err := s.server.handleMessageAdded("ses_fallback", syncMsg)
 	s.NoError(err)
 
 	// Verify contextMappings was restored
-	s.Equal("ses_fallback", s.server.contextMappings["thread-fallback"])
+	s.Equal("ses_fallback", s.server.contextMappings[routeKey("ses_fallback", "thread-fallback")])
 }
 
 func (s *WebSocketSyncSuite) TestMessageAdded_MissingFields() {
@@ -959,7 +962,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_MissingFields() {
 // ──────────────────────────────────────────────────────────────────────────────
 
 func (s *WebSocketSyncSuite) TestMessageCompleted_Normal() {
-	s.server.contextMappings["thread-mc"] = "ses_mc"
+	s.server.contextMappings[routeKey("agent-1", "thread-mc")] = "ses_mc"
 
 	session := &types.Session{
 		ID:    "ses_mc",
@@ -1025,7 +1028,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_Normal() {
 // broke the E2E assertion "interaction in store with state=interrupted".
 // Verify the handler returns without touching the interaction.
 func (s *WebSocketSyncSuite) TestMessageCompleted_PreservesInterruptedStateOnEmptyResponse() {
-	s.server.contextMappings["thread-int"] = "ses_int"
+	s.server.contextMappings[routeKey("agent-1", "thread-int")] = "ses_int"
 	s.server.requestToInteractionMapping = map[string]string{
 		"req-int": "int-int",
 	}
@@ -1064,7 +1067,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_PreservesInterruptedStateOnEmp
 }
 
 func (s *WebSocketSyncSuite) TestMessageCompleted_NoWaitingInteraction() {
-	s.server.contextMappings["thread-nw"] = "ses_nw"
+	s.server.contextMappings[routeKey("agent-1", "thread-nw")] = "ses_nw"
 
 	session := &types.Session{
 		ID:    "ses_nw",
@@ -1112,7 +1115,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_ContextMappingMiss_DBFallback(
 	// findSessionByZedThreadID fallback
 	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Session{session}, int64(1), nil,
-	)
+	).AnyTimes()
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_mc_fb").Return(session, nil).AnyTimes()
 
 	waitingInteraction := &types.Interaction{
@@ -1141,11 +1144,11 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_ContextMappingMiss_DBFallback(
 		},
 	}
 
-	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	err := s.server.handleMessageCompleted("ses_mc_fb", syncMsg)
 	s.NoError(err)
 
 	// Verify contextMappings restored
-	s.Equal("ses_mc_fb", s.server.contextMappings["thread-mc-fb"])
+	s.Equal("ses_mc_fb", s.server.contextMappings[routeKey("ses_mc_fb", "thread-mc-fb")])
 
 	time.Sleep(50 * time.Millisecond)
 }
@@ -1162,7 +1165,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_MissingThreadID() {
 }
 
 func (s *WebSocketSyncSuite) TestMessageCompleted_WithCommentFinalization() {
-	s.server.contextMappings["thread-cf"] = "ses_cf"
+	s.server.contextMappings[routeKey("agent-1", "thread-cf")] = "ses_cf"
 
 	session := &types.Session{
 		ID:    "ses_cf",
@@ -1223,7 +1226,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_WithCommentFinalization() {
 // user is clearly looking at the UI and an "agent finished" notification
 // would just be noise.
 func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive() {
-	s.server.contextMappings["thread-skip"] = "ses_skip"
+	s.server.contextMappings[routeKey("agent-1", "thread-skip")] = "ses_skip"
 	s.server.requestToInteractionMapping["req-skip"] = "int-target-skip"
 	s.server.attentionService = services.NewAttentionService(s.store, s.server.Cfg)
 
@@ -1302,7 +1305,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive()
 // newer waiting interaction — the normal completion case where the user is
 // not actively engaged.
 func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup() {
-	s.server.contextMappings["thread-emit"] = "ses_emit"
+	s.server.contextMappings[routeKey("agent-1", "thread-emit")] = "ses_emit"
 	s.server.requestToInteractionMapping["req-emit"] = "int-target-emit"
 	s.server.attentionService = services.NewAttentionService(s.store, s.server.Cfg)
 
@@ -1396,7 +1399,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_AlreadyCompleteStillSignalsDon
 		requestID      = "req_waiter"
 	)
 
-	s.server.contextMappings["thread-already"] = helixSessionID
+	s.server.contextMappings[routeKey("agent-1", "thread-already")] = helixSessionID
 	s.server.requestToInteractionMapping[requestID] = interactionID
 
 	// Register a waiter the same way RunExternalAgent does.
@@ -1442,7 +1445,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_SignalsDoneUnderInteractionID(
 		interactionID  = "int_is_request"
 	)
 
-	s.server.contextMappings["thread-intid"] = helixSessionID
+	s.server.contextMappings[routeKey("agent-1", "thread-intid")] = helixSessionID
 	s.server.requestToInteractionMapping[interactionID] = interactionID
 
 	doneChan := make(chan bool, 1)
@@ -1565,7 +1568,7 @@ func (s *WebSocketSyncSuite) TestChatResponseError_NoOpWhenNoMappingOrChannel() 
 // must NOT overwrite that with the generic "Agent returned empty response"
 // stand-in.
 func (s *WebSocketSyncSuite) TestMessageCompleted_PreservesPriorAgentError() {
-	s.server.contextMappings["thread-preserve"] = "ses_preserve"
+	s.server.contextMappings[routeKey("agent-1", "thread-preserve")] = "ses_preserve"
 	s.server.requestToInteractionMapping["req-preserve"] = "int-preserve"
 
 	session := &types.Session{ID: "ses_preserve", Owner: "user-1"}
@@ -2122,32 +2125,69 @@ func (s *WebSocketSyncSuite) TestSendQueuedPrompt_BusyWithOtherInteraction_Defer
 // findSessionByZedThreadID tests
 // ──────────────────────────────────────────────────────────────────────────────
 
+// connectAs registers the agent connection as a session owned by owner, as a
+// sandbox that connected with its own session_id would be.
+func (s *WebSocketSyncSuite) connectAs(connection, owner string) {
+	s.store.EXPECT().GetSession(gomock.Any(), connection).
+		Return(&types.Session{ID: connection, Owner: owner}, nil).AnyTimes()
+}
+
 func (s *WebSocketSyncSuite) TestFindSessionByZedThreadID_Found() {
-	session := &types.Session{
-		ID: "ses_found",
+	conn := &types.Session{ID: "ses_conn", Owner: "user-1", ProjectID: "prj_1"}
+	child := &types.Session{
+		ID:    "ses_child",
+		Owner: "user-1",
 		Metadata: types.SessionMetadata{
-			ZedThreadID: "thread-find",
+			ZedThreadID:     "thread-find",
+			ExternalAgentID: "ses_conn",
 		},
 	}
-	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return(
-		[]*types.Session{session}, int64(1), nil,
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_conn").Return(conn, nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, q store.ListSessionsQuery) ([]*types.Session, int64, error) {
+			s.Equal("user-1", q.Owner, "fallback must only search the connection owner's sessions")
+			return []*types.Session{child}, int64(1), nil
+		},
 	)
 
-	found, err := s.server.findSessionByZedThreadID(context.Background(), "thread-find")
+	found, err := s.server.findSessionByZedThreadID(context.Background(), "ses_conn", "thread-find")
 	s.NoError(err)
-	s.NotNil(found)
-	s.Equal("ses_found", found.ID)
+	s.Equal("ses_child", found.ID)
+}
+
+// Goose numbers ACP sessions per day, so two sandboxes report the same thread
+// ID. A thread belonging to another connection must never resolve.
+func (s *WebSocketSyncSuite) TestFindSessionByZedThreadID_IgnoresOtherConnection() {
+	conn := &types.Session{ID: "ses_conn", Owner: "user-1", ProjectID: "prj_1"}
+	other := &types.Session{
+		ID:        "ses_other_child",
+		Owner:     "user-1",
+		ProjectID: "prj_2",
+		Metadata: types.SessionMetadata{
+			ZedThreadID:     "20260923_1",
+			ExternalAgentID: "ses_other_conn",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_conn").Return(conn, nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Session{other}, int64(1), nil,
+	)
+
+	found, err := s.server.findSessionByZedThreadID(context.Background(), "ses_conn", "20260923_1")
+	s.Error(err)
+	s.Nil(found)
 }
 
 func (s *WebSocketSyncSuite) TestFindSessionByZedThreadID_NotFound() {
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_conn").Return(&types.Session{ID: "ses_conn", Owner: "user-1"}, nil)
 	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Session{}, int64(0), nil,
 	)
 
-	found, err := s.server.findSessionByZedThreadID(context.Background(), "thread-missing")
+	found, err := s.server.findSessionByZedThreadID(context.Background(), "ses_conn", "thread-missing")
 	s.Error(err)
 	s.Nil(found)
-	s.Contains(err.Error(), "no session found with ZedThreadID")
+	s.Contains(err.Error(), "no session on connection ses_conn")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2230,7 +2270,7 @@ func (s *WebSocketSyncSuite) TestStreamingContext_FirstSightRequestID_RegistersM
 
 func (s *WebSocketSyncSuite) TestThreadLoadError_AgentCrash_MarksPromptCrashed() {
 	// Persist the interaction with PromptID set (the in-memory map is gone).
-	s.server.contextMappings["thread-crashed"] = "ses_crash"
+	s.server.contextMappings[routeKey("ses_crash", "thread-crashed")] = "ses_crash"
 
 	session := &types.Session{ID: "ses_crash", GenerationID: 1}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_crash").Return(session, nil)
@@ -2258,7 +2298,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_AgentCrash_MarksPromptCrashed()
 func (s *WebSocketSyncSuite) TestThreadLoadError_SessionNotFound_AlsoCrash() {
 	// "Session not found" is the steady-state error after the Claude Agent
 	// process is gone. Same crash path applies.
-	s.server.contextMappings["thread-snf"] = "ses_snf"
+	s.server.contextMappings[routeKey("ses_snf", "thread-snf")] = "ses_snf"
 
 	session := &types.Session{ID: "ses_snf", GenerationID: 1}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_snf").Return(session, nil)
@@ -2284,7 +2324,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_TransientError_StillUsesMarkAsF
 	// Non-crash thread_load_errors (e.g. socket closed mid-flight, transient
 	// failure) must still go through the normal MarkPromptAsFailed path so the
 	// queue's exponential backoff can recover automatically.
-	s.server.contextMappings["thread-transient"] = "ses_transient"
+	s.server.contextMappings[routeKey("ses_transient", "thread-transient")] = "ses_transient"
 
 	session := &types.Session{ID: "ses_transient", GenerationID: 1, Metadata: types.SessionMetadata{ZedThreadID: "thread-transient"}}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_transient").Return(session, nil)
@@ -2315,7 +2355,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_TransientError_StillUsesMarkAsF
 // OpenCode session, for one) reports inside the evidence window too. Dropping
 // it stranded the turn in state=waiting with a connected agent.
 func (s *WebSocketSyncSuite) TestThreadLoadError_StreamingEvidence_DefersInsteadOfDiscarding() {
-	s.server.contextMappings["thread-live"] = "ses_live"
+	s.server.contextMappings[routeKey("ses_live", "thread-live")] = "ses_live"
 
 	session := &types.Session{ID: "ses_live", GenerationID: 1, Metadata: types.SessionMetadata{ZedThreadID: "thread-live"}}
 	interaction := &types.Interaction{ID: "int-live", SessionID: "ses_live", State: types.InteractionStateWaiting, PromptID: "prompt-live", ExternalAgentRequestID: "int-live"}
@@ -2346,7 +2386,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_StreamingEvidence_DefersInstead
 // endpoint does not serve, an auth failure, a down provider) is in llm_calls.
 // A thread-load failure must carry it so the operator can act on it.
 func (s *WebSocketSyncSuite) TestThreadLoadError_AttachesRecentProviderFailure() {
-	s.server.contextMappings["thread-prov"] = "ses_prov"
+	s.server.contextMappings[routeKey("ses_prov", "thread-prov")] = "ses_prov"
 	s.llmCalls = []*types.LLMCall{{
 		SessionID: "ses_prov", Model: "qwen3.8-27b", Created: time.Now().Add(-20 * time.Second),
 		Error: "model qwen3.8-27b is not in the list of allowed models",
@@ -2389,7 +2429,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_AttachesRecentProviderFailure()
 }
 
 func (s *WebSocketSyncSuite) TestThreadLoadError_MissingCodexRolloutClearsThreadForRetry() {
-	s.server.contextMappings["thread-codex"] = "ses_codex"
+	s.server.contextMappings[routeKey("ses_codex", "thread-codex")] = "ses_codex"
 	sendChan := make(chan types.ExternalAgentCommand, 2)
 	s.server.externalAgentWSManager.registerConnection("ses_codex", &ExternalAgentWSConnection{SessionID: "ses_codex", SendChan: sendChan})
 
@@ -2418,7 +2458,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_MissingCodexRolloutClearsThread
 	s.NoError(err)
 
 	s.server.contextMappingsMutex.RLock()
-	_, exists := s.server.contextMappings["thread-codex"]
+	_, exists := s.server.contextMappings[routeKey("ses_codex", "thread-codex")]
 	s.server.contextMappingsMutex.RUnlock()
 	s.False(exists)
 	select {
@@ -2434,7 +2474,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_MissingCodexRolloutClearsThread
 
 func (s *WebSocketSyncSuite) TestThreadLoadError_MissingClaudeThreadClearsThreadForRetry() {
 	const threadID = "019cba1e-2994-77d0-bc27-fc350cfdc2c2"
-	s.server.contextMappings[threadID] = "ses_claude"
+	s.server.contextMappings[routeKey("ses_claude", threadID)] = "ses_claude"
 	sendChan := make(chan types.ExternalAgentCommand, 1)
 	s.server.externalAgentWSManager.registerConnection("ses_claude", &ExternalAgentWSConnection{SessionID: "ses_claude", SendChan: sendChan})
 
@@ -2483,7 +2523,7 @@ func (s *WebSocketSyncSuite) TestAuthoritativeMissingThreadError_RejectsOtherRes
 
 func (s *WebSocketSyncSuite) TestThreadLoadError_MissingZedThreadReplaysDirectInteractionOnce() {
 	const primeError = `no thread found with ID: SessionId("019cba1e-2994-77d0-bc27-fc350cfdc2c2")`
-	s.server.contextMappings["thread-prime"] = "ses_prime"
+	s.server.contextMappings[routeKey("ses_prime", "thread-prime")] = "ses_prime"
 	s.server.requestToSessionMapping["req-prime"] = "ses_prime"
 	s.server.requestToInteractionMapping["req-prime"] = "int-prime"
 	sendChan := make(chan types.ExternalAgentCommand, 2)
@@ -2537,7 +2577,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_MissingZedThreadReplaysDirectIn
 }
 
 func (s *WebSocketSyncSuite) TestThreadLoadError_ArbitraryLoadErrorDoesNotClearOrReplay() {
-	s.server.contextMappings["thread-arbitrary"] = "ses_arbitrary"
+	s.server.contextMappings[routeKey("ses_arbitrary", "thread-arbitrary")] = "ses_arbitrary"
 	sendChan := make(chan types.ExternalAgentCommand, 1)
 	s.server.externalAgentWSManager.registerConnection("ses_arbitrary", &ExternalAgentWSConnection{SessionID: "ses_arbitrary", SendChan: sendChan})
 
@@ -2565,7 +2605,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_RecurringFailure_CrashesRegardl
 	// the wording isn't a known hard-crash marker (e.g. the dead-connection
 	// "send failed because receiver is gone"). Once retry_count reaches the
 	// recurrence threshold we crash-mark so Restart surfaces instead of looping.
-	s.server.contextMappings["thread-recur"] = "ses_recur"
+	s.server.contextMappings[routeKey("ses_recur", "thread-recur")] = "ses_recur"
 
 	session := &types.Session{ID: "ses_recur", GenerationID: 1}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_recur").Return(session, nil)
@@ -2630,13 +2670,13 @@ func (s *WebSocketSyncSuite) TestUserCreatedThread_NewSession() {
 	s.NoError(err)
 
 	// Verify contextMappings
-	_, exists := s.server.contextMappings["thread-user-new"]
+	_, exists := s.server.contextMappings[routeKey("ses_agent", "thread-user-new")]
 	s.True(exists)
 }
 
 func (s *WebSocketSyncSuite) TestUserCreatedThread_Idempotent() {
 	// Thread already has a session mapped
-	s.server.contextMappings["thread-existing"] = "ses_existing"
+	s.server.contextMappings[routeKey("ses_agent", "thread-existing")] = "ses_existing"
 
 	syncMsg := &types.SyncMessage{
 		EventType: "user_created_thread",
@@ -2780,7 +2820,7 @@ func (s *WebSocketSyncSuite) TestFinalizeComment_EmptyRequestID() {
 // ──────────────────────────────────────────────────────────────────────────────
 
 func (s *WebSocketSyncSuite) TestThreadTitleChanged_UpdatesSessionName() {
-	s.server.contextMappings["thread-title"] = "ses_title"
+	s.server.contextMappings[routeKey("agent-1", "thread-title")] = "ses_title"
 
 	session := &types.Session{
 		ID:    "ses_title",
@@ -2807,8 +2847,51 @@ func (s *WebSocketSyncSuite) TestThreadTitleChanged_UpdatesSessionName() {
 	s.NoError(err)
 }
 
+// Goose numbers ACP sessions per day, so two sandboxes started the same day
+// both report thread 20260923_1. Each connection's events must reach only its
+// own session.
+func (s *WebSocketSyncSuite) TestThreadRoutes_SameThreadIDOnTwoConnections() {
+	const thread = "20260923_1"
+	s.server.contextMappings[routeKey("ses_bot_a", thread)] = "ses_bot_a"
+	s.server.contextMappings[routeKey("ses_bot_b", thread)] = "ses_bot_b"
+
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_bot_b").
+		Return(&types.Session{ID: "ses_bot_b", Owner: "user-b", Name: "old"}, nil)
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, ses types.Session) (*types.Session, error) {
+			s.Equal("ses_bot_b", ses.ID, "event from bot B must not touch bot A's session")
+			return &ses, nil
+		},
+	)
+
+	err := s.server.handleThreadTitleChanged("ses_bot_b", &types.SyncMessage{
+		EventType: "thread_title_changed",
+		Data:      map[string]interface{}{"acp_thread_id": thread, "title": "B"},
+	})
+	s.NoError(err)
+	s.Equal("ses_bot_a", s.server.contextMappings[routeKey("ses_bot_a", thread)])
+}
+
+// A thread_created event names the Helix session it belongs to. A sandbox must
+// not be able to bind its thread to another user's session.
+func (s *WebSocketSyncSuite) TestThreadCreated_RejectsSessionOfAnotherUser() {
+	s.connectAs("ses_attacker", "user-attacker")
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_victim").
+		Return(&types.Session{ID: "ses_victim", Owner: "user-victim"}, nil)
+
+	err := s.server.handleThreadCreated("ses_attacker", &types.SyncMessage{
+		EventType: "thread_created",
+		SessionID: "ses_victim",
+		Data:      map[string]interface{}{"acp_thread_id": "thread-x"},
+	})
+	s.Error(err)
+	s.Contains(err.Error(), "does not belong to the owner")
+	_, routed := s.server.contextMappings[routeKey("ses_attacker", "thread-x")]
+	s.False(routed)
+}
+
 func (s *WebSocketSyncSuite) TestThreadTitleChanged_UpdatesJustDoItTaskName() {
-	s.server.contextMappings["thread-task-title"] = "ses_task_title"
+	s.server.contextMappings[routeKey("agent-1", "thread-task-title")] = "ses_task_title"
 
 	session := &types.Session{
 		ID:    "ses_task_title",
@@ -3080,7 +3163,7 @@ func (s *WebSocketSyncSuite) TestStreamingContext_DoesNotReviveConcludedOrCrashe
 
 func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries() {
 	// Setup: context mapping and waiting interaction
-	s.server.contextMappings["thread-cache"] = "ses_cache"
+	s.server.contextMappings[routeKey("agent-1", "thread-cache")] = "ses_cache"
 
 	session := &types.Session{
 		ID:    "ses_cache",
@@ -3155,7 +3238,7 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries
 }
 
 func (s *WebSocketSyncSuite) TestStreamingContextCache_ClearedOnMessageCompleted() {
-	s.server.contextMappings["thread-clear"] = "ses_clear"
+	s.server.contextMappings[routeKey("agent-1", "thread-clear")] = "ses_clear"
 
 	session := &types.Session{
 		ID:    "ses_clear",
@@ -3212,7 +3295,7 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_ClearedOnMessageCompleted
 }
 
 func (s *WebSocketSyncSuite) TestStreamingContextCache_UserMessageDoesNotUseCache() {
-	s.server.contextMappings["thread-usermsg"] = "ses_usermsg"
+	s.server.contextMappings[routeKey("agent-1", "thread-usermsg")] = "ses_usermsg"
 
 	session := &types.Session{
 		ID:           "ses_usermsg",
@@ -3250,7 +3333,7 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_UserMessageDoesNotUseCach
 
 func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	// Test that DB write happens after the throttle interval expires.
-	s.server.contextMappings["thread-throttle"] = "ses_throttle"
+	s.server.contextMappings[routeKey("agent-1", "thread-throttle")] = "ses_throttle"
 
 	session := &types.Session{
 		ID:    "ses_throttle",
@@ -3321,7 +3404,7 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 
 func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted() {
 	// Test that dirty interaction is flushed to DB when message_completed arrives.
-	s.server.contextMappings["thread-flush"] = "ses_flush"
+	s.server.contextMappings[routeKey("agent-1", "thread-flush")] = "ses_flush"
 
 	session := &types.Session{
 		ID:    "ses_flush",
@@ -3407,7 +3490,7 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted(
 
 func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	// Test content accumulation across different message_ids (text -> tool call -> text)
-	s.server.contextMappings["thread-multi"] = "ses_multi"
+	s.server.contextMappings[routeKey("agent-1", "thread-multi")] = "ses_multi"
 
 	session := &types.Session{
 		ID:    "ses_multi",
@@ -3582,7 +3665,7 @@ func (s *WebSocketSyncSuite) TestStreamingPatch_PreviousEntriesTracked() {
 
 	// Setup context mapping
 	s.server.contextMappingsMutex.Lock()
-	s.server.contextMappings[acpThreadID] = helixSessionID
+	s.server.contextMappings[routeKey("agent-1", acpThreadID)] = helixSessionID
 	s.server.contextMappingsMutex.Unlock()
 
 	session := &types.Session{
@@ -4357,7 +4440,7 @@ func (s *WebSocketSyncSuite) TestUserCreatedThread_CreatesWorkSessionForSpectask
 
 	// Verify context mapping updated
 	s.server.contextMappingsMutex.RLock()
-	mappedSession := s.server.contextMappings["thread-new-from-user"]
+	mappedSession := s.server.contextMappings[routeKey("ses_existing", "thread-new-from-user")]
 	s.server.contextMappingsMutex.RUnlock()
 	s.Equal(capturedSession.ID, mappedSession)
 }
@@ -4447,7 +4530,7 @@ func (s *WebSocketSyncSuite) TestUserCreatedThread_PhantomDraftGuard_RefusesWhen
 	// phantom thread_id (it would only be set if we'd fallen through to
 	// the create path).
 	s.server.contextMappingsMutex.RLock()
-	_, mapped := s.server.contextMappings["thread-phantom-from-zed-draft"]
+	_, mapped := s.server.contextMappings[routeKey("ses_existing", "thread-phantom-from-zed-draft")]
 	s.server.contextMappingsMutex.RUnlock()
 	s.False(mapped, "phantom thread should not be added to contextMappings")
 }
@@ -4803,7 +4886,7 @@ func (s *WebSocketSyncSuite) TestThreadCreated_DuplicateThreadForInFlightTurn_Re
 	// State after the FIRST thread_created: PRIORITY 1 consumed the
 	// request_id → session mapping, but the turn is still in flight so the
 	// request_id → interaction mapping is still live.
-	s.server.contextMappings[firstThread] = sessionID
+	s.server.contextMappings[routeKey("ses_task", firstThread)] = sessionID
 	s.server.requestToInteractionMapping[requestID] = interactionID
 
 	taskSession := &types.Session{
@@ -4822,7 +4905,7 @@ func (s *WebSocketSyncSuite) TestThreadCreated_DuplicateThreadForInFlightTurn_Re
 
 	s.store.EXPECT().GetInteraction(gomock.Any(), interactionID).
 		Return(&types.Interaction{ID: interactionID, SessionID: sessionID}, nil)
-	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(taskSession, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(taskSession, nil).AnyTimes()
 
 	var rebound string
 	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -4845,7 +4928,7 @@ func (s *WebSocketSyncSuite) TestThreadCreated_DuplicateThreadForInFlightTurn_Re
 
 	s.Require().NoError(err)
 	s.Equal(secondThread, rebound, "session must be rebound to the thread Zed actually streams on")
-	s.Equal(sessionID, s.server.contextMappings[secondThread],
+	s.Equal(sessionID, s.server.contextMappings[routeKey("ses_task", secondThread)],
 		"the duplicate thread must route to the turn's own session, not a new one")
 }
 
@@ -4853,7 +4936,7 @@ func (s *WebSocketSyncSuite) TestThreadCreated_DuplicateThreadForInFlightTurn_Re
 // a thread Zed opens on its own carries no request_id and must still get its own
 // Helix session.
 func (s *WebSocketSyncSuite) TestThreadCreated_GenuineUserThreadStillForks() {
-	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return([]*types.Session{}, int64(0), nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return([]*types.Session{}, int64(0), nil).MaxTimes(1)
 	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
 			session.ID = "ses_new"
@@ -4877,7 +4960,7 @@ func (s *WebSocketSyncSuite) TestThreadCreated_GenuineUserThreadStillForks() {
 	})
 
 	s.Require().NoError(err)
-	s.Equal("ses_new", s.server.contextMappings["thread-user"])
+	s.Equal("ses_new", s.server.contextMappings[routeKey("agent-1", "thread-user")])
 }
 
 // TestPickupWaitingInteraction_SkipsClaimedInteraction is the end-to-end check
@@ -4940,7 +5023,7 @@ func (s *WebSocketSyncSuite) TestUnrestorableThreadError_MatchesOnlyTheCapabilit
 // restart vanished and the task had to be recreated.
 func (s *WebSocketSyncSuite) TestThreadLoadError_UnrestorableAgentReplaysWithSeededContext() {
 	const threadID = "thread-dsh"
-	s.server.contextMappings[threadID] = "ses_dsh"
+	s.server.contextMappings[routeKey("ses_dsh", threadID)] = "ses_dsh"
 	s.server.requestToInteractionMapping["req-dsh"] = "int-dsh"
 	sendChan := make(chan types.ExternalAgentCommand, 2)
 	s.server.externalAgentWSManager.registerConnection("ses_dsh", &ExternalAgentWSConnection{SessionID: "ses_dsh", SendChan: sendChan})
@@ -5026,7 +5109,7 @@ func (s *WebSocketSyncSuite) TestThreadReseedPreamble_EmptyWithoutTaskOrHistory(
 // instead of quietly opening a fresh, contextless thread.
 func (s *WebSocketSyncSuite) TestThreadLoadError_UnrestorableAgentKeepsThreadIDWhenNoTurnIsWaiting() {
 	const threadID = "thread-idle-dsh"
-	s.server.contextMappings[threadID] = "ses_idle"
+	s.server.contextMappings[routeKey("ses_idle", threadID)] = "ses_idle"
 	session := &types.Session{ID: "ses_idle", Metadata: types.SessionMetadata{ZedThreadID: threadID, ZedAgentName: "dsh"}}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_idle").Return(session, nil).AnyTimes()
 	s.store.EXPECT().GetInteraction(gomock.Any(), "req-idle").Return(

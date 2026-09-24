@@ -1,0 +1,108 @@
+# Helix patch layer for DeepSeek Harness, applied over the shipped `acp`
+# profile (dsh-base + dsh-acp-app) by /usr/local/bin/dsh-acp via --patch.
+#
+# Each entry targets a profile row by id and replaces that row's whole config,
+# so every setting a row needs is restated. Inspect the composed tree with
+# `dsh --profile acp --patch helix.patch.yml --dump-config`.
+#
+# Stdout is the ACP JSON-RPC wire. Nothing here may install a stdout logger.
+#
+# MCP servers are not configured here: Zed passes Helix's context servers in
+# ACP session/new, and dsh connects and lists every one before it answers, so
+# they are available on the first turn. A server that fails to start fails
+# session creation; settings-sync-daemon resolves stdio commands to absolute
+# paths because dsh rejects any other form.
+
+# The LLM route. Every provider Helix exposes is reached through one
+# OpenAI-compatible endpoint, so there is a single hand-declared route whose
+# model id carries the provider prefix the proxy routes on ("openai/gpt-5").
+#
+# `apiKeyEnv` is a credential *reference*, not the secret: pi-ai resolves it
+# per request, so the key never enters this file or a session log.
+#
+# The model is declared by hand, so pi-ai has no catalogue entry for it: it is
+# text-only, and it declares no `reasoningEfforts`, so no reasoning parameter
+# is sent and the provider's own default applies. Helix's per-model effort
+# table (api/pkg/model/reasoning_efforts.go) is not plumbed through yet;
+# sending a level a model rejects is a hard 400 that aborts the turn.
+#
+# `retryPolicy`: dsh's default gives up within seconds. On 2026-08-18 a
+# 42-second upstream outage (502 while vLLM restarted) aborted every in-flight
+# dsh turn while opencode retried through it. 8 retries at 1s doubling to a
+# 30s cap is a ~90-second window; 4xx is never retried.
+- id: llm-pi-ai
+  config:
+    providers:
+      helix:
+        displayName: Helix
+        apiKeyEnv: HELIX_API_KEY
+        api: openai-completions
+        baseURL: !!js process.env.HELIX_BASE_URL
+        retryPolicy:
+          mode: normal
+          maxRetries: 8
+          backoff:
+            initialDelayMs: 1000
+            maxDelayMs: 30000
+            jitterRatio: 0.2
+        models:
+          - id: !!js process.env.HELIX_MODEL
+
+- id: acp
+  config:
+    provider: helix
+    model: !!js process.env.HELIX_MODEL
+
+- id: agent-default-model
+  config:
+    provider: helix
+    model: !!js process.env.HELIX_MODEL
+
+# The container IS the sandbox — one session's workspace in its own desktop
+# container — so the agent gets full access and is never asked for approval.
+# A headless task has nobody to answer session/request_permission; asking
+# would stall the turn. dsh's equivalent of `--yolo` / `permission: allow`.
+- id: sandbox-policy
+  config:
+    mode: !!js "process.env.DSH_PERMISSION_MODE ?? 'danger-full-access'"
+    workspaceRoot: !!js process.cwd()
+
+- id: approval
+  config:
+    policy: never
+
+- id: session-persistence-jsonl
+  config:
+    root: !!js process.env.DSH_SESSIONS_ROOT
+
+- id: system-prompt
+  config:
+    personaPrefix: >-
+      You are a coding assistant running inside a Helix sandbox on the
+      {{model}} model.
+    personaSuffix: >-
+      Your working directory is {{cwd}}. Verify your work by running the code
+      or its tests. Keep answers brief and factual.
+
+# Nothing leaves the sandbox except model requests to Helix: no DeepSeek
+# telemetry export, session-log upload, account platform or direct DeepSeek
+# route (none of them has a key here anyway).
+- id: session-telemetry-otel
+  disabled: true
+- id: session-log-deepseek
+  disabled: true
+- id: deepseek-account
+  disabled: true
+- id: llm-deepseek
+  disabled: true
+
+# web_search needs a DeepSeek API key; web_fetch works on its own.
+- id: web-search-deepseek
+  disabled: true
+- id: web
+  config:
+    fetchProvider: http
+- id: tool-web
+  config:
+    search: false
+    fetch: true

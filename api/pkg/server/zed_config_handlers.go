@@ -183,7 +183,12 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// pulls don't race UpdateApp and runner traffic doesn't bump
 	// app.UpdatedAt — the in-memory rewrite still feeds Generate below.
 	apiServer.healLegacyProviderRefs(ctx, app, providerSnapshot, user.TokenType != types.TokenTypeRunner)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, providerSnapshot, session.Metadata.OrgWorkerID, apiServer.specTaskAgentTools(ctx, session))
+	hasDesktop, err := apiServer.sessionHasDesktop(ctx, session)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to resolve sandbox runtime for Zed config")
+		return nil, system.NewHTTPError500("failed to resolve sandbox runtime")
+	}
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, providerSnapshot, session.Metadata.OrgWorkerID, apiServer.specTaskAgentTools(ctx, session), hasDesktop)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -522,7 +527,12 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 	// providerSnapshot=nil here: this endpoint only exposes context_servers,
 	// which don't depend on provider resolution or model validation. The
 	// daemon hits /zed-config separately and handles those concerns there.
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, nil, session.Metadata.OrgWorkerID, apiServer.specTaskAgentTools(ctx, session))
+	hasDesktop, err := apiServer.sessionHasDesktop(ctx, session)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to resolve sandbox runtime for Zed config")
+		return nil, system.NewHTTPError500("failed to resolve sandbox runtime")
+	}
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, nil, session.Metadata.OrgWorkerID, apiServer.specTaskAgentTools(ctx, session), hasDesktop)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -750,6 +760,15 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		baseURL = helixURL + "/v1"
 		apiType = "openai"
 		agentName = "dsh"
+		model = fmt.Sprintf("%s/%s", providerName, modelName)
+
+	case types.CodeAgentRuntimeGooseCode:
+		// Goose: `goose acp` as a custom agent_server, reaching every
+		// provider through Helix's OpenAI-compatible proxy (the daemon maps
+		// apiType "openai" to GOOSE_PROVIDER=openai + OPENAI_BASE_URL).
+		baseURL = helixURL + "/v1"
+		apiType = "openai"
+		agentName = "goose"
 		model = fmt.Sprintf("%s/%s", providerName, modelName)
 
 	case types.CodeAgentRuntimeCodexCLI:
@@ -1382,4 +1401,21 @@ func (apiServer *HelixAPIServer) getAPIKeyForSession(ctx context.Context, sessio
 		return "", fmt.Errorf("failed to get session API key for session %s: %w", session.ID, err)
 	}
 	return apiKey, nil
+}
+
+// sessionHasDesktop reports whether the session's sandbox runs a desktop, by
+// the same rule HydraExecutor uses to pick the container type: headless when
+// the org worker's runtime or the spec task's runtime says so.
+func (apiServer *HelixAPIServer) sessionHasDesktop(ctx context.Context, session *types.Session) (bool, error) {
+	if types.EffectiveSpecTaskSandboxRuntime(session.Metadata.SandboxRuntime) == types.SandboxRuntimeHeadlessUbuntu {
+		return false, nil
+	}
+	if session.Metadata.SpecTaskID == "" {
+		return true, nil
+	}
+	task, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+	if err != nil {
+		return false, fmt.Errorf("load spec task %s: %w", session.Metadata.SpecTaskID, err)
+	}
+	return types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime) != types.SandboxRuntimeHeadlessUbuntu, nil
 }

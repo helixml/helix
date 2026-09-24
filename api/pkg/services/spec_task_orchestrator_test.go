@@ -634,6 +634,28 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_RespectsI
 	s.Equal(types.TaskStatusQueuedImplementation, task.Status)
 }
 
+// An archived task that is still queued must not be started when a WIP slot
+// frees up: archiving a queued task has no sandbox to stop, so starting it
+// later leaks a running desktop nobody is looking at.
+func (s *SpecTaskOrchestratorTestSuite) TestQueuedHandlers_SkipArchivedTasks() {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		status types.SpecTaskStatus
+		handle func(context.Context, *types.SpecTask) error
+	}{
+		{types.TaskStatusQueuedImplementation, s.orchestrator.handleQueuedImplementation},
+		{types.TaskStatusQueuedSpecGeneration, s.orchestrator.handleQueuedSpecGeneration},
+		{types.TaskStatusBacklog, s.orchestrator.handleBacklog},
+	} {
+		task := &types.SpecTask{ID: "task-archived-" + string(tc.status), ProjectID: "project-123", Status: tc.status, Archived: true}
+		s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+
+		err := tc.handle(ctx, task)
+		s.Require().NoError(err)
+		s.Equal(tc.status, task.Status)
+	}
+}
+
 type countingSpecTaskWorkflowService struct {
 	justDoItStarts atomic.Int32
 }

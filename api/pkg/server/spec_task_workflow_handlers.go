@@ -1011,7 +1011,7 @@ func (s *HelixAPIServer) stopAgentSession(w http.ResponseWriter, r *http.Request
 			Str("user_id", user.ID).
 			Msg("Stopping agent container via Hydra")
 
-		if err := s.externalAgentExecutor.StopDesktop(ctx, specTask.PlanningSessionID); err != nil {
+		if err := s.stopSessionAgent(ctx, specTask.PlanningSessionID, "agent stopped by user"); err != nil {
 			log.Warn().
 				Err(err).
 				Str("session_id", specTask.PlanningSessionID).
@@ -1035,4 +1035,29 @@ func (s *HelixAPIServer) stopAgentSession(w http.ResponseWriter, r *http.Request
 	// Return task
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(specTask)
+}
+
+// stopSessionAgent stops a session's desktop on explicit user intent and ends
+// any turn still waiting on it. Left waiting, auto-wake reads the turn as an
+// agent that never connected and boots the desktop straight back up. Container
+// restarts call StopDesktop directly instead: their waiting turn is re-delivered
+// when the agent reconnects.
+func (s *HelixAPIServer) stopSessionAgent(ctx context.Context, sessionID, reason string) error {
+	stopErr := s.externalAgentExecutor.StopDesktop(ctx, sessionID)
+	reaped, err := s.Store.ReapWaitingInteractions(ctx, sessionID, types.InteractionStateInterrupted, reason)
+	if err != nil {
+		return fmt.Errorf("reap waiting interactions for %s: %w", sessionID, err)
+	}
+	if len(reaped) > 0 {
+		session, err := s.Store.GetSession(ctx, sessionID)
+		if err != nil {
+			return fmt.Errorf("get session %s: %w", sessionID, err)
+		}
+		for _, interaction := range reaped {
+			if err := s.publishInteractionUpdateToFrontend(sessionID, session.Owner, interaction); err != nil {
+				log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to publish reaped interaction")
+			}
+		}
+	}
+	return stopErr
 }

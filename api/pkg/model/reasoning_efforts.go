@@ -190,6 +190,22 @@ var reasoningEffortProfiles = []types.ReasoningEffortProfile{
 		Source: types.EffortSourceProbed, VerifiedAt: "2026-08-15",
 		Notes: "Probed against a vLLM 0.11.2 deployment. The chat template raises on the OpenAI ladder names high/max/minimal and SILENTLY COERCES any other unrecognized value to the xhigh default, so probing for rejections alone does not reveal the supported set. Note high is rejected while xhigh is accepted, which is the reverse of most models.",
 	},
+	{
+		Family: "qwen3.8-flash-next", Parameter: types.EffortParamReasoningEffort,
+		Supported: []string{"low", "medium", "xhigh"},
+		Rejected:  []string{"high", "max", "minimal"},
+		Default:   "xhigh", SupportsEffort: true,
+		Source: types.EffortSourceProbed, VerifiedAt: "2026-09-24",
+		Notes: "Probed on ds4-flash-node06. The 400 names the supported set: \"xhigh (default), medium, and low\". none is not rejected and changes the prompt-token count, but the provider does not list it, so it is not offered. Same high-rejected/xhigh-accepted trap as qwen3.8-27b.",
+	},
+
+	// --- Zhipu ---------------------------------------------------------------
+	{
+		Family: "glm-5.3", Parameter: types.EffortParamReasoningEffort,
+		SupportsEffort: false,
+		Source:         types.EffortSourceProbed, VerifiedAt: "2026-09-24",
+		Notes: "Probed glm-5.3-flash on ds4-flash-node06: every value (none…xhigh, and garbage) is accepted and yields the same prompt-token count, so the template ignores reasoning_effort. Offering an effort would be a control that does nothing.",
+	},
 }
 
 // normalizeModelIDForEffort lowercases and strips a provider prefix so
