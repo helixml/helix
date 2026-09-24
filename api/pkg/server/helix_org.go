@@ -378,16 +378,9 @@ func (a botConfigApplier) ApplyConfig(ctx context.Context, orgID string, botID o
 		return errors.New("bot has no session to restart")
 	}
 
-	mandate := bot.Content
-	if bot.AgentID != "" {
-		appConfig, err := a.client.GetAppConfig(ctx, bot.AgentID)
-		if err != nil {
-			return fmt.Errorf("get canonical agent instructions: %w", err)
-		}
-		if len(appConfig.Helix.Assistants) != 1 {
-			return fmt.Errorf("linked agent %s must contain exactly one assistant", bot.AgentID)
-		}
-		mandate = appConfig.Helix.Assistants[0].SystemPrompt
+	mandate, err := botMandate(ctx, a.client.GetAppConfig, bot)
+	if err != nil {
+		return err
 	}
 	orgRuntime, orgResources := a.configs.GetDefaultSandboxConfig(ctx, orgID)
 	launch := runtimehelix.EffectiveLaunchConfig(bot, orgRuntime, orgResources)
@@ -1081,8 +1074,12 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// project, preserves repositories, and performs full org-store cleanup. The Helix
 	// runtime port is satisfied by the same in-process adapter every
 	// other Helix call goes through.
+	instances := botInstances{
+		server: cfg.APIServer, store: st, projects: projectApplier, configs: configReg, getApp: inProcClient.GetAppConfig,
+	}
 	lifecycleSvc := &lifecycle.Service{
 		Store:         st,
+		Instances:     instances,
 		Helix:         inProcClient,
 		Agents:        inProcClient,
 		AgentConfigs:  inProcClient,
@@ -1254,6 +1251,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Canceller:  activationCanceller,
 	})
 	deps.Activations = svc.Activations
+	deps.Instances = instances
 	// Share the processors service with MCP tools so create_processor uses
 	// the same auto-provision + cycle-check path as REST /processors.
 	deps.Processors = svc.Processors
@@ -1344,6 +1342,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		BotConfigApplier: botConfigApplier{
 			client: inProcClient, store: st, configs: configReg, restart: cfg.APIServer.restartOrgBotSessionWithPreservedThread,
 		},
+		BotInstances: instances,
 		// GitHubInbound builds the inbound github transport per org — it
 		// reads matching topics + appends events, so it holds the store
 		// here in the composition root rather than in the api adapter.

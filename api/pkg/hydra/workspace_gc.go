@@ -1,6 +1,7 @@
 package hydra
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,4 +116,21 @@ func ReconcileOrphanWorkspaces(liveSessionIDs, liveSpecTaskIDs map[string]bool, 
 	// NOTE: the "sandboxes/" subtree is intentionally never touched here.
 
 	return reaped, skipped
+}
+
+// DeleteSessionWorkspace removes workspacesBaseDir/sessions/<sessionID>. A
+// missing directory is not an error. The caller must stop the session's
+// container first.
+func DeleteSessionWorkspace(sessionID string) error {
+	if !strings.HasPrefix(sessionID, "ses_") ||
+		strings.ContainsAny(sessionID, "/\\") ||
+		sessionID == "." || sessionID == ".." {
+		return fmt.Errorf("invalid session id %q", sessionID)
+	}
+	dir := filepath.Join(workspacesBaseDir, "sessions", sessionID)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove workspace %s: %w", dir, err)
+	}
+	log.Info().Str("dir", dir).Msg("Deleted session workspace")
+	return nil
 }

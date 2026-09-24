@@ -105,3 +105,36 @@ func TestApplySessionBootstrapDefaultsLegacyOrgWorkerToDesktopPreset(t *testing.
 		t.Fatalf("resources = %d/%d, want standard preset %d/%d", agent.VCPUs, agent.MemoryMB, std.VCPUs, std.MemoryMB)
 	}
 }
+
+func TestApplySessionBootstrapInstanceSkills(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		profile types.BotInstanceProfile
+		want    []string
+	}{
+		{"default profile links no helix skills", types.DefaultBotInstanceProfile(), []string{"HELIX_WORKER_ID=b-broker", "HELIX_SKILLS=none"}},
+		{"helix skills enabled", types.BotInstanceProfile{HelixSkills: true}, []string{"HELIX_WORKER_ID=b-broker"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			profile := tc.profile
+			agent := &types.DesktopAgent{SessionID: "ses_instance"}
+			err := applySessionBootstrap(types.SessionMetadata{
+				OrgWorkerID:         "b-broker",
+				RuntimeInstructions: "broker instructions",
+				SessionRole:         types.SessionRoleOrgBotInstance,
+				BotInstance:         &profile,
+			}, agent)
+			if err != nil {
+				t.Fatalf("applySessionBootstrap: %v", err)
+			}
+			if len(agent.Env) != len(tc.want) {
+				t.Fatalf("agent env = %v, want %v", agent.Env, tc.want)
+			}
+			for i := range tc.want {
+				if agent.Env[i] != tc.want[i] {
+					t.Fatalf("agent env = %v, want %v", agent.Env, tc.want)
+				}
+			}
+		})
+	}
+}

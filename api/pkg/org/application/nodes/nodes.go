@@ -44,6 +44,10 @@ var ErrReportingLinesUnavailable = errors.New("reporting lines not wired")
 // the live registry does not know. Adapters map it to 400.
 var ErrUnknownTool = errors.New("unknown tool")
 
+// ErrInvalidInstanceProfile is returned for an instance profile that can
+// never be valid (unsupported runtime, the org server named as an MCP server).
+var ErrInvalidInstanceProfile = errors.New("invalid instance profile")
+
 // Nodes owns the node-mutation use cases.
 type Nodes struct {
 	nodes             store.Nodes
@@ -189,6 +193,8 @@ type UpdateParams struct {
 	// non-nil empty runtime or zero vCPUs resets that field to "inherit".
 	SandboxRuntime *string
 	SandboxVCPUs   *int
+	// InstanceProfile replaces the Node's instance profile.
+	InstanceProfile *types.BotInstanceProfile
 }
 
 // Update reads the existing Node, applies the patch via the domain's
@@ -198,6 +204,14 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 	if p.Tools != nil {
 		if err := s.ValidateTools(*p.Tools); err != nil {
 			return orgchart.Node{}, err
+		}
+	}
+	if p.InstanceProfile != nil {
+		if err := p.InstanceProfile.Validate(); err != nil {
+			return orgchart.Node{}, fmt.Errorf("%w: %v", ErrInvalidInstanceProfile, err)
+		}
+		if err := s.ValidateTools(toolNames(p.InstanceProfile.Tools)); err != nil {
+			return orgchart.Node{}, fmt.Errorf("instance tools: %w", err)
 		}
 	}
 	existing, err := s.nodes.Get(ctx, orgID, id)
@@ -221,7 +235,7 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 		updated = updated.WithTools(*p.Tools)
 	}
 	if p.ProjectIDs != nil {
-		updated = updated.WithProjectIDs(normalizeProjectIDs(*p.ProjectIDs))
+		updated = updated.WithProjectIDs(normalizeNames(*p.ProjectIDs))
 	}
 	if p.PreserveContext != nil {
 		updated = updated.WithPreserveContext(*p.PreserveContext)
@@ -241,6 +255,12 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 		}
 		updated = updated.WithSandboxRuntime(runtime).WithSandboxResources(vcpus, memoryMB)
 	}
+	if p.InstanceProfile != nil {
+		profile := *p.InstanceProfile
+		profile.MCPServers = normalizeNames(profile.MCPServers)
+		profile.Tools = normalizeNames(profile.Tools)
+		updated = updated.WithInstanceProfile(&profile)
+	}
 	updated = updated.WithUpdatedAt(s.now())
 	if err := s.nodes.Update(ctx, updated); err != nil {
 		return orgchart.Node{}, err
@@ -254,7 +274,7 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 	return updated, nil
 }
 
-func normalizeProjectIDs(projectIDs []string) []string {
+func normalizeNames(projectIDs []string) []string {
 	seen := make(map[string]struct{}, len(projectIDs))
 	out := make([]string, 0, len(projectIDs))
 	for _, projectID := range projectIDs {
@@ -603,4 +623,12 @@ func ValidateSandboxConfig(runtime string, vcpus int) (string, int, int, error) 
 		return "", 0, 0, fmt.Errorf("sandbox vcpus must be one of %s (got %d)", types.SpecTaskSandboxVCPUList(), vcpus)
 	}
 	return runtime, preset.VCPUs, preset.MemoryMB, nil
+}
+
+func toolNames(names []string) []tool.Name {
+	out := make([]tool.Name, 0, len(names))
+	for _, name := range names {
+		out = append(out, tool.Name(name))
+	}
+	return out
 }

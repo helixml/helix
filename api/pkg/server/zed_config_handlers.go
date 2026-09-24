@@ -193,6 +193,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
 	}
+	zedConfig.ApplyBotInstanceProfile(session.Metadata.BotInstance)
 
 	// Hard-fail when the agent's stored model config is empty or references
 	// an unknown provider. The settings-sync-daemon uses this endpoint as
@@ -537,6 +538,7 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
 	}
+	zedConfig.ApplyBotInstanceProfile(session.Metadata.BotInstance)
 
 	userOverrides, err := external_agent.GetUserZedOverrides(ctx, apiServer.Store, sessionID)
 	if err != nil {

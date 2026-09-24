@@ -2,11 +2,16 @@ package server
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -21,6 +26,10 @@ type HelixOrgMCPBackend struct {
 	apiServer  *HelixAPIServer
 	orgHandler http.Handler
 	scope      *helixOrgScope
+	// mcpServer and store serve bot instances, whose tools are the
+	// instance profile's tools rather than the bot's.
+	mcpServer *helixorgserver.Server
+	store     *helixorgstore.Store
 }
 
 // NewHelixOrgMCPBackend creates a backend that proxies to the in-process
@@ -30,6 +39,8 @@ func NewHelixOrgMCPBackend(apiServer *HelixAPIServer, orgHandlers *helixOrgHandl
 		apiServer:  apiServer,
 		orgHandler: orgHandlers.api,
 		scope:      orgHandlers.scope,
+		mcpServer:  orgHandlers.mcpServer,
+		store:      orgHandlers.store,
 	}
 }
 
@@ -60,6 +71,11 @@ func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 
+	if profile := session.Metadata.BotInstance; profile != nil {
+		b.serveInstance(w, r, user, session, *profile)
+		return
+	}
+
 	workerID := session.Metadata.OrgWorkerID
 	rewritten := r.Clone(helixorgserver.WithOrgID(r.Context(), session.OrganizationID))
 	rewritten.URL.Path = "/orgs/" + session.OrganizationID + "/workers/" + workerID + "/mcp"
@@ -79,4 +95,39 @@ func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		Msg("helix-org MCP: forwarding to in-process handler")
 
 	b.orgHandler.ServeHTTP(w, rewritten)
+}
+
+// instanceCaller is the tool.Caller for a bot instance. It acts as its bot,
+// so messages it posts and audit entries carry the bot's id.
+type instanceCaller struct{ botID, orgID string }
+
+func (c instanceCaller) ID() string             { return c.botID }
+func (c instanceCaller) OrganizationID() string { return c.orgID }
+
+// serveInstance serves the org tools a bot instance may call: its profile's
+// tools that the bot itself still has, read live on every request. An
+// instance with none gets 403 even though its config has no org server,
+// because its session key can reach this endpoint directly.
+func (b *HelixOrgMCPBackend) serveInstance(w http.ResponseWriter, r *http.Request, user *types.User, session *types.Session, profile types.BotInstanceProfile) {
+	bot, err := b.store.Nodes.Get(r.Context(), session.OrganizationID, orgchart.NodeID(session.Metadata.OrgWorkerID))
+	if err != nil {
+		http.Error(w, "bot not found for instance", http.StatusForbidden)
+		return
+	}
+	tools := make([]tool.Name, 0, len(profile.Tools))
+	for _, name := range profile.Tools {
+		if slices.Contains(bot.Tools, tool.Name(name)) {
+			tools = append(tools, tool.Name(name))
+		}
+	}
+	if len(tools) == 0 {
+		http.Error(w, "this bot instance has no helix-org tools", http.StatusForbidden)
+		return
+	}
+	ctx := helixorgserver.WithOrgID(r.Context(), session.OrganizationID)
+	ctx = runtimehelix.WithUserID(ctx, user.ID)
+	if token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); token != "" && token != r.Header.Get("Authorization") {
+		ctx = runtimehelix.WithBearerToken(ctx, token)
+	}
+	b.mcpServer.ServeMCPForCaller(w, r.WithContext(ctx), instanceCaller{botID: string(bot.ID), orgID: session.OrganizationID}, tools)
 }

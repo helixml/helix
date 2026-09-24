@@ -857,6 +857,12 @@ func applySessionBootstrap(metadata types.SessionMetadata, agent *types.DesktopA
 		agent.MemoryMB = resources.MemoryMB
 	}
 	agent.Env = append(agent.Env, "HELIX_WORKER_ID="+workerID)
+	if metadata.BotInstance != nil && !metadata.BotInstance.HelixSkills {
+		// helix-workspace-setup.sh links the default helix-* skills when
+		// HELIX_SKILLS is empty; "none" names no skill, so nothing is linked.
+		// The project repo's own skills are linked either way.
+		agent.Env = append(agent.Env, "HELIX_SKILLS=none")
+	}
 	if agent.WorkspaceFiles == nil {
 		agent.WorkspaceFiles = make(map[string][]byte, 2)
 	}
@@ -1027,6 +1033,24 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 		h.updateSessionStatusMessage(ctx, sessionID, "")
 	}
 
+	return nil
+}
+
+// DeleteWorkspace deletes a stopped session's workspace directory on the
+// sandbox host that last ran it. Stop the desktop first: hydra refuses while
+// the session still has a container.
+func (h *HydraExecutor) DeleteWorkspace(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return fmt.Errorf("session ID is required to delete a workspace")
+	}
+	sandboxID := "local"
+	if dbSession, err := h.store.GetSessionIncludingDeleted(ctx, sessionID); err == nil && dbSession.SandboxID != "" {
+		sandboxID = dbSession.SandboxID
+	}
+	hydraClient := hydra.NewRevDialClient(h.connman, fmt.Sprintf("hydra-%s", sandboxID))
+	if err := hydraClient.DeleteSessionWorkspace(ctx, sessionID); err != nil {
+		return fmt.Errorf("delete workspace of session %s on sandbox %s: %w", sessionID, sandboxID, err)
+	}
 	return nil
 }
 

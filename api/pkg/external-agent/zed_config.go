@@ -890,6 +890,20 @@ func mapHelixToZedProviderToken(providerName, routingToken, model string) (zedPr
 	}
 }
 
+// ApplyBotInstanceProfile removes every context server an org bot instance's
+// profile doesn't keep. A nil profile (not an instance) leaves the config
+// unchanged.
+func (c *ZedMCPConfig) ApplyBotInstanceProfile(profile *types.BotInstanceProfile) {
+	if profile == nil {
+		return
+	}
+	for name := range c.ContextServers {
+		if !profile.KeepsMCPServer(name) {
+			delete(c.ContextServers, name)
+		}
+	}
+}
+
 // MergeContextServers returns the union of helix-managed MCP context servers
 // and the user-side ones uploaded via /zed-config/user. Used by the
 // /zed-settings endpoint to render the per-session "MCP Tools" UI panel.

@@ -295,10 +295,18 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		vcpus := req.SandboxResourceOverrides.VCPUs
 		sandboxVCPUsPatch = &vcpus
 	}
+	if req.InstanceProfile != nil {
+		instanceTools := toToolNames(req.InstanceProfile.Tools)
+		existingInstanceTools := toToolNames(existing.EffectiveInstanceProfile().Tools)
+		if (mcptools.HasNonDefaultBotTool(instanceTools) || mcptools.HasNonDefaultBotTool(existingInstanceTools)) && !helixorgserver.CanManageOrganization(ctx) {
+			writeError(w, http.StatusForbidden, errors.New("only organization owners and administrators can grant organization-management tools to instances"))
+			return
+		}
+	}
 	projectIDsPatch := stringSlicePatch(req.ProjectIDs)
 	updated := existing
 	nodeChange := namePatch != nil || contentPatch != nil || toolsPatch != nil || projectIDsPatch != nil ||
-		req.PreserveContext != nil || sandboxRuntimePatch != nil || sandboxVCPUsPatch != nil
+		req.PreserveContext != nil || sandboxRuntimePatch != nil || sandboxVCPUsPatch != nil || req.InstanceProfile != nil
 	if nodeChange {
 		updated, err = a.deps.Nodes.Update(ctx, orgID, id, nodes.UpdateParams{
 			Name:            namePatch,
@@ -308,6 +316,7 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 			PreserveContext: req.PreserveContext,
 			SandboxRuntime:  sandboxRuntimePatch,
 			SandboxVCPUs:    sandboxVCPUsPatch,
+			InstanceProfile: req.InstanceProfile,
 		})
 		if err != nil {
 			writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
@@ -344,6 +353,10 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 					sandboxVCPUs := existing.SandboxVCPUs
 					rollback.SandboxVCPUs = &sandboxVCPUs
 				}
+				if req.InstanceProfile != nil {
+					instanceProfile := existing.EffectiveInstanceProfile()
+					rollback.InstanceProfile = &instanceProfile
+				}
 				_, rollbackErr := a.deps.Nodes.Update(ctx, orgID, id, rollback)
 				if rollbackErr != nil {
 					writeError(w, http.StatusInternalServerError, fmt.Errorf("update Bot App: %v; rollback Bot: %w", err, rollbackErr))
@@ -351,6 +364,12 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			writeError(w, errStatus(err), fmt.Errorf("update Bot App: %w", err))
+			return
+		}
+	}
+	if req.InstanceProfile != nil && a.deps.BotInstances != nil {
+		if err := a.deps.BotInstances.SyncProfile(ctx, orgID, id); err != nil {
+			writeError(w, errStatus(err), fmt.Errorf("apply instance profile to instances: %w", err))
 			return
 		}
 	}
@@ -763,6 +782,7 @@ func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 		OrganizationID:  b.OrganizationID,
 		PreserveContext: b.PreserveContext,
 		SandboxRuntime:  types.SandboxRuntime(b.SandboxRuntime),
+		InstanceProfile: b.EffectiveInstanceProfile(),
 	}
 	if b.SandboxVCPUs > 0 {
 		dto.SandboxResourceOverrides = &types.SandboxResourceOverrides{VCPUs: b.SandboxVCPUs, MemoryMB: b.SandboxMemoryMB}

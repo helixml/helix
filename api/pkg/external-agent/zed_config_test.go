@@ -2,10 +2,12 @@ package external_agent
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateZedMCPConfigAllowsUnsandboxedCommands(t *testing.T) {
@@ -853,4 +855,42 @@ func TestGenerateZedMCPConfig_HeadlessHasNoDesktopServer(t *testing.T) {
 	assert.NotContains(t, generate(false).ContextServers, "helix-desktop")
 	assert.Contains(t, generate(false).ContextServers, "chrome-devtools")
 	assert.Contains(t, generate(true).ContextServers, "helix-desktop")
+}
+
+func TestApplyBotInstanceProfile(t *testing.T) {
+	servers := func() map[string]ContextServerConfig {
+		return map[string]ContextServerConfig{
+			"chrome-devtools": {Command: "chrome"},
+			"helix-session":   {URL: "http://api/mcp/session"},
+			"helix":           {URL: "http://api/mcp/helix-org"},
+			"kodit":           {URL: "http://api/mcp/kodit"},
+			"crm":             {URL: "http://api/mcp/external/crm"},
+		}
+	}
+	keys := func(c ZedMCPConfig) []string {
+		out := make([]string, 0, len(c.ContextServers))
+		for name := range c.ContextServers {
+			out = append(out, name)
+		}
+		sort.Strings(out)
+		return out
+	}
+
+	t.Run("not an instance keeps everything", func(t *testing.T) {
+		c := ZedMCPConfig{ContextServers: servers()}
+		c.ApplyBotInstanceProfile(nil)
+		require.Len(t, c.ContextServers, 5)
+	})
+	t.Run("default profile keeps only the browser", func(t *testing.T) {
+		c := ZedMCPConfig{ContextServers: servers()}
+		profile := types.DefaultBotInstanceProfile()
+		c.ApplyBotInstanceProfile(&profile)
+		require.Equal(t, []string{"chrome-devtools"}, keys(c))
+	})
+	t.Run("tools bring the org server, project MCPs by name", func(t *testing.T) {
+		c := ZedMCPConfig{ContextServers: servers()}
+		profile := types.BotInstanceProfile{MCPServers: []string{"chrome-devtools", "crm"}, Tools: []string{"chat"}}
+		c.ApplyBotInstanceProfile(&profile)
+		require.Equal(t, []string{"chrome-devtools", "crm", "helix"}, keys(c))
+	})
 }
