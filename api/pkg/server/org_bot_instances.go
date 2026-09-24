@@ -227,6 +227,18 @@ func (s *HelixAPIServer) enqueueBotInstanceTurnWebhook(ctx context.Context, sess
 	}
 }
 
+func (s *HelixAPIServer) enqueueBotInstanceChatFailure(ctx context.Context, interaction *types.Interaction) {
+	if interaction.PromptID != "" {
+		return
+	}
+	session, err := s.Store.GetSession(ctx, interaction.SessionID)
+	if err != nil || session == nil {
+		log.Warn().Err(err).Str("session_id", interaction.SessionID).Msg("Failed to load session for bot instance webhook")
+		return
+	}
+	s.enqueueBotInstanceTurnWebhook(ctx, session, interaction)
+}
+
 // CreateForApp creates an instance of the bot backed by app, for a caller
 // that knows the bot only by its app id: POST /api/v1/sessions/chat.
 func (b botInstances) CreateForApp(ctx context.Context, app *types.App) (*types.Session, error) {

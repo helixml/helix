@@ -1532,6 +1532,7 @@ func (s *WebSocketSyncSuite) TestChatResponseError_PersistsAgentErrorToInteracti
 			return i, nil
 		},
 	)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_auth").Return(&types.Session{ID: "ses_auth"}, nil)
 
 	syncMsg := &types.SyncMessage{
 		EventType: "chat_response_error",
@@ -1542,6 +1543,27 @@ func (s *WebSocketSyncSuite) TestChatResponseError_PersistsAgentErrorToInteracti
 	}
 
 	err := s.server.handleChatResponseError("agent-1", syncMsg)
+	s.NoError(err)
+}
+
+func (s *WebSocketSyncSuite) TestChatResponseError_EnqueuesBotInstanceWebhook() {
+	s.server.requestToInteractionMapping["req-bot-auth"] = "int-bot-auth"
+	interaction := &types.Interaction{ID: "int-bot-auth", SessionID: "ses_instance", State: types.InteractionStateWaiting}
+	session := instanceSession()
+	session.ProjectID = "prj_bot"
+	session.ParentApp = "app_bot"
+	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(interaction, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().EnqueueWebhookEvent(gomock.Any(), types.WebhookEventBotInstanceTurnCompleted, session.OrganizationID, session.ProjectID, types.BotInstanceTurnWebhookData{
+		SessionID: session.ID, InteractionID: interaction.ID, BotID: session.Metadata.OrgWorkerID,
+		AppID: session.ParentApp, ProjectID: session.ProjectID, OrganizationID: session.OrganizationID,
+		State: types.InteractionStateError, Error: "Authentication required",
+	}).Return(nil)
+
+	err := s.server.handleChatResponseError(session.ID, &types.SyncMessage{Data: map[string]interface{}{
+		"request_id": "req-bot-auth", "error": "Authentication required",
+	}})
 	s.NoError(err)
 }
 

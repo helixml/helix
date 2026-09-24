@@ -176,8 +176,9 @@ existing chat API with an **app key bound to the bot's app**
    `bot_instance.turn_completed` to the org's endpoints (optionally scoped to
    the bot's project). Unlike the other events it carries the reply text,
    because a finished turn never changes and an app key cannot read
-   sessions back. Failed turns are retried by the prompt queue and do not
-   emit.
+   sessions back. A direct chat turn that fails emits its error. Messages
+   submitted through the prompt queue are retried and do not emit failed
+   attempts.
 
 The request's `callback_url` field is not used: delivery goes through the
 org's signed webhook endpoints instead of an unsigned per-request URL.

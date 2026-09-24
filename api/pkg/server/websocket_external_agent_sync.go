@@ -3259,6 +3259,9 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction); err != nil {
 			return fmt.Errorf("failed to update bounced interaction %s: %w", targetInteraction.ID, err)
 		}
+		if targetInteraction.PromptID == "" {
+			apiServer.enqueueBotInstanceTurnWebhook(context.Background(), helixSession, targetInteraction)
+		}
 
 		// Re-queue the bounced prompt so it will be retried (non-fatal if no matching prompt)
 		if err := apiServer.Controller.Options.Store.RequeueBouncedPrompt(context.Background(), helixSessionID); err != nil {
@@ -4586,7 +4589,11 @@ func (apiServer *HelixAPIServer) commitThreadLoadFailure(ctx context.Context, he
 		target.Updated = time.Now()
 		target.Completed = time.Now()
 	}
-	apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), target)
+	if _, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, target); err != nil {
+		log.Error().Err(err).Str("interaction_id", target.ID).Msg("Failed to persist thread load failure")
+	} else if target.PromptID == "" {
+		apiServer.enqueueBotInstanceTurnWebhook(ctx, helixSession, target)
+	}
 
 	// If this interaction came from a queue prompt that's still
 	// in 'sending' state (deferred MarkPromptAsSent flow), mark
