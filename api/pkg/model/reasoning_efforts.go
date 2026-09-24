@@ -36,6 +36,13 @@ var reasoningEffortProfiles = []types.ReasoningEffortProfile{
 	// produces no error — the symptom is "the setting does nothing".
 	// xhigh arrived with Opus 4.7; 4.6-generation models reject it.
 	{
+		Family: "claude-opus-5-5", Parameter: types.EffortParamOutputConfigEffort,
+		Supported: []string{"low", "medium", "high", "xhigh", "max"},
+		Default:   "high", SupportsEffort: true,
+		Source: types.EffortSourceCatalogue, VerifiedAt: "2026-09-24",
+		Notes: "OpenRouter marks reasoning mandatory, unlike claude-opus-5; its own row stops the claude-opus-5 prefix from claiming thinking can be disabled.",
+	},
+	{
 		Family: "claude-opus-5", Parameter: types.EffortParamOutputConfigEffort,
 		Supported: []string{"low", "medium", "high", "xhigh", "max"},
 		Default:   "high", SupportsEffort: true,
@@ -112,6 +119,32 @@ var reasoningEffortProfiles = []types.ReasoningEffortProfile{
 	},
 
 	// --- OpenAI --------------------------------------------------------------
+	// GPT-6 accepts max only on /v1/responses; /v1/chat/completions rejects it.
+	// Function tools on chat completions also require reasoning_effort=none.
+	{
+		Family: "gpt-6-astra", Parameter: types.EffortParamReasoningEffort,
+		Supported: []string{"low", "medium", "high", "xhigh", "max"},
+		Rejected:  []string{"none", "minimal"},
+		Default:   "medium", SupportsEffort: true,
+		Source: types.EffortSourceProbed, VerifiedAt: "2026-09-24",
+		Notes: "Probed against api.openai.com. Reasoning is mandatory, so none is rejected on both APIs; that makes function tools unusable on /v1/chat/completions, which only allows them with reasoning_effort=none.",
+	},
+	{
+		Family: "gpt-6-sol", Parameter: types.EffortParamReasoningEffort,
+		Supported: []string{"none", "low", "medium", "high", "xhigh", "max"},
+		Rejected:  []string{"minimal"},
+		Default:   "medium", SupportsEffort: true,
+		Source: types.EffortSourceProbed, VerifiedAt: "2026-09-24",
+		Notes: "Probed against api.openai.com. max is accepted only by /v1/responses.",
+	},
+	{
+		Family: "gpt-6-luna", Parameter: types.EffortParamReasoningEffort,
+		Supported: []string{"none", "low", "medium", "high", "xhigh", "max"},
+		Rejected:  []string{"minimal"},
+		Default:   "medium", SupportsEffort: true,
+		Source: types.EffortSourceProbed, VerifiedAt: "2026-09-24",
+		Notes: "Probed against api.openai.com. max is accepted only by /v1/responses.",
+	},
 	{
 		Family: "gpt-5.5-pro", Parameter: types.EffortParamReasoningEffort,
 		Supported: []string{"medium", "high", "xhigh"},

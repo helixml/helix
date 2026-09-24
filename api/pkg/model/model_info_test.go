@@ -138,6 +138,7 @@ func Test_GetClaude5Pricing(t *testing.T) {
 		{"claude-fable-5", "anthropic/claude-fable-5", "0.00001", "0.00005", "0.000001", "0.0000125"},
 		{"claude-fable-5-1", "anthropic/claude-fable-5.1", "0.00001", "0.00005", "0.00000025", "0.0000125"},
 		{"claude-opus-5", "anthropic/claude-opus-5", "0.000005", "0.000025", "0.0000005", "0.00000625"},
+		{"claude-opus-5-5", "anthropic/claude-opus-5.5", "0.000004", "0.00002", "0.0000002", "0.000005"},
 		{"claude-sonnet-5", "anthropic/claude-sonnet-5", "0.000002", "0.00001", "0.0000002", "0.0000025"},
 	}
 
@@ -391,7 +392,7 @@ func Test_GetAnthropicSubscriptionAliases(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.Equal(t, "anthropic", mi.ProviderSlug)
-			assert.Contains(t, mi.ProviderModelID, "claude-opus-")
+			assert.Equal(t, "claude-opus-5-5", mi.ProviderModelID)
 			assert.NotEmpty(t, mi.Pricing.Prompt)
 		})
 	}
@@ -417,6 +418,45 @@ func TestGPT56Family_SupportsNoneReasoningEffort(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, info.SupportedReasoningEfforts, "none")
 			assert.True(t, info.SupportsReasoningEffort)
+		})
+	}
+}
+
+func Test_GetGPT6Pricing(t *testing.T) {
+	provider, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	tests := []struct {
+		modelID    string
+		slug       string
+		prompt     string
+		completion string
+		cacheRead  string
+		efforts    []string
+	}{
+		{"gpt-6-astra", "openai/gpt-6-astra", "0.00001", "0.00005", "0.000001", []string{"max", "xhigh", "high", "medium", "low"}},
+		{"gpt-6-sol", "openai/gpt-6-sol", "0.000002", "0.00001", "0.0000002", []string{"max", "xhigh", "high", "medium", "low", "none"}},
+		{"gpt-6-luna", "openai/gpt-6-luna", "0.0000001", "0.0000005", "0.00000001", []string{"max", "xhigh", "high", "medium", "low", "none"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.modelID, func(t *testing.T) {
+			info, err := provider.GetModelInfo(context.Background(), &ModelInfoRequest{
+				BaseURL:  "https://api.openai.com/v1",
+				Provider: "openai",
+				Model:    tt.modelID,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.modelID, info.ProviderModelID)
+			assert.Equal(t, tt.slug, info.Slug)
+			assert.Equal(t, 1_050_000, info.ContextLength)
+			assert.Equal(t, 128_000, info.MaxCompletionTokens)
+			assert.Equal(t, []types.Modality{types.Modality("file"), types.ModalityImage, types.ModalityText}, info.InputModalities)
+			assert.Equal(t, tt.prompt, info.Pricing.Prompt)
+			assert.Equal(t, tt.completion, info.Pricing.Completion)
+			assert.Equal(t, tt.cacheRead, info.Pricing.InputCacheRead)
+			assert.ElementsMatch(t, tt.efforts, info.SupportedReasoningEfforts)
+			assert.Equal(t, "medium", info.DefaultReasoningEffort)
 		})
 	}
 }

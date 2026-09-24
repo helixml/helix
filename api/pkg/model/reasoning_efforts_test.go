@@ -84,6 +84,11 @@ func TestLookupMatchesLongestFamilyPrefix(t *testing.T) {
 		{"ds4-flash-node06/qwen3.8-27b", "qwen3.8-27b"},
 		{"claude-opus-4-8", "claude-opus-4-8"},
 		{"CLAUDE-OPUS-5", "claude-opus-5"},
+		{"claude-opus-5-5", "claude-opus-5-5"},
+		{"anthropic/claude-opus-5-5-20260921", "claude-opus-5-5"},
+		{"gpt-6-sol", "gpt-6-sol"},
+		{"openai/gpt-6-luna", "gpt-6-luna"},
+		{"gpt-6-astra", "gpt-6-astra"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.modelID, func(t *testing.T) {
@@ -192,4 +197,19 @@ func TestGetModelInfoAppliesOverlay(t *testing.T) {
 		assert.Equal(t, []string{"high", "xhigh"}, info.SupportedReasoningEfforts)
 		assert.Equal(t, "high", info.DefaultReasoningEffort)
 	})
+}
+
+// TestGPT6AstraRejectsNone pins the one GPT-6 model with mandatory reasoning:
+// offering "none" for it would be a hard 400 on both OpenAI APIs.
+func TestGPT6AstraRejectsNone(t *testing.T) {
+	astra, ok := LookupReasoningEfforts("gpt-6-astra")
+	require.True(t, ok)
+	assert.NotContains(t, astra.Supported, "none")
+	assert.Contains(t, astra.Rejected, "none")
+
+	for _, modelID := range []string{"gpt-6-sol", "gpt-6-luna"} {
+		profile, ok := LookupReasoningEfforts(modelID)
+		require.True(t, ok)
+		assert.Contains(t, profile.Supported, "none", modelID)
+	}
 }
