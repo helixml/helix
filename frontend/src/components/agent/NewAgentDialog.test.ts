@@ -6,6 +6,7 @@ import { CLAUDE_SUBSCRIPTION_MODELS } from './CodingAgentForm'
 describe('Claude subscription models', () => {
   it('uses explicit flagship model versions', () => {
     expect(CLAUDE_SUBSCRIPTION_MODELS).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'claude-opus-5-5', label: expect.stringContaining('Opus 5.5') }),
       expect.objectContaining({ id: 'claude-opus-5', label: expect.stringContaining('Opus 5') }),
       expect.objectContaining({ id: 'claude-fable-5', label: expect.stringContaining('Fable 5') }),
       expect.objectContaining({ id: 'claude-opus-4-8', label: expect.stringContaining('Opus 4.8') }),
@@ -19,7 +20,7 @@ describe('preferredSubscriptionRuntimeConfig', () => {
       runtime: 'codex_cli',
       credentials: 'subscription',
       provider: '',
-      model: 'gpt-5.6-sol',
+      model: 'gpt-6-sol',
     })
   })
 
@@ -28,7 +29,7 @@ describe('preferredSubscriptionRuntimeConfig', () => {
       runtime: 'claude_code',
       credentials: 'subscription',
       provider: '',
-      model: 'claude-opus-5',
+      model: 'claude-opus-5-5',
     })
   })
 

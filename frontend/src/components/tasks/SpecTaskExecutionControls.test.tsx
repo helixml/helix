@@ -156,7 +156,7 @@ describe("SpecTaskExecutionControls", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Change coding model" }));
     fireEvent.click(screen.getByRole("button", { name: "Claude Code" }));
-    fireEvent.click(screen.getByRole("button", { name: /Claude Opus 5.*Claude Code/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Claude Opus 5 \(1M.*Claude Code/ }));
 
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_claude",

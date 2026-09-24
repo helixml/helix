@@ -2697,7 +2697,7 @@ export interface TypesAssistantConfig {
    * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
    * which the claude-agent-acp package reads (resolveModelPreference) to pick the
    * model — otherwise Claude Code defaults to Sonnet. Empty means
-   * "claude-opus-5" (the current 1M-context Opus model).
+   * "claude-opus-5-5" (the current 1M-context Opus model).
    */
   claude_subscription_model?: string;
   /**
