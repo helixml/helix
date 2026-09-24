@@ -36,6 +36,13 @@ var reasoningEffortProfiles = []types.ReasoningEffortProfile{
 	// produces no error — the symptom is "the setting does nothing".
 	// xhigh arrived with Opus 4.7; 4.6-generation models reject it.
 	{
+		Family: "claude-opus-5-5", Parameter: types.EffortParamOutputConfigEffort,
+		Supported: []string{"low", "medium", "high", "xhigh", "max"},
+		Default:   "high", SupportsEffort: true,
+		Source: types.EffortSourceCatalogue, VerifiedAt: "2026-09-24",
+		Notes: "OpenRouter marks reasoning mandatory, unlike claude-opus-5; its own row stops the claude-opus-5 prefix from claiming thinking can be disabled.",
+	},
+	{
 		Family: "claude-opus-5", Parameter: types.EffortParamOutputConfigEffort,
 		Supported: []string{"low", "medium", "high", "xhigh", "max"},
 		Default:   "high", SupportsEffort: true,
@@ -112,6 +119,45 @@ var reasoningEffortProfiles = []types.ReasoningEffortProfile{
 	},
 
 	// --- OpenAI --------------------------------------------------------------
+	// GPT-5.6 and GPT-6 accept max only on /v1/responses; /v1/chat/completions
+	// rejects it, so it lives in ResponsesOnly. Function tools on chat
+	// completions also require reasoning_effort=none.
+	{
+		Family: "gpt-6-astra", Parameter: types.EffortParamReasoningEffort,
+		Supported:     []string{"low", "medium", "high", "xhigh"},
+		ResponsesOnly: []string{"max"},
+		Rejected:      []string{"none", "minimal"},
+		Default:       "medium", SupportsEffort: true,
+		Source: types.EffortSourceProbed, VerifiedAt: "2026-09-24",
+		Notes: "Probed against api.openai.com on both APIs. Reasoning is mandatory: none is rejected by /v1/chat/completions AND /v1/responses. Because chat completions only allows function tools with reasoning_effort=none, this model cannot use function tools there at all.",
+	},
+	{
+		Family: "gpt-6-sol", Parameter: types.EffortParamReasoningEffort,
+		Supported:     []string{"none", "low", "medium", "high", "xhigh"},
+		ResponsesOnly: []string{"max"},
+		Rejected:      []string{"minimal"},
+		Default:       "medium", SupportsEffort: true,
+		Source: types.EffortSourceProbed, VerifiedAt: "2026-09-24",
+		Notes: "Probed against api.openai.com on both APIs.",
+	},
+	{
+		Family: "gpt-6-luna", Parameter: types.EffortParamReasoningEffort,
+		Supported:     []string{"none", "low", "medium", "high", "xhigh"},
+		ResponsesOnly: []string{"max"},
+		Rejected:      []string{"minimal"},
+		Default:       "medium", SupportsEffort: true,
+		Source: types.EffortSourceProbed, VerifiedAt: "2026-09-24",
+		Notes: "Probed against api.openai.com on both APIs.",
+	},
+	{
+		Family: "gpt-5.6", Parameter: types.EffortParamReasoningEffort,
+		Supported:     []string{"none", "low", "medium", "high", "xhigh"},
+		ResponsesOnly: []string{"max"},
+		Rejected:      []string{"minimal"},
+		Default:       "medium", SupportsEffort: true,
+		Source: types.EffortSourceProbed, VerifiedAt: "2026-09-24",
+		Notes: "Probed sol, terra and luna against api.openai.com on both APIs; all three behave identically.",
+	},
 	{
 		Family: "gpt-5.5-pro", Parameter: types.EffortParamReasoningEffort,
 		Supported: []string{"medium", "high", "xhigh"},

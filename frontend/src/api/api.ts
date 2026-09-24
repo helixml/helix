@@ -2697,7 +2697,7 @@ export interface TypesAssistantConfig {
    * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
    * which the claude-agent-acp package reads (resolveModelPreference) to pick the
    * model — otherwise Claude Code defaults to Sonnet. Empty means
-   * "claude-opus-5" (the current 1M-context Opus model).
+   * "claude-opus-5-5" (the current 1M-context Opus model).
    */
   claude_subscription_model?: string;
   /**
@@ -5975,6 +5975,12 @@ export interface TypesReasoningEffortProfile {
    * ones abort a turn.
    */
   rejected?: string[];
+  /**
+   * ResponsesOnly lists values accepted on /v1/responses but rejected on
+   * /v1/chat/completions. They are not in Supported: only a harness that
+   * speaks the Responses API may offer them.
+   */
+  responses_only?: string[];
   /** Source is how this entry was established. */
   source?: TypesEffortSource;
   /** Supported lists the values the model accepts and acts on. */

@@ -140,7 +140,7 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   // Narrow the harness tier list to what the selected model actually accepts.
   // Undefined means Helix has no profile for the model, in which case the full
   // runtime list stands. See api/pkg/model/reasoning_efforts.go.
-  const supportedEfforts = useModelReasoningEfforts(effectiveModel);
+  const supportedEfforts = useModelReasoningEfforts(effectiveModel, runtime);
   const effortOptions = getCodeAgentEffortOptions(runtime, supportedEfforts);
   const defaultSandboxPreset = useDefaultSandboxPreset();
   const effectiveSandboxResources = sandboxResourceOverrides?.vcpus
