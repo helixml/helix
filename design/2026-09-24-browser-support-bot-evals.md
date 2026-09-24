@@ -272,3 +272,113 @@ for a support bot nobody needs to watch.
   retry once, then report (added after the measured runs). The PoC should
   also cap each question's wall-clock time.
 - **Before the customer security review:** findings 0, 11 and 14.
+
+## Spec tasks vs Org Bots: where the time goes (2026-09-24)
+
+Top 3 harness × model by the earlier rounds (Goose and Zed excluded): DSH+GLM,
+OpenCode+GLM, DSH+Qwen. Same 6 questions (q1, q3, q5, q6, h1, h3), playbook
+prompt. Spec tasks: one `just_do_it_mode` task per question, fresh sandbox each
+(18 launches per runtime). Bots: one cold launch per variant, then the 6
+questions on the warm bot. `evals/browser-support/run_spectasks.py`,
+`run_bots_timing.py`, `timing.py`, `report_timing.py`; all 72 answers correct.
+
+### Launch (median seconds from start request)
+
+| phase | bot-desktop | bot-headless | st-desktop | st-headless |
+|---|---|---|---|---|
+| schedule + create container | 0.2 | 0.4 | 0.1 | 0.1 |
+| workspace setup (clone, skills, config) | 5.6 | 3.3 | 6.3 | 3.9 |
+| Zed start → first chat delivered | 17.0 | 6.0 | 16.0 | 6.0 |
+| harness + MCP start → first LLM call | 1.0 | 1.6 | 1.3 | 1.3 |
+| **request → first LLM call** | 23.8 | 12.6 | 24.0 | 10.9 |
+| bot activation turn (LLM, bots only) | 11.7 | 9.0 | — | — |
+| **request → ready for a question** | 35.4 | 20.3 | 24.0 | 10.9 |
+| samples | 3 | 3 | 18 | 18 |
+
+### Question turn split (median seconds per question)
+
+| tag | variant | pass | wall | LLM prefill | LLM decode | tools + harness | dispatch + finish | LLM calls | prompt tok (k) |
+|---|---|---|---|---|---|---|---|---|---|
+| bot-desktop | sup-dsh-glm | 6/6 | 21.8 | 10.4 | 3.8 | 5.0 | 0.7 | 8.0 | 146.9 |
+| bot-desktop | sup-dsh-qwen | 6/6 | 27.6 | 10.1 | 14.1 | 3.5 | 0.7 | 10.0 | 215.5 |
+| bot-desktop | sup-opencode-glm | 6/6 | 25.8 | 11.4 | 3.5 | 5.3 | 3.2 | 9.5 | 193.4 |
+| bot-headless | sup-dsh-glm | 6/6 | 20.2 | 10.7 | 4.3 | 4.3 | 0.7 | 8.0 | 138.3 |
+| bot-headless | sup-dsh-qwen | 6/6 | 29.1 | 8.5 | 14.7 | 3.9 | 0.7 | 8.5 | 174.2 |
+| bot-headless | sup-opencode-glm | 6/6 | 25.5 | 12.2 | 3.7 | 5.8 | 3.2 | 9.0 | 167.5 |
+| st-desktop | sup-dsh-glm | 6/6 | 55.7 | 18.3 | 23.7 | 8.0 | 0.0 | 13.5 | 210.0 |
+| st-desktop | sup-dsh-qwen | 6/6 | 63.7 | 13.1 | 35.1 | 11.4 | 0.0 | 12.0 | 201.0 |
+| st-desktop | sup-opencode-glm | 6/6 | 25.2 | 14.1 | 3.4 | 6.2 | 0.1 | 9.5 | 156.7 |
+| st-headless | sup-dsh-glm | 6/6 | 73.5 | 17.6 | 43.8 | 12.0 | 0.0 | 12.5 | 207.2 |
+| st-headless | sup-dsh-qwen | 6/6 | 68.0 | 13.2 | 35.1 | 10.8 | 0.0 | 12.0 | 185.7 |
+| st-headless | sup-opencode-glm | 6/6 | 56.1 | 14.9 | 23.5 | 16.4 | 0.1 | 14.5 | 181.3 |
+
+### Share of total turn time (sum over all questions)
+
+| tag | LLM prefill | LLM decode | tools + harness | dispatch + finish |
+|---|---|---|---|---|
+| bot-desktop | 39% | 29% | 28% | 5% |
+| bot-headless | 38% | 26% | 32% | 5% |
+| st-desktop | 28% | 42% | 30% | 0% |
+| st-headless | 14% | 36% | 49% | 0% |
+
+### Time to answer one question (median seconds)
+
+| tag | cold (launch + question) | warm (question only) |
+|---|---|---|
+| bot-desktop | 62.3 | 26.9 |
+| bot-headless | 47.1 | 26.8 |
+| st-desktop | 73.0 | n/a — every question launches a sandbox |
+| st-headless | 75.0 | n/a — every question launches a sandbox |
+
+Reading it:
+
+- **Launch is ~24s desktop / ~11s headless for both.** Container create is
+  0.1–0.4s (image cached), workspace setup 3–6s, and the dominant cost is
+  Zed + GNOME start to the first delivered chat: 16–17s on desktop vs 6s
+  headless. Harness + MCP start to the first LLM call is ~1s.
+- **Spec tasks reach the first LLM call no faster than bots**; bots then run a
+  9–12s activation turn (the "Re-read AGENTS.md" briefing) before they accept
+  a question. Spec tasks skip that turn.
+- **But spec-task turns are 2–3× slower** (56–74s vs 20–29s for DSH), so a
+  cold spec task answers in ~73–75s against 47–62s for a cold bot and ~27s for
+  a warm bot. For a support bot the warm bot wins by ~3×: the sandbox launch
+  is paid once, not per question.
+- **Why spec-task turns are slow: they hit the headless ACP/MCP startup race**
+  (`design/2026-09-15-headless-acp-mcp-startup-race.md`; the pinned Zed does
+  not carry that fix). The task prompt is delivered the moment Zed connects,
+  before the MCP servers are attached:
+  - OpenCode, headless spec task: **10 tools on every call — no MCP servers at
+    all**, 0 browser calls, 62 shell calls (it drove Chrome via hand-written
+    CDP scripts).
+  - DSH, all 12 spec tasks: the first call carries 14–34 tools and no browser;
+    DSH plans its own automation (pip-installing Playwright, writing Node CDP
+    clients) and keeps that plan after the browser tools appear on call 2 —
+    3.5–6.3k completion tokens per question vs ~0.7k on a bot.
+  - Bots hit the same race, but only on the activation turn; by the first
+    question every harness has the full tool list (83–97 tools).
+  Every answer was still correct because the models worked around it — which
+  would not survive a JS-heavy SPA or an MFA prompt.
+- **Where a warm bot's turn goes:** LLM prefill ~38%, LLM decode ~27%, tools
+  + harness ~30%, Helix dispatch/finish ~5%. Prefill dominates because every
+  call re-sends a ~17–22k-token prompt (bot AGENTS.md, helix MCP tool list,
+  browser tools) — served mostly from prefix cache, but TTFT is still ~1s per
+  call × 8–10 calls. The levers are fewer calls (playbook/skills) and a
+  smaller fixed prompt (fewer tools).
+- **DSH vs OpenCode (GLM):** DSH is faster in all six bot rounds (median
+  4–19s per question, 11–43% total): similar call counts, but a smaller
+  per-call prompt (~6.6k vs ~10–21k for the first main call) and lower
+  per-step harness overhead. In spec tasks the ranking flips because of the
+  race above. DSH's tool calls remain invisible in Helix (finding 7).
+- **Zed agent did complete.** All 72 Zed turns reached `complete` with no
+  errors or timeouts. The failures were fast (8–19s) confident "there is no
+  Acme CRM in this workspace" answers with zero browser traffic — finding 2,
+  the bot instructions never reach Zed's native agent after a thread reset.
+
+Additional issues found in this pass:
+
+15. **Finished spec tasks hold implementation WIP slots**: `stop-agent`
+    leaves the task in `implementation`, so later tasks sit in
+    `queued_implementation` until the old ones are archived.
+16. **Archiving does not stop a task's sandbox**: two queued tasks started
+    when slots freed and kept running after being archived until
+    `stop-agent` was called explicitly.
