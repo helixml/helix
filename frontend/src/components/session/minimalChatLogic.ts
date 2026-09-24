@@ -39,8 +39,10 @@ export function shouldShowWelcome(
   minimal: boolean,
   hasSent: boolean,
   totalInteractions: number,
+  isLoading = false,
 ): boolean {
   if (!minimal) return false
+  if (isLoading) return false
   if (hasSent) return false
   return totalInteractions <= 1
 }
