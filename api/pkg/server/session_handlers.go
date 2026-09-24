@@ -616,6 +616,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	// configured by the app
 	var messageContextLimit int
 	var agentType string
+	// orgBotApp is set when the chat is with an Org Bot's app.
+	var orgBotApp *types.App
 
 	if startReq.AppID == "" {
 		// If organization ID is set, check if user is a member of the organization
@@ -646,16 +648,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			return
 		}
 
-		// A new chat with an Org Bot's app is a new instance of that Bot: its
-		// own sandbox with the Bot's identity. The message below is then an
-		// ordinary turn in that instance.
-		if app.AgentKind == types.AgentKindOrg && startReq.SessionID == "" {
-			instance, httpErr := s.createBotInstanceForChat(ctx, user, app)
-			if httpErr != nil {
-				http.Error(rw, httpErr.Message, httpErr.StatusCode)
-				return
-			}
-			startReq.SessionID = instance.ID
+		if app.AgentKind == types.AgentKindOrg {
+			orgBotApp = app
 		}
 
 		// Set organization ID if not set yet
@@ -791,6 +785,23 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		session    *types.Session
 		newSession bool
 	)
+
+	// A new chat with an Org Bot's app is a new instance of that Bot: its own
+	// sandbox with the Bot's identity. The message is then an ordinary turn in
+	// that instance. Everything that can reject the request is checked first,
+	// so a rejected request never leaves an instance behind.
+	if orgBotApp != nil && startReq.SessionID == "" {
+		if _, _, err := splitChatAttachments(startReq.MessageContent()); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		instance, httpErr := s.createBotInstanceForChat(ctx, user, orgBotApp)
+		if httpErr != nil {
+			http.Error(rw, httpErr.Message, httpErr.StatusCode)
+			return
+		}
+		startReq.SessionID = instance.ID
+	}
 
 	if startReq.SessionID != "" {
 		session, err = s.Store.GetSession(ctx, startReq.SessionID)
