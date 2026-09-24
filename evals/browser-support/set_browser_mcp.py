@@ -21,7 +21,7 @@ if [ -z "${WAYLAND_DISPLAY:-}" ]; then
   export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 fi
 P=/home/retro/work/.cdm-$CDM_VERSION
-[ -x "$P/bin/chrome-devtools-mcp" ] || npm install -g --silent --prefix "$P" "chrome-devtools-mcp@$CDM_VERSION" >/dev/null 2>&1
+[ -x "$P/bin/chrome-devtools-mcp" ] || npm install -g --silent --cache /home/retro/work/.npm-cache --prefix "$P" "chrome-devtools-mcp@$CDM_VERSION" >/dev/null 2>&1
 exec "$P/bin/chrome-devtools-mcp" "$@"'''
 
 BASE_ARGS = [
@@ -32,6 +32,8 @@ BASE_ARGS = [
     "--chrome-arg=--no-first-run",
     "--chrome-arg=--disable-infobars",
     "--chrome-arg=--disable-extensions",
+    "--no-usage-statistics",
+    "--no-performance-crux",
 ]
 
 

@@ -118,3 +118,146 @@ Harness: `evals/browser-support/`.
 9. OpenRouter retired `stealth/ox-alpha` (it was GLM-5.3 Flash); bots on this
    stack still configured with it (WHR Marketing Bot, a Chief of Staff) now
    get 404s.
+10. **Headless sandboxes had no working browser** — fixed on this branch.
+    chrome-devtools-mcp was always started with `--ozone-platform=wayland`;
+    headless containers run no compositor, so every call returned
+    `Protocol error (Target.setDiscoverTargets): Target closed` and the agent
+    fell back to `curl` (answered q1 correctly, but in 150s with 15 curl hits
+    and zero browser traffic — useless for JS-rendered apps). The wrapper
+    (`desktop/shared/helix-chrome-devtools-mcp.sh`) now starts Chrome with
+    `--headless` when there is no Wayland socket. Verified on image `f63c19`:
+    headless bot passes q1 and q3 (JS-loaded balance) over Chrome; desktop
+    bots on the same image still run `--ozone-platform=wayland` (headful).
+11. **chrome-devtools-mcp phoned home by default** (usage statistics to
+    Google, performance-trace URLs to the CrUX API) — now disabled with
+    `--no-usage-statistics --no-performance-crux` in `zed_config.go`. Matters
+    for air-gapped / regulated customers.
+12. **Project skills never reached Org Bots** — fixed on this branch.
+    Harnesses scan `.agents/skills` relative to their cwd; org-bot sessions
+    run with cwd `~/work`, not inside the repo, so `<repo>/.agents/skills` was
+    missing from every harness's catalog (OpenCode's `<available_skills>`
+    listed only the global `helix-*` skills). `helix-workspace-setup.sh` now
+    links the primary repo's skills into `~/.agents/skills` and
+    `~/.claude/skills`. Verified on `f63c19`: both skills in the OpenCode
+    catalog and loaded (`Loaded skill: browser-lookup`) on the first turn.
+    The first "skills" round ran before this fix; it is kept as
+    `baseline-rep`, a replicate used to measure noise.
+13. **`~/.npm` is root-owned in the desktop image**, so any user
+    `npm install` / `npx` fails with `EACCES` ("Your cache folder contains
+    root-owned files"). That breaks the "Global agent skills" instruction
+    every bot prompt carries (`npx --yes skills add …`) and any MCP launched via
+    `npx`. Workaround used here: `--cache ~/work/.npm-cache`. Fix: `chown` the
+    cache in the image, or set `npm_config_cache` to a user-owned path.
+14. **TLS verification is disabled image-wide**:
+    `NODE_TLS_REJECT_UNAUTHORIZED=0`, `ZED_HTTP_INSECURE_TLS=1` and
+    `git config --system http.sslVerify false` (`Dockerfile.ubuntu-helix`
+    ~1204). Chrome still validates certificates, so passwords typed into
+    websites are protected, but every Node process (harnesses, MCP servers,
+    npm) and git in the sandbox accepts any certificate. For a PoC that holds
+    customer-system credentials this is a finding the customer's security
+    review will raise; the fix is to trust the customer CA
+    (`NODE_EXTRA_CA_CERTS`, system trust store) instead of disabling checks.
+
+## Results
+
+12 questions per variant (8 core + 4 hard: 72-record aggregation, 8-account
+fan-out, near-miss name, filter-and-compare). Times are wall clock per
+question as the support user experiences it; tokens are prompt tokens summed
+over every LLM call (~95% served from the provider's prefix cache).
+
+**Noise.** A partial replicate of the baseline (31 question pairs) gave
+p10–p90 per-question time ratios of 0.75–1.59 and token ratios of 0.82–1.46,
+with identical accuracy (31/31). Per-question differences mean little;
+per-variant totals over 12 questions and totals over all variants do.
+
+### Baseline (prompt lists systems + credentials only)
+
+| harness | model | pass | median s | total s | prompt tok (M) |
+|---|---|---|---|---|---|
+| deepseek_harness | glm-5.3-flash | 12/12 | 25 | 460 | 3.9 |
+| opencode | glm-5.3-flash | 12/12 | 37 | 514 | 3.9 |
+| zed_agent | qwen3.8-flash-next | 12/12 | 46 | 677 | 6.2 |
+| deepseek_harness | qwen3.8-flash-next | 12/12 | 59 | 758 | 3.8 |
+| opencode | qwen3.8-flash-next | 12/12 | 50 | 985 | 4.7 |
+| qwen_code | glm-5.3-flash | 12/12 | 51 | 1228 | 13.0 |
+| qwen_code | qwen3.8-flash-next | 12/12 | 110 | 1352 | 13.8 |
+| zed_agent | glm-5.3-flash | 7/12 | 20 | 334 | 3.3 |
+
+Accuracy is not the differentiator: every harness except `zed_agent`
+(finding 2) answered everything, including the 72-record aggregation — the
+models reach for `evaluate_script` + same-origin `fetch()` loops on their own
+(Qwen Code wrote an 8-worker parallel fetch pool unprompted). Speed and cost
+are: GLM is faster than Qwen on every harness (Qwen's 60s+ reasoning bursts
+dominate its tail), and Qwen Code costs ~3× the tokens of OpenCode / DSH
+(34k-token harness prompt per call).
+
+### Optimisation: a per-system playbook
+
+Same text, delivered two ways: inlined in the bot prompt (`playbook`) or as two
+repo skills, `browser-lookup` (technique) and `support-systems` (site map,
+login sequences, URL patterns, field-name glossary) (`skills`).
+
+| comparison (96 question pairs) | pass | total time | prompt tokens |
+|---|---|---|---|
+| baseline → playbook | 91 → 93 | −38% | −38% |
+| baseline → skills (after finding 12 fix) | 91 → 94 | −34% | −34% |
+| playbook → skills | 93 → 94 | +6% (noise) | +7% (noise) |
+
+Largest gains on the chattiest harness (Qwen Code: −54% time, −56–61%
+tokens); smallest on OpenCode+GLM, which was already efficient. Inlined and
+skill delivery perform the same; skills cost two `Loaded skill` calls per
+thread but scale to many systems (progressive disclosure), so the PoC should
+use one skill per customer system plus a short core prompt.
+
+### Browser MCP upgrade
+
+`chrome-devtools-mcp` 1.10.1 with memory/performance/network/emulation
+categories off, via a project-level `chrome-devtools` override, on the two
+best variants against a same-conditions replicate on 0.25.0:
+
+| variant | pass | total s | prompt tok (M) |
+|---|---|---|---|
+| deepseek_harness + glm | 12 → 12 | 289 → 246 (−15%) | 2.03 → 1.53 (−24%) |
+| opencode + glm | 12 → 12 | 399 → 283 (−29%) | 2.81 → 2.11 (−25%) |
+
+Part of the gain is browser-session persistence rather than the smaller tool
+list: login submissions fell from 10–14 to 4–6 per 12 questions, i.e. 1.10.1
+kept the logged-in browser across cleared threads more often. Not bumped
+globally here — spec-task coding agents use the network/performance tools
+for frontend debugging, so the category trim belongs per use case (the
+project override is exactly that mechanism). The version bump itself needs
+its own PR, tested against spec tasks.
+
+### Credentials as secrets
+
+Credentials removed from the prompt, stored as project secrets, bound to the
+bot, fetched with `get_secret` right before each login: 24/24, +2% time,
++4% tokens vs the same prompt with inline credentials — i.e. free. No
+credential value appeared in any of the 24 answers. (DSH's `get_secret` use
+was confirmed from `llm_calls.response`; its tool calls are invisible in the
+UI, finding 7.)
+
+### Headless runtime
+
+After finding 10's fix a headless (`headless-ubuntu`) OpenCode+GLM bot
+answers over real (headless) Chrome — q1 in 42s, q3 (JS-loaded balance) in
+30s. Headless bots skip GNOME + streaming, so this is the cheaper runtime
+for a support bot nobody needs to watch.
+
+## PoC recommendation
+
+- **Harness × model:** OpenCode + `glm-5.3-flash` (fast, cheapest per
+  answer, tool calls visible to operators). DeepSeek Harness + GLM is
+  marginally faster but its tool calls are invisible (finding 7) — a support
+  PoC needs an audit trail. Avoid `zed_agent` for bots until finding 2 is
+  fixed, and Goose until finding 0 is fixed.
+- **Prompt shape:** short core prompt (role, answer format, "never guess,
+  never substitute a near-miss record") + one skill per customer system with
+  login sequence, URL patterns for direct record access, and a glossary
+  mapping the UI's labels to what staff call things. That glossary was the
+  single highest-value content: "Relationship Owner" ≠ "account manager" is
+  exactly the kind of legacy-UI trap the customer's systems will have.
+- **Credentials:** bot secrets + `get_secret`, never in the prompt.
+- **Runtime:** headless sandbox (with the finding 10 fix) and a project
+  `chrome-devtools` override running 1.10.1 with irrelevant categories off.
+- **Before the customer security review:** findings 0, 11 and 14.
