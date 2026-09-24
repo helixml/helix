@@ -85,7 +85,11 @@ const AgentChat: FC<AgentChatProps> = ({
   const apiClient = api.getApiClient()
   const refreshSpecTaskStatus = useRefreshSpecTaskStatus(specTaskId)
 
-  const { data: latestInteractionsResponse, refetch: refetchLatestInteraction } = useListInteractions(
+  const {
+    data: latestInteractionsResponse,
+    isLoading: latestInteractionsLoading,
+    refetch: refetchLatestInteraction,
+  } = useListInteractions(
     sessionId,
     0,
     1,
@@ -113,6 +117,7 @@ const AgentChat: FC<AgentChatProps> = ({
     minimal,
     hasSentInWelcome,
     latestInteractionsResponse?.data?.totalCount ?? 0,
+    latestInteractionsLoading,
   )
   // Session-keyed queue for sessions without a spec task; the spec-task
   // composer carries its own backend-backed queue instead.

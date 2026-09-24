@@ -31,6 +31,10 @@ describe('shouldShowWelcome', () => {
     expect(shouldShowWelcome(true, false, 0)).toBe(true)
   })
 
+  it('does not mistake an interaction query that is still loading for an empty session', () => {
+    expect(shouldShowWelcome(true, false, 0, true)).toBe(false)
+  })
+
   it('gives way as soon as the customer has asked something', () => {
     expect(shouldShowWelcome(true, false, 2)).toBe(false)
   })
