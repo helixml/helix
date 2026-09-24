@@ -646,6 +646,18 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			return
 		}
 
+		// A new chat with an Org Bot's app is a new instance of that Bot: its
+		// own sandbox with the Bot's identity. The message below is then an
+		// ordinary turn in that instance.
+		if app.AgentKind == types.AgentKindOrg && startReq.SessionID == "" {
+			instance, httpErr := s.createBotInstanceForChat(ctx, user, app)
+			if httpErr != nil {
+				http.Error(rw, httpErr.Message, httpErr.StatusCode)
+				return
+			}
+			startReq.SessionID = instance.ID
+		}
+
 		// Set organization ID if not set yet
 		if app.OrganizationID != "" {
 			startReq.OrganizationID = app.OrganizationID
@@ -799,6 +811,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			http.Error(rw, err.Error(), http.StatusForbidden)
 			return
 		}
+		// An app key speaks for its app alone, not for every session its
+		// owner can reach.
+		if user.AppID != "" && session.ParentApp != user.AppID {
+			http.Error(rw, "this app API key may only chat in sessions of its own app", http.StatusForbidden)
+			return
+		}
 
 		if pauseErr := requireUnpaused(session); pauseErr != nil {
 			http.Error(rw, pauseErr.Message, pauseErr.StatusCode)
@@ -914,6 +932,13 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Str("session_id", session.ID).
 			Str("app_id", startReq.AppID).
 			Msg("new session: set session ID in context for document tracking")
+	}
+
+	if !newSession && session.Metadata.AgentType == "zed_external" {
+		if httpErr := s.moveChatAttachmentsToWorkspace(ctx, user, session, &startReq); httpErr != nil {
+			http.Error(rw, httpErr.Message, httpErr.StatusCode)
+			return
+		}
 	}
 
 	session, err = appendOrOverwrite(session, &startReq)

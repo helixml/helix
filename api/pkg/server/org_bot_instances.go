@@ -183,6 +183,65 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 	return created, nil
 }
 
+// createBotInstanceForChat starts a new instance of the Org Bot behind app for
+// POST /api/v1/sessions/chat. Like the org REST route, any member of the
+// Bot's organization may create one; it is theirs.
+func (s *HelixAPIServer) createBotInstanceForChat(ctx context.Context, user *types.User, app *types.App) (*types.Session, *system.HTTPError) {
+	if s.botInstances == nil {
+		return nil, system.NewHTTPError400("org bots are not enabled in this deployment")
+	}
+	if _, err := s.authorizeOrgMember(ctx, user, app.OrganizationID); err != nil {
+		return nil, system.NewHTTPError403("only members of the bot's organization can chat with it")
+	}
+	instance, err := s.botInstances.CreateForApp(runtimehelix.WithUserID(ctx, user.ID), app)
+	if errors.Is(err, helixorgstore.ErrNotFound) {
+		return nil, system.NewHTTPError404(err.Error())
+	}
+	if err != nil {
+		log.Error().Err(err).Str("app_id", app.ID).Msg("Failed to create bot instance for chat")
+		return nil, system.NewHTTPError500("failed to create bot instance: " + err.Error())
+	}
+	return instance, nil
+}
+
+// enqueueBotInstanceTurnWebhook announces a finished instance turn to the
+// organization's webhook endpoints. The turn is already saved, so a failure
+// here is logged rather than failing the turn.
+func (s *HelixAPIServer) enqueueBotInstanceTurnWebhook(ctx context.Context, session *types.Session, interaction *types.Interaction) {
+	if session.Metadata.SessionRole != types.SessionRoleOrgBotInstance {
+		return
+	}
+	err := s.Store.EnqueueWebhookEvent(ctx, types.WebhookEventBotInstanceTurnCompleted, session.OrganizationID, session.ProjectID, types.BotInstanceTurnWebhookData{
+		SessionID:      session.ID,
+		InteractionID:  interaction.ID,
+		BotID:          session.Metadata.OrgWorkerID,
+		AppID:          session.ParentApp,
+		ProjectID:      session.ProjectID,
+		OrganizationID: session.OrganizationID,
+		State:          interaction.State,
+		Response:       interaction.ResponseMessage,
+		Error:          interaction.Error,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Str("interaction_id", interaction.ID).Msg("Failed to enqueue bot instance turn webhook")
+	}
+}
+
+// CreateForApp creates an instance of the bot backed by app, for a caller
+// that knows the bot only by its app id: POST /api/v1/sessions/chat.
+func (b botInstances) CreateForApp(ctx context.Context, app *types.App) (*types.Session, error) {
+	nodes, err := b.store.Nodes.List(ctx, app.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("list bots: %w", err)
+	}
+	for _, node := range nodes {
+		if node.AgentID == app.ID {
+			return b.Create(ctx, app.OrganizationID, node.ID, instances.Params{})
+		}
+	}
+	return nil, fmt.Errorf("bot for agent %s: %w", app.ID, helixorgstore.ErrNotFound)
+}
+
 func (b botInstances) Delete(ctx context.Context, orgID string, botID orgchart.NodeID, sessionID string) error {
 	session, err := b.server.Store.GetSession(ctx, sessionID)
 	if errors.Is(err, helixstore.ErrNotFound) {

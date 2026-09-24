@@ -115,6 +115,9 @@ type HelixAPIServer struct {
 	// nil when helix-org is disabled
 	// (the seeder's methods are nil-safe no-ops).
 	orgSeeder *orgGraphSeeder
+	// botInstances creates a Bot's instances for chats started with the Bot's
+	// app id. Set by mountHelixOrg; nil when helix-org is disabled.
+	botInstances *botInstances
 	// onServiceConnectionChange is an optional post-mutation hook a
 	// subsystem registers (helix-org, in registerHelixOrgRoutes) so it can react to
 	// the connection types it owns without the generic service-connection

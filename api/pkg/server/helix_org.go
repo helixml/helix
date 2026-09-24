@@ -1077,6 +1077,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	instances := botInstances{
 		server: cfg.APIServer, store: st, projects: projectApplier, configs: configReg, getApp: inProcClient.GetAppConfig,
 	}
+	cfg.APIServer.botInstances = &instances
 	lifecycleSvc := &lifecycle.Service{
 		Store:         st,
 		Instances:     instances,

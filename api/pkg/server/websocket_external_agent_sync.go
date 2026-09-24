@@ -3340,6 +3340,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	if err != nil {
 		return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
 	}
+	apiServer.enqueueBotInstanceTurnWebhook(context.Background(), helixSession, targetInteraction)
 
 	// Reaching message_completed means the agent is alive and produced a turn,
 	// so any consumed auto-restart budget is refunded: a recovered autonomous
