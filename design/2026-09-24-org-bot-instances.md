@@ -252,7 +252,61 @@ A real instance skips even the warm-up, so it is ready sooner still.
 was gone, so DeepSeek Harness and Goose kept one idle MCP server per cleared
 thread. On clear, Helix now sends `close_thread` for the discarded thread
 when the agent is connected, and Zed closes that ACP session
-(`session/close`), which stops its MCP servers.
+(`session/close`), which stops its MCP servers. Verified on image `e836ec`
+(DeepSeek Harness instance, 5 rounds of browse + clear): Zed logged "Closed
+discarded thread" for every cleared thread, and the `chrome-devtools-mcp`
+count stayed at two servers during a turn and one after a clear, instead of
+growing by one server per clear.
+
+## New chat latency (2026-09-24)
+
+`POST /sessions/chat` with a bot app key, no session, "Reply with exactly:
+PONG"; bot `sup-opencode-glm-headless` (OpenCode, GLM 5.3 Flash). Times
+from the API log, the container log and `llm_calls`.
+
+| Step | Before | After |
+|---|---|---|
+| Helix API: instance, key, container create | 0.26 s | ~0.3 s |
+| Container init | 0.94 s (rootless Podman + BuildKit) | 0.07 s (no engine) |
+| Workspace setup | 1.62 s (GitHub skills fetch) | 0.36 s (no fetch) |
+| Zed start, connect, receive message | 0.22 s | 0.34 s |
+| OpenCode start + ACP connect | 0.88 s | 0.85 s |
+| ACP `new_session` (MCP servers, Chrome) | 0.76 s | 0.90 s |
+| OpenCode before its first request | 0.44 s | 0.30 s |
+| First LLM call (12.4k prompt tokens) | 3.37 s | 2.84 s |
+| **Total** | **8.55 s** | **6.0 s** |
+
+Startup before the first LLM call went from 5.1 s to ~3.1 s.
+
+- **Skills refresh:** `HELIX_SKILLS=none` now links nothing and skips the
+  GitHub fetch of the skills repo.
+- **No container engine:** instances run in an unprivileged container with
+  no Docker/Podman and no engine volume. That was also the biggest security
+  gap: desktop instances used to run **privileged** with Docker, and
+  headless ones with `seccomp=unconfined` and `CAP_SYS_ADMIN` for rootless
+  Podman. Chrome's renderer sandbox needs to create user namespaces, which
+  Docker's default seccomp profile allows only to `CAP_SYS_ADMIN`, so Hydra's
+  `browser_sandbox` option applies Docker's default profile plus namespace
+  creation (`clone` with namespace flags, `unshare`). Verified: renderers run
+  in their own user and PID namespaces; headless and desktop browser turns
+  work; the desktop streams H.264 at 51–60 fps.
+- **Found on the way:** a fast sandbox's agent can connect before
+  `StartDesktop` returns, and the turn then failed with "external agent
+  session not found after readiness". `RunExternalAgent` no longer consults
+  the executor's session map.
+
+**Why the first call misses the cache.** Two new instances of the same bot
+send byte-identical first requests (same system prompt, same 39 tools), and
+replaying one back to back is cached (2.97 s → 1.0 s, 12,288 of 12,523
+tokens). The prefix is evicted on the serving side: on node06 it survived a
+60 s gap but not 120 s. GLM 5.3 Flash runs as two SGLang replicas behind
+ramjet (prefix-affinity routing) with at most 4 running requests each, and
+shared traffic evicts a 12k-token prefix within about two minutes. So every
+new chat, and every follow-up after a couple of idle minutes (typical on
+WhatsApp), pays the full ~3 s prefill on its first call. The fix belongs in
+the serving stack (cache capacity, e.g. hierarchical/CPU KV cache), not in
+Helix; priming the cache during sandbox start would only cover a new chat's
+first turn.
 
 ## Verification results (2026-09-24, dev stack, `unmanned-org`)
 
