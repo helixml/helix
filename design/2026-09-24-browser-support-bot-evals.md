@@ -411,6 +411,47 @@ servers and the logged-in Chrome all survived a 10-minute freeze.
 - Helix's existing "paused" state is a *stopped* container
   (`external-agent/idle_checker.go`); there is no in-memory freeze tier.
 
+## Startup after the fixes (2026-09-24, branch `feat/support-bot-fast-start`)
+
+Headless, GLM 5.3 Flash, playbook prompt, image `242f8a`, all answers correct.
+Median seconds from the start request (`run/timing.jsonl`, tags `st-headless`
+vs `st-headless-fast2` / `bot-headless-fast`):
+
+| phase | spec task before (DSH / OpenCode) | spec task now (DSH / OpenCode) | bot now |
+|---|---|---|---|
+| container started | 0.1 | 0.2 / 0.3 | 0.2 |
+| workspace setup complete | 4.2 | 2.5 / 2.7 | 1.8 |
+| first chat reaches Zed | 9.6 | 2.5 / 2.7 | 1.8 |
+| first LLM call | 10.9 / 12.8 | 4.7 / 4.8 | 4.3–4.5 |
+| answered (spec task) / ready (bot) | 84.5 / 69.0 | 31.0 / 29.0 | 15.2 |
+
+Where the time went and what changed:
+
+- **5.0s — Zed's `agent_ready` timer.** On a connection with no thread to
+  reopen, Zed waited 5s for an `open_thread` that never came. Helix now sends
+  `no_open_thread`; Zed reports ready at once.
+- **~10s — OpenCode installing its plugin SDK** (`@opencode-ai/plugin`) from
+  npm into its config home on every fresh sandbox. It used to fail fast on the
+  root-owned `~/.npm` (finding 13); after that fix it succeeded, slowly. The
+  image now pre-installs it where the daemon points OpenCode, as the agent user.
+- **~2s — fixed 1s polls/sleeps**: container-engine readiness, the
+  setup-complete signal, and a sleep after launching the setup terminal. Now
+  0.1s polls.
+- **1.5–2s — Helix skills `git fetch`** from GitHub now runs alongside the
+  repo clones.
+- **Browser on the first turn** for DSH (0.1.7 upgrade) removed the shell /
+  hand-written-CDP detours that made DSH spec-task turns 56–74s.
+
+Still on the cold path:
+
+- **Bot activation turn ~11s** (first LLM call at 4.5s, ready at 15.2s): the
+  "Re-read AGENTS.md" briefing. Now the largest cold-start cost.
+- **Chrome launch ~2.2s** on the first browser call (0.15s after): measured
+  directly against `helix-chrome-devtools-mcp`.
+- Model-side variance dominates individual turns: one DSH turn took 64.8s
+  because a single call waited 35.5s for its first token with no prefix-cache
+  hit on the shared node; every other call took ~1s.
+
 ## Fix status (PR from branch `eval/browser-support-bot`)
 
 | Finding | Status |
@@ -423,7 +464,7 @@ servers and the logged-in Chrome all survived a 10-minute freeze.
 | 4 new org via API | Open — plan W1 #4. |
 | 5 `org bots chat` never-started bot | **Fixed**. |
 | 6 `llm_calls.interaction_id` n/a | Open — plan W1 #3. |
-| 7 DSH tool calls invisible | Open — plan W1 #2. |
+| 7 DSH tool calls invisible | **Fixed** by the DSH 0.1.7 upgrade: the old `dsh-acp-demo` never emitted ACP `tool_call` updates; `dsh --profile acp` does. Live: 8 / 13 `tool_call` entries per DSH spec task, all `mcp__chrome-devtools__*`. |
 | 8 chrome-devtools-mcp 0.25.0 | Per-project override documented; global bump open. |
 | 10 headless browser | **Fixed**. |
 | 11 MCP telemetry | **Fixed**. |
@@ -431,5 +472,8 @@ servers and the logged-in Chrome all survived a 10-minute freeze.
 | 13 root-owned `~/.npm` | **Fixed** (build-time installs use a throwaway cache). |
 | 14 TLS disabled | Open — plan W1 #7. |
 | 15 WIP slots after stop | Open — plan W1 #5. |
-| 16 archived task keeps running | **Fixed**: an archived task is never started from the backlog / queues. |
-| Spec-task first message has no browser | **Fixed in Zed** (`agent_servers`): stdio MCP servers are read from settings for `session/new` instead of the async runtime configuration. Live on image `538c72`: OpenCode spec tasks' first LLM call now carries 48 (headless) / 62 (desktop) tools incl. all 29 browser tools (was 10 / no browser), 0 shell fallbacks, turns 20–27 s (was 56 s headless). DeepSeek Harness still starts without MCP tools — a separate, DSH-side race (plan W1 #2b). |
+| 16 archived task keeps running | **Fixed** in two places: an archived task is never started from the backlog / queues; and `stop-agent` / archive now end the in-flight turn. Before, the turn stayed `waiting`, auto-wake read it as "agent never connected" and rebooted the sandbox ~5s after the stop (reproduced twice; after the fix the sandboxes stayed down). |
+| Spec-task first message has no browser | **Fixed in Zed** (`agent_servers`): stdio MCP servers are read from settings for `session/new` instead of the async runtime configuration. Live on image `538c72`: OpenCode spec tasks' first LLM call now carries 48 (headless) / 62 (desktop) tools incl. all 29 browser tools (was 10 / no browser), 0 shell fallbacks, turns 20–27 s (was 56 s headless). DeepSeek Harness is fixed separately, below. |
+| DSH first message has no browser | **Fixed** by upgrading DSH to 0.1.7 (`dsh --profile acp` + `desktop/shared/dsh/helix.patch.yml`). MCP servers now arrive in ACP `session/new` like every other harness, and dsh connects and lists them before it answers. Live, headless spec tasks: the first LLM call carries 61 tools incl. all 29 browser tools (was 14, no browser); q1 / q3 answered in 31 / 39 s total, 17 / 25 s turns (was 68–74 s total). |
+| Headless sessions configured a dead `helix-desktop` MCP server | **Fixed**: the headless bridge has no `/mcp`, so it 404'd. OpenCode silently dropped it; dsh (which fails `session/new` if any MCP server fails) could not start at all. Now only configured for desktop sessions. |
+| ACP `session/new` failure hung the turn until timeout | **Fixed in Zed**: connect / `session/new` failures for ACP agents are reported as `chat_response_error` (only the native agent did before). |

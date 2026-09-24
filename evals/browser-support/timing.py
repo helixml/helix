@@ -6,6 +6,7 @@ first inbound chat), and llm_calls (created = request start, duration_ms).
 """
 
 import json
+import os
 import re
 import subprocess
 from datetime import datetime, timezone
@@ -37,6 +38,14 @@ def container_for(session_id):
         if n.endswith(suffix):
             return n
     return None
+
+
+def save_container_log(name, path):
+    """Keep the container's stdout log: releasing a task removes the container."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        subprocess.run(["docker", "exec", "helix-sandbox-nvidia-1", "docker", "logs", "-t", name],
+                       stdout=f, stderr=subprocess.STDOUT)
 
 
 def container_timeline(name):

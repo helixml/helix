@@ -62,10 +62,13 @@ def run_one(v, q, runtime, tag, out_path, timeout):
         name = timing.container_for(sid)
         if name:
             events.update(timing.container_timeline(name))
+            timing.save_container_log(name, os.path.join(HERE, "run", "logs", f"{sid}.log"))
         calls = timing.llm_calls(sid)
         if calls:
             events["first_llm"] = calls[0]["start"]
     done = (row or {}).get("completed") if (row or {}).get("state") in ("complete", "error") else None
+    if done is not None and done <= 0:  # errored turns keep a zero completed timestamp
+        done = t_end
     events["answered"] = done
     turn = timing.turn_breakdown(sid, events.get("first_llm", t_req), done or t_end) if sid else {}
     answer = r.final_answer((row or {}).get("entries"))

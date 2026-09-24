@@ -54,10 +54,10 @@ Startup is off the critical path once a bot is warm; the critical path is
    existing idle checker (`external-agent/idle_checker.go`), no new service.
 6. **Credentials** as bot secrets fetched with `get_secret` (free: +2 %
    time); service accounts per system; login during warm-up + keepalive.
-7. **Runtime**: headless sandbox, OpenCode + GLM (tool calls visible for the
-   audit trail; DSH is ~10 % faster but its tool calls are invisible until
-   fixed), project-level `chrome-devtools` override on 1.10.1 with irrelevant
-   tool categories off (−23 % time, −25 % tokens).
+7. **Runtime**: headless sandbox, DSH + GLM or OpenCode + GLM — both now get
+   the browser on the first turn and show their tool calls in Helix; DSH was
+   faster in every bot round. Project-level `chrome-devtools` override on
+   1.10.1 with irrelevant tool categories off (−23 % time, −25 % tokens).
 
 ## Workstreams
 
@@ -75,8 +75,8 @@ never-started bot; npm cache ownership.
 | # | Bug | Fix direction |
 |---|---|---|
 | 1 | `zed_agent` bots lose their instructions on every new thread | Zed fork: treat `$ZED_WORK_DIR/AGENTS.md` as a rules file for the native agent, or Helix prefixes the re-read nudge when a turn starts a new thread. Needs a decision. |
-| 2 | DeepSeek Harness tool calls invisible in Helix | Trace the ACP `tool_call` updates DSH emits vs what `external_websocket_sync` forwards. |
-| 2b | DeepSeek Harness starts its first turn without MCP tools (14 built-ins, no browser) even after the Zed fix | Not Zed: DSH takes MCP servers from `~/.config/helix-dsh/mcp.cordis.json` via `cordis-plugin-include`, which the daemon writes before DSH spawns (verified: file at 11:15:37 with 4 servers, spawn 11:15:56), but the included `dsh-mcp-client` plugins register their tools asynchronously and the first prompt is answered before they finish. Fix in the composition: await include-loaded plugins before the ACP agent accepts `session/prompt`. |
+| 2 | ~~DeepSeek Harness tool calls invisible in Helix~~ | Fixed by the DSH 0.1.7 upgrade (`dsh --profile acp` emits ACP `tool_call` updates). |
+| 2b | ~~DeepSeek Harness starts its first turn without MCP tools~~ | Fixed by the same upgrade: MCP servers go through ACP `session/new`, connected before dsh answers. Caveat: dsh fails `session/new` if *any* MCP server fails to start, so every configured server must be healthy (headless no longer gets the dead `helix-desktop` server). |
 | 3 | `llm_calls.interaction_id` is `n/a` for bot sessions | Thread the interaction id through the proxy request context. |
 | 4 | New org via API: wallet not found → no subscription → 5-min "agent not ready" | Create the wallet with the org; surface billing refusal as an immediate error. |
 | 5 | Finished spec tasks keep implementation WIP slots after `stop-agent` | Decide whether stop should release the slot. |
@@ -114,10 +114,24 @@ never-started bot; npm cache ownership.
 
 ### W4 — Cold path (only hit on bursts / first use)
 
+Done (branch `feat/support-bot-fast-start`):
+- Zed waited 5 s for an `open_thread` on every fresh connection before
+  reporting ready; Helix now says `no_open_thread` and Zed reports at once.
+- Container engine readiness and the setup-complete signal were polled every
+  1 s, plus a fixed 1 s sleep after launching the setup terminal; now 0.1 s.
+- The Helix skills `git fetch` (1.5–2 s from GitHub) runs alongside the repo
+  clones instead of after them.
+- OpenCode's on-start npm install of its plugin SDK (~10 s) is baked into the
+  image.
+- Result (headless, median): request → first LLM call 10.9–12.8 s → 4.3–4.8 s;
+  cold spec task answered in 29–31 s (was 69–85 s); cold bot ready in 15 s.
+
+Remaining:
 1. Skip or shorten the 9 s activation turn for support bots.
-2. Spawn the harness + MCP servers at container start, not on the first chat.
-3. Workspace setup (3–6 s): skip the skills `git fetch` when offline-pinned.
-4. **Exit criterion:** cold headless bot → first answer < 20 s.
+2. Pre-launch Chrome when the MCP server starts: the first browser call pays
+   ~2.2 s for the Chrome launch (later calls 0.15 s). Needs the wrapper to
+   own Chrome's lifecycle (`--browserUrl`), so it was not done blind.
+3. **Exit criterion:** cold headless bot → first answer < 20 s.
 
 ### W5 — Customer PoC readiness
 
