@@ -209,6 +209,11 @@ skill delivery perform the same; skills cost two `Loaded skill` calls per
 thread but scale to many systems (progressive disclosure), so the PoC should
 use one skill per customer system plus a short core prompt.
 
+Goose (run one bot at a time so finding 0 cannot trigger, playbook prompt):
+`goose_code` + Qwen 12/12 in 1295s, + GLM 11/12 in 1981s (1200s of that one
+hung saucedemo question, see recommendations) — 4–5× OpenCode/DSH on the same
+prompt, ~510 LLM calls per 12 questions from its per-tool summary side calls.
+
 ### Browser MCP upgrade
 
 `chrome-devtools-mcp` 1.10.1 with memory/performance/network/emulation
@@ -260,4 +265,10 @@ for a support bot nobody needs to watch.
 - **Credentials:** bot secrets + `get_secret`, never in the prompt.
 - **Runtime:** headless sandbox (with the finding 10 fix) and a project
   `chrome-devtools` override running 1.10.1 with irrelevant categories off.
+- **Browser hangs:** in the Goose playbook run a saucedemo page hung (CDP
+  commands timed out after a successful navigate) and the agent spent the
+  full 20-minute budget writing its own CDP clients and killing Chrome. The
+  `browser-lookup` skill now says: two failed browser calls → fresh tab,
+  retry once, then report (added after the measured runs). The PoC should
+  also cap each question's wall-clock time.
 - **Before the customer security review:** findings 0, 11 and 14.

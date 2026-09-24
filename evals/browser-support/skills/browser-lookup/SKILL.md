@@ -48,6 +48,7 @@ If no record matches the name exactly, say that no such customer/account was fou
 - Never guess or compute a value the system displays. If the page shows a total, report that total.
 - If a search returns nothing, try a shorter query (one distinctive word of the name) before giving up.
 - If a session expired and you are redirected to login, log in again and retry the same URL.
+- If two browser calls in a row time out or error, the page is hung: open a fresh tab with `new_page`, retry once, and if it still fails, stop and report which system is unreachable. Do not write your own browser automation scripts or kill Chrome.
 
 ## Answer format
 
