@@ -382,3 +382,31 @@ Additional issues found in this pass:
 16. **Archiving does not stop a task's sandbox**: two queued tasks started
     when slots freed and kept running after being archived until
     `stop-agent` was called explicitly.
+
+## Toward <10s answers: freeze instead of snapshot (2026-09-24)
+
+`evals/browser-support/pause_test.py`, headless DSH+GLM bot, playbook prompt:
+
+| step | wall | LLM calls |
+|---|---|---|
+| cold launch → ready (incl. 9s activation turn) | 20s | — |
+| q1, first visit to CRM (login) | 19.1s | 10 |
+| q3, first visit to billing (3-step login) | 24.7s | 14 |
+| q1 again, already logged in | 8.8s | 5 |
+| q5, first visit to helpdesk | 14.2s | 7 |
+| `docker pause` 90s → `unpause` (0.09s) → q3 | **7.9s** | 4 |
+| `docker pause` 600s → `unpause` (0.08s) → q5 | **8.2s** | 3 |
+
+Warm headless bot: 833 MiB RSS, 0.6% CPU idle. The WebSocket, harness, MCP
+servers and the logged-in Chrome all survived a 10-minute freeze.
+
+- **CRIU / `docker checkpoint` is not available here** (no `criu` on host or in
+  the sandbox; nested dockerd is not experimental) and was not tested. Known
+  risk areas: Chrome (sandbox, GPU process, shm), stale TCP to Helix and the
+  LLM on restore, the desktop GPU path, and customer tokens + cookies written
+  to disk in the image. Its only advantage over a freeze is freeing RAM.
+- Startup is not the latency problem for a per-customer warm bot: it is out of
+  the critical path. The critical path is **the login dance on a system's
+  first visit (10–15s) and the number of LLM round trips** (~1–2s each).
+- Helix's existing "paused" state is a *stopped* container
+  (`external-agent/idle_checker.go`); there is no in-memory freeze tier.
