@@ -22,6 +22,7 @@ func TestGenerateZedMCPConfigAllowsUnsandboxedCommands(t *testing.T) {
 		nil,
 		"",
 		nil,
+		true,
 	)
 	assert.NoError(t, err)
 	if assert.NotNil(t, config.Agent) {
@@ -43,6 +44,7 @@ func TestGenerateZedMCPConfigUsesPersistentChromeProfile(t *testing.T) {
 		nil,
 		"",
 		nil,
+		true,
 	)
 	assert.NoError(t, err)
 
@@ -278,6 +280,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				tc.snapshot,
 				"",
 				nil,
+				true,
 			)
 			assert.NoError(t, err)
 			if !assert.NotNil(t, cfg) || !assert.NotNil(t, cfg.Agent) {
@@ -321,6 +324,7 @@ func TestGenerateZedMCPConfigAddsDirectHelixOrgMCP(t *testing.T) {
 		nil,
 		"b-worker",
 		nil,
+		true,
 	)
 	assert.NoError(t, err)
 	assert.Equal(t, ContextServerConfig{
@@ -788,6 +792,7 @@ func TestGenerateZedMCPConfigAddsSpecTaskMCP(t *testing.T) {
 		nil,
 		"",
 		tools,
+		true,
 	)
 	assert.NoError(t, err)
 	assert.Equal(t, ContextServerConfig{
@@ -810,6 +815,7 @@ func TestGenerateZedMCPConfigOmitsSpecTaskMCPWithoutTools(t *testing.T) {
 		nil,
 		"",
 		nil,
+		true,
 	)
 	assert.NoError(t, err)
 	_, present := config.ContextServers["helix-tasks"]
@@ -819,4 +825,32 @@ func TestGenerateZedMCPConfigOmitsSpecTaskMCPWithoutTools(t *testing.T) {
 func TestAgentToolsRevIsOrderIndependentAndSensitive(t *testing.T) {
 	assert.Equal(t, AgentToolsRev([]string{"a", "b"}), AgentToolsRev([]string{"b", "a"}))
 	assert.NotEqual(t, AgentToolsRev([]string{"a", "b"}), AgentToolsRev([]string{"a", "b", "c"}))
+}
+
+// A headless sandbox's bridge serves no /mcp, so helix-desktop would only
+// 404; DeepSeek Harness fails session creation on any dead MCP server.
+func TestGenerateZedMCPConfig_HeadlessHasNoDesktopServer(t *testing.T) {
+	generate := func(hasDesktop bool) *ZedMCPConfig {
+		config, err := GenerateZedMCPConfig(
+			context.Background(),
+			&types.App{ID: "test-app"},
+			"user-1",
+			"session-1",
+			"http://api:8080",
+			"test-token",
+			false,
+			nil,
+			nil,
+			nil,
+			"",
+			nil,
+			hasDesktop,
+		)
+		assert.NoError(t, err)
+		return config
+	}
+
+	assert.NotContains(t, generate(false).ContextServers, "helix-desktop")
+	assert.Contains(t, generate(false).ContextServers, "chrome-devtools")
+	assert.Contains(t, generate(true).ContextServers, "helix-desktop")
 }
