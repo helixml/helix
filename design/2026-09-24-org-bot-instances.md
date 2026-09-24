@@ -135,6 +135,47 @@ instances through the same use case.
    - `callback_url` is delivered through Standard Webhooks;
    - an app key is bound to the bot.
 
+## Eval: instance vs bot session (2026-09-24)
+
+Same 12 questions (`questions_all.json`), playbook prompt, default
+chrome-devtools-mcp, GLM 5.3 Flash on `ds4-flash-node06`, both arms run back
+to back (`run_eval.py --tag cmp2-bot`, then `--tag cmp2-instance --instance`).
+
+**Ready for the first question** (fresh sandbox):
+
+| | bot session (restart + activation turn) | instance (create + one-line warm-up) |
+|---|---|---|
+| OpenCode | 18 s | 9 s |
+| DeepSeek Harness | 20 s | 8 s |
+
+A real instance skips even the warm-up, so it is ready sooner still.
+
+**Answering:**
+
+| | | pass | total | median | LLM calls | prompt tok/call |
+|---|---|---|---|---|---|---|
+| OpenCode | bot | 12/12 | 325 s | 25.3 s | 123 | 19.4k |
+| OpenCode | instance | 12/12 | 370 s | 28.0 s | 132 | 14.4k (−26%) |
+| DeepSeek Harness | bot | 12/12 | 546 s | 36.9 s | 167 | 24.5k |
+| DeepSeek Harness | instance | 12/12 | 822 s | 42.4 s | 178 | 19.4k (−21%) |
+
+- **One outlier in DeepSeek Harness's instance arm:** `h4_ticket_compare`
+  took 276 s. Only 85 s of that was LLM time; the rest was tool time
+  (browser), matching the browser-hang case in the evals doc. Without it:
+  505 s (bot) vs 546 s (instance).
+- **Reading:**
+  - The instance cuts start-up roughly in half.
+  - It trims the per-call prompt by ~5k tokens (21–26%).
+  - It changes neither accuracy nor per-question time, which stays within
+    the evals doc's 0.75–1.6× run-to-run noise.
+- **Why the prompt cut doesn't speed turns up:** the prompt is served from
+  the prefix cache (per-call time 1.93 → 1.94 s for OpenCode). Turn time is
+  set by the number of round trips (~10 per question).
+- **The lever for the < 10 s goal:** scripted lookups (evals thread item #1),
+  not further prompt trimming.
+- DeepSeek Harness tool calls are now visible in Helix (155–166 counted per
+  arm), where the evals doc's finding 7 had them invisible.
+
 ## Verification results (2026-09-24, dev stack, `unmanned-org`)
 
 Phase 1 was applied temporarily to the dev API and Hydra, then reverted.
