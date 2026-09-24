@@ -4,7 +4,7 @@
 // (browser only); everything here is opt-in. Changes save as they are made
 // and apply to each instance on its next sandbox start.
 
-import { FC, useState } from 'react'
+import { FC, useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
@@ -51,13 +51,20 @@ const BotInstanceProfileSettings: FC<{
   const { data: project } = useGetProject(projectID, !!projectID)
   const { data: catalogue = [] } = useListHelixOrgTools({ enabled: !!bot })
   const [editingTools, setEditingTools] = useState(false)
+  // Edits show immediately; the saved profile replaces them once it comes
+  // back, and a failed save rolls them back.
+  const savedProfile: BotInstanceProfile = bot?.instance_profile ?? { mcp_servers: ['chrome-devtools'], tools: [] }
+  const savedKey = JSON.stringify(savedProfile)
+  const [profile, setProfile] = useState<BotInstanceProfile>(savedProfile)
+  useEffect(() => {
+    setProfile(JSON.parse(savedKey) as BotInstanceProfile)
+  }, [savedKey])
 
   if (!bot?.id) return null
 
-  const profile: BotInstanceProfile = bot.instance_profile ?? { mcp_servers: ['chrome-devtools'], tools: [] }
   const mcpServers = profile.mcp_servers ?? []
   const tools = profile.tools ?? []
-  const disabled = readOnly || updateBot.isPending
+  const disabled = readOnly
   const projectServers = (project?.skills?.mcps ?? [])
     .map((mcp) => mcp.name || '')
     .filter((name) => !!name && !BUILT_IN_SERVERS.some((server) => server.name === name))
@@ -68,13 +75,13 @@ const BotInstanceProfileSettings: FC<{
   const toolOptions: ToolDTO[] = catalogue.filter((tool) => botTools.has(tool.name || ''))
 
   const save = async (patch: Partial<BotInstanceProfile>) => {
+    const next = { ...profile, mcp_servers: mcpServers, tools, ...patch }
+    setProfile(next)
     try {
-      await updateBot.mutateAsync({
-        id: bot.id ?? '',
-        instance_profile: { ...profile, mcp_servers: mcpServers, tools, ...patch },
-      })
+      await updateBot.mutateAsync({ id: bot.id ?? '', instance_profile: next })
       snackbar.success('Instance settings saved')
     } catch (error: any) {
+      setProfile(savedProfile)
       snackbar.error(error?.response?.data?.error ?? error?.message ?? 'Failed to save instance settings')
     }
   }

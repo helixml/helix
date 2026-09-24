@@ -70,6 +70,7 @@ import OrgAgentSessionWorkspace from '../components/helix-org/OrgAgentSessionWor
 import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
 import { useActivateBot, useApplyBotConfig, useHelixOrgBot, useRestartBotAgent, useStopBotAgent } from '../services/helixOrgService'
 import { isBotInstanceSessionMetadata } from '../components/session/ProjectChatSidebar.logic'
+import { deriveSandboxState } from '../components/external-agent/sandboxState'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -324,6 +325,29 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
     refetchInterval: 5000,
   })
   const orgBot = orgBotDetail?.bot
+
+  // A bot instance controls its own sandbox through the session endpoints.
+  const instanceSandboxState = isBotInstance ? deriveSandboxState(session?.data?.config).sandboxState : undefined
+  const instanceSandbox = isBotInstance && instanceSandboxState ? {
+    runtime: session?.data?.config?.sandbox_runtime,
+    state: instanceSandboxState === 'absent' ? 'stopped' as const
+      : instanceSandboxState === 'running' ? 'running' as const : 'starting' as const,
+  } : undefined
+  const [instanceLifecycleBusy, setInstanceLifecycleBusy] = useState(false)
+  const setInstanceSandboxRunning = async (running: boolean) => {
+    const id = session?.data?.id
+    if (!id) return
+    setInstanceLifecycleBusy(true)
+    try {
+      if (running) await api.getApiClient().v1SessionsResumeCreate(id)
+      else await api.getApiClient().v1SessionsStopExternalAgentDelete(id)
+      await refetchSession()
+    } catch (error: any) {
+      snackbar.error(error?.response?.data?.message || error?.message || `Failed to ${running ? 'start' : 'stop'} the sandbox`)
+    } finally {
+      setInstanceLifecycleBusy(false)
+    }
+  }
   const restartOrgBotAgent = useRestartBotAgent()
   const applyBotConfig = useApplyBotConfig()
   const activateOrgBotAgent = useActivateBot()
@@ -1689,10 +1713,15 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
           sessionId={session.data.id || sessionID}
           organizationId={(router.params.org_id as string) || session.data.organization_id || ''}
           bot={orgBot}
-          onStart={orgWorkerId ? () => { void activateOrgBotAgent.mutateAsync(orgWorkerId) } : undefined}
-          onStop={orgWorkerId ? () => { void stopOrgBotAgent.mutateAsync(orgWorkerId) } : undefined}
+          onStart={orgWorkerId
+            ? () => { void activateOrgBotAgent.mutateAsync(orgWorkerId) }
+            : instanceSandbox ? () => { void setInstanceSandboxRunning(true) } : undefined}
+          onStop={orgWorkerId
+            ? () => { void stopOrgBotAgent.mutateAsync(orgWorkerId) }
+            : instanceSandbox ? () => { void setInstanceSandboxRunning(false) } : undefined}
           onRestart={orgWorkerId ? () => { void restartOrgBotAgent.mutateAsync(orgWorkerId) } : undefined}
-          lifecycleBusy={orgBotLifecycleBusy}
+          lifecycleBusy={orgBotLifecycleBusy || instanceLifecycleBusy}
+          sessionSandbox={instanceSandbox}
           onAppendToChat={appendToChat}
         >
           {externalAgentChat}

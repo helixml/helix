@@ -104,6 +104,22 @@ instances through the same use case.
    - `callback_url` is delivered through Standard Webhooks;
    - an app key is bound to the bot.
 
+## Verification results (2026-09-24, dev stack, `unmanned-org`)
+
+Phase 1 was applied temporarily to the dev API and Hydra, then reverted.
+
+| Check | Result |
+|---|---|
+| Headless instance of `b-dubai-properties-broker` via REST | headless container; `AGENTS.md` = the bot prompt verbatim; `HELIX_SKILLS=none`, `~/.agents/skills` empty; context servers `[chrome-devtools]`; the instance's own key gets **403** on `/api/v1/mcp/helix-org` |
+| First turn on it (read-only: open the portal login page) | page title "Login" in 24.5 s including cold start; tools = browser + OpenCode built-ins, no Helix tools |
+| Profile `tools: [chat, read_events]`, desktop default | the existing instance's profile copy updated; a new instance started as a desktop; context servers `[chrome-devtools, helix]`; org `tools/list` = exactly `chat`, `read_events` |
+| chief-of-staff with `create/list/delete_bot_instance`, driven by chat | created, listed and deleted an instance in 12 s; container, workspace directory and session gone; other instances untouched |
+| UI | instances listed under the bot with a status dot; bot menu "New desktop / headless instance"; instance opens as its own chat; a headless instance has no Desktop tab; row and context-menu delete with confirmation; Instances settings section saves immediately |
+| Bot delete | deleting a bot with a running instance removed the instance's container, workspace and session |
+
+Not tested live: a refused delete by a plain member (every member of the test
+org is an owner or platform admin). Covered by `TestBotInstancesDeleteSuite`.
+
 ## Verification
 
 - Unit tests for the profile filter, the org MCP allow-list, the service and

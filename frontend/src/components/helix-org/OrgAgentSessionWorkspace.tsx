@@ -42,6 +42,12 @@ export interface OrgAgentSessionWorkspaceProps {
   onStop?: () => void
   onRestart?: () => void
   lifecycleBusy?: boolean
+  /**
+   * The session's own sandbox, for sessions without a bot (bot instances).
+   * Drives the headless layout and the Start/Stop controls in place of the
+   * bot's status.
+   */
+  sessionSandbox?: { runtime?: string; state: SandboxIndicatorState }
   /** Terminal "copy to chat" lands here; the parent appends it to the composer. */
   onAppendToChat?: (text: string) => void
   children: ReactNode
@@ -93,6 +99,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   onStop,
   onRestart,
   lifecycleBusy = false,
+  sessionSandbox,
   onAppendToChat,
   children,
 }) => {
@@ -108,8 +115,9 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   const collapseContentAfterSplitRef = useRef(false)
   const dividerColor = lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
 
-  const isHeadless = bot?.effective_sandbox_runtime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu
-  const indicatorState = botSandboxIndicatorState(bot)
+  const isHeadless = (bot ? bot.effective_sandbox_runtime : sessionSandbox?.runtime) === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu
+  const indicatorState = bot || !sessionSandbox ? botSandboxIndicatorState(bot) : sessionSandbox.state
+  const hasLifecycle = !!bot || !!sessionSandbox
   const desktopRunning = indicatorState === 'running'
   const starting = indicatorState === 'starting'
   const defaultView: TaskView = isHeadless ? 'changes' : 'desktop'
@@ -176,10 +184,10 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
       showDesktop={!isHeadless}
       onToggleTerminal={() => setTerminalOpen((open) => !open)}
       terminalOpen={terminalOpen}
-      showStart={!!bot && !!onStart && !desktopRunning && !starting}
+      showStart={hasLifecycle && !!onStart && !desktopRunning && !starting}
       onStart={onStart}
       startBusy={lifecycleBusy}
-      showStop={!!bot && !!onStop && desktopRunning}
+      showStop={hasLifecycle && !!onStop && desktopRunning}
       onStop={onStop}
       stopBusy={lifecycleBusy}
       showRestart={!!bot && !!onRestart}
