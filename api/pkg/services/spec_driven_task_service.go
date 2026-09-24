@@ -1704,8 +1704,9 @@ func (s *SpecDrivenTaskService) syncGitIdentityToUser(ctx context.Context, task 
 // The fix runs the same git plumbing the workspace-setup script would
 // have run, but at the point we actually know the branch name. Safe to
 // re-run: `checkout -B` works whether the branch exists locally,
-// remotely, or not at all; `push -u` is a no-op if the remote already
-// has it.
+// remotely, or not at all. The implementation agent creates the remote
+// branch with its first code push; pushing it here would falsely count
+// branch setup as implementation output.
 //
 // Failures are non-fatal: this is best-effort and the existing
 // pre-receive hook still stops genuinely-bad pushes to base. We log
@@ -1720,22 +1721,20 @@ func (s *SpecDrivenTaskService) ensureFeatureBranchInContainer(ctx context.Conte
 	}
 
 	// Single bash command so we get atomic chained semantics and one
-	// docker-exec round-trip. -B is idempotent. -u sets upstream once;
-	// subsequent runs are no-ops.
+	// docker-exec round-trip. -B is idempotent.
 	script := fmt.Sprintf(
-		"cd /home/retro/work/%s && git fetch origin %s && git checkout -B %s origin/%s && git push -u origin %s",
+		"cd /home/retro/work/%s && git fetch origin %s && git checkout -B %s origin/%s",
 		shellQuoteArg(repoName), shellQuoteArg(baseBranch),
 		shellQuoteArg(branchName), shellQuoteArg(baseBranch),
-		shellQuoteArg(branchName),
 	)
 	if err := s.ExecInDesktop(ctx, sessionID, []string{"bash", "-c", script}); err != nil {
-		return fmt.Errorf("git checkout/push feature branch: %w", err)
+		return fmt.Errorf("git checkout feature branch: %w", err)
 	}
 
 	log.Info().
 		Str("session_id", sessionID).Str("repo", repoName).
 		Str("branch", branchName).Str("base", baseBranch).
-		Msg("Feature branch checked out and pushed in container")
+		Msg("Feature branch checked out in container")
 	return nil
 }
 

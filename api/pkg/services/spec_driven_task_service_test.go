@@ -693,6 +693,7 @@ func TestSpecDrivenTaskService_ApproveSpecsUsesCustomBaseForNewBranch(t *testing
 	assert.Contains(t, checkoutCommand[2], "git fetch origin 'release/2.0'")
 	assert.Contains(t, checkoutCommand[2], "origin/'release/2.0'")
 	assert.NotContains(t, checkoutCommand[2], "origin/'main'")
+	assert.NotContains(t, checkoutCommand[2], "git push")
 	assert.Contains(t, approvalPrompt, "git fetch origin release/2.0 && git merge origin/release/2.0")
 	assert.NotContains(t, approvalPrompt, "git fetch origin main && git merge origin/main")
 }
