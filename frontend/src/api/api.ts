@@ -5975,6 +5975,12 @@ export interface TypesReasoningEffortProfile {
    * ones abort a turn.
    */
   rejected?: string[];
+  /**
+   * ResponsesOnly lists values accepted on /v1/responses but rejected on
+   * /v1/chat/completions. They are not in Supported: only a harness that
+   * speaks the Responses API may offer them.
+   */
+  responses_only?: string[];
   /** Source is how this entry was established. */
   source?: TypesEffortSource;
   /** Supported lists the values the model accepts and acts on. */

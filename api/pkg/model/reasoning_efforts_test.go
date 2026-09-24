@@ -89,6 +89,7 @@ func TestLookupMatchesLongestFamilyPrefix(t *testing.T) {
 		{"gpt-6-sol", "gpt-6-sol"},
 		{"openai/gpt-6-luna", "gpt-6-luna"},
 		{"gpt-6-astra", "gpt-6-astra"},
+		{"gpt-5.6-terra", "gpt-5.6"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.modelID, func(t *testing.T) {
@@ -123,6 +124,12 @@ func TestProfileTableIsWellFormed(t *testing.T) {
 			for _, rejected := range profile.Rejected {
 				assert.NotContains(t, profile.Supported, rejected,
 					"%q cannot be both supported and rejected", rejected)
+				assert.NotContains(t, profile.ResponsesOnly, rejected,
+					"%q cannot be both responses-only and rejected", rejected)
+			}
+			for _, responsesOnly := range profile.ResponsesOnly {
+				assert.NotContains(t, profile.Supported, responsesOnly,
+					"%q is rejected by chat completions, so it cannot be in Supported", responsesOnly)
 			}
 			if profile.SupportsEffort {
 				assert.NotEmpty(t, profile.Supported)
@@ -197,6 +204,18 @@ func TestGetModelInfoAppliesOverlay(t *testing.T) {
 		assert.Equal(t, []string{"high", "xhigh"}, info.SupportedReasoningEfforts)
 		assert.Equal(t, "high", info.DefaultReasoningEffort)
 	})
+}
+
+// TestOpenAIMaxIsResponsesOnly pins the API split: /v1/chat/completions
+// rejects max on GPT-5.6 and GPT-6, so it must never appear in Supported, which
+// is what chat-completions harnesses are offered.
+func TestOpenAIMaxIsResponsesOnly(t *testing.T) {
+	for _, modelID := range []string{"gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"} {
+		profile, ok := LookupReasoningEfforts(modelID)
+		require.True(t, ok, modelID)
+		assert.NotContains(t, profile.Supported, "max", modelID)
+		assert.Equal(t, []string{"max"}, profile.ResponsesOnly, modelID)
+	}
 }
 
 // TestGPT6AstraRejectsNone pins the one GPT-6 model with mandatory reasoning:

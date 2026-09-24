@@ -36610,6 +36610,13 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "responses_only": {
+                    "description": "ResponsesOnly lists values accepted on /v1/responses but rejected on\n/v1/chat/completions. They are not in Supported: only a harness that\nspeaks the Responses API may offer them.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "source": {
                     "description": "Source is how this entry was established.",
                     "allOf": [

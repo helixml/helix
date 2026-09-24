@@ -9481,6 +9481,14 @@ definitions:
         items:
           type: string
         type: array
+      responses_only:
+        description: |-
+          ResponsesOnly lists values accepted on /v1/responses but rejected on
+          /v1/chat/completions. They are not in Supported: only a harness that
+          speaks the Responses API may offer them.
+        items:
+          type: string
+        type: array
       source:
         allOf:
         - $ref: '#/definitions/types.EffortSource'
