@@ -357,6 +357,19 @@ describe('useAccountContext redirect logic', () => {
 
       expect(mockNavigateReplace).toHaveBeenCalledWith('login')
     })
+
+    it('does not redirect a scoped embed route to /login', async () => {
+      setupUnauthenticated()
+      mockRouterState.name = 'embed_task'
+
+      const { result } = renderHook(() => useAccountContext())
+
+      await waitFor(() => {
+        expect(result.current.initialized).toBe(true)
+      })
+
+      expect(mockNavigateReplace).not.toHaveBeenCalledWith('login')
+    })
   })
 
   describe('waiting for org data', () => {
