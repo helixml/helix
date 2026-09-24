@@ -411,7 +411,8 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 		return fmt.Errorf("failed to get latest task: %w", err)
 	}
 
-	if latestTask.Status != types.TaskStatusBacklog {
+	// An archived task must never be started, however it is queued.
+	if latestTask.Status != types.TaskStatusBacklog || latestTask.Archived {
 		return nil
 	}
 
@@ -714,7 +715,7 @@ func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, t
 	if err != nil {
 		return fmt.Errorf("failed to get latest queued task: %w", err)
 	}
-	if latestTask.Status != types.TaskStatusQueuedSpecGeneration {
+	if latestTask.Status != types.TaskStatusQueuedSpecGeneration || latestTask.Archived {
 		return nil
 	}
 
@@ -789,7 +790,7 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 	if err != nil {
 		return fmt.Errorf("failed to get latest queued task: %w", err)
 	}
-	if latestTask.Status != types.TaskStatusQueuedImplementation {
+	if latestTask.Status != types.TaskStatusQueuedImplementation || latestTask.Archived {
 		return nil
 	}
 

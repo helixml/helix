@@ -29,19 +29,43 @@ ZED_FOLDERS=()
 # Helper functions
 # =========================================
 
+launch_setup_terminal() {
+    launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
+    TERMINAL_PID=$!
+    echo "Setup terminal launched (PID $TERMINAL_PID)"
+}
+
+# Polls every 0.1s: setup usually takes 1-3s and this gate delays Zed's start.
+# The terminal outlives the setup script (it stays open for debugging, and
+# the script keeps it open on failure), so a dead terminal before the signal
+# means the terminal itself crashed — ghostty does when the Wayland compositor
+# is not ready yet. It is relaunched once.
 wait_for_setup_complete() {
     echo "Waiting for workspace setup to complete..."
-    local WAIT_COUNT=0
-    local MAX_WAIT=300  # 5 minutes max wait
+    local POLLS=0
+    local MAX_POLLS=3000  # 5 minutes max wait
+    local RELAUNCHED=0
 
     while [ ! -f "$COMPLETE_SIGNAL" ]; do
-        sleep 1
-        WAIT_COUNT=$((WAIT_COUNT + 1))
-        if [ $((WAIT_COUNT % 30)) -eq 0 ]; then
-            echo "Still waiting for setup... ($WAIT_COUNT seconds)"
+        if ! kill -0 "$TERMINAL_PID" 2>/dev/null && [ ! -f "$COMPLETE_SIGNAL" ]; then
+            if [ "$RELAUNCHED" -eq 1 ]; then
+                echo "FATAL: Setup terminal failed to start after retry."
+                exit 1
+            fi
+            echo "ERROR: Setup terminal (PID $TERMINAL_PID) exited before setup completed."
+            echo "This usually means the Wayland compositor was not ready."
+            echo "Retrying in 3 seconds..."
+            sleep 3
+            launch_setup_terminal
+            RELAUNCHED=1
         fi
-        if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
-            echo "FATAL: Workspace setup did not complete after ${MAX_WAIT}s."
+        sleep 0.1
+        POLLS=$((POLLS + 1))
+        if [ $((POLLS % 300)) -eq 0 ]; then
+            echo "Still waiting for setup... ($((POLLS / 10)) seconds)"
+        fi
+        if [ $POLLS -ge $MAX_POLLS ]; then
+            echo "FATAL: Workspace setup did not complete after $((MAX_POLLS / 10))s."
             echo "Check: cat /tmp/helix-workspace-setup.log"
             exit 1
         fi
@@ -336,25 +360,7 @@ start_zed_helix() {
     # - Startup script (if exists)
     # - Stays open as bash shell for debugging
     echo "Launching setup terminal..."
-    launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
-    TERMINAL_PID=$!
-    # Verify the terminal process actually started (ghostty can crash silently
-    # if the Wayland compositor isn't ready, which hangs wait_for_setup_complete)
-    sleep 1
-    if ! kill -0 "$TERMINAL_PID" 2>/dev/null; then
-        echo "ERROR: Setup terminal (PID $TERMINAL_PID) died immediately after launch."
-        echo "This usually means the Wayland compositor was not ready."
-        echo "Retrying in 3 seconds..."
-        sleep 3
-        launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
-        TERMINAL_PID=$!
-        sleep 1
-        if ! kill -0 "$TERMINAL_PID" 2>/dev/null; then
-            echo "FATAL: Setup terminal failed to start after retry."
-            exit 1
-        fi
-    fi
-    echo "Setup terminal launched (PID $TERMINAL_PID)"
+    launch_setup_terminal
 
     wait_for_setup_complete
 

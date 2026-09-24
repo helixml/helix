@@ -1649,7 +1649,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 			if planningSessionID != "" {
 				session, sessionErr := s.Store.GetSession(stopCtx, planningSessionID)
 				if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
-					stopErr := s.externalAgentExecutor.StopDesktop(stopCtx, planningSessionID)
+					stopErr := s.stopSessionAgent(stopCtx, planningSessionID, "spec task archived")
 					if stopErr != nil {
 						log.Warn().
 							Err(stopErr).

@@ -66,17 +66,19 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
         done
     ' 2>&1 | gosu retro sed -u 's/^/[ROOTLESS-PODMAN] /' &
 
+    # Polled every 0.1s: the engines are usually up within a second, and every
+    # tenth of a second here delays the agent's start.
     echo "[podman] Waiting for Docker-compatible API..."
-    for i in $(seq 1 30); do
+    for i in $(seq 1 300); do
         if DOCKER_HOST="unix://${PODMAN_SOCKET}" docker info >/dev/null 2>&1; then
             echo "[podman] Rootless container engine is ready (attempt ${i})"
             break
         fi
-        if [ "${i}" -eq 30 ]; then
+        if [ "${i}" -eq 300 ]; then
             echo "[podman] FATAL: rootless container engine not ready after 30s"
             exit 1
         fi
-        sleep 1
+        sleep 0.1
     done
 
     rm -f \
@@ -113,16 +115,16 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     ' 2>&1 | gosu retro sed -u 's/^/[ROOTLESS-BUILDKIT] /' &
 
     echo "[buildkit] Waiting for rootless BuildKit API..."
-    for i in $(seq 1 30); do
+    for i in $(seq 1 300); do
         if gosu retro buildctl --addr "unix://${BUILDKIT_SOCKET}" debug workers >/dev/null 2>&1; then
             echo "[buildkit] Rootless BuildKit is ready (attempt ${i})"
             break
         fi
-        if [ "${i}" -eq 30 ]; then
+        if [ "${i}" -eq 300 ]; then
             echo "[buildkit] FATAL: rootless BuildKit not ready after 30s"
             exit 1
         fi
-        sleep 1
+        sleep 0.1
     done
 
     if ! gosu retro env -u BUILDX_BUILDER \
@@ -265,16 +267,16 @@ EOF
 
     # Wait for socket to appear
     echo "[dockerd] Waiting for docker.sock..."
-    for i in $(seq 1 30); do
+    for i in $(seq 1 300); do
         if docker info &>/dev/null 2>&1; then
             echo "[dockerd] dockerd is ready (attempt $i)"
             break
         fi
-        if [ "$i" -eq 30 ]; then
+        if [ "$i" -eq 300 ]; then
             echo "[dockerd] FATAL: dockerd not ready after 30s"
             exit 1
         fi
-        sleep 1
+        sleep 0.1
     done
 
     # Add retro user to docker group (created by dockerd)

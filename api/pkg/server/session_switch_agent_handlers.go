@@ -613,11 +613,12 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 }
 
 func (apiServer *HelixAPIServer) detachSupersededExternalAgentThread(sessionID, threadID string) {
+	key := routeKey(apiServer.connectionForSession(sessionID), threadID)
 	apiServer.contextMappingsMutex.Lock()
 	defer apiServer.contextMappingsMutex.Unlock()
 
-	if threadID != "" && apiServer.contextMappings[threadID] == sessionID {
-		delete(apiServer.contextMappings, threadID)
+	if threadID != "" && apiServer.contextMappings[key] == sessionID {
+		delete(apiServer.contextMappings, key)
 	}
 	for requestID, mappedSessionID := range apiServer.requestToSessionMapping {
 		if mappedSessionID != sessionID {

@@ -259,6 +259,8 @@ func (r CodeAgentRuntime) ZedAgentName() string {
 		return "opencode"
 	case CodeAgentRuntimeDeepSeekHarness:
 		return "dsh"
+	case CodeAgentRuntimeGooseCode:
+		return "goose"
 	default: // CodeAgentRuntimeZedAgent or empty
 		return "zed-agent"
 	}

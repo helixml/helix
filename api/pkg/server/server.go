@@ -138,7 +138,7 @@ type HelixAPIServer struct {
 	externalAgentExecutor       external_agent.Executor
 	externalAgentWSManager      *ExternalAgentWSManager
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
-	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
+	contextMappings             map[threadRouteKey]string // (agent connection, ACP thread) -> Helix session_id
 	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	requestToInteractionMapping map[string]string // request_id -> interaction_id (for routing message_added/completed to correct interaction)
@@ -389,7 +389,7 @@ func NewServer(
 		externalAgentExecutor:      externalAgentExecutor,
 		externalAgentWSManager:     externalAgentWSManager,
 		externalAgentRunnerManager: externalAgentRunnerManager,
-		contextMappings:            make(map[string]string),
+		contextMappings:            make(map[threadRouteKey]string),
 
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
@@ -1223,7 +1223,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/skills/validate", system.DefaultWrapper(apiServer.handleValidateMcpSkill)).Methods("POST")
 	// External agent routes - desktop streaming and Zed agent communication
 	// Note: Session start/stop/resume use /sessions endpoints, not /external-agents
-	authRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")                                   // WebSocket: Zed agent bidirectional communication (chat, tool calls)
+	authRouter.HandleFunc("/external-agents/sync", apiServer.authorizeExternalAgentSync(apiServer.handleExternalAgentSync)).Methods("GET")                                   // WebSocket: Zed agent bidirectional communication (chat, tool calls)
 	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")              // Desktop screenshots for previews and fallback display
 	authRouter.HandleFunc("/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")                                              // Network throughput measurement for adaptive video bitrate
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")                // Read remote desktop clipboard to sync locally

@@ -111,6 +111,7 @@ func GenerateZedMCPConfig(
 	providerSnapshot []ProviderRef,
 	orgWorkerID string,
 	specTaskTools []string,
+	hasDesktop bool,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -280,12 +281,18 @@ func GenerateZedMCPConfig(
 	// server's /mcp route inside the sandbox container.
 	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard,
 	// list_windows, focus_window, maximize_window, tile_window, move_to_workspace, switch_to_workspace, get_workspaces
-	desktopMCPURL := fmt.Sprintf("%s/api/v1/mcp/desktop?session_id=%s", helixAPIURL, sessionID)
-	config.ContextServers["helix-desktop"] = ContextServerConfig{
-		URL: desktopMCPURL,
-		Headers: map[string]string{
-			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
-		},
+	//
+	// Headless sandboxes have no desktop and their bridge serves no /mcp, so
+	// the server would only 404: harnesses that tolerate a dead MCP server
+	// drop it, and DeepSeek Harness refuses to create the session at all.
+	if hasDesktop {
+		desktopMCPURL := fmt.Sprintf("%s/api/v1/mcp/desktop?session_id=%s", helixAPIURL, sessionID)
+		config.ContextServers["helix-desktop"] = ContextServerConfig{
+			URL: desktopMCPURL,
+			Headers: map[string]string{
+				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+			},
+		}
 	}
 
 	// 4. Add session MCP server (session navigation and context tools)
@@ -339,6 +346,11 @@ func GenerateZedMCPConfig(
 			"--chrome-arg=--no-first-run",
 			"--chrome-arg=--disable-infobars",
 			"--chrome-arg=--disable-extensions",
+			// chrome-devtools-mcp reports usage statistics and sends
+			// performance-trace URLs to Google's CrUX API by default;
+			// sandboxes must not phone home (air-gapped installs).
+			"--no-usage-statistics",
+			"--no-performance-crux",
 		},
 		Env: map[string]string{
 			// Point to the actual browser binary (Chromium on ARM64, Chrome on amd64).
