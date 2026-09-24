@@ -551,6 +551,22 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 						Str("zed_thread_id", targetThreadID).
 						Msg("[CONNECT] ✅ open_thread written directly to WebSocket")
 				}
+			} else {
+				// No thread to reopen: tell Zed so it reports agent_ready now
+				// instead of waiting out its 5-second open_thread timer, which
+				// every fresh session otherwise pays before its first turn.
+				wsConn.mu.Lock()
+				writeErr := wsConn.Conn.WriteJSON(types.ExternalAgentCommand{
+					Type: "no_open_thread",
+					Data: map[string]interface{}{"session_id": helixSessionID},
+				})
+				wsConn.mu.Unlock()
+				if writeErr != nil {
+					log.Error().
+						Str("session_id", helixSessionID).
+						Err(writeErr).
+						Msg("[CONNECT] Failed to write no_open_thread to WebSocket")
+				}
 			}
 		}
 	}

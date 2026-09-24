@@ -189,3 +189,37 @@ func TestResumeOnReconnect_LegacyAgentCannotReport_DoesNotResend(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.InteractionStateWaiting, reloaded.State)
 }
+
+// A session with no Zed thread gets no_open_thread on connect, so Zed reports
+// agent_ready at once instead of after its 5-second open_thread timer.
+func TestConnect_NoThread_SendsNoOpenThread(t *testing.T) {
+	mem := memorystore.New()
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	srv := NewTestServer(mem, ps)
+
+	session, err := mem.CreateSession(context.Background(), types.Session{
+		ID:        "ses_fresh_" + randSuffix(),
+		Owner:     "usr_fresh",
+		OwnerType: types.OwnerTypeUser,
+		Type:      types.SessionTypeText,
+		Mode:      types.SessionModeInference,
+		Metadata:  types.SessionMetadata{AgentType: "zed_external"},
+	})
+	require.NoError(t, err)
+
+	httpSrv := httptest.NewServer(srv.ExternalAgentSyncHandler())
+	token, err := srv.generateExternalAgentToken(session.ID)
+	require.NoError(t, err)
+	conn, _, err := websocket.DefaultDialer.Dial(
+		"ws"+strings.TrimPrefix(httpSrv.URL, "http")+"?session_id="+session.ID,
+		http.Header{"Authorization": []string{"Bearer " + token}},
+	)
+	require.NoError(t, err)
+	agent := &resumeTestAgent{t: t, conn: conn, server: httpSrv}
+	t.Cleanup(agent.close)
+
+	data := agent.awaitCommand("no_open_thread", 3*time.Second)
+	require.NotNil(t, data, "a session with no thread must get no_open_thread on connect")
+	require.Equal(t, session.ID, data["session_id"])
+}
