@@ -1408,6 +1408,25 @@ chown -R retro:retro /opt/helix/agent-cache
 OPENCODE_SMOKE_HOME="$(mktemp -d)"
 HOME="${OPENCODE_SMOKE_HOME}" /usr/local/bin/opencode --version
 rm -r "${OPENCODE_SMOKE_HOME}"
+# On first start opencode npm-installs its plugin SDK (@opencode-ai/plugin,
+# pinned to its own version) into its config directory: a ~10s registry
+# download every fresh sandbox paid before its first turn, and one that
+# cannot succeed air-gapped. Install it here into the config home
+# settings-sync-daemon points opencode at (OpenCodeConfigHome), as the agent
+# user, so first start finds it and skips the install. Data, cache, state and
+# npm's own cache go to a throwaway directory so nothing else lands in ~.
+OPENCODE_PREWARM="$(mktemp -d)"
+chown retro:retro "${OPENCODE_PREWARM}"
+runuser -u retro -- env HOME=/home/retro \
+  XDG_CONFIG_HOME=/home/retro/.config/helix-opencode \
+  XDG_DATA_HOME="${OPENCODE_PREWARM}/data" \
+  XDG_CACHE_HOME="${OPENCODE_PREWARM}/cache" \
+  XDG_STATE_HOME="${OPENCODE_PREWARM}/state" \
+  npm_config_cache="${OPENCODE_PREWARM}/npm" \
+  OPENCODE_CONFIG_CONTENT='{"autoupdate":false,"plugin":["file:///opt/helix/opencode-plugins/helix-media-budget.mjs"]}' \
+  /usr/local/bin/opencode debug config > /dev/null
+test -f "/home/retro/.config/helix-opencode/opencode/node_modules/@opencode-ai/plugin/package.json"
+rm -r "${OPENCODE_PREWARM}"
 _INSTALL_OPENCODE
 
 # DeepSeek Harness (dsh) ACP agent server, built in the dsh-build stage above.
