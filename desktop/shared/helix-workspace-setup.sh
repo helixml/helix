@@ -221,6 +221,30 @@ fi
 echo ""
 
 # =========================================
+# Start the Helix skills refresh (see "Helix agent skills" below)
+# =========================================
+# The fetch from upstream takes 1.5-2s and depends on nothing but the network,
+# so it runs alongside the repository clones; setup_helix_skills joins it.
+SKILLS_SEED=/opt/helix/skills
+SKILLS_DIR="$WORK_DIR/.helix-skills"
+SKILLS_DEFAULT="helix-cli helix-artifacts helix-spec-tasks helix-board helix-files"
+SKILLS_REPO="${HELIX_SKILLS_REPO:-https://github.com/helixml/skills.git}"
+SKILLS_REF="${HELIX_SKILLS_REF-main}"
+SKILLS_FETCH_PID=""
+SKILLS_FETCH_ERR=/dev/null
+if [ -d "$SKILLS_SEED/skills" ]; then
+    if [ ! -d "$SKILLS_DIR/.git" ]; then
+        rm -rf "$SKILLS_DIR"
+        cp -r "$SKILLS_SEED" "$SKILLS_DIR" || echo "  Skills: cannot copy seed $SKILLS_SEED -> $SKILLS_DIR"
+    fi
+    if [ -n "$SKILLS_REF" ] && [ -d "$SKILLS_DIR/.git" ]; then
+        SKILLS_FETCH_ERR=$(mktemp) || SKILLS_FETCH_ERR=/dev/null
+        GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$SKILLS_DIR" fetch -q --depth 1 "$SKILLS_REPO" "$SKILLS_REF" 2>"$SKILLS_FETCH_ERR" &
+        SKILLS_FETCH_PID=$!
+    fi
+fi
+
+# =========================================
 # Clone Repositories
 # =========================================
 if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
@@ -671,26 +695,15 @@ echo "  Claude: ~/.claude.json -> $CLAUDE_STATE_DIR/.claude.json"
 # Nothing in here may abort workspace setup (the script runs under set -e):
 # a broken or restructured skills checkout must cost the agent its skills, not
 # its desktop. Hence the function + explicit guards.
-SKILLS_SEED=/opt/helix/skills
-SKILLS_DIR="$WORK_DIR/.helix-skills"
-SKILLS_DEFAULT="helix-cli helix-artifacts helix-spec-tasks helix-board helix-files"
 setup_helix_skills() {
-    if [ ! -d "$SKILLS_DIR/.git" ]; then
-        rm -rf "$SKILLS_DIR"
-        cp -r "$SKILLS_SEED" "$SKILLS_DIR" || { echo "  Skills: cannot copy seed $SKILLS_SEED -> $SKILLS_DIR"; return 1; }
-    fi
-    local repo="${HELIX_SKILLS_REPO:-https://github.com/helixml/skills.git}"
-    local ref="${HELIX_SKILLS_REF-main}"
-    if [ -n "$ref" ]; then
-        local fetch_err
-        fetch_err=$(mktemp) || fetch_err=/dev/null
-        if GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$SKILLS_DIR" fetch -q --depth 1 "$repo" "$ref" 2>"$fetch_err" \
-            && git -C "$SKILLS_DIR" checkout -q --detach FETCH_HEAD; then
-            echo "  Skills: refreshed from $repo@$ref ($(git -C "$SKILLS_DIR" rev-parse --short HEAD 2>/dev/null))"
+    [ -d "$SKILLS_DIR/.git" ] || { echo "  Skills: no checkout at $SKILLS_DIR"; return 1; }
+    if [ -n "$SKILLS_FETCH_PID" ]; then
+        if wait "$SKILLS_FETCH_PID" && git -C "$SKILLS_DIR" checkout -q --detach FETCH_HEAD; then
+            echo "  Skills: refreshed from $SKILLS_REPO@$SKILLS_REF ($(git -C "$SKILLS_DIR" rev-parse --short HEAD 2>/dev/null))"
         else
-            echo "  Skills: refresh from $repo@$ref failed ($(tail -n1 "$fetch_err" 2>/dev/null)); keeping $(git -C "$SKILLS_DIR" rev-parse --short HEAD 2>/dev/null)"
+            echo "  Skills: refresh from $SKILLS_REPO@$SKILLS_REF failed ($(tail -n1 "$SKILLS_FETCH_ERR" 2>/dev/null)); keeping $(git -C "$SKILLS_DIR" rev-parse --short HEAD 2>/dev/null)"
         fi
-        [ "$fetch_err" != /dev/null ] && rm -f "$fetch_err"
+        [ "$SKILLS_FETCH_ERR" != /dev/null ] && rm -f "$SKILLS_FETCH_ERR"
     fi
     local selected="${HELIX_SKILLS:-$SKILLS_DEFAULT}"
     if [ "$selected" = "all" ]; then
