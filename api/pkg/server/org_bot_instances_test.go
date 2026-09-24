@@ -63,7 +63,6 @@ func callerCtx(userID string, role types.OrganizationRole) context.Context {
 func (s *BotInstancesDeleteSuite) TestOwnerDeletesSandboxWorkspaceAndSession() {
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_instance").Return(instanceSession(), nil)
 	gomock.InOrder(
-		s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_instance").Return(true),
 		s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_instance").Return(nil),
 		s.executor.EXPECT().DeleteWorkspace(gomock.Any(), "ses_instance", "sbx_host1").Return(nil),
 		s.store.EXPECT().DeleteSession(gomock.Any(), "ses_instance").Return(instanceSession(), nil),
@@ -74,7 +73,7 @@ func (s *BotInstancesDeleteSuite) TestOwnerDeletesSandboxWorkspaceAndSession() {
 
 func (s *BotInstancesDeleteSuite) TestOrgOwnerMayDeleteAnotherUsersInstance() {
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_instance").Return(instanceSession(), nil)
-	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_instance").Return(false)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_instance").Return(nil)
 	s.executor.EXPECT().DeleteWorkspace(gomock.Any(), "ses_instance", "sbx_host1").Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), "ses_instance").Return(instanceSession(), nil)
 
@@ -115,7 +114,7 @@ func (s *BotInstancesDeleteSuite) TestMissingSessionIsNotFound() {
 // retried rather than leaving an orphaned workspace behind.
 func (s *BotInstancesDeleteSuite) TestWorkspaceFailureKeepsSession() {
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_instance").Return(instanceSession(), nil)
-	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_instance").Return(false)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_instance").Return(nil)
 	s.executor.EXPECT().DeleteWorkspace(gomock.Any(), "ses_instance", "sbx_host1").Return(errors.New("sandbox offline"))
 
 	err := s.instances.Delete(callerCtx("usr_owner", types.OrganizationRoleMember), "org_one", "b-broker", "ses_instance")

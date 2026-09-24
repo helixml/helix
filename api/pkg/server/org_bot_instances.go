@@ -278,10 +278,10 @@ func (b botInstances) deleteSession(ctx context.Context, session *types.Session)
 	executor := b.server.externalAgentExecutor
 	// Read the host before stopping: a stop can clear it from the session.
 	sandboxID := session.SandboxID
-	if executor.HasRunningContainer(ctx, session.ID) {
-		if err := executor.StopDesktop(ctx, session.ID); err != nil {
-			return fmt.Errorf("stop instance sandbox: %w", err)
-		}
+	// Stop unconditionally: a crashed instance leaves an exited container that
+	// still blocks the workspace delete, and the stop also revokes its key.
+	if err := executor.StopDesktop(ctx, session.ID); err != nil {
+		return fmt.Errorf("stop instance sandbox: %w", err)
 	}
 	if err := executor.DeleteWorkspace(ctx, session.ID, sandboxID); err != nil {
 		return fmt.Errorf("delete instance workspace: %w", err)
