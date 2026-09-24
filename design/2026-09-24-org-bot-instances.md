@@ -1,7 +1,7 @@
 # Org Bot instances
 
 **Date:** 2026-09-24
-**Status:** in progress (branch `feat/org-bot-instances`)
+**Status:** in progress (branches `feat/org-bot-instances`, `feat/org-bot-instances-untrusted`)
 **Related:** `design/2026-09-24-untrusted-bot-mode.md`,
 `design/2026-09-24-lightweight-tasks.md` (earlier explorations; this
 supersedes their end-customer parts).
@@ -120,20 +120,67 @@ instances through the same use case.
 
 ## Phases
 
-1. **Instances (this PR):**
+1. **Instances:**
    - profile, API, sandbox/MCP/skills/`AGENTS.md` shaping;
    - delete with workspace wipe (new Hydra route);
    - bot delete cascade;
    - UI;
    - MCP tools for owner bots.
-2. **Untrusted key for instances:** a fail-closed allow-list, see
-   `untrusted-bot-mode.md` §1. Until then an instance's key is the usual
-   full session key, so instances are *minimal*, not yet *untrusted*.
-3. **Gateway entry:**
-   - `POST /api/v1/sessions/chat` with the bot's app id creates an instance;
-   - image/file parts go into `incoming/`;
-   - `callback_url` is delivered through Standard Webhooks;
-   - an app key is bound to the bot.
+2. **Untrusted key for instances** (done, see "Restricted key" below).
+3. **Gateway entry** (done, see "Gateway" below).
+
+## Restricted key
+
+An instance's sandbox gets an API key of type `bot_instance` instead of the
+owner's full session key (`GetOrCreateSessionAPIKey` picks the type from the
+session role). The allow-list is fail-closed and every denial is logged as
+"Bot instance key denied" with its method and path
+(`api/pkg/server/auth_bot_instance_key.go`):
+
+| Allowed | Condition |
+|---|---|
+| `/v1/chat/completions`, `/v1/responses`, `/v1/messages` (POST), `/v1/models` (GET) | — |
+| `/api/v1/sessions/{own}/zed-config` (GET), `zed-config/user`, `agent-startup-error`, `agent-config-applied` (POST) | own session only |
+| `/api/v1/ws/user`, `/api/v1/external-agents/sync` | `session_id` = own session |
+| `/api/v1/revdial` | `runnerid=desktop-{own}`, or a data connection's dialer token |
+| `/api/v1/mcp/helix-org` | the backend serves only the profile's tools |
+| `/api/v1/mcp/{session,desktop,kodit}`, `/api/v1/mcp/external/{name}` | only if the profile keeps that server |
+| git smart-HTTP | fetch/clone only, only the bot project's repositories |
+
+Everything else is denied: project/session/app/secret inventory, chatting
+into any session, git push. Embed keys are now also refused by the git
+server.
+
+## Gateway
+
+A third party (e.g. a WhatsApp gateway) drives instances through the
+existing chat API with an **app key bound to the bot's app**
+(`POST /api/v1/api_keys {"type":"app","app_id":"<bot app>"}`):
+
+1. `POST /api/v1/sessions/chat` without `session_id` creates a new instance
+   of that bot (owned by the key's owner, who must be an org member) and
+   runs the message as its first turn. The response carries the instance's
+   session id as `id`.
+2. Later messages pass `session_id`. An app key may only chat in sessions of
+   its own app.
+3. Inline attachments in the message are written to the instance's
+   `~/work/incoming/` and replaced by the same manifest the chat composer
+   sends after an upload, so the chat shows them as attachments:
+   - `{"type":"image_url","image_url":{"url":"data:image/png;base64,…"}}`
+   - `{"type":"file","file":{"filename":"contract.pdf","file_data":"data:application/pdf;base64,…"}}`
+
+   Only base64 `data:` URLs are accepted; Helix never fetches a URL for the
+   caller, and an unsupported part is a 400 rather than silently dropped.
+   The chat request body limit (10 MB) applies.
+4. Each completed instance turn emits a Standard Webhooks event
+   `bot_instance.turn_completed` to the org's endpoints (optionally scoped to
+   the bot's project). Unlike the other events it carries the reply text,
+   because a finished turn never changes and an app key cannot read
+   sessions back. Failed turns are retried by the prompt queue and do not
+   emit.
+
+The request's `callback_url` field is not used: delivery goes through the
+org's signed webhook endpoints instead of an unsigned per-request URL.
 
 ## Eval: instance vs bot session (2026-09-24)
 
@@ -200,8 +247,11 @@ A real instance skips even the warm-up, so it is ready sooner still.
   mock access log that would show logins surviving across threads was not
   recording.
 
-**Still open:** the harness leaks one idle MCP server process per cleared
-thread (the fix removes the lock conflict, not the leak).
+**The leak itself:** Zed never told the harness that a thread Helix cleared
+was gone, so DeepSeek Harness and Goose kept one idle MCP server per cleared
+thread. On clear, Helix now sends `close_thread` for the discarded thread
+when the agent is connected, and Zed closes that ACP session
+(`session/close`), which stops its MCP servers.
 
 ## Verification results (2026-09-24, dev stack, `unmanned-org`)
 
@@ -218,6 +268,19 @@ Phase 1 was applied temporarily to the dev API and Hydra, then reverted.
 
 Not tested live: a refused delete by a plain member (every member of the test
 org is an owner or platform admin). Covered by `TestBotInstancesDeleteSuite`.
+
+Restricted key and gateway, same stack, bot `sup-opencode-glm-headless`
+(OpenCode, GLM 5.3 Flash):
+
+| Check | Result |
+|---|---|
+| `/sessions/chat` with only an app key for the bot's app | new `org_bot_instance` session, key type `bot_instance`; reply in 8.7 s including sandbox cold start |
+| Follow-up with `session_id` | answered from the thread's context |
+| Same app key into another app's session | 403 |
+| Inline PNG + `file` part (text document) | both written to `~/work/incoming/` (`image-1.png`, `contract.txt`); prompt carries the manifest; rent read from the document. The image was refused by the agent because the dev stack's older `model_info.json` lacks `glm-5.3-flash` image input (this branch has it) |
+| Org webhook endpoint for `bot_instance.turn_completed`, project-scoped | delivered with the reply; Standard Webhooks signature verified against the endpoint secret |
+| Inside the instance sandbox, with its own key | `/projects`, `/sessions`, `/apps`, `/secrets` → 403; own `zed-config` → 200; LLM proxy passes auth; `git fetch` OK; `git push` → 403 "this API key may not access this repository" |
+| Headless and desktop instance turns (browser on the desktop one) | completed; the only "Bot instance key denied" lines were the deliberate probes above |
 
 ## Verification
 
