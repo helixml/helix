@@ -410,3 +410,26 @@ servers and the logged-in Chrome all survived a 10-minute freeze.
   first visit (10–15s) and the number of LLM round trips** (~1–2s each).
 - Helix's existing "paused" state is a *stopped* container
   (`external-agent/idle_checker.go`); there is no in-memory freeze tier.
+
+## Fix status (PR from branch `eval/browser-support-bot`)
+
+| Finding | Status |
+|---|---|
+| 0 ACP thread routing global | **Fixed**: routes keyed by (agent connection, thread); child sessions record their connection (`ExternalAgentID`); DB fallback limited to the connection owner's sessions; `thread_created` may only bind a session of the same owner. Live: two Goose bots used identical thread ids `20260924_1…4` concurrently, 6/6 answers, no cross-delivery. |
+| — sync WebSocket unauthorized | **Fixed** (found while fixing 0): any authenticated user could connect as any `session_id`, receive its commands and inject events; a second connection also displaces the live sandbox's registration. Now owner / admin / runner only. Live: non-admin key → 403 for a foreign session; real sandboxes reconnect as owners. |
+| 1 Goose never ran | **Fixed** (safe now that 0 is fixed). |
+| 2 `zed_agent` bots lose instructions | Open — plan W1 #1. |
+| 3 effort profiles | **Fixed**. |
+| 4 new org via API | Open — plan W1 #4. |
+| 5 `org bots chat` never-started bot | **Fixed**. |
+| 6 `llm_calls.interaction_id` n/a | Open — plan W1 #3. |
+| 7 DSH tool calls invisible | Open — plan W1 #2. |
+| 8 chrome-devtools-mcp 0.25.0 | Per-project override documented; global bump open. |
+| 10 headless browser | **Fixed**. |
+| 11 MCP telemetry | **Fixed**. |
+| 12 project skills for bots | **Fixed**. |
+| 13 root-owned `~/.npm` | **Fixed** (build-time installs use a throwaway cache). |
+| 14 TLS disabled | Open — plan W1 #7. |
+| 15 WIP slots after stop | Open — plan W1 #5. |
+| 16 archived task keeps running | **Fixed**: an archived task is never started from the backlog / queues. |
+| Spec-task first message has no browser | **Fixed in Zed** (`agent_servers`): stdio MCP servers are read from settings for `session/new` instead of the async runtime configuration. |
