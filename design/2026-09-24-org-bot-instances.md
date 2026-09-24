@@ -18,6 +18,37 @@ Instances are minimal by default. Tools and MCP servers are switched on per
 bot only when a use case needs them. Both desktop and headless sandboxes are
 supported.
 
+## Context from the browser-support evals
+
+The evals (`design/2026-09-24-browser-support-bot-evals.md`) and the PoC plan
+(`design/2026-09-24-support-bot-poc-plan.md`) established:
+
+- **Where the time goes.** A warm bot's simple answer (~20 s) is 9–11 LLM
+  calls. Each call re-sends a ~20k-token prompt, costing ~1–1.3 s even from
+  cache. Prefill is ~38% of a turn.
+- **What that thread proposed next:**
+  1. scripted lookups, one tool call per common question;
+  2. a smaller fixed prompt: drop the helix-org tools a support bot never
+     uses, make the trimmed browser tool set the default, shorten the base
+     prompt;
+  3. model-server tail latency;
+  4. keep logins warm;
+  5. cold path: skip the ~11 s activation turn.
+
+Instances are the vehicle for (2) and (5):
+
+- **(2):** the default profile removes every Helix MCP server (only the
+  browser stays) and replaces the helix-org preamble with the bare prompt.
+- **(5):** an instance has no activation turn.
+- **Per-customer isolation:** "one sandbox per customer" from the plan is one
+  instance per customer.
+- **Browser upgrade still applies:** the trimmed chrome-devtools-mcp 1.10.1
+  is a project MCP override named `chrome-devtools`, so the default profile
+  already keeps it.
+
+The before/after on the same 12-question mock set is under "Eval: instance vs
+bot session" below.
+
 ## What an instance is
 
 | Property | Value |
