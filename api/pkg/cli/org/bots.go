@@ -198,14 +198,22 @@ Examples:
 			if err := c.doJSON(ctx, http.MethodGet, "/orgs/"+orgID+"/bots/"+botID, nil, &detail, 30*time.Second); err != nil {
 				return err
 			}
-			projectID := detail.ProjectID
-			if projectID == "" {
-				return fmt.Errorf("bot %s has no project yet — try: helix org bots start %s", botID, botID)
+			if detail.ProjectID == "" && noStart {
+				return fmt.Errorf("bot %s has never been started — drop --no-start or run: helix org bots start %s", botID, botID)
 			}
-
 			if !noStart && detail.Bot.Status != "running" {
 				fmt.Fprintf(os.Stderr, "starting bot %s…\n", botID)
-				_ = c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/orgs/%s/bots/%s/activate", orgID, botID), nil, nil, 120*time.Second)
+				if err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/orgs/%s/bots/%s/activate", orgID, botID), nil, nil, 120*time.Second); err != nil {
+					return fmt.Errorf("start bot %s: %w", botID, err)
+				}
+				// Activation creates the bot's project on first start.
+				if err := c.doJSON(ctx, http.MethodGet, "/orgs/"+orgID+"/bots/"+botID, nil, &detail, 30*time.Second); err != nil {
+					return err
+				}
+			}
+			projectID := detail.ProjectID
+			if projectID == "" {
+				return fmt.Errorf("bot %s has no project after starting", botID)
 			}
 
 			sid := sessionID
