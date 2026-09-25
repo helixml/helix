@@ -10,6 +10,7 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  EllipsisVertical,
   ExternalLink,
   MessageSquare,
   Monitor,
@@ -160,10 +161,18 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
     onOpenSession()
   }
 
+  // Right-click opens the menu at the pointer; the row's actions button
+  // (the only way in on touch, where there is no right-click) opens it
+  // under the button.
   const openMenu = (event: MouseEvent<HTMLElement>, bot: SidebarBot) => {
     event.preventDefault()
     event.stopPropagation()
-    setMenu({ bot, mouseX: event.clientX, mouseY: event.clientY })
+    if (event.type === 'contextmenu') {
+      setMenu({ bot, mouseX: event.clientX, mouseY: event.clientY })
+      return
+    }
+    const rect = event.currentTarget.getBoundingClientRect()
+    setMenu({ bot, mouseX: rect.left, mouseY: rect.bottom })
   }
   const closeMenu = () => setMenu(null)
 
@@ -180,7 +189,6 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
           busy={busyBotId === bot.id}
           onToggle={() => onToggleBot(bot.id)}
           onOpen={() => openBot(bot)}
-          onOpenSettings={() => openSettings(bot)}
           onOpenMenu={(event) => openMenu(event, bot)}
           {...rowProps}
         />
@@ -250,7 +258,6 @@ type ProjectChatBotEntryProps = ItemRowProps & {
   busy: boolean
   onToggle: () => void
   onOpen: () => void
-  onOpenSettings: () => void
   onOpenMenu: (event: MouseEvent<HTMLElement>) => void
 }
 
@@ -265,7 +272,6 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   busy,
   onToggle,
   onOpen,
-  onOpenSettings,
   onOpenMenu,
   projects,
   query,
@@ -364,10 +370,10 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             color: sidebarColors.foreground,
             backgroundColor: active ? sidebarColors.rowSelected : sidebarColors.rowHover,
           },
-          '&:hover .sidebar-bot-settings, &:focus-within .sidebar-bot-settings': { opacity: 1 },
+          '&:hover .sidebar-bot-actions, &:focus-within .sidebar-bot-actions': { opacity: 1 },
           '&:hover .sidebar-bot-working, &:focus-within .sidebar-bot-working': { opacity: 0 },
           '@media (hover: none)': {
-            '& .sidebar-bot-settings': { opacity: 1 },
+            '& .sidebar-bot-actions': { opacity: 1 },
             '& .sidebar-bot-working': { opacity: 1 },
           },
         }}
@@ -500,7 +506,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
                 </Typography>
               </Tooltip>
             )}
-            <Tooltip title="Agent settings">
+            <Tooltip title="More actions">
               <Box
                 component="span"
                 sx={{
@@ -512,18 +518,15 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
                 }}
               >
                 <IconButton
-                  className="sidebar-bot-settings"
+                  className="sidebar-bot-actions"
                   size="small"
-                  aria-label={`Settings for ${bot.name}`}
-                  disabled={!bot.agentAppId}
+                  aria-label={`More actions for ${bot.name}`}
+                  aria-haspopup="menu"
                   onMouseOver={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onOpenSettings()
-                  }}
+                  onClick={onOpenMenu}
                   sx={{ width: 24, height: 24, opacity: 0, color: 'inherit', transition: 'opacity 100ms ease' }}
                 >
-                  <Settings size={14} />
+                  <EllipsisVertical size={14} />
                 </IconButton>
               </Box>
             </Tooltip>

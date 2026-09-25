@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ProjectChatBotEntry } from './ProjectChatBotsGroup'
@@ -25,7 +25,7 @@ vi.mock('../../hooks/useApps', () => ({
   default: () => ({ apps: [] }),
 }))
 
-const renderBot = (bot: SidebarBot, activeItemId = '', collapsed = true) => render(
+const renderBot = (bot: SidebarBot, activeItemId = '', collapsed = true, onOpenMenu = vi.fn()) => render(
   <ProjectChatBotEntry
     orgId="org-one"
     bot={bot}
@@ -40,8 +40,7 @@ const renderBot = (bot: SidebarBot, activeItemId = '', collapsed = true) => rend
     archivingItemId={null}
     onToggle={vi.fn()}
     onOpen={vi.fn()}
-    onOpenSettings={vi.fn()}
-    onOpenMenu={vi.fn()}
+    onOpenMenu={onOpenMenu}
     onOpenItem={vi.fn()}
     onOpenItemContextMenu={vi.fn()}
     onArchiveItem={vi.fn()}
@@ -49,6 +48,16 @@ const renderBot = (bot: SidebarBot, activeItemId = '', collapsed = true) => rend
 )
 
 describe('ProjectChatBotEntry', () => {
+  // Touch screens have no right-click, so the bot menu (new instances,
+  // settings) must be reachable from a visible button.
+  it('opens the bot menu from its actions button', () => {
+    const onOpenMenu = vi.fn()
+    renderBot({ id: 'chief', name: 'Chief of Staff', running: true, working: false, restartRequired: false }, '', true, onOpenMenu)
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Chief of Staff' }))
+    expect(onOpenMenu).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps the online dot with a trailing working label', () => {
     const { container } = renderBot({
       id: 'chief',
@@ -63,7 +72,7 @@ describe('ProjectChatBotEntry', () => {
     expect(workingLabel).toHaveTextContent('Working')
     expect(workingLabel).toHaveStyle({ color: '#34d399' })
     expect(trailingSlot).toContainElement(workingLabel)
-    expect(trailingSlot).toContainElement(screen.getByRole('button', { name: 'Settings for Chief of Staff' }))
+    expect(trailingSlot).toContainElement(screen.getByRole('button', { name: 'More actions for Chief of Staff' }))
     expect(container.querySelector('[data-bot-status="running"]')).toBeInTheDocument()
   })
 
