@@ -245,7 +245,7 @@ services:
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
-      - SANDBOX_INSTANCE_ID=local
+      - SANDBOX_INSTANCE_ID=${SANDBOX_INSTANCE_ID:-local}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
@@ -343,7 +343,7 @@ services:
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
-      - SANDBOX_INSTANCE_ID=local
+      - SANDBOX_INSTANCE_ID=${SANDBOX_INSTANCE_ID:-local}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
@@ -439,7 +439,7 @@ services:
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
-      - SANDBOX_INSTANCE_ID=local
+      - SANDBOX_INSTANCE_ID=${SANDBOX_INSTANCE_ID:-local}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
@@ -529,7 +529,7 @@ services:
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
-      - SANDBOX_INSTANCE_ID=local
+      - SANDBOX_INSTANCE_ID=${SANDBOX_INSTANCE_ID:-local}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
