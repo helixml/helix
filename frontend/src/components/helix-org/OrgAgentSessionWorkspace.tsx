@@ -34,6 +34,7 @@ import SpecTaskTerminalDrawer from '../tasks/SpecTaskTerminalDrawer'
 import SpecTaskViewToolbar, { TaskView, toolbarIconButtonSx } from '../tasks/SpecTaskViewToolbar'
 import TaskSessionPlaceholder from '../tasks/TaskSessionPlaceholder'
 import OrgAgentSettingsPane from './OrgAgentSettingsPane'
+import SessionUsagePanel from '../usage/SessionUsagePanel'
 
 export interface OrgAgentSessionWorkspaceProps {
   sessionId: string
@@ -67,7 +68,7 @@ const CONTENT_COLLAPSED_STORAGE_PREFIX = 'helix.orgAgentSession.contentCollapsed
 const CHAT_COLLAPSED_STORAGE_PREFIX = 'helix.orgAgentSession.chatCollapsed.'
 const TERMINAL_OPEN_STORAGE_PREFIX = 'helix.orgAgentSession.terminalOpen.'
 const DEFAULT_TERMINAL_HEIGHT = 280
-const VALID_VIEWS: TaskView[] = ['chat', 'desktop', 'browser', 'changes', 'files', 'agents', 'details']
+const VALID_VIEWS: TaskView[] = ['chat', 'desktop', 'browser', 'changes', 'files', 'agents', 'usage', 'details']
 
 const loadView = (key: string): TaskView | null => {
   if (!key) return null
@@ -234,6 +235,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
       showRestart={!!bot && !!onRestart}
       onRestart={onRestart}
       restartBusy={lifecycleBusy}
+      showUsage
       detailsLabel="Settings"
       onRestoreSplit={singlePanel ? () => updateChatCollapsed(false) : undefined}
       onCollapsePanel={isBigScreen ? collapseContentPanel : undefined}
@@ -273,6 +275,8 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
             desktopUnavailableDetail={bot?.sandbox_status_message}
           />
         )
+      case 'usage':
+        return <SessionUsagePanel sessionId={sessionId} />
       case 'details':
         if (bot) {
           return <OrgAgentSettingsPane bot={bot} sessionId={sessionId} organizationId={organizationId} indicatorState={indicatorState} />
@@ -322,8 +326,8 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
           minWidth: 0,
           display: 'flex',
           flexDirection: 'column',
-          overflow: view === 'details' ? 'auto' : 'hidden',
-          p: view === 'details' ? 2 : 0,
+          overflow: view === 'details' || view === 'usage' ? 'auto' : 'hidden',
+          p: view === 'details' || view === 'usage' ? 2 : 0,
         }}
       >
         {shownSurface}

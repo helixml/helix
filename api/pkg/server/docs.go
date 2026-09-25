@@ -19438,6 +19438,37 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Spend, tokens, latency and prompt-cache hit ratio of one session, overall, per turn and per LLM call.",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get a session's LLM usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionUsage"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/workspace-status": {
             "get": {
                 "security": [
@@ -28802,23 +28833,23 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "gitlab",
+                "webhook",
+                "local",
+                "cron",
                 "github",
                 "helix_events",
-                "email",
                 "slack",
-                "webhook",
-                "cron",
-                "local"
+                "email"
             ],
             "x-enum-varnames": [
                 "KindGitLab",
+                "KindWebhook",
+                "KindLocal",
+                "KindCron",
                 "KindGitHub",
                 "KindHelixEvents",
-                "KindEmail",
                 "KindSlack",
-                "KindWebhook",
-                "KindCron",
-                "KindLocal"
+                "KindEmail"
             ]
         },
         "transport.ResolvedActivation": {
@@ -28879,13 +28910,15 @@ const docTemplate = `{
                 "",
                 "api",
                 "app",
-                "embed"
+                "embed",
+                "bot_instance"
             ],
             "x-enum-varnames": [
                 "APIkeytypeNone",
                 "APIkeytypeAPI",
                 "APIkeytypeApp",
-                "APIkeytypeEmbed"
+                "APIkeytypeEmbed",
+                "APIkeytypeBotInstance"
             ]
         },
         "types.AccessGrant": {
@@ -38886,6 +38919,158 @@ const docTemplate = `{
                 "SessionTypeText",
                 "SessionTypeImage"
             ]
+        },
+        "types.SessionUsage": {
+            "type": "object",
+            "properties": {
+                "calls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionUsageCall"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "summary": {
+                    "$ref": "#/definitions/types.SessionUsageSummary"
+                },
+                "truncated": {
+                    "description": "Truncated is set when the session has more calls than the endpoint returns;\nthe summary then covers only the returned calls.",
+                    "type": "boolean"
+                },
+                "turns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionUsageTurn"
+                    }
+                }
+            }
+        },
+        "types.SessionUsageCall": {
+            "type": "object",
+            "properties": {
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "time_to_first_token_ms": {
+                    "type": "integer"
+                },
+                "total_cost": {
+                    "type": "number"
+                }
+            }
+        },
+        "types.SessionUsageSummary": {
+            "type": "object",
+            "properties": {
+                "cache_hit_ratio": {
+                    "description": "CacheHitRatio is cache-read / prompt tokens; nil when there were no prompt tokens.",
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
+                "calls": {
+                    "type": "integer"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "duration_p50_ms": {
+                    "type": "integer"
+                },
+                "duration_p90_ms": {
+                    "type": "integer"
+                },
+                "llm_ms": {
+                    "description": "LLMMs is the summed duration of the calls (calls can overlap, so this can exceed wall time).",
+                    "type": "integer"
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "total_cost": {
+                    "type": "number"
+                },
+                "ttft_p50_ms": {
+                    "type": "integer"
+                },
+                "ttft_p90_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SessionUsageTurn": {
+            "type": "object",
+            "properties": {
+                "cache_hit_ratio": {
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "calls": {
+                    "type": "integer"
+                },
+                "completed": {
+                    "type": "string"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "llm_ms": {
+                    "type": "integer"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "started": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "total_cost": {
+                    "type": "number"
+                }
+            }
         },
         "types.SkillDefinition": {
             "type": "object",
