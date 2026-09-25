@@ -7,7 +7,7 @@ import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 
 import useRouter from '../hooks/useRouter'
 import { appendPromptDraft } from '../hooks/usePromptHistory'
-import { useActivateBot, useListHelixOrgBots } from '../services/helixOrgService'
+import { useActivateBot, useHelixOrgBot } from '../services/helixOrgService'
 import { consumeOrgBotChatDraft } from '../components/helix-org/orgBotChatDraft'
 import { CHIEF_OF_STAFF_BOT_ID } from '../utils/organizations'
 import Session from './Session'
@@ -20,18 +20,22 @@ export default function OrgBotSessionResolver() {
   const attemptedBot = useRef('')
   const [activationErrorBotKey, setActivationErrorBotKey] = useState('')
   const [readySession, setReadySession] = useState<{ botKey: string; sessionID: string } | null>(null)
+  const [introConfirmedBotKey, setIntroConfirmedBotKey] = useState('')
   const {
-    data: bots = [],
-    isLoading: botsLoading,
-    isError: listError,
+    data: botDetail,
+    isLoading: botLoading,
+    isFetching: botFetching,
+    isError: botError,
+    error: botQueryError,
     refetch,
-  } = useListHelixOrgBots({
+  } = useHelixOrgBot(botID || undefined, {
     enabled: !!orgID && !!botID,
     refetchInterval: readySession?.botKey === botKey ? 10000 : 2000,
   })
-  const bot = bots.find((candidate) => candidate.id === botID)
+  const bot = botDetail?.bot
   const agentName = bot?.name || botID
   const sessionID = bot?.session_id || ''
+  const botNotFound = (botQueryError as { response?: { status?: number } } | null)?.response?.status === 404
   const activateBot = useActivateBot(orgID)
   const currentStage = sessionID ? 2 : bot ? 1 : 0
   const stages = [
@@ -49,17 +53,23 @@ export default function OrgBotSessionResolver() {
   }, [botID, orgID, sessionID])
 
   useEffect(() => {
-    if (!bot?.id || sessionID || attemptedBot.current === botKey
+    if (botFetching || botError || !bot?.id || sessionID || attemptedBot.current === botKey
       || bot.status === 'running' || bot.status === 'starting') return
     attemptedBot.current = botKey
     setActivationErrorBotKey('')
     activateBot.mutateAsync(botID).catch(() => setActivationErrorBotKey(botKey))
-  }, [bot?.id, bot?.status, botID, orgID, sessionID]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [bot?.id, bot?.status, botFetching, botError, botID, orgID, sessionID]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (listError || botsLoading || bot || botID !== CHIEF_OF_STAFF_BOT_ID || !orgID) return
+    if (!botNotFound || botID !== CHIEF_OF_STAFF_BOT_ID || !orgID) return
     router.navigateReplace('org_chat', { org_id: orgID })
-  }, [bot, botID, botsLoading, listError, orgID]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [botNotFound, botID, orgID]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (router.params.intro !== '1' || botFetching || botError || !bot?.id || sessionID
+      || bot.status === 'running' || bot.status === 'starting') return
+    setIntroConfirmedBotKey(botKey)
+  }, [router.params.intro, botFetching, botError, bot?.id, bot?.status, botID, orgID, sessionID])
 
   const retryActivation = () => {
     setActivationErrorBotKey('')
@@ -70,8 +80,8 @@ export default function OrgBotSessionResolver() {
     return <Session key={sessionID} orgChatView sessionId={sessionID} />
   }
 
-  const showIntroduction = !!bot && !sessionID && !botsLoading
-    && bot.status !== 'running' && bot.status !== 'starting'
+  const showIntroduction = router.params.intro === '1' && introConfirmedBotKey === botKey && !sessionID
+    && bot?.status !== 'running' && bot?.status !== 'starting'
 
   return (
     <Box
@@ -84,10 +94,10 @@ export default function OrgBotSessionResolver() {
         gap: 2,
       }}
     >
-      {listError || (!botsLoading && !bot) ? (
+      {botError || (!botLoading && !botFetching && !bot) ? (
         <>
           <Typography color="error" role="alert">
-            Could not find this agent.
+            {botError && !botNotFound ? 'Could not load this agent.' : 'Could not find this agent.'}
           </Typography>
           <Button
             variant="contained"

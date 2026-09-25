@@ -334,6 +334,7 @@ describe('Onboarding', () => {
     expect(mockNavigateReplace).toHaveBeenCalledWith('org_bot_session', {
       org_id: 'my-org',
       bot_id: 'chief-of-staff',
+      intro: '1',
     })
     expect(mockUpdateHarnesses).not.toHaveBeenCalled()
   })
@@ -423,6 +424,7 @@ describe('Onboarding', () => {
       expect(mockNavigateReplace).toHaveBeenCalledWith('org_bot_session', {
         org_id: 'my-org',
         bot_id: 'chief-of-staff',
+        intro: '1',
       })
     })
     expect(mockUpdateHarnesses).toHaveBeenCalledWith([{
@@ -699,7 +701,7 @@ describe('Onboarding', () => {
 
     await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
       'org_bot_session',
-      { org_id: 'my-org', bot_id: 'chief-of-staff' },
+      { org_id: 'my-org', bot_id: 'chief-of-staff', intro: '1' },
     ))
     expect(mockUpdateHarnesses).not.toHaveBeenCalled()
   })
@@ -727,7 +729,7 @@ describe('Onboarding', () => {
 
     await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
       'org_bot_session',
-      { org_id: 'new-org', bot_id: 'chief-of-staff' },
+      { org_id: 'new-org', bot_id: 'chief-of-staff', intro: '1' },
     ))
   })
 
@@ -850,7 +852,7 @@ describe('Onboarding', () => {
 
     await waitFor(() => expect(mockNavigateReplace).toHaveBeenCalledWith(
       'org_bot_session',
-      { org_id: 'new-org', bot_id: 'chief-of-staff' },
+      { org_id: 'new-org', bot_id: 'chief-of-staff', intro: '1' },
     ))
   })
 
