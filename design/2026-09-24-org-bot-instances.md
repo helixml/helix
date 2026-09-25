@@ -350,3 +350,30 @@ Restricted key and gateway, same stack, bot `sup-opencode-glm-headless`
     through its MCP tools.
   - **Delete:** the container and workspace directory are gone and the bot
     still works.
+
+## Regression QA through the UI (2026-09-25, dev stack on this branch)
+
+Run as `test@helix.ml` in `unmanned-org`, driving the UI with Playwright.
+
+| Area | What was exercised | Result |
+|---|---|---|
+| Coding task, skip planning | new task form (Zed Agent, glm-5.3-flash) → implementation; session key type, container isolation, git push | `api` key scoped to the project; desktop still privileged with its Docker volume; agent pushed its commit to the feature branch |
+| Coding task follow-up with attachment | composer attach + send (upload path refactored into `uploadToSandbox`) | file in `incoming/`, manifest in the prompt, agent answered from the file |
+| Clear, then next turn | `POST /sessions/{id}/clear` on the coding task, next message from the UI | fresh thread answered; Zed received `close_thread` (Zed Agent can't close sessions, so Zed only drops its references, as designed) |
+| Full planning flow | new task with planning → spec review page → Approve dialog → implementation | spec pushed to `helix-specs`; approval moved to implementation; implementation pushed its commit |
+| Browser in a coding desktop | shared-Chrome MCP wrapper on a privileged GNOME desktop | page opened in Chrome on the desktop; title returned |
+| Project Manager chat | project "New Chat" (helix agent over `/sessions/chat`), follow-up | both turns answered |
+| Bot main session | sidebar → bot chat → message | `api` key (not the instance key); reply received |
+| Agent settings | ⋮ → Agent settings | settings page with the Instances section |
+| Bot delete cascade | new bot → instance from ⋮ → "Delete org bot" | bot, instance session, key, container and workspace removed |
+| Sidebar | bots, instances, people, tasks, Archived view; iPad and phone touch | ⋮ visible and working on touch; instance and task row actions visible without hover |
+
+No "Bot instance key denied" lines for any non-instance session during the run.
+
+Pre-existing issues found, not caused by this branch:
+
+- **Archived view lists live tasks.** `useSpecTasks` sends `include_archived` for the Archived view, which returns archived *and* live tasks.
+- **Opening a direct org link on a device with no saved org switches org.** `UserOrgSelector` auto-selects the first org when localStorage has no `selected_org`, ignoring the org in the URL. On phones it mounts when the drawer opens, so the first drawer open jumps to another org.
+- **First interaction's `created` is re-stamped** on each later `/sessions/chat` call (18 sessions show it, instances and others).
+- An API client posted 21 empty `POST /sessions/{id}/messages` requests (400 "content is required") to a Dubai broker instance; no frontend code calls that route.
+
