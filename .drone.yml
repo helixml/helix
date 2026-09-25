@@ -2482,3 +2482,30 @@ steps:
       - apt-get update -qq
       - apt-get install -y -qq curl ca-certificates openssh-client > /dev/null
       - scripts/deploy-prod.sh "$DRONE_TAG"
+
+---
+kind: pipeline
+type: docker
+name: deploy-meta
+
+depends_on:
+  - build-sandbox-amd64
+
+trigger:
+  event:
+    - push
+  ref:
+    include:
+      - refs/heads/main
+  status:
+    - success
+
+steps:
+  - name: deploy-meta
+    image: alpine:3.21
+    environment:
+      META_DEPLOY_SSH_KEY:
+        from_secret: meta_deploy_ssh_key
+    commands:
+      - apk add --no-cache bash openssh-client
+      - scripts/deploy-meta.sh "$DRONE_COMMIT_SHA"
