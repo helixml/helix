@@ -366,6 +366,26 @@ Anything under `api/pkg/org/` is the org-graph runtime (Workers, Positions, Role
 - **Social enforcement first.** A Worker reads scope from its prompt and complies. Reach for hard enforcement only when the cost of a violation is high.
 - **Keep the core generic.** Tool definitions and scope shapes live with the tool, not in the registry, server, or domain layer. New tools must be addable without editing the core.
 
+## Worktrees
+
+Clear merged worktrees before creating a new one and after your PR merges:
+
+```bash
+scripts/prune-merged-worktrees.sh           # dry run: what would go, and why the rest stays
+scripts/prune-merged-worktrees.sh --apply
+```
+
+It removes a worktree only when its branch is merged into `origin/main` (or GitHub has a
+merged PR for it — squash merges leave no ancestor link), it has no uncommitted or untracked
+changes, and none of its commits are missing from the remote. Detached HEADs and T3 Code
+worktrees (`~/.t3/worktrees`) are never touched; root-owned build output (`api/tmp/` from
+air in containers) is removed through a throwaway container. Create worktrees as
+`~/worktrees/helix-<topic>` — not under `/tmp` (tmpfs; entries go stale) or `~/.cache`.
+
+A full host disk breaks the dev stack in a non-obvious way: Hydra refuses to start sandboxes
+below 2% free (`hydra API error (status 507) … disk space critically low` in the API log), and
+chats only report "external agent not ready" after 5 minutes.
+
 ## Dev Environment (Helix-in-Helix)
 
 **`helix-4` is a symlink to `helix`** — they are the same directory. Always use `/home/retro/work/helix/`.
