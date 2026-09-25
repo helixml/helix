@@ -857,8 +857,11 @@ func (apiServer *HelixAPIServer) uploadToSandbox(ctx context.Context, user *type
 		return nil, &system.HTTPError{StatusCode: http.StatusServiceUnavailable, Message: "Executor not available"}
 	}
 
-	_, err := apiServer.externalAgentExecutor.FindContainerBySessionID(ctx, sessionID)
-	waitForDesktop := err != nil
+	// The session row keeps its container name after the desktop stops, so it
+	// cannot tell a live sandbox from a stopped one. Ask the sandbox, as
+	// StartDesktop does; otherwise a stopped session skips the resume below and
+	// the upload fails with "no connection".
+	waitForDesktop := !apiServer.externalAgentExecutor.HasRunningContainer(ctx, sessionID)
 	if waitForDesktop {
 		if session.Metadata.AgentType != "zed_external" {
 			return nil, system.NewHTTPError400("only external agent sessions accept workspace uploads")
