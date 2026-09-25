@@ -17,6 +17,7 @@ printf '%s\n' 'node01.lukemarsden.net ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJAfN0
 
 ssh \
   -i "$KEY_FILE" \
+  -o BatchMode=yes \
   -o IdentitiesOnly=yes \
   -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
@@ -28,10 +29,24 @@ set -euo pipefail
 
 TARGET_SHA=$1
 exec 9>/tmp/helix-meta-deploy.lock
-flock 9
+if ! flock -w 3600 9; then
+  echo "Timed out after 1 hour waiting for another Meta deployment" >&2
+  exit 1
+fi
 
 HELIX_DIR=/prod/home/luke/pm/helix
 ZED_DIR=/prod/home/luke/pm/zed
+PRE_DEPLOY_SHA=$(git -C "$HELIX_DIR" rev-parse HEAD)
+
+report_failure() {
+  status=$?
+  if (( status != 0 )); then
+    echo "Meta deployment failed. Pre-deploy Helix SHA: $PRE_DEPLOY_SHA" >&2
+    echo "Inspect Meta and restore that SHA manually if recovery is required." >&2
+  fi
+}
+trap report_failure EXIT
+echo "Pre-deploy Helix SHA: $PRE_DEPLOY_SHA"
 
 for repo in "$HELIX_DIR" "$ZED_DIR"; do
   branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD) || {
@@ -55,7 +70,7 @@ git -C "$HELIX_DIR" merge-base --is-ancestor "$TARGET_SHA" origin/main || {
   exit 1
 }
 
-CURRENT_SHA=$(git -C "$HELIX_DIR" rev-parse HEAD)
+CURRENT_SHA=$PRE_DEPLOY_SHA
 if git -C "$HELIX_DIR" merge-base --is-ancestor "$TARGET_SHA" "$CURRENT_SHA"; then
   if [[ "$CURRENT_SHA" != "$TARGET_SHA" ]]; then
     echo "Meta is ahead of $TARGET_SHA at $CURRENT_SHA; refusing to report a stale deployment" >&2
@@ -81,7 +96,8 @@ if [[ $(git rev-parse HEAD) != "$TARGET_SHA" ]]; then
   exit 1
 fi
 for _ in $(seq 1 60); do
-  if curl -fsS --max-time 10 http://localhost:8080/healthz >/dev/null; then
+  if curl -fsS --max-time 10 -D - -o /dev/null http://localhost:8080/api/v1/config \
+    | grep -Eiq '^content-type:[[:space:]]*application/json([[:space:]]*;|[[:space:]]*$)'; then
     echo "Meta is healthy at $TARGET_SHA"
     exit 0
   fi
