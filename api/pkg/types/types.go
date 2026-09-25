@@ -464,6 +464,10 @@ type SessionMetadata struct {
 	// project and SpecTask sessions leave both fields empty.
 	OrgWorkerID         string `json:"org_worker_id,omitempty"`
 	RuntimeInstructions string `json:"runtime_instructions,omitempty"`
+	// BotInstance is set on org bot instance sessions (SessionRole
+	// SessionRoleOrgBotInstance): the bot's instance profile as of the last
+	// sync, which shapes the instance's MCP servers, org tools and skills.
+	BotInstance *BotInstanceProfile `json:"bot_instance,omitempty"`
 	HelixVersion        string `json:"helix_version"`
 	Stream              bool   `json:"stream"`
 	AgentType           string `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
@@ -2136,6 +2140,10 @@ type DesktopAgent struct {
 	// the sandbox billing row to the bot. Never accepted from callers.
 	OrgWorkerID   string `json:"-"`
 	OrgWorkerName string `json:"-"`
+	// NoContainerEngine runs the sandbox unprivileged with no Docker or
+	// Podman inside. Set for org bot instances, which serve untrusted users
+	// and never build or run containers. Never accepted from callers.
+	NoContainerEngine bool `json:"-"`
 
 	// Branch configuration (for starting on correct branch)
 	BranchMode    string `json:"branch_mode,omitempty"`    // "new" or "existing"

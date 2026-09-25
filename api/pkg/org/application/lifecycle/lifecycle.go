@@ -113,6 +113,13 @@ type OrgReconciler interface {
 	Reconcile(ctx context.Context, orgID string) error
 }
 
+// InstanceDeleter deletes every instance of a Node (their sandboxes,
+// workspaces and sessions). Delete runs it before the Node's project and app
+// go away, so no instance sandbox outlives its bot.
+type InstanceDeleter interface {
+	DeleteAll(ctx context.Context, orgID string, botID orgchart.NodeID) error
+}
+
 type AgentDeliveryLifecycle interface {
 	CleanupAgent(ctx context.Context, orgID string, agentID orgchart.NodeID) error
 	RestoreAgent(orgID string, agentID orgchart.NodeID)
@@ -148,6 +155,9 @@ type Service struct {
 	// Mirror is the transcript mirror; Delete stops the deleted Node's
 	// subscription so it doesn't leak. nil is a no-op.
 	Mirror *helix.Mirror
+
+	// Instances deletes the Node's instances on Delete. nil is a no-op.
+	Instances InstanceDeleter
 
 	// OrgReconcilers are the whole-org, best-effort reconcilers (see the
 	// contract on OrgReconciler) run after every create/delete — Slack
@@ -546,6 +556,11 @@ func (s *Service) delete(ctx context.Context, orgID string, id orgchart.NodeID, 
 		exReports, _ = s.Store.ReportingLines.ListReports(ctx, orgID, id)
 	}
 
+	if s.Instances != nil {
+		if err := s.Instances.DeleteAll(ctx, orgID, id); err != nil {
+			return fmt.Errorf("delete instances of %s: %w", id, err)
+		}
+	}
 	state, _ := helix.LoadState(ctx, s.Store, orgID, id)
 	if s.Helix != nil && state.ProjectID != "" {
 		if err := s.Helix.DeleteProject(ctx, state.ProjectID); err != nil && !errors.Is(err, helix.ErrProjectNotFound) {

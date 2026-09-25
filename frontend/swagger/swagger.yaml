@@ -169,6 +169,12 @@ definitions:
         $ref: '#/definitions/types.SandboxRuntime'
       id:
         type: string
+      instance_profile:
+        allOf:
+        - $ref: '#/definitions/types.BotInstanceProfile'
+        description: |-
+          InstanceProfile is the effective profile of this Bot's instances (the
+          default when the Bot never configured one).
       legacy_app_id:
         type: string
       model:
@@ -255,6 +261,28 @@ definitions:
       project_id:
         type: string
     type: object
+  api.BotInstanceDTO:
+    properties:
+      bot_id:
+        type: string
+      created_at:
+        type: string
+      name:
+        type: string
+      owner:
+        type: string
+      sandbox_runtime:
+        $ref: '#/definitions/types.SandboxRuntime'
+      sandbox_status:
+        description: |-
+          SandboxStatus is the sandbox's external agent status: "" (stopped),
+          "starting", "running", "restarting", "terminated_idle" …
+        type: string
+      session_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
   api.ChartPositionDTO:
     properties:
       id:
@@ -287,6 +315,20 @@ definitions:
         type: string
       server:
         $ref: '#/definitions/api.ServerAssetWriteRequest'
+    type: object
+  api.CreateBotInstanceRequest:
+    properties:
+      message:
+        description: Message is queued as the instance's first turn.
+        type: string
+      name:
+        type: string
+      sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          SandboxRuntime overrides the Bot's instance profile runtime:
+          "headless-ubuntu" or "ubuntu-desktop".
     type: object
   api.CreateBotRequest:
     properties:
@@ -734,6 +776,12 @@ definitions:
         $ref: '#/definitions/types.CodeAgentRuntime'
       content:
         type: string
+      instance_profile:
+        allOf:
+        - $ref: '#/definitions/types.BotInstanceProfile'
+        description: |-
+          InstanceProfile replaces the profile of the Bot's instances. It applies
+          to new instances and to existing ones on their next sandbox start.
       model:
         type: string
       name:
@@ -3603,24 +3651,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - slack
-    - local
-    - helix_events
-    - webhook
-    - email
-    - cron
-    - github
     - gitlab
+    - github
+    - helix_events
+    - email
+    - slack
+    - webhook
+    - cron
+    - local
     type: string
     x-enum-varnames:
-    - KindSlack
-    - KindLocal
-    - KindHelixEvents
-    - KindWebhook
-    - KindEmail
-    - KindCron
-    - KindGitHub
     - KindGitLab
+    - KindGitHub
+    - KindHelixEvents
+    - KindEmail
+    - KindSlack
+    - KindWebhook
+    - KindCron
+    - KindLocal
   transport.ResolvedActivation:
     properties:
       address:
@@ -4803,6 +4851,35 @@ definitions:
     properties:
       wip_limits:
         $ref: '#/definitions/types.WIPLimits'
+    type: object
+  types.BotInstanceProfile:
+    properties:
+      helix_skills:
+        description: |-
+          HelixSkills links the helix-* agent skills. The project repo's own
+          skills are always linked.
+        type: boolean
+      mcp_servers:
+        description: |-
+          MCPServers lists the context servers kept in an instance's agent
+          config: built-in names above or the bot project's own MCP servers.
+          Every other server is removed.
+        items:
+          type: string
+        type: array
+      sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          SandboxRuntime is the default runtime for new instances. Empty means the
+          bot's own runtime.
+      tools:
+        description: |-
+          Tools lists the helix-org tools an instance may call. The served set is
+          Tools ∩ the bot's own tools. Empty removes the org tools server.
+        items:
+          type: string
+        type: array
     type: object
   types.BranchMode:
     enum:
@@ -10799,6 +10876,13 @@ definitions:
         type: boolean
       avatar:
         type: string
+      bot_instance:
+        allOf:
+        - $ref: '#/definitions/types.BotInstanceProfile'
+        description: |-
+          BotInstance is set on org bot instance sessions (SessionRole
+          SessionRoleOrgBotInstance): the bot's instance profile as of the last
+          sync, which shapes the instance's MCP servers, org tools and skills.
       callback_url:
         description: Webhook URL to POST on session completion
         type: string
@@ -21598,6 +21682,90 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: provision a per-bot chat app'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/instances:
+    get:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.BotInstanceDTO'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list a bot''s instances'
+      tags:
+      - HelixOrg
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Instance
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateBotInstanceRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.BotInstanceDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: create a bot instance'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/instances/{session_id}:
+    delete:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Instance session ID
+        in: path
+        name: session_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: delete a bot instance'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/parents:

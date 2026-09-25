@@ -339,6 +339,13 @@ func (c *RevDialClient) DeleteDevContainer(ctx context.Context, sessionID string
 	return &result, nil
 }
 
+// DeleteSessionWorkspace deletes a stopped session's workspace directory via
+// RevDial.
+func (c *RevDialClient) DeleteSessionWorkspace(ctx context.Context, sessionID string) error {
+	_, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/dev-containers/%s/workspace", sessionID), nil)
+	return err
+}
+
 // GetDevContainer gets the status of a dev container via RevDial
 func (c *RevDialClient) GetDevContainer(ctx context.Context, sessionID string) (*DevContainerResponse, error) {
 	path := fmt.Sprintf("/api/v1/dev-containers/%s", sessionID)

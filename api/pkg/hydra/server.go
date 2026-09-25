@@ -347,6 +347,7 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/dev-containers/{session_id}", s.handleGetDevContainer).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}/resources", s.handleUpdateDevContainerResources).Methods("PATCH")
 	api.HandleFunc("/dev-containers/{session_id}", s.handleDeleteDevContainer).Methods("DELETE")
+	api.HandleFunc("/dev-containers/{session_id}/workspace", s.handleDeleteSessionWorkspace).Methods("DELETE")
 	api.HandleFunc("/dev-containers/{session_id}/clients", s.handleGetDevContainerClients).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}/video/stats", s.handleGetDevContainerVideoStats).Methods("GET")
 
@@ -483,6 +484,21 @@ func (s *Server) handleListDevContainers(w http.ResponseWriter, r *http.Request)
 }
 
 // handleGetDevContainer returns status of a specific dev container
+// handleDeleteSessionWorkspace deletes a stopped session's workspace
+// directory. It refuses while the session still has a container.
+func (s *Server) handleDeleteSessionWorkspace(w http.ResponseWriter, r *http.Request) {
+	sessionID := mux.Vars(r)["session_id"]
+	if _, err := s.devContainerManager.GetDevContainer(r.Context(), sessionID); err == nil {
+		http.Error(w, "session still has a container; stop it first", http.StatusConflict)
+		return
+	}
+	if err := DeleteSessionWorkspace(sessionID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleGetDevContainer(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["session_id"]

@@ -28,7 +28,7 @@ import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { useCreateGitRepository, useGitRepositories } from '../../services/gitRepositoryService'
-import { useListHelixOrgBots } from '../../services/helixOrgService'
+import { useDeleteBotInstance, useListHelixOrgBots } from '../../services/helixOrgService'
 import { useOrganizationMembers } from '../../services/orgService'
 import { useListProjects } from '../../services/projectService'
 import { useArchiveSession } from '../../services/sessionService'
@@ -140,6 +140,8 @@ const ProjectChatSidebar: FC<{
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
   const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now())
   const [archiveConfirmation, setArchiveConfirmation] = useState<SidebarItem | null>(null)
+  const [deleteInstanceConfirmation, setDeleteInstanceConfirmation] = useState<SidebarItem | null>(null)
+  const deleteBotInstance = useDeleteBotInstance()
   const [contextMenuItem, setContextMenuItem] = useState<SidebarItem | null>(null)
   const [contextMenuPosition, setContextMenuPosition] = useState<ProjectChatContextMenuPosition | null>(null)
   const [projectContextMenuProject, setProjectContextMenuProject] = useState<TypesProject | null>(null)
@@ -485,7 +487,27 @@ const ProjectChatSidebar: FC<{
     }
   }
 
+  // Deleting an instance removes its sandbox, workspace and chat; the bot and
+  // its other instances stay. It can't be undone, so it always confirms.
+  const performDeleteInstance = async (item: SidebarItem) => {
+    if (archivingItemId || !item.botInstanceOf) return
+    setArchivingItemId(item.id)
+    try {
+      await deleteBotInstance.mutateAsync({ botId: item.botInstanceOf, sessionId: item.id })
+      setDeleteInstanceConfirmation(null)
+      if (item.id === activeItemId) account.orgNavigate('chat')
+    } catch (error: any) {
+      snackbar.error(error?.response?.data?.error || error?.message || 'Failed to delete instance')
+    } finally {
+      setArchivingItemId(null)
+    }
+  }
+
   const requestArchive = (item: SidebarItem) => {
+    if (item.botInstanceOf) {
+      setDeleteInstanceConfirmation(item)
+      return
+    }
     if (shouldConfirmArchive(item, orgAgentAppIds, showArchived)) {
       setArchiveConfirmation(item)
       return
@@ -988,7 +1010,20 @@ const ProjectChatSidebar: FC<{
           account.orgNavigate('project-artifacts', { id: projectId })
           onOpenSession()
         }}
+        onDeleteInstance={setDeleteInstanceConfirmation}
       />
+
+      {deleteInstanceConfirmation && (
+        <SimpleConfirmWindow
+          title="Delete instance"
+          message={`Delete “${deleteInstanceConfirmation.title}”? Its sandbox, workspace and chat are deleted and can't be restored. The bot and its other instances are not affected.`}
+          confirmTitle={archivingItemId === deleteInstanceConfirmation.id ? 'Deleting…' : 'Delete'}
+          onCancel={() => {
+            if (!archivingItemId) setDeleteInstanceConfirmation(null)
+          }}
+          onSubmit={() => void performDeleteInstance(deleteInstanceConfirmation)}
+        />
+      )}
 
       <ProjectChatProjectContextMenu
         project={projectContextMenuProject}

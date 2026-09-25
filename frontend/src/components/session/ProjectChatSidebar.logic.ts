@@ -1,5 +1,5 @@
 import type { TypesOrganizationMembership, TypesProject, TypesSessionMetadata, TypesSessionSummary } from '../../api/api'
-import type { BotDTO } from '../../services/helixOrgService'
+import type { BotDTO, BotInstanceDTO } from '../../services/helixOrgService'
 import type { SpecTask } from '../../services/specTaskService'
 import { deriveSandboxState } from '../external-agent/sandboxState'
 import { matchesAllTokens } from '../../utils/searchUtils'
@@ -24,6 +24,8 @@ export type SidebarItem = {
   session?: TypesSessionSummary
   task?: SpecTask
   pinnedAt?: string
+  /** Set when the row is an instance of this bot: deleting replaces archiving. */
+  botInstanceOf?: string
 }
 
 export type SidebarGroup = {
@@ -654,6 +656,41 @@ export const toSidebarBots = (bots: BotDTO[]): SidebarBot[] => (
     .sort((left, right) => (
       Number(right.running) - Number(left.running) || left.name.localeCompare(right.name)
     ))
+)
+
+export const SESSION_ROLE_BOT_INSTANCE = 'org_bot_instance'
+
+// A bot instance is a session of its own, so the row reuses the session paths
+// (open, rename, pin, sandbox start/stop); only removal differs.
+export const botInstanceSidebarItem = (
+  instance: BotInstanceDTO,
+  botId: string,
+  pinnedAtByItemKey: ReadonlyMap<string, string> = new Map(),
+): SidebarItem => ({
+  id: instance.session_id || '',
+  kind: 'session',
+  title: instance.name || 'Instance',
+  createdAt: instance.created_at,
+  updatedAt: instance.updated_at || instance.created_at,
+  session: {
+    session_id: instance.session_id,
+    name: instance.name,
+    owner: instance.owner,
+    created: instance.created_at,
+    updated: instance.updated_at,
+    metadata: {
+      agent_type: 'zed_external',
+      external_agent_status: instance.sandbox_status,
+      org_worker_id: botId,
+      session_role: SESSION_ROLE_BOT_INSTANCE,
+    } as TypesSessionMetadata,
+  },
+  pinnedAt: pinnedAtByItemKey.get(`session:${instance.session_id}`),
+  botInstanceOf: botId,
+})
+
+export const isBotInstanceSessionMetadata = (metadata?: TypesSessionMetadata): boolean => (
+  metadata?.session_role === SESSION_ROLE_BOT_INSTANCE
 )
 
 export const botHomeProjectIds = (bots: SidebarBot[]): Set<string> => (

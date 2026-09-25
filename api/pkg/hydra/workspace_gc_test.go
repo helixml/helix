@@ -129,3 +129,36 @@ func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_NoBaseDir() {
 	assert.Empty(s.T(), reaped)
 	assert.Empty(s.T(), skipped)
 }
+
+func TestDeleteSessionWorkspace(t *testing.T) {
+	base := t.TempDir()
+	orig := workspacesBaseDir
+	workspacesBaseDir = base
+	t.Cleanup(func() { workspacesBaseDir = orig })
+
+	target := filepath.Join(base, "sessions", "ses_instance")
+	other := filepath.Join(base, "sessions", "ses_other")
+	for _, dir := range []string{target, other} {
+		if err := os.MkdirAll(filepath.Join(dir, "incoming"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := DeleteSessionWorkspace("ses_instance"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("workspace still exists: %v", err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("other workspace touched: %v", err)
+	}
+	if err := DeleteSessionWorkspace("ses_instance"); err != nil {
+		t.Fatalf("deleting a missing workspace: %v", err)
+	}
+	for _, bad := range []string{"", "spt_task", "ses_../../etc", "..", "ses_a/b"} {
+		if err := DeleteSessionWorkspace(bad); err == nil {
+			t.Errorf("DeleteSessionWorkspace(%q) accepted", bad)
+		}
+	}
+}

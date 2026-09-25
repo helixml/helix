@@ -143,9 +143,13 @@ func TestBuildEnvVarsEmitsCanonicalSandboxAPIURL(t *testing.T) {
 }
 
 func TestExternalAgentIsolation(t *testing.T) {
-	require.Equal(t, containerIsolation{rootlessContainerEngine: true}, externalAgentIsolation("headless"))
+	require.Equal(t, containerIsolation{rootlessContainerEngine: true}, externalAgentIsolation("headless", false))
 	for _, containerType := range []string{"ubuntu", "sway", "zorin", "xfce", "kde"} {
-		require.Equal(t, containerIsolation{privileged: true}, externalAgentIsolation(containerType), containerType)
+		require.Equal(t, containerIsolation{privileged: true}, externalAgentIsolation(containerType, false), containerType)
+	}
+	// Bot instances: unprivileged and engine-free, desktop or not.
+	for _, containerType := range []string{"headless", "ubuntu"} {
+		require.Equal(t, containerIsolation{browserSandbox: true}, externalAgentIsolation(containerType, true), containerType)
 	}
 }
 
@@ -160,6 +164,13 @@ func TestBuildMountsUsesContainerEngineStorageForRuntime(t *testing.T) {
 	desktopMounts := executor.buildMounts(agent, "/workspace/ses_1", "ubuntu")
 	require.Equal(t, "docker-data-ses_1", mountSourceForDestination(desktopMounts, "/var/lib/docker"))
 	require.Empty(t, mountSourceForDestination(desktopMounts, "/home/retro/.local/share/containers"))
+
+	instance := &types.DesktopAgent{SessionID: "ses_1", NoContainerEngine: true}
+	for _, containerType := range []string{"headless", "ubuntu"} {
+		mounts := executor.buildMounts(instance, "/workspace/ses_1", containerType)
+		require.Empty(t, mountSourceForDestination(mounts, "/var/lib/docker"), containerType)
+		require.Empty(t, mountSourceForDestination(mounts, "/home/retro/.local/share/containers"), containerType)
+	}
 }
 
 func mountSourceForDestination(mounts []hydra.MountConfig, destination string) string {

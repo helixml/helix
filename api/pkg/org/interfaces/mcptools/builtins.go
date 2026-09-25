@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/assets"
 	"github.com/helixml/helix/api/pkg/org/application/attachments"
+	"github.com/helixml/helix/api/pkg/org/application/instances"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
@@ -89,6 +90,10 @@ type Deps struct {
 	// (start_bot / stop_bot / restart_bot). Same service as the REST
 	// activate / stop-agent / restart-agent endpoints.
 	Activations *activations.Activations
+	// Instances manages Bot instances (create/list/delete_bot_instance).
+	// Same port as the REST /bots/{id}/instances handlers. nil → those
+	// tools report "not wired".
+	Instances instances.Manager
 	// Processors owns create/update/delete/list of Processors
 	// (template, truncate, filter, js). Same service as the REST
 	// /processors handlers. nil → processor tools report "not wired".
@@ -185,6 +190,8 @@ type Config struct {
 	// Built at the composition root (needs project ensurer + stop/reset
 	// ports). nil → those tools report "not wired".
 	Activations *activations.Activations
+	// Instances, when set, is used by the bot instance tools.
+	Instances instances.Manager
 	// Processors, when set, is used by create/list/get/update/delete
 	// processor tools. nil → Build() constructs one from Store when
 	// possible.
@@ -214,6 +221,7 @@ func (c Config) Build() Deps {
 		Publishing:           c.Publishing,
 		Lifecycle:            c.lifecycleService(),
 		Activations:          c.Activations,
+		Instances:            c.Instances,
 		Processors:           c.processorsService(),
 		Assets:               c.Assets,
 		AssetSSH:             c.AssetSSH,
@@ -462,6 +470,9 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		NewStartBot(deps),
 		NewStopBot(deps),
 		NewRestartBot(deps),
+		NewCreateBotInstance(deps),
+		NewListBotInstances(deps),
+		NewDeleteBotInstance(deps),
 		// Spec-task management — a Bot managing tasks in its permitted Helix
 		// projects. Granted per-Role (not in BaseReadTools).
 		NewCreateSpecTask(deps),

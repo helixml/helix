@@ -69,6 +69,9 @@ import { splitSystemPrefix } from '../components/session/CollapsibleSystemPrefix
 import OrgAgentSessionWorkspace from '../components/helix-org/OrgAgentSessionWorkspace'
 import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
 import { useActivateBot, useApplyBotConfig, useHelixOrgBot, useRestartBotAgent, useStopBotAgent } from '../services/helixOrgService'
+import { isBotInstanceSessionMetadata } from '../components/session/ProjectChatSidebar.logic'
+import { mergeStreamingInteraction } from '../components/session/subagentActivity'
+import { deriveSandboxState } from '../components/external-agent/sandboxState'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -258,7 +261,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
   const { data: sessionProject } = useGetProject(sessionProjectID, orgChatView && !!sessionProjectID)
 
   const theme = useTheme()
-  const { NewInference, setCurrentSessionId } = useStreaming()
+  const { NewInference, setCurrentSessionId, currentResponses } = useStreaming()
   const apps = useApps()
   const isBigScreen = useMediaQuery(theme.breakpoints.up('md'))
   const lightTheme = useLightTheme()
@@ -298,19 +301,23 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
   // this org chat surface needs it — other Session mounts (spec tasks,
   // ordinary project chat) leave org_worker_id empty, so the lookup and
   // restart-required banner stay inert there.
-  const orgWorkerId = (orgChatView && (
+  // A bot instance is its own session with its own sandbox: it gets the plain
+  // external-agent controls, not the bot's (which act on the bot's main
+  // session).
+  const isBotInstance = isBotInstanceSessionMetadata(session?.data?.config)
+  const orgWorkerId = (orgChatView && !isBotInstance && (
     router.params.bot_id || session?.data?.config?.org_worker_id
   )) || ''
 
   useEffect(() => {
     const orgID = router.params.org_id || ''
     const botID = session?.data?.config?.org_worker_id || ''
-    if (!orgChatView || router.name !== 'org_session' || !orgID || !botID) return
+    if (!orgChatView || router.name !== 'org_session' || !orgID || !botID || isBotInstance) return
     router.navigateReplace('org_bot_session', {
       org_id: orgID,
       bot_id: botID,
     })
-  }, [orgChatView, router.name, router.params.org_id, session?.data?.config?.org_worker_id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [orgChatView, router.name, router.params.org_id, session?.data?.config?.org_worker_id, isBotInstance]) // eslint-disable-line react-hooks/exhaustive-deps
   // Polled: the workspace gates Diff, Files, Browser and the terminal on the
   // agent's sandbox status, which changes underneath an open page whenever the
   // agent starts, stops or is restarted.
@@ -319,6 +326,32 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
     refetchInterval: 5000,
   })
   const orgBot = orgBotDetail?.bot
+  // An instance's Settings view shows the bot it belongs to.
+  const instanceBotId = isBotInstance ? session?.data?.config?.org_worker_id || '' : ''
+  const { data: instanceBotDetail } = useHelixOrgBot(instanceBotId || undefined, { enabled: !!instanceBotId })
+
+  // A bot instance controls its own sandbox through the session endpoints.
+  const instanceSandboxState = isBotInstance ? deriveSandboxState(session?.data?.config).sandboxState : undefined
+  const instanceSandbox = isBotInstance && instanceSandboxState ? {
+    runtime: session?.data?.config?.sandbox_runtime,
+    state: instanceSandboxState === 'absent' ? 'stopped' as const
+      : instanceSandboxState === 'running' ? 'running' as const : 'starting' as const,
+  } : undefined
+  const [instanceLifecycleBusy, setInstanceLifecycleBusy] = useState(false)
+  const setInstanceSandboxRunning = async (running: boolean) => {
+    const id = session?.data?.id
+    if (!id) return
+    setInstanceLifecycleBusy(true)
+    try {
+      if (running) await api.getApiClient().v1SessionsResumeCreate(id)
+      else await api.getApiClient().v1SessionsStopExternalAgentDelete(id)
+      await refetchSession()
+    } catch (error: any) {
+      snackbar.error(error?.response?.data?.message || error?.message || `Failed to ${running ? 'start' : 'stop'} the sandbox`)
+    } finally {
+      setInstanceLifecycleBusy(false)
+    }
+  }
   const restartOrgBotAgent = useRestartBotAgent()
   const applyBotConfig = useApplyBotConfig()
   const activateOrgBotAgent = useActivateBot()
@@ -1684,10 +1717,20 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
           sessionId={session.data.id || sessionID}
           organizationId={(router.params.org_id as string) || session.data.organization_id || ''}
           bot={orgBot}
-          onStart={orgWorkerId ? () => { void activateOrgBotAgent.mutateAsync(orgWorkerId) } : undefined}
-          onStop={orgWorkerId ? () => { void stopOrgBotAgent.mutateAsync(orgWorkerId) } : undefined}
+          onStart={orgWorkerId
+            ? () => { void activateOrgBotAgent.mutateAsync(orgWorkerId) }
+            : instanceSandbox ? () => { void setInstanceSandboxRunning(true) } : undefined}
+          onStop={orgWorkerId
+            ? () => { void stopOrgBotAgent.mutateAsync(orgWorkerId) }
+            : instanceSandbox ? () => { void setInstanceSandboxRunning(false) } : undefined}
           onRestart={orgWorkerId ? () => { void restartOrgBotAgent.mutateAsync(orgWorkerId) } : undefined}
-          lifecycleBusy={orgBotLifecycleBusy}
+          lifecycleBusy={orgBotLifecycleBusy || instanceLifecycleBusy}
+          sessionSandbox={instanceSandbox}
+          instanceOf={instanceBotDetail?.bot}
+          subagentInteractions={mergeStreamingInteraction(
+            session.data.interactions || [],
+            currentResponses.get(session.data.id || sessionID),
+          )}
           onAppendToChat={appendToChat}
         >
           {externalAgentChat}

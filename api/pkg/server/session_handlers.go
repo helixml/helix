@@ -616,6 +616,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	// configured by the app
 	var messageContextLimit int
 	var agentType string
+	// orgBotApp is set when the chat is with an Org Bot's app.
+	var orgBotApp *types.App
 
 	if startReq.AppID == "" {
 		// If organization ID is set, check if user is a member of the organization
@@ -644,6 +646,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			log.Error().Err(err).Str("app_id", startReq.AppID).Str("user_id", user.ID).Msg("User doesn't have access to app")
 			http.Error(rw, "You do not have access to the app with the id: "+startReq.AppID, http.StatusForbidden)
 			return
+		}
+
+		if app.AgentKind == types.AgentKindOrg {
+			orgBotApp = app
 		}
 
 		// Set organization ID if not set yet
@@ -780,6 +786,22 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		newSession bool
 	)
 
+	// A new chat with an Org Bot's app is a new instance of that Bot: its own
+	// sandbox with the Bot's identity. The message is then an ordinary turn in
+	// that instance. Validate client input before launching its sandbox.
+	if orgBotApp != nil && startReq.SessionID == "" {
+		if err := validateNewBotChatRequest(&startReq); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		instance, httpErr := s.createBotInstanceForChat(ctx, user, orgBotApp)
+		if httpErr != nil {
+			http.Error(rw, httpErr.Message, httpErr.StatusCode)
+			return
+		}
+		startReq.SessionID = instance.ID
+	}
+
 	if startReq.SessionID != "" {
 		session, err = s.Store.GetSession(ctx, startReq.SessionID)
 		if err != nil {
@@ -797,6 +819,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// read-only members from driving the agent.
 		if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
 			http.Error(rw, err.Error(), http.StatusForbidden)
+			return
+		}
+		// An app key speaks for its app alone, not for every session its
+		// owner can reach.
+		if user.AppID != "" && session.ParentApp != user.AppID {
+			http.Error(rw, "this app API key may only chat in sessions of its own app", http.StatusForbidden)
 			return
 		}
 
@@ -914,6 +942,13 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Str("session_id", session.ID).
 			Str("app_id", startReq.AppID).
 			Msg("new session: set session ID in context for document tracking")
+	}
+
+	if !newSession && session.Metadata.AgentType == "zed_external" {
+		if httpErr := s.moveChatAttachmentsToWorkspace(ctx, user, session, &startReq); httpErr != nil {
+			http.Error(rw, httpErr.Message, httpErr.StatusCode)
+			return
+		}
 	}
 
 	session, err = appendOrOverwrite(session, &startReq)

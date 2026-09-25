@@ -11386,6 +11386,140 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/bots/{id}/instances": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list a bot's instances",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.BotInstanceDTO"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create a bot instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Instance",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateBotInstanceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotInstanceDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/instances/{session_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a bot instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Instance session ID",
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots/{id}/parents": {
             "post": {
                 "security": [
@@ -23799,6 +23933,14 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "instance_profile": {
+                    "description": "InstanceProfile is the effective profile of this Bot's instances (the\ndefault when the Bot never configured one).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BotInstanceProfile"
+                        }
+                    ]
+                },
                 "legacy_app_id": {
                     "type": "string"
                 },
@@ -23895,6 +24037,36 @@ const docTemplate = `{
                 }
             }
         },
+        "api.BotInstanceDTO": {
+            "type": "object",
+            "properties": {
+                "bot_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "sandbox_runtime": {
+                    "$ref": "#/definitions/types.SandboxRuntime"
+                },
+                "sandbox_status": {
+                    "description": "SandboxStatus is the sandbox's external agent status: \"\" (stopped),\n\"starting\", \"running\", \"restarting\", \"terminated_idle\" …",
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "api.ChartPositionDTO": {
             "type": "object",
             "properties": {
@@ -23941,6 +24113,26 @@ const docTemplate = `{
                 },
                 "server": {
                     "$ref": "#/definitions/api.ServerAssetWriteRequest"
+                }
+            }
+        },
+        "api.CreateBotInstanceRequest": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Message is queued as the instance's first turn.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime overrides the Bot's instance profile runtime:\n\"headless-ubuntu\" or \"ubuntu-desktop\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
                 }
             }
         },
@@ -24557,6 +24749,14 @@ const docTemplate = `{
                 },
                 "content": {
                     "type": "string"
+                },
+                "instance_profile": {
+                    "description": "InstanceProfile replaces the profile of the Bot's instances. It applies\nto new instances and to existing ones on their next sandbox start.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BotInstanceProfile"
+                        }
+                    ]
                 },
                 "model": {
                     "type": "string"
@@ -28601,24 +28801,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "slack",
-                "local",
-                "helix_events",
-                "webhook",
-                "email",
-                "cron",
+                "gitlab",
                 "github",
-                "gitlab"
+                "helix_events",
+                "email",
+                "slack",
+                "webhook",
+                "cron",
+                "local"
             ],
             "x-enum-varnames": [
-                "KindSlack",
-                "KindLocal",
-                "KindHelixEvents",
-                "KindWebhook",
-                "KindEmail",
-                "KindCron",
+                "KindGitLab",
                 "KindGitHub",
-                "KindGitLab"
+                "KindHelixEvents",
+                "KindEmail",
+                "KindSlack",
+                "KindWebhook",
+                "KindCron",
+                "KindLocal"
             ]
         },
         "transport.ResolvedActivation": {
@@ -30222,6 +30422,37 @@ const docTemplate = `{
             "properties": {
                 "wip_limits": {
                     "$ref": "#/definitions/types.WIPLimits"
+                }
+            }
+        },
+        "types.BotInstanceProfile": {
+            "type": "object",
+            "properties": {
+                "helix_skills": {
+                    "description": "HelixSkills links the helix-* agent skills. The project repo's own\nskills are always linked.",
+                    "type": "boolean"
+                },
+                "mcp_servers": {
+                    "description": "MCPServers lists the context servers kept in an instance's agent\nconfig: built-in names above or the bot project's own MCP servers.\nEvery other server is removed.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime is the default runtime for new instances. Empty means the\nbot's own runtime.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
+                "tools": {
+                    "description": "Tools lists the helix-org tools an instance may call. The served set is\nTools ∩ the bot's own tools. Empty removes the org tools server.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -38244,6 +38475,14 @@ const docTemplate = `{
                 },
                 "avatar": {
                     "type": "string"
+                },
+                "bot_instance": {
+                    "description": "BotInstance is set on org bot instance sessions (SessionRole\nSessionRoleOrgBotInstance): the bot's instance profile as of the last\nsync, which shapes the instance's MCP servers, org tools and skills.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BotInstanceProfile"
+                        }
+                    ]
                 },
                 "callback_url": {
                     "description": "Webhook URL to POST on session completion",

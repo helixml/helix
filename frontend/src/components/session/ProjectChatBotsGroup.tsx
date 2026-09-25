@@ -10,21 +10,26 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  EllipsisVertical,
   ExternalLink,
   MessageSquare,
+  Monitor,
   Play,
   RotateCcw,
   Settings,
   Square,
+  Terminal,
 } from 'lucide-react'
 
-import type { TypesOrganizationMembership, TypesPinnedChat, TypesProject, TypesUser } from '../../api/api'
+import type { TypesOrganizationMembership, TypesPinnedChat, TypesProject, TypesSandboxRuntime, TypesUser } from '../../api/api'
 import useIsPhone from '../../hooks/useIsPhone'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import {
   useActivateBot,
+  useBotInstances,
+  useCreateBotInstance,
   useRestartBotAgent,
   useStopBotAgent,
 } from '../../services/helixOrgService'
@@ -35,6 +40,7 @@ import { PRESENCE_OFFLINE_COLOR, PRESENCE_ONLINE_COLOR } from '../widgets/Presen
 import ProjectChatItemRow from './ProjectChatItemRow'
 import ProjectChatShowMore from './ProjectChatShowMore'
 import {
+  botInstanceSidebarItem,
   SIDEBAR_WORKING_COLOR,
   buildPersonChatItems,
   filterProjectChatGroups,
@@ -91,6 +97,7 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
   const activateBot = useActivateBot()
   const stopBot = useStopBotAgent()
   const restartBot = useRestartBotAgent()
+  const createInstance = useCreateBotInstance()
   const [menu, setMenu] = useState<BotMenuState>(null)
   const [busyBotId, setBusyBotId] = useState<string | null>(null)
   const orgSlug = (router.params.org_id as string) || ''
@@ -110,6 +117,25 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
       }
     } catch (error: any) {
       snackbar.error(error?.response?.data?.error ?? error?.message ?? `Failed to ${action} ${bot.name}`)
+    } finally {
+      setBusyBotId(null)
+    }
+  }
+
+  const startInstance = async (bot: SidebarBot, runtime: 'ubuntu-desktop' | 'headless-ubuntu') => {
+    setBusyBotId(bot.id)
+    try {
+      const instance = await createInstance.mutateAsync({
+        botId: bot.id,
+        request: { sandbox_runtime: runtime as TypesSandboxRuntime },
+      })
+      snackbar.success(`Starting a new ${bot.name} instance…`)
+      if (instance.session_id) {
+        router.navigate('org_session', { org_id: orgSlug || orgId, session_id: instance.session_id })
+        onOpenSession()
+      }
+    } catch (error: any) {
+      snackbar.error(error?.response?.data?.error ?? error?.message ?? `Failed to start a ${bot.name} instance`)
     } finally {
       setBusyBotId(null)
     }
@@ -135,10 +161,18 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
     onOpenSession()
   }
 
+  // Right-click opens the menu at the pointer; the row's actions button
+  // (the only way in on touch, where there is no right-click) opens it
+  // under the button.
   const openMenu = (event: MouseEvent<HTMLElement>, bot: SidebarBot) => {
     event.preventDefault()
     event.stopPropagation()
-    setMenu({ bot, mouseX: event.clientX, mouseY: event.clientY })
+    if (event.type === 'contextmenu') {
+      setMenu({ bot, mouseX: event.clientX, mouseY: event.clientY })
+      return
+    }
+    const rect = event.currentTarget.getBoundingClientRect()
+    setMenu({ bot, mouseX: rect.left, mouseY: rect.bottom })
   }
   const closeMenu = () => setMenu(null)
 
@@ -155,7 +189,6 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
           busy={busyBotId === bot.id}
           onToggle={() => onToggleBot(bot.id)}
           onOpen={() => openBot(bot)}
-          onOpenSettings={() => openSettings(bot)}
           onOpenMenu={(event) => openMenu(event, bot)}
           {...rowProps}
         />
@@ -170,6 +203,18 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
           <MenuItem onClick={() => { closeMenu(); openBot(menu.bot) }}>
             <MessageSquare size={menuIconSize} style={{ marginRight: 10 }} />
             Open chat
+          </MenuItem>
+        )}
+        {menu && (
+          <MenuItem onClick={() => { const { bot } = menu; closeMenu(); void startInstance(bot, 'ubuntu-desktop') }}>
+            <Monitor size={menuIconSize} style={{ marginRight: 10 }} />
+            New desktop instance
+          </MenuItem>
+        )}
+        {menu && (
+          <MenuItem onClick={() => { const { bot } = menu; closeMenu(); void startInstance(bot, 'headless-ubuntu') }}>
+            <Terminal size={menuIconSize} style={{ marginRight: 10 }} />
+            New headless instance
           </MenuItem>
         )}
         {menu && (
@@ -213,14 +258,13 @@ type ProjectChatBotEntryProps = ItemRowProps & {
   busy: boolean
   onToggle: () => void
   onOpen: () => void
-  onOpenSettings: () => void
   onOpenMenu: (event: MouseEvent<HTMLElement>) => void
 }
 
-// One agent: its row plus the spec tasks it created, across every project the
-// viewer can read. Tasks only — the agent's own chat is the row itself. A
-// search opens the group so its tasks can match, and hides it when neither the
-// agent's name nor any task does.
+// One agent: its row plus its instances and the spec tasks it created, across
+// every project the viewer can read. The agent's own chat is the row itself. A
+// search opens the group so its items can match, and hides it when neither the
+// agent's name nor any item does.
 export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   orgId,
   bot,
@@ -228,7 +272,6 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   busy,
   onToggle,
   onOpen,
-  onOpenSettings,
   onOpenMenu,
   projects,
   query,
@@ -263,7 +306,20 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
     refetchInterval: archived ? false : 10000,
   })
   const tasks = tasksQuery.data || []
-  const items = buildPersonChatItems(projects, tasks, [], threadSortOrder, pinnedAtByItemKeyFrom(pinnedChats))
+  // Instances are live sandboxes, not archivable work, so the Archived view
+  // leaves them out.
+  // Fetched while collapsed too, more slowly, so a collapsed bot can still
+  // show that it has instances running.
+  const instancesQuery = useBotInstances(bot.id, {
+    enabled: enabled && !archived,
+    refetchInterval: open ? 10000 : 30000,
+  })
+  const instanceCount = archived ? 0 : (instancesQuery.data || []).length
+  const pinnedAtByItemKey = pinnedAtByItemKeyFrom(pinnedChats)
+  const instanceItems = archived ? [] : (instancesQuery.data || []).map((instance) => (
+    botInstanceSidebarItem(instance, bot.id, pinnedAtByItemKey)
+  ))
+  const items = [...instanceItems, ...buildPersonChatItems(projects, tasks, [], threadSortOrder, pinnedAtByItemKey)]
   const filteredItems = filterProjectChatGroups([{ id: bot.id, name: bot.name, items }], query)[0]?.items || []
   const renderedItems = windowSidebarItems(filteredItems, activeItemId, pagination.visibleCount)
   const hasMore = filteredItems.length > pagination.visibleCount || tasks.length >= pagination.requestCount
@@ -273,7 +329,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
     ? (bot.restartRequired ? 'Running · restart required to apply changes' : 'Agent running')
     : 'Agent stopped'
 
-  if (searching && !tasksQuery.isLoading && filteredItems.length === 0 && !sidebarBotMatchesQuery(bot, query)) {
+  if (searching && !tasksQuery.isLoading && !instancesQuery.isLoading && filteredItems.length === 0 && !sidebarBotMatchesQuery(bot, query)) {
     return null
   }
 
@@ -314,10 +370,10 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             color: sidebarColors.foreground,
             backgroundColor: active ? sidebarColors.rowSelected : sidebarColors.rowHover,
           },
-          '&:hover .sidebar-bot-settings, &:focus-within .sidebar-bot-settings': { opacity: 1 },
+          '&:hover .sidebar-bot-actions, &:focus-within .sidebar-bot-actions': { opacity: 1 },
           '&:hover .sidebar-bot-working, &:focus-within .sidebar-bot-working': { opacity: 0 },
           '@media (hover: none)': {
-            '& .sidebar-bot-settings': { opacity: 1 },
+            '& .sidebar-bot-actions': { opacity: 1 },
             '& .sidebar-bot-working': { opacity: 1 },
           },
         }}
@@ -385,6 +441,32 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
         >
           {bot.name}
         </Typography>
+        {!open && instanceCount > 0 && (
+          <Tooltip title={`${instanceCount} instance${instanceCount === 1 ? '' : 's'}`}>
+            <Box
+              component="span"
+              data-testid="sidebar-bot-instance-count"
+              onMouseOver={(event) => event.stopPropagation()}
+              sx={{
+                flexShrink: 0,
+                minWidth: 18,
+                height: 18,
+                px: 0.5,
+                borderRadius: '9px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: TYPOGRAPHY.sidebar.metadataFontSize,
+                lineHeight: 1,
+                fontVariantNumeric: 'tabular-nums',
+                color: sidebarColors.mutedForeground,
+                border: `1px solid ${sidebarColors.border}`,
+              }}
+            >
+              {instanceCount}
+            </Box>
+          </Tooltip>
+        )}
         {busy ? (
           <Box sx={{ width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <CircularProgress size={12} color="inherit" />
@@ -424,7 +506,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
                 </Typography>
               </Tooltip>
             )}
-            <Tooltip title="Agent settings">
+            <Tooltip title="More actions">
               <Box
                 component="span"
                 sx={{
@@ -436,18 +518,15 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
                 }}
               >
                 <IconButton
-                  className="sidebar-bot-settings"
+                  className="sidebar-bot-actions"
                   size="small"
-                  aria-label={`Settings for ${bot.name}`}
-                  disabled={!bot.agentAppId}
+                  aria-label={`More actions for ${bot.name}`}
+                  aria-haspopup="menu"
                   onMouseOver={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onOpenSettings()
-                  }}
+                  onClick={onOpenMenu}
                   sx={{ width: 24, height: 24, opacity: 0, color: 'inherit', transition: 'opacity 100ms ease' }}
                 >
-                  <Settings size={14} />
+                  <EllipsisVertical size={14} />
                 </IconButton>
               </Box>
             </Tooltip>

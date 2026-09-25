@@ -11,7 +11,7 @@ import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import TextField from '@mui/material/TextField'
 import { useQueryClient } from '@tanstack/react-query'
-import { Kanban, PanelsTopLeft, Pencil, Pin, PinOff, Play, Settings, Square } from 'lucide-react'
+import { Kanban, PanelsTopLeft, Pencil, Pin, PinOff, Play, Settings, Square, Trash2 } from 'lucide-react'
 
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -33,6 +33,8 @@ type ProjectChatItemContextMenuProps = {
   onOpenProjectBoard?: (projectId: string) => void
   onOpenProjectSettings?: (projectId: string) => void
   onOpenProjectArtifacts?: (projectId: string) => void
+  /** Offered only on bot instance rows. */
+  onDeleteInstance?: (item: SidebarItem) => void
 }
 
 const ProjectChatItemContextMenu: FC<ProjectChatItemContextMenuProps> = ({
@@ -42,6 +44,7 @@ const ProjectChatItemContextMenu: FC<ProjectChatItemContextMenuProps> = ({
   onOpenProjectBoard,
   onOpenProjectSettings,
   onOpenProjectArtifacts,
+  onDeleteInstance,
 }) => {
   const api = useApi()
   const queryClient = useQueryClient()
@@ -210,6 +213,14 @@ const ProjectChatItemContextMenu: FC<ProjectChatItemContextMenuProps> = ({
             <ListItemText>
               {sandboxControl.state === 'absent' ? 'Start sandbox' : 'Stop sandbox'}
             </ListItemText>
+          </MenuItem>
+        )}
+        {!!item?.botInstanceOf && !!onDeleteInstance && (
+          <MenuItem onClick={() => { const target = item; onClose(); onDeleteInstance(target) }}>
+            <ListItemIcon>
+              <Trash2 size={16} />
+            </ListItemIcon>
+            <ListItemText>Delete instance</ListItemText>
           </MenuItem>
         )}
       </Menu>

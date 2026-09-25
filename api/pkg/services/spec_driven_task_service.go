@@ -2051,12 +2051,28 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		return "", fmt.Errorf("session ID is required for session-scoped API key")
 	}
 
-	// Check for existing session-scoped key
+	// Look up session to derive the key type and scope
+	session, err := s.store.GetSession(ctx, req.SessionID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get session '%s': %w", req.SessionID, err)
+	}
+
+	// A bot instance serves untrusted end users, so its sandbox gets the
+	// restricted key type instead of a full user key.
+	keyType := types.APIkeytypeAPI
+	if session.Metadata.SessionRole == types.SessionRoleOrgBotInstance {
+		keyType = types.APIkeytypeBotInstance
+	}
+
+	// Check for existing session-scoped key of that type. The type is part of
+	// the lookup so a full key minted before an instance existed is never
+	// reused for it.
 	existing, err := s.store.GetAPIKey(ctx, &types.ApiKey{
 		OrganizationID: req.OrganizationID,
 		Owner:          req.UserID,
 		OwnerType:      types.OwnerTypeUser,
 		SessionID:      req.SessionID,
+		Type:           keyType,
 	})
 	if err != nil && err != store.ErrNotFound {
 		return "", fmt.Errorf("failed to get existing API key: %w", err)
@@ -2066,14 +2082,12 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		return existing.Key, nil
 	}
 
-	// Look up session to derive scope for attribution
-	session, err := s.store.GetSession(ctx, req.SessionID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get session '%s': %w", req.SessionID, err)
-	}
-
-	// Derive project ID and spec task ID from session metadata
+	// Derive project ID and spec task ID from session metadata. A bot
+	// instance's key is bound to its project: git access is limited to it.
 	var projectID, specTaskID string
+	if keyType == types.APIkeytypeBotInstance {
+		projectID = session.ProjectID
+	}
 	if session.Metadata.SpecTaskID != "" {
 		specTaskID = session.Metadata.SpecTaskID
 		specTask, err := s.store.GetSpecTask(ctx, specTaskID)
@@ -2101,7 +2115,7 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		OwnerType:      types.OwnerTypeUser,
 		Key:            newKey,
 		Name:           keyName,
-		Type:           types.APIkeytypeAPI,
+		Type:           keyType,
 		SessionID:      req.SessionID,
 		ProjectID:      projectID,  // For metrics/attribution
 		SpecTaskID:     specTaskID, // For metrics/attribution

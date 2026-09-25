@@ -67,7 +67,7 @@ describe('EditOrgWindow', () => {
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith(
       'org_bot_session',
-      { org_id: 'created-org', bot_id: 'chief-of-staff' },
+      { org_id: 'created-org', bot_id: 'chief-of-staff', intro: '1' },
     ))
     expect(mockV1OrgsSettingsUpdate).toHaveBeenCalledWith(
       'agent.default',

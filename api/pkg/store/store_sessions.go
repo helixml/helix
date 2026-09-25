@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -318,6 +319,29 @@ func (s *PostgresStore) UpdateSessionMetadata(ctx context.Context, sessionID str
 	err := s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).Update("config", metadata).Error
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func (s *PostgresStore) SetSessionBotInstanceProfile(ctx context.Context, sessionID string, profile types.BotInstanceProfile) error {
+	if sessionID == "" {
+		return errors.New("session_id is required")
+	}
+	encoded, err := json.Marshal(profile)
+	if err != nil {
+		return fmt.Errorf("encode instance profile: %w", err)
+	}
+	// Targeted JSONB merge (not a full-row save): an instance mid-boot has its
+	// external_agent_status and zed_thread_id written concurrently.
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("id = ?", sessionID).
+		Update("config", gorm.Expr(`config || jsonb_build_object('bot_instance', ?::jsonb)`, string(encoded)))
+	if result.Error != nil {
+		return fmt.Errorf("set instance profile: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
 	}
 	return nil
 }

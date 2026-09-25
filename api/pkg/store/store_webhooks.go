@@ -231,6 +231,12 @@ func (s *PostgresStore) ReplayWebhookDelivery(ctx context.Context, endpointID, d
 	return nil
 }
 
+func (s *PostgresStore) EnqueueWebhookEvent(ctx context.Context, eventType, organizationID, projectID string, data any) error {
+	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return enqueueWebhookEventTx(tx, eventType, organizationID, projectID, data)
+	})
+}
+
 func enqueueWebhookEventTx(tx *gorm.DB, eventType, organizationID, projectID string, data any) error {
 	if organizationID == "" {
 		return nil

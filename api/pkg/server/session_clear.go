@@ -30,6 +30,25 @@ type SessionBackend interface {
 type externalAgentTransport interface {
 	cancelCurrentTurnIfActive(ctx context.Context, sessionID string) error
 	sendCommandToExternalAgent(sessionID string, command types.ExternalAgentCommand) error
+	closeDiscardedZedThread(sessionID, acpThreadID string)
+}
+
+// closeDiscardedZedThread tells a connected Zed to close a thread Helix has
+// discarded. Without a live connection there is nothing running to close — a
+// restarted harness starts with no sessions — so it does nothing, and in
+// particular never wakes a stopped sandbox the way sendCommandToExternalAgent
+// does.
+func (apiServer *HelixAPIServer) closeDiscardedZedThread(sessionID, acpThreadID string) {
+	if conn, ok := apiServer.externalAgentWSManager.getConnection(sessionID); !ok || conn == nil {
+		return
+	}
+	if err := apiServer.sendCommandToExternalAgent(sessionID, types.ExternalAgentCommand{
+		Type: "close_thread",
+		Data: map[string]interface{}{"acp_thread_id": acpThreadID},
+	}); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Str("acp_thread_id", acpThreadID).
+			Msg("Failed to close the discarded Zed thread")
+	}
 }
 
 // internalAgentBackend resets the in-process Go agent. Internal agent sessions
@@ -61,7 +80,11 @@ func (b *internalAgentBackend) Clear(_ context.Context, sessionID string) error 
 // canonical "start fresh" signal is acp_thread_id=nil on the next chat_message,
 // which Zed turns into a brand-new thread — the same path forked sessions use.
 // So Clear resets ZedThreadID to "" and the next message opens a clean thread,
-// discarding prior context. No new protocol command is required.
+// discarding prior context.
+//
+// Clear also tells Zed to close the discarded thread (close_thread). Nothing
+// else ends its ACP session, and harnesses that start MCP servers per session
+// (DeepSeek Harness, Goose) would otherwise keep one set running per clear.
 type zedACPBackend struct {
 	store     store.Store
 	transport externalAgentTransport
@@ -90,10 +113,15 @@ func (b *zedACPBackend) Clear(ctx context.Context, sessionID string) error {
 	if session.Metadata.ZedThreadID == "" {
 		return nil // already at a fresh thread
 	}
+	discardedThreadID := session.Metadata.ZedThreadID
 	session.Metadata.ZedThreadID = ""
 	if err := b.store.UpdateSessionMetadata(ctx, sessionID, session.Metadata); err != nil {
 		return fmt.Errorf("failed to reset zed thread id: %w", err)
 	}
+
+	// 3. Close the discarded thread in Zed (best effort; the clear itself has
+	//    already succeeded).
+	b.transport.closeDiscardedZedThread(sessionID, discardedThreadID)
 	return nil
 }
 

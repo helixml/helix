@@ -8,6 +8,7 @@ questions.json; timing, LLM usage and mock-system traffic are recorded.
 
     . run/env.sh
     python3 run_eval.py --variants variants.json --only sup-opencode-glm --tag baseline
+    python3 run_eval.py --variants variants_top.json --instance --tag instance   # on bot instances
 """
 
 import argparse
@@ -104,6 +105,23 @@ def fresh_session(v, timeout=600):
     raise RuntimeError(f"{v['id']}: no ready session after {timeout}s")
 
 
+def fresh_instance(v, tag, timeout=600):
+    """Start a new instance of the bot and warm it with one trivial turn.
+
+    An instance has no activation turn, so the warm-up stands in for the
+    bot's: it brings the harness and MCP servers up before the first
+    measured question.
+    """
+    body = {"name": f"eval {tag}"}
+    if v.get("sandbox_runtime"):
+        body["sandbox_runtime"] = v["sandbox_runtime"]
+    sid = api("POST", f"/orgs/{ORG}/bots/{v['id']}/instances", body)["session_id"]
+    api("POST", "/sessions/chat", {"session_id": sid, "type": "text", "stream": False,
+                                   "messages": [{"role": "user", "content": {"content_type": "text", "parts": ["Reply with OK."]}}]},
+        timeout=timeout)
+    return sid
+
+
 def final_answer(entries):
     texts = [e.get("content", "") for e in entries or [] if e.get("type") == "text"]
     ans = texts[-1] if texts else ""
@@ -178,24 +196,27 @@ def run_question(v, sid, q, timeout):
     }
 
 
-def run_variant(v, questions, tag, out_path, timeout):
+def run_variant(v, questions, tag, out_path, timeout, instance=False):
     ensure_bot(v)
-    log(v["id"], "starting fresh session")
+    log(v["id"], "starting fresh " + ("instance" if instance else "session"))
     t = time.time()
-    sid = fresh_session(v)
+    sid = fresh_instance(v, tag) if instance else fresh_session(v)
     log(v["id"], f"ready {sid} in {time.time() - t:.0f}s")
     for q in questions:
         api("POST", f"/sessions/{sid}/clear", timeout=60)
         time.sleep(2)
         r = run_question(v, sid, q, timeout)
         r["tag"] = tag
+        r["mode"] = "instance" if instance else "bot"
         r["ts"] = datetime.now(timezone.utc).isoformat()
         with PRINT_LOCK, open(out_path, "a") as f:
             f.write(json.dumps(r) + "\n")
         log(f"{v['id']:<28} {q['id']:<22} {'PASS' if r['correct'] else 'FAIL'} {r['seconds']:>6}s "
             f"tools={r['tool_calls']:<3} llm={r['usage']['calls']:<3} ptok={r['usage']['prompt']:<8} "
             f"err={(r['error'] or '')[:60]}")
-    if not v.get("keep_running"):
+    if instance:
+        api("DELETE", f"/orgs/{ORG}/bots/{v['id']}/instances/{sid}", timeout=120)
+    elif not v.get("keep_running"):
         api("POST", f"/orgs/{ORG}/bots/{v['id']}/stop", timeout=60)
 
 
@@ -209,6 +230,7 @@ def main():
     ap.add_argument("--parallel", type=int, default=2)
     ap.add_argument("--timeout", type=int, default=900)
     ap.add_argument("--out", default=os.path.join(HERE, "run", "results.jsonl"))
+    ap.add_argument("--instance", action="store_true", help="run each variant on a new bot instance instead of the bot's own session")
     a = ap.parse_args()
     variants = json.load(open(a.variants))
     if a.only:
@@ -222,7 +244,7 @@ def main():
     def worker(v):
         with sem:
             try:
-                run_variant(v, questions, a.tag, a.out, a.timeout)
+                run_variant(v, questions, a.tag, a.out, a.timeout, instance=a.instance)
             except Exception as e:  # noqa: BLE001
                 log(v["id"], "VARIANT FAILED:", e)
 

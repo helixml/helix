@@ -1,6 +1,16 @@
 #!/bin/bash
 # Start the per-session container engine. Desktop sessions use rootful Docker;
 # unprivileged headless sessions use a rootless Podman compatibility socket.
+# Org bot instances run none: their container is unprivileged and has no
+# engine storage.
+#
+# The entrypoint sources this file, so skipping the engine must `return`:
+# `exit` would end the entrypoint and stop the container.
+
+if [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+    echo "[container-engine] None for this session"
+    return 0
+fi
 
 if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     PODMAN_DATA=/home/retro/.local/share/containers
@@ -152,7 +162,7 @@ if ! mountpoint -q /var/lib/docker 2>/dev/null; then
     echo "[dockerd] ERROR: /var/lib/docker is not a volume mount."
     echo "[dockerd] Docker-in-desktop mode requires a Docker volume at /var/lib/docker."
     echo "[dockerd] The container will continue but Docker will not be available."
-    exit 0
+    return 0
 fi
 
 echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"

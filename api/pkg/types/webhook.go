@@ -27,12 +27,17 @@ const (
 	WebhookEventSpecTaskCreated       = "spec_task.created"
 	WebhookEventSpecTaskStatusChanged = "spec_task.status_changed"
 	WebhookEventArtifactPublished     = "artifact.published"
+	// WebhookEventBotInstanceTurnCompleted fires when an Org Bot instance
+	// finishes a turn, so a gateway can relay the reply without holding a
+	// request open for the whole turn.
+	WebhookEventBotInstanceTurnCompleted = "bot_instance.turn_completed"
 )
 
 var SupportedWebhookEvents = []string{
 	WebhookEventSpecTaskCreated,
 	WebhookEventSpecTaskStatusChanged,
 	WebhookEventArtifactPublished,
+	WebhookEventBotInstanceTurnCompleted,
 }
 
 // WebhookEndpoint is an organization-owned Standard Webhooks destination.
@@ -100,4 +105,19 @@ type ArtifactWebhookData struct {
 	ActiveVersionID  string       `json:"active_version_id"`
 	Kind             ArtifactKind `json:"kind"`
 	SourceSpecTaskID string       `json:"source_spec_task_id,omitempty"`
+}
+
+// BotInstanceTurnWebhookData carries the reply itself, unlike the thin
+// payloads above: a finished turn never changes, and an app key bound to the
+// Bot can't read sessions back.
+type BotInstanceTurnWebhookData struct {
+	SessionID      string           `json:"session_id"`
+	InteractionID  string           `json:"interaction_id"`
+	BotID          string           `json:"bot_id"`
+	AppID          string           `json:"app_id"`
+	ProjectID      string           `json:"project_id"`
+	OrganizationID string           `json:"organization_id"`
+	State          InteractionState `json:"state"`
+	Response       string           `json:"response"`
+	Error          string           `json:"error,omitempty"`
 }
