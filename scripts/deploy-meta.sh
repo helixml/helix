@@ -83,13 +83,20 @@ else
   exit 1
 fi
 
+ZED_SHA_BEFORE=$(git -C "$ZED_DIR" rev-parse HEAD)
 git -C "$ZED_DIR" pull --ff-only origin main
+ZED_SHA_AFTER=$(git -C "$ZED_DIR" rev-parse HEAD)
 
 cd "$HELIX_DIR"
-./stack build
-./stack build-zed release
-./stack build-sandbox
-./stack start
+(cd frontend && yarn build)
+
+if [[ "$ZED_SHA_BEFORE" != "$ZED_SHA_AFTER" || ! -f zed-build/zed ]]; then
+  echo "Zed changed or its binary is missing; rebuilding Zed and Ubuntu"
+  ./stack build-zed release
+  ./stack build-ubuntu
+else
+  echo "Zed unchanged at $ZED_SHA_AFTER; skipping Zed and Ubuntu builds"
+fi
 
 if [[ $(git rev-parse HEAD) != "$TARGET_SHA" ]]; then
   echo "Meta HEAD changed during deployment" >&2
