@@ -16,9 +16,27 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 )
 
+// orgClient returns the typed API client and the resolved organization id
+// (--org, else $HELIX_ORG).
+func orgClient(ctx context.Context, orgFlag string) (*client.HelixClient, string, error) {
+	apiClient, err := client.NewClientFromEnv()
+	if err != nil {
+		return nil, "", err
+	}
+	if orgFlag == "" {
+		orgFlag = os.Getenv("HELIX_ORG")
+	}
+	orgID, err := cli.ResolveOrganization(ctx, apiClient, orgFlag)
+	if err != nil {
+		return nil, "", err
+	}
+	return apiClient, orgID, nil
+}
+
 // httpClient is a thin authenticated HTTP helper for helix-org REST paths
-// that are not (yet) on the typed Go client. Prefer NewClientFromEnv for
-// org resolution; use this for /orgs/{org}/bots|triggers|processors|….
+// that are not (yet) on the typed Go client (triggers, processors, assets,
+// the exploratory-session chat and the `helix api` escape hatch). Use
+// orgClient and *client.HelixClient for everything the typed client covers.
 type httpClient struct {
 	base   string // e.g. http://localhost:8080/api/v1
 	apiKey string

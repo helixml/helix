@@ -3,7 +3,6 @@ package org
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -11,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/helixml/helix/api/pkg/client"
 )
 
 // Skills sync: a bot spec's `skills_dir` (a folder of <name>/SKILL.md skills,
@@ -24,37 +25,29 @@ const skillsManifest = ".agents/skills/.synced-by-helix-apply"
 
 // ensureBotRepo returns the clone URL (with credentials) of the bot project's
 // primary repo, creating the project first if the bot was never activated.
-func (c *httpClient) ensureBotRepo(ctx context.Context, orgID, botID string) (string, error) {
-	b, err := c.getBot(ctx, orgID, botID)
+func ensureBotRepo(ctx context.Context, c *client.HelixClient, orgID, botID string) (string, error) {
+	detail, err := c.GetOrgBot(ctx, orgID, botID)
 	if err != nil {
 		return "", err
 	}
-	projectID := b.str("project_id")
+	projectID := firstNonEmpty(detail.Bot.ProjectID, detail.ProjectID)
 	if projectID == "" {
-		var ensured struct {
-			ProjectID string `json:"project_id"`
-		}
-		if err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/orgs/%s/bots/%s/chat", orgID, botID), nil, &ensured, 60*time.Second); err != nil {
+		ensureCtx, cancel := callCtx(ctx, 60*time.Second)
+		defer cancel()
+		ensured, err := c.EnsureOrgBotChat(ensureCtx, orgID, botID)
+		if err != nil {
 			return "", fmt.Errorf("ensure bot project: %w", err)
 		}
 		projectID = ensured.ProjectID
 	}
-	var project struct {
-		DefaultRepoID string `json:"default_repo_id"`
-	}
-	if err := c.doJSON(ctx, http.MethodGet, "/projects/"+projectID, nil, &project, 30*time.Second); err != nil {
+	project, err := c.GetProject(ctx, projectID)
+	if err != nil {
 		return "", err
 	}
 	if project.DefaultRepoID == "" {
 		return "", fmt.Errorf("bot project %s has no primary repo yet (start the bot once)", projectID)
 	}
-	host, err := url.Parse(strings.TrimSuffix(c.base, "/api/v1"))
-	if err != nil {
-		return "", err
-	}
-	host.User = url.UserPassword("api", c.apiKey)
-	host.Path = "/git/" + project.DefaultRepoID
-	return host.String(), nil
+	return c.GitCloneURL(project.DefaultRepoID)
 }
 
 func git(dir string, args ...string) (string, error) {
@@ -69,7 +62,7 @@ func git(dir string, args ...string) (string, error) {
 }
 
 // syncSkills pushes skillsDir into the bot repo. Returns a one-line summary.
-func (c *httpClient) syncSkills(ctx context.Context, orgID, botID, skillsDir, source string, dryRun bool) (string, error) {
+func syncSkills(ctx context.Context, c *client.HelixClient, orgID, botID, skillsDir, source string, dryRun bool) (string, error) {
 	entries, err := os.ReadDir(skillsDir)
 	if err != nil {
 		return "", fmt.Errorf("skills_dir: %w", err)
@@ -86,9 +79,13 @@ func (c *httpClient) syncSkills(ctx context.Context, orgID, botID, skillsDir, so
 		return "", fmt.Errorf("skills_dir %s has no <name>/SKILL.md skills", skillsDir)
 	}
 	sort.Strings(names)
-	cloneURL, err := c.ensureBotRepo(ctx, orgID, botID)
+	cloneURL, err := ensureBotRepo(ctx, c, orgID, botID)
 	if err != nil {
 		return "", err
+	}
+	secret := ""
+	if u, err := url.Parse(cloneURL); err == nil {
+		secret, _ = u.User.Password()
 	}
 	tmp, err := os.MkdirTemp("", "helix-skills-sync-")
 	if err != nil {
@@ -96,7 +93,7 @@ func (c *httpClient) syncSkills(ctx context.Context, orgID, botID, skillsDir, so
 	}
 	defer os.RemoveAll(tmp)
 	if _, err := git(tmp, "clone", "--quiet", "--depth", "1", cloneURL, "repo"); err != nil {
-		return "", fmt.Errorf("clone bot repo: %w", redact(err, c.apiKey))
+		return "", fmt.Errorf("clone bot repo: %w", redact(err, secret))
 	}
 	repo := filepath.Join(tmp, "repo")
 	dest := filepath.Join(repo, ".agents", "skills")
@@ -142,7 +139,7 @@ func (c *httpClient) syncSkills(ctx context.Context, orgID, botID, skillsDir, so
 		return "", err
 	}
 	if _, err := git(repo, "push", "--quiet", "origin", "HEAD"); err != nil {
-		return "", fmt.Errorf("push bot repo: %w", redact(err, c.apiKey))
+		return "", fmt.Errorf("push bot repo: %w", redact(err, secret))
 	}
 	sha, _ := git(repo, "rev-parse", "--short", "HEAD")
 	return fmt.Sprintf("skills synced (%s) → bot repo %s; new instances pick them up, the main session on restart", strings.Join(names, ", "), sha), nil
@@ -176,15 +173,12 @@ func redact(err error, secret string) error {
 
 // resolveProvider lets specs name a provider endpoint ("ds4-flash-node06")
 // instead of an environment-specific id; ids and global/* pass through.
-func (c *httpClient) resolveProvider(ctx context.Context, orgID, provider string) (string, error) {
+func resolveProvider(ctx context.Context, c *client.HelixClient, orgID, provider string) (string, error) {
 	if provider == "" || strings.HasPrefix(provider, "pe_") || strings.HasPrefix(provider, "global/") {
 		return provider, nil
 	}
-	var eps []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-	if err := c.doJSON(ctx, http.MethodGet, "/provider-endpoints?org_id="+url.QueryEscape(orgID), nil, &eps, 30*time.Second); err != nil {
+	eps, err := c.ListProviderEndpoints(ctx, &client.ProviderEndpointFilter{OrganizationID: orgID})
+	if err != nil {
 		return "", err
 	}
 	for _, e := range eps {
@@ -196,15 +190,12 @@ func (c *httpClient) resolveProvider(ctx context.Context, orgID, provider string
 }
 
 // providerName maps a provider endpoint id back to its name ("" if unknown).
-func (c *httpClient) providerName(ctx context.Context, orgID, id string) string {
+func providerName(ctx context.Context, c *client.HelixClient, orgID, id string) string {
 	if !strings.HasPrefix(id, "pe_") {
 		return ""
 	}
-	var eps []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-	if err := c.doJSON(ctx, http.MethodGet, "/provider-endpoints?org_id="+url.QueryEscape(orgID), nil, &eps, 30*time.Second); err != nil {
+	eps, err := c.ListProviderEndpoints(ctx, &client.ProviderEndpointFilter{OrganizationID: orgID})
+	if err != nil {
 		return ""
 	}
 	for _, e := range eps {

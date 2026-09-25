@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -40,4 +41,16 @@ func (c *HelixClient) ReadGitFile(ctx context.Context, repoID, path, branch stri
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// GitCloneURL returns an HTTP clone URL for a Helix-hosted repository with
+// this client's API key embedded as the password. Keep it out of logs.
+func (c *HelixClient) GitCloneURL(repoID string) (string, error) {
+	u, err := url.Parse(strings.TrimSuffix(c.url, "/api/v1"))
+	if err != nil {
+		return "", err
+	}
+	u.User = url.UserPassword("api", c.apiKey)
+	u.Path = "/git/" + repoID
+	return u.String(), nil
 }

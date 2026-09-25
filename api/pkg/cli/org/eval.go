@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/client"
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
 )
@@ -235,7 +235,7 @@ func gradeTurn(e evalExpect, reply string, secs float64, calls []entry) (map[str
 // ?app_id gives the call an org for billing, and the app's system prompt
 // replaces any system message we send — so instructions go in the user message.
 type llm struct {
-	c     *httpClient
+	c     *client.HelixClient
 	app   string
 	model string
 }
@@ -243,24 +243,16 @@ type llm struct {
 func (l *llm) ok() bool { return l.app != "" }
 
 func (l *llm) complete(ctx context.Context, instructions, input string, temperature float64) (string, error) {
-	body := map[string]any{
-		"messages":    []any{map[string]any{"role": "user", "content": instructions + "\n\n" + input}},
-		"temperature": temperature,
-	}
-	if l.model != "" {
-		body["model"] = l.model
-	}
-	var resp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	base := strings.TrimSuffix(l.c.base, "/api/v1")
-	cp := *l.c
-	cp.base = base
-	if err := cp.doJSON(ctx, http.MethodPost, "/v1/chat/completions?app_id="+l.app, body, &resp, 3*time.Minute); err != nil {
+	judgeCtx, cancel := callCtx(ctx, 3*time.Minute)
+	defer cancel()
+	// An empty model uses the judge app's; temperature 0 reads the same
+	// whether sent or omitted.
+	resp, err := l.c.ChatCompletion(judgeCtx, l.app, &openai.ChatCompletionRequest{
+		Model:       l.model,
+		Messages:    []openai.ChatCompletionMessage{{Role: openai.ChatMessageRoleUser, Content: instructions + "\n\n" + input}},
+		Temperature: float32(temperature),
+	})
+	if err != nil {
 		return "", err
 	}
 	if len(resp.Choices) == 0 {
@@ -317,14 +309,14 @@ type evalOpts struct {
 	mu                       sync.Mutex
 }
 
-func runCase(ctx context.Context, c *httpClient, s *evalSuite, bot string, ec evalCase, o *evalOpts) caseRecord {
+func runCase(ctx context.Context, c *client.HelixClient, s *evalSuite, bot string, ec evalCase, o *evalOpts) caseRecord {
 	rec := caseRecord{Tag: o.tag, Suite: s.Name, Bot: bot, Case: ec.ID, TS: time.Now().Format(time.RFC3339)}
 	t0 := time.Now()
 	runtime := o.runtime
 	if runtime == "" {
 		runtime = s.Runtime
 	}
-	inst, err := c.createInstance(ctx, o.orgID, bot, truncate("eval "+o.tag+" "+ec.ID, 60), runtime, "")
+	inst, err := createInstance(ctx, c, o.orgID, bot, truncate("eval "+o.tag+" "+ec.ID, 60), runtime, "")
 	if err != nil {
 		rec.Error = err.Error()
 		return rec
@@ -336,9 +328,9 @@ func runCase(ctx context.Context, c *httpClient, s *evalSuite, bot string, ec ev
 			rec.Kept = true
 			return
 		}
-		_ = c.deleteInstance(context.Background(), o.orgID, bot, sid)
+		_ = deleteInstance(context.Background(), c, o.orgID, bot, sid)
 	}()
-	if err := waitSandbox(ctx, o.orgID, sid, 3*time.Minute); err != nil {
+	if err := waitSandbox(ctx, c, o.orgID, sid, 3*time.Minute); err != nil {
 		rec.Error = err.Error()
 		rec.Seconds = time.Since(t0).Seconds()
 		return rec
@@ -357,7 +349,7 @@ func runCase(ctx context.Context, c *httpClient, s *evalSuite, bot string, ec ev
 		if !filepath.IsAbs(src) {
 			src = filepath.Join(s.base, src)
 		}
-		if err := putFile(ctx, o.orgID, sid, src, dest); err != nil {
+		if err := putFile(ctx, c, o.orgID, sid, src, dest); err != nil {
 			return fail(err)
 		}
 	}
@@ -385,7 +377,7 @@ func runCase(ctx context.Context, c *httpClient, s *evalSuite, bot string, ec ev
 			}
 			attach = append(attach, a)
 		}
-		r, err := c.sendTurn(ctx, sid, t.User, attach, "", time.Duration(timeout)*time.Second)
+		r, err := sendTurn(ctx, c, sid, t.User, attach, "", time.Duration(timeout)*time.Second)
 		if err != nil {
 			return fail(err)
 		}
@@ -436,20 +428,16 @@ func runCase(ctx context.Context, c *httpClient, s *evalSuite, bot string, ec ev
 	return rec
 }
 
-func putFile(ctx context.Context, orgID, sessionID, src, dest string) error {
+func putFile(ctx context.Context, c *client.HelixClient, orgID, sessionID, src, dest string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	sb, err := sandboxForSession(ctx, orgID, sessionID, 3*time.Minute)
+	sb, err := sandboxForSession(ctx, c, orgID, sessionID, 3*time.Minute)
 	if err != nil {
 		return err
 	}
-	apiClient, err := client.NewClientFromEnv()
-	if err != nil {
-		return err
-	}
-	return apiClient.WriteSandboxFile(ctx, orgID, sb.ID, dest, data, 0)
+	return c.WriteSandboxFile(ctx, orgID, sb.ID, dest, data, 0)
 }
 
 func newEvalCmd() *cobra.Command {
@@ -490,12 +478,8 @@ func newEvalRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			c, err := newHTTPClient()
-			if err != nil {
-				return err
-			}
 			ctx := cmd.Context()
-			orgID, err := c.resolveOrg(ctx, orgFlag)
+			c, orgID, err := orgClient(ctx, orgFlag)
 			if err != nil {
 				return err
 			}

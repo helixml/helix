@@ -1,13 +1,13 @@
 package org
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"mime"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,110 +16,41 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/config"
+	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
 )
 
-// Shared helpers for building, driving and debugging bots from the CLI:
-// bot documents that tolerate fields newer than this binary's DTOs, turns read
-// the way a customer sees them, and the sandbox behind a session.
+// Shared helpers for building, driving and debugging bots from the CLI: bot
+// documents for spec diffing, turns read the way a customer sees them, and the
+// sandbox behind a session.
 
-// botDoc is a bot as returned by GET /orgs/{org}/bots/{id}, kept as a raw map
-// so fields newer than orgapi.BotDTO (e.g. instance_profile) round-trip.
-type botDoc map[string]any
-
-func (b botDoc) str(k string) string {
-	if v, ok := b[k].(string); ok {
-		return v
-	}
-	return ""
+// botMap is a bot as a JSON-keyed map (REST field names), for diffing against
+// a spec and for export.
+func botMap(b orgapi.BotDTO) map[string]any {
+	m := map[string]any{}
+	bts, _ := json.Marshal(b)
+	_ = json.Unmarshal(bts, &m)
+	return m
 }
 
-func (b botDoc) strs(k string) []string {
-	raw, _ := b[k].([]any)
-	out := make([]string, 0, len(raw))
-	for _, v := range raw {
-		if s, ok := v.(string); ok {
-			out = append(out, s)
-		}
+// decodeStrict round-trips v (a spec map) into a typed request, reporting
+// unknown fields and wrong types.
+func decodeStrict(v any, out any) error {
+	bts, err := json.Marshal(v)
+	if err != nil {
+		return err
 	}
-	return out
+	dec := json.NewDecoder(bytes.NewReader(bts))
+	dec.DisallowUnknownFields()
+	return dec.Decode(out)
 }
 
-// instanceProfile mirrors types.BotInstanceProfile (PR #3293) locally.
-type instanceProfile struct {
-	SandboxRuntime string   `json:"sandbox_runtime,omitempty"`
-	MCPServers     []string `json:"mcp_servers"`
-	Tools          []string `json:"tools"`
-	HelixSkills    bool     `json:"helix_skills,omitempty"`
-}
-
-func (b botDoc) profile() instanceProfile {
-	var p instanceProfile
-	if raw, ok := b["instance_profile"]; ok && raw != nil {
-		bts, _ := json.Marshal(raw)
-		_ = json.Unmarshal(bts, &p)
-	}
-	return p
-}
-
-func (c *httpClient) getBot(ctx context.Context, orgID, botID string) (botDoc, error) {
-	var detail struct {
-		Bot         botDoc `json:"bot"`
-		LegacyAppID string `json:"legacy_app_id"`
-		ProjectID   string `json:"project_id"`
-	}
-	if err := c.doJSON(ctx, http.MethodGet, "/orgs/"+orgID+"/bots/"+botID, nil, &detail, 30*time.Second); err != nil {
-		return nil, err
-	}
-	if detail.Bot == nil {
-		return nil, fmt.Errorf("bot %s: empty response", botID)
-	}
-	if detail.Bot.str("legacy_app_id") == "" && detail.LegacyAppID != "" {
-		detail.Bot["legacy_app_id"] = detail.LegacyAppID
-	}
-	if detail.Bot.str("project_id") == "" && detail.ProjectID != "" {
-		detail.Bot["project_id"] = detail.ProjectID
-	}
-	return detail.Bot, nil
-}
-
-// botInstance is one element of GET /orgs/{org}/bots/{id}/instances.
-type botInstance struct {
-	SessionID      string `json:"session_id"`
-	BotID          string `json:"bot_id"`
-	Name           string `json:"name"`
-	SandboxRuntime string `json:"sandbox_runtime"`
-	SandboxStatus  string `json:"sandbox_status"`
-	Owner          string `json:"owner"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
-}
-
-func (c *httpClient) listInstances(ctx context.Context, orgID, botID string) ([]botInstance, error) {
-	var out []botInstance
-	err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/orgs/%s/bots/%s/instances", orgID, botID), nil, &out, 30*time.Second)
-	return out, err
-}
-
-func (c *httpClient) createInstance(ctx context.Context, orgID, botID, name, runtime, message string) (*botInstance, error) {
-	body := map[string]any{}
-	if name != "" {
-		body["name"] = name
-	}
-	if runtime != "" {
-		body["sandbox_runtime"] = runtime
-	}
-	if message != "" {
-		body["message"] = message
-	}
-	var out botInstance
-	err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/orgs/%s/bots/%s/instances", orgID, botID), body, &out, 60*time.Second)
-	return &out, err
-}
-
-func (c *httpClient) deleteInstance(ctx context.Context, orgID, botID, sessionID string) error {
-	return c.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/orgs/%s/bots/%s/instances/%s", orgID, botID, sessionID), nil, nil, 60*time.Second)
+// callCtx bounds one API call; makeRequest honours the deadline instead of
+// its 10 s default.
+func callCtx(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, d)
 }
 
 // ---------------------------------------------------------------------------
@@ -213,18 +144,20 @@ func toolSummary(calls []entry) string {
 	return strings.Join(parts, ", ")
 }
 
-// interactions lists a session's turns. Pages are 0-based: page=1 is the second page.
-func (c *httpClient) interactions(ctx context.Context, sessionID string, perPage int, order string) ([]*types.Interaction, error) {
-	var out types.PaginatedInteractions
-	q := url.Values{"per_page": {fmt.Sprint(perPage)}, "order": {order}, "page": {"0"}}
-	err := c.doJSON(ctx, http.MethodGet, "/sessions/"+sessionID+"/interactions?"+q.Encode(), nil, &out, 30*time.Second)
-	return out.Interactions, err
+// interactions lists a session's newest turns (the first page; pages are
+// 0-based, so page 1 would be the second page).
+func interactions(ctx context.Context, c *client.HelixClient, sessionID string, perPage int, order string) ([]*types.Interaction, error) {
+	page, err := c.ListInteractions(ctx, sessionID, &client.InteractionFilter{Page: 0, PerPage: perPage, Order: order})
+	if err != nil {
+		return nil, err
+	}
+	return page.Interactions, nil
 }
 
 // lastInteraction returns the newest turn. Ids are ULIDs (time ordered);
 // `created` can tie across turns of the same session, so sort by id.
-func (c *httpClient) lastInteraction(ctx context.Context, sessionID string) (*types.Interaction, error) {
-	xs, err := c.interactions(ctx, sessionID, 5, "desc")
+func lastInteraction(ctx context.Context, c *client.HelixClient, sessionID string) (*types.Interaction, error) {
+	xs, err := interactions(ctx, c, sessionID, 5, "desc")
 	if err != nil || len(xs) == 0 {
 		return nil, err
 	}
@@ -234,11 +167,11 @@ func (c *httpClient) lastInteraction(ctx context.Context, sessionID string) (*ty
 
 // waitTurn polls until a turn newer than prevID has settled. The interaction
 // list lags the blocking chat reply by a moment.
-func (c *httpClient) waitTurn(ctx context.Context, sessionID, prevID string, maxWait time.Duration) (*types.Interaction, error) {
+func waitTurn(ctx context.Context, c *client.HelixClient, sessionID, prevID string, maxWait time.Duration) (*types.Interaction, error) {
 	deadline := time.Now().Add(maxWait)
 	var last *types.Interaction
 	for time.Now().Before(deadline) {
-		i, err := c.lastInteraction(ctx, sessionID)
+		i, err := lastInteraction(ctx, c, sessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -292,7 +225,7 @@ func attachmentPart(path string) (map[string]any, error) {
 // an app key (the gateway then creates a bot instance). key overrides the
 // caller's key; app keys cannot read interactions, so for them Reply is cut
 // from the raw blob best-effort.
-func (c *httpClient) sendTurn(ctx context.Context, sessionID, message string, attach []string, key string, timeout time.Duration) (*turnResult, error) {
+func sendTurn(ctx context.Context, c *client.HelixClient, sessionID, message string, attach []string, key string, timeout time.Duration) (*turnResult, error) {
 	var parts []any
 	if len(attach) == 0 {
 		parts = []any{message}
@@ -306,35 +239,36 @@ func (c *httpClient) sendTurn(ctx context.Context, sessionID, message string, at
 			parts = append(parts, part)
 		}
 	}
-	body := map[string]any{
-		"stream": false, "type": "text",
-		"messages": []any{map[string]any{"role": "user", "content": map[string]any{"content_type": "text", "parts": parts}}},
-	}
-	if sessionID != "" {
-		body["session_id"] = sessionID
+	req := &types.SessionChatRequest{
+		SessionID: sessionID,
+		Type:      types.SessionTypeText,
+		Stream:    false,
+		Messages: []*types.Message{{
+			Role:    "user",
+			Content: types.MessageContent{ContentType: types.MessageContentTypeText, Parts: parts},
+		}},
 	}
 	prevID := ""
 	if sessionID != "" && key == "" {
-		if last, err := c.lastInteraction(ctx, sessionID); err == nil && last != nil {
+		if last, err := lastInteraction(ctx, c, sessionID); err == nil && last != nil {
 			prevID = last.ID
 		}
 	}
-	cc := c
+	chatClient := c
 	if key != "" {
-		cp := *c
-		cp.apiKey = key
-		cc = &cp
+		cfg, err := config.LoadCliConfig()
+		if err != nil {
+			return nil, err
+		}
+		if chatClient, err = client.NewClient(cfg.URL, key, cfg.TLSSkipVerify); err != nil {
+			return nil, err
+		}
 	}
 	t0 := time.Now()
-	var resp struct {
-		ID      string `json:"id"`
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := cc.doJSON(ctx, http.MethodPost, "/sessions/chat", body, &resp, timeout); err != nil {
+	chatCtx, cancel := callCtx(ctx, timeout)
+	defer cancel()
+	resp, err := chatClient.ChatSessionCompletion(chatCtx, req)
+	if err != nil {
 		return nil, err
 	}
 	res := &turnResult{SessionID: resp.ID, Seconds: time.Since(t0).Seconds()}
@@ -342,7 +276,7 @@ func (c *httpClient) sendTurn(ctx context.Context, sessionID, message string, at
 		res.Raw = resp.Choices[0].Message.Content
 	}
 	if key == "" && res.SessionID != "" {
-		if i, err := c.waitTurn(ctx, res.SessionID, prevID, 60*time.Second); err == nil && i != nil {
+		if i, err := waitTurn(ctx, c, res.SessionID, prevID, 60*time.Second); err == nil && i != nil {
 			res.Interaction = i
 			res.ToolCalls = toolCalls(i)
 			res.Reply = finalText(i)
@@ -376,14 +310,10 @@ func lastSegment(raw string) string {
 
 // sandboxForSession finds the sandbox row backing a session (bot main sessions
 // and instances both have one). wait > 0 polls until it is running.
-func sandboxForSession(ctx context.Context, orgID, sessionID string, wait time.Duration) (*types.Sandbox, error) {
-	apiClient, err := client.NewClientFromEnv()
-	if err != nil {
-		return nil, err
-	}
+func sandboxForSession(ctx context.Context, c *client.HelixClient, orgID, sessionID string, wait time.Duration) (*types.Sandbox, error) {
 	deadline := time.Now().Add(wait)
 	for {
-		resp, err := apiClient.ListSandboxes(ctx, orgID, nil)
+		resp, err := c.ListSandboxes(ctx, orgID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -403,17 +333,20 @@ func sandboxForSession(ctx context.Context, orgID, sessionID string, wait time.D
 	}
 }
 
-// execInSession runs a bash script in the session's sandbox.
-func execInSession(ctx context.Context, orgID, sessionID, script string, timeout int) (*types.SandboxCommand, error) {
-	sb, err := sandboxForSession(ctx, orgID, sessionID, 0)
+// execInSession runs a bash script in the session's sandbox. The call waits
+// for the command, so its deadline is the command timeout plus headroom.
+func execInSession(ctx context.Context, c *client.HelixClient, orgID, sessionID, script string, timeout int) (*types.SandboxCommand, error) {
+	sb, err := sandboxForSession(ctx, c, orgID, sessionID, 0)
 	if err != nil {
 		return nil, err
 	}
-	apiClient, err := client.NewClientFromEnv()
-	if err != nil {
-		return nil, err
+	wait := timeout
+	if wait <= 0 {
+		wait = 60 // the server's default command timeout
 	}
-	return apiClient.RunSandboxCommand(ctx, orgID, sb.ID, &types.RunSandboxCommandRequest{
+	runCtx, cancel := callCtx(ctx, time.Duration(wait+30)*time.Second)
+	defer cancel()
+	return c.RunSandboxCommand(runCtx, orgID, sb.ID, &types.RunSandboxCommandRequest{
 		Cmd: "bash", Args: []string{"-lc", script}, TimeoutSeconds: timeout,
 	})
 }
@@ -422,14 +355,10 @@ func execInSession(ctx context.Context, orgID, sessionID, script string, timeout
 // when it reports failed (e.g. Hydra refusing to start: disk full, quota) —
 // otherwise the first chat turn waits the full 5-minute readiness timeout and
 // only says "external agent not ready".
-func waitSandbox(ctx context.Context, orgID, sessionID string, maxWait time.Duration) error {
-	apiClient, err := client.NewClientFromEnv()
-	if err != nil {
-		return err
-	}
+func waitSandbox(ctx context.Context, c *client.HelixClient, orgID, sessionID string, maxWait time.Duration) error {
 	deadline := time.Now().Add(maxWait)
 	for time.Now().Before(deadline) {
-		resp, err := apiClient.ListSandboxes(ctx, orgID, nil)
+		resp, err := c.ListSandboxes(ctx, orgID, nil)
 		if err != nil {
 			return err
 		}

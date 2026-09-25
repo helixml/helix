@@ -1,12 +1,32 @@
 package org
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/client"
+	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
 )
+
+// createInstance starts an instance of botID; the sandbox starts asynchronously.
+func createInstance(ctx context.Context, c *client.HelixClient, orgID, botID, name, runtime, message string) (*orgapi.BotInstanceDTO, error) {
+	createCtx, cancel := callCtx(ctx, 60*time.Second)
+	defer cancel()
+	return c.CreateOrgBotInstance(createCtx, orgID, botID, &orgapi.CreateBotInstanceRequest{
+		Name: name, SandboxRuntime: types.SandboxRuntime(runtime), Message: message,
+	})
+}
+
+// deleteInstance removes an instance's sandbox, workspace and session.
+func deleteInstance(ctx context.Context, c *client.HelixClient, orgID, botID, sessionID string) error {
+	deleteCtx, cancel := callCtx(ctx, 60*time.Second)
+	defer cancel()
+	return c.DeleteOrgBotInstance(deleteCtx, orgID, botID, sessionID)
+}
 
 // `helix org instances`: bot instances — extra sessions sharing a bot's
 // identity, each with its own minimal sandbox (one per end customer, or one
@@ -41,15 +61,11 @@ func newInstancesListCmd() *cobra.Command {
 		Short: "List a bot's instances",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := newHTTPClient()
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			orgID, err := c.resolveOrg(cmd.Context(), orgFlag)
-			if err != nil {
-				return err
-			}
-			ins, err := c.listInstances(cmd.Context(), orgID, args[0])
+			ins, err := c.ListOrgBotInstances(cmd.Context(), orgID, args[0])
 			if err != nil {
 				return err
 			}
@@ -62,7 +78,7 @@ func newInstancesListCmd() *cobra.Command {
 				if st == "" {
 					st = "stopped"
 				}
-				fmt.Printf("%-32s %-28s %-16s %-16s %s\n", i.SessionID, truncate(i.Name, 28), i.SandboxRuntime, st, truncate(i.CreatedAt, 19))
+				fmt.Printf("%-32s %-28s %-16s %-16s %s\n", i.SessionID, truncate(i.Name, 28), string(i.SandboxRuntime), st, truncate(i.CreatedAt, 19))
 			}
 			return nil
 		},
@@ -82,20 +98,16 @@ func newInstancesCreateCmd() *cobra.Command {
 		Short: "Create an instance and print its session id",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := newHTTPClient()
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			orgID, err := c.resolveOrg(cmd.Context(), orgFlag)
-			if err != nil {
-				return err
-			}
-			inst, err := c.createInstance(cmd.Context(), orgID, args[0], name, runtime, message)
+			inst, err := createInstance(cmd.Context(), c, orgID, args[0], name, runtime, message)
 			if err != nil {
 				return err
 			}
 			if wait {
-				if err := waitSandbox(cmd.Context(), orgID, inst.SessionID, 3*time.Minute); err != nil {
+				if err := waitSandbox(cmd.Context(), c, orgID, inst.SessionID, 3*time.Minute); err != nil {
 					return err
 				}
 			}
@@ -125,18 +137,14 @@ func newInstancesDeleteCmd() *cobra.Command {
 		Short: "Delete instances (sandbox, workspace and session)",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := newHTTPClient()
-			if err != nil {
-				return err
-			}
 			ctx := cmd.Context()
-			orgID, err := c.resolveOrg(ctx, orgFlag)
+			c, orgID, err := orgClient(ctx, orgFlag)
 			if err != nil {
 				return err
 			}
 			sids := args[1:]
 			if all {
-				ins, err := c.listInstances(ctx, orgID, args[0])
+				ins, err := c.ListOrgBotInstances(ctx, orgID, args[0])
 				if err != nil {
 					return err
 				}
@@ -150,7 +158,7 @@ func newInstancesDeleteCmd() *cobra.Command {
 				return fmt.Errorf("nothing to delete: pass session ids or --all")
 			}
 			for _, s := range sids {
-				if err := c.deleteInstance(ctx, orgID, args[0], s); err != nil {
+				if err := deleteInstance(ctx, c, orgID, args[0], s); err != nil {
 					fmt.Fprintf(os.Stderr, "%s: %v\n", s, err)
 					continue
 				}
@@ -177,16 +185,12 @@ func newInstancesAskCmd() *cobra.Command {
 		Short: "One-shot: new instance, one turn, print the reply, delete the instance",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := newHTTPClient()
-			if err != nil {
-				return err
-			}
 			ctx := cmd.Context()
-			orgID, err := c.resolveOrg(ctx, orgFlag)
+			c, orgID, err := orgClient(ctx, orgFlag)
 			if err != nil {
 				return err
 			}
-			inst, err := c.createInstance(ctx, orgID, args[0], "helix ask", runtime, "")
+			inst, err := createInstance(ctx, c, orgID, args[0], "helix ask", runtime, "")
 			if err != nil {
 				return err
 			}
@@ -196,12 +200,12 @@ func newInstancesAskCmd() *cobra.Command {
 					fmt.Fprintf(os.Stderr, "[kept %s]\n", inst.SessionID)
 					return
 				}
-				_ = c.deleteInstance(ctx, orgID, args[0], inst.SessionID)
+				_ = deleteInstance(ctx, c, orgID, args[0], inst.SessionID)
 			}()
-			if err := waitSandbox(ctx, orgID, inst.SessionID, 3*time.Minute); err != nil {
+			if err := waitSandbox(ctx, c, orgID, inst.SessionID, 3*time.Minute); err != nil {
 				return err
 			}
-			r, err := c.sendTurn(ctx, inst.SessionID, args[1], attach, "", time.Duration(timeout)*time.Second)
+			r, err := sendTurn(ctx, c, inst.SessionID, args[1], attach, "", time.Duration(timeout)*time.Second)
 			if err != nil {
 				return err
 			}

@@ -2,11 +2,10 @@ package org
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
-	"time"
 
+	"github.com/helixml/helix/api/pkg/client"
 	"github.com/spf13/cobra"
 )
 
@@ -32,33 +31,21 @@ Examples:
 	return cmd
 }
 
-func webhooksBase(cmd *cobra.Command, orgFlag string) (*httpClient, string, error) {
-	c, err := newHTTPClient()
-	if err != nil {
-		return nil, "", err
-	}
-	orgID, err := c.resolveOrg(cmd.Context(), orgFlag)
-	if err != nil {
-		return nil, "", err
-	}
-	return c, "/organizations/" + orgID + "/webhook-endpoints", nil
-}
-
 func newWebhooksListCmd() *cobra.Command {
 	var orgFlag string
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List webhook endpoints",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			c, base, err := webhooksBase(cmd, orgFlag)
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			var out any
-			if err := c.doJSON(cmd.Context(), http.MethodGet, base, nil, &out, 30*time.Second); err != nil {
+			endpoints, err := c.ListWebhookEndpoints(cmd.Context(), orgID)
+			if err != nil {
 				return err
 			}
-			return printJSON(out)
+			return printJSON(endpoints)
 		},
 	}
 	cmd.Flags().StringVar(&orgFlag, "org", "", "Organization id or name (or $HELIX_ORG)")
@@ -72,22 +59,16 @@ func newWebhooksCreateCmd() *cobra.Command {
 		Short: "Create an endpoint; prints its signing secret once",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, base, err := webhooksBase(cmd, orgFlag)
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			body := map[string]any{"url": args[0]}
+			req := &client.WebhookEndpointRequest{URL: args[0], ProjectID: project, Description: description}
 			if events != "" {
-				body["events"] = strings.Split(events, ",")
+				req.Events = strings.Split(events, ",")
 			}
-			if project != "" {
-				body["project_id"] = project
-			}
-			if description != "" {
-				body["description"] = description
-			}
-			var out map[string]any
-			if err := c.doJSON(cmd.Context(), http.MethodPost, base, body, &out, 30*time.Second); err != nil {
+			out, err := c.CreateWebhookEndpoint(cmd.Context(), orgID, req)
+			if err != nil {
 				return err
 			}
 			fmt.Fprintln(os.Stderr, "store the secret now — it is not shown again")
@@ -108,11 +89,11 @@ func newWebhooksDeleteCmd() *cobra.Command {
 		Short: "Disable a webhook endpoint",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, base, err := webhooksBase(cmd, orgFlag)
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			if err := c.doJSON(cmd.Context(), http.MethodDelete, base+"/"+args[0], nil, nil, 30*time.Second); err != nil {
+			if err := c.DeleteWebhookEndpoint(cmd.Context(), orgID, args[0]); err != nil {
 				return err
 			}
 			fmt.Println("deleted", args[0])
@@ -130,15 +111,15 @@ func newWebhooksDeliveriesCmd() *cobra.Command {
 		Short: "Show the last 50 deliveries (status, attempts, response)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, base, err := webhooksBase(cmd, orgFlag)
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			var out any
-			if err := c.doJSON(cmd.Context(), http.MethodGet, base+"/"+args[0]+"/deliveries", nil, &out, 30*time.Second); err != nil {
+			deliveries, err := c.ListWebhookDeliveries(cmd.Context(), orgID, args[0])
+			if err != nil {
 				return err
 			}
-			return printJSON(out)
+			return printJSON(deliveries)
 		},
 	}
 	cmd.Flags().StringVar(&orgFlag, "org", "", "Organization id or name (or $HELIX_ORG)")
@@ -152,11 +133,11 @@ func newWebhooksReplayCmd() *cobra.Command {
 		Short: "Re-send one delivery",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, base, err := webhooksBase(cmd, orgFlag)
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			if err := c.doJSON(cmd.Context(), http.MethodPost, base+"/"+args[0]+"/deliveries/"+args[1]+"/replay", nil, nil, 30*time.Second); err != nil {
+			if _, err := c.ReplayWebhookDelivery(cmd.Context(), orgID, args[0], args[1]); err != nil {
 				return err
 			}
 			fmt.Println("replayed", args[1])

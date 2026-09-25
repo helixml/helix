@@ -18,28 +18,25 @@ func newBotsDoctorCmd() *cobra.Command {
 		Short: "Lint a bot's config and (with a session) check its sandbox",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := newHTTPClient()
-			if err != nil {
-				return err
-			}
 			ctx := cmd.Context()
-			orgID, err := c.resolveOrg(ctx, orgFlag)
+			c, orgID, err := orgClient(ctx, orgFlag)
 			if err != nil {
 				return err
 			}
-			b, err := c.getBot(ctx, orgID, args[0])
+			detail, err := c.GetOrgBot(ctx, orgID, args[0])
 			if err != nil {
 				return err
 			}
+			b := detail.Bot
 			var probs, notes []string
-			rt := b.str("code_agent_runtime")
+			rt := string(b.CodeAgentRuntime)
 			if rt == "" {
-				rt = b.str("agent_runtime")
+				rt = b.AgentRuntime
 			}
-			content := b.str("content")
-			prof := b.profile()
+			content := b.Content
+			prof := b.InstanceProfile
 			botTools := map[string]bool{}
-			for _, t := range b.strs("tools") {
+			for _, t := range b.Tools {
 				botTools[t] = true
 			}
 			switch rt {
@@ -55,11 +52,11 @@ func newBotsDoctorCmd() *cobra.Command {
 			} else if len(content) > 20000 {
 				notes = append(notes, fmt.Sprintf("prompt is %d chars — move per-system detail into repo skills (.agents/skills)", len(content)))
 			}
-			if v, _ := b["restart_required"].(bool); v {
+			if b.RestartRequired {
 				notes = append(notes, "restart_required: the main session runs stale config (instances unaffected)")
 			}
-			if b.str("sandbox_status") == "failed" {
-				probs = append(probs, "sandbox failed: "+b.str("sandbox_status_message"))
+			if b.SandboxStatus == "failed" {
+				probs = append(probs, "sandbox failed: "+b.SandboxStatusMessage)
 			}
 			var served, dropped []string
 			for _, t := range prof.Tools {
@@ -89,14 +86,14 @@ func newBotsDoctorCmd() *cobra.Command {
 			if rt == "deepseek_harness" && hasMCP("helix-desktop") {
 				notes = append(notes, "deepseek_harness fails session/new if any MCP server fails; helix-desktop fails on headless")
 			}
-			instRuntime := prof.SandboxRuntime
+			instRuntime := string(prof.SandboxRuntime)
 			if instRuntime == "" {
-				instRuntime = b.str("effective_sandbox_runtime")
+				instRuntime = string(b.EffectiveSandboxRuntime)
 			}
 			if instRuntime == "ubuntu-desktop" {
 				notes = append(notes, "instances run ubuntu-desktop; headless-ubuntu starts faster unless a human must watch")
 			}
-			if ins, err := c.listInstances(ctx, orgID, args[0]); err == nil {
+			if ins, err := c.ListOrgBotInstances(ctx, orgID, args[0]); err == nil {
 				idle := 0
 				for _, i := range ins {
 					if i.SandboxStatus == "" || i.SandboxStatus == "terminated_idle" || i.SandboxStatus == "stopped" {
@@ -108,11 +105,11 @@ func newBotsDoctorCmd() *cobra.Command {
 				}
 			}
 			fmt.Printf("bot %s: harness=%s model=%s status=%s instance_runtime=%s instance_mcp=%v instance_tools=%v\n",
-				args[0], rt, b.str("model"), b.str("status"), instRuntime, prof.MCPServers, served)
+				args[0], rt, b.Model, b.Status, instRuntime, prof.MCPServers, served)
 
 			if len(args) == 2 {
 				sid := args[1]
-				res, err := execInSession(ctx, orgID, sid, `test -f ~/.helix-setup-failed && echo SETUP_FAILED && cat ~/.helix-setup-failed
+				res, err := execInSession(ctx, c, orgID, sid, `test -f ~/.helix-setup-failed && echo SETUP_FAILED && cat ~/.helix-setup-failed
 echo AGENTS=$(wc -c < ~/work/AGENTS.md 2>/dev/null || echo 0)
 echo SKILLS=$(ls ~/.agents/skills 2>/dev/null | tr '\n' ' ')
 echo CDM=$(ps -eo args | grep -c '^chrome-devtools-mcp')
@@ -129,7 +126,7 @@ echo CHROME=$(ps -eo args | grep -c '^/opt/google/chrome/chrome --')`, 30)
 						probs = append(probs, "AGENTS.md missing or empty in the sandbox")
 					}
 				}
-				if last, err := c.lastInteraction(ctx, sid); err == nil && last != nil {
+				if last, err := lastInteraction(ctx, c, sid); err == nil && last != nil {
 					switch last.State {
 					case types.InteractionStateError:
 						probs = append(probs, "last turn errored: "+last.Error)

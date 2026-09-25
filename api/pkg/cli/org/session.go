@@ -20,7 +20,7 @@ func NewSessionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "session",
 		Aliases: []string{"sessions", "ses"},
-		Short:   "Talk to and debug a session: send, turns, watch, exec, put, logs",
+		Short:   "Talk to and debug a session: send, turns, watch, usage, exec, put, logs",
 		Long: `Work with one agent session by id (bot main sessions and bot instances alike).
 
 Examples:
@@ -30,10 +30,11 @@ Examples:
   helix session put ses_01xxx ./licence.pdf        # → ~/work/incoming/licence.pdf
   helix session exec ses_01xxx -- ls ~/work
   helix session logs ses_01xxx                     # processes, setup, agent and browser logs
+  helix session usage ses_01xxx                    # tokens, cost, latency, cache hits per turn
 `,
 	}
 	cmd.AddCommand(newSessionSendCmd(), newSessionTurnsCmd(), newSessionWatchCmd(), newSessionExecCmd(),
-		newSessionPutCmd(), newSessionGetCmd(), newSessionLogsCmd(), newSessionScreenshotCmd())
+		newSessionPutCmd(), newSessionGetCmd(), newSessionLogsCmd(), newSessionScreenshotCmd(), newSessionUsageCmd())
 	return silenceUsage(cmd)
 }
 
@@ -82,11 +83,11 @@ Attachments go inline as base64 data: URLs and land in the agent's ~/work/incomi
 			if sid == "" && key == "" {
 				return fmt.Errorf(`session "-" needs --key (an app key starts a new bot instance)`)
 			}
-			c, err := newHTTPClient()
+			c, err := client.NewClientFromEnv()
 			if err != nil {
 				return err
 			}
-			r, err := c.sendTurn(cmd.Context(), sid, msg, attach, key, time.Duration(timeout)*time.Second)
+			r, err := sendTurn(cmd.Context(), c, sid, msg, attach, key, time.Duration(timeout)*time.Second)
 			if err != nil {
 				return err
 			}
@@ -118,11 +119,11 @@ func newSessionTurnsCmd() *cobra.Command {
 		Short: "Show turns: prompt, state, duration, every tool call, final text",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := newHTTPClient()
+			c, err := client.NewClientFromEnv()
 			if err != nil {
 				return err
 			}
-			xs, err := c.interactions(cmd.Context(), args[0], last, "desc")
+			xs, err := interactions(cmd.Context(), c, args[0], last, "desc")
 			if err != nil {
 				return err
 			}
@@ -208,13 +209,13 @@ func newSessionWatchCmd() *cobra.Command {
 		Short: "Follow the current turn live (tool calls and text as they land)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := newHTTPClient()
+			c, err := client.NewClientFromEnv()
 			if err != nil {
 				return err
 			}
 			seen := map[string]bool{}
 			for {
-				i, err := c.lastInteraction(cmd.Context(), args[0])
+				i, err := lastInteraction(cmd.Context(), c, args[0])
 				if err != nil {
 					return err
 				}
@@ -244,14 +245,6 @@ func newSessionWatchCmd() *cobra.Command {
 	return cmd
 }
 
-func sessionOrg(cmd *cobra.Command, orgFlag string) (string, error) {
-	c, err := newHTTPClient()
-	if err != nil {
-		return "", err
-	}
-	return c.resolveOrg(cmd.Context(), orgFlag)
-}
-
 func newSessionExecCmd() *cobra.Command {
 	var (
 		orgFlag string
@@ -262,11 +255,11 @@ func newSessionExecCmd() *cobra.Command {
 		Short: "Run a shell command in the session's sandbox (as root)",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			orgID, err := sessionOrg(cmd, orgFlag)
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			res, err := execInSession(cmd.Context(), orgID, args[0], strings.Join(args[1:], " "), timeout)
+			res, err := execInSession(cmd.Context(), c, orgID, args[0], strings.Join(args[1:], " "), timeout)
 			if err != nil {
 				return err
 			}
@@ -293,7 +286,7 @@ instance (filestore and artifact links are not reachable with an instance's rest
 Files land root-owned, mode 0644: readable by the agent, not modifiable.`,
 		Args: cobra.RangeArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			orgID, err := sessionOrg(cmd, orgFlag)
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
@@ -305,15 +298,11 @@ Files land root-owned, mode 0644: readable by the agent, not modifiable.`,
 			if len(args) == 3 {
 				remote = args[2]
 			}
-			sb, err := sandboxForSession(cmd.Context(), orgID, args[0], 2*time.Minute)
+			sb, err := sandboxForSession(cmd.Context(), c, orgID, args[0], 2*time.Minute)
 			if err != nil {
 				return err
 			}
-			apiClient, err := client.NewClientFromEnv()
-			if err != nil {
-				return err
-			}
-			if err := apiClient.WriteSandboxFile(cmd.Context(), orgID, sb.ID, remote, data, 0); err != nil {
+			if err := c.WriteSandboxFile(cmd.Context(), orgID, sb.ID, remote, data, 0); err != nil {
 				return err
 			}
 			fmt.Printf("wrote %s (%d bytes)\n", remote, len(data))
@@ -331,19 +320,15 @@ func newSessionGetCmd() *cobra.Command {
 		Short: "Copy a file out of the session's sandbox (stdout if no local file)",
 		Args:  cobra.RangeArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			orgID, err := sessionOrg(cmd, orgFlag)
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			sb, err := sandboxForSession(cmd.Context(), orgID, args[0], 0)
+			sb, err := sandboxForSession(cmd.Context(), c, orgID, args[0], 0)
 			if err != nil {
 				return err
 			}
-			apiClient, err := client.NewClientFromEnv()
-			if err != nil {
-				return err
-			}
-			data, err := apiClient.ReadSandboxFile(cmd.Context(), orgID, sb.ID, args[1])
+			data, err := c.ReadSandboxFile(cmd.Context(), orgID, sb.ID, args[1])
 			if err != nil {
 				return err
 			}
@@ -382,11 +367,11 @@ func newSessionLogsCmd() *cobra.Command {
 		Short: "Diagnostic bundle from the sandbox: processes, workspace, skills, setup/agent/browser logs",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			orgID, err := sessionOrg(cmd, orgFlag)
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			res, err := execInSession(cmd.Context(), orgID, args[0], fmt.Sprintf(sessionLogsScript, lines), 60)
+			res, err := execInSession(cmd.Context(), c, orgID, args[0], fmt.Sprintf(sessionLogsScript, lines), 60)
 			if err != nil {
 				return err
 			}
@@ -409,22 +394,18 @@ func newSessionScreenshotCmd() *cobra.Command {
 		Short: "Save a JPEG of the session's desktop (desktop runtimes only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			orgID, err := sessionOrg(cmd, orgFlag)
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
 			if err != nil {
 				return err
 			}
-			sb, err := sandboxForSession(cmd.Context(), orgID, args[0], 0)
-			if err != nil {
-				return err
-			}
-			apiClient, err := client.NewClientFromEnv()
+			sb, err := sandboxForSession(cmd.Context(), c, orgID, args[0], 0)
 			if err != nil {
 				return err
 			}
 			if out == "" {
 				out = args[0] + ".jpg"
 			}
-			img, err := apiClient.GetSandboxScreenshot(cmd.Context(), orgID, sb.ID, 0)
+			img, err := c.GetSandboxScreenshot(cmd.Context(), orgID, sb.ID, 0)
 			if err != nil {
 				return err
 			}

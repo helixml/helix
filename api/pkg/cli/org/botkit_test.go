@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
+	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -119,5 +121,42 @@ func TestLoadSuiteQuestionsArrayAndDefaults(t *testing.T) {
 	e := s.Cases[0].Turns[0].Expect
 	if e.MaxSeconds != 60 || !reflect.DeepEqual(e.MustNot, []string{"sandbox", "secret"}) {
 		t.Fatalf("defaults not merged: %+v", e)
+	}
+}
+
+func TestSpecDecodesIntoTypedRequests(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "p.md"), []byte("You are a bot."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(dir, "bot.yaml")
+	if err := os.WriteFile(f, []byte("id: b-x\nname: x\ncontent_file: p.md\nmodel: m\npreserve_context: false\n"+
+		"instance_profile: {mcp_servers: [chrome-devtools], tools: [], helix_skills: false}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := loadSpec(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkSpecFields(spec); err != nil {
+		t.Fatalf("valid spec rejected: %v", err)
+	}
+	var create orgapi.CreateBotRequest
+	if err := decodeStrict(pick(spec, createFields), &create); err != nil || create.Content != "You are a bot." || create.Model != "m" {
+		t.Fatalf("create request: %+v %v", create, err)
+	}
+	var update orgapi.UpdateBotRequest
+	if err := decodeStrict(pick(spec, patchFields), &update); err != nil || update.InstanceProfile == nil || update.Name == nil || *update.Name != "x" {
+		t.Fatalf("update request: %+v %v", update, err)
+	}
+	spec["modle"] = "typo"
+	if err := checkSpecFields(spec); err == nil || !strings.Contains(err.Error(), "modle") {
+		t.Fatalf("typo not reported: %v", err)
+	}
+	if err := decodeStrict(map[string]any{"tools": "not-a-list"}, &orgapi.UpdateBotRequest{}); err == nil {
+		t.Fatal("wrong type not reported")
+	}
+	if err := decodeStrict(map[string]any{"mcp_servers": []any{}, "tool": []any{}}, &types.BotInstanceProfile{}); err == nil {
+		t.Fatal("unknown instance_profile field not reported")
 	}
 }
