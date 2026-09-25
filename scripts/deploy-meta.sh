@@ -36,6 +36,7 @@ fi
 
 HELIX_DIR=/prod/home/luke/pm/helix
 ZED_DIR=/prod/home/luke/pm/zed
+STATE_FILE=/prod/home/luke/.local/state/helix-meta-deploy
 PRE_DEPLOY_SHA=$(git -C "$HELIX_DIR" rev-parse HEAD)
 
 report_failure() {
@@ -84,12 +85,70 @@ else
 fi
 
 git -C "$ZED_DIR" pull --ff-only origin main
+ZED_SHA_AFTER=$(git -C "$ZED_DIR" rev-parse HEAD)
+
+deployed_helix_sha=
+deployed_zed_sha=
+if [[ -f "$STATE_FILE" ]]; then
+  read -r deployed_helix_sha deployed_zed_sha < "$STATE_FILE"
+  if [[ ! "$deployed_helix_sha" =~ ^[0-9a-f]{40}$ || ! "$deployed_zed_sha" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Invalid Meta deployment state in $STATE_FILE" >&2
+    exit 1
+  fi
+fi
 
 cd "$HELIX_DIR"
-./stack build
-./stack build-zed release
-./stack build-sandbox
-./stack start
+(cd frontend && yarn build)
+
+if [[ -z "$deployed_helix_sha" ]] ||
+  ! git diff --quiet "$deployed_helix_sha" "$TARGET_SHA" -- go.mod go.sum; then
+  ./stack up --force-recreate --no-deps api
+fi
+
+zed_changed=false
+if [[ -z "$deployed_zed_sha" || "$deployed_zed_sha" != "$ZED_SHA_AFTER" || ! -f zed-build/zed ]] ||
+  ! git diff --quiet "$deployed_helix_sha" "$TARGET_SHA" -- Dockerfile.zed-build; then
+  zed_changed=true
+  ./stack build-zed release
+fi
+
+ubuntu_changed=false
+if [[ -z "$deployed_helix_sha" ]] || ! git diff --quiet "$deployed_helix_sha" "$TARGET_SHA" -- \
+  Dockerfile.ubuntu-helix go.mod go.sum api/ desktop/ mcp-servers/drone-ci/ \
+  qwen-code-build/ sandbox-versions.txt WORKDIR_README.md; then
+  ubuntu_changed=true
+fi
+
+sandbox_changed=false
+if [[ -z "$deployed_helix_sha" ]] || ! git diff --quiet "$deployed_helix_sha" "$TARGET_SHA" -- \
+  .dockerignore Dockerfile.sandbox stack go.mod go.sum api/ sandbox/ \
+  desktop/sway-config/setup-telemetry-firewall.sh; then
+  sandbox_changed=true
+fi
+
+if [[ "$zed_changed" == true || "$sandbox_changed" == true ]]; then
+  ./stack build-sandbox
+elif [[ "$ubuntu_changed" == true ]]; then
+  ./stack build-ubuntu
+else
+  echo "Zed, Ubuntu, and sandbox inputs unchanged; skipping image builds"
+fi
+
+if [[ "$zed_changed" == true || "$ubuntu_changed" == true || "$sandbox_changed" == true ]]; then
+  ubuntu_version=$(<sandbox-images/helix-ubuntu.version)
+  if [[ ! "$ubuntu_version" =~ ^[0-9a-f]{6}$ ]]; then
+    echo "Invalid Ubuntu image version: $ubuntu_version" >&2
+    exit 1
+  fi
+  sandbox_id=$(docker ps --filter label=com.docker.compose.service \
+    --format '{{.ID}} {{.Label "com.docker.compose.service"}}' \
+    | awk '$2 ~ /^sandbox-(nvidia|amd-intel|software|macos)$/ && !found { print $1; found=1 }')
+  if [[ -z "$sandbox_id" ]] ||
+    ! docker exec "$sandbox_id" docker image inspect "helix-ubuntu:$ubuntu_version" >/dev/null; then
+    echo "Ubuntu image helix-ubuntu:$ubuntu_version is not loaded in the sandbox" >&2
+    exit 1
+  fi
+fi
 
 if [[ $(git rev-parse HEAD) != "$TARGET_SHA" ]]; then
   echo "Meta HEAD changed during deployment" >&2
@@ -98,6 +157,10 @@ fi
 for _ in $(seq 1 60); do
   if curl -fsS --max-time 10 -D - -o /dev/null http://localhost:8080/api/v1/config \
     | grep -Eiq '^content-type:[[:space:]]*application/json([[:space:]]*;|[[:space:]]*$)'; then
+    mkdir -p "$(dirname "$STATE_FILE")"
+    state_tmp=$(mktemp "$STATE_FILE.XXXXXX")
+    printf '%s %s\n' "$TARGET_SHA" "$ZED_SHA_AFTER" > "$state_tmp"
+    mv "$state_tmp" "$STATE_FILE"
     echo "Meta is healthy at $TARGET_SHA"
     exit 0
   fi
