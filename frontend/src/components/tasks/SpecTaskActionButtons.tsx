@@ -900,8 +900,8 @@ export default function SpecTaskActionButtons({
     if (pullRequests.length === 1) {
       const onlyPR = pullRequests[0];
       const prUrl = onlyPR.pr_url;
-      const prLabel = onlyPR.repository_name
-        ? `PR: ${onlyPR.repository_name}`
+      const prLabel = onlyPR.pr_number
+        ? `PR: #${onlyPR.pr_number}`
         : "Pull Request";
 
       if (isInline) {
