@@ -64,18 +64,21 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 		a.applyCanonicalAgentProfile(ctx, b, &dto, "list org bots")
 		dto.Status = "stopped"
 		if a.deps.BotRuntime != nil {
-			if info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID); err == nil {
-				if info.Status != "" {
-					dto.Status = info.Status
-				}
-				dto.AgentWorkState = info.AgentWorkState
-				dto.RestartRequired = info.RestartRequired
-				dto.ProjectID = info.ProjectID
-				dto.SessionID = info.SessionID
-				dto.AgentRuntime = info.Runtime
-				dto.AgentModel = info.Model
-				applySandboxInfo(&dto, info)
+			info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Errorf("get bot %s runtime state: %w", b.ID, err))
+				return
 			}
+			if info.Status != "" {
+				dto.Status = info.Status
+			}
+			dto.AgentWorkState = info.AgentWorkState
+			dto.RestartRequired = info.RestartRequired
+			dto.ProjectID = info.ProjectID
+			dto.SessionID = info.SessionID
+			dto.AgentRuntime = info.Runtime
+			dto.AgentModel = info.Model
+			applySandboxInfo(&dto, info)
 		}
 		out = append(out, dto)
 	}
@@ -199,30 +202,31 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 	dto.Status = "stopped"
 	// Populate the agent app id + project id from the helix-runtime
 	// sidecar so the chart UI can deep-link "chat with bot" to the
-	// per-project Human Desktop session. Missing state = the bot
-	// hasn't activated yet; we leave the fields empty and the UI
-	// shows a disabled button. Status drives the green/grey
+	// per-project Human Desktop session. Status drives the green/grey
 	// presence control on the bot detail page.
 	if a.deps.BotRuntime != nil {
-		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
-			agentID := b.AgentID
-			if agentID == "" {
-				agentID = info.AgentID
-			}
-			detail := BotDetailDTO{Bot: dto, LegacyAppID: agentID, ProjectID: info.ProjectID}
-			if info.Status != "" {
-				detail.Bot.Status = info.Status
-			}
-			detail.Bot.AgentWorkState = info.AgentWorkState
-			detail.Bot.RestartRequired = info.RestartRequired
-			detail.Bot.ProjectID = info.ProjectID
-			detail.Bot.SessionID = info.SessionID
-			detail.Bot.AgentRuntime = info.Runtime
-			detail.Bot.AgentModel = info.Model
-			applySandboxInfo(&detail.Bot, info)
-			writeJSON(w, http.StatusOK, detail)
+		info, err := a.deps.BotRuntime.State(ctx, orgID, id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("get bot %s runtime state: %w", id, err))
 			return
 		}
+		agentID := b.AgentID
+		if agentID == "" {
+			agentID = info.AgentID
+		}
+		detail := BotDetailDTO{Bot: dto, LegacyAppID: agentID, ProjectID: info.ProjectID}
+		if info.Status != "" {
+			detail.Bot.Status = info.Status
+		}
+		detail.Bot.AgentWorkState = info.AgentWorkState
+		detail.Bot.RestartRequired = info.RestartRequired
+		detail.Bot.ProjectID = info.ProjectID
+		detail.Bot.SessionID = info.SessionID
+		detail.Bot.AgentRuntime = info.Runtime
+		detail.Bot.AgentModel = info.Model
+		applySandboxInfo(&detail.Bot, info)
+		writeJSON(w, http.StatusOK, detail)
+		return
 	}
 	writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto, LegacyAppID: b.AgentID})
 }

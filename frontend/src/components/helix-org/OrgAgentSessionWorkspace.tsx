@@ -55,6 +55,9 @@ export interface OrgAgentSessionWorkspaceProps {
 
 const VIEW_STORAGE_PREFIX = 'helix.orgAgentSession.view.'
 const TERMINAL_STORAGE_PREFIX = 'helix.orgAgentSession.terminal.'
+const CONTENT_COLLAPSED_STORAGE_PREFIX = 'helix.orgAgentSession.contentCollapsed.'
+const CHAT_COLLAPSED_STORAGE_PREFIX = 'helix.orgAgentSession.chatCollapsed.'
+const TERMINAL_OPEN_STORAGE_PREFIX = 'helix.orgAgentSession.terminalOpen.'
 const DEFAULT_TERMINAL_HEIGHT = 280
 const VALID_VIEWS: TaskView[] = ['chat', 'desktop', 'browser', 'changes', 'files', 'details']
 
@@ -76,6 +79,16 @@ const loadTerminalHeight = (key: string): number => {
   } catch {
     return DEFAULT_TERMINAL_HEIGHT
   }
+}
+
+const loadStoredBoolean = (key: string): boolean => {
+  if (!key) return false
+  try { return localStorage.getItem(key) === 'true' } catch { return false }
+}
+
+const saveStoredBoolean = (key: string, value: boolean): void => {
+  if (!key) return
+  try { localStorage.setItem(key, String(value)) } catch { /* storage unavailable */ }
 }
 
 /** Maps the bot DTO onto the three-state indicator the task page uses. */
@@ -109,8 +122,11 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   const layoutKey = organizationId ? `helix.orgAgentSession.layout.${organizationId}` : ''
   const viewKey = organizationId ? `${VIEW_STORAGE_PREFIX}${organizationId}` : ''
   const terminalKey = organizationId ? `${TERMINAL_STORAGE_PREFIX}${organizationId}` : ''
+  const contentCollapsedKey = organizationId ? `${CONTENT_COLLAPSED_STORAGE_PREFIX}${organizationId}` : ''
+  const chatCollapsedKey = organizationId ? `${CHAT_COLLAPSED_STORAGE_PREFIX}${organizationId}` : ''
+  const terminalOpenKey = organizationId ? `${TERMINAL_OPEN_STORAGE_PREFIX}${organizationId}` : ''
   const savedLayout = loadPanelLayout(layoutKey, panelIds)
-  const lastExpandedContentSizeRef = useRef(savedLayout?.['org-agent-session-desktop'] ?? 62)
+  const lastExpandedContentSizeRef = useRef(savedLayout?.['org-agent-session-desktop'] ?? 50)
   const contentPanelRef = useRef<PanelImperativeHandle>(null)
   const collapseContentAfterSplitRef = useRef(false)
   const dividerColor = lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
@@ -123,10 +139,25 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   const defaultView: TaskView = isHeadless ? 'changes' : 'desktop'
 
   const [view, setView] = useState<TaskView>(() => loadView(viewKey) ?? defaultView)
-  const [terminalOpen, setTerminalOpen] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(() => loadStoredBoolean(terminalOpenKey))
   const [terminalHeight, setTerminalHeight] = useState(() => loadTerminalHeight(terminalKey))
-  const [chatCollapsed, setChatCollapsed] = useState(false)
-  const [contentCollapsed, setContentCollapsed] = useState(false)
+  const [chatCollapsed, setChatCollapsed] = useState(() => loadStoredBoolean(chatCollapsedKey))
+  const [contentCollapsed, setContentCollapsed] = useState(() => loadStoredBoolean(contentCollapsedKey))
+
+  const updateChatCollapsed = useCallback((collapsed: boolean) => {
+    setChatCollapsed(collapsed)
+    saveStoredBoolean(chatCollapsedKey, collapsed)
+  }, [chatCollapsedKey])
+
+  const updateContentCollapsed = useCallback((collapsed: boolean) => {
+    setContentCollapsed(collapsed)
+    saveStoredBoolean(contentCollapsedKey, collapsed)
+  }, [contentCollapsedKey])
+
+  const updateTerminalOpen = useCallback((open: boolean) => {
+    setTerminalOpen(open)
+    saveStoredBoolean(terminalOpenKey, open)
+  }, [terminalOpenKey])
 
   // A headless bot has no desktop; if the stored view is desktop, fall back.
   // On a big screen chat has its own panel, so "chat" as a right-panel view
@@ -154,8 +185,8 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   const collapseContentPanel = useCallback(() => {
     if (chatCollapsed) {
       collapseContentAfterSplitRef.current = true
-      setContentCollapsed(true)
-      setChatCollapsed(false)
+      updateContentCollapsed(true)
+      updateChatCollapsed(false)
       return
     }
     const currentSize = contentPanelRef.current?.getSize().asPercentage
@@ -163,17 +194,17 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
       lastExpandedContentSizeRef.current = currentSize
     }
     contentPanelRef.current?.collapse()
-    setContentCollapsed(true)
-  }, [chatCollapsed])
+    updateContentCollapsed(true)
+  }, [chatCollapsed, updateChatCollapsed, updateContentCollapsed])
 
   const showContentPanel = useCallback(() => {
     const panel = contentPanelRef.current
     if (!panel) return
-    const restoredSize = lastExpandedContentSizeRef.current || 62
+    const restoredSize = lastExpandedContentSizeRef.current || 50
     panel.expand()
     panel.resize(`${restoredSize}%`)
-    setContentCollapsed(false)
-  }, [])
+    updateContentCollapsed(false)
+  }, [updateContentCollapsed])
 
   const toolbar = (singlePanel: boolean) => (
     <SpecTaskViewToolbar
@@ -182,7 +213,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
       hasSession={!!sessionId}
       showChatTab={!isBigScreen}
       showDesktop={!isHeadless}
-      onToggleTerminal={() => setTerminalOpen((open) => !open)}
+      onToggleTerminal={() => updateTerminalOpen(!terminalOpen)}
       terminalOpen={terminalOpen}
       showStart={hasLifecycle && !!onStart && !desktopRunning && !starting}
       onStart={onStart}
@@ -194,7 +225,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
       onRestart={onRestart}
       restartBusy={lifecycleBusy}
       detailsLabel="Settings"
-      onRestoreSplit={singlePanel ? () => setChatCollapsed(false) : undefined}
+      onRestoreSplit={singlePanel ? () => updateChatCollapsed(false) : undefined}
       onCollapsePanel={isBigScreen ? collapseContentPanel : undefined}
     />
   )
@@ -307,7 +338,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
             <IconButton
               size="small"
               aria-label="Collapse chat panel"
-              onClick={() => setChatCollapsed(true)}
+              onClick={() => updateChatCollapsed(true)}
               sx={toolbarIconButtonSx('comfortable')}
             >
               <PanelLeft size={18} />
@@ -329,7 +360,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
       running={desktopRunning}
       height={terminalHeight}
       onHeightChange={handleTerminalHeight}
-      onClose={() => setTerminalOpen(false)}
+      onClose={() => updateTerminalOpen(false)}
       onCopyToChat={(text) => onAppendToChat?.(text)}
     />
   ) : null
@@ -361,11 +392,11 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     <PanelGroup
       id="org-agent-session-workspace"
       orientation="horizontal"
-      defaultLayout={collapseContentAfterSplitRef.current
+      defaultLayout={contentCollapsed || collapseContentAfterSplitRef.current
         ? { 'org-agent-session-chat': 100, 'org-agent-session-desktop': 0 }
         : savedLayout ?? {
-            'org-agent-session-chat': 38,
-            'org-agent-session-desktop': 62,
+            'org-agent-session-chat': 50,
+            'org-agent-session-desktop': 50,
           }}
       onLayoutChange={(layout) => {
         if (layout['org-agent-session-desktop'] === 0) {
@@ -380,7 +411,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     >
       <Panel
         id="org-agent-session-chat"
-        defaultSize="38%"
+        defaultSize="50%"
         minSize="25%"
         style={{ overflow: 'hidden', minWidth: 0, minHeight: 0 }}
       >
@@ -401,12 +432,12 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
       />
       <Panel
         id="org-agent-session-desktop"
-        defaultSize="62%"
+        defaultSize="50%"
         minSize="30%"
         collapsible
         collapsedSize={0}
         panelRef={contentPanelRef}
-        onResize={(size) => setContentCollapsed(size.asPercentage === 0)}
+        onResize={(size) => updateContentCollapsed(size.asPercentage === 0)}
         style={{ overflow: 'hidden', minWidth: 0, minHeight: 0 }}
       >
         {content()}
