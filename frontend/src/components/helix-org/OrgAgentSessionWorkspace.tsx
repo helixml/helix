@@ -302,7 +302,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
         )
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, sessionId, organizationId, desktopRunning, starting, lifecycleBusy, isHeadless, indicatorState, bot?.sandbox_status_message, bot?.sandbox_id, bot?.sandbox_status, bot?.restart_required, bot?.effective_sandbox_runtime, bot?.effective_sandbox_resource_overrides?.vcpus, instanceOf?.id, instanceOf?.name, sessionSandbox?.runtime, children])
+  }, [view, sessionId, organizationId, desktopRunning, starting, lifecycleBusy, isHeadless, indicatorState, bot?.sandbox_status_message, bot?.sandbox_id, bot?.sandbox_status, bot?.restart_required, bot?.effective_sandbox_runtime, bot?.effective_sandbox_resource_overrides?.vcpus, bot?.effective_sandbox_resource_overrides?.memory_mb, bot?.project_id, bot?.name, instanceOf?.id, instanceOf?.name, instanceOf?.project_id, instanceOf?.legacy_app_id, instanceOf?.effective_sandbox_resource_overrides?.vcpus, instanceOf?.effective_sandbox_resource_overrides?.memory_mb, instanceOf?.sandbox_resource_overrides?.vcpus, sessionSandbox?.runtime, children])
 
   // Outside the memo: the Agents view follows the streaming interactions,
   // which are not a primitive dependency.
