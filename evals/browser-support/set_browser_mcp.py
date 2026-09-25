@@ -11,18 +11,14 @@ import sys
 
 import run_eval as r
 
-# Mirrors desktop/shared/helix-chrome-devtools-mcp.sh plus the built-in args
-# from zed_config.go. The package is installed once into the persistent
-# workspace volume so restarts do not re-download it.
+# Installs the requested version once into the persistent workspace volume
+# (restarts do not re-download it), then runs it through the image's wrapper,
+# so it shares the sandbox's one Chrome like the built-in server does. The
+# args are the built-in ones from zed_config.go.
 WRAPPER = r'''set -e
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-if [ -z "${WAYLAND_DISPLAY:-}" ]; then
-  for s in "$XDG_RUNTIME_DIR"/wayland-*; do [ -S "$s" ] && WAYLAND_DISPLAY="${s##*/}"; done
-  export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
-fi
 P=/home/retro/work/.cdm-$CDM_VERSION
 [ -x "$P/bin/chrome-devtools-mcp" ] || npm install -g --silent --cache /home/retro/work/.npm-cache --prefix "$P" "chrome-devtools-mcp@$CDM_VERSION" >/dev/null 2>&1
-exec "$P/bin/chrome-devtools-mcp" "$@"'''
+HELIX_CHROME_DEVTOOLS_MCP="$P/bin/chrome-devtools-mcp" exec /usr/local/bin/helix-chrome-devtools-mcp "$@"'''
 
 BASE_ARGS = [
     "--user-data-dir=/home/retro/work/.chrome-state",

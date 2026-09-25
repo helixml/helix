@@ -15,6 +15,17 @@ set -euo pipefail
 CHROME_DEBUG_PORT="${HELIX_CHROME_DEBUG_PORT:-9222}"
 CHROME_URL="http://127.0.0.1:${CHROME_DEBUG_PORT}"
 CHROME_BIN="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
+# Another chrome-devtools-mcp build (e.g. a version under test) can be used
+# with the shared browser by pointing this at its binary.
+MCP_BIN="${HELIX_CHROME_DEVTOOLS_MCP:-/usr/bin/chrome-devtools-mcp}"
+
+# --isolated asks for a throwaway profile of the server's own, which never
+# touches the shared one, so it is passed through unchanged.
+for arg in "$@"; do
+    if [ "$arg" = "--isolated" ]; then
+        exec "$MCP_BIN" "$@"
+    fi
+done
 
 # Coding harnesses intentionally pass a minimal environment to MCP servers.
 # Restore the graphical-session variables Chrome needs, selecting the newest
@@ -50,7 +61,7 @@ while [ $# -gt 0 ]; do
         --viewport=*) viewport="${1#*=}" ;;
         --viewport) viewport="$2"; shift ;;
         --chrome-arg=*) chrome_flags+=("${1#*=}") ;;
-        --headless|--isolated) ;;
+        --headless) ;;
         *) mcp_args+=("$1") ;;
     esac
     shift
@@ -58,6 +69,22 @@ done
 
 chrome_running() {
     curl -fsS --max-time 2 "$CHROME_URL/json/version" >/dev/null 2>&1
+}
+
+wait_for_chrome() {
+    for _ in $(seq 1 100); do
+        chrome_running && return 0
+        sleep 0.2
+    done
+    return 1
+}
+
+# Chrome's profile lock is a symlink to "<hostname>-<pid>". A live owner on
+# this host is a Chrome that is still starting or has stalled, not a crash.
+profile_lock_owner_alive() {
+    local target
+    target=$(readlink "$user_data_dir/SingletonLock" 2>/dev/null) || return 1
+    [ "${target%-*}" = "$(hostname)" ] && kill -0 "${target##*-}" 2>/dev/null
 }
 
 start_chrome() {
@@ -78,18 +105,21 @@ start_chrome() {
         flags+=("${chrome_flags[@]}")
     fi
     mkdir -p "$user_data_dir"
-    # No Chrome is serving the port, so a profile lock left behind by a crash
-    # or a previous container is stale. Chrome refuses a lock written under
-    # another hostname, which is what a recreated container has.
+    # A Chrome that holds the profile but is not answering yet gets time to
+    # come up; a second Chrome on the same profile would corrupt it.
+    if profile_lock_owner_alive; then
+        wait_for_chrome && return 0
+        echo "helix-chrome-devtools-mcp: a Chrome holds $user_data_dir but does not answer on $CHROME_URL" >&2
+        return 1
+    fi
+    # The lock's owner is gone (a crash, or a previous container: Chrome
+    # refuses a lock written under another hostname), so it is stale.
     rm -f "$user_data_dir"/Singleton{Lock,Cookie,Socket}
     # Detached: the browser must outlive the MCP server that started it. It
     # must not inherit the lock descriptor either, or it would hold the lock
     # for as long as it runs.
     setsid "$CHROME_BIN" "${flags[@]}" about:blank >/tmp/helix-chrome.log 2>&1 < /dev/null 9>&- &
-    for _ in $(seq 1 100); do
-        chrome_running && return 0
-        sleep 0.2
-    done
+    wait_for_chrome && return 0
     echo "helix-chrome-devtools-mcp: Chrome did not open $CHROME_URL; see /tmp/helix-chrome.log" >&2
     return 1
 }
@@ -101,4 +131,4 @@ chrome_running || start_chrome
 flock -u 9
 exec 9>&-
 
-exec /usr/bin/chrome-devtools-mcp --browserUrl "$CHROME_URL" "${mcp_args[@]}"
+exec "$MCP_BIN" --browserUrl "$CHROME_URL" "${mcp_args[@]}"
