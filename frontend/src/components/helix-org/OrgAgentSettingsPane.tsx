@@ -30,6 +30,11 @@ interface OrgAgentSettingsPaneProps {
   sessionId: string
   organizationId: string
   indicatorState: SandboxIndicatorState
+  /**
+   * Set when the session is an instance of the bot: the header describes the
+   * instance's own sandbox, and the sections below stay the bot's settings.
+   */
+  instance?: { runtime?: string }
 }
 
 const STATUS_LABEL: Record<SandboxIndicatorState, string> = {
@@ -122,20 +127,22 @@ const Section: FC<{ title: string; description?: string; children: ReactNode; sx
   </Box>
 )
 
-const OrgAgentSettingsPane: FC<OrgAgentSettingsPaneProps> = ({ bot, sessionId, organizationId, indicatorState }) => {
+const OrgAgentSettingsPane: FC<OrgAgentSettingsPaneProps> = ({ bot, sessionId, organizationId, indicatorState, instance }) => {
   const router = useRouter()
   const lightTheme = useLightTheme()
   const { data: detail, refetch } = useHelixOrgBot(bot.id || undefined, { enabled: !!bot.id })
   const agentID = bot.legacy_app_id
-  const headless = bot.effective_sandbox_runtime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu
-  const runtime = sandboxRuntimeLabel(bot.effective_sandbox_runtime) || 'Full Desktop'
+  const sandboxRuntime = instance ? instance.runtime : bot.effective_sandbox_runtime
+  const headless = sandboxRuntime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu
+  const runtime = sandboxRuntimeLabel(sandboxRuntime) || 'Full Desktop'
   const size = sandboxSizeLabel(
     bot.effective_sandbox_resource_overrides?.vcpus,
     bot.effective_sandbox_resource_overrides?.memory_mb,
   ) || 'Standard'
-  const ownRuntime = !!bot.sandbox_runtime
+  const ownRuntime = !!instance || !!bot.sandbox_runtime
   const ownSize = !!bot.sandbox_resource_overrides?.vcpus
-  const statusLabel = bot.sandbox_status
+  // The bot's sandbox fields describe its main session, not an instance.
+  const statusLabel = !instance && bot.sandbox_status
     ? bot.sandbox_status.charAt(0).toUpperCase() + bot.sandbox_status.slice(1)
     : STATUS_LABEL[indicatorState]
   const statusColor = indicatorState === 'running'
@@ -166,12 +173,17 @@ const OrgAgentSettingsPane: FC<OrgAgentSettingsPaneProps> = ({ bot, sessionId, o
           </Typography>
         </Stack>
 
-        {bot.sandbox_status_message && (
+        {instance && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            An instance of this bot, in its own sandbox. The settings below are the bot&apos;s: changes apply to the bot and to each instance on its next start.
+          </Typography>
+        )}
+        {!instance && bot.sandbox_status_message && (
           <Typography variant="body2" color="error.main" sx={{ mb: 1.5 }}>
             {bot.sandbox_status_message}
           </Typography>
         )}
-        {bot.restart_required && (
+        {!instance && bot.restart_required && (
           <Typography variant="body2" color="warning.main" sx={{ mb: 1.5 }}>
             The running sandbox predates the latest settings. Restart the agent to apply them.
           </Typography>
@@ -199,7 +211,7 @@ const OrgAgentSettingsPane: FC<OrgAgentSettingsPaneProps> = ({ bot, sessionId, o
         </Box>
 
         <Stack spacing={0} sx={{ mt: 2 }}>
-          {bot.sandbox_id && (
+          {!instance && bot.sandbox_id && (
             <IdRow
               label="Sandbox"
               value={bot.sandbox_id}

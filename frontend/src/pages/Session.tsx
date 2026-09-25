@@ -70,6 +70,7 @@ import OrgAgentSessionWorkspace from '../components/helix-org/OrgAgentSessionWor
 import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
 import { useActivateBot, useApplyBotConfig, useHelixOrgBot, useRestartBotAgent, useStopBotAgent } from '../services/helixOrgService'
 import { isBotInstanceSessionMetadata } from '../components/session/ProjectChatSidebar.logic'
+import { mergeStreamingInteraction } from '../components/session/subagentActivity'
 import { deriveSandboxState } from '../components/external-agent/sandboxState'
 
 // Add new interfaces for virtualization
@@ -260,7 +261,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
   const { data: sessionProject } = useGetProject(sessionProjectID, orgChatView && !!sessionProjectID)
 
   const theme = useTheme()
-  const { NewInference, setCurrentSessionId } = useStreaming()
+  const { NewInference, setCurrentSessionId, currentResponses } = useStreaming()
   const apps = useApps()
   const isBigScreen = useMediaQuery(theme.breakpoints.up('md'))
   const lightTheme = useLightTheme()
@@ -325,6 +326,9 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
     refetchInterval: 5000,
   })
   const orgBot = orgBotDetail?.bot
+  // An instance's Settings view shows the bot it belongs to.
+  const instanceBotId = isBotInstance ? session?.data?.config?.org_worker_id || '' : ''
+  const { data: instanceBotDetail } = useHelixOrgBot(instanceBotId || undefined, { enabled: !!instanceBotId })
 
   // A bot instance controls its own sandbox through the session endpoints.
   const instanceSandboxState = isBotInstance ? deriveSandboxState(session?.data?.config).sandboxState : undefined
@@ -1722,6 +1726,11 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
           onRestart={orgWorkerId ? () => { void restartOrgBotAgent.mutateAsync(orgWorkerId) } : undefined}
           lifecycleBusy={orgBotLifecycleBusy || instanceLifecycleBusy}
           sessionSandbox={instanceSandbox}
+          instanceOf={instanceBotDetail?.bot}
+          subagentInteractions={mergeStreamingInteraction(
+            session.data.interactions || [],
+            currentResponses.get(session.data.id || sessionID),
+          )}
           onAppendToChat={appendToChat}
         >
           {externalAgentChat}

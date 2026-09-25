@@ -28,7 +28,12 @@ vi.mock('../tasks/SpecTaskTerminalDrawer', () => ({
   default: ({ sessionId }: { sessionId: string }) => <div>Terminal for {sessionId}</div>,
 }))
 vi.mock('./OrgAgentSettingsPane', () => ({
-  default: ({ sessionId }: { sessionId: string }) => <div>Settings for {sessionId}</div>,
+  default: ({ sessionId, bot, instance }: { sessionId: string; bot: { id: string }; instance?: { runtime?: string } }) => (
+    <div>Settings for {sessionId} of {bot.id}{instance ? ` as instance (${instance.runtime})` : ''}</div>
+  ),
+}))
+vi.mock('../session/SubagentsPanel', () => ({
+  default: ({ interactions }: { interactions: readonly unknown[] }) => <div>Subagents from {interactions.length} interactions</div>,
 }))
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children, defaultLayout, onLayoutChange }: {
@@ -194,7 +199,42 @@ describe('OrgAgentSessionWorkspace', () => {
     expect(screen.getByText('Browser for session-three')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /settings view/i }))
-    expect(screen.getByText('Settings for session-three')).toBeInTheDocument()
+    expect(screen.getByText('Settings for session-three of b-eng')).toBeInTheDocument()
+  })
+
+  it('shows subagents in the agents view instead of the desktop', () => {
+    render(
+      <OrgAgentSessionWorkspace
+        sessionId="session-agents"
+        organizationId="acme"
+        bot={runningBot as any}
+        subagentInteractions={[{ id: 'int-1' }, { id: 'int-2' }] as any}
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /agents view/i }))
+    expect(screen.getByText('Subagents from 2 interactions')).toBeInTheDocument()
+    expect(screen.queryByText('Desktop for session-agents')).toBeNull()
+  })
+
+  // An instance has no bot of its own lifecycle, but its Settings view shows
+  // the bot it belongs to, described as an instance.
+  it('shows the parent bot settings for a bot instance', () => {
+    render(
+      <OrgAgentSessionWorkspace
+        sessionId="session-instance"
+        organizationId="acme"
+        sessionSandbox={{ runtime: 'headless-ubuntu', state: 'running' }}
+        instanceOf={runningBot as any}
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /settings view/i }))
+    expect(screen.getByText('Settings for session-instance of b-eng as instance (headless-ubuntu)')).toBeInTheDocument()
   })
 
   it('hides the desktop for a headless bot and opens on the diff view', () => {

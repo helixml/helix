@@ -24,8 +24,9 @@ import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useLightTheme from '../../hooks/useLightTheme'
 import { loadPanelLayout, savePanelLayout } from '../../lib/panelLayoutStorage'
 import { BotDTO } from '../../services/helixOrgService'
-import { TypesSandboxRuntime } from '../../api/api'
+import { TypesInteraction, TypesSandboxRuntime } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
+import SubagentsPanel from '../session/SubagentsPanel'
 import DiffViewer from '../tasks/DiffViewer'
 import SandboxBrowser from '../tasks/SandboxBrowser'
 import { SandboxIndicatorState } from '../tasks/SandboxStatusIndicator'
@@ -48,6 +49,13 @@ export interface OrgAgentSessionWorkspaceProps {
    * bot's status.
    */
   sessionSandbox?: { runtime?: string; state: SandboxIndicatorState }
+  /**
+   * The bot a bot instance belongs to. Only the Settings view uses it; the
+   * instance's own sandbox (sessionSandbox) drives everything else.
+   */
+  instanceOf?: BotDTO
+  /** The session's interactions, for the Agents (subagents) view. */
+  subagentInteractions?: readonly TypesInteraction[]
   /** Terminal "copy to chat" lands here; the parent appends it to the composer. */
   onAppendToChat?: (text: string) => void
   children: ReactNode
@@ -59,7 +67,7 @@ const CONTENT_COLLAPSED_STORAGE_PREFIX = 'helix.orgAgentSession.contentCollapsed
 const CHAT_COLLAPSED_STORAGE_PREFIX = 'helix.orgAgentSession.chatCollapsed.'
 const TERMINAL_OPEN_STORAGE_PREFIX = 'helix.orgAgentSession.terminalOpen.'
 const DEFAULT_TERMINAL_HEIGHT = 280
-const VALID_VIEWS: TaskView[] = ['chat', 'desktop', 'browser', 'changes', 'files', 'details']
+const VALID_VIEWS: TaskView[] = ['chat', 'desktop', 'browser', 'changes', 'files', 'agents', 'details']
 
 const loadView = (key: string): TaskView | null => {
   if (!key) return null
@@ -113,6 +121,8 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   onRestart,
   lifecycleBusy = false,
   sessionSandbox,
+  instanceOf,
+  subagentInteractions,
   onAppendToChat,
   children,
 }) => {
@@ -264,8 +274,19 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
           />
         )
       case 'details':
-        return bot
-          ? <OrgAgentSettingsPane bot={bot} sessionId={sessionId} organizationId={organizationId} indicatorState={indicatorState} />
+        if (bot) {
+          return <OrgAgentSettingsPane bot={bot} sessionId={sessionId} organizationId={organizationId} indicatorState={indicatorState} />
+        }
+        return instanceOf
+          ? (
+            <OrgAgentSettingsPane
+              bot={instanceOf}
+              sessionId={sessionId}
+              organizationId={organizationId}
+              indicatorState={indicatorState}
+              instance={{ runtime: sessionSandbox?.runtime }}
+            />
+          )
           : null
       case 'desktop':
       default:
@@ -281,7 +302,13 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
         )
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, sessionId, organizationId, desktopRunning, starting, lifecycleBusy, isHeadless, indicatorState, bot?.sandbox_status_message, bot?.sandbox_id, bot?.sandbox_status, bot?.restart_required, bot?.effective_sandbox_runtime, bot?.effective_sandbox_resource_overrides?.vcpus, children])
+  }, [view, sessionId, organizationId, desktopRunning, starting, lifecycleBusy, isHeadless, indicatorState, bot?.sandbox_status_message, bot?.sandbox_id, bot?.sandbox_status, bot?.restart_required, bot?.effective_sandbox_runtime, bot?.effective_sandbox_resource_overrides?.vcpus, instanceOf?.id, instanceOf?.name, sessionSandbox?.runtime, children])
+
+  // Outside the memo: the Agents view follows the streaming interactions,
+  // which are not a primitive dependency.
+  const shownSurface = view === 'agents'
+    ? <SubagentsPanel interactions={subagentInteractions ?? []} />
+    : surface
 
   const content = (singlePanel = false) => (
     <Box sx={{ height: '100%', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -299,7 +326,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
           p: view === 'details' ? 2 : 0,
         }}
       >
-        {surface}
+        {shownSurface}
       </Box>
     </Box>
   )
