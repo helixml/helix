@@ -55,6 +55,7 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(sandbox.New())
 	RootCmd.AddCommand(spectask.New())
 	RootCmd.AddCommand(org.New())
+	RootCmd.AddCommand(org.NewSessionCmd())
 	RootCmd.AddCommand(api.New())
 	RootCmd.AddCommand(mcp.New())
 	RootCmd.AddCommand(model.New())

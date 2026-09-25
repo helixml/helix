@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
@@ -33,6 +35,16 @@ func New() *cobra.Command {
 }
 
 func lookupApp(ctx context.Context, apiClient *client.HelixClient, organization, ref string) (*types.App, error) {
+	// An app id resolves directly, whatever org it lives in (listing without an
+	// org only returns personal apps, so org agents were "not found").
+	if strings.HasPrefix(ref, "app_") {
+		if app, err := apiClient.GetApp(ctx, ref); err == nil && app != nil {
+			return app, nil
+		}
+	}
+	if organization == "" {
+		organization = os.Getenv("HELIX_ORG")
+	}
 	filter := &client.AppFilter{}
 
 	if organization != "" {

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -209,26 +210,47 @@ func NewClient(url, apiKey string, tlsSkipVerify bool) (*HelixClient, error) {
 	}, nil
 }
 
+// defaultRequestTimeout bounds a request whose context has no deadline.
+// Long calls (blocking chat, synchronous sandbox commands, bot activation)
+// set a deadline on the context instead, and makeRequest honours it.
+var defaultRequestTimeout = 10 * time.Second
+
+// requestContext applies defaultRequestTimeout unless ctx already carries a
+// deadline, in which case the caller's deadline wins (longer or shorter).
+func requestContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, defaultRequestTimeout)
+}
+
 func (c *HelixClient) makeRequest(ctx context.Context, method, path string, body io.Reader, v interface{}) error {
+	return c.makeRequestURL(ctx, method, c.url+path, body, v)
+}
+
+// makeRequestURL is makeRequest for an absolute URL, for the few routes that
+// live outside /api/v1 (e.g. the OpenAI-compatible /v1/chat/completions).
+func (c *HelixClient) makeRequestURL(ctx context.Context, method, fullURL string, body io.Reader, v interface{}) error {
+	// Read the body once so a retry resends it rather than a drained reader.
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(body)
+		if err != nil {
+			return err
+		}
+	}
+
 	return retry.Do(func() error {
-		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		reqCtx, cancel := requestContext(ctx)
 		defer cancel()
 
-		fullURL := c.url + path
-
-		// Read and store body content for curl logging
-		var bodyBytes []byte
+		var reqBody io.Reader
 		if body != nil {
-			var err error
-			bodyBytes, err = io.ReadAll(body)
-			if err != nil {
-				return err
-			}
-			// Create new reader from bytes for the actual request
-			body = strings.NewReader(string(bodyBytes))
+			reqBody = bytes.NewReader(bodyBytes)
 		}
 
-		req, err := http.NewRequestWithContext(reqCtx, method, fullURL, body)
+		req, err := http.NewRequestWithContext(reqCtx, method, fullURL, reqBody)
 		if err != nil {
 			return err
 		}

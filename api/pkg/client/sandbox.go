@@ -20,10 +20,12 @@ import (
 // Auth: every method uses the same Bearer token as the rest of HelixClient.
 // All sandbox routes are scoped to an org id; pass it in via the orgID arg.
 //
-// Note: makeRequest has a 10s timeout, which is fine for control-plane calls
-// (list/create/get/delete, exec for non-detached commands). Streaming endpoints
-// (terminal websocket, command log SSE) bypass it and use the http client
-// directly so they can stay open indefinitely.
+// Note: makeRequest applies a 10s timeout unless ctx carries a deadline, which
+// is fine for control-plane calls (list/create/get/delete). A synchronous
+// command runs for up to its TimeoutSeconds, so give RunSandboxCommand a ctx
+// with a deadline beyond that. Streaming endpoints (terminal websocket,
+// command log SSE) bypass it and use the http client directly so they can
+// stay open indefinitely.
 
 // SandboxListFilter narrows ListSandboxes results. ProjectID="" matches all.
 type SandboxListFilter struct {

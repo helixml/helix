@@ -25,6 +25,14 @@ Examples:
   helix org assets list --org unmanned-org
   helix org assets create server production --org unmanned-org --address 10.0.0.8 --user ubuntu
 
+Build and test bots:
+  helix org bots apply -f support.yaml          # bots as files (export writes one)
+  helix org bots profile b-support --runtime headless-ubuntu --mcp chrome-devtools
+  helix org instances ask b-support "hi" --tools
+  helix session turns ses_01xxx                 # what the bot did, turn by turn
+  helix org bots doctor b-support ses_01xxx
+  helix org eval run support.eval.yaml --keep-failed
+
 Auth via HELIX_URL + HELIX_API_KEY. For raw REST, use: helix api GET /orgs/{org}/bots
 `,
 	}
@@ -32,5 +40,8 @@ Auth via HELIX_URL + HELIX_API_KEY. For raw REST, use: helix api GET /orgs/{org}
 	cmd.AddCommand(newTriggersCmd())
 	cmd.AddCommand(newProcessorsCmd())
 	cmd.AddCommand(newAssetsCmd())
-	return cmd
+	cmd.AddCommand(newInstancesCmd())
+	cmd.AddCommand(newEvalCmd())
+	cmd.AddCommand(newWebhooksCmd())
+	return silenceUsage(cmd)
 }
