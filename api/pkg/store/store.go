@@ -284,6 +284,9 @@ type Store interface {
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
 	UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error
+	// SetSessionBotInstanceProfile replaces only config.bot_instance, so it
+	// cannot revert status fields a concurrent writer changed.
+	SetSessionBotInstanceProfile(ctx context.Context, sessionID string, profile types.BotInstanceProfile) error
 	TouchSession(ctx context.Context, sessionID string) error
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)

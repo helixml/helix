@@ -320,14 +320,16 @@ func (b botInstances) SyncProfile(ctx context.Context, orgID string, botID orgch
 	if err != nil {
 		return err
 	}
+	// Every instance is attempted: one failure must not leave the rest on the
+	// old profile. Re-applying is idempotent, so the caller can retry.
 	profile := bot.EffectiveInstanceProfile()
+	var errs []error
 	for _, session := range sessions {
-		session.Metadata.BotInstance = &profile
-		if _, err := b.server.Store.UpdateSession(ctx, *session); err != nil {
-			return fmt.Errorf("update instance %s: %w", session.ID, err)
+		if err := b.server.Store.SetSessionBotInstanceProfile(ctx, session.ID, profile); err != nil {
+			errs = append(errs, fmt.Errorf("instance %s: %w", session.ID, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // botMandate is the bot's own instructions: the linked App's single

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 
@@ -12,6 +14,7 @@ import (
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/application/instances"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/store"
@@ -119,4 +122,25 @@ func (s *BotInstancesDeleteSuite) TestWorkspaceFailureKeepsSession() {
 
 	err := s.instances.Delete(callerCtx("usr_owner", types.OrganizationRoleMember), "org_one", "b-broker", "ses_instance")
 	s.Require().ErrorContains(err, "sandbox offline")
+}
+
+// A profile change reaches every instance through a targeted write, and one
+// failing instance neither stops the others nor is swallowed.
+func TestBotInstancesSyncProfileAttemptsEveryInstance(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+	bot := mustBot(t, "b-broker", time.Now()).WithAgentID("app_broker")
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), bot))
+	instances := botInstances{server: &HelixAPIServer{Store: st}, store: orgStore}
+
+	first := &types.Session{ID: "ses_one", Metadata: types.SessionMetadata{OrgWorkerID: "b-broker"}}
+	second := &types.Session{ID: "ses_two", Metadata: types.SessionMetadata{OrgWorkerID: "b-broker"}}
+	st.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return([]*types.Session{first, second}, int64(2), nil)
+	profile := bot.EffectiveInstanceProfile()
+	st.EXPECT().SetSessionBotInstanceProfile(gomock.Any(), "ses_one", profile).Return(errors.New("db down"))
+	st.EXPECT().SetSessionBotInstanceProfile(gomock.Any(), "ses_two", profile).Return(nil)
+
+	err := instances.SyncProfile(context.Background(), "org-test", "b-broker")
+	require.ErrorContains(t, err, "instance ses_one: db down")
 }

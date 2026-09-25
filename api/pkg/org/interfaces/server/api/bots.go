@@ -373,7 +373,7 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.InstanceProfile != nil && a.deps.BotInstances != nil {
 		if err := a.deps.BotInstances.SyncProfile(ctx, orgID, id); err != nil {
-			writeError(w, errStatus(err), fmt.Errorf("apply instance profile to instances: %w", err))
+			writeError(w, errStatus(err), fmt.Errorf("instance profile saved, but applying it to instances failed (retry to re-apply): %w", err))
 			return
 		}
 	}

@@ -6508,6 +6508,20 @@ func (mr *MockStoreMockRecorder) SetSandboxStatus(ctx, id, status, message any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxStatus", reflect.TypeOf((*MockStore)(nil).SetSandboxStatus), ctx, id, status, message)
 }
 
+// SetSessionBotInstanceProfile mocks base method.
+func (m *MockStore) SetSessionBotInstanceProfile(ctx context.Context, sessionID string, profile types.BotInstanceProfile) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSessionBotInstanceProfile", ctx, sessionID, profile)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSessionBotInstanceProfile indicates an expected call of SetSessionBotInstanceProfile.
+func (mr *MockStoreMockRecorder) SetSessionBotInstanceProfile(ctx, sessionID, profile any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionBotInstanceProfile", reflect.TypeOf((*MockStore)(nil).SetSessionBotInstanceProfile), ctx, sessionID, profile)
+}
+
 // SetWebServiceHostDeviceID mocks base method.
 func (m *MockStore) SetWebServiceHostDeviceID(ctx context.Context, projectID, hostDeviceID string) error {
 	m.ctrl.T.Helper()
