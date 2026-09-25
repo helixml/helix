@@ -28,6 +28,14 @@ func newBotsCmd() *cobra.Command {
 	cmd.AddCommand(newBotsStopCmd())
 	cmd.AddCommand(newBotsRestartCmd())
 	cmd.AddCommand(newBotsChatCmd())
+	cmd.AddCommand(newBotsApplyCmd())
+	cmd.AddCommand(newBotsExportCmd())
+	cmd.AddCommand(newBotsPromptCmd())
+	cmd.AddCommand(newBotsProfileCmd())
+	cmd.AddCommand(newBotsApplyConfigCmd())
+	cmd.AddCommand(newBotsDoctorCmd())
+	cmd.AddCommand(newBotsAppKeyCmd())
+	cmd.AddCommand(newBotsDeleteCmd())
 	return cmd
 }
 
@@ -84,7 +92,8 @@ func newBotsGetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var detail orgapi.BotDetailDTO
+			// Raw map: keeps fields newer than this binary's DTOs (instance_profile, …).
+			var detail map[string]any
 			if err := c.doJSON(cmd.Context(), http.MethodGet, "/orgs/"+orgID+"/bots/"+args[0], nil, &detail, 30*time.Second); err != nil {
 				return err
 			}
