@@ -3,6 +3,8 @@ import useApi from '../hooks/useApi'
 
 // GET /api/v1/sessions/{id}/usage — LLM spend, tokens, latency and prompt-cache
 // hits for one session (types.SessionUsage in api/pkg/types/session_usage.go).
+// The generated TypesSessionUsage marks every field optional; the API always
+// sends them, so the stricter shapes below are what the panel works with.
 
 export interface SessionUsageSummary {
   calls: number
@@ -64,7 +66,8 @@ export function useSessionUsage(sessionId: string | undefined, options?: { refet
     queryKey: sessionUsageQueryKey(sessionId ?? ''),
     queryFn: async () => {
       if (!sessionId) return null
-      return api.get<SessionUsage>(`/api/v1/sessions/${sessionId}/usage`, undefined, { snackbar: false })
+      const res = await api.getApiClient().v1SessionsUsageDetail(sessionId)
+      return res.data as SessionUsage
     },
     enabled: !!sessionId,
     refetchInterval: options?.refetchInterval,

@@ -2358,13 +2358,13 @@ export enum TransportFieldType {
 
 export enum TransportKind {
   KindGitLab = "gitlab",
+  KindWebhook = "webhook",
+  KindLocal = "local",
+  KindCron = "cron",
   KindGitHub = "github",
   KindHelixEvents = "helix_events",
-  KindEmail = "email",
   KindSlack = "slack",
-  KindWebhook = "webhook",
-  KindCron = "cron",
-  KindLocal = "local",
+  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -2394,6 +2394,7 @@ export enum TypesAPIKeyType {
   APIkeytypeAPI = "api",
   APIkeytypeApp = "app",
   APIkeytypeEmbed = "embed",
+  APIkeytypeBotInstance = "bot_instance",
 }
 
 export interface TypesAccessGrant {
@@ -7133,6 +7134,64 @@ export enum TypesSessionType {
   SessionTypeNone = "",
   SessionTypeText = "text",
   SessionTypeImage = "image",
+}
+
+export interface TypesSessionUsage {
+  calls?: TypesSessionUsageCall[];
+  session_id?: string;
+  summary?: TypesSessionUsageSummary;
+  /**
+   * Truncated is set when the session has more calls than the endpoint returns;
+   * the summary then covers only the returned calls.
+   */
+  truncated?: boolean;
+  turns?: TypesSessionUsageTurn[];
+}
+
+export interface TypesSessionUsageCall {
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  completion_tokens?: number;
+  created?: string;
+  duration_ms?: number;
+  interaction_id?: string;
+  model?: string;
+  prompt_tokens?: number;
+  time_to_first_token_ms?: number;
+  total_cost?: number;
+}
+
+export interface TypesSessionUsageSummary {
+  /** CacheHitRatio is cache-read / prompt tokens; nil when there were no prompt tokens. */
+  cache_hit_ratio?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  calls?: number;
+  completion_tokens?: number;
+  duration_p50_ms?: number;
+  duration_p90_ms?: number;
+  /** LLMMs is the summed duration of the calls (calls can overlap, so this can exceed wall time). */
+  llm_ms?: number;
+  models?: string[];
+  prompt_tokens?: number;
+  total_cost?: number;
+  ttft_p50_ms?: number;
+  ttft_p90_ms?: number;
+}
+
+export interface TypesSessionUsageTurn {
+  cache_hit_ratio?: number;
+  cache_read_tokens?: number;
+  calls?: number;
+  completed?: string;
+  completion_tokens?: number;
+  interaction_id?: string;
+  llm_ms?: number;
+  prompt?: string;
+  prompt_tokens?: number;
+  started?: string;
+  state?: string;
+  total_cost?: number;
 }
 
 export interface TypesSkillDefinition {
@@ -18327,6 +18386,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Spend, tokens, latency and prompt-cache hit ratio of one session, overall, per turn and per LLM call.
+     *
+     * @tags sessions
+     * @name V1SessionsUsageDetail
+     * @summary Get a session's LLM usage
+     * @request GET:/api/v1/sessions/{id}/usage
+     * @secure
+     */
+    v1SessionsUsageDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSessionUsage, any>({
+        path: `/api/v1/sessions/${id}/usage`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
