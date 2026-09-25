@@ -77,6 +77,10 @@ func (s *AutoWakeColdStartSuite) TestKicksDisconnectedInteractionWithPendingQues
 	}, nil).AnyTimes()
 	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
+	// No container yet, so a plain start is the right recovery. A RUNNING
+	// container takes the restart branch instead — see
+	// TestRestartsAgentWhenContainerRunningButNoWS.
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses-question").Return(false).AnyTimes()
 	startCalled := make(chan struct{}, 1)
 	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
@@ -95,11 +99,18 @@ func (s *AutoWakeColdStartSuite) TestKicksDisconnectedInteractionWithPendingQues
 }
 
 // TestKicksAutoStartWhenNoWS: stuck interaction on a session with no live
-// WS triggers a goroutine call to autoStartDevContainerForSession (which
-// in turn calls StartDesktop) and increments AutoWakeCount via a targeted
-// column update.
+// WS and NO RUNNING CONTAINER triggers a goroutine call to
+// autoStartDevContainerForSession (which in turn calls StartDesktop) and
+// increments AutoWakeCount via a targeted column update.
+//
+// The no-container case. When a container IS running, starting it is a no-op
+// and the recovery has to restart instead — see
+// TestRestartsAgentWhenContainerRunningButNoWS.
 func (s *AutoWakeColdStartSuite) TestKicksAutoStartWhenNoWS() {
 	stuck := stuckInteraction("int-1", "ses_cold", 0)
+
+	// Nothing to restart, so the plain start path is the right one.
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_cold").Return(false).AnyTimes()
 
 	// IncrementInteractionAutoWakeCount fires before the goroutine.
 	s.store.EXPECT().IncrementInteractionAutoWakeCount(gomock.Any(), "int-1").Return(1, nil)
@@ -248,6 +259,9 @@ func (s *AutoWakeColdStartSuite) TestKicksAfterColdStartGraceExpires() {
 
 	// Now we DO expect the kick to fire and the budget to burn.
 	s.store.EXPECT().IncrementInteractionAutoWakeCount(gomock.Any(), "int-grace-expired").Return(1, nil)
+
+	// A boot that never produced a container: start it, do not restart it.
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_grace_expired").Return(false).AnyTimes()
 
 	startCalled := make(chan struct{}, 1)
 	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -421,6 +435,81 @@ func (s *AutoWakeConnectedSuite) TestLeavesQuiescentInteractionWaitingWithoutRep
 	s.Equal(types.InteractionStateWaiting, stuck.State)
 	s.Zero(stuck.AutoWakeCount)
 	s.Empty(sendChan)
+}
+
+// TestRestartsAgentWhenContainerRunningButNoWS: the case the cold-start
+// recovery was written for and could not actually fix.
+//
+// StartDesktop short-circuits on HasRunningContainer and returns "running"
+// without touching anything (hydra_executor.go, "Dev container already
+// running"). So when a container is up with Zed never having dialled home —
+// helixml/helix#2397 — every kick was a no-op: we burned both retries on
+// nothing and marked the interaction "Agent never connected after auto-wake
+// cold-start retries". A candidate on the Find AI job board read that as "The
+// system has encountered an error" during a client demo.
+//
+// The recovery must RESTART, so Zed re-dials.
+func (s *AutoWakeColdStartSuite) TestRestartsAgentWhenContainerRunningButNoWS() {
+	stuck := stuckInteraction("int-running-nows", "ses_running_nows", 0)
+
+	session := &types.Session{
+		ID:    "ses_running_nows",
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+			// No ProjectID: keeps the restart on its simplest path so this test
+			// asserts the branch taken, not the project-context loading behind it.
+			// ExternalAgentStatus empty, so the in-flight-boot grace period does
+			// not defer us.
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_running_nows").Return(session, nil).AnyTimes()
+	s.store.EXPECT().GetProject(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user-1"}, nil).AnyTimes()
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
+	s.store.EXPECT().IncrementInteractionAutoWakeCount(gomock.Any(), "int-running-nows").Return(1, nil)
+
+	// The container is up. This is exactly when a start does nothing.
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_running_nows").Return(true).AnyTimes()
+
+	s.executor.EXPECT().StopDesktop(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
+			return &types.DesktopAgentResponse{DevContainerID: "dev_1"}, nil
+		},
+	).AnyTimes()
+
+	// ResetCrashedPromptsForSession is the signal that distinguishes the two
+	// paths. StartDesktop is reached either way — that is the whole problem,
+	// since on a running container it returns without doing anything. Only the
+	// restart path resets the session's crashed prompts, so seeing this call is
+	// proof a real restart happened rather than the old no-op.
+	restarted := make(chan struct{}, 1)
+	// Added by the smooth-restart work on main: the restart marks the session
+	// so the UI can show progress rather than a dead panel.
+	s.store.EXPECT().MarkSessionRestarting(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	s.store.EXPECT().ResetCrashedPromptsForSession(gomock.Any(), "ses_running_nows").DoAndReturn(
+		func(_ context.Context, _ string) (int, error) {
+			select {
+			case restarted <- struct{}{}:
+			default:
+			}
+			return 0, nil
+		},
+	).AnyTimes()
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	select {
+	case <-restarted:
+		// Good — the agent was actually restarted, so Zed gets a chance to
+		// reconnect.
+	case <-time.After(3 * time.Second):
+		s.FailNow("no restart attempted — a running container with no WS was left alone, which is the original bug")
+	}
 }
 
 func (s *AutoWakeConnectedSuite) TestPendingQuestionSuppressesConnectedWake() {
