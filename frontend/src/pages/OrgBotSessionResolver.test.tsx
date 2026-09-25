@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { renderToString } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OrgBotSessionResolver from './OrgBotSessionResolver'
 
@@ -8,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   consumeDraft: vi.fn(),
   appendDraft: vi.fn(),
-  bots: [] as Array<{ id: string; name?: string; session_id?: string }>,
+  bots: [] as Array<{ id: string; name?: string; session_id?: string; status?: string }>,
   listLoading: false,
   listError: false,
   params: { org_id: 'my-org', bot_id: 'chief-of-staff' } as Record<string, string>,
@@ -77,7 +78,9 @@ describe('OrgBotSessionResolver', () => {
   })
 
   it('renders an existing durable session at the bot route without activating the bot', async () => {
-    mocks.bots = [{ id: 'chief-of-staff', session_id: 'ses-existing' }]
+    mocks.bots = [{ id: 'chief-of-staff', session_id: 'ses-existing', status: 'stopped' }]
+
+    expect(renderToString(<OrgBotSessionResolver />)).not.toContain('Meet your')
 
     render(<OrgBotSessionResolver />)
 
@@ -184,7 +187,46 @@ describe('OrgBotSessionResolver', () => {
     mocks.listLoading = true
     render(<OrgBotSessionResolver />)
 
-    expect(screen.getByText('Finding your agent')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Opening chat')
+    expect(screen.queryByRole('heading', { name: /Meet your/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('waits for a running bot to report its session instead of introducing it', () => {
+    mocks.bots = [{ id: 'chief-of-staff', name: 'Chief of Staff', status: 'running' }]
+    render(<OrgBotSessionResolver />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('Opening chat')
+    expect(screen.queryByRole('heading', { name: /Meet your/i })).not.toBeInTheDocument()
+    expect(mocks.activate).not.toHaveBeenCalled()
+  })
+
+  it('does not carry a previous bot’s activation error into a switch', async () => {
+    mocks.bots = [{ id: 'chief-of-staff' }, { id: 'another-bot', status: 'running' }]
+    mocks.activate.mockRejectedValueOnce(new Error('failed'))
+    const view = render(<OrgBotSessionResolver />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not start chief-of-staff.')
+
+    mocks.params = { org_id: 'my-org', bot_id: 'another-bot' }
+    view.rerender(<OrgBotSessionResolver />)
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Opening chat')
+    expect(mocks.activate).toHaveBeenCalledTimes(1)
+  })
+
+  it('polls promptly when switching away from a resolved session', async () => {
+    mocks.bots = [
+      { id: 'chief-of-staff', session_id: 'ses-existing' },
+      { id: 'another-bot', status: 'running' },
+    ]
+    const view = render(<OrgBotSessionResolver />)
+    expect(await screen.findByTestId('resolved-session')).toHaveTextContent('ses-existing')
+
+    mocks.params = { org_id: 'my-org', bot_id: 'another-bot' }
+    view.rerender(<OrgBotSessionResolver />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('Opening chat')
+    expect(mocks.list).toHaveBeenLastCalledWith({ enabled: true, refetchInterval: 2000 })
   })
 })

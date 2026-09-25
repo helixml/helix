@@ -16,9 +16,10 @@ export default function OrgBotSessionResolver() {
   const router = useRouter()
   const orgID = router.params.org_id || ''
   const botID = router.params.bot_id || ''
+  const botKey = `${orgID}:${botID}`
   const attemptedBot = useRef('')
-  const [activationError, setActivationError] = useState(false)
-  const [readySessionID, setReadySessionID] = useState('')
+  const [activationErrorBotKey, setActivationErrorBotKey] = useState('')
+  const [readySession, setReadySession] = useState<{ botKey: string; sessionID: string } | null>(null)
   const {
     data: bots = [],
     isLoading: botsLoading,
@@ -26,7 +27,7 @@ export default function OrgBotSessionResolver() {
     refetch,
   } = useListHelixOrgBots({
     enabled: !!orgID && !!botID,
-    refetchInterval: readySessionID ? 10000 : 2000,
+    refetchInterval: readySession?.botKey === botKey ? 10000 : 2000,
   })
   const bot = bots.find((candidate) => candidate.id === botID)
   const agentName = bot?.name || botID
@@ -43,17 +44,17 @@ export default function OrgBotSessionResolver() {
     if (!orgID || !sessionID) return
     const queuedDraft = consumeOrgBotChatDraft(orgID, botID)
     if (queuedDraft) appendPromptDraft(sessionID, queuedDraft)
-    attemptedBot.current = `${orgID}:${botID}`
-    setReadySessionID(sessionID)
+    attemptedBot.current = botKey
+    setReadySession({ botKey, sessionID })
   }, [botID, orgID, sessionID])
 
   useEffect(() => {
-    const botKey = `${orgID}:${botID}`
-    if (!bot?.id || sessionID || attemptedBot.current === botKey) return
+    if (!bot?.id || sessionID || attemptedBot.current === botKey
+      || bot.status === 'running' || bot.status === 'starting') return
     attemptedBot.current = botKey
-    setActivationError(false)
-    activateBot.mutateAsync(botID).catch(() => setActivationError(true))
-  }, [bot?.id, botID, orgID, sessionID]) // eslint-disable-line react-hooks/exhaustive-deps
+    setActivationErrorBotKey('')
+    activateBot.mutateAsync(botID).catch(() => setActivationErrorBotKey(botKey))
+  }, [bot?.id, bot?.status, botID, orgID, sessionID]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (listError || botsLoading || bot || botID !== CHIEF_OF_STAFF_BOT_ID || !orgID) return
@@ -61,13 +62,16 @@ export default function OrgBotSessionResolver() {
   }, [bot, botID, botsLoading, listError, orgID]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const retryActivation = () => {
-    setActivationError(false)
-    activateBot.mutateAsync(botID).catch(() => setActivationError(true))
+    setActivationErrorBotKey('')
+    activateBot.mutateAsync(botID).catch(() => setActivationErrorBotKey(botKey))
   }
 
-  if (readySessionID && readySessionID === sessionID) {
-    return <Session key={readySessionID} orgChatView sessionId={readySessionID} />
+  if (readySession?.botKey === botKey && readySession.sessionID === sessionID) {
+    return <Session key={sessionID} orgChatView sessionId={sessionID} />
   }
+
+  const showIntroduction = !!bot && !sessionID && !botsLoading
+    && bot.status !== 'running' && bot.status !== 'starting'
 
   return (
     <Box
@@ -93,7 +97,7 @@ export default function OrgBotSessionResolver() {
             Retry
           </Button>
         </>
-      ) : activationError ? (
+      ) : activationErrorBotKey === botKey ? (
         <>
           <Typography color="error" role="alert">
             Could not start {agentName}.
@@ -107,6 +111,11 @@ export default function OrgBotSessionResolver() {
             Retry
           </Button>
         </>
+      ) : !showIntroduction ? (
+        <Box role="status" sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <CircularProgress size={20} color="secondary" />
+          <Typography color="text.secondary">Opening chat…</Typography>
+        </Box>
       ) : (
         <Box
           sx={{
