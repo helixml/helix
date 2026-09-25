@@ -13,6 +13,7 @@ import {
   Typography,
 } from "@mui/material";
 import {
+  BarChart3,
   Bot,
   CloudUpload,
   EllipsisVertical,
@@ -45,6 +46,7 @@ export type TaskView =
   | "browser"
   | "changes"
   | "files"
+  | "usage"
   | "details";
 
 /**
@@ -135,6 +137,7 @@ const VIEW_TABS: ViewTab[] = [
   { value: "changes", label: "Diff", icon: GitCompare, sessionOnly: true },
   { value: "files", label: "Files", icon: Files, sessionOnly: true, foldOnPhone: true },
   { value: "agents", label: "Agents", icon: Bot, sessionOnly: true, foldOnPhone: true },
+  { value: "usage", label: "Usage", icon: BarChart3, sessionOnly: true, foldOnPhone: true },
   {
     value: "details",
     label: "Details",
@@ -171,6 +174,8 @@ export interface SpecTaskViewToolbarProps {
   showDesktop?: boolean;
   /** Planning has no runnable application preview yet. */
   showBrowser?: boolean;
+  /** LLM spend/tokens/latency for the session (org agent workspaces only). */
+  showUsage?: boolean;
   /** Status-specific action buttons (Open PR / …). */
   renderActions?: (density: ToolbarDensity) => ReactNode;
 
@@ -226,6 +231,7 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   showPlan = false,
   showDesktop = true,
   showBrowser = true,
+  showUsage = false,
   renderActions,
   onToggleTerminal,
   terminalOpen,
@@ -272,7 +278,8 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
     (t) => (!t.sessionOnly || hasSession)
       && (!t.chatOnly || showChatTab)
       && (t.value !== "desktop" || showDesktop)
-      && (t.value !== "browser" || showBrowser),
+      && (t.value !== "browser" || showBrowser)
+      && (t.value !== "usage" || showUsage),
   );
   const tabs = availableTabs.filter((t) => !(isPhone && t.foldOnPhone));
   const foldedTabs = availableTabs.filter((t) => isPhone && t.foldOnPhone);

@@ -38,6 +38,8 @@ export interface ShadcnAreaChartProps {
   hideLegend?: boolean;
   /** Height for the chart body (title bar sits above). Default 220. */
   chartHeight?: number;
+  /** Height of the whole card. Default 300 (the usage page's grid); 'auto' hugs the chart. */
+  cardHeight?: number | 'auto';
   /** Treat an explicit zero as data instead of an empty series. */
   zeroIsData?: boolean;
   /** Render unfilled comparison lines instead of filled areas. */
@@ -135,6 +137,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   stacked = true,
   hideLegend = false,
   chartHeight = 220,
+  cardHeight = 300,
   zeroIsData = false,
   variant = 'area',
   yDomain,
@@ -154,7 +157,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   return (
     <Box
       sx={{
-        height: 300,
+        height: cardHeight,
         bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.03)' : 'rgba(0, 0, 0, 0.2)',
         borderRadius: 2,
         p: 2,
