@@ -10,34 +10,36 @@ import (
 )
 
 type ServerConfig struct {
-	Inference          Inference
-	Providers          Providers
-	Tools              Tools
-	Auth               Auth
-	Notifications      Notifications
-	Janitor            Janitor
-	Stripe             Stripe
-	DataPrepText       DataPrepText
-	TextExtractor      TextExtractor
-	RAG                RAG
-	Controller         Controller
-	FileStore          FileStore
-	Store              Store
-	PGVectorStore      PGVectorStore
-	PubSub             PubSub
-	WebServer          WebServer
-	SubscriptionQuotas SubscriptionQuotas
-	GitHub             GitHub
-	FineTuning         FineTuning
-	Apps               Apps
-	Triggers           Triggers
-	Search             Search
-	Kodit              Kodit
-	SSL                SSL
-	Organizations      Organizations
-	Sandboxes          Sandboxes
-	Compute            Compute
-	Webhooks           Webhooks
+	Inference           Inference
+	Providers           Providers
+	Tools               Tools
+	Auth                Auth
+	Notifications       Notifications
+	Janitor             Janitor
+	Stripe              Stripe
+	DataPrepText        DataPrepText
+	TextExtractor       TextExtractor
+	RAG                 RAG
+	Controller          Controller
+	FileStore           FileStore
+	Store               Store
+	PGVectorStore       PGVectorStore
+	PubSub              PubSub
+	WebServer           WebServer
+	SubscriptionQuotas  SubscriptionQuotas
+	GitHub              GitHub
+	FineTuning          FineTuning
+	Apps                Apps
+	Triggers            Triggers
+	Search              Search
+	Kodit               Kodit
+	SSL                 SSL
+	Organizations       Organizations
+	Sandboxes           Sandboxes
+	Compute             Compute
+	Webhooks            Webhooks
+	PortalMockEnabled   bool `envconfig:"HELIX_PORTAL_MOCK_ENABLED" default:"false"`
+	SecretIntakeEnabled bool `envconfig:"HELIX_SECRET_INTAKE_ENABLED" default:"false"`
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
 	// Inactivity is measured as the time since the last interaction was created or updated

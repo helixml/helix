@@ -142,9 +142,9 @@ type HelixAPIServer struct {
 	externalAgentWSManager      *ExternalAgentWSManager
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
 	contextMappings             map[threadRouteKey]string // (agent connection, ACP thread) -> Helix session_id
-	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
-	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
-	requestToInteractionMapping map[string]string // request_id -> interaction_id (for routing message_added/completed to correct interaction)
+	contextMappingsMutex        sync.RWMutex              // Mutex for contextMappings (and related mappings below)
+	requestToSessionMapping     map[string]string         // request_id -> Helix session_id mapping (for chat_message routing)
+	requestToInteractionMapping map[string]string         // request_id -> interaction_id (for routing message_added/completed to correct interaction)
 	// interactionDispatchClaims guards against two senders delivering the same
 	// waiting interaction to the external agent. Keyed by interaction_id and
 	// held under contextMappingsMutex. See claimInteractionDispatch.
@@ -250,6 +250,9 @@ func NewServer(
 	gitRepositoryService *services.GitRepositoryService,
 	preInitKodit *KoditResult,
 ) (*HelixAPIServer, error) {
+	if (cfg.PortalMockEnabled || cfg.SecretIntakeEnabled) && os.Getenv("HELIX_ENCRYPTION_KEY") == "" {
+		return nil, fmt.Errorf("HELIX_ENCRYPTION_KEY is required when a credential intake feature is enabled")
+	}
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
 	}
@@ -775,6 +778,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 
 	// Ensure MCP gateway cleanup on shutdown
 	defer apiServer.mcpGateway.Stop()
+	if apiServer.Cfg.SecretIntakeEnabled { go apiServer.runSecretIntakeReaper(ctx) }
 
 	// Close kodit client on shutdown
 	if apiServer.kodit != nil && apiServer.kodit.closer != nil {
@@ -1227,17 +1231,17 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/skills/validate", system.DefaultWrapper(apiServer.handleValidateMcpSkill)).Methods("POST")
 	// External agent routes - desktop streaming and Zed agent communication
 	// Note: Session start/stop/resume use /sessions endpoints, not /external-agents
-	authRouter.HandleFunc("/external-agents/sync", apiServer.authorizeExternalAgentSync(apiServer.handleExternalAgentSync)).Methods("GET")                                   // WebSocket: Zed agent bidirectional communication (chat, tool calls)
-	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")              // Desktop screenshots for previews and fallback display
-	authRouter.HandleFunc("/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")                                              // Network throughput measurement for adaptive video bitrate
-	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")                // Read remote desktop clipboard to sync locally
-	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")               // Write local clipboard to remote desktop
-	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")                        // Upload files to sandbox container
-	authRouter.HandleFunc("/external-agents/{sessionID}/file", apiServer.getExternalAgentFile).Methods(http.MethodGet)                 // Read uploaded chat attachments
-	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")                                // Execute an authenticated sandbox command
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")                       // WebSocket: keyboard/mouse input stream
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET")                     // WebSocket: H.264 video stream (primary)
-	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST") // Configure session before container starts
+	authRouter.HandleFunc("/external-agents/sync", apiServer.authorizeExternalAgentSync(apiServer.handleExternalAgentSync)).Methods("GET") // WebSocket: Zed agent bidirectional communication (chat, tool calls)
+	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")                  // Desktop screenshots for previews and fallback display
+	authRouter.HandleFunc("/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")                                                  // Network throughput measurement for adaptive video bitrate
+	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")                    // Read remote desktop clipboard to sync locally
+	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")                   // Write local clipboard to remote desktop
+	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")                            // Upload files to sandbox container
+	authRouter.HandleFunc("/external-agents/{sessionID}/file", apiServer.getExternalAgentFile).Methods(http.MethodGet)                     // Read uploaded chat attachments
+	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")                                    // Execute an authenticated sandbox command
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")                           // WebSocket: keyboard/mouse input stream
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET")                         // WebSocket: H.264 video stream (primary)
+	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST")     // Configure session before container starts
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-review", apiServer.getWorkspaceReview).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-review/turn/{interactionID}", apiServer.getWorkspaceTurnReview).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-files", apiServer.getWorkspaceFiles).Methods("GET")
@@ -1585,6 +1589,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	router.Handle("/artifacts/{artifact_id}/download", artifactDownloadHandler).Methods(http.MethodGet, http.MethodHead)
 	artifactViewerHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.getArtifactViewer))
 	insecureRouter.Handle("/public/artifacts/{artifact_id}", artifactViewerHandler).Methods(http.MethodGet)
+	apiServer.registerPortalConnectionRoutes(router, authRouter)
+	apiServer.registerSecretIntakeRoutes(router, authRouter)
 
 	// Set a custom NotFoundHandler for /api/v1/ routes to log unknown paths
 	subRouter.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

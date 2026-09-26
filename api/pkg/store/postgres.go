@@ -215,6 +215,8 @@ func (s *PostgresStore) runMigrations() error {
 		&types.Project{},
 		&types.Artifact{},
 		&types.ArtifactVersion{},
+		&types.PortalConnectionAttempt{},
+		&types.SecretIntake{},
 		&types.WebhookEndpoint{},
 		&types.WebhookEvent{},
 		&types.WebhookDelivery{},
