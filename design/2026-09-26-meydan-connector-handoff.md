@@ -2,6 +2,8 @@
 
 **Status:** design; no Meydan adapter or authenticated portal test has been built. The initial target is the Customer Portal at `portal.meydanfz.ae`, using the owner's personal account for a read-only prototype. No payment, application submission, profile change, document upload, or other business-state mutation is in scope.
 
+The [Connect prior-art and hardening review](2026-09-26-connect-prior-art-and-hardening.md) records lessons from Nango's implementation and public issue reports. Its attempt-generation, customer-binding, submission-capability, status-reconciliation, and key-rotation requirements apply before this design is used with real portal credentials.
+
 ## Verified context and choice
 
 The [Meydan Free Zone home page](https://www.meydanfz.ae/) links its **Customer Portal** to `https://portal.meydanfz.ae/frontend/login`. This is the target; the separately linked Channel Partner Portal is out of scope. The public login page does not establish its form selectors, OTP sequence, session behavior, or terms for automated access. Observe those with the owner's account during a controlled, redacted walkthrough. Ownership of the account authorizes this prototype's read-only exploration, but does not establish vendor permission for a production credential-delegation service.
@@ -27,7 +29,7 @@ flowchart LR
 
 The browser worker is a new *workload within existing Helix infrastructure*, not a coding-agent desktop or shared crawler. Helix can reuse Hydra/container orchestration, but this worker has no LLM client, Chrome DevTools MCP, Helix user API key, shared workspace volume, or generic agent tool access. The bot never receives browser CDP access, a password, OTP, cookie, or reusable bearer URL.
 
-Each connection attempt is bound by the backend to `{organization, project, authenticated customer, conversation, portal kind}`. A model-supplied `customer_id`, `project_id`, or `intake_id` cannot establish that binding. The gateway must derive customer and conversation from its authenticated session; the connector checks the binding again on every action. The current generic intake API accepts customer and conversation strings supplied by its caller, so this stronger binding is required before a customer-facing Meydan flow.
+Each connection attempt is bound by the backend to `{organization, project, authenticated customer, conversation, portal kind, attempt generation}`. A model-supplied `customer_id`, `project_id`, or `intake_id` cannot establish that binding. The gateway must derive customer and conversation from its authenticated session; the connector checks the binding again on every action. The current generic intake API accepts customer and conversation strings supplied by its caller, so this stronger binding is required before a customer-facing Meydan flow. A replacement attempt increments the generation; a late worker result from an older attempt cannot activate a connection.
 
 ## Prototype path: Helix intake fills the Meydan form
 
@@ -72,8 +74,8 @@ This path avoids a Helix password form while still leaving the connector with an
 ## Concrete next implementation slice
 
 1. Use the owner's account to record the real login/OTP/redirect sequence without secrets in test artifacts. Confirm the portal's published access terms and the chosen access method before any customer-facing rollout. Do not use the Channel Partner Portal.
-2. Add server-derived customer/conversation binding and a connection-attempt record tied to a specific intake. Change `ConsumeSecretIntake` to an internal claim/lease/ack handoff.
+2. Add server-derived customer/conversation binding, a durable connection record, and a generation-specific connection-attempt record tied to each intake. Give external submitters a narrow one-attempt write capability instead of a project-wide key. Change `ConsumeSecretIntake` to an internal claim/lease/ack handoff.
 3. Build the no-agent browser worker and a deterministic Meydan login adapter behind a feature flag. Test only against the owner's account with explicit read-only scope. Keep credential forms and authenticated browser state out of existing agent desktops and crawler pools.
-4. Add one safe post-login read operation, for example an application status if the account has one, plus revoke and expiry. Explicitly reject payments, submissions, edits, uploads, deletions, and downloads of sensitive documents. Verify with network traces and log scans that factors and session material never reach MCP outputs, chats, task workspaces, screenshots, or telemetry.
+4. Add one safe post-login read operation, for example an application status if the account has one, plus revoke and expiry. Explicitly reject payments, submissions, edits, uploads, deletions, and downloads of sensitive documents. Make stored state authoritative so a lost notification cannot strand the UI or create a duplicate connection. Verify with network traces and log scans that factors and session material never reach MCP outputs, chats, task workspaces, screenshots, or telemetry.
 
 Until the portal behavior and access terms have been checked, the generic intake should not be presented as a Meydan credential collection page to other customers.
