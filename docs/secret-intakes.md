@@ -75,3 +75,5 @@ Set `artifact_id` in the create request to use a single-file HTML Artifact from 
 ```
 
 Helix snapshots the artifact at invitation creation, strips scripts, styles, attributes, external media, and artifact-supplied form controls, then inserts its own form at the placeholder. Safe static headings, paragraphs, emphasis, and lists are retained. The artifact cannot choose the input names, read entered values, or change the form destination. Use `brand_name` and `accent_color` for supported white-label styling. Updating an artifact changes future invitations; it does not alter already issued forms. This constrained rendering is intentional because ordinary Artifacts can contain agent-authored JavaScript and are not trusted to handle credentials.
+
+For the first proposed website login connector, see the [Meydan customer portal design](../design/2026-09-26-meydan-connector-handoff.md). It scopes the prototype to a personal account and read-only operations, with a user-controlled login on the actual portal as the preferred path.
