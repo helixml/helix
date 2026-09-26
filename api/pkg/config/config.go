@@ -38,6 +38,7 @@ type ServerConfig struct {
 	Sandboxes          Sandboxes
 	Compute            Compute
 	Webhooks           Webhooks
+	PortalMockEnabled  bool `envconfig:"HELIX_PORTAL_MOCK_ENABLED" default:"false"`
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
 	// Inactivity is measured as the time since the last interaction was created or updated

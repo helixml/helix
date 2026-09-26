@@ -250,6 +250,9 @@ func NewServer(
 	gitRepositoryService *services.GitRepositoryService,
 	preInitKodit *KoditResult,
 ) (*HelixAPIServer, error) {
+	if cfg.PortalMockEnabled && os.Getenv("HELIX_ENCRYPTION_KEY") == "" {
+		return nil, fmt.Errorf("HELIX_ENCRYPTION_KEY is required when HELIX_PORTAL_MOCK_ENABLED=1")
+	}
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
 	}
@@ -1585,6 +1588,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	router.Handle("/artifacts/{artifact_id}/download", artifactDownloadHandler).Methods(http.MethodGet, http.MethodHead)
 	artifactViewerHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.getArtifactViewer))
 	insecureRouter.Handle("/public/artifacts/{artifact_id}", artifactViewerHandler).Methods(http.MethodGet)
+	apiServer.registerPortalConnectionRoutes(router, authRouter)
 
 	// Set a custom NotFoundHandler for /api/v1/ routes to log unknown paths
 	subRouter.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
