@@ -1308,6 +1308,43 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	}
 	assetSSH.WithAudit(orgAudit, auditProjects)
 	assetSSHProxy.WithAudit(orgAudit, auditProjects)
+	secretIntakeBotProject := func(ctx context.Context, orgID, botID string) (string, error) {
+		state, err := runtimehelix.LoadState(ctx, st, orgID, orgchart.NodeID(botID))
+		if err != nil || state.ProjectID == "" {
+			return "", fmt.Errorf("caller has no Helix project")
+		}
+		project, err := cfg.APIServer.Store.GetProject(ctx, state.ProjectID)
+		if err != nil || project.OrganizationID != orgID {
+			return "", fmt.Errorf("caller project is unavailable")
+		}
+		return project.ID, nil
+	}
+	deps.SecretIntakeCreator = func(ctx context.Context, orgID, botID string, input types.SecretIntakeCreateRequest) (types.SecretIntakeCreateResult, error) {
+		projectID, err := secretIntakeBotProject(ctx, orgID, botID)
+		if err != nil {
+			return types.SecretIntakeCreateResult{}, err
+		}
+		view, link, err := cfg.APIServer.createSecretIntake(ctx, projectID, input)
+		if err != nil {
+			return types.SecretIntakeCreateResult{}, err
+		}
+		return types.SecretIntakeCreateResult{ID: view.ID, Status: view.Status, InviteURL: link}, nil
+	}
+	deps.SecretIntakeStatus = func(ctx context.Context, orgID, botID, intakeID string) (types.SecretIntakeStatusResult, error) {
+		projectID, err := secretIntakeBotProject(ctx, orgID, botID)
+		if err != nil {
+			return types.SecretIntakeStatusResult{}, err
+		}
+		db, ok := cfg.APIServer.secretIntakeDB()
+		if !ok {
+			return types.SecretIntakeStatusResult{}, fmt.Errorf("secret intake is disabled")
+		}
+		var item types.SecretIntake
+		if err := db.WithContext(ctx).Where("id = ? AND project_id = ?", intakeID, projectID).First(&item).Error; err != nil {
+			return types.SecretIntakeStatusResult{}, fmt.Errorf("intake not found")
+		}
+		return types.SecretIntakeStatusResult{ID: item.ID, Status: secretIntakeStatus(&item), ExpiresAt: item.InvitationExpiresAt}, nil
+	}
 	deps.Assets = assetsSvc
 	deps.AssetSSH = assetSSH
 	deps.AssetSSHIssuer = assetSSHIssuer

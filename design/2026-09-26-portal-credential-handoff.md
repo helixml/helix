@@ -181,3 +181,11 @@ Before a real portal adapter is built, specify its login behavior, required
 post-login operations, session lifetime, and whether its terms permit this
 kind of automation. Those details determine whether the adapter can run in
 the API or needs a dedicated Hydra-managed browser.
+
+## Generic intake extension in this PR
+
+The follow-up prototype adds a generic, project-scoped secret intake alongside the mock portal. MCP tools create an invitation and read status; neither returns secret values. The project API can create, inspect, revoke, and accept write-only direct submissions from a trusted third-party backend. A Helix backend connector can consume encrypted values via `ConsumeSecretIntake` and must convert them to a bounded operation or session outside model-visible output. No real portal connector is included.
+
+The optional Artifact integration is narrower than the original preview idea above: a same-project, single-file HTML Artifact is sanitized to static text and a single `data-helix-form` slot at invitation creation. Helix inserts its own form in that slot. Artifact scripts, styles, attributes, controls, and external resources are discarded. This lets a spec task change approved copy for new invitations without granting artifact code access to credentials. It does not provide arbitrary Artifact-hosted forms or custom JavaScript.
+
+Values are encrypted at rest, expire after one hour, and are cleared by a reaper, consumption, or revocation. The generic intake does not authenticate the end customer; the gateway still owns that binding. A future portal adapter should consume the values and discard them after establishing a server-held portal session.

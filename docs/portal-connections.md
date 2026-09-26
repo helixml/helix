@@ -1,5 +1,7 @@
 # Mock portal connection handoff
 
+For generic credential and secret collection through HTTP and MCP, see [secret-intakes.md](secret-intakes.md).
+
 This first slice tests a credential handoff without a real portal. The
 customer opens a Helix-hosted `/connect` page and enters a demo username,
 password, and OTP. No factor is sent to a Helix chat endpoint, agent sandbox,

@@ -77,6 +77,8 @@ func OwnerBotTools() []tool.Name {
 		DetachToolName,
 		DeleteBotName,
 		CreateTriggerName,
+		RequestSecretIntakeName,
+		GetSecretIntakeStatusName,
 		TriggerMembersName,
 		AttachWorkerName,
 		DetachWorkerName,

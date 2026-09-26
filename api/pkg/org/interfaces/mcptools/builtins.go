@@ -30,6 +30,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/infrastructure/assetssh"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // Clock returns the current time. Tests override it.
@@ -67,6 +68,8 @@ type EventDispatcher interface {
 // Queries, writes through the aggregate services. Built once by
 // Config.Build() at the composition root and handed to RegisterBuiltins.
 type Deps struct {
+	SecretIntakeCreator func(context.Context, string, string, types.SecretIntakeCreateRequest) (types.SecretIntakeCreateResult, error)
+	SecretIntakeStatus  func(context.Context, string, string, string) (types.SecretIntakeStatusResult, error)
 	// Queries is the read facade every read tool projects from — the same
 	// one the REST read handlers use, so the two surfaces can't drift on
 	// read semantics.
@@ -146,6 +149,8 @@ type Deps struct {
 //
 // Hub/Dispatcher are optional (nil → publish skips notify/dispatch).
 type Config struct {
+	SecretIntakeCreator     func(context.Context, string, string, types.SecretIntakeCreateRequest) (types.SecretIntakeCreateResult, error)
+	SecretIntakeStatus      func(context.Context, string, string, string) (types.SecretIntakeStatusResult, error)
 	Store                   *store.Store
 	Queries                 *queries.Queries
 	Now                     Clock
@@ -214,6 +219,8 @@ type Config struct {
 // the lean tool Deps. Reads from the store happen only here.
 func (c Config) Build() Deps {
 	return Deps{
+		SecretIntakeCreator:  c.SecretIntakeCreator,
+		SecretIntakeStatus:   c.SecretIntakeStatus,
 		Queries:              c.Queries,
 		Nodes:                c.botsService(),
 		Triggers:             c.triggersService(),
@@ -454,6 +461,8 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&DeleteBot{deps: deps},
 		&CreateTrigger{deps: deps},
 		&GetSecret{deps: deps},
+		&RequestSecretIntake{deps: deps},
+		&GetSecretIntakeStatus{deps: deps},
 		&TriggerMembers{deps: deps},
 		&AttachWorker{deps: deps},
 		&DetachWorker{deps: deps},
