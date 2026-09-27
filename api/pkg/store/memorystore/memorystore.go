@@ -741,6 +741,11 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 		if filters != nil && filters.FilterProjectIDs && !containsString(filters.ProjectIDs, t.ProjectID) {
 			continue
 		}
+		if filters != nil && filters.ExcludeDeletedProjects {
+			if project := m.projects[t.ProjectID]; project != nil && project.DeletedAt.Valid {
+				continue
+			}
+		}
 		if filters != nil && filters.FilterParticipants {
 			matchesParticipant := false
 			for _, userID := range filters.ParticipantIDs {

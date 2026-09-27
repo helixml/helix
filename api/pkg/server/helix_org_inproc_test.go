@@ -204,7 +204,8 @@ func TestInProcClient_DeleteLinkedAgentContinuesWhenDesktopDestroyFails(t *testi
 
 // Deleting a bot's project must destroy every desktop the project ever ran,
 // including soft-deleted sessions and task sessions that lack the project id,
-// and delete a spec task's workspace only for tasks the project owns.
+// delete a spec task's workspace only for tasks the project owns, and leave
+// chat sessions and other orgs' sessions alone.
 func TestInProcClient_DestroyProjectRuntimeDestroysEveryProjectDesktop(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -215,12 +216,15 @@ func TestInProcClient_DestroyProjectRuntimeDestroysEveryProjectDesktop(t *testin
 
 	require.NoError(t, db.Create(&types.SpecTask{ID: "spt_owned", ProjectID: "prj_bot"}).Error)
 	require.NoError(t, db.Create(&types.SpecTask{ID: "spt_other", ProjectID: "prj_other"}).Error)
+	desktop := types.SessionMetadata{AgentType: "zed_external"}
 	for _, session := range []*types.Session{
-		{ID: "ses_bot", ProjectID: "prj_bot"},
-		{ID: "ses_task_no_project", Metadata: types.SessionMetadata{SpecTaskID: "spt_owned"}},
-		{ID: "ses_foreign_task", ProjectID: "prj_bot", Metadata: types.SessionMetadata{SpecTaskID: "spt_other"}},
-		{ID: "ses_deleted", ProjectID: "prj_bot", DeletedAt: gorm.DeletedAt{Time: time.Now(), Valid: true}},
-		{ID: "ses_unrelated", ProjectID: "prj_other"},
+		{ID: "ses_bot", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop},
+		{ID: "ses_task_no_project", OrganizationID: "org-test", ModelName: "external_agent", Metadata: types.SessionMetadata{SpecTaskID: "spt_owned"}},
+		{ID: "ses_foreign_task", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "external_agent", Metadata: types.SessionMetadata{SpecTaskID: "spt_other"}},
+		{ID: "ses_deleted", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop, DeletedAt: gorm.DeletedAt{Time: time.Now(), Valid: true}},
+		{ID: "ses_chat", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5"},
+		{ID: "ses_other_org", OrganizationID: "org-other", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop},
+		{ID: "ses_unrelated", OrganizationID: "org-test", ProjectID: "prj_other", ModelName: "glm-5", Metadata: desktop},
 	} {
 		require.NoError(t, db.Create(session).Error)
 	}

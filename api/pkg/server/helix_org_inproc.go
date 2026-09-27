@@ -853,15 +853,21 @@ func (c *inProcHelixClient) destroyProjectRuntime(ctx context.Context, project *
 	for _, taskID := range taskIDs {
 		projectTasks[taskID] = true
 	}
-	// Spec-task sessions do not always carry the task's project_id, so also
-	// match them through the task. Soft-deleted sessions still own host data.
+	// Desktop sessions of the project's org only. Spec-task sessions do not
+	// always carry the task's project_id, so also match them through the task.
+	// Soft-deleted sessions still own host data.
 	var sessions []projectRuntimeSession
+	match := "project_id = ?"
+	args := []any{project.ID}
+	if len(taskIDs) > 0 {
+		match = "(project_id = ? OR config->>'spec_task_id' IN ?)"
+		args = append(args, taskIDs)
+	}
 	query := db.Unscoped().Model(&types.Session{}).
 		Select("id, config->>'spec_task_id' AS spec_task_id").
-		Where("project_id = ?", project.ID)
-	if len(taskIDs) > 0 {
-		query = query.Or("config->>'spec_task_id' IN ?", taskIDs)
-	}
+		Where("organization_id = ?", project.OrganizationID).
+		Where("(model_name = ? OR config->>'agent_type' = ?)", "external_agent", "zed_external").
+		Where(match, args...)
 	if err := query.Scan(&sessions).Error; err != nil {
 		return fmt.Errorf("list project sessions: %w", err)
 	}

@@ -84,6 +84,9 @@ type AgentConfig struct {
 	ReasoningEffort         string
 }
 
+// deleteTimeout bounds a Delete, which destroys sandbox host resources.
+const deleteTimeout = 10 * time.Minute
+
 func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 }
@@ -491,6 +494,10 @@ func (s *Service) reconcileAgentLink(ctx context.Context, orgID string, node org
 // the Topic row is dropped. Repositories and explicitly allowed other
 // projects survive deletion.
 func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) (err error) {
+	// Detached from the caller: a request cancelled mid-teardown would leave a
+	// half-deleted Node whose retry no longer finds the archived project.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deleteTimeout)
+	defer cancel()
 	return s.delete(ctx, orgID, id, true)
 }
 

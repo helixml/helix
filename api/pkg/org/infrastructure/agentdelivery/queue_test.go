@@ -212,3 +212,44 @@ func TestQueueCleanupAgentCancelsRunningActivation(t *testing.T) {
 		t.Fatal("CleanupAgent returned before the running activation exited")
 	}
 }
+
+func TestQueueCancelOutstandingCancelsRunningActivation(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	started := make(chan struct{}, 2)
+	exited := make(chan struct{}, 2)
+	q, err := New(context.Background(), n, func(ctx context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		started <- struct{}{}
+		if triggers[0].EventID == "e-restart" {
+			return nil
+		}
+		<-ctx.Done()
+		exited <- struct{}{}
+		return ctx.Err()
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "e-1"})
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("activation did not start")
+	}
+	require.NoError(t, q.CancelOutstanding(context.Background(), "org-test", "agent-a"))
+	select {
+	case <-exited:
+	default:
+		t.Fatal("CancelOutstanding returned before the running activation exited")
+	}
+
+	// A restart enqueues a fresh activation right after; it must still run.
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "e-restart"})
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("activation after restart did not start")
+	}
+}

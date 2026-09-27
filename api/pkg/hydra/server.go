@@ -347,6 +347,7 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/dev-containers/{session_id}", s.handleGetDevContainer).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}/resources", s.handleUpdateDevContainerResources).Methods("PATCH")
 	api.HandleFunc("/dev-containers/{session_id}", s.handleDeleteDevContainer).Methods("DELETE")
+	api.HandleFunc("/dev-containers/{session_id}/destroy", s.handleDestroyDevContainer).Methods("POST")
 	api.HandleFunc("/dev-containers/{session_id}/clients", s.handleGetDevContainerClients).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}/video/stats", s.handleGetDevContainerVideoStats).Methods("GET")
 
@@ -529,28 +530,36 @@ func (s *Server) handleDeleteDevContainer(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	sessionID := vars["session_id"]
 
-	query := r.URL.Query()
-	destroy := query.Get("destroy") == "true"
-	timeout := 60 * time.Second
-	if destroy {
-		// Destroy deletes workspaces and inner Docker data, which can be tens of GB.
-		timeout = 5 * time.Minute
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
-	var resp *DevContainerResponse
-	var err error
-	if destroy {
-		resp, err = s.devContainerManager.DestroyDevContainer(ctx, sessionID, query.Get("spec_task_id"))
-	} else {
-		resp, err = s.devContainerManager.DeleteDevContainer(ctx, sessionID)
-	}
+	resp, err := s.devContainerManager.DeleteDevContainer(ctx, sessionID)
 	if err != nil {
 		log.Error().Err(err).
 			Str("session_id", sessionID).
 			Msg("Failed to delete dev container")
 		http.Error(w, fmt.Sprintf("failed to delete dev container: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleDestroyDevContainer removes a dev container and every on-host resource
+// its session owns. A separate route, not a DELETE flag, so an older hydra
+// answers 404 instead of silently doing a plain stop.
+func (s *Server) handleDestroyDevContainer(w http.ResponseWriter, r *http.Request) {
+	sessionID := mux.Vars(r)["session_id"]
+
+	// Destroy deletes workspaces and inner Docker data, which can be tens of GB.
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	resp, err := s.devContainerManager.DestroyDevContainer(ctx, sessionID, r.URL.Query().Get("spec_task_id"))
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to destroy dev container")
+		http.Error(w, fmt.Sprintf("failed to destroy dev container: %s", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -945,7 +954,7 @@ func (s *Server) handleGCReconcile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := s.devContainerManager.ReconcileGC(req)
+	resp := s.devContainerManager.ReconcileGC(r.Context(), req)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

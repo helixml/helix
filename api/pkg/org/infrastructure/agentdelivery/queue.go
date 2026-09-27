@@ -113,6 +113,21 @@ func (q *Queue) Enqueue(orgID string, agentID orgchart.NodeID, trigger activatio
 
 func (q *Queue) CleanupAgent(ctx context.Context, orgID string, agentID orgchart.NodeID) error {
 	name := consumerName(orgID, agentID)
+	if err := q.removeAgent(ctx, orgID, agentID, name); err != nil {
+		return err
+	}
+	// Wait outside the publish lock: Enqueue for a removed agent returns at
+	// once, and must not stall the dispatcher behind this wait.
+	if err := q.stopInflight(ctx, name); err != nil {
+		q.mu.Lock()
+		delete(q.removed, name)
+		q.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+func (q *Queue) removeAgent(ctx context.Context, orgID string, agentID orgchart.NodeID, name string) error {
 	lock := q.publishLock(name)
 	lock.Lock()
 	defer lock.Unlock()
@@ -130,12 +145,6 @@ func (q *Queue) CleanupAgent(ctx context.Context, orgID string, agentID orgchart
 	delete(q.active, name)
 	q.mu.Unlock()
 	if err := q.pubsub.PurgeDurableSubject(ctx, streamName, subjectFor(orgID, agentID)); err != nil {
-		q.mu.Lock()
-		delete(q.removed, name)
-		q.mu.Unlock()
-		return err
-	}
-	if err := q.stopInflight(ctx, name); err != nil {
 		q.mu.Lock()
 		delete(q.removed, name)
 		q.mu.Unlock()
@@ -253,8 +262,18 @@ func (q *Queue) handle(msg *pubsub.Message) {
 	spawnCtx, cancel := context.WithCancel(context.Background())
 	run := &inflight{cancel: cancel, done: make(chan struct{})}
 	q.mu.Lock()
-	q.running[name] = run
+	_, removed := q.removed[name]
+	if !removed {
+		q.running[name] = run
+	}
 	q.mu.Unlock()
+	if removed {
+		// Delivered just before the agent was removed; its cleanup did not
+		// see this activation, so it must not start.
+		cancel()
+		close(done)
+		return
+	}
 	err := q.spawn(spawnCtx, delivery.OrganizationID, delivery.AgentID, []activation.Trigger{delivery.Trigger})
 	cancelled := spawnCtx.Err() != nil
 	q.mu.Lock()

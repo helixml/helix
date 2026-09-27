@@ -111,6 +111,8 @@ func reapOrphanResources(ctx context.Context, executor Executor, st store.Store,
 			Int("zvols_skipped", len(resp.ZvolsSkipped)).
 			Strs("workspaces_reaped", resp.WorkspacesReaped).
 			Int("workspaces_skipped", len(resp.WorkspacesSkipped)).
+			Strs("containers_reaped", resp.ContainersReaped).
+			Strs("volumes_reaped", resp.VolumesReaped).
 			Int64("bytes_freed", resp.BytesFreed).
 			Msg("orphan reaper: sandbox reconciled")
 	}

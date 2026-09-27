@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -344,13 +345,12 @@ func (c *RevDialClient) DeleteDevContainer(ctx context.Context, sessionID string
 // session owns via RevDial. specTaskID, when set, also removes that task's
 // workspace; pass it only when the task is gone.
 func (c *RevDialClient) DestroyDevContainer(ctx context.Context, sessionID, specTaskID string) (*DevContainerResponse, error) {
-	query := url.Values{"destroy": {"true"}}
+	path := fmt.Sprintf("/api/v1/dev-containers/%s/destroy", url.PathEscape(sessionID))
 	if specTaskID != "" {
-		query.Set("spec_task_id", specTaskID)
+		path += "?" + url.Values{"spec_task_id": {specTaskID}}.Encode()
 	}
-	path := fmt.Sprintf("/api/v1/dev-containers/%s?%s", url.PathEscape(sessionID), query.Encode())
 
-	respBody, err := c.doRequest(ctx, "DELETE", path, nil)
+	respBody, err := c.doRequest(ctx, "POST", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -619,6 +619,9 @@ func (c *RevDialClient) doRequest(ctx context.Context, method, path string, body
 		return nil, fmt.Errorf("failed to dial Hydra via RevDial: %w", err)
 	}
 	defer conn.Close()
+	// ctx otherwise only bounds the dial; a hung hydra call would block forever.
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
 
 	var reqBody io.Reader
 	if body != nil {
@@ -640,13 +643,13 @@ func (c *RevDialClient) doRequest(ctx context.Context, method, path string, body
 	bufReader := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(bufReader, httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, fmt.Errorf("failed to read response: %w", errors.Join(err, ctx.Err()))
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("failed to read response body: %w", errors.Join(err, ctx.Err()))
 	}
 
 	if resp.StatusCode >= 400 {

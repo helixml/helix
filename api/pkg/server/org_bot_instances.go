@@ -298,8 +298,15 @@ func (b botInstances) DeleteAll(ctx context.Context, orgID string, botID orgchar
 		return err
 	}
 	for _, session := range sessions {
-		if err := b.deleteSession(ctx, session); err != nil {
-			return fmt.Errorf("delete instance %s: %w", session.ID, err)
+		// Best-effort host teardown: an unreachable sandbox host must not make
+		// the bot undeletable. The orphan reaper removes the host data of the
+		// deleted session.
+		if err := b.server.externalAgentExecutor.DestroyDesktop(ctx, session.ID, ""); err != nil {
+			log.Warn().Err(err).Str("session_id", session.ID).Str("bot_id", string(botID)).
+				Msg("failed to destroy bot instance sandbox; orphan reaper will remove its host data")
+		}
+		if _, err := b.server.Store.DeleteSession(ctx, session.ID); err != nil {
+			return fmt.Errorf("delete instance session %s: %w", session.ID, err)
 		}
 	}
 	return nil
