@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,14 +14,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 func secretIntakeTestServer(t *testing.T) *HelixAPIServer {
 	t.Helper()
 	s, db := portalTestServer(t)
 	require.NoError(t, db.AutoMigrate(&types.SecretIntake{}))
-	s.Cfg.SecretIntakeEnabled = true
+	s.Cfg.ConnectPortal.SecretIntakeEnabled = true
 	return s
 }
 
@@ -68,8 +68,8 @@ func TestSecretIntakeBrowserAndConsumption(t *testing.T) {
 	require.Equal(t, http.StatusOK, status.Code)
 	require.Contains(t, status.Body.String(), `"status":"submitted"`)
 	require.NotContains(t, status.Body.String(), "secret-123")
-	var item types.SecretIntake
-	require.NoError(t, s.Store.(interface{ GormDB() *gorm.DB }).GormDB().First(&item, "id = ?", view.ID).Error)
+	item, err := s.Store.GetSecretIntake(t.Context(), "prj_test", view.ID)
+	require.NoError(t, err)
 	require.NotContains(t, item.ValuesEncrypted, "secret-123")
 	consumed := false
 	require.NoError(t, s.ConsumeSecretIntake(t.Context(), "prj_test", view.ID, func(values map[string]string) error {
@@ -79,6 +79,17 @@ func TestSecretIntakeBrowserAndConsumption(t *testing.T) {
 	}))
 	require.True(t, consumed)
 	require.Error(t, s.ConsumeSecretIntake(t.Context(), "prj_test", view.ID, func(map[string]string) error { return nil }))
+	newView, _, err := s.createSecretIntake(t.Context(), "prj_test", input)
+	require.NoError(t, err)
+	newPath := "/api/v1/projects/prj_test/secret-intakes/" + newView.ID + "/submissions"
+	newSubmission := httptest.NewRecorder()
+	s.submitSecretIntakeAPI(newSubmission, intakeOperatorRequest(http.MethodPost, newPath, `{"values":{"username":"alice","password":"secret-456"}}`, "prj_test", newView.ID))
+	require.Equal(t, http.StatusNoContent, newSubmission.Code)
+	require.Error(t, s.ConsumeSecretIntake(t.Context(), "prj_test", newView.ID, func(map[string]string) error { return errors.New("connector failed") }))
+	require.Error(t, s.ConsumeSecretIntake(t.Context(), "prj_test", newView.ID, func(map[string]string) error { return nil }))
+	item, err = s.Store.GetSecretIntake(t.Context(), "prj_test", newView.ID)
+	require.NoError(t, err)
+	require.Empty(t, item.ValuesEncrypted)
 }
 
 func TestSecretIntakeDirectAPIAndValidation(t *testing.T) {
@@ -110,7 +121,6 @@ func TestSecretIntakeArtifactSanitization(t *testing.T) {
 
 func TestSecretIntakeReaperClearsExpiredCiphertext(t *testing.T) {
 	s := secretIntakeTestServer(t)
-	db := s.Store.(interface{ GormDB() *gorm.DB }).GormDB()
 	now := time.Now().UTC()
 	item := types.SecretIntake{
 		ID: "sci_expired", ProjectID: "prj_test", CustomerID: "cust", ConversationID: "chat",
@@ -118,9 +128,10 @@ func TestSecretIntakeReaperClearsExpiredCiphertext(t *testing.T) {
 		Fields: []types.SecretIntakeField{{Name: "password", Label: "Password", Type: "password"}},
 		Status: "submitted", ValuesEncrypted: "ciphertext", ValuesExpiresAt: now.Add(-time.Minute),
 	}
-	require.NoError(t, db.Create(&item).Error)
-	reapExpiredSecretIntakes(context.Background(), db, now)
-	require.NoError(t, db.First(&item, "id = ?", item.ID).Error)
-	require.Equal(t, "expired", item.Status)
-	require.Empty(t, item.ValuesEncrypted)
+	require.NoError(t, s.Store.CreateSecretIntake(t.Context(), &item))
+	require.NoError(t, s.Store.ReapExpiredSecretIntakes(context.Background(), now))
+	got, err := s.Store.GetSecretIntake(t.Context(), "prj_test", item.ID)
+	require.NoError(t, err)
+	require.Equal(t, "expired", got.Status)
+	require.Empty(t, got.ValuesEncrypted)
 }

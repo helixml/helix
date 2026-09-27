@@ -39,6 +39,11 @@ type Clock func() time.Time
 // IDGen generates new unique string IDs. Tests override it.
 type IDGen func() string
 
+type SecretIntakeService interface {
+	Create(context.Context, string, string, types.SecretIntakeCreateRequest) (types.SecretIntakeCreateResult, error)
+	Status(context.Context, string, string, string) (types.SecretIntakeStatusResult, error)
+}
+
 type AgentContentUpdater interface {
 	UpdateAgentContent(ctx context.Context, appID, content string) error
 }
@@ -68,8 +73,7 @@ type EventDispatcher interface {
 // Queries, writes through the aggregate services. Built once by
 // Config.Build() at the composition root and handed to RegisterBuiltins.
 type Deps struct {
-	SecretIntakeCreator func(context.Context, string, string, types.SecretIntakeCreateRequest) (types.SecretIntakeCreateResult, error)
-	SecretIntakeStatus  func(context.Context, string, string, string) (types.SecretIntakeStatusResult, error)
+	SecretIntakes SecretIntakeService
 	// Queries is the read facade every read tool projects from — the same
 	// one the REST read handlers use, so the two surfaces can't drift on
 	// read semantics.
@@ -149,8 +153,7 @@ type Deps struct {
 //
 // Hub/Dispatcher are optional (nil → publish skips notify/dispatch).
 type Config struct {
-	SecretIntakeCreator     func(context.Context, string, string, types.SecretIntakeCreateRequest) (types.SecretIntakeCreateResult, error)
-	SecretIntakeStatus      func(context.Context, string, string, string) (types.SecretIntakeStatusResult, error)
+	SecretIntakes           SecretIntakeService
 	Store                   *store.Store
 	Queries                 *queries.Queries
 	Now                     Clock
@@ -219,8 +222,7 @@ type Config struct {
 // the lean tool Deps. Reads from the store happen only here.
 func (c Config) Build() Deps {
 	return Deps{
-		SecretIntakeCreator:  c.SecretIntakeCreator,
-		SecretIntakeStatus:   c.SecretIntakeStatus,
+		SecretIntakes:        c.SecretIntakes,
 		Queries:              c.Queries,
 		Nodes:                c.botsService(),
 		Triggers:             c.triggersService(),

@@ -1351,6 +1351,10 @@ export interface ServerConfigurePendingSessionRequest {
   client_unique_id?: string;
 }
 
+export interface ServerConnectRedeemRequest {
+  token?: string;
+}
+
 export interface ServerCreateTopUpRequest {
   amount?: number;
   org_id?: string;
@@ -1843,6 +1847,36 @@ export interface ServerPinnedProjectsResponse {
   pinned_project_ids?: string[];
 }
 
+export interface ServerPortalAccountStatusResponse {
+  account_status?: string;
+  customer_id?: string;
+  portal?: string;
+}
+
+export interface ServerPortalConnectionCreateRequest {
+  accent_color?: string;
+  brand_name?: string;
+  conversation_id?: string;
+  customer_id?: string;
+  portal?: string;
+}
+
+export interface ServerPortalConnectionCreateResponse {
+  connection?: ServerPortalConnectionView;
+  invite_url?: string;
+}
+
+export interface ServerPortalConnectionView {
+  conversation_id?: string;
+  customer_id?: string;
+  expires_at?: string;
+  id?: string;
+  portal?: string;
+  project_id?: string;
+  session_expires_at?: string;
+  status?: TypesPortalConnectionStatus;
+}
+
 export interface ServerProjectGooseRecipe {
   description?: string;
   /**
@@ -1992,6 +2026,26 @@ export interface ServerSandboxTerminalSession {
 
 export interface ServerSandboxTerminalSessionsResponse {
   sessions?: ServerSandboxTerminalSession[];
+}
+
+export interface ServerSecretIntakeCreateResponse {
+  intake?: ServerSecretIntakeView;
+  invite_url?: string;
+}
+
+export interface ServerSecretIntakeSubmissionRequest {
+  values?: Record<string, string>;
+}
+
+export interface ServerSecretIntakeView {
+  conversation_id?: string;
+  customer_id?: string;
+  expires_at?: string;
+  fields?: TypesSecretIntakeField[];
+  id?: string;
+  project_id?: string;
+  status?: string;
+  values_expires_at?: string;
 }
 
 export interface ServerSessionClaudeCredentialsResponse {
@@ -5357,6 +5411,15 @@ export interface TypesPinnedChat {
   project_id?: string;
 }
 
+export enum TypesPortalConnectionStatus {
+  PortalConnectionPasswordPending = "password_pending",
+  PortalConnectionOTPPending = "otp_pending",
+  PortalConnectionConnected = "connected",
+  PortalConnectionFailed = "failed",
+  PortalConnectionExpired = "expired",
+  PortalConnectionRevoked = "revoked",
+}
+
 export interface TypesPricing {
   audio?: string;
   completion?: string;
@@ -6534,6 +6597,25 @@ export interface TypesSecret {
   scope?: TypesSecretScope;
   updated?: string;
   value?: number[];
+}
+
+export interface TypesSecretIntakeCreateRequest {
+  accent_color?: string;
+  artifact_id?: string;
+  brand_name?: string;
+  conversation_id?: string;
+  customer_id?: string;
+  description?: string;
+  fields?: TypesSecretIntakeField[];
+  title?: string;
+}
+
+export interface TypesSecretIntakeField {
+  autocomplete?: string;
+  label?: string;
+  name?: string;
+  required?: boolean;
+  type?: string;
 }
 
 export enum TypesSecretScope {
@@ -16128,6 +16210,83 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns a one-time connect URL. This endpoint is only available when the mock portal is enabled.
+     *
+     * @tags Portal Connections
+     * @name V1ProjectsPortalConnectionsCreate
+     * @summary Create a mock portal connection invitation
+     * @request POST:/api/v1/projects/{id}/portal-connections
+     * @secure
+     */
+    v1ProjectsPortalConnectionsCreate: (
+      id: string,
+      request: ServerPortalConnectionCreateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerPortalConnectionCreateResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/portal-connections`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Portal Connections
+     * @name V1ProjectsPortalConnectionsDelete
+     * @summary Revoke a portal connection
+     * @request DELETE:/api/v1/projects/{id}/portal-connections/{connection_id}
+     * @secure
+     */
+    v1ProjectsPortalConnectionsDelete: (id: string, connectionId: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/projects/${id}/portal-connections/${connectionId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Portal Connections
+     * @name V1ProjectsPortalConnectionsDetail
+     * @summary Get a portal connection
+     * @request GET:/api/v1/projects/{id}/portal-connections/{connection_id}
+     * @secure
+     */
+    v1ProjectsPortalConnectionsDetail: (id: string, connectionId: string, params: RequestParams = {}) =>
+      this.request<ServerPortalConnectionView, TypesAPIError>({
+        path: `/api/v1/projects/${id}/portal-connections/${connectionId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns bounded account status without exposing the portal session.
+     *
+     * @tags Portal Connections
+     * @name V1ProjectsPortalConnectionsAccountStatusDetail
+     * @summary Get mock portal account status
+     * @request GET:/api/v1/projects/{id}/portal-connections/{connection_id}/account-status
+     * @secure
+     */
+    v1ProjectsPortalConnectionsAccountStatusDetail: (id: string, connectionId: string, params: RequestParams = {}) =>
+      this.request<ServerPortalAccountStatusResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/portal-connections/${connectionId}/account-status`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get all repositories attached to a project
      *
      * @tags Projects
@@ -16200,6 +16359,85 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Creates a short-lived, one-time link for collecting requested fields outside chat. The response never contains submitted values.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesCreate
+     * @summary Create a secret intake
+     * @request POST:/api/v1/projects/{id}/secret-intakes
+     * @secure
+     */
+    v1ProjectsSecretIntakesCreate: (id: string, request: TypesSecretIntakeCreateRequest, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeCreateResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Invalidates its link and clears any submitted ciphertext.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesDelete
+     * @summary Revoke a secret intake
+     * @request DELETE:/api/v1/projects/{id}/secret-intakes/{intake_id}
+     * @secure
+     */
+    v1ProjectsSecretIntakesDelete: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns metadata and status only; submitted values remain inaccessible through this endpoint.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesDetail
+     * @summary Get secret intake status
+     * @request GET:/api/v1/projects/{id}/secret-intakes/{intake_id}
+     * @secure
+     */
+    v1ProjectsSecretIntakesDetail: (id: string, intakeId: string, params: RequestParams = {}) =>
+      this.request<ServerSecretIntakeView, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Write-only project API for trusted integrations. Values are encrypted and cannot be read through the API.
+     *
+     * @tags Secret Intakes
+     * @name V1ProjectsSecretIntakesSubmissionsCreate
+     * @summary Submit secret intake values
+     * @request POST:/api/v1/projects/{id}/secret-intakes/{intake_id}/submissions
+     * @secure
+     */
+    v1ProjectsSecretIntakesSubmissionsCreate: (
+      id: string,
+      intakeId: string,
+      request: ServerSecretIntakeSubmissionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/projects/${id}/secret-intakes/${intakeId}/submissions`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -20225,6 +20463,41 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+  };
+  connect = {
+    /**
+     * @description Exchanges a one-time invitation token for a short-lived browser flow cookie.
+     *
+     * @tags Secret Intakes
+     * @name IntakeRedeemCreate
+     * @summary Redeem a secret intake invitation
+     * @request POST:/connect/intake/redeem
+     */
+    intakeRedeemCreate: (request: ServerConnectRedeemRequest, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/connect/intake/redeem`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Exchanges a one-time invitation token for a short-lived browser flow cookie.
+     *
+     * @tags Portal Connections
+     * @name RedeemCreate
+     * @summary Redeem a mock portal invitation
+     * @request POST:/connect/redeem
+     */
+    redeemCreate: (request: ServerConnectRedeemRequest, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/connect/redeem`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
         ...params,
       }),
   };

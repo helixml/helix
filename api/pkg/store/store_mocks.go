@@ -59,6 +59,21 @@ func (mr *MockStoreMockRecorder) AddSpecTaskLabel(ctx, taskID, label any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddSpecTaskLabel", reflect.TypeOf((*MockStore)(nil).AddSpecTaskLabel), ctx, taskID, label)
 }
 
+// AdvancePortalConnectionAttempt mocks base method.
+func (m *MockStore) AdvancePortalConnectionAttempt(arg0 context.Context, arg1 PortalConnectionStep) (types.PortalConnectionStatus, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdvancePortalConnectionAttempt", arg0, arg1)
+	ret0, _ := ret[0].(types.PortalConnectionStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AdvancePortalConnectionAttempt indicates an expected call of AdvancePortalConnectionAttempt.
+func (mr *MockStoreMockRecorder) AdvancePortalConnectionAttempt(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdvancePortalConnectionAttempt", reflect.TypeOf((*MockStore)(nil).AdvancePortalConnectionAttempt), arg0, arg1)
+}
+
 // AttachRepositoryToProject mocks base method.
 func (m *MockStore) AttachRepositoryToProject(ctx context.Context, projectID, repoID string) error {
 	m.ctrl.T.Helper()
@@ -818,6 +833,20 @@ func (mr *MockStoreMockRecorder) CreateOrganizationMembership(ctx, membership an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOrganizationMembership", reflect.TypeOf((*MockStore)(nil).CreateOrganizationMembership), ctx, membership)
 }
 
+// CreatePortalConnectionAttempt mocks base method.
+func (m *MockStore) CreatePortalConnectionAttempt(arg0 context.Context, arg1 *types.PortalConnectionAttempt) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePortalConnectionAttempt", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreatePortalConnectionAttempt indicates an expected call of CreatePortalConnectionAttempt.
+func (mr *MockStoreMockRecorder) CreatePortalConnectionAttempt(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePortalConnectionAttempt", reflect.TypeOf((*MockStore)(nil).CreatePortalConnectionAttempt), arg0, arg1)
+}
+
 // CreateProject mocks base method.
 func (m *MockStore) CreateProject(ctx context.Context, project *types.Project) (*types.Project, error) {
 	m.ctrl.T.Helper()
@@ -963,6 +992,20 @@ func (m *MockStore) CreateSecret(ctx context.Context, secret *types.Secret) (*ty
 func (mr *MockStoreMockRecorder) CreateSecret(ctx, secret any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSecret", reflect.TypeOf((*MockStore)(nil).CreateSecret), ctx, secret)
+}
+
+// CreateSecretIntake mocks base method.
+func (m *MockStore) CreateSecretIntake(arg0 context.Context, arg1 *types.SecretIntake) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSecretIntake", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateSecretIntake indicates an expected call of CreateSecretIntake.
+func (mr *MockStoreMockRecorder) CreateSecretIntake(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSecretIntake", reflect.TypeOf((*MockStore)(nil).CreateSecretIntake), arg0, arg1)
 }
 
 // CreateServiceConnection mocks base method.
@@ -3375,6 +3418,36 @@ func (mr *MockStoreMockRecorder) GetPendingCommentByPlanningSessionID(ctx, plann
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPendingCommentByPlanningSessionID", reflect.TypeOf((*MockStore)(nil).GetPendingCommentByPlanningSessionID), ctx, planningSessionID)
 }
 
+// GetPortalConnectionAttempt mocks base method.
+func (m *MockStore) GetPortalConnectionAttempt(arg0 context.Context, arg1, arg2 string) (*types.PortalConnectionAttempt, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPortalConnectionAttempt", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.PortalConnectionAttempt)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPortalConnectionAttempt indicates an expected call of GetPortalConnectionAttempt.
+func (mr *MockStoreMockRecorder) GetPortalConnectionAttempt(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPortalConnectionAttempt", reflect.TypeOf((*MockStore)(nil).GetPortalConnectionAttempt), arg0, arg1, arg2)
+}
+
+// GetPortalConnectionAttemptByFlow mocks base method.
+func (m *MockStore) GetPortalConnectionAttemptByFlow(arg0 context.Context, arg1 string, arg2 time.Time) (*types.PortalConnectionAttempt, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPortalConnectionAttemptByFlow", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.PortalConnectionAttempt)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPortalConnectionAttemptByFlow indicates an expected call of GetPortalConnectionAttemptByFlow.
+func (mr *MockStoreMockRecorder) GetPortalConnectionAttemptByFlow(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPortalConnectionAttemptByFlow", reflect.TypeOf((*MockStore)(nil).GetPortalConnectionAttemptByFlow), arg0, arg1, arg2)
+}
+
 // GetProject mocks base method.
 func (m *MockStore) GetProject(ctx context.Context, projectID string) (*types.Project, error) {
 	m.ctrl.T.Helper()
@@ -3688,6 +3761,36 @@ func (m *MockStore) GetSecret(ctx context.Context, id string) (*types.Secret, er
 func (mr *MockStoreMockRecorder) GetSecret(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecret", reflect.TypeOf((*MockStore)(nil).GetSecret), ctx, id)
+}
+
+// GetSecretIntake mocks base method.
+func (m *MockStore) GetSecretIntake(arg0 context.Context, arg1, arg2 string) (*types.SecretIntake, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSecretIntake", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.SecretIntake)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSecretIntake indicates an expected call of GetSecretIntake.
+func (mr *MockStoreMockRecorder) GetSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretIntake", reflect.TypeOf((*MockStore)(nil).GetSecretIntake), arg0, arg1, arg2)
+}
+
+// GetSecretIntakeByFlow mocks base method.
+func (m *MockStore) GetSecretIntakeByFlow(arg0 context.Context, arg1 string, arg2 time.Time) (*types.SecretIntake, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSecretIntakeByFlow", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.SecretIntake)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSecretIntakeByFlow indicates an expected call of GetSecretIntakeByFlow.
+func (mr *MockStoreMockRecorder) GetSecretIntakeByFlow(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretIntakeByFlow", reflect.TypeOf((*MockStore)(nil).GetSecretIntakeByFlow), arg0, arg1, arg2)
 }
 
 // GetServiceConnection mocks base method.
@@ -6088,6 +6191,20 @@ func (mr *MockStoreMockRecorder) ParseAndCreateImplementationTasks(ctx, specTask
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ParseAndCreateImplementationTasks", reflect.TypeOf((*MockStore)(nil).ParseAndCreateImplementationTasks), ctx, specTaskID, implementationPlan)
 }
 
+// ReapExpiredSecretIntakes mocks base method.
+func (m *MockStore) ReapExpiredSecretIntakes(arg0 context.Context, arg1 time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReapExpiredSecretIntakes", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReapExpiredSecretIntakes indicates an expected call of ReapExpiredSecretIntakes.
+func (mr *MockStoreMockRecorder) ReapExpiredSecretIntakes(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapExpiredSecretIntakes", reflect.TypeOf((*MockStore)(nil).ReapExpiredSecretIntakes), arg0, arg1)
+}
+
 // ReapWaitingInteractions mocks base method.
 func (m *MockStore) ReapWaitingInteractions(ctx context.Context, sessionID string, newState types.InteractionState, reason string) ([]*types.Interaction, error) {
 	m.ctrl.T.Helper()
@@ -6116,6 +6233,36 @@ func (m *MockStore) ReconcileStuckSendingPrompts(ctx context.Context) (int, erro
 func (mr *MockStoreMockRecorder) ReconcileStuckSendingPrompts(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileStuckSendingPrompts", reflect.TypeOf((*MockStore)(nil).ReconcileStuckSendingPrompts), ctx)
+}
+
+// RedeemPortalConnectionInvitation mocks base method.
+func (m *MockStore) RedeemPortalConnectionInvitation(arg0 context.Context, arg1, arg2, arg3 string, arg4, arg5 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RedeemPortalConnectionInvitation", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RedeemPortalConnectionInvitation indicates an expected call of RedeemPortalConnectionInvitation.
+func (mr *MockStoreMockRecorder) RedeemPortalConnectionInvitation(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemPortalConnectionInvitation", reflect.TypeOf((*MockStore)(nil).RedeemPortalConnectionInvitation), arg0, arg1, arg2, arg3, arg4, arg5)
+}
+
+// RedeemSecretIntakeInvitation mocks base method.
+func (m *MockStore) RedeemSecretIntakeInvitation(arg0 context.Context, arg1, arg2, arg3 string, arg4, arg5 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RedeemSecretIntakeInvitation", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RedeemSecretIntakeInvitation indicates an expected call of RedeemSecretIntakeInvitation.
+func (mr *MockStoreMockRecorder) RedeemSecretIntakeInvitation(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemSecretIntakeInvitation", reflect.TypeOf((*MockStore)(nil).RedeemSecretIntakeInvitation), arg0, arg1, arg2, arg3, arg4, arg5)
 }
 
 // RegisterSandboxInstance mocks base method.
@@ -6276,6 +6423,34 @@ func (m *MockStore) ResourceSearch(ctx context.Context, req *types.ResourceSearc
 func (mr *MockStoreMockRecorder) ResourceSearch(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceSearch", reflect.TypeOf((*MockStore)(nil).ResourceSearch), ctx, req)
+}
+
+// RevokePortalConnectionAttempt mocks base method.
+func (m *MockStore) RevokePortalConnectionAttempt(arg0 context.Context, arg1, arg2 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokePortalConnectionAttempt", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokePortalConnectionAttempt indicates an expected call of RevokePortalConnectionAttempt.
+func (mr *MockStoreMockRecorder) RevokePortalConnectionAttempt(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokePortalConnectionAttempt", reflect.TypeOf((*MockStore)(nil).RevokePortalConnectionAttempt), arg0, arg1, arg2)
+}
+
+// RevokeSecretIntake mocks base method.
+func (m *MockStore) RevokeSecretIntake(arg0 context.Context, arg1, arg2 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeSecretIntake", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokeSecretIntake indicates an expected call of RevokeSecretIntake.
+func (mr *MockStoreMockRecorder) RevokeSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeSecretIntake", reflect.TypeOf((*MockStore)(nil).RevokeSecretIntake), arg0, arg1, arg2)
 }
 
 // RotateVHostRouteHostname mocks base method.
@@ -6551,6 +6726,21 @@ func (mr *MockStoreMockRecorder) SpawnWorkSession(ctx, parentSessionID, config a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpawnWorkSession", reflect.TypeOf((*MockStore)(nil).SpawnWorkSession), ctx, parentSessionID, config)
 }
 
+// SubmitSecretIntake mocks base method.
+func (m *MockStore) SubmitSecretIntake(arg0 context.Context, arg1, arg2, arg3 string, arg4, arg5 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubmitSecretIntake", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SubmitSecretIntake indicates an expected call of SubmitSecretIntake.
+func (mr *MockStoreMockRecorder) SubmitSecretIntake(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubmitSecretIntake", reflect.TypeOf((*MockStore)(nil).SubmitSecretIntake), arg0, arg1, arg2, arg3, arg4, arg5)
+}
+
 // SubscribeForTasks mocks base method.
 func (m *MockStore) SubscribeForTasks(ctx context.Context, filter *SpecTaskSubscriptionFilter, handler func(*types.SpecTask) error) (pubsub.Subscription, error) {
 	m.ctrl.T.Helper()
@@ -6594,6 +6784,21 @@ func (m *MockStore) SyncPromptHistory(ctx context.Context, userID string, req *t
 func (mr *MockStoreMockRecorder) SyncPromptHistory(ctx, userID, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncPromptHistory", reflect.TypeOf((*MockStore)(nil).SyncPromptHistory), ctx, userID, req)
+}
+
+// TakeSecretIntake mocks base method.
+func (m *MockStore) TakeSecretIntake(arg0 context.Context, arg1, arg2 string, arg3 time.Time) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TakeSecretIntake", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TakeSecretIntake indicates an expected call of TakeSecretIntake.
+func (mr *MockStoreMockRecorder) TakeSecretIntake(arg0, arg1, arg2, arg3 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TakeSecretIntake", reflect.TypeOf((*MockStore)(nil).TakeSecretIntake), arg0, arg1, arg2, arg3)
 }
 
 // TouchSession mocks base method.
@@ -7723,4 +7928,233 @@ func (m *MockStore) UpsertZedSettingsOverride(ctx context.Context, override *typ
 func (mr *MockStoreMockRecorder) UpsertZedSettingsOverride(ctx, override any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).UpsertZedSettingsOverride), ctx, override)
+}
+
+// MockConnectPortalStore is a mock of ConnectPortalStore interface.
+type MockConnectPortalStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockConnectPortalStoreMockRecorder
+	isgomock struct{}
+}
+
+// MockConnectPortalStoreMockRecorder is the mock recorder for MockConnectPortalStore.
+type MockConnectPortalStoreMockRecorder struct {
+	mock *MockConnectPortalStore
+}
+
+// NewMockConnectPortalStore creates a new mock instance.
+func NewMockConnectPortalStore(ctrl *gomock.Controller) *MockConnectPortalStore {
+	mock := &MockConnectPortalStore{ctrl: ctrl}
+	mock.recorder = &MockConnectPortalStoreMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockConnectPortalStore) EXPECT() *MockConnectPortalStoreMockRecorder {
+	return m.recorder
+}
+
+// AdvancePortalConnectionAttempt mocks base method.
+func (m *MockConnectPortalStore) AdvancePortalConnectionAttempt(arg0 context.Context, arg1 PortalConnectionStep) (types.PortalConnectionStatus, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdvancePortalConnectionAttempt", arg0, arg1)
+	ret0, _ := ret[0].(types.PortalConnectionStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AdvancePortalConnectionAttempt indicates an expected call of AdvancePortalConnectionAttempt.
+func (mr *MockConnectPortalStoreMockRecorder) AdvancePortalConnectionAttempt(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdvancePortalConnectionAttempt", reflect.TypeOf((*MockConnectPortalStore)(nil).AdvancePortalConnectionAttempt), arg0, arg1)
+}
+
+// CreatePortalConnectionAttempt mocks base method.
+func (m *MockConnectPortalStore) CreatePortalConnectionAttempt(arg0 context.Context, arg1 *types.PortalConnectionAttempt) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePortalConnectionAttempt", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreatePortalConnectionAttempt indicates an expected call of CreatePortalConnectionAttempt.
+func (mr *MockConnectPortalStoreMockRecorder) CreatePortalConnectionAttempt(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePortalConnectionAttempt", reflect.TypeOf((*MockConnectPortalStore)(nil).CreatePortalConnectionAttempt), arg0, arg1)
+}
+
+// CreateSecretIntake mocks base method.
+func (m *MockConnectPortalStore) CreateSecretIntake(arg0 context.Context, arg1 *types.SecretIntake) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSecretIntake", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateSecretIntake indicates an expected call of CreateSecretIntake.
+func (mr *MockConnectPortalStoreMockRecorder) CreateSecretIntake(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSecretIntake", reflect.TypeOf((*MockConnectPortalStore)(nil).CreateSecretIntake), arg0, arg1)
+}
+
+// GetPortalConnectionAttempt mocks base method.
+func (m *MockConnectPortalStore) GetPortalConnectionAttempt(arg0 context.Context, arg1, arg2 string) (*types.PortalConnectionAttempt, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPortalConnectionAttempt", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.PortalConnectionAttempt)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPortalConnectionAttempt indicates an expected call of GetPortalConnectionAttempt.
+func (mr *MockConnectPortalStoreMockRecorder) GetPortalConnectionAttempt(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPortalConnectionAttempt", reflect.TypeOf((*MockConnectPortalStore)(nil).GetPortalConnectionAttempt), arg0, arg1, arg2)
+}
+
+// GetPortalConnectionAttemptByFlow mocks base method.
+func (m *MockConnectPortalStore) GetPortalConnectionAttemptByFlow(arg0 context.Context, arg1 string, arg2 time.Time) (*types.PortalConnectionAttempt, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPortalConnectionAttemptByFlow", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.PortalConnectionAttempt)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPortalConnectionAttemptByFlow indicates an expected call of GetPortalConnectionAttemptByFlow.
+func (mr *MockConnectPortalStoreMockRecorder) GetPortalConnectionAttemptByFlow(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPortalConnectionAttemptByFlow", reflect.TypeOf((*MockConnectPortalStore)(nil).GetPortalConnectionAttemptByFlow), arg0, arg1, arg2)
+}
+
+// GetSecretIntake mocks base method.
+func (m *MockConnectPortalStore) GetSecretIntake(arg0 context.Context, arg1, arg2 string) (*types.SecretIntake, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSecretIntake", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.SecretIntake)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSecretIntake indicates an expected call of GetSecretIntake.
+func (mr *MockConnectPortalStoreMockRecorder) GetSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretIntake", reflect.TypeOf((*MockConnectPortalStore)(nil).GetSecretIntake), arg0, arg1, arg2)
+}
+
+// GetSecretIntakeByFlow mocks base method.
+func (m *MockConnectPortalStore) GetSecretIntakeByFlow(arg0 context.Context, arg1 string, arg2 time.Time) (*types.SecretIntake, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSecretIntakeByFlow", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*types.SecretIntake)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSecretIntakeByFlow indicates an expected call of GetSecretIntakeByFlow.
+func (mr *MockConnectPortalStoreMockRecorder) GetSecretIntakeByFlow(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretIntakeByFlow", reflect.TypeOf((*MockConnectPortalStore)(nil).GetSecretIntakeByFlow), arg0, arg1, arg2)
+}
+
+// ReapExpiredSecretIntakes mocks base method.
+func (m *MockConnectPortalStore) ReapExpiredSecretIntakes(arg0 context.Context, arg1 time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReapExpiredSecretIntakes", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReapExpiredSecretIntakes indicates an expected call of ReapExpiredSecretIntakes.
+func (mr *MockConnectPortalStoreMockRecorder) ReapExpiredSecretIntakes(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapExpiredSecretIntakes", reflect.TypeOf((*MockConnectPortalStore)(nil).ReapExpiredSecretIntakes), arg0, arg1)
+}
+
+// RedeemPortalConnectionInvitation mocks base method.
+func (m *MockConnectPortalStore) RedeemPortalConnectionInvitation(arg0 context.Context, arg1, arg2, arg3 string, arg4, arg5 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RedeemPortalConnectionInvitation", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RedeemPortalConnectionInvitation indicates an expected call of RedeemPortalConnectionInvitation.
+func (mr *MockConnectPortalStoreMockRecorder) RedeemPortalConnectionInvitation(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemPortalConnectionInvitation", reflect.TypeOf((*MockConnectPortalStore)(nil).RedeemPortalConnectionInvitation), arg0, arg1, arg2, arg3, arg4, arg5)
+}
+
+// RedeemSecretIntakeInvitation mocks base method.
+func (m *MockConnectPortalStore) RedeemSecretIntakeInvitation(arg0 context.Context, arg1, arg2, arg3 string, arg4, arg5 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RedeemSecretIntakeInvitation", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RedeemSecretIntakeInvitation indicates an expected call of RedeemSecretIntakeInvitation.
+func (mr *MockConnectPortalStoreMockRecorder) RedeemSecretIntakeInvitation(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemSecretIntakeInvitation", reflect.TypeOf((*MockConnectPortalStore)(nil).RedeemSecretIntakeInvitation), arg0, arg1, arg2, arg3, arg4, arg5)
+}
+
+// RevokePortalConnectionAttempt mocks base method.
+func (m *MockConnectPortalStore) RevokePortalConnectionAttempt(arg0 context.Context, arg1, arg2 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokePortalConnectionAttempt", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokePortalConnectionAttempt indicates an expected call of RevokePortalConnectionAttempt.
+func (mr *MockConnectPortalStoreMockRecorder) RevokePortalConnectionAttempt(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokePortalConnectionAttempt", reflect.TypeOf((*MockConnectPortalStore)(nil).RevokePortalConnectionAttempt), arg0, arg1, arg2)
+}
+
+// RevokeSecretIntake mocks base method.
+func (m *MockConnectPortalStore) RevokeSecretIntake(arg0 context.Context, arg1, arg2 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeSecretIntake", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokeSecretIntake indicates an expected call of RevokeSecretIntake.
+func (mr *MockConnectPortalStoreMockRecorder) RevokeSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeSecretIntake", reflect.TypeOf((*MockConnectPortalStore)(nil).RevokeSecretIntake), arg0, arg1, arg2)
+}
+
+// SubmitSecretIntake mocks base method.
+func (m *MockConnectPortalStore) SubmitSecretIntake(arg0 context.Context, arg1, arg2, arg3 string, arg4, arg5 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubmitSecretIntake", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SubmitSecretIntake indicates an expected call of SubmitSecretIntake.
+func (mr *MockConnectPortalStoreMockRecorder) SubmitSecretIntake(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubmitSecretIntake", reflect.TypeOf((*MockConnectPortalStore)(nil).SubmitSecretIntake), arg0, arg1, arg2, arg3, arg4, arg5)
+}
+
+// TakeSecretIntake mocks base method.
+func (m *MockConnectPortalStore) TakeSecretIntake(arg0 context.Context, arg1, arg2 string, arg3 time.Time) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TakeSecretIntake", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TakeSecretIntake indicates an expected call of TakeSecretIntake.
+func (mr *MockConnectPortalStoreMockRecorder) TakeSecretIntake(arg0, arg1, arg2, arg3 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TakeSecretIntake", reflect.TypeOf((*MockConnectPortalStore)(nil).TakeSecretIntake), arg0, arg1, arg2, arg3)
 }

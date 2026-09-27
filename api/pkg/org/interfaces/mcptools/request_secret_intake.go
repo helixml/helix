@@ -27,14 +27,14 @@ func (t *RequestSecretIntake) Invoke(ctx context.Context, inv tool.Invocation) (
 	if inv.Caller == nil || inv.Caller.ID() == "" || inv.Caller.OrganizationID() == "" {
 		return nil, errors.New("caller identity required")
 	}
-	if t.deps.SecretIntakeCreator == nil {
+	if t.deps.SecretIntakes == nil {
 		return nil, errors.New("secret intake is not configured")
 	}
 	var input types.SecretIntakeCreateRequest
 	if err := json.Unmarshal(inv.Args, &input); err != nil {
 		return nil, errors.New("invalid intake request")
 	}
-	result, err := t.deps.SecretIntakeCreator(ctx, inv.Caller.OrganizationID(), inv.Caller.ID(), input)
+	result, err := t.deps.SecretIntakes.Create(ctx, inv.Caller.OrganizationID(), inv.Caller.ID(), input)
 	if err != nil {
 		return nil, err
 	}

@@ -16,11 +16,10 @@ import (
 
 	"github.com/gorilla/mux"
 	helixcrypto "github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 const secretIntakeCookie = "helix_secret_intake_flow"
@@ -32,7 +31,7 @@ var secretIntakeAutocomplete = map[string]bool{"off": true, "username": true, "c
 
 type secretIntakeInput = types.SecretIntakeCreateRequest
 
-type secretIntakeView struct {
+type SecretIntakeView struct {
 	ID              string                    `json:"id"`
 	ProjectID       string                    `json:"project_id"`
 	CustomerID      string                    `json:"customer_id"`
@@ -43,15 +42,23 @@ type secretIntakeView struct {
 	ValuesExpiresAt *time.Time                `json:"values_expires_at,omitempty"`
 }
 
-func (s *HelixAPIServer) secretIntakeDB() (*gorm.DB, bool) {
-	accessor, ok := s.Store.(interface{ GormDB() *gorm.DB })
-	if !ok || !s.Cfg.SecretIntakeEnabled || os.Getenv("HELIX_ENCRYPTION_KEY") == "" || strings.TrimSpace(s.Cfg.WebServer.URL) == "" {
-		return nil, false
+type SecretIntakeCreateResponse struct {
+	Intake    SecretIntakeView `json:"intake"`
+	InviteURL string           `json:"invite_url"`
+}
+
+type SecretIntakeSubmissionRequest struct {
+	Values map[string]string `json:"values"`
+}
+
+func (s *HelixAPIServer) secretIntakeEnabled() bool {
+	if !s.Cfg.ConnectPortal.SecretIntakeEnabled || os.Getenv("HELIX_ENCRYPTION_KEY") == "" || strings.TrimSpace(s.Cfg.WebServer.URL) == "" {
+		return false
 	}
 	if _, err := s.getEncryptionKey(); err != nil {
-		return nil, false
+		return false
 	}
-	return accessor.GormDB(), true
+	return true
 }
 
 func secretIntakeStatus(item *types.SecretIntake) string {
@@ -65,8 +72,8 @@ func secretIntakeStatus(item *types.SecretIntake) string {
 	return item.Status
 }
 
-func secretIntakeResponse(item *types.SecretIntake) secretIntakeView {
-	view := secretIntakeView{ID: item.ID, ProjectID: item.ProjectID, CustomerID: item.CustomerID, ConversationID: item.ConversationID, Status: secretIntakeStatus(item), Fields: item.Fields, ExpiresAt: item.InvitationExpiresAt}
+func secretIntakeResponse(item *types.SecretIntake) SecretIntakeView {
+	view := SecretIntakeView{ID: item.ID, ProjectID: item.ProjectID, CustomerID: item.CustomerID, ConversationID: item.ConversationID, Status: secretIntakeStatus(item), Fields: item.Fields, ExpiresAt: item.InvitationExpiresAt}
 	if !item.ValuesExpiresAt.IsZero() {
 		view.ValuesExpiresAt = &item.ValuesExpiresAt
 	}
@@ -125,33 +132,32 @@ func validateSecretIntakeInput(input *secretIntakeInput) error {
 	return nil
 }
 
-func (s *HelixAPIServer) createSecretIntake(ctx context.Context, projectID string, input secretIntakeInput) (secretIntakeView, string, error) {
-	db, ok := s.secretIntakeDB()
-	if !ok {
-		return secretIntakeView{}, "", errors.New("secret intake is disabled")
+func (s *HelixAPIServer) createSecretIntake(ctx context.Context, projectID string, input secretIntakeInput) (SecretIntakeView, string, error) {
+	if !s.secretIntakeEnabled() {
+		return SecretIntakeView{}, "", errors.New("secret intake is disabled")
 	}
 	if err := validateSecretIntakeInput(&input); err != nil {
-		return secretIntakeView{}, "", err
+		return SecretIntakeView{}, "", err
 	}
 	baseURL, err := url.Parse(s.Cfg.WebServer.URL)
 	if err != nil || baseURL.Host == "" || (baseURL.Scheme != "https" && !(baseURL.Scheme == "http" && (baseURL.Hostname() == "localhost" || baseURL.Hostname() == "127.0.0.1" || baseURL.Hostname() == "::1"))) {
-		return secretIntakeView{}, "", errors.New("server URL must use HTTPS")
+		return SecretIntakeView{}, "", errors.New("server URL must use HTTPS")
 	}
 	var artifactBefore, artifactAfter string
 	if input.ArtifactID != "" {
 		artifactBefore, artifactAfter, err = s.loadSecretIntakeArtifact(ctx, projectID, input.ArtifactID)
 		if err != nil {
-			return secretIntakeView{}, "", err
+			return SecretIntakeView{}, "", err
 		}
 	}
 	token, err := portalRandomToken()
 	if err != nil {
-		return secretIntakeView{}, "", err
+		return SecretIntakeView{}, "", err
 	}
 	now := time.Now().UTC()
 	item := &types.SecretIntake{ID: "sci_" + system.GenerateUUID(), ProjectID: projectID, CustomerID: input.CustomerID, ConversationID: input.ConversationID, Title: input.Title, Description: input.Description, BrandName: input.BrandName, AccentColor: input.AccentColor, Fields: input.Fields, ArtifactID: input.ArtifactID, ArtifactBefore: artifactBefore, ArtifactAfter: artifactAfter, Status: "pending", InvitationHash: portalHash(token), InvitationExpiresAt: now.Add(portalInvitationTTL), CreatedAt: now, UpdatedAt: now}
-	if err := db.WithContext(ctx).Create(item).Error; err != nil {
-		return secretIntakeView{}, "", err
+	if err := s.Store.CreateSecretIntake(ctx, item); err != nil {
+		return SecretIntakeView{}, "", err
 	}
 	return secretIntakeResponse(item), strings.TrimRight(s.Cfg.WebServer.URL, "/") + "/connect/intake#" + token, nil
 }
@@ -167,8 +173,20 @@ func (s *HelixAPIServer) registerSecretIntakeRoutes(router, authRouter *mux.Rout
 	authRouter.HandleFunc("/projects/{id}/secret-intakes/{intake_id}/submissions", s.submitSecretIntakeAPI).Methods(http.MethodPost)
 }
 
+// @Summary Create a secret intake
+// @Description Creates a short-lived, one-time link for collecting requested fields outside chat. The response never contains submitted values.
+// @Tags Secret Intakes
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param request body types.SecretIntakeCreateRequest true "Field schema and branding"
+// @Success 201 {object} SecretIntakeCreateResponse
+// @Failure 400 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Router /api/v1/projects/{id}/secret-intakes [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) createSecretIntakeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.secretIntakeDB(); !ok {
+	if !s.secretIntakeEnabled() {
 		http.Error(w, "secret intake is disabled", http.StatusNotImplemented)
 		return
 	}
@@ -189,30 +207,43 @@ func (s *HelixAPIServer) createSecretIntakeHTTP(w http.ResponseWriter, r *http.R
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeResponse(w, map[string]any{"intake": view, "invite_url": link}, http.StatusCreated)
+	writeResponse(w, SecretIntakeCreateResponse{Intake: view, InviteURL: link}, http.StatusCreated)
 }
 
-func (s *HelixAPIServer) secretIntakeForProject(w http.ResponseWriter, r *http.Request, action types.Action) (*gorm.DB, *types.SecretIntake, bool) {
-	db, ok := s.secretIntakeDB()
-	if !ok {
+func (s *HelixAPIServer) secretIntakeForProject(w http.ResponseWriter, r *http.Request, action types.Action) (*types.SecretIntake, bool) {
+	if !s.secretIntakeEnabled() {
 		http.Error(w, "secret intake is disabled", http.StatusNotImplemented)
-		return nil, nil, false
+		return nil, false
 	}
 	project, herr := s.requireProjectAccess(r, action)
 	if herr != nil {
 		http.Error(w, herr.Message, herr.StatusCode)
-		return nil, nil, false
+		return nil, false
 	}
-	var item types.SecretIntake
-	if err := db.WithContext(r.Context()).Where("id = ? AND project_id = ?", mux.Vars(r)["intake_id"], project.ID).First(&item).Error; err != nil {
+	item, err := s.Store.GetSecretIntake(r.Context(), project.ID, mux.Vars(r)["intake_id"])
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			http.Error(w, "unable to load intake", http.StatusInternalServerError)
+			return nil, false
+		}
 		http.Error(w, "intake not found", http.StatusNotFound)
-		return nil, nil, false
+		return nil, false
 	}
-	return db, &item, true
+	return item, true
 }
 
+// @Summary Get secret intake status
+// @Description Returns metadata and status only; submitted values remain inaccessible through this endpoint.
+// @Tags Secret Intakes
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param intake_id path string true "Intake ID"
+// @Success 200 {object} SecretIntakeView
+// @Failure 404 {object} types.APIError
+// @Router /api/v1/projects/{id}/secret-intakes/{intake_id} [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) getSecretIntake(w http.ResponseWriter, r *http.Request) {
-	_, item, ok := s.secretIntakeForProject(w, r, types.ActionGet)
+	item, ok := s.secretIntakeForProject(w, r, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -220,12 +251,21 @@ func (s *HelixAPIServer) getSecretIntake(w http.ResponseWriter, r *http.Request)
 	writeResponse(w, secretIntakeResponse(item), http.StatusOK)
 }
 
+// @Summary Revoke a secret intake
+// @Description Invalidates its link and clears any submitted ciphertext.
+// @Tags Secret Intakes
+// @Param id path string true "Project ID"
+// @Param intake_id path string true "Intake ID"
+// @Success 204
+// @Failure 404 {object} types.APIError
+// @Router /api/v1/projects/{id}/secret-intakes/{intake_id} [delete]
+// @Security BearerAuth
 func (s *HelixAPIServer) revokeSecretIntake(w http.ResponseWriter, r *http.Request) {
-	db, item, ok := s.secretIntakeForProject(w, r, types.ActionUpdate)
+	item, ok := s.secretIntakeForProject(w, r, types.ActionUpdate)
 	if !ok {
 		return
 	}
-	if err := db.WithContext(r.Context()).Model(&types.SecretIntake{}).Where("id = ? AND project_id = ?", item.ID, item.ProjectID).Updates(map[string]any{"status": "revoked", "values_encrypted": "", "invitation_hash": "", "flow_hash": "", "csrf_hash": ""}).Error; err != nil {
+	if err := s.Store.RevokeSecretIntake(r.Context(), item.ProjectID, item.ID); err != nil {
 		http.Error(w, "unable to revoke intake", http.StatusInternalServerError)
 		return
 	}
@@ -273,18 +313,30 @@ func (s *HelixAPIServer) saveSecretIntake(ctx context.Context, item *types.Secre
 		return err
 	}
 	now := time.Now().UTC()
-	result := s.Store.(interface{ GormDB() *gorm.DB }).GormDB().WithContext(ctx).Model(&types.SecretIntake{}).Where("id = ? AND project_id = ? AND status = ?", item.ID, item.ProjectID, "pending").Updates(map[string]any{"status": "submitted", "values_encrypted": cipher, "values_expires_at": now.Add(secretIntakeValuesTTL), "invitation_hash": ""})
-	if result.Error != nil {
-		return result.Error
+	saved, err := s.Store.SubmitSecretIntake(ctx, item.ProjectID, item.ID, cipher, now, now.Add(secretIntakeValuesTTL))
+	if err != nil {
+		return err
 	}
-	if result.RowsAffected != 1 {
+	if !saved {
 		return errors.New("intake already submitted or revoked")
 	}
 	return nil
 }
 
+// @Summary Submit secret intake values
+// @Description Write-only project API for trusted integrations. Values are encrypted and cannot be read through the API.
+// @Tags Secret Intakes
+// @Accept json
+// @Param id path string true "Project ID"
+// @Param intake_id path string true "Intake ID"
+// @Param request body SecretIntakeSubmissionRequest true "Submitted field values"
+// @Success 204
+// @Failure 400 {object} types.APIError
+// @Failure 409 {object} types.APIError
+// @Router /api/v1/projects/{id}/secret-intakes/{intake_id}/submissions [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) submitSecretIntakeAPI(w http.ResponseWriter, r *http.Request) {
-	_, item, ok := s.secretIntakeForProject(w, r, types.ActionUpdate)
+	item, ok := s.secretIntakeForProject(w, r, types.ActionUpdate)
 	if !ok {
 		return
 	}
@@ -293,9 +345,7 @@ func (s *HelixAPIServer) submitSecretIntakeAPI(w http.ResponseWriter, r *http.Re
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16384)
-	var input struct {
-		Values map[string]string `json:"values"`
-	}
+	var input SecretIntakeSubmissionRequest
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
@@ -308,27 +358,30 @@ func (s *HelixAPIServer) submitSecretIntakeAPI(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func secretIntakeFlow(db *gorm.DB, r *http.Request) (*types.SecretIntake, error) {
+func (s *HelixAPIServer) secretIntakeFlow(r *http.Request) (*types.SecretIntake, error) {
 	cookie, err := r.Cookie(secretIntakeCookie)
 	if err != nil || len(cookie.Value) != 43 {
-		return nil, gorm.ErrRecordNotFound
+		return nil, store.ErrNotFound
 	}
-	var item types.SecretIntake
-	err = db.WithContext(r.Context()).Where("flow_hash = ? AND flow_expires_at > ?", portalHash(cookie.Value), time.Now().UTC()).First(&item).Error
-	return &item, err
+	return s.Store.GetSecretIntakeByFlow(r.Context(), portalHash(cookie.Value), time.Now().UTC())
 }
 
+// @Summary Redeem a secret intake invitation
+// @Description Exchanges a one-time invitation token for a short-lived browser flow cookie.
+// @Tags Secret Intakes
+// @Accept json
+// @Param request body ConnectRedeemRequest true "Invitation token"
+// @Success 204
+// @Failure 410 {object} types.APIError
+// @Router /connect/intake/redeem [post]
 func (s *HelixAPIServer) redeemSecretIntake(w http.ResponseWriter, r *http.Request) {
 	portalPageHeaders(w)
-	db, ok := s.secretIntakeDB()
-	if !ok {
+	if !s.secretIntakeEnabled() {
 		http.Error(w, "secret intake is disabled", http.StatusNotImplemented)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 256)
-	var input struct {
-		Token string `json:"token"`
-	}
+	var input ConnectRedeemRequest
 	if json.NewDecoder(r.Body).Decode(&input) != nil || len(input.Token) != 43 {
 		http.Error(w, "invalid invitation", http.StatusBadRequest)
 		return
@@ -344,8 +397,12 @@ func (s *HelixAPIServer) redeemSecretIntake(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	now := time.Now().UTC()
-	result := db.WithContext(r.Context()).Model(&types.SecretIntake{}).Where("invitation_hash = ? AND status = ? AND invitation_expires_at > ?", portalHash(input.Token), "pending", now).Updates(map[string]any{"invitation_hash": "", "flow_hash": portalHash(flow), "csrf_hash": portalHash(csrf), "flow_expires_at": now.Add(portalFlowTTL)})
-	if result.Error != nil || result.RowsAffected != 1 {
+	redeemed, err := s.Store.RedeemSecretIntakeInvitation(r.Context(), portalHash(input.Token), portalHash(flow), portalHash(csrf), now, now.Add(portalFlowTTL))
+	if err != nil {
+		http.Error(w, "unable to open intake", http.StatusInternalServerError)
+		return
+	}
+	if !redeemed {
 		http.Error(w, "invitation is expired or already used", http.StatusGone)
 		return
 	}
@@ -357,8 +414,7 @@ func (s *HelixAPIServer) redeemSecretIntake(w http.ResponseWriter, r *http.Reque
 
 func (s *HelixAPIServer) submitSecretIntakeForm(w http.ResponseWriter, r *http.Request) {
 	portalPageHeaders(w)
-	db, ok := s.secretIntakeDB()
-	if !ok {
+	if !s.secretIntakeEnabled() {
 		http.Error(w, "secret intake is disabled", http.StatusNotImplemented)
 		return
 	}
@@ -367,7 +423,11 @@ func (s *HelixAPIServer) submitSecretIntakeForm(w http.ResponseWriter, r *http.R
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	item, err := secretIntakeFlow(db, r)
+	item, err := s.secretIntakeFlow(r)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "unable to load intake", http.StatusInternalServerError)
+		return
+	}
 	if err != nil || secretIntakeStatus(item) != "pending" {
 		http.Error(w, "intake unavailable", http.StatusGone)
 		return
@@ -409,13 +469,16 @@ var secretIntakePage = template.Must(template.New("secret-intake").Parse(secretI
 
 func (s *HelixAPIServer) serveSecretIntake(w http.ResponseWriter, r *http.Request) {
 	portalPageHeaders(w)
-	db, ok := s.secretIntakeDB()
-	if !ok {
+	if !s.secretIntakeEnabled() {
 		http.Error(w, "secret intake is disabled", http.StatusNotImplemented)
 		return
 	}
 	data := secretIntakePageData{Stage: "landing", Brand: "Helix Connect", Accent: "#00b8d4", Title: "Secure connection"}
-	item, err := secretIntakeFlow(db, r)
+	item, err := s.secretIntakeFlow(r)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "unable to load intake", http.StatusInternalServerError)
+		return
+	}
 	if err == nil {
 		data.Brand, data.Accent, data.Title, data.Description, data.Fields = item.BrandName, item.AccentColor, item.Title, item.Description, item.Fields
 		data.ArtifactBefore, data.ArtifactAfter = template.HTML(item.ArtifactBefore), template.HTML(item.ArtifactAfter)
@@ -442,14 +505,15 @@ func (s *HelixAPIServer) secretIntakeBoot(w http.ResponseWriter, r *http.Request
 }
 
 func (s *HelixAPIServer) runSecretIntakeReaper(ctx context.Context) {
-	db, ok := s.secretIntakeDB()
-	if !ok {
+	if !s.secretIntakeEnabled() {
 		return
 	}
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
-		reapExpiredSecretIntakes(ctx, db, time.Now().UTC())
+		if err := s.Store.ReapExpiredSecretIntakes(ctx, time.Now().UTC()); err != nil {
+			log.Error().Err(err).Msg("reap expired secret intakes")
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -458,55 +522,30 @@ func (s *HelixAPIServer) runSecretIntakeReaper(ctx context.Context) {
 	}
 }
 
-func reapExpiredSecretIntakes(ctx context.Context, db *gorm.DB, now time.Time) {
-	if err := db.WithContext(ctx).Model(&types.SecretIntake{}).Where("status = ? AND values_expires_at <= ?", "submitted", now).Updates(map[string]any{"status": "expired", "values_encrypted": "", "flow_hash": "", "csrf_hash": ""}).Error; err != nil {
-		log.Error().Err(err).Msg("reap expired secret intake values")
-	}
-	if err := db.WithContext(ctx).Model(&types.SecretIntake{}).Where("status = ? AND flow_expires_at <= ? AND flow_hash <> ?", "pending", now, "").Updates(map[string]any{"status": "expired", "invitation_hash": "", "flow_hash": "", "csrf_hash": ""}).Error; err != nil {
-		log.Error().Err(err).Msg("reap expired secret intake flows")
-	}
-	if err := db.WithContext(ctx).Model(&types.SecretIntake{}).Where("status = ? AND invitation_expires_at <= ? AND flow_hash = ?", "pending", now, "").Updates(map[string]any{"status": "expired", "invitation_hash": ""}).Error; err != nil {
-		log.Error().Err(err).Msg("reap expired secret intake invitations")
-	}
-}
-
-// ConsumeSecretIntake passes values to trusted backend code once, then clears the ciphertext.
+// ConsumeSecretIntake clears the ciphertext atomically, then passes the values to trusted backend code once.
 // Callbacks must not serialize values into tool results, chat messages, or logs.
 func (s *HelixAPIServer) ConsumeSecretIntake(ctx context.Context, projectID, intakeID string, consume func(map[string]string) error) error {
-	db, ok := s.secretIntakeDB()
-	if !ok {
+	if !s.secretIntakeEnabled() {
 		return errors.New("secret intake is disabled")
 	}
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var item types.SecretIntake
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND project_id = ?", intakeID, projectID).First(&item).Error; err != nil {
-			return err
-		}
-		if secretIntakeStatus(&item) != "submitted" {
-			return errors.New("intake unavailable")
-		}
-		key, err := s.getEncryptionKey()
-		if err != nil {
-			return err
-		}
-		raw, err := helixcrypto.DecryptAES256GCM(item.ValuesEncrypted, key)
-		if err != nil {
-			return err
-		}
-		var values map[string]string
-		if err := json.Unmarshal(raw, &values); err != nil {
-			return err
-		}
-		if err := consume(values); err != nil {
-			return fmt.Errorf("consume intake: %w", err)
-		}
-		result := tx.Model(&types.SecretIntake{}).Where("id = ? AND status = ?", item.ID, "submitted").Updates(map[string]any{"status": "consumed", "values_encrypted": ""})
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected != 1 {
-			return errors.New("intake already consumed")
-		}
-		return nil
-	})
+	key, err := s.getEncryptionKey()
+	if err != nil {
+		return err
+	}
+	cipher, err := s.Store.TakeSecretIntake(ctx, projectID, intakeID, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	raw, err := helixcrypto.DecryptAES256GCM(cipher, key)
+	if err != nil {
+		return err
+	}
+	var values map[string]string
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return err
+	}
+	if err := consume(values); err != nil {
+		return fmt.Errorf("consume intake: %w", err)
+	}
+	return nil
 }

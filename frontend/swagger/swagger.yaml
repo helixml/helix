@@ -2036,6 +2036,11 @@ definitions:
       client_unique_id:
         type: string
     type: object
+  server.ConnectRedeemRequest:
+    properties:
+      token:
+        type: string
+    type: object
   server.CreateTopUpRequest:
     properties:
       amount:
@@ -2869,6 +2874,54 @@ definitions:
           type: string
         type: array
     type: object
+  server.PortalAccountStatusResponse:
+    properties:
+      account_status:
+        type: string
+      customer_id:
+        type: string
+      portal:
+        type: string
+    type: object
+  server.PortalConnectionCreateRequest:
+    properties:
+      accent_color:
+        type: string
+      brand_name:
+        type: string
+      conversation_id:
+        type: string
+      customer_id:
+        type: string
+      portal:
+        type: string
+    type: object
+  server.PortalConnectionCreateResponse:
+    properties:
+      connection:
+        $ref: '#/definitions/server.PortalConnectionView'
+      invite_url:
+        type: string
+    type: object
+  server.PortalConnectionView:
+    properties:
+      conversation_id:
+        type: string
+      customer_id:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      portal:
+        type: string
+      project_id:
+        type: string
+      session_expires_at:
+        type: string
+      status:
+        $ref: '#/definitions/types.PortalConnectionStatus'
+    type: object
   server.ProjectGooseRecipe:
     properties:
       description:
@@ -3091,6 +3144,41 @@ definitions:
         items:
           $ref: '#/definitions/server.SandboxTerminalSession'
         type: array
+    type: object
+  server.SecretIntakeCreateResponse:
+    properties:
+      intake:
+        $ref: '#/definitions/server.SecretIntakeView'
+      invite_url:
+        type: string
+    type: object
+  server.SecretIntakeSubmissionRequest:
+    properties:
+      values:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  server.SecretIntakeView:
+    properties:
+      conversation_id:
+        type: string
+      customer_id:
+        type: string
+      expires_at:
+        type: string
+      fields:
+        items:
+          $ref: '#/definitions/types.SecretIntakeField'
+        type: array
+      id:
+        type: string
+      project_id:
+        type: string
+      status:
+        type: string
+      values_expires_at:
+        type: string
     type: object
   server.SessionClaudeCredentialsResponse:
     properties:
@@ -3651,24 +3739,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - gitlab
-    - webhook
     - local
-    - cron
-    - github
-    - helix_events
     - slack
+    - github
     - email
+    - webhook
+    - gitlab
+    - cron
+    - helix_events
     type: string
     x-enum-varnames:
-    - KindGitLab
-    - KindWebhook
     - KindLocal
-    - KindCron
-    - KindGitHub
-    - KindHelixEvents
     - KindSlack
+    - KindGitHub
     - KindEmail
+    - KindWebhook
+    - KindGitLab
+    - KindCron
+    - KindHelixEvents
   transport.ResolvedActivation:
     properties:
       address:
@@ -8503,6 +8591,22 @@ definitions:
       project_id:
         type: string
     type: object
+  types.PortalConnectionStatus:
+    enum:
+    - password_pending
+    - otp_pending
+    - connected
+    - failed
+    - expired
+    - revoked
+    type: string
+    x-enum-varnames:
+    - PortalConnectionPasswordPending
+    - PortalConnectionOTPPending
+    - PortalConnectionConnected
+    - PortalConnectionFailed
+    - PortalConnectionExpired
+    - PortalConnectionRevoked
   types.Pricing:
     properties:
       audio:
@@ -10307,6 +10411,40 @@ definitions:
         items:
           type: integer
         type: array
+    type: object
+  types.SecretIntakeCreateRequest:
+    properties:
+      accent_color:
+        type: string
+      artifact_id:
+        type: string
+      brand_name:
+        type: string
+      conversation_id:
+        type: string
+      customer_id:
+        type: string
+      description:
+        type: string
+      fields:
+        items:
+          $ref: '#/definitions/types.SecretIntakeField'
+        type: array
+      title:
+        type: string
+    type: object
+  types.SecretIntakeField:
+    properties:
+      autocomplete:
+        type: string
+      label:
+        type: string
+      name:
+        type: string
+      required:
+        type: boolean
+      type:
+        type: string
     type: object
   types.SecretScope:
     enum:
@@ -23587,6 +23725,127 @@ paths:
       summary: Pin a project
       tags:
       - Projects
+  /api/v1/projects/{id}/portal-connections:
+    post:
+      consumes:
+      - application/json
+      description: Returns a one-time connect URL. This endpoint is only available
+        when the mock portal is enabled.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Connection request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.PortalConnectionCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/server.PortalConnectionCreateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create a mock portal connection invitation
+      tags:
+      - Portal Connections
+  /api/v1/projects/{id}/portal-connections/{connection_id}:
+    delete:
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Connection ID
+        in: path
+        name: connection_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Revoke a portal connection
+      tags:
+      - Portal Connections
+    get:
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Connection ID
+        in: path
+        name: connection_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PortalConnectionView'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get a portal connection
+      tags:
+      - Portal Connections
+  /api/v1/projects/{id}/portal-connections/{connection_id}/account-status:
+    get:
+      description: Returns bounded account status without exposing the portal session.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Connection ID
+        in: path
+        name: connection_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PortalAccountStatusResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get mock portal account status
+      tags:
+      - Portal Connections
   /api/v1/projects/{id}/repositories:
     get:
       consumes:
@@ -23751,6 +24010,139 @@ paths:
       summary: Set project primary repository
       tags:
       - Projects
+  /api/v1/projects/{id}/secret-intakes:
+    post:
+      consumes:
+      - application/json
+      description: Creates a short-lived, one-time link for collecting requested fields
+        outside chat. The response never contains submitted values.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Field schema and branding
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SecretIntakeCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/server.SecretIntakeCreateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create a secret intake
+      tags:
+      - Secret Intakes
+  /api/v1/projects/{id}/secret-intakes/{intake_id}:
+    delete:
+      description: Invalidates its link and clears any submitted ciphertext.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Revoke a secret intake
+      tags:
+      - Secret Intakes
+    get:
+      description: Returns metadata and status only; submitted values remain inaccessible
+        through this endpoint.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SecretIntakeView'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get secret intake status
+      tags:
+      - Secret Intakes
+  /api/v1/projects/{id}/secret-intakes/{intake_id}/submissions:
+    post:
+      consumes:
+      - application/json
+      description: Write-only project API for trusted integrations. Values are encrypted
+        and cannot be read through the API.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Intake ID
+        in: path
+        name: intake_id
+        required: true
+        type: string
+      - description: Submitted field values
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SecretIntakeSubmissionRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Submit secret intake values
+      tags:
+      - Secret Intakes
   /api/v1/projects/{id}/secrets:
     get:
       description: List all secrets associated with a specific project.
@@ -29712,6 +30104,52 @@ paths:
       summary: Update Zed thread activity
       tags:
       - zed-integration
+  /connect/intake/redeem:
+    post:
+      consumes:
+      - application/json
+      description: Exchanges a one-time invitation token for a short-lived browser
+        flow cookie.
+      parameters:
+      - description: Invitation token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.ConnectRedeemRequest'
+      responses:
+        "204":
+          description: No Content
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Redeem a secret intake invitation
+      tags:
+      - Secret Intakes
+  /connect/redeem:
+    post:
+      consumes:
+      - application/json
+      description: Exchanges a one-time invitation token for a short-lived browser
+        flow cookie.
+      parameters:
+      - description: Invitation token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.ConnectRedeemRequest'
+      responses:
+        "204":
+          description: No Content
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Redeem a mock portal invitation
+      tags:
+      - Portal Connections
   /v1/chat/completions:
     post:
       description: Creates a model response for the given chat conversation.

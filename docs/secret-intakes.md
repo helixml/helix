@@ -1,6 +1,6 @@
 # Secret intake and Connect API
 
-Helix can issue a short-lived link to collect a requested set of secret fields outside chat. The hosted page sends values directly to Helix; the MCP tool and public project API return only metadata and status. A trusted backend connector can consume submitted values once through `HelixAPIServer.ConsumeSecretIntake`, perform a login or other bounded operation, and return only a safe result to the bot. No generic plaintext read endpoint or value-returning MCP tool is provided.
+Helix can issue a short-lived link to collect a requested set of secret fields outside chat. The hosted page sends values directly to Helix; the MCP tool and public project API return only metadata and status. A trusted backend connector can consume submitted values once through `HelixAPIServer.ConsumeSecretIntake`, perform a login or other bounded operation, and return only a safe result to the bot. Consumption clears the stored ciphertext before calling the connector, so a connector failure requires a fresh intake. No generic plaintext read endpoint or value-returning MCP tool is provided.
 
 Enable it on the Helix API server:
 

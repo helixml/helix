@@ -27,14 +27,14 @@ func (t *GetSecretIntakeStatus) Invoke(ctx context.Context, inv tool.Invocation)
 	if inv.Caller == nil || inv.Caller.ID() == "" || inv.Caller.OrganizationID() == "" {
 		return nil, errors.New("caller identity required")
 	}
-	if t.deps.SecretIntakeStatus == nil {
+	if t.deps.SecretIntakes == nil {
 		return nil, errors.New("secret intake is not configured")
 	}
 	var args getSecretIntakeStatusArgs
 	if err := json.Unmarshal(inv.Args, &args); err != nil || args.IntakeID == "" {
 		return nil, errors.New("intake_id is required")
 	}
-	result, err := t.deps.SecretIntakeStatus(ctx, inv.Caller.OrganizationID(), inv.Caller.ID(), args.IntakeID)
+	result, err := t.deps.SecretIntakes.Status(ctx, inv.Caller.OrganizationID(), inv.Caller.ID(), args.IntakeID)
 	if err != nil {
 		return nil, err
 	}

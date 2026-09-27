@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -17,10 +18,9 @@ import (
 
 	"github.com/gorilla/mux"
 	helixcrypto "github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 const (
@@ -44,7 +44,7 @@ func (s *HelixAPIServer) registerPortalConnectionRoutes(router, authRouter *mux.
 	authRouter.HandleFunc("/projects/{id}/portal-connections/{connection_id}/account-status", s.mockPortalAccountStatus).Methods(http.MethodGet)
 }
 
-type createPortalConnectionRequest struct {
+type PortalConnectionCreateRequest struct {
 	CustomerID     string `json:"customer_id"`
 	ConversationID string `json:"conversation_id"`
 	Portal         string `json:"portal"`
@@ -52,7 +52,7 @@ type createPortalConnectionRequest struct {
 	AccentColor    string `json:"accent_color"`
 }
 
-type portalConnectionView struct {
+type PortalConnectionView struct {
 	ID               string                       `json:"id"`
 	ProjectID        string                       `json:"project_id"`
 	CustomerID       string                       `json:"customer_id"`
@@ -63,16 +63,23 @@ type portalConnectionView struct {
 	SessionExpiresAt *time.Time                   `json:"session_expires_at,omitempty"`
 }
 
-func (s *HelixAPIServer) portalConnectionEnabled() bool {
-	return s.Cfg.PortalMockEnabled && os.Getenv("HELIX_ENCRYPTION_KEY") != ""
+type PortalConnectionCreateResponse struct {
+	Connection PortalConnectionView `json:"connection"`
+	InviteURL  string               `json:"invite_url"`
 }
 
-func (s *HelixAPIServer) portalConnectionDB() (*gorm.DB, bool) {
-	accessor, ok := s.Store.(interface{ GormDB() *gorm.DB })
-	if !ok || !s.portalConnectionEnabled() {
-		return nil, false
-	}
-	return accessor.GormDB(), true
+type PortalAccountStatusResponse struct {
+	CustomerID    string `json:"customer_id"`
+	Portal        string `json:"portal"`
+	AccountStatus string `json:"account_status"`
+}
+
+type ConnectRedeemRequest struct {
+	Token string `json:"token"`
+}
+
+func (s *HelixAPIServer) portalConnectionEnabled() bool {
+	return s.Cfg.ConnectPortal.MockEnabled && os.Getenv("HELIX_ENCRYPTION_KEY") != ""
 }
 
 func portalRandomToken() (string, error) {
@@ -88,7 +95,7 @@ func portalHash(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func portalView(attempt *types.PortalConnectionAttempt) portalConnectionView {
+func portalView(attempt *types.PortalConnectionAttempt) PortalConnectionView {
 	status := attempt.Status
 	now := time.Now().UTC()
 	if status == types.PortalConnectionConnected && now.After(attempt.SessionExpiresAt) {
@@ -98,7 +105,7 @@ func portalView(attempt *types.PortalConnectionAttempt) portalConnectionView {
 	} else if status != types.PortalConnectionConnected && status != types.PortalConnectionRevoked && status != types.PortalConnectionFailed && attempt.FlowExpiresAt.IsZero() && now.After(attempt.InvitationExpiresAt) {
 		status = types.PortalConnectionExpired
 	}
-	view := portalConnectionView{
+	view := PortalConnectionView{
 		ID: attempt.ID, ProjectID: attempt.ProjectID, CustomerID: attempt.CustomerID,
 		ConversationID: attempt.ConversationID, Portal: attempt.Portal, Status: status,
 		ExpiresAt: attempt.InvitationExpiresAt,
@@ -111,9 +118,20 @@ func portalView(attempt *types.PortalConnectionAttempt) portalConnectionView {
 
 // createPortalConnection creates a mock-only credential handoff invitation.
 // The bearer token is returned once, in the URL fragment so HTTP logs never see it.
+// @Summary Create a mock portal connection invitation
+// @Description Returns a one-time connect URL. This endpoint is only available when the mock portal is enabled.
+// @Tags Portal Connections
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param request body PortalConnectionCreateRequest true "Connection request"
+// @Success 201 {object} PortalConnectionCreateResponse
+// @Failure 400 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Router /api/v1/projects/{id}/portal-connections [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) createPortalConnection(w http.ResponseWriter, r *http.Request) {
-	db, ok := s.portalConnectionDB()
-	if !ok {
+	if !s.portalConnectionEnabled() {
 		http.Error(w, "portal connection demo is disabled", http.StatusNotImplemented)
 		return
 	}
@@ -123,7 +141,7 @@ func (s *HelixAPIServer) createPortalConnection(w http.ResponseWriter, r *http.R
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-	var input createPortalConnectionRequest
+	var input PortalConnectionCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
@@ -171,50 +189,68 @@ func (s *HelixAPIServer) createPortalConnection(w http.ResponseWriter, r *http.R
 		Status: types.PortalConnectionPasswordPending, InvitationHash: portalHash(token),
 		InvitationExpiresAt: now.Add(portalInvitationTTL), CreatedAt: now, UpdatedAt: now,
 	}
-	if err := db.WithContext(r.Context()).Create(attempt).Error; err != nil {
+	if err := s.Store.CreatePortalConnectionAttempt(r.Context(), attempt); err != nil {
 		http.Error(w, "unable to create invitation", http.StatusInternalServerError)
 		return
 	}
 	link := strings.TrimRight(s.Cfg.WebServer.URL, "/") + "/connect#" + token
 	w.Header().Set("Cache-Control", "no-store")
-	writeResponse(w, map[string]any{"connection": portalView(attempt), "invite_url": link}, http.StatusCreated)
+	writeResponse(w, PortalConnectionCreateResponse{Connection: portalView(attempt), InviteURL: link}, http.StatusCreated)
 }
 
-func (s *HelixAPIServer) portalAttemptForProject(w http.ResponseWriter, r *http.Request, action types.Action) (*gorm.DB, *types.PortalConnectionAttempt, bool) {
-	db, ok := s.portalConnectionDB()
-	if !ok {
+func (s *HelixAPIServer) portalAttemptForProject(w http.ResponseWriter, r *http.Request, action types.Action) (*types.PortalConnectionAttempt, bool) {
+	if !s.portalConnectionEnabled() {
 		http.Error(w, "portal connection demo is disabled", http.StatusNotImplemented)
-		return nil, nil, false
+		return nil, false
 	}
 	project, herr := s.requireProjectAccess(r, action)
 	if herr != nil {
 		http.Error(w, herr.Message, herr.StatusCode)
-		return nil, nil, false
+		return nil, false
 	}
-	var attempt types.PortalConnectionAttempt
-	if err := db.WithContext(r.Context()).Where("id = ? AND project_id = ?", mux.Vars(r)["connection_id"], project.ID).First(&attempt).Error; err != nil {
+	attempt, err := s.Store.GetPortalConnectionAttempt(r.Context(), project.ID, mux.Vars(r)["connection_id"])
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			http.Error(w, "unable to load connection", http.StatusInternalServerError)
+			return nil, false
+		}
 		http.Error(w, "connection not found", http.StatusNotFound)
-		return nil, nil, false
+		return nil, false
 	}
-	return db, &attempt, true
+	return attempt, true
 }
 
+// @Summary Get a portal connection
+// @Tags Portal Connections
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param connection_id path string true "Connection ID"
+// @Success 200 {object} PortalConnectionView
+// @Failure 404 {object} types.APIError
+// @Router /api/v1/projects/{id}/portal-connections/{connection_id} [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) getPortalConnection(w http.ResponseWriter, r *http.Request) {
-	_, attempt, ok := s.portalAttemptForProject(w, r, types.ActionGet)
+	attempt, ok := s.portalAttemptForProject(w, r, types.ActionGet)
 	if ok {
 		w.Header().Set("Cache-Control", "no-store")
 		writeResponse(w, portalView(attempt), http.StatusOK)
 	}
 }
 
+// @Summary Revoke a portal connection
+// @Tags Portal Connections
+// @Param id path string true "Project ID"
+// @Param connection_id path string true "Connection ID"
+// @Success 204
+// @Failure 404 {object} types.APIError
+// @Router /api/v1/projects/{id}/portal-connections/{connection_id} [delete]
+// @Security BearerAuth
 func (s *HelixAPIServer) revokePortalConnection(w http.ResponseWriter, r *http.Request) {
-	db, attempt, ok := s.portalAttemptForProject(w, r, types.ActionUpdate)
+	attempt, ok := s.portalAttemptForProject(w, r, types.ActionUpdate)
 	if !ok {
 		return
 	}
-	if err := db.WithContext(r.Context()).Model(&types.PortalConnectionAttempt{}).Where("id = ? AND project_id = ?", attempt.ID, attempt.ProjectID).Updates(map[string]any{
-		"status": types.PortalConnectionRevoked, "session_encrypted": "", "flow_hash": "", "csrf_hash": "", "invitation_hash": "",
-	}).Error; err != nil {
+	if err := s.Store.RevokePortalConnectionAttempt(r.Context(), attempt.ProjectID, attempt.ID); err != nil {
 		http.Error(w, "unable to revoke connection", http.StatusInternalServerError)
 		return
 	}
@@ -223,8 +259,18 @@ func (s *HelixAPIServer) revokePortalConnection(w http.ResponseWriter, r *http.R
 
 // mockPortalAccountStatus is the bounded operation used to verify that the
 // backend, rather than the model, owns the authenticated portal session.
+// @Summary Get mock portal account status
+// @Description Returns bounded account status without exposing the portal session.
+// @Tags Portal Connections
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param connection_id path string true "Connection ID"
+// @Success 200 {object} PortalAccountStatusResponse
+// @Failure 409 {object} types.APIError
+// @Router /api/v1/projects/{id}/portal-connections/{connection_id}/account-status [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) mockPortalAccountStatus(w http.ResponseWriter, r *http.Request) {
-	_, attempt, ok := s.portalAttemptForProject(w, r, types.ActionGet)
+	attempt, ok := s.portalAttemptForProject(w, r, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -242,7 +288,7 @@ func (s *HelixAPIServer) mockPortalAccountStatus(w http.ResponseWriter, r *http.
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeResponse(w, map[string]any{"customer_id": attempt.CustomerID, "portal": "mock", "account_status": "active"}, http.StatusOK)
+	writeResponse(w, PortalAccountStatusResponse{CustomerID: attempt.CustomerID, Portal: "mock", AccountStatus: "active"}, http.StatusOK)
 }
 
 func portalPageHeaders(w http.ResponseWriter) {
@@ -254,25 +300,26 @@ func portalPageHeaders(w http.ResponseWriter) {
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 }
 
-func portalFlowAttempt(db *gorm.DB, r *http.Request) (*types.PortalConnectionAttempt, error) {
+func (s *HelixAPIServer) portalFlowAttempt(r *http.Request) (*types.PortalConnectionAttempt, error) {
 	cookie, err := r.Cookie(portalFlowCookie)
 	if err != nil || len(cookie.Value) < 32 {
-		return nil, gorm.ErrRecordNotFound
+		return nil, store.ErrNotFound
 	}
-	var attempt types.PortalConnectionAttempt
-	err = db.WithContext(r.Context()).Where("flow_hash = ? AND flow_expires_at > ?", portalHash(cookie.Value), time.Now().UTC()).First(&attempt).Error
-	return &attempt, err
+	return s.Store.GetPortalConnectionAttemptByFlow(r.Context(), portalHash(cookie.Value), time.Now().UTC())
 }
 
 func (s *HelixAPIServer) servePortalConnection(w http.ResponseWriter, r *http.Request) {
 	portalPageHeaders(w)
-	db, ok := s.portalConnectionDB()
-	if !ok {
+	if !s.portalConnectionEnabled() {
 		http.Error(w, "portal connection demo is disabled", http.StatusNotImplemented)
 		return
 	}
-	attempt, err := portalFlowAttempt(db, r)
+	attempt, err := s.portalFlowAttempt(r)
 	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			http.Error(w, "unable to load connection", http.StatusInternalServerError)
+			return
+		}
 		portalRender(w, portalPageData{Title: "Connect a demo portal", Stage: "landing", Brand: "Helix Connect", Accent: "#00b8d4"})
 		return
 	}
@@ -293,17 +340,22 @@ func (s *HelixAPIServer) servePortalConnection(w http.ResponseWriter, r *http.Re
 	portalRender(w, portalPageData{Title: "Connect a demo portal", Stage: stage, Brand: attempt.BrandName, Accent: attempt.AccentColor, CSRF: csrfValue, Message: message})
 }
 
+// @Summary Redeem a mock portal invitation
+// @Description Exchanges a one-time invitation token for a short-lived browser flow cookie.
+// @Tags Portal Connections
+// @Accept json
+// @Param request body ConnectRedeemRequest true "Invitation token"
+// @Success 204
+// @Failure 410 {object} types.APIError
+// @Router /connect/redeem [post]
 func (s *HelixAPIServer) redeemPortalConnection(w http.ResponseWriter, r *http.Request) {
 	portalPageHeaders(w)
-	db, ok := s.portalConnectionDB()
-	if !ok {
+	if !s.portalConnectionEnabled() {
 		http.Error(w, "portal connection demo is disabled", http.StatusNotImplemented)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 256)
-	var input struct {
-		Token string `json:"token"`
-	}
+	var input ConnectRedeemRequest
 	if json.NewDecoder(r.Body).Decode(&input) != nil || len(input.Token) != 43 {
 		http.Error(w, "invalid invitation", http.StatusBadRequest)
 		return
@@ -319,10 +371,12 @@ func (s *HelixAPIServer) redeemPortalConnection(w http.ResponseWriter, r *http.R
 		return
 	}
 	now := time.Now().UTC()
-	result := db.WithContext(r.Context()).Model(&types.PortalConnectionAttempt{}).
-		Where("invitation_hash = ? AND status = ? AND invitation_expires_at > ?", portalHash(input.Token), types.PortalConnectionPasswordPending, now).
-		Updates(map[string]any{"invitation_hash": "", "flow_hash": portalHash(flow), "csrf_hash": portalHash(csrf), "flow_expires_at": now.Add(portalFlowTTL)})
-	if result.Error != nil || result.RowsAffected != 1 {
+	redeemed, err := s.Store.RedeemPortalConnectionInvitation(r.Context(), portalHash(input.Token), portalHash(flow), portalHash(csrf), now, now.Add(portalFlowTTL))
+	if err != nil {
+		http.Error(w, "unable to open connection", http.StatusInternalServerError)
+		return
+	}
+	if !redeemed {
 		http.Error(w, "invitation is expired or already used", http.StatusGone)
 		return
 	}
@@ -351,8 +405,7 @@ func (s *HelixAPIServer) submitPortalOTP(w http.ResponseWriter, r *http.Request)
 
 func (s *HelixAPIServer) portalSubmit(w http.ResponseWriter, r *http.Request, otpStage bool) {
 	portalPageHeaders(w)
-	db, ok := s.portalConnectionDB()
-	if !ok {
+	if !s.portalConnectionEnabled() {
 		http.Error(w, "portal connection demo is disabled", http.StatusNotImplemented)
 		return
 	}
@@ -361,7 +414,11 @@ func (s *HelixAPIServer) portalSubmit(w http.ResponseWriter, r *http.Request, ot
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	attempt, err := portalFlowAttempt(db, r)
+	attempt, err := s.portalFlowAttempt(r)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "unable to load connection", http.StatusInternalServerError)
+		return
+	}
 	if err != nil || !portalCheckCSRF(r, attempt) {
 		http.Error(w, "connection form expired", http.StatusForbidden)
 		return
@@ -379,62 +436,41 @@ func (s *HelixAPIServer) portalSubmit(w http.ResponseWriter, r *http.Request, ot
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	var responseStatus int
-	err = db.WithContext(r.Context()).Transaction(func(tx *gorm.DB) error {
-		var current types.PortalConnectionAttempt
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", attempt.ID).First(&current).Error; err != nil {
-			return err
-		}
-		if current.Status != expected || time.Now().UTC().After(current.FlowExpiresAt) {
-			responseStatus = http.StatusConflict
-			return nil
-		}
-		if otpStage {
-			current.OTPAttempts++
-			if otp == "123456" {
-				session, err := portalRandomToken()
-				if err != nil {
-					return err
-				}
-				key, err := s.getEncryptionKey()
-				if err != nil {
-					return err
-				}
-				current.SessionEncrypted, err = helixcrypto.EncryptAES256GCM([]byte(session), key)
-				if err != nil {
-					return err
-				}
-				current.SessionExpiresAt = time.Now().UTC().Add(portalSessionTTL)
-				current.Status = types.PortalConnectionConnected
-			} else if current.OTPAttempts >= 5 {
-				current.Status = types.PortalConnectionFailed
+	step := store.PortalConnectionStep{ID: attempt.ID, ExpectedStatus: expected, Now: time.Now().UTC()}
+	if otpStage {
+		step.Valid = otp == "123456"
+		if step.Valid {
+			session, err := portalRandomToken()
+			if err != nil {
+				http.Error(w, "unable to process connection", http.StatusInternalServerError)
+				return
 			}
-		} else {
-			current.PasswordAttempts++
-			if username == "demo" && password == "demo-password" {
-				current.Status = types.PortalConnectionOTPPending
-			} else if current.PasswordAttempts >= 3 {
-				current.Status = types.PortalConnectionFailed
+			key, err := s.getEncryptionKey()
+			if err != nil {
+				http.Error(w, "connection unavailable", http.StatusInternalServerError)
+				return
 			}
+			step.SessionEncrypted, err = helixcrypto.EncryptAES256GCM([]byte(session), key)
+			if err != nil {
+				http.Error(w, "unable to process connection", http.StatusInternalServerError)
+				return
+			}
+			step.SessionExpiresAt = step.Now.Add(portalSessionTTL)
 		}
-		if err := tx.Save(&current).Error; err != nil {
-			return err
-		}
-		if current.Status == expected || current.Status == types.PortalConnectionFailed {
-			responseStatus = http.StatusUnauthorized
-		}
-		return nil
-	})
+	} else {
+		step.Valid = username == "demo" && password == "demo-password"
+	}
+	status, err := s.Store.AdvancePortalConnectionAttempt(r.Context(), step)
 	if err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			http.Error(w, "connection step unavailable", http.StatusConflict)
+			return
+		}
 		http.Error(w, "unable to process connection", http.StatusInternalServerError)
 		return
 	}
-	if responseStatus != 0 {
-		if responseStatus == http.StatusUnauthorized {
-			http.Redirect(w, r, "/connect?error=invalid", http.StatusSeeOther)
-			return
-		}
-		http.Error(w, "connection step unavailable", responseStatus)
+	if status == expected || status == types.PortalConnectionFailed {
+		http.Redirect(w, r, "/connect?error=invalid", http.StatusSeeOther)
 		return
 	}
 	http.Redirect(w, r, "/connect", http.StatusSeeOther)

@@ -250,7 +250,7 @@ func NewServer(
 	gitRepositoryService *services.GitRepositoryService,
 	preInitKodit *KoditResult,
 ) (*HelixAPIServer, error) {
-	if (cfg.PortalMockEnabled || cfg.SecretIntakeEnabled) && os.Getenv("HELIX_ENCRYPTION_KEY") == "" {
+	if (cfg.ConnectPortal.MockEnabled || cfg.ConnectPortal.SecretIntakeEnabled) && os.Getenv("HELIX_ENCRYPTION_KEY") == "" {
 		return nil, fmt.Errorf("HELIX_ENCRYPTION_KEY is required when a credential intake feature is enabled")
 	}
 	if cfg.WebServer.URL == "" {
@@ -778,7 +778,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 
 	// Ensure MCP gateway cleanup on shutdown
 	defer apiServer.mcpGateway.Stop()
-	if apiServer.Cfg.SecretIntakeEnabled { go apiServer.runSecretIntakeReaper(ctx) }
+	if apiServer.Cfg.ConnectPortal.SecretIntakeEnabled {
+		go apiServer.runSecretIntakeReaper(ctx)
+	}
 
 	// Close kodit client on shutdown
 	if apiServer.kodit != nil && apiServer.kodit.closer != nil {

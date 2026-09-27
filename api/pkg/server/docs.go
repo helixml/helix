@@ -14296,6 +14296,195 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/portal-connections": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a one-time connect URL. This endpoint is only available when the mock portal is enabled.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal Connections"
+                ],
+                "summary": "Create a mock portal connection invitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Connection request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.PortalConnectionCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.PortalConnectionCreateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/portal-connections/{connection_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal Connections"
+                ],
+                "summary": "Get a portal connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "connection_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PortalConnectionView"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Portal Connections"
+                ],
+                "summary": "Revoke a portal connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "connection_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/portal-connections/{connection_id}/account-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns bounded account status without exposing the portal session.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal Connections"
+                ],
+                "summary": "Get mock portal account status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "connection_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PortalAccountStatusResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/repositories": {
             "get": {
                 "security": [
@@ -14545,6 +14734,209 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/secret-intakes": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a short-lived, one-time link for collecting requested fields outside chat. The response never contains submitted values.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Create a secret intake",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Field schema and branding",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SecretIntakeCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeCreateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/secret-intakes/{intake_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns metadata and status only; submitted values remain inaccessible through this endpoint.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Get secret intake status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeView"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Invalidates its link and clears any submitted ciphertext.",
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Revoke a secret intake",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/secret-intakes/{intake_id}/submissions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Write-only project API for trusted integrations. Values are encrypted and cannot be read through the API.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Submit secret intake values",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Intake ID",
+                        "name": "intake_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Submitted field values",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SecretIntakeSubmissionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -23612,6 +24004,74 @@ const docTemplate = `{
                 }
             }
         },
+        "/connect/intake/redeem": {
+            "post": {
+                "description": "Exchanges a one-time invitation token for a short-lived browser flow cookie.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secret Intakes"
+                ],
+                "summary": "Redeem a secret intake invitation",
+                "parameters": [
+                    {
+                        "description": "Invitation token",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.ConnectRedeemRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/connect/redeem": {
+            "post": {
+                "description": "Exchanges a one-time invitation token for a short-lived browser flow cookie.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal Connections"
+                ],
+                "summary": "Redeem a mock portal invitation",
+                "parameters": [
+                    {
+                        "description": "Invitation token",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.ConnectRedeemRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/chat/completions": {
             "post": {
                 "security": [
@@ -26503,6 +26963,14 @@ const docTemplate = `{
                 }
             }
         },
+        "server.ConnectRedeemRequest": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
         "server.CreateTopUpRequest": {
             "type": "object",
             "properties": {
@@ -27772,6 +28240,80 @@ const docTemplate = `{
                 }
             }
         },
+        "server.PortalAccountStatusResponse": {
+            "type": "object",
+            "properties": {
+                "account_status": {
+                    "type": "string"
+                },
+                "customer_id": {
+                    "type": "string"
+                },
+                "portal": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.PortalConnectionCreateRequest": {
+            "type": "object",
+            "properties": {
+                "accent_color": {
+                    "type": "string"
+                },
+                "brand_name": {
+                    "type": "string"
+                },
+                "conversation_id": {
+                    "type": "string"
+                },
+                "customer_id": {
+                    "type": "string"
+                },
+                "portal": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.PortalConnectionCreateResponse": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "$ref": "#/definitions/server.PortalConnectionView"
+                },
+                "invite_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.PortalConnectionView": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string"
+                },
+                "customer_id": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "portal": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "session_expires_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.PortalConnectionStatus"
+                }
+            }
+        },
         "server.ProjectGooseRecipe": {
             "type": "object",
             "properties": {
@@ -28061,6 +28603,60 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/server.SandboxTerminalSession"
                     }
+                }
+            }
+        },
+        "server.SecretIntakeCreateResponse": {
+            "type": "object",
+            "properties": {
+                "intake": {
+                    "$ref": "#/definitions/server.SecretIntakeView"
+                },
+                "invite_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SecretIntakeSubmissionRequest": {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.SecretIntakeView": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string"
+                },
+                "customer_id": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SecretIntakeField"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "values_expires_at": {
+                    "type": "string"
                 }
             }
         },
@@ -28832,24 +29428,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "gitlab",
-                "webhook",
                 "local",
-                "cron",
-                "github",
-                "helix_events",
                 "slack",
-                "email"
+                "github",
+                "email",
+                "webhook",
+                "gitlab",
+                "cron",
+                "helix_events"
             ],
             "x-enum-varnames": [
-                "KindGitLab",
-                "KindWebhook",
                 "KindLocal",
-                "KindCron",
-                "KindGitHub",
-                "KindHelixEvents",
                 "KindSlack",
-                "KindEmail"
+                "KindGitHub",
+                "KindEmail",
+                "KindWebhook",
+                "KindGitLab",
+                "KindCron",
+                "KindHelixEvents"
             ]
         },
         "transport.ResolvedActivation": {
@@ -35416,6 +36012,25 @@ const docTemplate = `{
                 }
             }
         },
+        "types.PortalConnectionStatus": {
+            "type": "string",
+            "enum": [
+                "password_pending",
+                "otp_pending",
+                "connected",
+                "failed",
+                "expired",
+                "revoked"
+            ],
+            "x-enum-varnames": [
+                "PortalConnectionPasswordPending",
+                "PortalConnectionOTPPending",
+                "PortalConnectionConnected",
+                "PortalConnectionFailed",
+                "PortalConnectionExpired",
+                "PortalConnectionRevoked"
+            ]
+        },
         "types.Pricing": {
             "type": "object",
             "properties": {
@@ -37787,6 +38402,58 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                }
+            }
+        },
+        "types.SecretIntakeCreateRequest": {
+            "type": "object",
+            "properties": {
+                "accent_color": {
+                    "type": "string"
+                },
+                "artifact_id": {
+                    "type": "string"
+                },
+                "brand_name": {
+                    "type": "string"
+                },
+                "conversation_id": {
+                    "type": "string"
+                },
+                "customer_id": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SecretIntakeField"
+                    }
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SecretIntakeField": {
+            "type": "object",
+            "properties": {
+                "autocomplete": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string"
                 }
             }
         },

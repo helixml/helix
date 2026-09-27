@@ -22,10 +22,51 @@ import (
 
 type portalTestStore struct {
 	store.Store
-	db *gorm.DB
+	persistence *store.ConnectPortalPersistence
 }
 
-func (s *portalTestStore) GormDB() *gorm.DB { return s.db }
+func (s *portalTestStore) CreatePortalConnectionAttempt(ctx context.Context, item *types.PortalConnectionAttempt) error {
+	return s.persistence.CreatePortalConnectionAttempt(ctx, item)
+}
+func (s *portalTestStore) GetPortalConnectionAttempt(ctx context.Context, projectID, id string) (*types.PortalConnectionAttempt, error) {
+	return s.persistence.GetPortalConnectionAttempt(ctx, projectID, id)
+}
+func (s *portalTestStore) GetPortalConnectionAttemptByFlow(ctx context.Context, hash string, now time.Time) (*types.PortalConnectionAttempt, error) {
+	return s.persistence.GetPortalConnectionAttemptByFlow(ctx, hash, now)
+}
+func (s *portalTestStore) RedeemPortalConnectionInvitation(ctx context.Context, invitationHash, flowHash, csrfHash string, now, expiresAt time.Time) (bool, error) {
+	return s.persistence.RedeemPortalConnectionInvitation(ctx, invitationHash, flowHash, csrfHash, now, expiresAt)
+}
+func (s *portalTestStore) RevokePortalConnectionAttempt(ctx context.Context, projectID, id string) error {
+	return s.persistence.RevokePortalConnectionAttempt(ctx, projectID, id)
+}
+func (s *portalTestStore) AdvancePortalConnectionAttempt(ctx context.Context, step store.PortalConnectionStep) (types.PortalConnectionStatus, error) {
+	return s.persistence.AdvancePortalConnectionAttempt(ctx, step)
+}
+func (s *portalTestStore) CreateSecretIntake(ctx context.Context, item *types.SecretIntake) error {
+	return s.persistence.CreateSecretIntake(ctx, item)
+}
+func (s *portalTestStore) GetSecretIntake(ctx context.Context, projectID, id string) (*types.SecretIntake, error) {
+	return s.persistence.GetSecretIntake(ctx, projectID, id)
+}
+func (s *portalTestStore) GetSecretIntakeByFlow(ctx context.Context, hash string, now time.Time) (*types.SecretIntake, error) {
+	return s.persistence.GetSecretIntakeByFlow(ctx, hash, now)
+}
+func (s *portalTestStore) RedeemSecretIntakeInvitation(ctx context.Context, invitationHash, flowHash, csrfHash string, now, expiresAt time.Time) (bool, error) {
+	return s.persistence.RedeemSecretIntakeInvitation(ctx, invitationHash, flowHash, csrfHash, now, expiresAt)
+}
+func (s *portalTestStore) SubmitSecretIntake(ctx context.Context, projectID, id, cipher string, now, expiresAt time.Time) (bool, error) {
+	return s.persistence.SubmitSecretIntake(ctx, projectID, id, cipher, now, expiresAt)
+}
+func (s *portalTestStore) RevokeSecretIntake(ctx context.Context, projectID, id string) error {
+	return s.persistence.RevokeSecretIntake(ctx, projectID, id)
+}
+func (s *portalTestStore) TakeSecretIntake(ctx context.Context, projectID, id string, now time.Time) (string, error) {
+	return s.persistence.TakeSecretIntake(ctx, projectID, id, now)
+}
+func (s *portalTestStore) ReapExpiredSecretIntakes(ctx context.Context, now time.Time) error {
+	return s.persistence.ReapExpiredSecretIntakes(ctx, now)
+}
 
 func (s *portalTestStore) GetProject(_ context.Context, id string) (*types.Project, error) {
 	return &types.Project{ID: id, UserID: "operator"}, nil
@@ -37,9 +78,9 @@ func portalTestServer(t *testing.T) (*HelixAPIServer, *gorm.DB) {
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&types.PortalConnectionAttempt{}))
-	s := &HelixAPIServer{Store: &portalTestStore{db: db}, Cfg: &config.ServerConfig{}}
+	s := &HelixAPIServer{Store: &portalTestStore{persistence: store.NewConnectPortalPersistence(db)}, Cfg: &config.ServerConfig{}}
 	s.Cfg.WebServer.URL = "http://localhost:8080"
-	s.Cfg.PortalMockEnabled = true
+	s.Cfg.ConnectPortal.MockEnabled = true
 	return s, db
 }
 
@@ -146,7 +187,7 @@ func TestCreatePortalConnectionUsesConfiguredOrigin(t *testing.T) {
 	require.Equal(t, http.StatusCreated, response.Code)
 	var result struct {
 		InviteURL  string               `json:"invite_url"`
-		Connection portalConnectionView `json:"connection"`
+		Connection PortalConnectionView `json:"connection"`
 	}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &result))
 	require.True(t, strings.HasPrefix(result.InviteURL, "http://localhost:8080/connect#"))

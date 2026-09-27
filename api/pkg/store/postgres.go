@@ -29,6 +29,7 @@ import (
 
 type PostgresStore struct {
 	cfg config.Store
+	*ConnectPortalPersistence
 
 	gdb    *gorm.DB
 	pubsub pubsub.PubSub
@@ -75,10 +76,11 @@ func NewPostgresStore(
 	}
 
 	store := &PostgresStore{
-		cfg:    cfg,
-		gdb:    gormDB,
-		pubsub: pubsub,
-		Store:  orgstore.New(gormDB),
+		cfg:                      cfg,
+		gdb:                      gormDB,
+		pubsub:                   pubsub,
+		Store:                    orgstore.New(gormDB),
+		ConnectPortalPersistence: NewConnectPortalPersistence(gormDB),
 	}
 
 	if cfg.AutoMigrate {
