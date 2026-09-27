@@ -1,6 +1,9 @@
 package external_agent
 
 import (
+	"context"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -138,8 +141,8 @@ func TestApplySessionBootstrapInstanceSkills(t *testing.T) {
 			if !agent.NoContainerEngine {
 				t.Fatal("an instance must run without a container engine")
 			}
-			if agent.ProjectSecretNames == nil {
-				t.Fatal("an instance with no grants must carry an explicit empty secret allowlist")
+			if !agent.RestrictProjectSecrets || len(agent.ProjectSecretNames) != 0 {
+				t.Fatalf("an instance with no grants must receive no project secrets: restrict=%t names=%v", agent.RestrictProjectSecrets, agent.ProjectSecretNames)
 			}
 			if agent.DiskSizeGB != types.DefaultBotInstanceDiskSizeGB || agent.PidsLimit != types.DefaultBotInstancePidsLimit {
 				t.Fatalf("instance limits = disk %d GB / pids %d", agent.DiskSizeGB, agent.PidsLimit)
@@ -151,21 +154,32 @@ func TestApplySessionBootstrapInstanceSkills(t *testing.T) {
 	}
 }
 
-func TestApplySessionBootstrapInstanceExplicitSecurityOptions(t *testing.T) {
-	profile := types.DefaultBotInstanceProfile()
-	agent := &types.DesktopAgent{SessionID: "ses_instance"}
-	err := applySessionBootstrap(types.SessionMetadata{
-		OrgWorkerID:           "b-broker",
-		RuntimeInstructions:   "instructions",
-		BotInstance:           &profile,
-		BotInstanceDiskSizeGB: 24,
-		BotInstanceAllowSudo:  true,
-	}, agent)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if agent.DiskSizeGB != 24 || agent.NoNewPrivileges {
-		t.Fatalf("instance security options = disk %d GB / nnp %t", agent.DiskSizeGB, agent.NoNewPrivileges)
+func TestApplySessionBootstrapInstanceSecurityOptions(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		metadata types.SessionMetadata
+		wantDisk int
+		wantNNP  bool
+	}{
+		{"explicit headless options", types.SessionMetadata{SandboxRuntime: types.SandboxRuntimeHeadlessUbuntu, BotInstanceDiskSizeGB: 24, BotInstanceAllowSudo: true}, 24, false},
+		{"headless default", types.SessionMetadata{SandboxRuntime: types.SandboxRuntimeHeadlessUbuntu}, types.DefaultBotInstanceDiskSizeGB, true},
+		// GNOME startup configures devices with sudo.
+		{"desktop always allows sudo", types.SessionMetadata{SandboxRuntime: types.SandboxRuntimeUbuntuDesktop}, types.DefaultBotInstanceDiskSizeGB, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			profile := types.DefaultBotInstanceProfile()
+			metadata := tc.metadata
+			metadata.OrgWorkerID = "b-broker"
+			metadata.RuntimeInstructions = "instructions"
+			metadata.BotInstance = &profile
+			agent := &types.DesktopAgent{SessionID: "ses_instance"}
+			if err := applySessionBootstrap(metadata, agent); err != nil {
+				t.Fatal(err)
+			}
+			if agent.DiskSizeGB != tc.wantDisk || agent.NoNewPrivileges != tc.wantNNP {
+				t.Fatalf("instance security options = disk %d GB / nnp %t, want %d / %t", agent.DiskSizeGB, agent.NoNewPrivileges, tc.wantDisk, tc.wantNNP)
+			}
+		})
 	}
 }
 
@@ -191,18 +205,41 @@ func TestApplySessionBootstrapCopiesInstanceSecretAllowlist(t *testing.T) {
 	}
 }
 
-func TestMissingProjectSecretNames(t *testing.T) {
-	all := []string{"CRM_TOKEN=one", "SUPPORT_KEY=two=with=equals", "OTHER=three"}
-	if got := missingProjectSecretNames(all, nil); len(got) != 0 {
-		t.Fatalf("ordinary session missing secrets = %v, want none", got)
-	}
-	if got := missingProjectSecretNames(all, []string{"SUPPORT_KEY", "CRM_TOKEN"}); len(got) != 0 {
-		t.Fatalf("available secrets reported missing: %v", got)
-	}
-	got := missingProjectSecretNames(all, []string{"MISSING", "CRM_TOKEN", "ALSO_MISSING"})
-	want := []string{"MISSING", "ALSO_MISSING"}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("missing secrets = %v, want %v", got, want)
+func TestInjectProjectSecrets(t *testing.T) {
+	all := []string{"CRM_TOKEN=one", "SUPPORT_KEY=two=with=equals", "CRM=prefix-of-another-name"}
+	for _, tc := range []struct {
+		name       string
+		agent      types.DesktopAgent
+		wantEnv    []string
+		wantCalled bool
+		wantErr    string
+	}{
+		{"ordinary session gets every secret", types.DesktopAgent{ProjectID: "prj_1"}, all, true, ""},
+		{"instance without grants skips the lookup", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true}, nil, false, ""},
+		{"instance gets only granted secrets", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true, ProjectSecretNames: []string{"SUPPORT_KEY", "CRM"}}, []string{"SUPPORT_KEY=two=with=equals", "CRM=prefix-of-another-name"}, true, ""},
+		{"missing grant fails the start", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true, ProjectSecretNames: []string{"MISSING", "CRM_TOKEN"}}, nil, true, "unavailable: MISSING"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			h := &HydraExecutor{getProjectSecrets: func(_ context.Context, projectID string) ([]string, error) {
+				called = true
+				return all, nil
+			}}
+			agent := tc.agent
+			err := h.injectProjectSecrets(context.Background(), &agent)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if called != tc.wantCalled || !slices.Equal(agent.Env, tc.wantEnv) {
+				t.Fatalf("called=%t env=%v, want called=%t env=%v", called, agent.Env, tc.wantCalled, tc.wantEnv)
+			}
+		})
 	}
 }
 

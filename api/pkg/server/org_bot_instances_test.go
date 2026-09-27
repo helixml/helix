@@ -11,7 +11,6 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/crypto"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/application/instances"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
@@ -163,87 +162,4 @@ func TestBotInstancesDeleteAllContinuesWhenDestroyFails(t *testing.T) {
 	st.EXPECT().DeleteSession(gomock.Any(), "ses_two").Return(second, nil)
 
 	require.NoError(t, instances.DeleteAll(context.Background(), bot.OrganizationID, "b-broker"))
-}
-
-func TestBotInstanceCredentialsRejectSubscriptions(t *testing.T) {
-	require.NoError(t, validateBotInstanceCredentials(&types.AssistantConfig{CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey}))
-	err := validateBotInstanceCredentials(&types.AssistantConfig{CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription})
-	require.ErrorIs(t, err, instances.ErrInvalidRequest)
-	require.ErrorContains(t, err, "do not support subscription credentials")
-}
-
-func TestNormalizeBotInstanceDiskSize(t *testing.T) {
-	got, err := normalizeBotInstanceDiskSize(0)
-	require.NoError(t, err)
-	require.Equal(t, types.DefaultBotInstanceDiskSizeGB, got)
-	got, err = normalizeBotInstanceDiskSize(24)
-	require.NoError(t, err)
-	require.Equal(t, 24, got)
-	got, err = normalizeBotInstanceDiskSize(types.MaxBotInstanceDiskSizeGB)
-	require.NoError(t, err)
-	require.Equal(t, types.MaxBotInstanceDiskSizeGB, got)
-	for _, invalid := range []int{-1, types.MaxBotInstanceDiskSizeGB + 1} {
-		_, err := normalizeBotInstanceDiskSize(invalid)
-		require.ErrorIs(t, err, instances.ErrInvalidRequest)
-	}
-}
-
-func TestValidateInstanceSecrets(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	st := store.NewMockStore(ctrl)
-	manager := botInstances{server: &HelixAPIServer{Store: st}}
-	available := []*types.Secret{
-		{Name: "DEV", Scope: types.SecretScopeDev},
-		{Name: "LEGACY"},
-		{Name: "BOTH", Scope: types.SecretScopeBoth},
-		{Name: "PROD", Scope: types.SecretScopeProd},
-	}
-
-	st.EXPECT().ListProjectSecrets(gomock.Any(), "prj_one").Return(available, nil).Times(4)
-	selected, err := manager.validateInstanceSecrets(context.Background(), "prj_one", []string{"BOTH", "DEV", "LEGACY"})
-	require.NoError(t, err)
-	require.Equal(t, []string{"BOTH", "DEV", "LEGACY"}, selected)
-
-	_, err = manager.validateInstanceSecrets(context.Background(), "prj_one", []string{"PROD"})
-	require.ErrorIs(t, err, instances.ErrInvalidRequest)
-	_, err = manager.validateInstanceSecrets(context.Background(), "prj_one", []string{"MISSING"})
-	require.ErrorIs(t, err, instances.ErrInvalidRequest)
-	_, err = manager.validateInstanceSecrets(context.Background(), "prj_one", []string{"DEV", "DEV"})
-	require.ErrorIs(t, err, instances.ErrInvalidRequest)
-
-	selected, err = manager.validateInstanceSecrets(context.Background(), "prj_one", nil)
-	require.NoError(t, err)
-	require.NotNil(t, selected)
-	require.Empty(t, selected)
-}
-
-func TestGetProjectSecretsAsEnvVarsByNameDecryptsOnlySelected(t *testing.T) {
-	t.Setenv("HELIX_ENCRYPTION_KEY", "bot-instance-secret-selection-test")
-	key, err := crypto.GetEncryptionKey()
-	require.NoError(t, err)
-	encrypted, err := crypto.EncryptAES256GCM([]byte("selected-value"), key)
-	require.NoError(t, err)
-
-	ctrl := gomock.NewController(t)
-	st := store.NewMockStore(ctrl)
-	server := &HelixAPIServer{Store: st}
-	st.EXPECT().ListProjectSecrets(gomock.Any(), "prj_one").Return([]*types.Secret{
-		{Name: "SELECTED", Scope: types.SecretScopeDev, Value: []byte(encrypted)},
-		// Invalid ciphertext proves an unselected secret is skipped before
-		// decryption rather than loaded and discarded afterwards.
-		{Name: "UNSELECTED", Scope: types.SecretScopeDev, Value: []byte("not-ciphertext")},
-	}, nil)
-
-	env, err := server.GetProjectSecretsAsEnvVarsByName(context.Background(), "prj_one", types.SecretScopeDev, []string{"SELECTED"})
-	require.NoError(t, err)
-	require.Equal(t, []string{"SELECTED=selected-value"}, env)
-}
-
-func TestGetProjectSecretsAsEnvVarsByNameEmptySkipsStore(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	server := &HelixAPIServer{Store: store.NewMockStore(ctrl)}
-	env, err := server.GetProjectSecretsAsEnvVarsByName(context.Background(), "prj_one", types.SecretScopeDev, []string{})
-	require.NoError(t, err)
-	require.NotNil(t, env)
-	require.Empty(t, env)
 }

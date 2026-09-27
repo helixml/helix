@@ -24190,7 +24190,7 @@ const docTemplate = `{
                     }
                 },
                 "sudo": {
-                    "description": "AllowSudo opts out of no-new-privileges. It is false by default.",
+                    "description": "AllowSudo opts a headless instance out of no-new-privileges. It is\nfalse by default. ubuntu-desktop instances always allow sudo.",
                     "type": "boolean"
                 }
             }
@@ -28860,24 +28860,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "local",
                 "slack",
                 "github",
+                "local",
                 "webhook",
-                "helix_events",
+                "gitlab",
                 "cron",
-                "email",
-                "gitlab"
+                "helix_events",
+                "email"
             ],
             "x-enum-varnames": [
-                "KindLocal",
                 "KindSlack",
                 "KindGitHub",
+                "KindLocal",
                 "KindWebhook",
-                "KindHelixEvents",
+                "KindGitLab",
                 "KindCron",
-                "KindEmail",
-                "KindGitLab"
+                "KindHelixEvents",
+                "KindEmail"
             ]
         },
         "transport.ResolvedActivation": {
@@ -38549,7 +38549,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "bot_instance_disk_size_gb": {
-                    "description": "BotInstanceDiskSizeGB is the hard capacity of the instance's persistent\nhome filesystem. BotInstanceAllowSudo is an explicit opt-out from the\ndefault no-new-privileges policy.",
+                    "description": "BotInstanceDiskSizeGB is the hard capacity of the instance's persistent\nhome filesystem. BotInstanceAllowSudo is the requested opt-out from the\ndefault no-new-privileges policy. Read both through BotInstanceDiskSize\nand BotInstanceSudo, which apply defaults and runtime rules.",
                     "type": "integer"
                 },
                 "bot_instance_secrets": {

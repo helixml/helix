@@ -246,7 +246,10 @@ export interface ApiCreateBotInstanceRequest {
    * Omitted or empty means no project secrets.
    */
   secrets?: string[];
-  /** AllowSudo opts out of no-new-privileges. It is false by default. */
+  /**
+   * AllowSudo opts a headless instance out of no-new-privileges. It is
+   * false by default. ubuntu-desktop instances always allow sudo.
+   */
   sudo?: boolean;
 }
 
@@ -2376,14 +2379,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindLocal = "local",
   KindSlack = "slack",
   KindGitHub = "github",
+  KindLocal = "local",
   KindWebhook = "webhook",
-  KindHelixEvents = "helix_events",
-  KindCron = "cron",
-  KindEmail = "email",
   KindGitLab = "gitlab",
+  KindCron = "cron",
+  KindHelixEvents = "helix_events",
+  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -6953,8 +6956,9 @@ export interface TypesSessionMetadata {
   bot_instance_allow_sudo?: boolean;
   /**
    * BotInstanceDiskSizeGB is the hard capacity of the instance's persistent
-   * home filesystem. BotInstanceAllowSudo is an explicit opt-out from the
-   * default no-new-privileges policy.
+   * home filesystem. BotInstanceAllowSudo is the requested opt-out from the
+   * default no-new-privileges policy. Read both through BotInstanceDiskSize
+   * and BotInstanceSudo, which apply defaults and runtime rules.
    */
   bot_instance_disk_size_gb?: number;
   /**

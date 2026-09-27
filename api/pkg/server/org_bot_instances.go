@@ -101,14 +101,14 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 	if assistant == nil {
 		return nil, fmt.Errorf("bot app %s has no assistant", appID)
 	}
-	if err := validateBotInstanceCredentials(assistant); err != nil {
+	if err := instances.ValidateCredentials(assistant); err != nil {
 		return nil, err
 	}
-	secretNames, err := b.validateInstanceSecrets(ctx, projectID, params.Secrets)
+	secretNames, err := b.selectSecrets(ctx, projectID, params.Secrets)
 	if err != nil {
 		return nil, err
 	}
-	diskSizeGB, err := normalizeBotInstanceDiskSize(params.DiskSizeGB)
+	diskSizeGB, err := instances.NormalizeDiskSize(params.DiskSizeGB)
 	if err != nil {
 		return nil, err
 	}
@@ -197,57 +197,15 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 	return created, nil
 }
 
-func normalizeBotInstanceDiskSize(requested int) (int, error) {
-	if requested == 0 {
-		return instances.DefaultDiskSizeGB, nil
-	}
-	if requested < 1 || requested > instances.MaxDiskSizeGB {
-		return 0, fmt.Errorf("%w: disk_size_gb must be between 1 and %d", instances.ErrInvalidRequest, instances.MaxDiskSizeGB)
-	}
-	return requested, nil
-}
-
-func validateBotInstanceCredentials(assistant *types.AssistantConfig) error {
-	if assistant != nil && assistant.CodeAgentCredentialType.IsSubscription() {
-		return fmt.Errorf("%w: org bot instances do not support subscription credentials; configure the bot to use API-key credentials", instances.ErrInvalidRequest)
-	}
-	return nil
-}
-
-func (b botInstances) validateInstanceSecrets(ctx context.Context, projectID string, requested []string) ([]string, error) {
+func (b botInstances) selectSecrets(ctx context.Context, projectID string, requested []string) ([]string, error) {
 	if len(requested) == 0 {
-		return []string{}, nil
+		return nil, nil
 	}
-	secrets, err := b.server.Store.ListProjectSecrets(ctx, projectID)
+	projectSecrets, err := b.server.Store.ListProjectSecrets(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list project secrets: %w", err)
 	}
-	available := make(map[string]bool, len(secrets))
-	for _, secret := range secrets {
-		scope := secret.Scope
-		if scope == "" {
-			scope = types.SecretScopeDev
-		}
-		if scope.AppliesTo(types.SecretScopeDev) {
-			available[secret.Name] = true
-		}
-	}
-	selected := make([]string, 0, len(requested))
-	seen := make(map[string]bool, len(requested))
-	for _, name := range requested {
-		if name == "" {
-			return nil, fmt.Errorf("%w: instance secret names cannot be empty", instances.ErrInvalidRequest)
-		}
-		if seen[name] {
-			return nil, fmt.Errorf("%w: instance secret %q is listed more than once", instances.ErrInvalidRequest, name)
-		}
-		if !available[name] {
-			return nil, fmt.Errorf("%w: project development secret %q does not exist", instances.ErrInvalidRequest, name)
-		}
-		seen[name] = true
-		selected = append(selected, name)
-	}
-	return selected, nil
+	return instances.SelectSecrets(requested, projectSecrets)
 }
 
 // createBotInstanceForChat starts a new instance of the Org Bot behind app for

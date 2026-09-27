@@ -31,10 +31,6 @@ type botInstanceView struct {
 }
 
 func toBotInstanceView(session *types.Session) botInstanceView {
-	diskSizeGB := session.Metadata.BotInstanceDiskSizeGB
-	if diskSizeGB == 0 && session.Metadata.SessionRole == types.SessionRoleOrgBotInstance {
-		diskSizeGB = types.DefaultBotInstanceDiskSizeGB
-	}
 	return botInstanceView{
 		SessionID:      session.ID,
 		BotID:          session.Metadata.OrgWorkerID,
@@ -42,8 +38,8 @@ func toBotInstanceView(session *types.Session) botInstanceView {
 		SandboxRuntime: session.Metadata.SandboxRuntime,
 		SandboxStatus:  session.Metadata.ExternalAgentStatus,
 		Secrets:        append([]string{}, session.Metadata.BotInstanceSecrets...),
-		DiskSizeGB:     diskSizeGB,
-		AllowSudo:      session.Metadata.BotInstanceAllowSudo,
+		DiskSizeGB:     session.Metadata.BotInstanceDiskSize(),
+		AllowSudo:      session.Metadata.BotInstanceSudo(),
 	}
 }
 
@@ -78,9 +74,9 @@ func (t *CreateBotInstance) Description() string {
 		"project and model, running in its own sandbox. Use one instance per end user or " +
 		"case so they never share a browser or workspace. Instances get only what the bot's " +
 		"instance profile enables and the project secret names explicitly passed in secrets " +
-		"(none by default). Disk defaults to 10 GB and may be set up to 1000 GB. " +
-		"Sudo is disabled by default and must be " +
-		"explicitly enabled. Returns session_id."
+		fmt.Sprintf("(none by default). Disk defaults to %d GB and may be set up to %d GB. ", types.DefaultBotInstanceDiskSizeGB, types.MaxBotInstanceDiskSizeGB) +
+		"Sudo is disabled by default for headless instances and must be explicitly enabled; " +
+		"ubuntu-desktop instances always allow it. Returns session_id."
 }
 func (t *CreateBotInstance) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args createBotInstanceArgs

@@ -39,7 +39,8 @@ type CreateBotInstanceRequest struct {
 	// DiskSizeGB is the persistent home filesystem capacity. Omitted defaults
 	// to 10 GB; accepted values are 1-1000.
 	DiskSizeGB int `json:"disk_size_gb,omitempty"`
-	// AllowSudo opts out of no-new-privileges. It is false by default.
+	// AllowSudo opts a headless instance out of no-new-privileges. It is
+	// false by default. ubuntu-desktop instances always allow sudo.
 	AllowSudo bool `json:"sudo,omitempty"`
 	// SandboxRuntime overrides the Bot's instance profile runtime:
 	// "headless-ubuntu" or "ubuntu-desktop".
@@ -49,10 +50,6 @@ type CreateBotInstanceRequest struct {
 }
 
 func botInstanceDTO(session *types.Session) BotInstanceDTO {
-	diskSizeGB := session.Metadata.BotInstanceDiskSizeGB
-	if diskSizeGB == 0 && session.Metadata.SessionRole == types.SessionRoleOrgBotInstance {
-		diskSizeGB = types.DefaultBotInstanceDiskSizeGB
-	}
 	return BotInstanceDTO{
 		SessionID:      session.ID,
 		BotID:          session.Metadata.OrgWorkerID,
@@ -61,8 +58,8 @@ func botInstanceDTO(session *types.Session) BotInstanceDTO {
 		SandboxStatus:  session.Metadata.ExternalAgentStatus,
 		Owner:          session.Owner,
 		Secrets:        append([]string{}, session.Metadata.BotInstanceSecrets...),
-		DiskSizeGB:     diskSizeGB,
-		AllowSudo:      session.Metadata.BotInstanceAllowSudo,
+		DiskSizeGB:     session.Metadata.BotInstanceDiskSize(),
+		AllowSudo:      session.Metadata.BotInstanceSudo(),
 		CreatedAt:      session.Created.Format(time.RFC3339),
 		UpdatedAt:      session.Updated.Format(time.RFC3339),
 	}

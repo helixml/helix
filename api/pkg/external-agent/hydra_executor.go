@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -23,13 +24,10 @@ type QuotaManager interface {
 	LimitReached(ctx context.Context, req *types.QuotaLimitReachedRequest) (*types.QuotaLimitReachedResponse, error)
 }
 
-// ProjectSecretsGetter returns selected project secrets as `KEY=value`
-// env-var strings. A nil name list requests all secrets; an empty non-nil
-// list requests none.
-// Wired to HelixAPIServer.GetProjectSecretsAsEnvVarsByName at startup so
-// HydraExecutor can inject them on every container start without each caller
-// remembering.
-type ProjectSecretsGetter func(ctx context.Context, projectID string, names []string) ([]string, error)
+// ProjectSecretsGetter returns project secrets as `KEY=value` env-var strings.
+// Wired to HelixAPIServer.GetProjectSecretsAsEnvVars at startup so HydraExecutor
+// can inject them on every container start without each caller remembering.
+type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
 
 // agentBinaryCacheDir is the sandbox-host directory holding admin-pinned agent
 // binaries. Shared by trusted non-Bot containers on the host and keyed by
@@ -232,24 +230,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// ...) appear later in agent.Env and therefore win duplicate-key resolution
 	// in Docker. This preserves the long-standing invariant that a user-defined
 	// project secret can't shadow the system-injected agent API tokens.
-	if h.getProjectSecrets != nil && agent.ProjectID != "" && (agent.ProjectSecretNames == nil || len(agent.ProjectSecretNames) > 0) {
-		projectSecrets, err := h.getProjectSecrets(ctx, agent.ProjectID, agent.ProjectSecretNames)
-		if err != nil {
-			if agent.ProjectSecretNames != nil {
-				return nil, fmt.Errorf("load explicitly granted project secrets: %w", err)
-			}
-			log.Warn().Err(err).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Failed to load project secrets, continuing without them")
-		} else {
-			if missing := missingProjectSecretNames(projectSecrets, agent.ProjectSecretNames); len(missing) > 0 {
-				return nil, fmt.Errorf("explicitly granted project secrets are unavailable: %s", strings.Join(missing, ", "))
-			}
-			if len(projectSecrets) > 0 {
-				before := len(agent.Env)
-				agent.Env = appendProjectSecrets(agent.Env, projectSecrets)
-				injected := len(agent.Env) - before
-				log.Info().Int("secret_count", injected).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
-			}
-		}
+	if err := h.injectProjectSecrets(ctx, agent); err != nil {
+		return nil, err
 	}
 
 	// Call OnBeforeCreate hook inside the lock to refresh API keys.
@@ -875,16 +857,11 @@ func applySessionBootstrap(metadata types.SessionMetadata, agent *types.DesktopA
 	agent.Env = append(agent.Env, "HELIX_WORKER_ID="+workerID)
 	if metadata.BotInstance != nil {
 		agent.NoContainerEngine = true
-		agent.DiskSizeGB = metadata.BotInstanceDiskSizeGB
-		if agent.DiskSizeGB == 0 {
-			agent.DiskSizeGB = types.DefaultBotInstanceDiskSizeGB
-		}
+		agent.DiskSizeGB = metadata.BotInstanceDiskSize()
 		agent.PidsLimit = types.DefaultBotInstancePidsLimit
-		agent.NoNewPrivileges = !metadata.BotInstanceAllowSudo
-		// A non-nil empty slice deliberately means no secrets. Ordinary
-		// sessions leave this nil and retain the existing all-project-secrets
-		// behavior.
-		agent.ProjectSecretNames = append([]string{}, metadata.BotInstanceSecrets...)
+		agent.NoNewPrivileges = !metadata.BotInstanceSudo()
+		agent.RestrictProjectSecrets = true
+		agent.ProjectSecretNames = slices.Clone(metadata.BotInstanceSecrets)
 	}
 	if metadata.BotInstance != nil && !metadata.BotInstance.HelixSkills {
 		// helix-workspace-setup.sh links the default helix-* skills when
@@ -913,24 +890,52 @@ func appendProjectSecrets(env, secrets []string) []string {
 	return env
 }
 
-func missingProjectSecretNames(secrets, requestedNames []string) []string {
-	if requestedNames == nil {
+func (h *HydraExecutor) injectProjectSecrets(ctx context.Context, agent *types.DesktopAgent) error {
+	if h.getProjectSecrets == nil || agent.ProjectID == "" {
 		return nil
 	}
-	present := make(map[string]bool, len(secrets))
-	for _, secret := range secrets {
-		name, _, ok := strings.Cut(secret, "=")
-		if ok {
-			present[name] = true
+	if agent.RestrictProjectSecrets && len(agent.ProjectSecretNames) == 0 {
+		return nil
+	}
+	projectSecrets, err := h.getProjectSecrets(ctx, agent.ProjectID)
+	if err != nil {
+		if agent.RestrictProjectSecrets {
+			return fmt.Errorf("load granted project secrets: %w", err)
+		}
+		log.Warn().Err(err).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Failed to load project secrets, continuing without them")
+		return nil
+	}
+	if agent.RestrictProjectSecrets {
+		if projectSecrets, err = selectProjectSecrets(projectSecrets, agent.ProjectSecretNames); err != nil {
+			return err
 		}
 	}
-	missing := make([]string, 0)
-	for _, name := range requestedNames {
-		if !present[name] {
+	if len(projectSecrets) == 0 {
+		return nil
+	}
+	before := len(agent.Env)
+	agent.Env = appendProjectSecrets(agent.Env, projectSecrets)
+	log.Info().Int("secret_count", len(agent.Env)-before).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
+	return nil
+}
+
+// selectProjectSecrets keeps the named `KEY=value` secrets. A granted secret
+// that no longer exists fails the start rather than silently running without it.
+func selectProjectSecrets(secrets, names []string) ([]string, error) {
+	selected := make([]string, 0, len(names))
+	var missing []string
+	for _, name := range names {
+		i := slices.IndexFunc(secrets, func(secret string) bool { return strings.HasPrefix(secret, name+"=") })
+		if i < 0 {
 			missing = append(missing, name)
+			continue
 		}
+		selected = append(selected, secrets[i])
 	}
-	return missing
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("granted project secrets are unavailable: %s", strings.Join(missing, ", "))
+	}
+	return selected, nil
 }
 
 // StopDesktop stops a dev container using Hydra

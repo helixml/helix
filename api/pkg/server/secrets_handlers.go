@@ -454,18 +454,8 @@ func projectSecretNotFound(projectKey string, resolutionErr error) *system.HTTPE
 // The dev path (desktop containers) passes types.SecretScopeDev; the prod path
 // (web service deploys) passes types.SecretScopeProd.
 func (s *HelixAPIServer) GetProjectSecretsAsEnvVars(ctx context.Context, projectID string, target types.SecretScope) ([]string, error) {
-	return s.GetProjectSecretsAsEnvVarsByName(ctx, projectID, target, nil)
-}
-
-// GetProjectSecretsAsEnvVarsByName is the least-privilege variant used by
-// Org Bot instances. A nil name list selects all matching secrets; an empty
-// non-nil list selects none.
-func (s *HelixAPIServer) GetProjectSecretsAsEnvVarsByName(ctx context.Context, projectID string, target types.SecretScope, names []string) ([]string, error) {
 	if projectID == "" {
 		return nil, nil
-	}
-	if names != nil && len(names) == 0 {
-		return []string{}, nil
 	}
 
 	if target == "" {
@@ -486,18 +476,8 @@ func (s *HelixAPIServer) GetProjectSecretsAsEnvVarsByName(ctx context.Context, p
 		return nil, fmt.Errorf("failed to get encryption key: %w", err)
 	}
 
-	var selected map[string]bool
-	if names != nil {
-		selected = make(map[string]bool, len(names))
-		for _, name := range names {
-			selected[name] = true
-		}
-	}
 	var envVars []string
 	for _, secret := range secrets {
-		if selected != nil && !selected[secret.Name] {
-			continue
-		}
 		// Skip secrets that don't apply to the requested environment.
 		// An empty stored scope is treated as the default ("dev").
 		scope := secret.Scope

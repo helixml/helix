@@ -274,14 +274,16 @@ type GCSkip struct {
 // GCReconcileResponse is hydra's report of what it reaped (or would reap, in
 // dry-run mode) and what it deliberately skipped.
 type GCReconcileResponse struct {
-	ZvolsReaped         []string `json:"zvols_reaped"`
-	ZvolsSkipped        []GCSkip `json:"zvols_skipped"`
-	WorkspacesReaped    []string `json:"workspaces_reaped"`
-	WorkspacesSkipped   []GCSkip `json:"workspaces_skipped"`
-	FileCopyDirsReaped  []string `json:"file_copy_dirs_reaped"`
-	FileCopyDirsSkipped []GCSkip `json:"file_copy_dirs_skipped"`
-	ContainersReaped    []string `json:"containers_reaped"`
-	VolumesReaped       []string `json:"volumes_reaped"`
-	GoldensFlattened    []string `json:"goldens_flattened"`
-	BytesFreed          int64    `json:"bytes_freed"`
+	ZvolsReaped          []string `json:"zvols_reaped"`
+	ZvolsSkipped         []GCSkip `json:"zvols_skipped"`
+	WorkspacesReaped     []string `json:"workspaces_reaped"`
+	WorkspacesSkipped    []GCSkip `json:"workspaces_skipped"`
+	FileCopyDirsReaped   []string `json:"file_copy_dirs_reaped"`
+	FileCopyDirsSkipped  []GCSkip `json:"file_copy_dirs_skipped"`
+	InstanceDisksReaped  []string `json:"instance_disks_reaped"`
+	InstanceDisksSkipped []GCSkip `json:"instance_disks_skipped"`
+	ContainersReaped     []string `json:"containers_reaped"`
+	VolumesReaped        []string `json:"volumes_reaped"`
+	GoldensFlattened     []string `json:"goldens_flattened"`
+	BytesFreed           int64    `json:"bytes_freed"`
 }

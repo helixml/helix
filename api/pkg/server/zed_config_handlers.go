@@ -106,10 +106,10 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	}
 	if app.OrganizationID != "" {
 		if assistant := external_agent.FindZedExternalAssistant(app); assistant != nil {
-			if session.Metadata.SessionRole == types.SessionRoleOrgBotInstance {
-				if err := validateBotInstanceCredentials(assistant); err != nil {
-					return nil, system.NewHTTPError422(err.Error())
-				}
+			// The bot may have switched to a subscription after this instance
+			// started; never hand an instance its owner's subscription.
+			if session.Metadata.SessionRole == types.SessionRoleOrgBotInstance && assistant.CodeAgentCredentialType.IsSubscription() {
+				return nil, system.NewHTTPError422(types.ErrBotInstanceSubscriptionCredentials.Error())
 			}
 			runtime := assistant.CodeAgentRuntime
 			if runtime == "" {

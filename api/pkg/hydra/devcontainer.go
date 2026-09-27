@@ -564,7 +564,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// 2. Previous start request failed after container creation but before DB update
 	existingContainer, err := dockerClient.ContainerInspect(dockerCtx, req.ContainerName)
 	existingContainerFound := err == nil
-	if existingContainerFound && req.DiskSizeGB > 0 && instanceHardeningChanged(existingContainer.HostConfig, hostConfig) {
+	if existingContainerFound && req.DiskSizeGB > 0 && quotaHomeConfigChanged(existingContainer.HostConfig, hostConfig) {
 		log.Info().
 			Str("container_id", existingContainer.ID).
 			Str("container_name", req.ContainerName).
@@ -847,56 +847,6 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}, nil
 }
 
-func instanceHardeningChanged(existing, desired *container.HostConfig) bool {
-	if existing == nil || desired == nil {
-		return true
-	}
-	if desired.Resources.PidsLimit != nil && (existing.Resources.PidsLimit == nil || *existing.Resources.PidsLimit != *desired.Resources.PidsLimit) {
-		return true
-	}
-	if containsString(existing.SecurityOpt, "no-new-privileges") != containsString(desired.SecurityOpt, "no-new-privileges") {
-		return true
-	}
-	for _, wanted := range desired.SecurityOpt {
-		found := false
-		for _, current := range existing.SecurityOpt {
-			if current == wanted {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return true
-		}
-	}
-	for target, options := range desired.Tmpfs {
-		if existing.Tmpfs[target] != options {
-			return true
-		}
-	}
-	for _, wanted := range desired.Mounts {
-		if wanted.Target != "/home/retro" {
-			continue
-		}
-		for _, current := range existing.Mounts {
-			if current.Target == wanted.Target && current.Source == wanted.Source && current.ReadOnly == wanted.ReadOnly {
-				return false
-			}
-		}
-		return true
-	}
-	return true
-}
-
-func containsString(values []string, wanted string) bool {
-	for _, value := range values {
-		if value == wanted {
-			return true
-		}
-	}
-	return false
-}
-
 func materializeWorkspaceFiles(mounts []MountConfig, files map[string][]byte) error {
 	if len(files) == 0 {
 		return nil
@@ -1175,13 +1125,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "no-new-privileges")
 	}
 	if req.DiskSizeGB > 0 {
-		// User-controlled persistent writes live on the quota-backed home mount.
-		// Keep conventional world-writable scratch paths in bounded memory so
-		// they cannot be used to consume the host's Docker filesystem instead.
-		hostConfig.Tmpfs = map[string]string{
-			"/tmp":     "rw,nosuid,nodev,size=256m,mode=1777",
-			"/var/tmp": "rw,nosuid,nodev,size=64m,mode=1777",
-		}
+		hostConfig.Tmpfs = quotaHomeTmpfs(req.Mounts)
 	}
 	if req.ContainerType != DevContainerTypeHeadless {
 		hostConfig.IpcMode = "private"
@@ -1994,6 +1938,12 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	// Remove container
 	if err := dockerClient.ContainerRemove(ctx, dc.ContainerID, container.RemoveOptions{Force: true}); err != nil {
 		log.Warn().Err(err).Str("container_id", dc.ContainerID).Msg("Failed to remove container")
+	} else if isResourceID(sessionID, "ses_") {
+		// A stopped instance must not pin a loop device; the next start
+		// remounts its disk.
+		if err := unmountInstanceDisk(ctx, sessionID); err != nil {
+			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to unmount instance disk")
+		}
 	}
 
 	// Remove the per-session docker-data volume that was mounted at /var/lib/docker.
@@ -2232,6 +2182,9 @@ func (dm *DevContainerManager) ReconcileGC(ctx context.Context, req GCReconcileR
 	// Stopped containers and their docker-data volumes of dead sessions.
 	resp.ContainersReaped, resp.VolumesReaped = dm.reconcileOrphanDockerResources(ctx, liveSessions, grace, req.DryRun)
 
+	// Instance disks of dead sessions, after their containers are gone.
+	resp.InstanceDisksReaped, resp.InstanceDisksSkipped = ReconcileOrphanInstanceDisks(ctx, liveSessions, grace, req.DryRun)
+
 	if !req.DryRun {
 		// Prune golden snapshots the flatten just absorbed plus any other stale
 		// no-clone snapshots (>7d). Frees the old generations the dead session
@@ -2258,6 +2211,8 @@ func (dm *DevContainerManager) ReconcileGC(ctx context.Context, req GCReconcileR
 		Int("workspaces_skipped", len(resp.WorkspacesSkipped)).
 		Int("filecopy_dirs_reaped", len(resp.FileCopyDirsReaped)).
 		Int("filecopy_dirs_skipped", len(resp.FileCopyDirsSkipped)).
+		Int("instance_disks_reaped", len(resp.InstanceDisksReaped)).
+		Int("instance_disks_skipped", len(resp.InstanceDisksSkipped)).
 		Int("goldens_flattened", len(resp.GoldensFlattened)).
 		Int64("bytes_freed", resp.BytesFreed).
 		Msg("GC_RECONCILE completed")

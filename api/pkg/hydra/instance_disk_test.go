@@ -1,12 +1,12 @@
 package hydra
 
 import (
-	"archive/tar"
-	"bytes"
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
@@ -19,58 +19,92 @@ func TestIsMountpointDirectory(t *testing.T) {
 	require.False(t, mounted)
 }
 
-func TestExtractHomeArchive(t *testing.T) {
-	var buf bytes.Buffer
-	w := tar.NewWriter(&buf)
-	require.NoError(t, w.WriteHeader(&tar.Header{Name: "./", Typeflag: tar.TypeDir, Mode: 0o755, Uid: os.Getuid(), Gid: os.Getgid()}))
-	require.NoError(t, w.WriteHeader(&tar.Header{Name: "./.config/", Typeflag: tar.TypeDir, Mode: 0o700, Uid: os.Getuid(), Gid: os.Getgid()}))
-	content := []byte("settings")
-	require.NoError(t, w.WriteHeader(&tar.Header{Name: "./.config/app", Typeflag: tar.TypeReg, Mode: 0o600, Size: int64(len(content)), Uid: os.Getuid(), Gid: os.Getgid()}))
-	_, err := w.Write(content)
-	require.NoError(t, err)
-	require.NoError(t, w.WriteHeader(&tar.Header{Name: "./config-link", Typeflag: tar.TypeSymlink, Linkname: ".config/app", Mode: 0o777, Uid: os.Getuid(), Gid: os.Getgid()}))
-	require.NoError(t, w.Close())
+func TestEnsureInstanceDiskImageReplacesIncompleteImage(t *testing.T) {
+	if _, err := exec.LookPath("mkfs.ext4"); err != nil {
+		t.Skip("mkfs.ext4 not available")
+	}
+	imagePath := filepath.Join(t.TempDir(), "home.ext4")
+	// An interrupted earlier attempt leaves only the temporary image.
+	require.NoError(t, os.WriteFile(imagePath+".tmp", []byte("partial"), 0o600))
 
-	destination := t.TempDir()
-	require.NoError(t, extractHomeArchive(&buf, destination))
-	got, err := os.ReadFile(filepath.Join(destination, ".config", "app"))
+	require.NoError(t, ensureInstanceDiskImage(context.Background(), imagePath, 1))
+	info, err := os.Stat(imagePath)
 	require.NoError(t, err)
-	require.Equal(t, content, got)
-	link, err := os.Readlink(filepath.Join(destination, "config-link"))
-	require.NoError(t, err)
-	require.Equal(t, ".config/app", link)
+	require.Equal(t, int64(1)<<30, info.Size())
+	_, err = os.Stat(imagePath + ".tmp")
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	require.NoError(t, ensureInstanceDiskImage(context.Background(), imagePath, 1))
+	require.ErrorContains(t, ensureInstanceDiskImage(context.Background(), imagePath, 2), "immutable")
 }
 
-func TestExtractHomeArchiveRejectsTraversal(t *testing.T) {
-	var buf bytes.Buffer
-	w := tar.NewWriter(&buf)
-	require.NoError(t, w.WriteHeader(&tar.Header{Name: "../../escape", Typeflag: tar.TypeReg, Mode: 0o600}))
-	require.NoError(t, w.Close())
-	require.ErrorContains(t, extractHomeArchive(&buf, t.TempDir()), "unsafe image home path")
+func TestLegacyWorkspace(t *testing.T) {
+	empty, populated := t.TempDir(), t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(populated, "notes.md"), []byte("x"), 0o600))
+
+	require.Empty(t, legacyWorkspace([]MountConfig{{Source: empty, Destination: "/home/retro/work"}}))
+	require.Empty(t, legacyWorkspace([]MountConfig{{Source: filepath.Join(empty, "missing"), Destination: "/home/retro/work"}}))
+	require.Empty(t, legacyWorkspace([]MountConfig{{Source: populated, Destination: "/workspace"}}))
+	require.Equal(t, populated, legacyWorkspace([]MountConfig{{Source: populated, Destination: "/home/retro/work"}}))
 }
 
-func TestInstanceHardeningChanged(t *testing.T) {
-	pids := int64(512)
+func TestQuotaHomeTmpfs(t *testing.T) {
+	headless := quotaHomeTmpfs(nil)
+	require.Contains(t, headless, "/etc/claude-code")
+	require.Contains(t, headless, "/run/user/1000")
+
+	desktop := quotaHomeTmpfs([]MountConfig{{Source: "/data/sessions/ses_1/runtime", Destination: "/run/user/1000"}})
+	require.NotContains(t, desktop, "/run/user/1000")
+}
+
+func TestQuotaHomeConfigChanged(t *testing.T) {
+	pids := int64(4096)
 	desired := &container.HostConfig{
 		Resources:   container.Resources{PidsLimit: &pids},
 		SecurityOpt: []string{"no-new-privileges", "seccomp=profile"},
 		Tmpfs:       map[string]string{"/tmp": "size=256m"},
-		Mounts:      []mount.Mount{{Source: "/quota/home", Target: "/home/retro"}},
+		Mounts:      []mount.Mount{{Source: "/quota/home", Target: "/home/retro"}, {Source: "/quota/home/work", Target: "/workspace"}},
 	}
 	existing := &container.HostConfig{
 		Resources:   container.Resources{PidsLimit: &pids},
 		SecurityOpt: []string{"seccomp=profile", "no-new-privileges"},
 		Tmpfs:       map[string]string{"/tmp": "size=256m"},
-		Mounts:      []mount.Mount{{Source: "/quota/home", Target: "/home/retro"}},
+		Mounts:      []mount.Mount{{Source: "/quota/home/work", Target: "/workspace"}, {Source: "/quota/home", Target: "/home/retro"}},
 	}
-	require.False(t, instanceHardeningChanged(existing, desired))
+	require.False(t, quotaHomeConfigChanged(existing, desired))
 
 	existing.Resources.PidsLimit = nil
-	require.True(t, instanceHardeningChanged(existing, desired))
+	require.True(t, quotaHomeConfigChanged(existing, desired))
 	existing.Resources.PidsLimit = &pids
+
 	existing.SecurityOpt = []string{"seccomp=profile"}
-	require.True(t, instanceHardeningChanged(existing, desired))
+	require.True(t, quotaHomeConfigChanged(existing, desired))
 	existing.SecurityOpt = desired.SecurityOpt
-	existing.Mounts[0].Source = "/unlimited/home"
-	require.True(t, instanceHardeningChanged(existing, desired))
+
+	existing.Tmpfs = map[string]string{"/tmp": "size=256m", "/etc/claude-code": "size=1m"}
+	require.True(t, quotaHomeConfigChanged(existing, desired))
+	existing.Tmpfs = desired.Tmpfs
+
+	existing.Mounts[1].Source = "/unlimited/home"
+	require.True(t, quotaHomeConfigChanged(existing, desired))
+}
+
+func TestReconcileOrphanInstanceDisks(t *testing.T) {
+	old := instanceDisksBaseDir
+	instanceDisksBaseDir = t.TempDir()
+	t.Cleanup(func() { instanceDisksBaseDir = old })
+
+	for _, id := range []string{"ses_live", "ses_dead", "ses_fresh"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(instanceDisksBaseDir, id, "home"), 0o700))
+	}
+	past := time.Now().Add(-2 * time.Hour)
+	require.NoError(t, os.Chtimes(filepath.Join(instanceDisksBaseDir, "ses_live"), past, past))
+	require.NoError(t, os.Chtimes(filepath.Join(instanceDisksBaseDir, "ses_dead"), past, past))
+
+	reaped, _ := ReconcileOrphanInstanceDisks(context.Background(), map[string]bool{"ses_live": true}, time.Hour, false)
+	require.Equal(t, []string{filepath.Join(instanceDisksBaseDir, "ses_dead")}, reaped)
+	for id, exists := range map[string]bool{"ses_live": true, "ses_dead": false, "ses_fresh": true} {
+		_, err := os.Stat(filepath.Join(instanceDisksBaseDir, id))
+		require.Equal(t, exists, err == nil, id)
+	}
 }

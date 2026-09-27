@@ -472,8 +472,9 @@ type SessionMetadata struct {
 	// granted when this instance was created. Empty means no project secrets.
 	BotInstanceSecrets []string `json:"bot_instance_secrets,omitempty"`
 	// BotInstanceDiskSizeGB is the hard capacity of the instance's persistent
-	// home filesystem. BotInstanceAllowSudo is an explicit opt-out from the
-	// default no-new-privileges policy.
+	// home filesystem. BotInstanceAllowSudo is the requested opt-out from the
+	// default no-new-privileges policy. Read both through BotInstanceDiskSize
+	// and BotInstanceSudo, which apply defaults and runtime rules.
 	BotInstanceDiskSizeGB int    `json:"bot_instance_disk_size_gb,omitempty"`
 	BotInstanceAllowSudo  bool   `json:"bot_instance_allow_sudo,omitempty"`
 	HelixVersion          string `json:"helix_version"`
@@ -2148,9 +2149,11 @@ type DesktopAgent struct {
 	// the sandbox billing row to the bot. Never accepted from callers.
 	OrgWorkerID   string `json:"-"`
 	OrgWorkerName string `json:"-"`
-	// ProjectSecretNames is non-nil for org bot instances, including when the
-	// instance was granted no secrets. It filters project-secret injection.
-	ProjectSecretNames []string `json:"-"`
+	// RestrictProjectSecrets limits project-secret injection to
+	// ProjectSecretNames (org bot instances, which may be granted none).
+	// Otherwise every dev-scoped project secret is injected.
+	RestrictProjectSecrets bool     `json:"-"`
+	ProjectSecretNames     []string `json:"-"`
 	// NoContainerEngine runs the sandbox unprivileged with no Docker or
 	// Podman inside. Set for org bot instances, which serve untrusted users
 	// and never build or run containers. Never accepted from callers.

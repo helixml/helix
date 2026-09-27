@@ -127,7 +127,7 @@ func newInstancesCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&message, "message", "", "Queue this as the first turn")
 	cmd.Flags().StringArrayVar(&secrets, "secret", nil, "Project development secret name to grant (repeatable)")
 	cmd.Flags().IntVar(&diskSizeGB, "disk-size-gb", 0, "Persistent disk size in GB (default: 10, max: 1000)")
-	cmd.Flags().BoolVar(&allowSudo, "sudo", false, "Allow passwordless sudo (disables no-new-privileges)")
+	cmd.Flags().BoolVar(&allowSudo, "sudo", false, "Allow passwordless sudo in a headless instance (disables no-new-privileges; ubuntu-desktop always allows it)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "JSON output")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait until the sandbox is running (fails fast if it fails to start)")
 	return cmd
@@ -230,7 +230,7 @@ func newInstancesAskCmd() *cobra.Command {
 	cmd.Flags().StringArrayVarP(&attach, "attach", "a", nil, "File to attach (repeatable)")
 	cmd.Flags().StringArrayVar(&secrets, "secret", nil, "Project development secret name to grant (repeatable)")
 	cmd.Flags().IntVar(&diskSizeGB, "disk-size-gb", 0, "Persistent disk size in GB (default: 10, max: 1000)")
-	cmd.Flags().BoolVar(&allowSudo, "sudo", false, "Allow passwordless sudo (disables no-new-privileges)")
+	cmd.Flags().BoolVar(&allowSudo, "sudo", false, "Allow passwordless sudo in a headless instance (disables no-new-privileges; ubuntu-desktop always allows it)")
 	cmd.Flags().BoolVar(&keep, "keep", false, "Keep the instance")
 	cmd.Flags().BoolVar(&raw, "raw", false, "Print the whole turn blob")
 	cmd.Flags().BoolVar(&tools, "tools", false, "Print a tool-call summary (stderr)")
