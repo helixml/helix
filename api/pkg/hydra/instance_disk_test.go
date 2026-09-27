@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,4 +108,36 @@ func TestReconcileOrphanInstanceDisks(t *testing.T) {
 		_, err := os.Stat(filepath.Join(instanceDisksBaseDir, id))
 		require.Equal(t, exists, err == nil, id)
 	}
+}
+
+func TestInstanceDiskMarkerOutsideHome(t *testing.T) {
+	disk := instanceDisk("ses_one")
+	rel, err := filepath.Rel(disk.home, disk.initialized)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(rel, ".."), "marker %s must not be inside the tenant home %s", disk.initialized, disk.home)
+}
+
+func TestLockInstanceDiskSerializesAndReleases(t *testing.T) {
+	unlock := lockInstanceDisk("ses_one")
+	acquired := make(chan struct{})
+	go func() {
+		defer lockInstanceDisk("ses_one")()
+		close(acquired)
+	}()
+	// A different session is never blocked.
+	lockInstanceDisk("ses_two")()
+
+	select {
+	case <-acquired:
+		t.Fatal("second holder acquired the lock while the first held it")
+	case <-time.After(50 * time.Millisecond):
+	}
+	unlock()
+	<-acquired
+
+	require.Eventually(t, func() bool {
+		instanceDiskLocks.Lock()
+		defer instanceDiskLocks.Unlock()
+		return len(instanceDiskLocks.held) == 0
+	}, time.Second, 10*time.Millisecond)
 }

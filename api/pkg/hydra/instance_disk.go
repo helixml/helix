@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -21,7 +21,6 @@ import (
 )
 
 const (
-	instanceDiskMarker = ".helix-instance-disk"
 	// instanceAgentCacheDir is where the settings-sync daemon installs
 	// admin-pinned agent binaries. A quota-home container gets its own copy on
 	// its disk instead of the host-wide shared cache.
@@ -37,14 +36,52 @@ type instanceDiskPaths struct {
 	dir   string
 	image string
 	home  string
+	// initialized marks a seeded home. It lives beside the image, outside
+	// the tenant-writable home, so the instance cannot trigger a re-seed.
+	initialized string
 }
 
 func instanceDisk(sessionID string) instanceDiskPaths {
 	dir := filepath.Join(instanceDisksBaseDir, sessionID)
 	return instanceDiskPaths{
-		dir:   dir,
-		image: filepath.Join(dir, "home.ext4"),
-		home:  filepath.Join(dir, "home"),
+		dir:         dir,
+		image:       filepath.Join(dir, "home.ext4"),
+		home:        filepath.Join(dir, "home"),
+		initialized: filepath.Join(dir, "initialized"),
+	}
+}
+
+// instanceDiskLocks serializes disk operations per session, so concurrent
+// starts, stops and deletes of one instance never format, mount or remove
+// its disk at the same time. Entries are dropped once no caller holds them.
+var instanceDiskLocks = struct {
+	sync.Mutex
+	held map[string]*instanceDiskLock
+}{held: map[string]*instanceDiskLock{}}
+
+type instanceDiskLock struct {
+	sync.Mutex
+	refs int
+}
+
+func lockInstanceDisk(sessionID string) (unlock func()) {
+	instanceDiskLocks.Lock()
+	l := instanceDiskLocks.held[sessionID]
+	if l == nil {
+		l = &instanceDiskLock{}
+		instanceDiskLocks.held[sessionID] = l
+	}
+	l.refs++
+	instanceDiskLocks.Unlock()
+
+	l.Lock()
+	return func() {
+		l.Unlock()
+		instanceDiskLocks.Lock()
+		if l.refs--; l.refs == 0 {
+			delete(instanceDiskLocks.held, sessionID)
+		}
+		instanceDiskLocks.Unlock()
 	}
 }
 
@@ -56,6 +93,7 @@ func prepareInstanceDisk(ctx context.Context, dockerClient *client.Client, image
 	if !isResourceID(req.SessionID, "ses_") {
 		return fmt.Errorf("disk quota requires a valid session id, got %q", req.SessionID)
 	}
+	defer lockInstanceDisk(req.SessionID)()
 	disk := instanceDisk(req.SessionID)
 	if err := os.MkdirAll(disk.home, 0o700); err != nil {
 		return fmt.Errorf("create instance disk directory: %w", err)
@@ -73,12 +111,11 @@ func prepareInstanceDisk(ctx context.Context, dockerClient *client.Client, image
 		}
 	}
 
-	markerPath := filepath.Join(disk.home, instanceDiskMarker)
-	if _, err := os.Stat(markerPath); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(disk.initialized); errors.Is(err, os.ErrNotExist) {
 		if err := initializeInstanceHome(ctx, dockerClient, image, req.SessionID, disk.home, legacyWorkspace(req.Mounts)); err != nil {
 			return err
 		}
-		if err := os.WriteFile(markerPath, []byte(strconv.Itoa(req.DiskSizeGB)+"\n"), 0o600); err != nil {
+		if err := os.WriteFile(disk.initialized, nil, 0o600); err != nil {
 			return fmt.Errorf("write instance disk marker: %w", err)
 		}
 	} else if err != nil {
@@ -331,6 +368,7 @@ func unmountInstanceDisk(ctx context.Context, sessionID string) error {
 	if !isResourceID(sessionID, "ses_") {
 		return fmt.Errorf("invalid session id %q", sessionID)
 	}
+	defer lockInstanceDisk(sessionID)()
 	return unmountInstanceDiskDir(ctx, instanceDisk(sessionID).home)
 }
 
@@ -347,6 +385,7 @@ func unmountInstanceDiskDir(ctx context.Context, home string) error {
 
 // removeInstanceDiskDir unmounts and deletes one base/<ses_id> directory.
 func removeInstanceDiskDir(ctx context.Context, dir string) error {
+	defer lockInstanceDisk(filepath.Base(dir))()
 	if err := unmountInstanceDiskDir(ctx, filepath.Join(dir, "home")); err != nil {
 		return err
 	}

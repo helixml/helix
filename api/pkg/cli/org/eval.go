@@ -28,6 +28,7 @@ type evalSuite struct {
 	Name     string      `json:"name"`
 	Bot      string      `json:"bot"`
 	Runtime  string      `json:"runtime"`
+	Secrets  []string    `json:"secrets"`
 	Timeout  int         `json:"timeout"`
 	Judge    judgeConfig `json:"judge"`
 	Defaults evalExpect  `json:"defaults"`
@@ -304,6 +305,7 @@ func render(turns []turnRecord) string {
 
 type evalOpts struct {
 	orgID, tag, runtime, out string
+	secrets                  []string
 	keep, keepFailed         bool
 	judge                    *llm
 	mu                       sync.Mutex
@@ -316,7 +318,11 @@ func runCase(ctx context.Context, c *client.HelixClient, s *evalSuite, bot strin
 	if runtime == "" {
 		runtime = s.Runtime
 	}
-	inst, err := createInstance(ctx, c, o.orgID, bot, truncate("eval "+o.tag+" "+ec.ID, 60), runtime, "", nil, 0, false)
+	secrets := o.secrets
+	if len(secrets) == 0 {
+		secrets = s.Secrets
+	}
+	inst, err := createInstance(ctx, c, o.orgID, bot, truncate("eval "+o.tag+" "+ec.ID, 60), runtime, "", secrets, 0, false)
 	if err != nil {
 		rec.Error = err.Error()
 		return rec
@@ -446,7 +452,8 @@ func newEvalCmd() *cobra.Command {
 		Short: "Run graded eval suites against bot instances; report and compare runs",
 		Long: `Run a suite (YAML/JSON) against one or more bots, one fresh instance per case.
 
-Suite: {name, bot, runtime, timeout, judge:{app, model}, defaults:{…expect}, cases:[…]}
+Suite: {name, bot, runtime, secrets:[…], timeout, judge:{app, model}, defaults:{…expect}, cases:[…]}
+       secrets: project development secret names each case instance is granted (none by default).
 Case:  {id, question+must | turns:[{user, attach:[…], expect:{…}}], files:[{src, dest}],
         simulate:{persona, goal, facts, opening, max_turns}, judge: "<rubric>"}
 Expect: must (AND of OR-groups; "re:" regex), must_not, max_seconds, max_tool_calls,
@@ -466,6 +473,7 @@ Examples:
 func newEvalRunCmd() *cobra.Command {
 	var (
 		orgFlag, bots, tag, out, only, runtime, judgeApp, judgeModel string
+		secrets                                                      []string
 		parallel, repeat                                             int
 		keep, keepFailed                                             bool
 	)
@@ -500,7 +508,7 @@ func newEvalRunCmd() *cobra.Command {
 			}
 			j := &llm{c: c, app: firstNonEmpty(judgeApp, s.Judge.App, os.Getenv("HELIX_EVAL_JUDGE_APP")),
 				model: firstNonEmpty(judgeModel, s.Judge.Model, os.Getenv("HELIX_EVAL_JUDGE_MODEL"))}
-			o := &evalOpts{orgID: orgID, tag: tag, runtime: runtime, out: out, keep: keep, keepFailed: keepFailed, judge: j}
+			o := &evalOpts{orgID: orgID, tag: tag, runtime: runtime, secrets: secrets, out: out, keep: keep, keepFailed: keepFailed, judge: j}
 			var cases []evalCase
 			keepIDs := map[string]bool{}
 			for _, id := range strings.Split(only, ",") {
@@ -568,6 +576,7 @@ func newEvalRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&out, "out", "", "Output JSONL (default runs/<tag>.jsonl)")
 	cmd.Flags().StringVar(&only, "only", "", "Comma list of case ids")
 	cmd.Flags().StringVar(&runtime, "runtime", "", "headless-ubuntu | ubuntu-desktop")
+	cmd.Flags().StringArrayVar(&secrets, "secret", nil, "Project development secret name to grant each case's instance (repeatable; overrides the suite's secrets)")
 	cmd.Flags().StringVar(&judgeApp, "judge-app", "", "Neutral judge app id ($HELIX_EVAL_JUDGE_APP)")
 	cmd.Flags().StringVar(&judgeModel, "judge-model", "", "Judge model ($HELIX_EVAL_JUDGE_MODEL)")
 	cmd.Flags().IntVar(&parallel, "parallel", 3, "Cases in parallel")

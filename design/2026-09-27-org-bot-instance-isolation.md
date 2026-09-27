@@ -47,7 +47,9 @@ can write, so the disk size is a complete host-disk boundary.
 
 The disk size can be explicitly set from 1 through 1000 GB at creation. The
 filesystem contains the complete home directory, workspace, tool state, and
-caches. It persists across stops. Stopping an instance unmounts it and releases
+caches. Hydra seeds it from the image once and records that beside the disk
+image, outside the tenant-writable home, so an instance cannot trigger a
+re-seed. It persists across stops. Stopping an instance unmounts it and releases
 its loop device; deleting the instance removes it. The orphan reaper removes the
 disk of any session that no longer exists, in case a delete could not reach the
 sandbox host.
