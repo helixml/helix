@@ -196,7 +196,8 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 				}
 			}
 			defer func() {
-				if completeErr := cfg.Store.Activations.Complete(ctx, orgID, act.ID, activation.OutcomeFromError(retErr), cfg.Now()); completeErr != nil && cfg.Logger != nil {
+				// A deleted or restarted bot cancels ctx; the row must still close.
+				if completeErr := cfg.Store.Activations.Complete(context.WithoutCancel(ctx), orgID, act.ID, activation.OutcomeFromError(retErr), cfg.Now()); completeErr != nil && cfg.Logger != nil {
 					cfg.Logger.Warn("helix spawner: complete activation row", "worker", workerID, "activation", act.ID, "err", completeErr)
 				}
 			}()
