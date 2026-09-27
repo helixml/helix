@@ -880,6 +880,24 @@ func appendProjectSecrets(env, secrets []string) []string {
 
 // StopDesktop stops a dev container using Hydra
 func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error {
+	return h.teardownDesktop(ctx, sessionID, nil)
+}
+
+// desktopDestroy selects destroy semantics for teardownDesktop.
+type desktopDestroy struct {
+	specTaskID string
+}
+
+// DestroyDesktop removes a desktop for good. Unlike StopDesktop, which keeps
+// the session's workspace and inner Docker data for a warm restart, it deletes
+// every on-host resource the session owns plus its paused screenshot.
+// specTaskID, when set, also deletes that task's workspace; pass it only when
+// the task is gone. Returns an error when hydra could not destroy the desktop.
+func (h *HydraExecutor) DestroyDesktop(ctx context.Context, sessionID, specTaskID string) error {
+	return h.teardownDesktop(ctx, sessionID, &desktopDestroy{specTaskID: specTaskID})
+}
+
+func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, destroy *desktopDestroy) error {
 	if sessionID == "" {
 		return fmt.Errorf("session ID is required to stop desktop")
 	}
@@ -941,11 +959,27 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 
 	// Capture a screenshot before tearing down the container so stopped desktops
 	// can still show their last state in the Kanban card and session viewer.
-	screenshotPath := h.capturePausedScreenshot(ctx, sessionID)
+	// A destroyed desktop has no last state to show.
+	var screenshotPath string
+	if destroy == nil {
+		screenshotPath = h.capturePausedScreenshot(ctx, sessionID)
+	} else if err := os.Remove(h.pausedScreenshotPath(sessionID)); err != nil && !os.IsNotExist(err) {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to remove paused screenshot")
+	}
 
 	// Delete dev container via Hydra
-	resp, err := hydraClient.DeleteDevContainer(ctx, sessionID)
+	var resp *hydra.DevContainerResponse
+	var err error
+	if destroy == nil {
+		resp, err = hydraClient.DeleteDevContainer(ctx, sessionID)
+	} else {
+		resp, err = hydraClient.DestroyDevContainer(ctx, sessionID, destroy.specTaskID)
+	}
 	deleteSucceeded := err == nil
+	var destroyErr error
+	if err != nil && destroy != nil {
+		destroyErr = fmt.Errorf("destroy dev container %s: %w", sessionID, err)
+	}
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to delete dev container (may already be stopped)")
 		// Don't return error - container might already be gone. We
@@ -1027,7 +1061,7 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 		h.updateSessionStatusMessage(ctx, sessionID, "")
 	}
 
-	return nil
+	return destroyErr
 }
 
 // revokeSessionAPIKeys revokes all ephemeral API keys associated with a session.
@@ -1308,20 +1342,23 @@ func (h *HydraExecutor) capturePausedScreenshot(ctx context.Context, sessionID s
 		return ""
 	}
 
-	filestoreRoot := h.filestoreLocalPath
-	if filestoreRoot == "" {
-		filestoreRoot = "/filestore"
-	}
-	dir := filepath.Join(filestoreRoot, "workspaces", "paused-screenshots")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	path := h.pausedScreenshotPath(sessionID)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return ""
 	}
-	path := filepath.Join(dir, sessionID+".jpg")
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return ""
 	}
 	log.Info().Str("session_id", sessionID).Str("path", path).Msg("Saved paused screenshot")
 	return path
+}
+
+func (h *HydraExecutor) pausedScreenshotPath(sessionID string) string {
+	filestoreRoot := h.filestoreLocalPath
+	if filestoreRoot == "" {
+		filestoreRoot = "/filestore"
+	}
+	return filepath.Join(filestoreRoot, "workspaces", "paused-screenshots", sessionID+".jpg")
 }
 
 func (h *HydraExecutor) setExternalAgentStatus(ctx context.Context, sessionID, status string) {
