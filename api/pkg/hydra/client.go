@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -325,6 +326,29 @@ func (c *RevDialClient) CreateDevContainer(ctx context.Context, req *CreateDevCo
 // DeleteDevContainer stops and removes a dev container via RevDial
 func (c *RevDialClient) DeleteDevContainer(ctx context.Context, sessionID string) (*DevContainerResponse, error) {
 	path := fmt.Sprintf("/api/v1/dev-containers/%s", sessionID)
+
+	respBody, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DevContainerResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// DestroyDevContainer removes a dev container and every on-host resource its
+// session owns via RevDial. specTaskID, when set, also removes that task's
+// workspace; pass it only when the task is gone.
+func (c *RevDialClient) DestroyDevContainer(ctx context.Context, sessionID, specTaskID string) (*DevContainerResponse, error) {
+	query := url.Values{"destroy": {"true"}}
+	if specTaskID != "" {
+		query.Set("spec_task_id", specTaskID)
+	}
+	path := fmt.Sprintf("/api/v1/dev-containers/%s?%s", url.PathEscape(sessionID), query.Encode())
 
 	respBody, err := c.doRequest(ctx, "DELETE", path, nil)
 	if err != nil {

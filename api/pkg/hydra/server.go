@@ -529,10 +529,23 @@ func (s *Server) handleDeleteDevContainer(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	sessionID := vars["session_id"]
 
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	query := r.URL.Query()
+	destroy := query.Get("destroy") == "true"
+	timeout := 60 * time.Second
+	if destroy {
+		// Destroy deletes workspaces and inner Docker data, which can be tens of GB.
+		timeout = 5 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	resp, err := s.devContainerManager.DeleteDevContainer(ctx, sessionID)
+	var resp *DevContainerResponse
+	var err error
+	if destroy {
+		resp, err = s.devContainerManager.DestroyDevContainer(ctx, sessionID, query.Get("spec_task_id"))
+	} else {
+		resp, err = s.devContainerManager.DeleteDevContainer(ctx, sessionID)
+	}
 	if err != nil {
 		log.Error().Err(err).
 			Str("session_id", sessionID).
