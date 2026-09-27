@@ -101,7 +101,7 @@ func validateSecretIntakeInput(input *secretIntakeInput) error {
 	if input.AccentColor == "" {
 		input.AccentColor = "#00b8d4"
 	}
-	if !portalAccentPattern.MatchString(input.AccentColor) {
+	if !secretIntakeAccentPattern.MatchString(input.AccentColor) {
 		return errors.New("accent_color must be a six-digit hex color")
 	}
 	if len(input.Fields) == 0 || len(input.Fields) > 8 {
@@ -150,12 +150,12 @@ func (s *HelixAPIServer) createSecretIntake(ctx context.Context, projectID strin
 			return SecretIntakeView{}, "", err
 		}
 	}
-	token, err := portalRandomToken()
+	token, err := secretIntakeRandomToken()
 	if err != nil {
 		return SecretIntakeView{}, "", err
 	}
 	now := time.Now().UTC()
-	item := &types.SecretIntake{ID: "sci_" + system.GenerateUUID(), ProjectID: projectID, CustomerID: input.CustomerID, ConversationID: input.ConversationID, Title: input.Title, Description: input.Description, BrandName: input.BrandName, AccentColor: input.AccentColor, Fields: input.Fields, ArtifactID: input.ArtifactID, ArtifactBefore: artifactBefore, ArtifactAfter: artifactAfter, Status: "pending", InvitationHash: portalHash(token), InvitationExpiresAt: now.Add(portalInvitationTTL), CreatedAt: now, UpdatedAt: now}
+	item := &types.SecretIntake{ID: "sci_" + system.GenerateUUID(), ProjectID: projectID, CustomerID: input.CustomerID, ConversationID: input.ConversationID, Title: input.Title, Description: input.Description, BrandName: input.BrandName, AccentColor: input.AccentColor, Fields: input.Fields, ArtifactID: input.ArtifactID, ArtifactBefore: artifactBefore, ArtifactAfter: artifactAfter, Status: "pending", InvitationHash: secretIntakeHash(token), InvitationExpiresAt: now.Add(secretIntakeInvitationTTL), CreatedAt: now, UpdatedAt: now}
 	if err := s.Store.CreateSecretIntake(ctx, item); err != nil {
 		return SecretIntakeView{}, "", err
 	}
@@ -363,41 +363,41 @@ func (s *HelixAPIServer) secretIntakeFlow(r *http.Request) (*types.SecretIntake,
 	if err != nil || len(cookie.Value) != 43 {
 		return nil, store.ErrNotFound
 	}
-	return s.Store.GetSecretIntakeByFlow(r.Context(), portalHash(cookie.Value), time.Now().UTC())
+	return s.Store.GetSecretIntakeByFlow(r.Context(), secretIntakeHash(cookie.Value), time.Now().UTC())
 }
 
 // @Summary Redeem a secret intake invitation
 // @Description Exchanges a one-time invitation token for a short-lived browser flow cookie.
 // @Tags Secret Intakes
 // @Accept json
-// @Param request body ConnectRedeemRequest true "Invitation token"
+// @Param request body SecretIntakeRedeemRequest true "Invitation token"
 // @Success 204
 // @Failure 410 {object} types.APIError
 // @Router /connect/intake/redeem [post]
 func (s *HelixAPIServer) redeemSecretIntake(w http.ResponseWriter, r *http.Request) {
-	portalPageHeaders(w)
+	secretIntakePageHeaders(w)
 	if !s.secretIntakeEnabled() {
 		http.Error(w, "secret intake is disabled", http.StatusNotImplemented)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 256)
-	var input ConnectRedeemRequest
+	var input SecretIntakeRedeemRequest
 	if json.NewDecoder(r.Body).Decode(&input) != nil || len(input.Token) != 43 {
 		http.Error(w, "invalid invitation", http.StatusBadRequest)
 		return
 	}
-	flow, err := portalRandomToken()
+	flow, err := secretIntakeRandomToken()
 	if err != nil {
 		http.Error(w, "unable to open intake", http.StatusInternalServerError)
 		return
 	}
-	csrf, err := portalRandomToken()
+	csrf, err := secretIntakeRandomToken()
 	if err != nil {
 		http.Error(w, "unable to open intake", http.StatusInternalServerError)
 		return
 	}
 	now := time.Now().UTC()
-	redeemed, err := s.Store.RedeemSecretIntakeInvitation(r.Context(), portalHash(input.Token), portalHash(flow), portalHash(csrf), now, now.Add(portalFlowTTL))
+	redeemed, err := s.Store.RedeemSecretIntakeInvitation(r.Context(), secretIntakeHash(input.Token), secretIntakeHash(flow), secretIntakeHash(csrf), now, now.Add(secretIntakeFlowTTL))
 	if err != nil {
 		http.Error(w, "unable to open intake", http.StatusInternalServerError)
 		return
@@ -407,13 +407,13 @@ func (s *HelixAPIServer) redeemSecretIntake(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	secure := strings.HasPrefix(s.Cfg.WebServer.URL, "https://")
-	http.SetCookie(w, &http.Cookie{Name: secretIntakeCookie, Value: flow, Path: "/connect/intake", HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode, MaxAge: int(portalFlowTTL.Seconds())})
-	http.SetCookie(w, &http.Cookie{Name: secretIntakeCSRFCookie, Value: csrf, Path: "/connect/intake", HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode, MaxAge: int(portalFlowTTL.Seconds())})
+	http.SetCookie(w, &http.Cookie{Name: secretIntakeCookie, Value: flow, Path: "/connect/intake", HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode, MaxAge: int(secretIntakeFlowTTL.Seconds())})
+	http.SetCookie(w, &http.Cookie{Name: secretIntakeCSRFCookie, Value: csrf, Path: "/connect/intake", HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode, MaxAge: int(secretIntakeFlowTTL.Seconds())})
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *HelixAPIServer) submitSecretIntakeForm(w http.ResponseWriter, r *http.Request) {
-	portalPageHeaders(w)
+	secretIntakePageHeaders(w)
 	if !s.secretIntakeEnabled() {
 		http.Error(w, "secret intake is disabled", http.StatusNotImplemented)
 		return
@@ -433,7 +433,7 @@ func (s *HelixAPIServer) submitSecretIntakeForm(w http.ResponseWriter, r *http.R
 		return
 	}
 	csrf, err := r.Cookie(secretIntakeCSRFCookie)
-	if err != nil || portalHash(csrf.Value) != item.CSRFHash || r.PostFormValue("csrf") != csrf.Value {
+	if err != nil || secretIntakeHash(csrf.Value) != item.CSRFHash || r.PostFormValue("csrf") != csrf.Value {
 		http.Error(w, "invalid form", http.StatusForbidden)
 		return
 	}
@@ -468,7 +468,7 @@ var secretIntakeTemplateText string
 var secretIntakePage = template.Must(template.New("secret-intake").Parse(secretIntakeTemplateText))
 
 func (s *HelixAPIServer) serveSecretIntake(w http.ResponseWriter, r *http.Request) {
-	portalPageHeaders(w)
+	secretIntakePageHeaders(w)
 	if !s.secretIntakeEnabled() {
 		http.Error(w, "secret intake is disabled", http.StatusNotImplemented)
 		return
@@ -486,7 +486,7 @@ func (s *HelixAPIServer) serveSecretIntake(w http.ResponseWriter, r *http.Reques
 		data.Stage = secretIntakeStatus(item)
 		if data.Stage == "pending" {
 			csrf, err := r.Cookie(secretIntakeCSRFCookie)
-			if err == nil && portalHash(csrf.Value) == item.CSRFHash {
+			if err == nil && secretIntakeHash(csrf.Value) == item.CSRFHash {
 				data.CSRF = csrf.Value
 			}
 			if data.CSRF == "" {
@@ -499,7 +499,7 @@ func (s *HelixAPIServer) serveSecretIntake(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *HelixAPIServer) secretIntakeBoot(w http.ResponseWriter, r *http.Request) {
-	portalPageHeaders(w)
+	secretIntakePageHeaders(w)
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	_, _ = w.Write([]byte(`(()=>{const token=location.hash.slice(1);if(!token)return;history.replaceState(null,"",location.pathname);const button=document.getElementById("redeem");if(!button)return;button.hidden=false;button.addEventListener("click",async()=>{button.disabled=true;try{const res=await fetch("/connect/intake/redeem",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token}),credentials:"same-origin"});if(!res.ok)throw new Error();location.reload()}catch{document.getElementById("state").textContent="This link is expired or already used.";button.hidden=true}})})();`))
 }

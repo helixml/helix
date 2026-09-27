@@ -228,7 +228,7 @@ var (
 )
 
 type Store interface {
-	ConnectPortalStore
+	SecretIntakeStore
 	//  Auth + Authz
 	CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
 	GetOrganization(ctx context.Context, q *GetOrganizationQuery) (*types.Organization, error)
@@ -1009,24 +1009,9 @@ type Store interface {
 	ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error)
 }
 
-type PortalConnectionStep struct {
-	ID               string
-	ExpectedStatus   types.PortalConnectionStatus
-	Valid            bool
-	SessionEncrypted string
-	Now              time.Time
-	SessionExpiresAt time.Time
-}
-
-// ConnectPortalStore owns the atomic persistence operations used by Connect.
+// SecretIntakeStore owns the atomic persistence operations used by secret intake.
 // The API and MCP layers never receive a database handle.
-type ConnectPortalStore interface {
-	CreatePortalConnectionAttempt(context.Context, *types.PortalConnectionAttempt) error
-	GetPortalConnectionAttempt(context.Context, string, string) (*types.PortalConnectionAttempt, error)
-	GetPortalConnectionAttemptByFlow(context.Context, string, time.Time) (*types.PortalConnectionAttempt, error)
-	RedeemPortalConnectionInvitation(context.Context, string, string, string, time.Time, time.Time) (bool, error)
-	RevokePortalConnectionAttempt(context.Context, string, string) error
-	AdvancePortalConnectionAttempt(context.Context, PortalConnectionStep) (types.PortalConnectionStatus, error)
+type SecretIntakeStore interface {
 	CreateSecretIntake(context.Context, *types.SecretIntake) error
 	GetSecretIntake(context.Context, string, string) (*types.SecretIntake, error)
 	GetSecretIntakeByFlow(context.Context, string, time.Time) (*types.SecretIntake, error)

@@ -14296,195 +14296,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/projects/{id}/portal-connections": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns a one-time connect URL. This endpoint is only available when the mock portal is enabled.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Portal Connections"
-                ],
-                "summary": "Create a mock portal connection invitation",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Project ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Connection request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.PortalConnectionCreateRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/server.PortalConnectionCreateResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/projects/{id}/portal-connections/{connection_id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Portal Connections"
-                ],
-                "summary": "Get a portal connection",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Project ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Connection ID",
-                        "name": "connection_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.PortalConnectionView"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "tags": [
-                    "Portal Connections"
-                ],
-                "summary": "Revoke a portal connection",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Project ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Connection ID",
-                        "name": "connection_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/projects/{id}/portal-connections/{connection_id}/account-status": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns bounded account status without exposing the portal session.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Portal Connections"
-                ],
-                "summary": "Get mock portal account status",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Project ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Connection ID",
-                        "name": "connection_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.PortalAccountStatusResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/projects/{id}/repositories": {
             "get": {
                 "security": [
@@ -24021,41 +23832,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/server.ConnectRedeemRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "410": {
-                        "description": "Gone",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/connect/redeem": {
-            "post": {
-                "description": "Exchanges a one-time invitation token for a short-lived browser flow cookie.",
-                "consumes": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Portal Connections"
-                ],
-                "summary": "Redeem a mock portal invitation",
-                "parameters": [
-                    {
-                        "description": "Invitation token",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.ConnectRedeemRequest"
+                            "$ref": "#/definitions/server.SecretIntakeRedeemRequest"
                         }
                     }
                 ],
@@ -26963,14 +26740,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.ConnectRedeemRequest": {
-            "type": "object",
-            "properties": {
-                "token": {
-                    "type": "string"
-                }
-            }
-        },
         "server.CreateTopUpRequest": {
             "type": "object",
             "properties": {
@@ -28240,80 +28009,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.PortalAccountStatusResponse": {
-            "type": "object",
-            "properties": {
-                "account_status": {
-                    "type": "string"
-                },
-                "customer_id": {
-                    "type": "string"
-                },
-                "portal": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.PortalConnectionCreateRequest": {
-            "type": "object",
-            "properties": {
-                "accent_color": {
-                    "type": "string"
-                },
-                "brand_name": {
-                    "type": "string"
-                },
-                "conversation_id": {
-                    "type": "string"
-                },
-                "customer_id": {
-                    "type": "string"
-                },
-                "portal": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.PortalConnectionCreateResponse": {
-            "type": "object",
-            "properties": {
-                "connection": {
-                    "$ref": "#/definitions/server.PortalConnectionView"
-                },
-                "invite_url": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.PortalConnectionView": {
-            "type": "object",
-            "properties": {
-                "conversation_id": {
-                    "type": "string"
-                },
-                "customer_id": {
-                    "type": "string"
-                },
-                "expires_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "portal": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "session_expires_at": {
-                    "type": "string"
-                },
-                "status": {
-                    "$ref": "#/definitions/types.PortalConnectionStatus"
-                }
-            }
-        },
         "server.ProjectGooseRecipe": {
             "type": "object",
             "properties": {
@@ -28613,6 +28308,14 @@ const docTemplate = `{
                     "$ref": "#/definitions/server.SecretIntakeView"
                 },
                 "invite_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SecretIntakeRedeemRequest": {
+            "type": "object",
+            "properties": {
+                "token": {
                     "type": "string"
                 }
             }
@@ -29428,24 +29131,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "local",
                 "slack",
+                "local",
+                "webhook",
                 "github",
                 "email",
-                "webhook",
+                "helix_events",
                 "gitlab",
-                "cron",
-                "helix_events"
+                "cron"
             ],
             "x-enum-varnames": [
-                "KindLocal",
                 "KindSlack",
+                "KindLocal",
+                "KindWebhook",
                 "KindGitHub",
                 "KindEmail",
-                "KindWebhook",
+                "KindHelixEvents",
                 "KindGitLab",
-                "KindCron",
-                "KindHelixEvents"
+                "KindCron"
             ]
         },
         "transport.ResolvedActivation": {
@@ -36011,25 +35714,6 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
-        },
-        "types.PortalConnectionStatus": {
-            "type": "string",
-            "enum": [
-                "password_pending",
-                "otp_pending",
-                "connected",
-                "failed",
-                "expired",
-                "revoked"
-            ],
-            "x-enum-varnames": [
-                "PortalConnectionPasswordPending",
-                "PortalConnectionOTPPending",
-                "PortalConnectionConnected",
-                "PortalConnectionFailed",
-                "PortalConnectionExpired",
-                "PortalConnectionRevoked"
-            ]
         },
         "types.Pricing": {
             "type": "object",

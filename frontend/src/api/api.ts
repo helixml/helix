@@ -1351,10 +1351,6 @@ export interface ServerConfigurePendingSessionRequest {
   client_unique_id?: string;
 }
 
-export interface ServerConnectRedeemRequest {
-  token?: string;
-}
-
 export interface ServerCreateTopUpRequest {
   amount?: number;
   org_id?: string;
@@ -1847,36 +1843,6 @@ export interface ServerPinnedProjectsResponse {
   pinned_project_ids?: string[];
 }
 
-export interface ServerPortalAccountStatusResponse {
-  account_status?: string;
-  customer_id?: string;
-  portal?: string;
-}
-
-export interface ServerPortalConnectionCreateRequest {
-  accent_color?: string;
-  brand_name?: string;
-  conversation_id?: string;
-  customer_id?: string;
-  portal?: string;
-}
-
-export interface ServerPortalConnectionCreateResponse {
-  connection?: ServerPortalConnectionView;
-  invite_url?: string;
-}
-
-export interface ServerPortalConnectionView {
-  conversation_id?: string;
-  customer_id?: string;
-  expires_at?: string;
-  id?: string;
-  portal?: string;
-  project_id?: string;
-  session_expires_at?: string;
-  status?: TypesPortalConnectionStatus;
-}
-
 export interface ServerProjectGooseRecipe {
   description?: string;
   /**
@@ -2031,6 +1997,10 @@ export interface ServerSandboxTerminalSessionsResponse {
 export interface ServerSecretIntakeCreateResponse {
   intake?: ServerSecretIntakeView;
   invite_url?: string;
+}
+
+export interface ServerSecretIntakeRedeemRequest {
+  token?: string;
 }
 
 export interface ServerSecretIntakeSubmissionRequest {
@@ -5409,15 +5379,6 @@ export interface TypesPinnedChat {
   kind?: string;
   pinned_at?: string;
   project_id?: string;
-}
-
-export enum TypesPortalConnectionStatus {
-  PortalConnectionPasswordPending = "password_pending",
-  PortalConnectionOTPPending = "otp_pending",
-  PortalConnectionConnected = "connected",
-  PortalConnectionFailed = "failed",
-  PortalConnectionExpired = "expired",
-  PortalConnectionRevoked = "revoked",
 }
 
 export interface TypesPricing {
@@ -16210,83 +16171,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns a one-time connect URL. This endpoint is only available when the mock portal is enabled.
-     *
-     * @tags Portal Connections
-     * @name V1ProjectsPortalConnectionsCreate
-     * @summary Create a mock portal connection invitation
-     * @request POST:/api/v1/projects/{id}/portal-connections
-     * @secure
-     */
-    v1ProjectsPortalConnectionsCreate: (
-      id: string,
-      request: ServerPortalConnectionCreateRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<ServerPortalConnectionCreateResponse, TypesAPIError>({
-        path: `/api/v1/projects/${id}/portal-connections`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags Portal Connections
-     * @name V1ProjectsPortalConnectionsDelete
-     * @summary Revoke a portal connection
-     * @request DELETE:/api/v1/projects/{id}/portal-connections/{connection_id}
-     * @secure
-     */
-    v1ProjectsPortalConnectionsDelete: (id: string, connectionId: string, params: RequestParams = {}) =>
-      this.request<void, TypesAPIError>({
-        path: `/api/v1/projects/${id}/portal-connections/${connectionId}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags Portal Connections
-     * @name V1ProjectsPortalConnectionsDetail
-     * @summary Get a portal connection
-     * @request GET:/api/v1/projects/{id}/portal-connections/{connection_id}
-     * @secure
-     */
-    v1ProjectsPortalConnectionsDetail: (id: string, connectionId: string, params: RequestParams = {}) =>
-      this.request<ServerPortalConnectionView, TypesAPIError>({
-        path: `/api/v1/projects/${id}/portal-connections/${connectionId}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Returns bounded account status without exposing the portal session.
-     *
-     * @tags Portal Connections
-     * @name V1ProjectsPortalConnectionsAccountStatusDetail
-     * @summary Get mock portal account status
-     * @request GET:/api/v1/projects/{id}/portal-connections/{connection_id}/account-status
-     * @secure
-     */
-    v1ProjectsPortalConnectionsAccountStatusDetail: (id: string, connectionId: string, params: RequestParams = {}) =>
-      this.request<ServerPortalAccountStatusResponse, TypesAPIError>({
-        path: `/api/v1/projects/${id}/portal-connections/${connectionId}/account-status`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Get all repositories attached to a project
      *
      * @tags Projects
@@ -20475,26 +20359,9 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Redeem a secret intake invitation
      * @request POST:/connect/intake/redeem
      */
-    intakeRedeemCreate: (request: ServerConnectRedeemRequest, params: RequestParams = {}) =>
+    intakeRedeemCreate: (request: ServerSecretIntakeRedeemRequest, params: RequestParams = {}) =>
       this.request<void, TypesAPIError>({
         path: `/connect/intake/redeem`,
-        method: "POST",
-        body: request,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Exchanges a one-time invitation token for a short-lived browser flow cookie.
-     *
-     * @tags Portal Connections
-     * @name RedeemCreate
-     * @summary Redeem a mock portal invitation
-     * @request POST:/connect/redeem
-     */
-    redeemCreate: (request: ServerConnectRedeemRequest, params: RequestParams = {}) =>
-      this.request<void, TypesAPIError>({
-        path: `/connect/redeem`,
         method: "POST",
         body: request,
         type: ContentType.Json,

@@ -250,8 +250,8 @@ func NewServer(
 	gitRepositoryService *services.GitRepositoryService,
 	preInitKodit *KoditResult,
 ) (*HelixAPIServer, error) {
-	if (cfg.ConnectPortal.MockEnabled || cfg.ConnectPortal.SecretIntakeEnabled) && os.Getenv("HELIX_ENCRYPTION_KEY") == "" {
-		return nil, fmt.Errorf("HELIX_ENCRYPTION_KEY is required when a credential intake feature is enabled")
+	if cfg.ConnectPortal.SecretIntakeEnabled && os.Getenv("HELIX_ENCRYPTION_KEY") == "" {
+		return nil, fmt.Errorf("HELIX_ENCRYPTION_KEY is required when secret intake is enabled")
 	}
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -1591,7 +1591,6 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	router.Handle("/artifacts/{artifact_id}/download", artifactDownloadHandler).Methods(http.MethodGet, http.MethodHead)
 	artifactViewerHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.getArtifactViewer))
 	insecureRouter.Handle("/public/artifacts/{artifact_id}", artifactViewerHandler).Methods(http.MethodGet)
-	apiServer.registerPortalConnectionRoutes(router, authRouter)
 	apiServer.registerSecretIntakeRoutes(router, authRouter)
 
 	// Set a custom NotFoundHandler for /api/v1/ routes to log unknown paths

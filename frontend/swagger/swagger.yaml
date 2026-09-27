@@ -2036,11 +2036,6 @@ definitions:
       client_unique_id:
         type: string
     type: object
-  server.ConnectRedeemRequest:
-    properties:
-      token:
-        type: string
-    type: object
   server.CreateTopUpRequest:
     properties:
       amount:
@@ -2874,54 +2869,6 @@ definitions:
           type: string
         type: array
     type: object
-  server.PortalAccountStatusResponse:
-    properties:
-      account_status:
-        type: string
-      customer_id:
-        type: string
-      portal:
-        type: string
-    type: object
-  server.PortalConnectionCreateRequest:
-    properties:
-      accent_color:
-        type: string
-      brand_name:
-        type: string
-      conversation_id:
-        type: string
-      customer_id:
-        type: string
-      portal:
-        type: string
-    type: object
-  server.PortalConnectionCreateResponse:
-    properties:
-      connection:
-        $ref: '#/definitions/server.PortalConnectionView'
-      invite_url:
-        type: string
-    type: object
-  server.PortalConnectionView:
-    properties:
-      conversation_id:
-        type: string
-      customer_id:
-        type: string
-      expires_at:
-        type: string
-      id:
-        type: string
-      portal:
-        type: string
-      project_id:
-        type: string
-      session_expires_at:
-        type: string
-      status:
-        $ref: '#/definitions/types.PortalConnectionStatus'
-    type: object
   server.ProjectGooseRecipe:
     properties:
       description:
@@ -3150,6 +3097,11 @@ definitions:
       intake:
         $ref: '#/definitions/server.SecretIntakeView'
       invite_url:
+        type: string
+    type: object
+  server.SecretIntakeRedeemRequest:
+    properties:
+      token:
         type: string
     type: object
   server.SecretIntakeSubmissionRequest:
@@ -3739,24 +3691,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - local
     - slack
+    - local
+    - webhook
     - github
     - email
-    - webhook
+    - helix_events
     - gitlab
     - cron
-    - helix_events
     type: string
     x-enum-varnames:
-    - KindLocal
     - KindSlack
+    - KindLocal
+    - KindWebhook
     - KindGitHub
     - KindEmail
-    - KindWebhook
+    - KindHelixEvents
     - KindGitLab
     - KindCron
-    - KindHelixEvents
   transport.ResolvedActivation:
     properties:
       address:
@@ -8591,22 +8543,6 @@ definitions:
       project_id:
         type: string
     type: object
-  types.PortalConnectionStatus:
-    enum:
-    - password_pending
-    - otp_pending
-    - connected
-    - failed
-    - expired
-    - revoked
-    type: string
-    x-enum-varnames:
-    - PortalConnectionPasswordPending
-    - PortalConnectionOTPPending
-    - PortalConnectionConnected
-    - PortalConnectionFailed
-    - PortalConnectionExpired
-    - PortalConnectionRevoked
   types.Pricing:
     properties:
       audio:
@@ -23725,127 +23661,6 @@ paths:
       summary: Pin a project
       tags:
       - Projects
-  /api/v1/projects/{id}/portal-connections:
-    post:
-      consumes:
-      - application/json
-      description: Returns a one-time connect URL. This endpoint is only available
-        when the mock portal is enabled.
-      parameters:
-      - description: Project ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Connection request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.PortalConnectionCreateRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/server.PortalConnectionCreateResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Create a mock portal connection invitation
-      tags:
-      - Portal Connections
-  /api/v1/projects/{id}/portal-connections/{connection_id}:
-    delete:
-      parameters:
-      - description: Project ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Connection ID
-        in: path
-        name: connection_id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Revoke a portal connection
-      tags:
-      - Portal Connections
-    get:
-      parameters:
-      - description: Project ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Connection ID
-        in: path
-        name: connection_id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.PortalConnectionView'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Get a portal connection
-      tags:
-      - Portal Connections
-  /api/v1/projects/{id}/portal-connections/{connection_id}/account-status:
-    get:
-      description: Returns bounded account status without exposing the portal session.
-      parameters:
-      - description: Project ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Connection ID
-        in: path
-        name: connection_id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.PortalAccountStatusResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Get mock portal account status
-      tags:
-      - Portal Connections
   /api/v1/projects/{id}/repositories:
     get:
       consumes:
@@ -30116,7 +29931,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/server.ConnectRedeemRequest'
+          $ref: '#/definitions/server.SecretIntakeRedeemRequest'
       responses:
         "204":
           description: No Content
@@ -30127,29 +29942,6 @@ paths:
       summary: Redeem a secret intake invitation
       tags:
       - Secret Intakes
-  /connect/redeem:
-    post:
-      consumes:
-      - application/json
-      description: Exchanges a one-time invitation token for a short-lived browser
-        flow cookie.
-      parameters:
-      - description: Invitation token
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.ConnectRedeemRequest'
-      responses:
-        "204":
-          description: No Content
-        "410":
-          description: Gone
-          schema:
-            $ref: '#/definitions/types.APIError'
-      summary: Redeem a mock portal invitation
-      tags:
-      - Portal Connections
   /v1/chat/completions:
     post:
       description: Creates a model response for the given chat conversation.

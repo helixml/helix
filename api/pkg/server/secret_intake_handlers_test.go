@@ -18,14 +18,13 @@ import (
 
 func secretIntakeTestServer(t *testing.T) *HelixAPIServer {
 	t.Helper()
-	s, db := portalTestServer(t)
-	require.NoError(t, db.AutoMigrate(&types.SecretIntake{}))
+	s, _ := newSecretIntakeTestServer(t)
 	s.Cfg.ConnectPortal.SecretIntakeEnabled = true
 	return s
 }
 
 func intakeOperatorRequest(method, path, body, projectID, intakeID string) *http.Request {
-	r := portalOperatorRequest(method, path, body, projectID, "")
+	r := intakeAuthenticatedRequest(method, path, body, projectID, "")
 	return mux.SetURLVars(r, map[string]string{"id": projectID, "intake_id": intakeID})
 }
 
@@ -39,26 +38,26 @@ func TestSecretIntakeBrowserAndConsumption(t *testing.T) {
 	token := strings.Split(link, "#")[1]
 	redeemInput, _ := json.Marshal(map[string]string{"token": token})
 	redeem := httptest.NewRecorder()
-	s.redeemSecretIntake(redeem, portalRequest(http.MethodPost, "/connect/intake/redeem", string(redeemInput)))
+	s.redeemSecretIntake(redeem, intakeRequest(http.MethodPost, "/connect/intake/redeem", string(redeemInput)))
 	require.Equal(t, http.StatusNoContent, redeem.Code)
 	cookies := redeem.Result().Cookies()
 	require.Len(t, cookies, 2)
 	require.True(t, cookies[0].HttpOnly)
 	replay := httptest.NewRecorder()
-	s.redeemSecretIntake(replay, portalRequest(http.MethodPost, "/connect/intake/redeem", string(redeemInput)))
+	s.redeemSecretIntake(replay, intakeRequest(http.MethodPost, "/connect/intake/redeem", string(redeemInput)))
 	require.Equal(t, http.StatusGone, replay.Code)
 	page := httptest.NewRecorder()
-	s.serveSecretIntake(page, portalRequest(http.MethodGet, "/connect/intake", "", cookies...))
+	s.serveSecretIntake(page, intakeRequest(http.MethodGet, "/connect/intake", "", cookies...))
 	require.Equal(t, http.StatusOK, page.Code)
 	require.Contains(t, page.Body.String(), `name="password"`)
 	require.Contains(t, page.Body.String(), `type="password"`)
 	require.NotContains(t, page.Body.String(), token)
 	bad := httptest.NewRecorder()
-	s.submitSecretIntakeForm(bad, portalRequest(http.MethodPost, "/connect/intake/submit", "csrf=bad&username=alice&password=secret", cookies...))
+	s.submitSecretIntakeForm(bad, intakeRequest(http.MethodPost, "/connect/intake/submit", "csrf=bad&username=alice&password=secret", cookies...))
 	require.Equal(t, http.StatusForbidden, bad.Code)
 	form := url.Values{"csrf": {cookies[1].Value}, "username": {"alice"}, "password": {"secret-123"}}
 	submit := httptest.NewRecorder()
-	request := portalRequest(http.MethodPost, "/connect/intake/submit", form.Encode(), cookies...)
+	request := intakeRequest(http.MethodPost, "/connect/intake/submit", form.Encode(), cookies...)
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	s.submitSecretIntakeForm(submit, request)
 	require.Equal(t, http.StatusSeeOther, submit.Code)

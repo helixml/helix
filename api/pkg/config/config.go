@@ -154,7 +154,6 @@ type ServerConfig struct {
 }
 
 type ConnectPortalConfig struct {
-	MockEnabled         bool `envconfig:"HELIX_PORTAL_MOCK_ENABLED" default:"false"`
 	SecretIntakeEnabled bool `envconfig:"HELIX_SECRET_INTAKE_ENABLED" default:"false"`
 }
 

@@ -10,7 +10,7 @@ HELIX_ENCRYPTION_KEY=<deployment-specific secret>
 SERVER_URL=https://<browser-reachable-helix-origin>
 ```
 
-The link uses the configured `SERVER_URL`, which must be HTTPS except for loopback development. The encryption key is required at startup. Submitted values are encrypted at rest, available to trusted backend code for one hour, and then cleared by a minute-interval reaper. Consuming or revoking clears ciphertext immediately. The mock portal API remains separately gated by `HELIX_PORTAL_MOCK_ENABLED`.
+The link uses the configured `SERVER_URL`, which must be HTTPS except for loopback development. The encryption key is required at startup. Submitted values are encrypted at rest, available to trusted backend code for one hour, and then cleared by a minute-interval reaper. Consuming or revoking clears ciphertext immediately.
 
 ## Project API
 
@@ -76,4 +76,4 @@ Set `artifact_id` in the create request to use a single-file HTML Artifact from 
 
 Helix snapshots the artifact at invitation creation, strips scripts, styles, attributes, external media, and artifact-supplied form controls, then inserts its own form at the placeholder. Safe static headings, paragraphs, emphasis, and lists are retained. The artifact cannot choose the input names, read entered values, or change the form destination. Use `brand_name` and `accent_color` for supported white-label styling. Updating an artifact changes future invitations; it does not alter already issued forms. This constrained rendering is intentional because ordinary Artifacts can contain agent-authored JavaScript and are not trusted to handle credentials.
 
-For the first proposed website login connector, see the [Meydan customer portal design](../design/2026-09-26-meydan-connector-handoff.md) and [Connect hardening review](../design/2026-09-26-connect-prior-art-and-hardening.md). They scope the prototype to a personal account and read-only operations. The connector still needs server-derived customer binding, an attempt-linked intake, a recoverable internal handoff, and session custody before real portal credentials are used. The current direct submission endpoint is for trusted server backends with project Update access; a third-party form should receive only a short-lived submit-only capability in a future implementation.
+For a website login connector, the trusted backend still needs to bind the intake to an authenticated customer and connection attempt, hand it to a worker reliably, and keep the resulting website session outside the model. The direct submission endpoint is for trusted backends with project Update access.
