@@ -105,6 +105,7 @@ func (apiServer *HelixAPIServer) reapplyTurnErrorAfterSilence(sessionID, interac
 // commitTurnError performs the state transition and the crash/auto-restart
 // bookkeeping that follows a terminal turn error.
 func (apiServer *HelixAPIServer) commitTurnError(ctx context.Context, interaction *types.Interaction, errorMsg string) {
+	wasWaiting := interaction.State == types.InteractionStateWaiting
 	// When a subscription-mode Claude Code session aborts with the generic ACP
 	// mid-turn message, the real cause is often an invalid subscription token
 	// (401) that Zed only logs. Re-probe the owner's subscription and, if it is
@@ -131,6 +132,8 @@ func (apiServer *HelixAPIServer) commitTurnError(ctx context.Context, interactio
 		log.Warn().Err(err).
 			Str("interaction_id", interaction.ID).
 			Msg("[TURN] Failed to persist turn error")
+	} else if wasWaiting {
+		apiServer.enqueueBotInstanceChatFailure(ctx, interaction)
 	}
 	apiServer.failRunningTriggerExecution(interaction.SessionID, errorMsg)
 

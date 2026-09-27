@@ -244,47 +244,42 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 # ====================================================================
 # DeepSeek Harness (dsh) ACP server
 # ====================================================================
-# Unlike every other harness we ship, upstream's product CLI (`dsh web`,
-# `dsh --profile …`) has NO acp subcommand: the Agent Client Protocol server
-# is a separate cordis composition published as @deepseek-ai/dsh-acp-demo,
-# whose bin speaks JSON-RPC on stdio. So this stage installs that bin plus the
-# leaf plugins the composition names (LLM adapter, sandbox, bash, filesystem,
-# approval, compaction, tools), and the runtime copies the tree wholesale.
+# Upstream's `dsh` launcher serves ACP on stdio as its shipped `acp` profile
+# (dsh-base + dsh-acp-app); desktop/shared/dsh/helix.patch.yml layers the Helix
+# LLM route and sandbox policy on top. This stage installs the launcher with
+# every plugin the shipped profiles name, and the runtime copies the tree
+# wholesale.
 #
 # The stage's Node major must match the runtime image's (Node 24, installed
-# from nodesource below). node-pty is compiled here, and a native module built
-# against one NODE_MODULE_VERSION will not load under another; within a major
-# that value is stable, so a patch-level drift between the two is fine.
+# from nodesource below): native modules built or selected for one
+# NODE_MODULE_VERSION will not load under another.
 #
-# Version pinning is a committed lockfile, not a version string. Naming exact
-# versions here is NOT enough: dsh-acp-demo pulls its plugin set in as *peer*
-# dependencies, which npm resolves by range (`^0.1.0-rc.6`), so a newly
-# published rc drifts in underneath the pins and collides with them — exactly
-# what happened when upstream cut rc.7 mid-build. desktop/shared/dsh/
-# package.json + package-lock.json pin the whole 181-package tree, peers
-# included, and `npm ci` installs it byte-for-byte or fails.
+# Version pinning is a committed lockfile, not a version string: plugins
+# depend on each other by range, so a newly published rc would otherwise
+# drift in underneath the pin. desktop/shared/dsh/package.json +
+# package-lock.json pin the whole tree and `npm ci` installs it byte-for-byte
+# or fails.
 #
-# To move dsh: edit the versions in package.json, run `npm install` in that
-# directory to refresh the lock, and re-test the composition. Upstream is in
-# developer preview and states there WILL be compatibility-breaking changes,
-# so treat every bump as a change that needs a live turn to verify.
+# To move dsh: edit the version in package.json, run `npm install` in that
+# directory to refresh the lock, check `dsh --profile acp --patch
+# helix.patch.yml --dump-config`, and verify a live turn with MCP tools.
+# Upstream is in developer preview and states there WILL be
+# compatibility-breaking changes.
 FROM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS dsh-build
 WORKDIR /opt/helix/dsh
-# node-pty is a hard dependency of dsh-subprocess-local (the bash executor's
-# process plumbing) and publishes no prebuild for Node 24, so it is compiled
-# from source here. This is the whole reason dsh gets a build stage rather than
-# a plain npm install in the runtime image: the toolchain stays here and only
-# the resulting node_modules tree is copied out.
+# node-pty (the bash executor's process plumbing) may need compiling when no
+# prebuild matches, so the toolchain lives in this stage and only the resulting
+# node_modules tree is copied out.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends build-essential python3 && \
     rm -rf /var/lib/apt/lists/*
 COPY desktop/shared/dsh/package.json desktop/shared/dsh/package-lock.json ./
 RUN <<_INSTALL_DSH
 set -eu
-echo "=== Installing DeepSeek Harness ACP server ==="
+echo "=== Installing DeepSeek Harness ==="
 npm ci --no-audit --no-fund --omit=dev
 npm cache clean --force > /dev/null 2>&1 || true
-node -p "'dsh-acp-demo ' + require('@deepseek-ai/dsh-acp-demo/package.json').version" > version
+node -p "'dsh ' + require('@deepseek-ai/dsh/package.json').version" > version
 cat version
 _INSTALL_DSH
 
@@ -1055,9 +1050,14 @@ RUN mkdir -p /etc/skel/.config/google-chrome && \
 # logs then show `chrome-devtools context server failed to start: Context
 # server request timeout` (180s). Going via the global binary avoids npx
 # entirely and removes the contention.
-RUN npm install -g \
+#
+# HOME is /home/retro here, so root-run npm would leave a root-owned
+# ~/.npm cache and every later `npm install` by the agent fails with EACCES.
+# Build-time installs use a throwaway cache instead.
+RUN npm_config_cache=/tmp/npm-build-cache npm install -g \
         chrome-devtools-mcp@0.25.0 \
         @modelcontextprotocol/server-github@2025.4.8 \
+    && rm -rf /tmp/npm-build-cache \
     && fc-cache -f -v
 
 # URL capture script for Claude Code OAuth login flow.
@@ -1080,7 +1080,7 @@ RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-codex-aut
 # Build and pack the package, then install globally from the tarball
 COPY mcp-servers/drone-ci/package.json mcp-servers/drone-ci/package-lock.json mcp-servers/drone-ci/tsconfig.json /tmp/drone-ci-mcp/
 COPY mcp-servers/drone-ci/src /tmp/drone-ci-mcp/src/
-RUN cd /tmp/drone-ci-mcp && npm install && npm run build && npm pack && npm install -g helix-drone-ci-mcp-*.tgz && rm -rf /tmp/drone-ci-mcp
+RUN export npm_config_cache=/tmp/npm-build-cache && cd /tmp/drone-ci-mcp && npm install && npm run build && npm pack && npm install -g helix-drone-ci-mcp-*.tgz && rm -rf /tmp/drone-ci-mcp /tmp/npm-build-cache
 
 # Chrome MCP server configuration for headless mode
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
@@ -1408,20 +1408,39 @@ chown -R retro:retro /opt/helix/agent-cache
 OPENCODE_SMOKE_HOME="$(mktemp -d)"
 HOME="${OPENCODE_SMOKE_HOME}" /usr/local/bin/opencode --version
 rm -r "${OPENCODE_SMOKE_HOME}"
+# On first start opencode npm-installs its plugin SDK (@opencode-ai/plugin,
+# pinned to its own version) into its config directory: a ~10s registry
+# download every fresh sandbox paid before its first turn, and one that
+# cannot succeed air-gapped. Install it here into the config home
+# settings-sync-daemon points opencode at (OpenCodeConfigHome), as the agent
+# user, so first start finds it and skips the install. Data, cache, state and
+# npm's own cache go to a throwaway directory so nothing else lands in ~.
+OPENCODE_PREWARM="$(mktemp -d)"
+chown retro:retro "${OPENCODE_PREWARM}"
+runuser -u retro -- env HOME=/home/retro \
+  XDG_CONFIG_HOME=/home/retro/.config/helix-opencode \
+  XDG_DATA_HOME="${OPENCODE_PREWARM}/data" \
+  XDG_CACHE_HOME="${OPENCODE_PREWARM}/cache" \
+  XDG_STATE_HOME="${OPENCODE_PREWARM}/state" \
+  npm_config_cache="${OPENCODE_PREWARM}/npm" \
+  OPENCODE_CONFIG_CONTENT='{"autoupdate":false,"plugin":["file:///opt/helix/opencode-plugins/helix-media-budget.mjs"]}' \
+  /usr/local/bin/opencode debug config > /dev/null
+test -f "/home/retro/.config/helix-opencode/opencode/node_modules/@opencode-ai/plugin/package.json"
+rm -r "${OPENCODE_PREWARM}"
 _INSTALL_OPENCODE
 
 # DeepSeek Harness (dsh) ACP agent server, built in the dsh-build stage above.
 # Installed root-owned for the same reason as opencode: the agent user must not
-# be able to overwrite its own runtime. The composition and the wrapper are
-# repo files rather than heredocs so they are reviewable and testable outside
-# the image.
+# be able to overwrite its own runtime. The patch and the wrapper are repo
+# files rather than heredocs so they are reviewable and testable outside the
+# image.
 COPY --from=dsh-build --chown=root:root /opt/helix/dsh /opt/helix/dsh
-ADD --chown=root:root desktop/shared/dsh/cordis.yml /opt/helix/dsh/cordis.yml
+ADD --chown=root:root desktop/shared/dsh/helix.patch.yml /opt/helix/dsh/helix.patch.yml
 ADD --chown=root:root desktop/shared/dsh/dsh-acp /usr/local/bin/dsh-acp
 RUN <<_INSTALL_DSH_RUNTIME
 set -eu
 chmod 755 /usr/local/bin/dsh-acp
-# $DSH_HOME (skills, credentials) and the JSONL session log are written at
+# $DSH_HOME (profile, skills, credentials) and the JSONL session log are written at
 # runtime under paths settings-sync-daemon owns; nothing under /opt/helix/dsh
 # is written to after this point.
 chmod -R go-w /opt/helix/dsh
@@ -1429,6 +1448,14 @@ echo "=== DeepSeek Harness $(cat /opt/helix/dsh/version) on $(node --version) ==
 # Fails the build if the runtime Node cannot load the natively-compiled
 # node-pty from the build stage — the one thing a Node major bump would break.
 node -e "require('/opt/helix/dsh/node_modules/node-pty'); console.log('node-pty OK')"
+# Fails the build if the Helix patch no longer composes over the shipped
+# profile (a row id renamed or removed by a dsh bump). --dump-config reports
+# an unmatched entry on stderr but still exits 0, so stderr is the verdict.
+DSH_SMOKE_HOME="$(mktemp -d)"
+DSH_SMOKE_ERR="$(DSH_HOME="${DSH_SMOKE_HOME}" node /opt/helix/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js \
+  --profile acp --patch /opt/helix/dsh/helix.patch.yml --dump-config 2>&1 > /dev/null)"
+rm -r "${DSH_SMOKE_HOME}"
+if [ -n "${DSH_SMOKE_ERR}" ]; then echo "${DSH_SMOKE_ERR}" >&2; exit 1; fi
 _INSTALL_DSH_RUNTIME
 
 # Helix agent skills (github.com/helixml/skills).

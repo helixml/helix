@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/attachments"
 	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/instances"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/messages"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
@@ -123,6 +124,9 @@ type Deps struct {
 	// nil → stopBotAgent returns 501.
 	BotDesktopStopper BotDesktopStopper
 	BotConfigApplier  BotConfigApplier
+	// BotInstances manages Bot instances. nil → the /instances routes
+	// return 501.
+	BotInstances instances.Manager
 
 	// GitHubInbound builds the inbound GitHub-webhook handler for an org
 	// (the transport reads matching triggers + appends events). Built at
@@ -350,6 +354,9 @@ func Routes(deps Deps) []Route {
 		{Pattern: "POST /bots/{id}/stop", Handler: http.HandlerFunc(a.stopBot)},
 		{Pattern: "POST /bots/{id}/restart", Handler: http.HandlerFunc(a.restartBot)},
 		{Pattern: "POST /bots/{id}/apply-config", Handler: http.HandlerFunc(a.applyBotConfig)},
+		{Pattern: "GET /bots/{id}/instances", Handler: http.HandlerFunc(a.listBotInstances)},
+		{Pattern: "POST /bots/{id}/instances", Handler: http.HandlerFunc(a.createBotInstance)},
+		{Pattern: "DELETE /bots/{id}/instances/{session_id}", Handler: http.HandlerFunc(a.deleteBotInstance)},
 		// Reporting lines are many-to-many — add/remove individual
 		// manager edges rather than replacing a single parent.
 		{Pattern: "POST /bots/{id}/parents", Handler: http.HandlerFunc(a.addBotParent)},
@@ -460,8 +467,10 @@ func errStatus(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, store.ErrConflict):
 		return http.StatusConflict
-	case errors.Is(err, nodes.ErrUnknownTool):
+	case errors.Is(err, nodes.ErrUnknownTool), errors.Is(err, nodes.ErrInvalidInstanceProfile), errors.Is(err, instances.ErrInvalidRequest):
 		return http.StatusBadRequest
+	case errors.Is(err, instances.ErrForbidden):
+		return http.StatusForbidden
 	default:
 		return http.StatusInternalServerError
 	}

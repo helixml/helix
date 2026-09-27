@@ -6,6 +6,7 @@ import OrgAgentSessionWorkspace, { botSandboxIndicatorState } from './OrgAgentSe
 
 const mocks = vi.hoisted(() => ({
   isBigScreen: true,
+  resizedTo: vi.fn(),
 }))
 
 vi.mock('../../hooks/useIsBigScreen', () => ({ default: () => mocks.isBigScreen }))
@@ -27,20 +28,36 @@ vi.mock('../tasks/SpecTaskTerminalDrawer', () => ({
   default: ({ sessionId }: { sessionId: string }) => <div>Terminal for {sessionId}</div>,
 }))
 vi.mock('./OrgAgentSettingsPane', () => ({
-  default: ({ sessionId }: { sessionId: string }) => <div>Settings for {sessionId}</div>,
+  default: ({ sessionId, bot, instance }: { sessionId: string; bot: { id: string }; instance?: { runtime?: string } }) => (
+    <div>Settings for {sessionId} of {bot.id}{instance ? ` as instance (${instance.runtime})` : ''}</div>
+  ),
+}))
+vi.mock('../session/SubagentsPanel', () => ({
+  default: ({ interactions }: { interactions: readonly unknown[] }) => <div>Subagents from {interactions.length} interactions</div>,
 }))
 vi.mock('react-resizable-panels', () => ({
-  Group: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  Panel: ({ children, panelRef }: {
+  Group: ({ children, defaultLayout, onLayoutChange }: {
+    children: ReactNode
+    defaultLayout: Record<string, number>
+    onLayoutChange: (layout: Record<string, number>) => void
+  }) => <div data-testid="workspace-layout" data-layout={JSON.stringify(defaultLayout)}>
+    <button onClick={() => onLayoutChange({
+      'org-agent-session-chat': 45,
+      'org-agent-session-desktop': 55,
+    })}>Simulate split resize</button>
+    {children}
+  </div>,
+  Panel: ({ children, panelRef, onResize }: {
     children: ReactNode
     panelRef?: { current: unknown }
+    onResize?: (size: { asPercentage: number }) => void
   }) => {
     if (panelRef) {
       panelRef.current = {
-        getSize: () => ({ asPercentage: 62 }),
-        collapse: () => {},
-        expand: () => {},
-        resize: () => {},
+        getSize: () => ({ asPercentage: 55 }),
+        collapse: () => onResize?.({ asPercentage: 0 }),
+        expand: () => onResize?.({ asPercentage: 55 }),
+        resize: (size: string) => mocks.resizedTo(size),
       }
     }
     return <div>{children}</div>
@@ -58,6 +75,7 @@ const runningBot = {
 describe('OrgAgentSessionWorkspace', () => {
   beforeEach(() => {
     mocks.isBigScreen = true
+    mocks.resizedTo.mockReset()
     localStorage.clear()
   })
 
@@ -91,6 +109,59 @@ describe('OrgAgentSessionWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Restore split view' }))
     expect(screen.getByText('Session chat')).toBeInTheDocument()
+  })
+
+  it('restores the closed task panel and its last expanded width after switching chats', () => {
+    const first = render(
+      <OrgAgentSessionWorkspace sessionId="session-one" organizationId="acme">
+        <div>First chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Simulate split resize' }))
+    expect(JSON.parse(localStorage.getItem('helix.orgAgentSession.layout.acme') || '{}'))
+      .toEqual({ 'org-agent-session-chat': 45, 'org-agent-session-desktop': 55 })
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse task panel' }))
+    expect(localStorage.getItem('helix.orgAgentSession.contentCollapsed.acme')).toBe('true')
+    first.unmount()
+
+    render(
+      <OrgAgentSessionWorkspace sessionId="session-two" organizationId="acme">
+        <div>Second chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    expect(screen.getByTestId('workspace-layout')).toHaveAttribute('data-layout', JSON.stringify({
+      'org-agent-session-chat': 100,
+      'org-agent-session-desktop': 0,
+    }))
+    expect(screen.getByRole('button', { name: 'Show task panel' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show task panel' }))
+    expect(mocks.resizedTo).toHaveBeenLastCalledWith('55%')
+    expect(localStorage.getItem('helix.orgAgentSession.contentCollapsed.acme')).toBe('false')
+  })
+
+  it('restores chat and terminal visibility after switching chats', () => {
+    const first = render(
+      <OrgAgentSessionWorkspace sessionId="session-one" organizationId="acme">
+        <div>First chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /terminal/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse chat panel' }))
+    first.unmount()
+
+    render(
+      <OrgAgentSessionWorkspace sessionId="session-two" organizationId="acme">
+        <div>Second chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    expect(screen.getByRole('button', { name: 'Restore split view' })).toBeInTheDocument()
+    expect(screen.getByText('Terminal for session-two')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Restore split view' }))
+    expect(screen.getByText('Second chat')).toBeInTheDocument()
+    expect(localStorage.getItem('helix.orgAgentSession.chatCollapsed.acme')).toBe('false')
   })
 
   it('lets smaller screens switch between chat and desktop', () => {
@@ -128,7 +199,42 @@ describe('OrgAgentSessionWorkspace', () => {
     expect(screen.getByText('Browser for session-three')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /settings view/i }))
-    expect(screen.getByText('Settings for session-three')).toBeInTheDocument()
+    expect(screen.getByText('Settings for session-three of b-eng')).toBeInTheDocument()
+  })
+
+  it('shows subagents in the agents view instead of the desktop', () => {
+    render(
+      <OrgAgentSessionWorkspace
+        sessionId="session-agents"
+        organizationId="acme"
+        bot={runningBot as any}
+        subagentInteractions={[{ id: 'int-1' }, { id: 'int-2' }] as any}
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /agents view/i }))
+    expect(screen.getByText('Subagents from 2 interactions')).toBeInTheDocument()
+    expect(screen.queryByText('Desktop for session-agents')).toBeNull()
+  })
+
+  // An instance has no bot of its own lifecycle, but its Settings view shows
+  // the bot it belongs to, described as an instance.
+  it('shows the parent bot settings for a bot instance', () => {
+    render(
+      <OrgAgentSessionWorkspace
+        sessionId="session-instance"
+        organizationId="acme"
+        sessionSandbox={{ runtime: 'headless-ubuntu', state: 'running' }}
+        instanceOf={runningBot as any}
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /settings view/i }))
+    expect(screen.getByText('Settings for session-instance of b-eng as instance (headless-ubuntu)')).toBeInTheDocument()
   })
 
   it('hides the desktop for a headless bot and opens on the diff view', () => {

@@ -235,7 +235,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			want: &types.CodeAgentConfig{
 				AgentName:        "claude",
-				Model:            "claude-opus-5",
+				Model:            "claude-opus-5-5",
 				Runtime:          types.CodeAgentRuntimeClaudeCode,
 				UsesSubscription: true,
 			},
@@ -264,7 +264,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			want: &types.CodeAgentConfig{
 				AgentName:        "claude",
-				Model:            "claude-opus-5",
+				Model:            "claude-opus-5-5",
 				Runtime:          types.CodeAgentRuntimeClaudeCode,
 				UsesSubscription: true,
 			},
@@ -391,6 +391,21 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			want: &types.CodeAgentConfig{
 				Provider: "deepseek", Model: "deepseek/deepseek-v4-pro", AgentName: "dsh",
 				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeDeepSeekHarness,
+			},
+		},
+		{
+			// Without its own case goose fell through to the zed-agent
+			// default, so chats ran Zed's native agent while the daemon
+			// configured an unused "goose" agent_server.
+			name: "goose_code routes to the goose agent_server",
+			assistant: &types.AssistantConfig{
+				Provider:         "openai",
+				Model:            "gpt-5.2",
+				CodeAgentRuntime: types.CodeAgentRuntimeGooseCode,
+			},
+			want: &types.CodeAgentConfig{
+				Provider: "openai", Model: "openai/gpt-5.2", AgentName: "goose",
+				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeGooseCode,
 			},
 		},
 		{

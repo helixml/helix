@@ -68,6 +68,15 @@ describe("splitSystemPrefix", () => {
     expect(result.label).toBeNull();
   });
 
+  it("collapses the real implementation prompt as 'approval' even though it carries an Original Request block", () => {
+    const message =
+      "## CURRENT PHASE: IMPLEMENTATION\n\nYou are now in the IMPLEMENTATION phase.\n\n# Design Approved - Begin Implementation\n\n**Original Request:**\n> Add a file PATH1.md at the repository root.";
+    const result = splitSystemPrefix(message);
+    expect(result.kind).toBe("approval");
+    expect(result.label).toBeNull();
+    expect(result.userText).toBe("");
+  });
+
   it("does not collapse approval-style text that appears mid-message", () => {
     const message =
       "I was reading the docs and saw\n\n## CURRENT PHASE: IMPLEMENTATION\n\nwhat does that mean?";
@@ -77,14 +86,17 @@ describe("splitSystemPrefix", () => {
     expect(result.userText).toBe(message);
   });
 
-  it("user-request marker wins over approval anchor if both somehow appear (user-request is checked first)", () => {
-    // Defensive: if a message contains both, the user-request split path
-    // wins because it carries an explicit user body. Approval is the
-    // pure-system fallback.
+  it("approval anchor wins over a user-request marker when both appear", () => {
+    // The real post-approval prompt contains BOTH: it opens with the
+    // implementation heading and carries an "**Original Request:**" block
+    // restating the user's ask. Letting the user-request split win there
+    // labelled the implementation prompt "Planning Instructions" — the
+    // opposite phase. The leading heading is the authoritative signal.
     const message =
       "## CURRENT PHASE: IMPLEMENTATION something\n\n**User Request:**\nhello";
     const result = splitSystemPrefix(message);
-    expect(result.kind).toBe("user-request");
-    expect(result.userText).toBe("hello");
+    expect(result.kind).toBe("approval");
+    expect(result.prefix).toBe(message);
+    expect(result.userText).toBe("");
   });
 });

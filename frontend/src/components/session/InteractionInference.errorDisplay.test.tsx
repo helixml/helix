@@ -1,7 +1,12 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InteractionInference } from "./InteractionInference";
+
+const { navigate, wallet } = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  wallet: { balance: 0 },
+}));
 
 // Only the chrome around the error block matters here, so the heavy content
 // renderers are stubbed out. The error block itself is the real thing.
@@ -21,14 +26,20 @@ vi.mock("../../hooks/useAccount", () => ({
   default: () => ({ user: { id: "usr_1" }, admin: false, serverConfig: {} }),
 }));
 vi.mock("../../hooks/useRouter", () => ({
-  default: () => ({ navigate: vi.fn(), params: {} }),
+  default: () => ({ navigate, params: { org_id: "org_1" } }),
 }));
 vi.mock("../../services/interactionsService", () => ({
   useUpdateInteractionFeedback: () => ({ updateFeedback: vi.fn() }),
 }));
+vi.mock("../../services/useBilling", () => ({
+  useGetWallet: () => ({ data: wallet }),
+}));
 
 const baseProps = {
-  serverConfig: { filestore_prefix: "/api/v1/filestore" } as any,
+  serverConfig: {
+    filestore_prefix: "/api/v1/filestore",
+    minimum_inference_balance: 0.01,
+  } as any,
   session: { id: "ses_1" } as any,
   interaction: { id: "int_1", prompt_message: "Do the work" } as any,
   isFromAssistant: true,
@@ -36,15 +47,84 @@ const baseProps = {
 };
 
 describe("InteractionInference error display", () => {
-  it("offers Retry while the failure is the latest thing that happened", () => {
+  beforeEach(() => {
+    wallet.balance = 0;
+    navigate.mockClear();
+  });
+
+  it("offers Add credits instead of Retry when the balance is empty", () => {
     render(
-      <InteractionInference {...baseProps} error="agent turn aborted" />,
+      <InteractionInference
+        {...baseProps}
+        error="agent turn aborted: insufficient balance"
+      />,
     );
 
     expect(
-      screen.getByText(/The system has encountered an error/),
+      screen.getByText("More credits needed"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Your organization doesn’t have enough credits. Add credits to continue.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("agent turn aborted: insufficient balance"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Retry/i }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add credits" }));
+    expect(navigate).toHaveBeenCalledWith("org_billing", { org_id: "org_1" });
+  });
+
+  it("offers Retry once credits are available", () => {
+    wallet.balance = 5;
+
+    render(
+      <InteractionInference
+        {...baseProps}
+        error="agent turn aborted: insufficient balance"
+      />,
+    );
+
     expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
+    expect(
+      screen.getByText("Credits are available now. Retry to continue."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add credits" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps Add credits visible below the minimum inference balance", () => {
+    wallet.balance = 0.005;
+
+    render(
+      <InteractionInference
+        {...baseProps}
+        error="agent turn aborted: insufficient balance"
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /Retry/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Add credits" }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not offer credits for unrelated failures", () => {
+    render(<InteractionInference {...baseProps} error="agent turn timed out" />);
+
+    expect(
+      screen.getByText("We couldn’t complete that request"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("agent turn timed out")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add credits" }),
+    ).not.toBeInTheDocument();
   });
 
   it("withholds Retry once the session has recovered", () => {
@@ -60,14 +140,16 @@ describe("InteractionInference error display", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
     expect(
-      screen.queryByText(/The system has encountered an error/),
+      screen.queryByRole("button", { name: /Retry/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("We couldn’t complete that request"),
     ).not.toBeInTheDocument();
     // Not erased, though: the turn did fail and its work was abandoned.
     expect(
       screen.getByText(/This turn was interrupted and did not finish/),
     ).toBeInTheDocument();
-    expect(screen.getByText("view the details")).toBeInTheDocument();
+    expect(screen.getByText("agent turn aborted")).toBeInTheDocument();
   });
 });

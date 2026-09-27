@@ -721,7 +721,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List organizations with server-side pagination and name search",
+                "description": "List organizations with server-side pagination and name or owner email search",
                 "tags": [
                     "organizations"
                 ],
@@ -741,7 +741,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Search organization display name or name",
+                        "description": "Search organization display name, name, or owner email",
                         "name": "query",
                         "in": "query"
                     }
@@ -11382,6 +11382,140 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/bots/{id}/instances": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list a bot's instances",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.BotInstanceDTO"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create a bot instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Instance",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateBotInstanceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotInstanceDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/instances/{session_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a bot instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Instance session ID",
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots/{id}/parents": {
             "post": {
                 "security": [
@@ -19300,6 +19434,37 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Spend, tokens, latency and prompt-cache hit ratio of one session, overall, per turn and per LLM call.",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get a session's LLM usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionUsage"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/workspace-status": {
             "get": {
                 "security": [
@@ -23795,6 +23960,14 @@
                 "id": {
                     "type": "string"
                 },
+                "instance_profile": {
+                    "description": "InstanceProfile is the effective profile of this Bot's instances (the\ndefault when the Bot never configured one).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BotInstanceProfile"
+                        }
+                    ]
+                },
                 "legacy_app_id": {
                     "type": "string"
                 },
@@ -23891,6 +24064,36 @@
                 }
             }
         },
+        "api.BotInstanceDTO": {
+            "type": "object",
+            "properties": {
+                "bot_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "sandbox_runtime": {
+                    "$ref": "#/definitions/types.SandboxRuntime"
+                },
+                "sandbox_status": {
+                    "description": "SandboxStatus is the sandbox's external agent status: \"\" (stopped),\n\"starting\", \"running\", \"restarting\", \"terminated_idle\" …",
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "api.ChartPositionDTO": {
             "type": "object",
             "properties": {
@@ -23937,6 +24140,26 @@
                 },
                 "server": {
                     "$ref": "#/definitions/api.ServerAssetWriteRequest"
+                }
+            }
+        },
+        "api.CreateBotInstanceRequest": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Message is queued as the instance's first turn.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime overrides the Bot's instance profile runtime:\n\"headless-ubuntu\" or \"ubuntu-desktop\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
                 }
             }
         },
@@ -24553,6 +24776,14 @@
                 },
                 "content": {
                     "type": "string"
+                },
+                "instance_profile": {
+                    "description": "InstanceProfile replaces the profile of the Bot's instances. It applies\nto new instances and to existing ones on their next sandbox start.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BotInstanceProfile"
+                        }
+                    ]
                 },
                 "model": {
                     "type": "string"
@@ -28598,23 +28829,23 @@
             "type": "string",
             "enum": [
                 "gitlab",
-                "local",
-                "slack",
-                "cron",
-                "email",
                 "webhook",
+                "local",
+                "cron",
                 "github",
-                "helix_events"
+                "helix_events",
+                "slack",
+                "email"
             ],
             "x-enum-varnames": [
                 "KindGitLab",
-                "KindLocal",
-                "KindSlack",
-                "KindCron",
-                "KindEmail",
                 "KindWebhook",
+                "KindLocal",
+                "KindCron",
                 "KindGitHub",
-                "KindHelixEvents"
+                "KindHelixEvents",
+                "KindSlack",
+                "KindEmail"
             ]
         },
         "transport.ResolvedActivation": {
@@ -28675,13 +28906,15 @@
                 "",
                 "api",
                 "app",
-                "embed"
+                "embed",
+                "bot_instance"
             ],
             "x-enum-varnames": [
                 "APIkeytypeNone",
                 "APIkeytypeAPI",
                 "APIkeytypeApp",
-                "APIkeytypeEmbed"
+                "APIkeytypeEmbed",
+                "APIkeytypeBotInstance"
             ]
         },
         "types.AccessGrant": {
@@ -29508,7 +29741,7 @@
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
                 "claude_subscription_model": {
-                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\n\"claude-opus-5\" (the current 1M-context Opus model).",
+                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\n\"claude-opus-5-5\" (the current 1M-context Opus model).",
                     "type": "string"
                 },
                 "code_agent_credential_type": {
@@ -30218,6 +30451,37 @@
             "properties": {
                 "wip_limits": {
                     "$ref": "#/definitions/types.WIPLimits"
+                }
+            }
+        },
+        "types.BotInstanceProfile": {
+            "type": "object",
+            "properties": {
+                "helix_skills": {
+                    "description": "HelixSkills links the helix-* agent skills. The project repo's own\nskills are always linked.",
+                    "type": "boolean"
+                },
+                "mcp_servers": {
+                    "description": "MCPServers lists the context servers kept in an instance's agent\nconfig: built-in names above or the bot project's own MCP servers.\nEvery other server is removed.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sandbox_runtime": {
+                    "description": "SandboxRuntime is the default runtime for new instances. Empty means the\nbot's own runtime.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
+                "tools": {
+                    "description": "Tools lists the helix-org tools an instance may call. The served set is\nTools ∩ the bot's own tools. Empty removes the org tools server.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -33632,6 +33896,9 @@
                         "type": "integer"
                     }
                 },
+                "request_id": {
+                    "type": "string"
+                },
                 "response": {
                     "type": "array",
                     "items": {
@@ -34568,7 +34835,7 @@
                 "members": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/types.User"
+                        "$ref": "#/definitions/types.OrganizationMembership"
                     }
                 },
                 "organization": {
@@ -36603,6 +36870,13 @@
                         "type": "string"
                     }
                 },
+                "responses_only": {
+                    "description": "ResponsesOnly lists values accepted on /v1/responses but rejected on\n/v1/chat/completions. They are not in Supported: only a harness that\nspeaks the Responses API may offer them.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "source": {
                     "description": "Source is how this entry was established.",
                     "allOf": [
@@ -37581,6 +37855,10 @@
                     "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited. Note: /config is unauthenticated, so this is the\nFree-tier floor; real enforcement uses the resolved per-user/per-org cap.",
                     "type": "integer"
                 },
+                "minimum_inference_balance": {
+                    "description": "Minimum wallet balance required for inference",
+                    "type": "number"
+                },
                 "onboarding_helix_model": {
                     "type": "string"
                 },
@@ -38179,6 +38457,13 @@
                         "type": "string"
                     }
                 },
+                "agent_config_applied_at": {
+                    "description": "AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop\nsettings-sync daemon's /agent-config-applied callback for the most recent\nin-place switch. They are the explicit \"the fast hot-reload path worked\"\nsignal that agentSwitchRestartFallback consults instead of deciding purely\non a timer — without them a confirmed-applied config was still restarted\n5s later, killing Zed mid-new_session().\n\nAgentHandoffDeliveredAt is only set when the handoff actually reached a\nlive connection; a callback with nothing delivered is not evidence the\nturn is moving. Persisted (not an in-memory map) so it is correct when the\ncallback lands on a different API replica than the fallback goroutine.",
+                    "type": "string"
+                },
+                "agent_handoff_delivered_at": {
+                    "type": "string"
+                },
                 "agent_switched_at": {
                     "description": "AgentSwitchedAt is set when the agent framework is switched IN PLACE on\nthis same session (no fork / new container) — see\ndesign/tasks/002111_so-we-recently-added-a/design.md. It marks that a\nfork_seed interaction carrying the prior thread's transcript exists on\nTHIS session, so maybePrependTranscript seeds the new Zed thread even\nthough ParentSessionID is empty (the session continues from itself).",
                     "type": "string"
@@ -38219,6 +38504,14 @@
                 },
                 "avatar": {
                     "type": "string"
+                },
+                "bot_instance": {
+                    "description": "BotInstance is set on org bot instance sessions (SessionRole\nSessionRoleOrgBotInstance): the bot's instance profile as of the last\nsync, which shapes the instance's MCP servers, org tools and skills.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BotInstanceProfile"
+                        }
+                    ]
                 },
                 "callback_url": {
                     "description": "Webhook URL to POST on session completion",
@@ -38622,6 +38915,158 @@
                 "SessionTypeText",
                 "SessionTypeImage"
             ]
+        },
+        "types.SessionUsage": {
+            "type": "object",
+            "properties": {
+                "calls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionUsageCall"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "summary": {
+                    "$ref": "#/definitions/types.SessionUsageSummary"
+                },
+                "truncated": {
+                    "description": "Truncated is set when the session has more calls than the endpoint returns;\nthe summary then covers only the returned calls.",
+                    "type": "boolean"
+                },
+                "turns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionUsageTurn"
+                    }
+                }
+            }
+        },
+        "types.SessionUsageCall": {
+            "type": "object",
+            "properties": {
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "time_to_first_token_ms": {
+                    "type": "integer"
+                },
+                "total_cost": {
+                    "type": "number"
+                }
+            }
+        },
+        "types.SessionUsageSummary": {
+            "type": "object",
+            "properties": {
+                "cache_hit_ratio": {
+                    "description": "CacheHitRatio is cache-read / prompt tokens; nil when there were no prompt tokens.",
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
+                "calls": {
+                    "type": "integer"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "duration_p50_ms": {
+                    "type": "integer"
+                },
+                "duration_p90_ms": {
+                    "type": "integer"
+                },
+                "llm_ms": {
+                    "description": "LLMMs is the summed duration of the calls (calls can overlap, so this can exceed wall time).",
+                    "type": "integer"
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "total_cost": {
+                    "type": "number"
+                },
+                "ttft_p50_ms": {
+                    "type": "integer"
+                },
+                "ttft_p90_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SessionUsageTurn": {
+            "type": "object",
+            "properties": {
+                "cache_hit_ratio": {
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "calls": {
+                    "type": "integer"
+                },
+                "completed": {
+                    "type": "string"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "llm_ms": {
+                    "type": "integer"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "started": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "total_cost": {
+                    "type": "number"
+                }
+            }
         },
         "types.SkillDefinition": {
             "type": "object",

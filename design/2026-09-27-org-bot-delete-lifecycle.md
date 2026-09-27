@@ -37,6 +37,7 @@ What an Org Bot creates over its life, and what `DELETE /api/v1/orgs/{org}/bots/
 | Agent App + knowledge rows | lifecycle Create | Deleted |
 | NATS consumer + queued activations | agent delivery | Deleted |
 | Running activation | agent delivery | **Cancelled; delete waits for it (≤30s)** |
+| Bot instances (`org_bot_instance` sessions) | instances API / MCP | **Destroyed** (sandbox + host data) and session rows deleted, before the project |
 | Bot project | `WorkerProject.Ensure` | Soft-deleted (no restore path exists) |
 | Every desktop of the project (bot session, inline forks, task sessions, soft-deleted sessions) | spawner / spec tasks | **Destroyed**: container, `docker-data-<ses>`, zvol, file-copy dir, workspace, `/data/sessions/<ses>`, paused screenshot, session API keys |
 | Spec-task workspaces of the project's tasks | hydra executor | **Destroyed** |
@@ -58,7 +59,10 @@ period, because sessions and tasks of deleted projects are no longer live.
 finds containers by `helix.session_id` label or legacy name even when hydra
 isn't tracking them, and removes every on-host resource. IDs are validated as
 single path elements with the expected prefix. Executor entry point:
-`Executor.DestroyDesktop(ctx, sessionID, specTaskID)`.
+`Executor.DestroyDesktop(ctx, sessionID, specTaskID)`. It replaces the
+workspace-only `DeleteWorkspace` / `DELETE …/workspace` route that bot
+instance delete used: that path left `/data/sessions/<ses>`, inner Docker
+data, and the paused screenshot its own stop wrote.
 
 Verified live on the dev sandbox with fixture sessions: a plain stop of an
 untracked, exited session left container, volume, and dirs; destroy removed all

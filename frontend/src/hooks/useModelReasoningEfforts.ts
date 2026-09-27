@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 
+import { TypesCodeAgentRuntime, TypesReasoningEffortProfile } from '../api/api'
 import useRouter from './useRouter'
 import { useGetOrgByName } from '../services/orgService'
 import { useListProviders } from '../services/providersService'
@@ -15,10 +16,24 @@ import { useListProviders } from '../services/providersService'
  * aborts the agent's turn, so callers should narrow their options to this set
  * when it is present and leave them alone when it is not.
  *
+ * `runtime` matters because some values (max on GPT-5.6/GPT-6) are accepted only
+ * by /v1/responses. Codex is the only harness that calls it; every other harness
+ * uses /v1/chat/completions.
+ *
  * Shares the providers query cache with CodeAgentConfigPicker, so this adds no
  * extra request.
  */
-export function useModelReasoningEfforts(modelId?: string): string[] | undefined {
+export function effortsForRuntime(
+  profile: TypesReasoningEffortProfile | undefined,
+  runtime: string,
+): string[] | undefined {
+  const supported = profile?.supported
+  if (!supported || supported.length === 0) return undefined
+  if (runtime !== TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI) return supported
+  return [...supported, ...(profile.responses_only || [])]
+}
+
+export function useModelReasoningEfforts(modelId: string | undefined, runtime: string): string[] | undefined {
   const router = useRouter()
   const orgName = router.params.org_id
   const { data: org, isLoading: loadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
@@ -35,14 +50,14 @@ export function useModelReasoningEfforts(modelId?: string): string[] | undefined
     for (const provider of providers) {
       for (const model of provider.available_models || []) {
         if (model.id !== modelId) continue
-        const supported = model.reasoning_efforts?.supported
-        if (supported && supported.length > 0) return supported
+        const efforts = effortsForRuntime(model.reasoning_efforts, runtime)
+        if (efforts) return efforts
       }
     }
     return undefined
     // orgId is a primitive that changes the provider set; providers is the
     // query result this reads from.
-  }, [modelId, providers, orgId])
+  }, [modelId, runtime, providers, orgId])
 }
 
 export default useModelReasoningEfforts

@@ -698,6 +698,7 @@ export default function Onboarding() {
           router.navigateReplace("org_bot_session", {
             org_id: createdOrg.name,
             bot_id: "chief-of-staff",
+            intro: "1",
           });
         } else {
           router.navigateReplace("org_projects", {

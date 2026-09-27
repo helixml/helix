@@ -181,6 +181,8 @@ generic "agent turn aborted" in the UI.
 | Model | Accepts | **Rejects** | Default |
 |---|---|---|---|
 | `qwen3.8-27b` | `none`, `low`, `medium`, `xhigh` | **`high`**, `max`, `minimal` | `xhigh` |
+| `qwen3.8-flash-next` | `low`, `medium`, `xhigh` | **`high`**, `max`, `minimal` | `xhigh` |
+| `glm-5.3-flash` | *(none — every value accepted and ignored)* | — | — |
 | `deepseek-v4-flash` / `-pro` | `high`, `xhigh` | — | `high` |
 | Claude Opus 5 / 4.8 / 4.7, Sonnet 5, Fable 5 | `low`…`max` incl. `xhigh` | — | `high` |
 | Claude Opus 4.6 / Sonnet 4.6 | `low`, `medium`, `high`, `max` | **`xhigh`** | `high` |
@@ -202,7 +204,7 @@ suffixed builds (`deepseek-v4-flash-0731`, `qwen3.8-27b-instruct`, `provider/mod
 resolve without their own row. Adding a model is a data edit — append a profile, no code
 change. It reaches the frontend two ways:
 
-- `types.OpenAIModel.ReasoningEfforts` on `/v1/provider-endpoints?load_models=true` —
+- `types.OpenAIModel.ReasoningEfforts` on `/v1/provider-endpoints?with_models=true` —
   deliberately **separate from `ModelInfo`**, because a non-nil `ModelInfo` is what the
   Anthropic proxy and usage handlers read as "this model is priceable". Self-hosted models
   have effort profiles but no pricing entry, so the two must not be conflated.
@@ -363,6 +365,26 @@ Anything under `api/pkg/org/` is the org-graph runtime (Workers, Positions, Role
 - **Complete a user action in as few steps as possible.** A tool should do the whole of what the user means by one action, not force a chain of follow-up calls. `create_bot`, for example, grants the new Bot its initial tools AND subscribes it to the topics named at creation — in one call — because a manager creating a Bot almost always wants it tooled-up and listening immediately. Prefer bulk arguments (arrays) over one-at-a-time calls for the same reason. This supersedes the older "no workflow in code / `Role.Streams` stays prompt-driven" rule: creation-time subscription is a supported convenience, not forbidden orchestration. Keep the *implementation* DRY — `create_bot` reuses the same `subscriptions.Subscribe` use case the standalone `subscribe` tool calls; it does not reimplement it. Structural derivation still holds: `Bot.Tools` is the live MCP surface, and editing it changes the Bot's capability. When reviewing a tool, ask: "does this complete the user's intent, reusing existing use cases, without hiding a decision the agent should make?"
 - **Social enforcement first.** A Worker reads scope from its prompt and complies. Reach for hard enforcement only when the cost of a violation is high.
 - **Keep the core generic.** Tool definitions and scope shapes live with the tool, not in the registry, server, or domain layer. New tools must be addable without editing the core.
+
+## Worktrees
+
+Clear merged worktrees before creating a new one and after your PR merges:
+
+```bash
+scripts/prune-merged-worktrees.sh           # dry run: what would go, and why the rest stays
+scripts/prune-merged-worktrees.sh --apply
+```
+
+It removes a worktree only when its branch is merged into `origin/main` (or GitHub has a
+merged PR for it — squash merges leave no ancestor link), it has no uncommitted or untracked
+changes, and none of its commits are missing from the remote. Detached HEADs and T3 Code
+worktrees (`~/.t3/worktrees`) are never touched; root-owned build output (`api/tmp/` from
+air in containers) is removed through a throwaway container. Create worktrees as
+`~/worktrees/helix-<topic>` — not under `/tmp` (tmpfs; entries go stale) or `~/.cache`.
+
+A full host disk breaks the dev stack in a non-obvious way: Hydra refuses to start sandboxes
+below 2% free (`hydra API error (status 507) … disk space critically low` in the API log), and
+chats only report "external agent not ready" after 5 minutes.
 
 ## Dev Environment (Helix-in-Helix)
 

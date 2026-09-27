@@ -117,6 +117,11 @@ export interface ApiBotDTO {
   effective_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   effective_sandbox_runtime?: TypesSandboxRuntime;
   id?: string;
+  /**
+   * InstanceProfile is the effective profile of this Bot's instances (the
+   * default when the Bot never configured one).
+   */
+  instance_profile?: TypesBotInstanceProfile;
   legacy_app_id?: string;
   model?: string;
   /**
@@ -180,6 +185,21 @@ export interface ApiBotDetailDTO {
   project_id?: string;
 }
 
+export interface ApiBotInstanceDTO {
+  bot_id?: string;
+  created_at?: string;
+  name?: string;
+  owner?: string;
+  sandbox_runtime?: TypesSandboxRuntime;
+  /**
+   * SandboxStatus is the sandbox's external agent status: "" (stopped),
+   * "starting", "running", "restarting", "terminated_idle" …
+   */
+  sandbox_status?: string;
+  session_id?: string;
+  updated_at?: string;
+}
+
 export interface ApiChartPositionDTO {
   id?: string;
   /** Kind is bot | topic | processor | asset (matches the ReactFlow node id prefix). */
@@ -198,6 +218,17 @@ export interface ApiCreateAssetRequest {
   name?: string;
   notes_for_bots?: string;
   server?: ApiServerAssetWriteRequest;
+}
+
+export interface ApiCreateBotInstanceRequest {
+  /** Message is queued as the instance's first turn. */
+  message?: string;
+  name?: string;
+  /**
+   * SandboxRuntime overrides the Bot's instance profile runtime:
+   * "headless-ubuntu" or "ubuntu-desktop".
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
 }
 
 export interface ApiCreateBotRequest {
@@ -498,6 +529,11 @@ export interface ApiUpdateBotRequest {
   code_agent_credential_type?: TypesCodeAgentCredentialType;
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
+  /**
+   * InstanceProfile replaces the profile of the Bot's instances. It applies
+   * to new instances and to existing ones on their next sandbox start.
+   */
+  instance_profile?: TypesBotInstanceProfile;
   model?: string;
   name?: string;
   preserve_context?: boolean;
@@ -2322,13 +2358,13 @@ export enum TransportFieldType {
 
 export enum TransportKind {
   KindGitLab = "gitlab",
-  KindLocal = "local",
-  KindSlack = "slack",
-  KindCron = "cron",
-  KindEmail = "email",
   KindWebhook = "webhook",
+  KindLocal = "local",
+  KindCron = "cron",
   KindGitHub = "github",
   KindHelixEvents = "helix_events",
+  KindSlack = "slack",
+  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -2358,6 +2394,7 @@ export enum TypesAPIKeyType {
   APIkeytypeAPI = "api",
   APIkeytypeApp = "app",
   APIkeytypeEmbed = "embed",
+  APIkeytypeBotInstance = "bot_instance",
 }
 
 export interface TypesAccessGrant {
@@ -2697,7 +2734,7 @@ export interface TypesAssistantConfig {
    * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
    * which the claude-agent-acp package reads (resolveModelPreference) to pick the
    * model — otherwise Claude Code defaults to Sonnet. Empty means
-   * "claude-opus-5" (the current 1M-context Opus model).
+   * "claude-opus-5-5" (the current 1M-context Opus model).
    */
   claude_subscription_model?: string;
   /**
@@ -3050,6 +3087,30 @@ export interface TypesBitbucket {
 
 export interface TypesBoardSettings {
   wip_limits?: TypesWIPLimits;
+}
+
+export interface TypesBotInstanceProfile {
+  /**
+   * HelixSkills links the helix-* agent skills. The project repo's own
+   * skills are always linked.
+   */
+  helix_skills?: boolean;
+  /**
+   * MCPServers lists the context servers kept in an instance's agent
+   * config: built-in names above or the bot project's own MCP servers.
+   * Every other server is removed.
+   */
+  mcp_servers?: string[];
+  /**
+   * SandboxRuntime is the default runtime for new instances. Empty means the
+   * bot's own runtime.
+   */
+  sandbox_runtime?: TypesSandboxRuntime;
+  /**
+   * Tools lists the helix-org tools an instance may call. The served set is
+   * Tools ∩ the bot's own tools. Empty removes the org tools server.
+   */
+  tools?: string[];
 }
 
 export enum TypesBranchMode {
@@ -4667,6 +4728,7 @@ export interface TypesLLMCall {
   prompt_tokens?: number;
   provider?: string;
   request?: number[];
+  request_id?: string;
   response?: number[];
   session_id?: string;
   spec_task_id?: string;
@@ -5080,7 +5142,7 @@ export interface TypesOrgComputeUsage {
 }
 
 export interface TypesOrgDetails {
-  members?: TypesUser[];
+  members?: TypesOrganizationMembership[];
   organization?: TypesOrganization;
   projects?: TypesProject[];
   wallet?: TypesWallet;
@@ -5974,6 +6036,12 @@ export interface TypesReasoningEffortProfile {
    * ones abort a turn.
    */
   rejected?: string[];
+  /**
+   * ResponsesOnly lists values accepted on /v1/responses but rejected on
+   * /v1/chat/completions. They are not in Supported: only a harness that
+   * speaks the Responses API may offer them.
+   */
+  responses_only?: string[];
   /** Source is how this entry was established. */
   source?: TypesEffortSource;
   /** Supported lists the values the model accepts and acts on. */
@@ -6515,6 +6583,8 @@ export interface TypesServerConfigForFrontend {
    * Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
    */
   max_concurrent_desktops?: number;
+  /** Minimum wallet balance required for inference */
+  minimum_inference_balance?: number;
   onboarding_helix_model?: string;
   onboarding_helix_model_effort?: string;
   /**
@@ -6806,6 +6876,21 @@ export interface TypesSessionInfo {
 export interface TypesSessionMetadata {
   active_tools?: string[];
   /**
+   * AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop
+   * settings-sync daemon's /agent-config-applied callback for the most recent
+   * in-place switch. They are the explicit "the fast hot-reload path worked"
+   * signal that agentSwitchRestartFallback consults instead of deciding purely
+   * on a timer — without them a confirmed-applied config was still restarted
+   * 5s later, killing Zed mid-new_session().
+   *
+   * AgentHandoffDeliveredAt is only set when the handoff actually reached a
+   * live connection; a callback with nothing delivered is not evidence the
+   * turn is moving. Persisted (not an in-memory map) so it is correct when the
+   * callback lands on a different API replica than the fallback goroutine.
+   */
+  agent_config_applied_at?: string;
+  agent_handoff_delivered_at?: string;
+  /**
    * AgentSwitchedAt is set when the agent framework is switched IN PLACE on
    * this same session (no fork / new container) — see
    * design/tasks/002111_so-we-recently-added-a/design.md. It marks that a
@@ -6840,6 +6925,12 @@ export interface TypesSessionMetadata {
    */
   auto_restart_on_crash?: boolean;
   avatar?: string;
+  /**
+   * BotInstance is set on org bot instance sessions (SessionRole
+   * SessionRoleOrgBotInstance): the bot's instance profile as of the last
+   * sync, which shapes the instance's MCP servers, org tools and skills.
+   */
+  bot_instance?: TypesBotInstanceProfile;
   /** Webhook URL to POST on session completion */
   callback_url?: string;
   /**
@@ -7043,6 +7134,64 @@ export enum TypesSessionType {
   SessionTypeNone = "",
   SessionTypeText = "text",
   SessionTypeImage = "image",
+}
+
+export interface TypesSessionUsage {
+  calls?: TypesSessionUsageCall[];
+  session_id?: string;
+  summary?: TypesSessionUsageSummary;
+  /**
+   * Truncated is set when the session has more calls than the endpoint returns;
+   * the summary then covers only the returned calls.
+   */
+  truncated?: boolean;
+  turns?: TypesSessionUsageTurn[];
+}
+
+export interface TypesSessionUsageCall {
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  completion_tokens?: number;
+  created?: string;
+  duration_ms?: number;
+  interaction_id?: string;
+  model?: string;
+  prompt_tokens?: number;
+  time_to_first_token_ms?: number;
+  total_cost?: number;
+}
+
+export interface TypesSessionUsageSummary {
+  /** CacheHitRatio is cache-read / prompt tokens; nil when there were no prompt tokens. */
+  cache_hit_ratio?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  calls?: number;
+  completion_tokens?: number;
+  duration_p50_ms?: number;
+  duration_p90_ms?: number;
+  /** LLMMs is the summed duration of the calls (calls can overlap, so this can exceed wall time). */
+  llm_ms?: number;
+  models?: string[];
+  prompt_tokens?: number;
+  total_cost?: number;
+  ttft_p50_ms?: number;
+  ttft_p90_ms?: number;
+}
+
+export interface TypesSessionUsageTurn {
+  cache_hit_ratio?: number;
+  cache_read_tokens?: number;
+  calls?: number;
+  completed?: string;
+  completion_tokens?: number;
+  interaction_id?: string;
+  llm_ms?: number;
+  prompt?: string;
+  prompt_tokens?: number;
+  started?: string;
+  state?: string;
+  total_cost?: number;
 }
 
 export interface TypesSkillDefinition {
@@ -9417,7 +9566,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List organizations with server-side pagination and name search
+     * @description List organizations with server-side pagination and name or owner email search
      *
      * @tags organizations
      * @name V1AdminOrgsList
@@ -9431,7 +9580,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         page?: number;
         /** Organizations per page (default: 25, max: 100) */
         per_page?: number;
-        /** Search organization display name or name */
+        /** Search organization display name, name, or owner email */
         query?: string;
       },
       params: RequestParams = {},
@@ -14712,6 +14861,64 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsBotsInstancesDetail
+     * @summary Helix-org: list a bot's instances
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/instances
+     * @secure
+     */
+    v1OrgsBotsInstancesDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotInstanceDTO[], ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/instances`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsInstancesCreate
+     * @summary Helix-org: create a bot instance
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/instances
+     * @secure
+     */
+    v1OrgsBotsInstancesCreate: (
+      id: string,
+      org: string,
+      request: ApiCreateBotInstanceRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiBotInstanceDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/instances`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsInstancesDelete
+     * @summary Helix-org: delete a bot instance
+     * @request DELETE:/api/v1/orgs/{org}/bots/{id}/instances/{session_id}
+     * @secure
+     */
+    v1OrgsBotsInstancesDelete: (id: string, sessionId: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/instances/${sessionId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsBotsParentsCreate
      * @summary Helix-org: add a bot reporting line (manager)
      * @request POST:/api/v1/orgs/{org}/bots/{id}/parents
@@ -18179,6 +18386,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Spend, tokens, latency and prompt-cache hit ratio of one session, overall, per turn and per LLM call.
+     *
+     * @tags sessions
+     * @name V1SessionsUsageDetail
+     * @summary Get a session's LLM usage
+     * @request GET:/api/v1/sessions/{id}/usage
+     * @secure
+     */
+    v1SessionsUsageDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSessionUsage, any>({
+        path: `/api/v1/sessions/${id}/usage`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 

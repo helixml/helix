@@ -59,7 +59,7 @@ func TestMaterializeClaudeSubscriptionModelDefaultsToOpus(t *testing.T) {
 
 	got, err := MaterializeCodeAgentConfig(app, nil)
 	require.NoError(t, err)
-	require.Equal(t, "claude-opus-5", got.Model)
+	require.Equal(t, "claude-opus-5-5", got.Model)
 }
 
 func TestApplyCodeAgentExecutionConfigPreservesAgentBehavior(t *testing.T) {

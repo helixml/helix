@@ -95,6 +95,10 @@ func OwnerBotTools() []tool.Name {
 		StartBotName,
 		StopBotName,
 		RestartBotName,
+		// Bot instances: extra sessions with a bot's identity.
+		CreateBotInstanceName,
+		ListBotInstancesName,
+		DeleteBotInstanceName,
 		// Standalone Sandboxes API lifecycle for the organization.
 		ListSandboxRuntimesName,
 		ListSandboxesName,

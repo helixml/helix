@@ -1059,6 +1059,9 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	if req.RootlessContainerEngine && req.Privileged {
 		return nil, fmt.Errorf("rootless container engine cannot run in privileged mode")
 	}
+	if req.BrowserSandbox && (req.Privileged || req.RootlessContainerEngine) {
+		return nil, fmt.Errorf("browser sandbox is for unprivileged containers without a container engine")
+	}
 	if !usesIsolatedSandboxNetwork(req.Network) {
 		return nil, fmt.Errorf("unsupported sandbox network %q", req.Network)
 	}
@@ -1108,6 +1111,13 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 			hostConfig.ReadonlyPaths = []string{}
 		} else {
 			hostConfig.CapDrop = append([]string{"SYS_ADMIN"}, hostConfig.CapDrop...)
+			if req.BrowserSandbox {
+				profile, err := browserSandboxSeccomp()
+				if err != nil {
+					return nil, err
+				}
+				hostConfig.SecurityOpt = []string{"seccomp=" + profile}
+			}
 		}
 	}
 

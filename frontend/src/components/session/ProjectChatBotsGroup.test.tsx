@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ProjectChatBotEntry } from './ProjectChatBotsGroup'
@@ -16,11 +16,20 @@ vi.mock('../../services/specTaskService', () => ({
   useSpecTasks: () => ({ data: [], isLoading: false, isFetching: false, isError: false }),
 }))
 
-const renderBot = (bot: SidebarBot, activeItemId = '') => render(
+const botInstances = vi.hoisted(() => ({ data: [] as Array<Record<string, string>> }))
+vi.mock('../../services/helixOrgService', () => ({
+  useBotInstances: () => ({ data: botInstances.data, isLoading: false, isFetching: false, isError: false }),
+}))
+
+vi.mock('../../hooks/useApps', () => ({
+  default: () => ({ apps: [] }),
+}))
+
+const renderBot = (bot: SidebarBot, activeItemId = '', collapsed = true, onOpenMenu = vi.fn()) => render(
   <ProjectChatBotEntry
     orgId="org-one"
     bot={bot}
-    collapsed
+    collapsed={collapsed}
     busy={false}
     projects={[]}
     query=""
@@ -31,8 +40,7 @@ const renderBot = (bot: SidebarBot, activeItemId = '') => render(
     archivingItemId={null}
     onToggle={vi.fn()}
     onOpen={vi.fn()}
-    onOpenSettings={vi.fn()}
-    onOpenMenu={vi.fn()}
+    onOpenMenu={onOpenMenu}
     onOpenItem={vi.fn()}
     onOpenItemContextMenu={vi.fn()}
     onArchiveItem={vi.fn()}
@@ -40,7 +48,17 @@ const renderBot = (bot: SidebarBot, activeItemId = '') => render(
 )
 
 describe('ProjectChatBotEntry', () => {
-  it('keeps the online dot with a trailing working indicator', () => {
+  // Touch screens have no right-click, so the bot menu (new instances,
+  // settings) must be reachable from a visible button.
+  it('opens the bot menu from its actions button', () => {
+    const onOpenMenu = vi.fn()
+    renderBot({ id: 'chief', name: 'Chief of Staff', running: true, working: false, restartRequired: false }, '', true, onOpenMenu)
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Chief of Staff' }))
+    expect(onOpenMenu).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the online dot with a trailing working label', () => {
     const { container } = renderBot({
       id: 'chief',
       name: 'Chief of Staff',
@@ -50,8 +68,11 @@ describe('ProjectChatBotEntry', () => {
     })
 
     const trailingSlot = screen.getByTestId('sidebar-bot-trailing-slot')
-    expect(trailingSlot).toContainElement(screen.getByRole('status', { name: 'Working' }))
-    expect(trailingSlot).toContainElement(screen.getByRole('button', { name: 'Settings for Chief of Staff' }))
+    const workingLabel = screen.getByRole('status', { name: 'Working' })
+    expect(workingLabel).toHaveTextContent('Working')
+    expect(workingLabel).toHaveStyle({ color: '#34d399' })
+    expect(trailingSlot).toContainElement(workingLabel)
+    expect(trailingSlot).toContainElement(screen.getByRole('button', { name: 'More actions for Chief of Staff' }))
     expect(container.querySelector('[data-bot-status="running"]')).toBeInTheDocument()
   })
 
@@ -83,5 +104,39 @@ describe('ProjectChatBotEntry', () => {
 
     expect(screen.queryByRole('status', { name: 'Working' })).toBeNull()
     expect(container.querySelector('[data-bot-status="running"]')).toBeInTheDocument()
+  })
+
+  it('lists instances under the bot with a delete action and sandbox status', () => {
+    botInstances.data = [{
+      session_id: 'ses_instance',
+      name: 'Broker for ACME',
+      sandbox_status: 'running',
+      created_at: '2026-09-24T12:00:00Z',
+      updated_at: '2026-09-24T12:05:00Z',
+    }]
+    const { container } = renderBot({
+      id: 'b-broker',
+      name: 'Broker',
+      running: false,
+      working: false,
+      restartRequired: false,
+    }, '', false)
+
+    expect(screen.getByText('Broker for ACME')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete instance Broker for ACME' })).toBeInTheDocument()
+    expect(container.querySelector('[data-instance-status="running"]')).toBeInTheDocument()
+    botInstances.data = []
+  })
+
+  it('shows the instance count on a collapsed bot', () => {
+    botInstances.data = [
+      { session_id: 'ses_1', name: 'One', sandbox_status: 'running' },
+      { session_id: 'ses_2', name: 'Two', sandbox_status: '' },
+    ]
+    renderBot({ id: 'b-broker', name: 'Broker', running: false, working: false, restartRequired: false })
+
+    expect(screen.getByTestId('sidebar-bot-instance-count')).toHaveTextContent('2')
+    expect(screen.queryByText('One')).toBeNull()
+    botInstances.data = []
   })
 })

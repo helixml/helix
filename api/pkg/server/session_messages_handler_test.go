@@ -55,7 +55,7 @@ func (s *SessionMessagesHandlerSuite) SetupTest() {
 		externalAgentExecutor:       s.executor,
 		externalAgentWSManager:      NewExternalAgentWSManager(),
 		externalAgentRunnerManager:  NewExternalAgentRunnerManager(),
-		contextMappings:             make(map[string]string),
+		contextMappings:             make(map[threadRouteKey]string),
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
 		externalAgentSessionMapping: make(map[string]string),

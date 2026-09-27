@@ -3,6 +3,7 @@ package agentdelivery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -44,6 +45,33 @@ func TestQueueRetriesFailedActivation(t *testing.T) {
 	mu.Lock()
 	require.Equal(t, 2, attempts)
 	mu.Unlock()
+}
+
+func TestQueueDoesNotRetryNonRetryableActivation(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	seen := make(chan string, 2)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		seen <- triggers[0].EventID
+		if triggers[0].EventID == "terminal" {
+			return fmt.Errorf("provider balance: %w", activation.ErrNonRetryable)
+		}
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "terminal"})
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "next"})
+	require.Equal(t, "terminal", <-seen)
+	select {
+	case got := <-seen:
+		require.Equal(t, "next", got)
+	case <-time.After(2 * time.Second):
+		t.Fatal("next activation remained blocked behind non-retryable failure")
+	}
 }
 
 func TestRetryDelay(t *testing.T) {

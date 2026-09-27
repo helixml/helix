@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/connman"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -32,6 +33,9 @@ type RequestMappingRegistrar func(requestID, sessionID string)
 
 // DesktopExecFunc executes a command inside a running desktop container via RevDial.
 type DesktopExecFunc func(ctx context.Context, sessionID string, command []string) error
+
+// DesktopWakeFunc requests startup of a stopped desktop.
+type DesktopWakeFunc func(sessionID string)
 
 // AttachmentBlobReader reads the bytes of a SpecTask attachment from the filestore.
 // Injected by the server so this service doesn't need to import the controller package.
@@ -61,6 +65,7 @@ type SpecDrivenTaskService struct {
 	auditLogService            *AuditLogService          // Service for audit logging
 	koditService               KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
 	ExecInDesktop              DesktopExecFunc           // Callback to exec commands in running desktop containers
+	WakeDesktop                DesktopWakeFunc           // Callback to start a stopped desktop after a failed exec
 	ReadAttachmentBlob         AttachmentBlobReader      // Callback to load attachment bytes from filestore
 	TransitionToImplementation SpecTaskPhaseTransitioner // Callback owned by the API server's live agent-switching machinery
 	wg                         sync.WaitGroup
@@ -1473,6 +1478,14 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// failure leaves implementation_queued so the orchestrator can retry.
 		if task.BranchMode == types.BranchModeNew {
 			if err := s.ensureFeatureBranchInContainer(ctx, sessionID, repo.Name, branchName, effectiveBaseBranch); err != nil {
+				desktopDisconnected := errors.Is(err, connman.ErrNoConnection) || errors.Is(err, connman.ErrReconnectTimeout)
+				if desktopDisconnected && s.WakeDesktop != nil {
+					s.WakeDesktop(sessionID)
+					log.Info().
+						Str("task_id", task.ID).Str("session_id", sessionID).
+						Msg("Implementation handoff queued while stopped desktop restarts")
+					return nil
+				}
 				log.Error().Err(err).
 					Str("task_id", task.ID).Str("session_id", sessionID).
 					Str("repo", repo.Name).Str("branch", branchName).Str("base", effectiveBaseBranch).
@@ -1691,8 +1704,9 @@ func (s *SpecDrivenTaskService) syncGitIdentityToUser(ctx context.Context, task 
 // The fix runs the same git plumbing the workspace-setup script would
 // have run, but at the point we actually know the branch name. Safe to
 // re-run: `checkout -B` works whether the branch exists locally,
-// remotely, or not at all; `push -u` is a no-op if the remote already
-// has it.
+// remotely, or not at all. The implementation agent creates the remote
+// branch with its first code push; pushing it here would falsely count
+// branch setup as implementation output.
 //
 // Failures are non-fatal: this is best-effort and the existing
 // pre-receive hook still stops genuinely-bad pushes to base. We log
@@ -1707,22 +1721,20 @@ func (s *SpecDrivenTaskService) ensureFeatureBranchInContainer(ctx context.Conte
 	}
 
 	// Single bash command so we get atomic chained semantics and one
-	// docker-exec round-trip. -B is idempotent. -u sets upstream once;
-	// subsequent runs are no-ops.
+	// docker-exec round-trip. -B is idempotent.
 	script := fmt.Sprintf(
-		"cd /home/retro/work/%s && git fetch origin %s && git checkout -B %s origin/%s && git push -u origin %s",
+		"cd /home/retro/work/%s && git fetch origin %s && git checkout -B %s origin/%s",
 		shellQuoteArg(repoName), shellQuoteArg(baseBranch),
 		shellQuoteArg(branchName), shellQuoteArg(baseBranch),
-		shellQuoteArg(branchName),
 	)
 	if err := s.ExecInDesktop(ctx, sessionID, []string{"bash", "-c", script}); err != nil {
-		return fmt.Errorf("git checkout/push feature branch: %w", err)
+		return fmt.Errorf("git checkout feature branch: %w", err)
 	}
 
 	log.Info().
 		Str("session_id", sessionID).Str("repo", repoName).
 		Str("branch", branchName).Str("base", baseBranch).
-		Msg("Feature branch checked out and pushed in container")
+		Msg("Feature branch checked out in container")
 	return nil
 }
 
@@ -2039,12 +2051,28 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		return "", fmt.Errorf("session ID is required for session-scoped API key")
 	}
 
-	// Check for existing session-scoped key
+	// Look up session to derive the key type and scope
+	session, err := s.store.GetSession(ctx, req.SessionID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get session '%s': %w", req.SessionID, err)
+	}
+
+	// A bot instance serves untrusted end users, so its sandbox gets the
+	// restricted key type instead of a full user key.
+	keyType := types.APIkeytypeAPI
+	if session.Metadata.SessionRole == types.SessionRoleOrgBotInstance {
+		keyType = types.APIkeytypeBotInstance
+	}
+
+	// Check for existing session-scoped key of that type. The type is part of
+	// the lookup so a full key minted before an instance existed is never
+	// reused for it.
 	existing, err := s.store.GetAPIKey(ctx, &types.ApiKey{
 		OrganizationID: req.OrganizationID,
 		Owner:          req.UserID,
 		OwnerType:      types.OwnerTypeUser,
 		SessionID:      req.SessionID,
+		Type:           keyType,
 	})
 	if err != nil && err != store.ErrNotFound {
 		return "", fmt.Errorf("failed to get existing API key: %w", err)
@@ -2054,14 +2082,12 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		return existing.Key, nil
 	}
 
-	// Look up session to derive scope for attribution
-	session, err := s.store.GetSession(ctx, req.SessionID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get session '%s': %w", req.SessionID, err)
-	}
-
-	// Derive project ID and spec task ID from session metadata
+	// Derive project ID and spec task ID from session metadata. A bot
+	// instance's key is bound to its project: git access is limited to it.
 	var projectID, specTaskID string
+	if keyType == types.APIkeytypeBotInstance {
+		projectID = session.ProjectID
+	}
 	if session.Metadata.SpecTaskID != "" {
 		specTaskID = session.Metadata.SpecTaskID
 		specTask, err := s.store.GetSpecTask(ctx, specTaskID)
@@ -2089,7 +2115,7 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		OwnerType:      types.OwnerTypeUser,
 		Key:            newKey,
 		Name:           keyName,
-		Type:           types.APIkeytypeAPI,
+		Type:           keyType,
 		SessionID:      req.SessionID,
 		ProjectID:      projectID,  // For metrics/attribution
 		SpecTaskID:     specTaskID, // For metrics/attribution

@@ -220,10 +220,19 @@ func (s *GitHTTPServer) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		user, err := s.validateAPIKeyAndGetUser(r.Context(), apiKey)
+		user, keyRecord, err := s.validateAPIKeyAndGetUser(r.Context(), apiKey)
 		if err != nil {
 			log.Warn().Err(err).Msg("Invalid API key")
 			http.Error(w, "Invalid API key", http.StatusUnauthorized)
+			return
+		}
+		if !s.keyTypeAllowsGit(r, keyRecord) {
+			log.Warn().
+				Str("path", r.URL.Path).
+				Str("key_type", string(keyRecord.Type)).
+				Str("session_id", keyRecord.SessionID).
+				Msg("Git request denied for restricted API key")
+			http.Error(w, "this API key may not access this repository", http.StatusForbidden)
 			return
 		}
 
@@ -259,22 +268,64 @@ func (s *GitHTTPServer) extractAPIKey(r *http.Request) string {
 	return ""
 }
 
-func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey string) (*types.User, error) {
+func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey string) (*types.User, *types.ApiKey, error) {
 	rawKey := s.extractRawAPIKey(apiKey)
 
 	// Use the correct query type for GetAPIKey
 	apiKeyRecord, err := s.store.GetAPIKey(ctx, &types.ApiKey{Key: rawKey})
 	if err != nil {
-		return nil, fmt.Errorf("invalid API key: %w", err)
+		return nil, nil, fmt.Errorf("invalid API key: %w", err)
 	}
 
 	// Use the correct query type for GetUser
 	user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: apiKeyRecord.Owner})
 	if err != nil {
-		return nil, fmt.Errorf("user not found: %w", err)
+		return nil, nil, fmt.Errorf("user not found: %w", err)
 	}
 
-	return user, nil
+	return user, apiKeyRecord, nil
+}
+
+// keyTypeAllowsGit applies the restricted key types to git, which does its
+// own authentication and would otherwise treat every key as its owner.
+//   - Embed keys live in a browser on an untrusted page and never need git.
+//   - A bot instance key may only clone and fetch its own project's
+//     repositories: its sandbox reads untrusted input, and the repository is
+//     operator-authored, so pushing and every other repository are denied.
+func (s *GitHTTPServer) keyTypeAllowsGit(r *http.Request, key *types.ApiKey) bool {
+	switch key.Type {
+	case types.APIkeytypeEmbed:
+		return false
+	case types.APIkeytypeBotInstance:
+		return s.botInstanceGitAllows(r, key)
+	default:
+		return true
+	}
+}
+
+func (s *GitHTTPServer) botInstanceGitAllows(r *http.Request, key *types.ApiKey) bool {
+	repoID := mux.Vars(r)["repo_id"]
+	if repoID == "" || key.ProjectID == "" {
+		return false
+	}
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	readOnly := (r.Method == http.MethodGet && strings.HasSuffix(path, "/info/refs") &&
+		r.URL.Query().Get("service") == "git-upload-pack") ||
+		(r.Method == http.MethodPost && strings.HasSuffix(path, "/git-upload-pack"))
+	if !readOnly {
+		return false
+	}
+	repos, err := s.store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{ProjectID: key.ProjectID})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", key.ProjectID).Msg("List project repositories for bot instance git access")
+		return false
+	}
+	for _, repo := range repos {
+		if repo.ID == repoID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *GitHTTPServer) extractRawAPIKey(apiKey string) string {

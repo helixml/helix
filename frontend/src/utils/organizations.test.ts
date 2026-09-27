@@ -5,6 +5,7 @@ import {
   firstAccessibleOrgSlug,
   isEmbedRouteName,
   isOrgAccessDeniedError,
+  orgLandingParams,
   orgLandingRoute,
   resolveOrgAccess,
 } from './organizations'
@@ -16,9 +17,10 @@ const org = (name: string, extra: Partial<TypesOrganization> = {}): TypesOrganiz
   ...extra,
 })
 
-describe('orgLandingRoute', () => {
-  it('lands in organization chat', () => {
-    expect(orgLandingRoute()).toBe('org_chat')
+describe('org landing', () => {
+  it('opens the Chief of Staff', () => {
+    expect(orgLandingRoute()).toBe('org_bot_session')
+    expect(orgLandingParams('acme')).toEqual({ org_id: 'acme', bot_id: 'chief-of-staff' })
   })
 })
 

@@ -1,0 +1,72 @@
+[
+ {
+  "id": "sup-opencode-glm",
+  "name": "Support opencode/glm",
+  "runtime": "opencode",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "glm-5.3-flash"
+ },
+ {
+  "id": "sup-opencode-qwen",
+  "name": "Support opencode/qwen",
+  "runtime": "opencode",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "qwen3.8-flash-next"
+ },
+ {
+  "id": "sup-qwen-glm",
+  "name": "Support qwen/glm",
+  "runtime": "qwen_code",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "glm-5.3-flash"
+ },
+ {
+  "id": "sup-qwen-qwen",
+  "name": "Support qwen/qwen",
+  "runtime": "qwen_code",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "qwen3.8-flash-next"
+ },
+ {
+  "id": "sup-zed-glm",
+  "name": "Support zed/glm",
+  "runtime": "zed_agent",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "glm-5.3-flash"
+ },
+ {
+  "id": "sup-zed-qwen",
+  "name": "Support zed/qwen",
+  "runtime": "zed_agent",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "qwen3.8-flash-next"
+ },
+ {
+  "id": "sup-goose-glm",
+  "name": "Support goose/glm",
+  "runtime": "goose_code",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "glm-5.3-flash"
+ },
+ {
+  "id": "sup-goose-qwen",
+  "name": "Support goose/qwen",
+  "runtime": "goose_code",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "qwen3.8-flash-next"
+ },
+ {
+  "id": "sup-dsh-glm",
+  "name": "Support dsh/glm",
+  "runtime": "deepseek_harness",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "glm-5.3-flash"
+ },
+ {
+  "id": "sup-dsh-qwen",
+  "name": "Support dsh/qwen",
+  "runtime": "deepseek_harness",
+  "provider": "pe_01kzpnf69hf73basd52k942vs3",
+  "model": "qwen3.8-flash-next"
+ }
+]

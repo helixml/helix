@@ -16,15 +16,19 @@ export type ClaudeCodeMode = 'subscription' | 'api_key'
 // versioned so the UI says exactly what will run; Sonnet and Haiku intentionally
 // use Claude Code's rolling aliases.
 export const CLAUDE_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
-  { id: 'claude-opus-5', label: 'Claude Opus 5 (1M context, recommended)' },
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5 (1M context, recommended)' },
+  { id: 'claude-opus-5', label: 'Claude Opus 5 (1M context)' },
   { id: 'claude-fable-5', label: 'Claude Fable 5 (1M context)' },
   { id: 'claude-opus-4-8', label: 'Claude Opus 4.8 (1M context)' },
   { id: 'sonnet', label: 'Claude Sonnet (latest)' },
   { id: 'haiku', label: 'Claude Haiku (latest)' },
 ]
-export const DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'claude-opus-5'
+export const DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'claude-opus-5-5'
 
 export const CODEX_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
+  { id: 'gpt-6-sol', label: 'GPT-6 Sol' },
+  { id: 'gpt-6-astra', label: 'GPT-6 Astra' },
+  { id: 'gpt-6-luna', label: 'GPT-6 Luna' },
   { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
   { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
   { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
@@ -33,7 +37,7 @@ export const CODEX_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
   { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
   { id: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
 ]
-export const DEFAULT_CODEX_SUBSCRIPTION_MODEL = 'gpt-5.6-sol'
+export const DEFAULT_CODEX_SUBSCRIPTION_MODEL = 'gpt-6-sol'
 
 export interface CodingAgentFormValue {
   codeAgentRuntime: CodeAgentRuntime

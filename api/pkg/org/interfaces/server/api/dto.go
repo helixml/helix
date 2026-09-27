@@ -92,8 +92,11 @@ type BotDTO struct {
 	// has been activated. Both come from runtime state and let the chat
 	// sidebar list bots as top-level entries instead of surfacing their
 	// project like an ordinary one.
-	ProjectID               string                        `json:"project_id,omitempty"`
-	SessionID               string                        `json:"session_id,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	// InstanceProfile is the effective profile of this Bot's instances (the
+	// default when the Bot never configured one).
+	InstanceProfile         types.BotInstanceProfile      `json:"instance_profile"`
 	AgentRuntime            string                        `json:"agent_runtime,omitempty"`
 	AgentModel              string                        `json:"agent_model,omitempty"`
 	CodeAgentRuntime        types.CodeAgentRuntime        `json:"code_agent_runtime,omitempty"`
@@ -200,6 +203,9 @@ type UpdateBotRequest struct {
 	Provider                 *string                         `json:"provider,omitempty"`
 	Model                    *string                         `json:"model,omitempty"`
 	ReasoningEffort          *string                         `json:"reasoning_effort,omitempty"`
+	// InstanceProfile replaces the profile of the Bot's instances. It applies
+	// to new instances and to existing ones on their next sandbox start.
+	InstanceProfile *types.BotInstanceProfile `json:"instance_profile,omitempty"`
 }
 
 // AddBotParentRequest is the body of POST /bots/{id}/parents. ParentID

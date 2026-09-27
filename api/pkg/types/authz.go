@@ -633,8 +633,8 @@ type UpdateTeamRequest struct {
 }
 
 type OrgDetails struct {
-	Organization Organization `json:"organization"`
-	Wallet       Wallet       `json:"wallet"`
-	Members      []User       `json:"members"`
-	Projects     []Project    `json:"projects"`
+	Organization Organization              `json:"organization"`
+	Wallet       Wallet                    `json:"wallet"`
+	Members      []*OrganizationMembership `json:"members"`
+	Projects     []Project                 `json:"projects"`
 }

@@ -284,6 +284,9 @@ type Store interface {
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
 	UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error
+	// SetSessionBotInstanceProfile replaces only config.bot_instance, so it
+	// cannot revert status fields a concurrent writer changed.
+	SetSessionBotInstanceProfile(ctx context.Context, sessionID string, profile types.BotInstanceProfile) error
 	TouchSession(ctx context.Context, sessionID string) error
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
@@ -794,6 +797,9 @@ type Store interface {
 	ClaimWebhookDeliveries(ctx context.Context, now, lockedUntil time.Time, limit int) ([]*types.WebhookDelivery, error)
 	CompleteWebhookDelivery(ctx context.Context, update *WebhookDeliveryUpdate) error
 	ReplayWebhookDelivery(ctx context.Context, endpointID, deliveryID string, now time.Time) error
+	// EnqueueWebhookEvent records an event, and a delivery for each matching
+	// endpoint, for state that isn't written in a store transaction of its own.
+	EnqueueWebhookEvent(ctx context.Context, eventType, organizationID, projectID string, data any) error
 	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
 	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
 	DetachRepositoryFromProject(ctx context.Context, projectID string, repoID string) error // NOTE: signature changed to include projectID

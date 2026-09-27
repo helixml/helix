@@ -43,7 +43,7 @@ func (c *HelixClient) GetApp(ctx context.Context, appID string) (*types.App, err
 
 func (c *HelixClient) GetAppAPIKeys(ctx context.Context, appID string) ([]*types.ApiKey, error) {
 	var apiKeys []*types.ApiKey
-	err := c.makeRequest(ctx, http.MethodGet, "/api_keys?types=app&app_id="+appID, nil, &apiKeys)
+	err := c.makeRequest(ctx, http.MethodGet, "/api_keys?types=app&app_id="+url.QueryEscape(appID), nil, &apiKeys)
 	if err != nil {
 		return nil, err
 	}

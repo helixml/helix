@@ -159,15 +159,12 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 		c.markExternalAgentInteractionError(req.Session, interaction, req.Start, fmt.Sprintf("External agent not ready: %s", err.Error()), "")
 		return nil, fmt.Errorf("external agent not ready: %w", err)
 	}
-	agentSession, err := c.Options.ExternalAgentExecutor.GetSession(req.Session.ID)
-	if err != nil {
-		return nil, fmt.Errorf("external agent session not found after readiness: %w", err)
-	}
-
+	// Readiness is the agent's own connection. The executor's session map is
+	// filled when StartDesktop returns, which a fast sandbox's agent can beat,
+	// so it is not consulted here.
 	log.Info().
 		Str("session_id", req.Session.ID).
 		Str("user_message", userMessage).
-		Str("agent_session_status", agentSession.Status).
 		Str("mode", string(req.Mode)).
 		Msg("sending message to external agent")
 

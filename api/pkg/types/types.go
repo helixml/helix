@@ -464,6 +464,10 @@ type SessionMetadata struct {
 	// project and SpecTask sessions leave both fields empty.
 	OrgWorkerID         string `json:"org_worker_id,omitempty"`
 	RuntimeInstructions string `json:"runtime_instructions,omitempty"`
+	// BotInstance is set on org bot instance sessions (SessionRole
+	// SessionRoleOrgBotInstance): the bot's instance profile as of the last
+	// sync, which shapes the instance's MCP servers, org tools and skills.
+	BotInstance *BotInstanceProfile `json:"bot_instance,omitempty"`
 	HelixVersion        string `json:"helix_version"`
 	Stream              bool   `json:"stream"`
 	AgentType           string `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
@@ -585,6 +589,20 @@ type SessionMetadata struct {
 	// THIS session, so maybePrependTranscript seeds the new Zed thread even
 	// though ParentSessionID is empty (the session continues from itself).
 	AgentSwitchedAt time.Time `json:"agent_switched_at,omitempty"`
+
+	// AgentConfigAppliedAt / AgentHandoffDeliveredAt record the in-desktop
+	// settings-sync daemon's /agent-config-applied callback for the most recent
+	// in-place switch. They are the explicit "the fast hot-reload path worked"
+	// signal that agentSwitchRestartFallback consults instead of deciding purely
+	// on a timer — without them a confirmed-applied config was still restarted
+	// 5s later, killing Zed mid-new_session().
+	//
+	// AgentHandoffDeliveredAt is only set when the handoff actually reached a
+	// live connection; a callback with nothing delivered is not evidence the
+	// turn is moving. Persisted (not an in-memory map) so it is correct when the
+	// callback lands on a different API replica than the fallback goroutine.
+	AgentConfigAppliedAt    time.Time `json:"agent_config_applied_at,omitempty"`
+	AgentHandoffDeliveredAt time.Time `json:"agent_handoff_delivered_at,omitempty"`
 
 	// Pause state — sessions cannot accept new messages while paused.
 	// PausedReason is the only producer in v1: "forked_to:<child_id>".
@@ -1217,6 +1235,7 @@ type ServerConfigForFrontend struct {
 	FilestorePrefix                        string       `json:"filestore_prefix"`
 	StripeEnabled                          bool         `json:"stripe_enabled"`              // Stripe top-ups enabled
 	BillingEnabled                         bool         `json:"billing_enabled"`             // Charging for usage
+	MinimumInferenceBalance                float64      `json:"minimum_inference_balance"`   // Minimum wallet balance required for inference
 	RequireActiveSubscription              bool         `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
 	SentryDSNFrontend                      string       `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string       `json:"google_analytics_frontend"`
@@ -1694,7 +1713,7 @@ type AssistantConfig struct {
 	// CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
 	// which the claude-agent-acp package reads (resolveModelPreference) to pick the
 	// model — otherwise Claude Code defaults to Sonnet. Empty means
-	// "claude-opus-5" (the current 1M-context Opus model).
+	// "claude-opus-5-5" (the current 1M-context Opus model).
 	ClaudeSubscriptionModel string `json:"claude_subscription_model,omitempty" yaml:"claude_subscription_model,omitempty"`
 
 	// GooseRecipeRepoURL is the external git URL of the attached repository
@@ -2121,6 +2140,10 @@ type DesktopAgent struct {
 	// the sandbox billing row to the bot. Never accepted from callers.
 	OrgWorkerID   string `json:"-"`
 	OrgWorkerName string `json:"-"`
+	// NoContainerEngine runs the sandbox unprivileged with no Docker or
+	// Podman inside. Set for org bot instances, which serve untrusted users
+	// and never build or run containers. Never accepted from callers.
+	NoContainerEngine bool `json:"-"`
 
 	// Branch configuration (for starting on correct branch)
 	BranchMode    string `json:"branch_mode,omitempty"`    // "new" or "existing"
@@ -2636,7 +2659,8 @@ type RunnerLLMInferenceRequest struct {
 	// RequestID is generated when a new request
 	// is received on the internal Helix OpenAI client
 	// to generate a chat completions call
-	RequestID string
+	RequestID      string
+	HelixRequestID string
 
 	CreatedAt time.Time
 
@@ -2690,6 +2714,7 @@ const (
 // done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
 	ID               string           `json:"id" gorm:"primaryKey"`
+	RequestID        string           `json:"request_id"`
 	AppID            string           `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
 	OrganizationID   string           `json:"organization_id" gorm:"index"`
 	UserID           string           `json:"user_id" gorm:"index"`

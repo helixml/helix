@@ -256,6 +256,11 @@ func (s *PostgresStore) runMigrations() error {
 	if err != nil {
 		return err
 	}
+	if err := s.gdb.WithContext(context.Background()).Exec(
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_llm_calls_request_id ON llm_calls (request_id)",
+	).Error; err != nil {
+		return fmt.Errorf("failed to create llm_calls request ID index: %w", err)
+	}
 	if err := s.backfillAgentKinds(context.Background()); err != nil {
 		return err
 	}

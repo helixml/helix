@@ -236,6 +236,10 @@ func (s *SpecTaskKeepAliveSuite) TestArchiveTask_ReturnsBeforeDesktopStopComplet
 			return nil
 		},
 	)
+	// The turn in flight when the task is archived is ended, so auto-wake
+	// does not read it as a stuck cold start and boot the desktop again.
+	s.store.EXPECT().ReapWaitingInteractions(gomock.Any(), "session_keepalive", types.InteractionStateInterrupted, "spec task archived").
+		Return(nil, nil)
 	s.store.EXPECT().GetSpecTaskExternalAgent(gomock.Any(), s.taskID).DoAndReturn(
 		func(_ context.Context, _ string) (*types.SpecTaskExternalAgent, error) {
 			defer close(stopFinished)

@@ -111,6 +111,7 @@ func GenerateZedMCPConfig(
 	providerSnapshot []ProviderRef,
 	orgWorkerID string,
 	specTaskTools []string,
+	hasDesktop bool,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -280,12 +281,18 @@ func GenerateZedMCPConfig(
 	// server's /mcp route inside the sandbox container.
 	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard,
 	// list_windows, focus_window, maximize_window, tile_window, move_to_workspace, switch_to_workspace, get_workspaces
-	desktopMCPURL := fmt.Sprintf("%s/api/v1/mcp/desktop?session_id=%s", helixAPIURL, sessionID)
-	config.ContextServers["helix-desktop"] = ContextServerConfig{
-		URL: desktopMCPURL,
-		Headers: map[string]string{
-			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
-		},
+	//
+	// Headless sandboxes have no desktop and their bridge serves no /mcp, so
+	// the server would only 404: harnesses that tolerate a dead MCP server
+	// drop it, and DeepSeek Harness refuses to create the session at all.
+	if hasDesktop {
+		desktopMCPURL := fmt.Sprintf("%s/api/v1/mcp/desktop?session_id=%s", helixAPIURL, sessionID)
+		config.ContextServers["helix-desktop"] = ContextServerConfig{
+			URL: desktopMCPURL,
+			Headers: map[string]string{
+				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+			},
+		}
 	}
 
 	// 4. Add session MCP server (session navigation and context tools)
@@ -339,6 +346,11 @@ func GenerateZedMCPConfig(
 			"--chrome-arg=--no-first-run",
 			"--chrome-arg=--disable-infobars",
 			"--chrome-arg=--disable-extensions",
+			// chrome-devtools-mcp reports usage statistics and sends
+			// performance-trace URLs to Google's CrUX API by default;
+			// sandboxes must not phone home (air-gapped installs).
+			"--no-usage-statistics",
+			"--no-performance-crux",
 		},
 		Env: map[string]string{
 			// Point to the actual browser binary (Chromium on ARM64, Chrome on amd64).
@@ -357,7 +369,7 @@ func GenerateZedMCPConfig(
 	// OAuth tokens are injected for stdio MCPs with oauth_provider set
 	if assistant != nil {
 		for _, mcp := range assistant.MCPs {
-			serverName := sanitizeName(mcp.Name)
+			serverName := SanitizeMCPName(mcp.Name)
 			config.ContextServers[serverName] = mcpToContextServerWithProxy(ctx, mcp, userID, helixAPIURL, helixToken, oauthTokenGetter)
 		}
 	}
@@ -366,7 +378,7 @@ func GenerateZedMCPConfig(
 	// Project MCPs with the same name will override agent MCPs
 	if projectSkills != nil {
 		for _, mcp := range projectSkills.MCPs {
-			serverName := sanitizeName(mcp.Name)
+			serverName := SanitizeMCPName(mcp.Name)
 			config.ContextServers[serverName] = mcpToContextServerWithProxy(ctx, mcp, userID, helixAPIURL, helixToken, oauthTokenGetter)
 		}
 	}
@@ -475,7 +487,7 @@ func mcpToContextServerWithProxy(ctx context.Context, mcp types.AssistantMCP, us
 	if strings.HasPrefix(mcp.URL, "http://") || strings.HasPrefix(mcp.URL, "https://") {
 		// Route through Helix external MCP proxy
 		// The proxy will connect to the actual MCP server and forward requests
-		proxyURL := fmt.Sprintf("%s/api/v1/mcp/external/%s", helixAPIURL, sanitizeName(mcp.Name))
+		proxyURL := fmt.Sprintf("%s/api/v1/mcp/external/%s", helixAPIURL, SanitizeMCPName(mcp.Name))
 
 		// The proxy always exposes as Streamable HTTP (the modern protocol)
 		// It handles SSE transport internally when connecting to legacy servers
@@ -525,7 +537,9 @@ func parseStdioURL(url string) (string, []string) {
 	return parts[0], parts[1:]
 }
 
-func sanitizeName(name string) string {
+// SanitizeMCPName is the key a context server is configured under:
+// lowercase, anything outside [a-z0-9_-] becomes "-", trimmed of "-".
+func SanitizeMCPName(name string) string {
 	// MCP tool names: alphanumeric, hyphens, underscores only
 	name = strings.ToLower(name)
 	// Replace invalid characters with hyphens
@@ -875,6 +889,27 @@ func mapHelixToZedProviderToken(providerName, routingToken, model string) (zedPr
 		// route through Zed's OpenAI provider → Helix's OpenAI-compatible proxy.
 		// Model is prefixed with provider name so Helix can route to the correct backend.
 		return "openai", fmt.Sprintf("%s/%s", routingToken, model)
+	}
+}
+
+// ApplyBotInstanceProfile removes every context server an org bot instance's
+// profile doesn't keep. A nil profile (not an instance) leaves the config
+// unchanged.
+func (c *ZedMCPConfig) ApplyBotInstanceProfile(profile *types.BotInstanceProfile) {
+	if profile == nil {
+		return
+	}
+	// Server keys are sanitized names; compare the profile's names the same
+	// way so a project MCP named "My CRM" matches its "my-crm" key.
+	keep := make(map[string]bool, len(profile.MCPServers)+1)
+	for _, name := range profile.MCPServers {
+		keep[SanitizeMCPName(name)] = true
+	}
+	keep[types.InstanceMCPServerHelixOrg] = len(profile.Tools) > 0
+	for name := range c.ContextServers {
+		if !keep[name] {
+			delete(c.ContextServers, name)
+		}
 	}
 }
 

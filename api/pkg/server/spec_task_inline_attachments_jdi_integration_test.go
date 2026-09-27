@@ -167,6 +167,9 @@ func TestFromPromptInlineAttachmentReachesJDIWorkspaceAndInteraction(t *testing.
 			return created, nil
 		},
 	)
+	mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, id string) (*types.Session, error) { return &types.Session{ID: id}, nil },
+	)
 	mockStore.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(&types.ApiKey{Key: "test-session-key"}, nil)
 	mockExecutor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(&types.DesktopAgentResponse{
 		DevContainerID: "dev-inline-jdi",

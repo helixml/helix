@@ -307,6 +307,12 @@ describe('ProjectChatSidebar logic', () => {
     expect(getSidebarTaskStatus({
       status: TypesSpecTaskStatus.TaskStatusImplementation,
       sandbox_state: 'running',
+      agent_work_state: TypesAgentWorkState.AgentWorkStateWorking,
+    })).toEqual({ label: 'Working', color: '#34d399' })
+
+    expect(getSidebarTaskStatus({
+      status: TypesSpecTaskStatus.TaskStatusImplementation,
+      sandbox_state: 'running',
       agent_work_state: TypesAgentWorkState.AgentWorkStateIdle,
     })).toEqual({ label: 'Idle', color: '#fbbf24' })
 
@@ -324,6 +330,12 @@ describe('ProjectChatSidebar logic', () => {
   })
 
   it('greys offline tasks and explains their state', () => {
+    expect(getSidebarTaskStatus({
+      status: TypesSpecTaskStatus.TaskStatusImplementation,
+      sandbox_state: 'absent',
+      agent_work_state: TypesAgentWorkState.AgentWorkStateWorking,
+    })?.label).toBe('Implementation')
+
     expect(getSidebarTaskStatus({
       status: TypesSpecTaskStatus.TaskStatusDone,
       sandbox_state: 'absent',

@@ -33,10 +33,11 @@ var (
 )
 
 var (
-	ErrNoAPIKeyFound           = errors.New("no API key found")
-	ErrNoUserIDFound           = errors.New("no user ID found")
-	ErrAppAPIKeyPathNotAllowed = errors.New("path not allowed for app API keys, use your personal account key from your /account page instead")
-	ErrEmbedKeyNotAllowed      = errors.New("this embed key is scoped to a single task and may not access this resource")
+	ErrNoAPIKeyFound            = errors.New("no API key found")
+	ErrNoUserIDFound            = errors.New("no user ID found")
+	ErrAppAPIKeyPathNotAllowed  = errors.New("path not allowed for app API keys, use your personal account key from your /account page instead")
+	ErrEmbedKeyNotAllowed       = errors.New("this embed key is scoped to a single task and may not access this resource")
+	ErrBotInstanceKeyNotAllowed = errors.New("this bot instance key is scoped to its own sandbox and may not access this resource")
 	// ErrHelixTokenWithOIDC is returned when a Helix-issued JWT is used while OIDC authentication
 	// is configured. This can happen when a user has stale cookies from when the server was using
 	// regular auth. The user needs to clear their cookies and log in again via OIDC.
@@ -414,6 +415,13 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Bot instance keys live in a sandbox that reads untrusted input, so
+		// they reach only their own session's needs. Fail closed.
+		if user.APIKeyType == types.APIkeytypeBotInstance && !auth.botInstanceKeyAllows(r.Context(), user, r) {
+			http.Error(w, ErrBotInstanceKeyNotAllowed.Error(), http.StatusForbidden)
+			return
+		}
+
 		auth.touchUserLastSeen(user)
 		r = r.WithContext(setRequestUser(r.Context(), *user))
 		next.ServeHTTP(w, r)
@@ -466,6 +474,13 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 			http.Error(w, ErrEmbedKeyNotAllowed.Error(), http.StatusForbidden)
+			return
+		}
+
+		// Bot instance keys live in a sandbox that reads untrusted input, so
+		// they reach only their own session's needs. Fail closed.
+		if user.APIKeyType == types.APIkeytypeBotInstance && !auth.botInstanceKeyAllows(r.Context(), user, r) {
+			http.Error(w, ErrBotInstanceKeyNotAllowed.Error(), http.StatusForbidden)
 			return
 		}
 

@@ -1,6 +1,16 @@
 #!/bin/bash
 # Start the per-session container engine. Desktop sessions use rootful Docker;
 # unprivileged headless sessions use a rootless Podman compatibility socket.
+# Org bot instances run none: their container is unprivileged and has no
+# engine storage.
+#
+# The entrypoint sources this file, so skipping the engine must `return`:
+# `exit` would end the entrypoint and stop the container.
+
+if [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+    echo "[container-engine] None for this session"
+    return 0
+fi
 
 if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     PODMAN_DATA=/home/retro/.local/share/containers
@@ -66,17 +76,19 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
         done
     ' 2>&1 | gosu retro sed -u 's/^/[ROOTLESS-PODMAN] /' &
 
+    # Polled every 0.1s: the engines are usually up within a second, and every
+    # tenth of a second here delays the agent's start.
     echo "[podman] Waiting for Docker-compatible API..."
-    for i in $(seq 1 30); do
+    for i in $(seq 1 300); do
         if DOCKER_HOST="unix://${PODMAN_SOCKET}" docker info >/dev/null 2>&1; then
             echo "[podman] Rootless container engine is ready (attempt ${i})"
             break
         fi
-        if [ "${i}" -eq 30 ]; then
+        if [ "${i}" -eq 300 ]; then
             echo "[podman] FATAL: rootless container engine not ready after 30s"
             exit 1
         fi
-        sleep 1
+        sleep 0.1
     done
 
     rm -f \
@@ -113,16 +125,16 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
     ' 2>&1 | gosu retro sed -u 's/^/[ROOTLESS-BUILDKIT] /' &
 
     echo "[buildkit] Waiting for rootless BuildKit API..."
-    for i in $(seq 1 30); do
+    for i in $(seq 1 300); do
         if gosu retro buildctl --addr "unix://${BUILDKIT_SOCKET}" debug workers >/dev/null 2>&1; then
             echo "[buildkit] Rootless BuildKit is ready (attempt ${i})"
             break
         fi
-        if [ "${i}" -eq 30 ]; then
+        if [ "${i}" -eq 300 ]; then
             echo "[buildkit] FATAL: rootless BuildKit not ready after 30s"
             exit 1
         fi
-        sleep 1
+        sleep 0.1
     done
 
     if ! gosu retro env -u BUILDX_BUILDER \
@@ -150,7 +162,7 @@ if ! mountpoint -q /var/lib/docker 2>/dev/null; then
     echo "[dockerd] ERROR: /var/lib/docker is not a volume mount."
     echo "[dockerd] Docker-in-desktop mode requires a Docker volume at /var/lib/docker."
     echo "[dockerd] The container will continue but Docker will not be available."
-    exit 0
+    return 0
 fi
 
 echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
@@ -265,16 +277,16 @@ EOF
 
     # Wait for socket to appear
     echo "[dockerd] Waiting for docker.sock..."
-    for i in $(seq 1 30); do
+    for i in $(seq 1 300); do
         if docker info &>/dev/null 2>&1; then
             echo "[dockerd] dockerd is ready (attempt $i)"
             break
         fi
-        if [ "$i" -eq 30 ]; then
+        if [ "$i" -eq 300 ]; then
             echo "[dockerd] FATAL: dockerd not ready after 30s"
             exit 1
         fi
-        sleep 1
+        sleep 0.1
     done
 
     # Add retro user to docker group (created by dockerd)

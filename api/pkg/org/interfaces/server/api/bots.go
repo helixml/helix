@@ -64,18 +64,21 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 		a.applyCanonicalAgentProfile(ctx, b, &dto, "list org bots")
 		dto.Status = "stopped"
 		if a.deps.BotRuntime != nil {
-			if info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID); err == nil {
-				if info.Status != "" {
-					dto.Status = info.Status
-				}
-				dto.AgentWorkState = info.AgentWorkState
-				dto.RestartRequired = info.RestartRequired
-				dto.ProjectID = info.ProjectID
-				dto.SessionID = info.SessionID
-				dto.AgentRuntime = info.Runtime
-				dto.AgentModel = info.Model
-				applySandboxInfo(&dto, info)
+			info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Errorf("get bot %s runtime state: %w", b.ID, err))
+				return
 			}
+			if info.Status != "" {
+				dto.Status = info.Status
+			}
+			dto.AgentWorkState = info.AgentWorkState
+			dto.RestartRequired = info.RestartRequired
+			dto.ProjectID = info.ProjectID
+			dto.SessionID = info.SessionID
+			dto.AgentRuntime = info.Runtime
+			dto.AgentModel = info.Model
+			applySandboxInfo(&dto, info)
 		}
 		out = append(out, dto)
 	}
@@ -199,30 +202,31 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 	dto.Status = "stopped"
 	// Populate the agent app id + project id from the helix-runtime
 	// sidecar so the chart UI can deep-link "chat with bot" to the
-	// per-project Human Desktop session. Missing state = the bot
-	// hasn't activated yet; we leave the fields empty and the UI
-	// shows a disabled button. Status drives the green/grey
+	// per-project Human Desktop session. Status drives the green/grey
 	// presence control on the bot detail page.
 	if a.deps.BotRuntime != nil {
-		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
-			agentID := b.AgentID
-			if agentID == "" {
-				agentID = info.AgentID
-			}
-			detail := BotDetailDTO{Bot: dto, LegacyAppID: agentID, ProjectID: info.ProjectID}
-			if info.Status != "" {
-				detail.Bot.Status = info.Status
-			}
-			detail.Bot.AgentWorkState = info.AgentWorkState
-			detail.Bot.RestartRequired = info.RestartRequired
-			detail.Bot.ProjectID = info.ProjectID
-			detail.Bot.SessionID = info.SessionID
-			detail.Bot.AgentRuntime = info.Runtime
-			detail.Bot.AgentModel = info.Model
-			applySandboxInfo(&detail.Bot, info)
-			writeJSON(w, http.StatusOK, detail)
+		info, err := a.deps.BotRuntime.State(ctx, orgID, id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("get bot %s runtime state: %w", id, err))
 			return
 		}
+		agentID := b.AgentID
+		if agentID == "" {
+			agentID = info.AgentID
+		}
+		detail := BotDetailDTO{Bot: dto, LegacyAppID: agentID, ProjectID: info.ProjectID}
+		if info.Status != "" {
+			detail.Bot.Status = info.Status
+		}
+		detail.Bot.AgentWorkState = info.AgentWorkState
+		detail.Bot.RestartRequired = info.RestartRequired
+		detail.Bot.ProjectID = info.ProjectID
+		detail.Bot.SessionID = info.SessionID
+		detail.Bot.AgentRuntime = info.Runtime
+		detail.Bot.AgentModel = info.Model
+		applySandboxInfo(&detail.Bot, info)
+		writeJSON(w, http.StatusOK, detail)
+		return
 	}
 	writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto, LegacyAppID: b.AgentID})
 }
@@ -295,10 +299,18 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		vcpus := req.SandboxResourceOverrides.VCPUs
 		sandboxVCPUsPatch = &vcpus
 	}
+	if req.InstanceProfile != nil {
+		instanceTools := toToolNames(req.InstanceProfile.Tools)
+		existingInstanceTools := toToolNames(existing.EffectiveInstanceProfile().Tools)
+		if (mcptools.HasNonDefaultBotTool(instanceTools) || mcptools.HasNonDefaultBotTool(existingInstanceTools)) && !helixorgserver.CanManageOrganization(ctx) {
+			writeError(w, http.StatusForbidden, errors.New("only organization owners and administrators can grant organization-management tools to instances"))
+			return
+		}
+	}
 	projectIDsPatch := stringSlicePatch(req.ProjectIDs)
 	updated := existing
 	nodeChange := namePatch != nil || contentPatch != nil || toolsPatch != nil || projectIDsPatch != nil ||
-		req.PreserveContext != nil || sandboxRuntimePatch != nil || sandboxVCPUsPatch != nil
+		req.PreserveContext != nil || sandboxRuntimePatch != nil || sandboxVCPUsPatch != nil || req.InstanceProfile != nil
 	if nodeChange {
 		updated, err = a.deps.Nodes.Update(ctx, orgID, id, nodes.UpdateParams{
 			Name:            namePatch,
@@ -308,6 +320,7 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 			PreserveContext: req.PreserveContext,
 			SandboxRuntime:  sandboxRuntimePatch,
 			SandboxVCPUs:    sandboxVCPUsPatch,
+			InstanceProfile: req.InstanceProfile,
 		})
 		if err != nil {
 			writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
@@ -344,6 +357,10 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 					sandboxVCPUs := existing.SandboxVCPUs
 					rollback.SandboxVCPUs = &sandboxVCPUs
 				}
+				if req.InstanceProfile != nil {
+					instanceProfile := existing.EffectiveInstanceProfile()
+					rollback.InstanceProfile = &instanceProfile
+				}
 				_, rollbackErr := a.deps.Nodes.Update(ctx, orgID, id, rollback)
 				if rollbackErr != nil {
 					writeError(w, http.StatusInternalServerError, fmt.Errorf("update Bot App: %v; rollback Bot: %w", err, rollbackErr))
@@ -351,6 +368,12 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			writeError(w, errStatus(err), fmt.Errorf("update Bot App: %w", err))
+			return
+		}
+	}
+	if req.InstanceProfile != nil && a.deps.BotInstances != nil {
+		if err := a.deps.BotInstances.SyncProfile(ctx, orgID, id); err != nil {
+			writeError(w, errStatus(err), fmt.Errorf("instance profile saved, but applying it to instances failed (retry to re-apply): %w", err))
 			return
 		}
 	}
@@ -763,6 +786,7 @@ func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 		OrganizationID:  b.OrganizationID,
 		PreserveContext: b.PreserveContext,
 		SandboxRuntime:  types.SandboxRuntime(b.SandboxRuntime),
+		InstanceProfile: b.EffectiveInstanceProfile(),
 	}
 	if b.SandboxVCPUs > 0 {
 		dto.SandboxResourceOverrides = &types.SandboxResourceOverrides{VCPUs: b.SandboxVCPUs, MemoryMB: b.SandboxMemoryMB}

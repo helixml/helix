@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -272,6 +273,12 @@ func (q *Queue) handle(msg *pubsub.Message) {
 	}
 	if err != nil {
 		q.logger.Warn("agent delivery: activation failed", "agent", delivery.AgentID, "err", err)
+		if errors.Is(err, activation.ErrNonRetryable) {
+			if ackErr := msg.Ack(); ackErr != nil {
+				q.logger.Error("agent delivery: ack terminal failure", "agent", delivery.AgentID, "err", ackErr)
+			}
+			return
+		}
 		_ = msg.NakWithDelay(retryDelay(msg.NumDelivered))
 		return
 	}

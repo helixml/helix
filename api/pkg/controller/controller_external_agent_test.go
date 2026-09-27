@@ -50,9 +50,6 @@ func TestRunExternalAgentBlocking(t *testing.T) {
 		},
 	}
 
-	mockExecutor.EXPECT().
-		GetSession("session-1").
-		Return(&external_agent.ZedSession{SessionID: "session-1", Status: "ready"}, nil)
 	mockStore.EXPECT().
 		GetInteraction(gomock.Any(), "interaction-1").
 		Return(&types.Interaction{
@@ -164,9 +161,6 @@ func TestRunExternalAgentLoserDoesNotReleaseDispatchClaim(t *testing.T) {
 		Interactions: []*types.Interaction{{ID: "interaction-loser", SessionID: "session-loser", UserID: "user-1"}},
 	}
 
-	mockExecutor.EXPECT().
-		GetSession("session-loser").
-		Return(&external_agent.ZedSession{SessionID: "session-loser", Status: "ready"}, nil)
 	mockStore.EXPECT().
 		GetInteraction(gomock.Any(), "interaction-loser").
 		Return(&types.Interaction{ID: "interaction-loser", SessionID: "session-loser", ResponseMessage: "winner's reply"}, nil)
@@ -246,9 +240,6 @@ func TestRunExternalAgentStreaming(t *testing.T) {
 		},
 	}
 
-	mockExecutor.EXPECT().
-		GetSession("session-2").
-		Return(&external_agent.ZedSession{SessionID: "session-2", Status: "ready"}, nil)
 	mockStore.EXPECT().
 		GetInteraction(gomock.Any(), "interaction-2").
 		Return(&types.Interaction{
@@ -399,9 +390,6 @@ func TestRunExternalAgentErrorPaths(t *testing.T) {
 			},
 		}
 
-		mockExecutor.EXPECT().
-			GetSession("session-4").
-			Return(&external_agent.ZedSession{SessionID: "session-4", Status: "ready"}, nil)
 		// markExternalAgentInteractionError reloads before writing so it does
 		// not clobber streamed content with a stale in-memory object.
 		mockStore.EXPECT().
@@ -447,7 +435,7 @@ func TestRunExternalAgentErrorPaths(t *testing.T) {
 	})
 }
 
-func TestRunExternalAgentWaitsBeforeExecutorLookup(t *testing.T) {
+func TestRunExternalAgentDoesNotNeedExecutorSession(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -460,20 +448,14 @@ func TestRunExternalAgentWaitsBeforeExecutorLookup(t *testing.T) {
 			ID: "interaction-starting", SessionID: "session-starting", UserID: "user-starting",
 		}},
 	}
-	ready := false
-	mockExecutor.EXPECT().GetSession("session-starting").DoAndReturn(func(string) (*external_agent.ZedSession, error) {
-		require.True(t, ready, "executor session was queried before readiness completed")
-		return &external_agent.ZedSession{SessionID: "session-starting", Status: "ready"}, nil
-	})
+	// No executor expectations: a turn must never depend on the executor's
+	// session map, which lags a fast agent's connection.
 	mockStore.EXPECT().GetInteraction(gomock.Any(), "interaction-starting").Return(&types.Interaction{
 		ID: "interaction-starting", SessionID: "session-starting", UserID: "user-starting",
 	}, nil)
 	mockStore.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(&types.Interaction{}, nil)
 	c.SetExternalAgentHooks(ExternalAgentHooks{
-		WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error {
-			ready = true
-			return nil
-		},
+		WaitForExternalAgentReady:    func(_ context.Context, _ string, _ time.Duration) error { return nil },
 		SendCommand:                  func(_ string, _ types.ExternalAgentCommand) error { return fmt.Errorf("stop after ordering assertion") },
 		StoreResponseChannel:         func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
 		CleanupResponseChannel:       func(_ string, _ string, _ bool) {},
@@ -515,9 +497,6 @@ func TestRunExternalAgentUsesInteractionIDAsRequestID(t *testing.T) {
 		},
 	}
 
-	mockExecutor.EXPECT().
-		GetSession("session-reqid").
-		Return(&external_agent.ZedSession{SessionID: "session-reqid", Status: "ready"}, nil)
 	mockStore.EXPECT().
 		GetInteraction(gomock.Any(), "int_fixed_id").
 		Return(&types.Interaction{
@@ -594,10 +573,6 @@ func TestWaitTimeoutPreservesStreamedContent(t *testing.T) {
 			{ID: "int-timeout", SessionID: "session-timeout", UserID: "user-1"},
 		},
 	}
-
-	mockExecutor.EXPECT().
-		GetSession("session-timeout").
-		Return(&external_agent.ZedSession{SessionID: "session-timeout", Status: "ready"}, nil)
 
 	// Idle-timeout path may reload more than once: first fire sees content and
 	// extends (activity), second fire sees no further growth and errors. The
@@ -683,10 +658,6 @@ func TestWaitExtendsWhileInteractionStillUpdating(t *testing.T) {
 		},
 	}
 
-	mockExecutor.EXPECT().
-		GetSession("session-long").
-		Return(&external_agent.ZedSession{SessionID: "session-long", Status: "ready"}, nil)
-
 	// Sequence: growing content on first idle → extend; complete on next reload.
 	call := 0
 	mockStore.EXPECT().
@@ -764,10 +735,6 @@ func TestWaitTimeoutAlreadyCompleteIsSuccess(t *testing.T) {
 		},
 	}
 
-	mockExecutor.EXPECT().
-		GetSession("session-done").
-		Return(&external_agent.ZedSession{SessionID: "session-done", Status: "ready"}, nil)
-
 	// Timeout reloads and finds complete — must return success and NOT call UpdateInteraction.
 	mockStore.EXPECT().
 		GetInteraction(gomock.Any(), "int-done").
@@ -827,10 +794,6 @@ func TestAgentErrorPreservesStreamedContent(t *testing.T) {
 			{ID: "int-err", SessionID: "session-err", UserID: "user-1"},
 		},
 	}
-
-	mockExecutor.EXPECT().
-		GetSession("session-err").
-		Return(&external_agent.ZedSession{SessionID: "session-err", Status: "ready"}, nil)
 
 	mockStore.EXPECT().
 		GetInteraction(gomock.Any(), "int-err").
