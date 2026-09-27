@@ -267,6 +267,8 @@ definitions:
         type: string
       created_at:
         type: string
+      disk_size_gb:
+        type: integer
       name:
         type: string
       owner:
@@ -278,8 +280,17 @@ definitions:
           SandboxStatus is the sandbox's external agent status: "" (stopped),
           "starting", "running", "restarting", "terminated_idle" …
         type: string
+      secrets:
+        description: |-
+          Secrets are the names granted when the instance was created. Values are
+          never returned.
+        items:
+          type: string
+        type: array
       session_id:
         type: string
+      sudo:
+        type: boolean
       updated_at:
         type: string
     type: object
@@ -318,6 +329,11 @@ definitions:
     type: object
   api.CreateBotInstanceRequest:
     properties:
+      disk_size_gb:
+        description: |-
+          DiskSizeGB is the persistent home filesystem capacity. Omitted defaults
+          to 10 GB; accepted values are 1-1000.
+        type: integer
       message:
         description: Message is queued as the instance's first turn.
         type: string
@@ -329,6 +345,16 @@ definitions:
         description: |-
           SandboxRuntime overrides the Bot's instance profile runtime:
           "headless-ubuntu" or "ubuntu-desktop".
+      secrets:
+        description: |-
+          Secrets names project development secrets to grant to this instance.
+          Omitted or empty means no project secrets.
+        items:
+          type: string
+        type: array
+      sudo:
+        description: AllowSudo opts out of no-new-privileges. It is false by default.
+        type: boolean
     type: object
   api.CreateBotRequest:
     properties:
@@ -3651,24 +3677,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - gitlab
-    - webhook
     - local
-    - cron
-    - github
-    - helix_events
     - slack
+    - github
+    - webhook
+    - helix_events
+    - cron
     - email
+    - gitlab
     type: string
     x-enum-varnames:
-    - KindGitLab
-    - KindWebhook
     - KindLocal
-    - KindCron
-    - KindGitHub
-    - KindHelixEvents
     - KindSlack
+    - KindGitHub
+    - KindWebhook
+    - KindHelixEvents
+    - KindCron
     - KindEmail
+    - KindGitLab
   transport.ResolvedActivation:
     properties:
       address:
@@ -10885,6 +10911,21 @@ definitions:
           BotInstance is set on org bot instance sessions (SessionRole
           SessionRoleOrgBotInstance): the bot's instance profile as of the last
           sync, which shapes the instance's MCP servers, org tools and skills.
+      bot_instance_allow_sudo:
+        type: boolean
+      bot_instance_disk_size_gb:
+        description: |-
+          BotInstanceDiskSizeGB is the hard capacity of the instance's persistent
+          home filesystem. BotInstanceAllowSudo is an explicit opt-out from the
+          default no-new-privileges policy.
+        type: integer
+      bot_instance_secrets:
+        description: |-
+          BotInstanceSecrets names the project development secrets explicitly
+          granted when this instance was created. Empty means no project secrets.
+        items:
+          type: string
+        type: array
       callback_url:
         description: Webhook URL to POST on session completion
         type: string

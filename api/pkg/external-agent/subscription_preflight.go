@@ -2,6 +2,7 @@ package external_agent
 
 import (
 	"context"
+	"errors"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -56,6 +57,9 @@ func (h *HydraExecutor) verifySubscriptionCredentials(ctx context.Context, agent
 	}
 	if !credentialType.IsSubscription() {
 		return nil
+	}
+	if session.Metadata.SessionRole == types.SessionRoleOrgBotInstance {
+		return errors.New("org bot instances do not support subscription credentials; configure the bot to use API-key credentials")
 	}
 
 	switch runtime {

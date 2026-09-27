@@ -28725,6 +28725,9 @@
                     "created_at": {
                         "type": "string"
                     },
+                    "disk_size_gb": {
+                        "type": "integer"
+                    },
                     "name": {
                         "type": "string"
                     },
@@ -28738,8 +28741,18 @@
                         "description": "SandboxStatus is the sandbox's external agent status: \"\" (stopped),\n\"starting\", \"running\", \"restarting\", \"terminated_idle\" …",
                         "type": "string"
                     },
+                    "secrets": {
+                        "description": "Secrets are the names granted when the instance was created. Values are\nnever returned.",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "session_id": {
                         "type": "string"
+                    },
+                    "sudo": {
+                        "type": "boolean"
                     },
                     "updated_at": {
                         "type": "string"
@@ -28798,6 +28811,10 @@
             "api.CreateBotInstanceRequest": {
                 "type": "object",
                 "properties": {
+                    "disk_size_gb": {
+                        "description": "DiskSizeGB is the persistent home filesystem capacity. Omitted defaults\nto 10 GB; accepted values are 1-1000.",
+                        "type": "integer"
+                    },
                     "message": {
                         "description": "Message is queued as the instance's first turn.",
                         "type": "string"
@@ -28812,6 +28829,17 @@
                                 "$ref": "#/components/schemas/types.SandboxRuntime"
                             }
                         ]
+                    },
+                    "secrets": {
+                        "description": "Secrets names project development secrets to grant to this instance.\nOmitted or empty means no project secrets.",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "sudo": {
+                        "description": "AllowSudo opts out of no-new-privileges. It is false by default.",
+                        "type": "boolean"
                     }
                 }
             },
@@ -33480,24 +33508,24 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
-                    "gitlab",
-                    "webhook",
                     "local",
-                    "cron",
-                    "github",
-                    "helix_events",
                     "slack",
-                    "email"
+                    "github",
+                    "webhook",
+                    "helix_events",
+                    "cron",
+                    "email",
+                    "gitlab"
                 ],
                 "x-enum-varnames": [
-                    "KindGitLab",
-                    "KindWebhook",
                     "KindLocal",
-                    "KindCron",
-                    "KindGitHub",
-                    "KindHelixEvents",
                     "KindSlack",
-                    "KindEmail"
+                    "KindGitHub",
+                    "KindWebhook",
+                    "KindHelixEvents",
+                    "KindCron",
+                    "KindEmail",
+                    "KindGitLab"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -43164,6 +43192,20 @@
                                 "$ref": "#/components/schemas/types.BotInstanceProfile"
                             }
                         ]
+                    },
+                    "bot_instance_allow_sudo": {
+                        "type": "boolean"
+                    },
+                    "bot_instance_disk_size_gb": {
+                        "description": "BotInstanceDiskSizeGB is the hard capacity of the instance's persistent\nhome filesystem. BotInstanceAllowSudo is an explicit opt-out from the\ndefault no-new-privileges policy.",
+                        "type": "integer"
+                    },
+                    "bot_instance_secrets": {
+                        "description": "BotInstanceSecrets names the project development secrets explicitly\ngranted when this instance was created. Empty means no project secrets.",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     },
                     "callback_url": {
                         "description": "Webhook URL to POST on session completion",

@@ -21,13 +21,26 @@ type BotInstanceDTO struct {
 	// "starting", "running", "restarting", "terminated_idle" …
 	SandboxStatus string `json:"sandbox_status,omitempty"`
 	Owner         string `json:"owner"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
+	// Secrets are the names granted when the instance was created. Values are
+	// never returned.
+	Secrets    []string `json:"secrets"`
+	DiskSizeGB int      `json:"disk_size_gb"`
+	AllowSudo  bool     `json:"sudo"`
+	CreatedAt  string   `json:"created_at"`
+	UpdatedAt  string   `json:"updated_at"`
 }
 
 // CreateBotInstanceRequest is the body of POST /bots/{id}/instances.
 type CreateBotInstanceRequest struct {
 	Name string `json:"name,omitempty"`
+	// Secrets names project development secrets to grant to this instance.
+	// Omitted or empty means no project secrets.
+	Secrets []string `json:"secrets,omitempty"`
+	// DiskSizeGB is the persistent home filesystem capacity. Omitted defaults
+	// to 10 GB; accepted values are 1-1000.
+	DiskSizeGB int `json:"disk_size_gb,omitempty"`
+	// AllowSudo opts out of no-new-privileges. It is false by default.
+	AllowSudo bool `json:"sudo,omitempty"`
 	// SandboxRuntime overrides the Bot's instance profile runtime:
 	// "headless-ubuntu" or "ubuntu-desktop".
 	SandboxRuntime types.SandboxRuntime `json:"sandbox_runtime,omitempty"`
@@ -36,6 +49,10 @@ type CreateBotInstanceRequest struct {
 }
 
 func botInstanceDTO(session *types.Session) BotInstanceDTO {
+	diskSizeGB := session.Metadata.BotInstanceDiskSizeGB
+	if diskSizeGB == 0 && session.Metadata.SessionRole == types.SessionRoleOrgBotInstance {
+		diskSizeGB = types.DefaultBotInstanceDiskSizeGB
+	}
 	return BotInstanceDTO{
 		SessionID:      session.ID,
 		BotID:          session.Metadata.OrgWorkerID,
@@ -43,6 +60,9 @@ func botInstanceDTO(session *types.Session) BotInstanceDTO {
 		SandboxRuntime: session.Metadata.SandboxRuntime,
 		SandboxStatus:  session.Metadata.ExternalAgentStatus,
 		Owner:          session.Owner,
+		Secrets:        append([]string{}, session.Metadata.BotInstanceSecrets...),
+		DiskSizeGB:     diskSizeGB,
+		AllowSudo:      session.Metadata.BotInstanceAllowSudo,
 		CreatedAt:      session.Created.Format(time.RFC3339),
 		UpdatedAt:      session.Updated.Format(time.RFC3339),
 	}
@@ -113,7 +133,14 @@ func (a *apiHandler) createBotInstance(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	session, err := manager.Create(r.Context(), orgID, botID, instances.Params(req))
+	session, err := manager.Create(r.Context(), orgID, botID, instances.Params{
+		Name:           req.Name,
+		SandboxRuntime: req.SandboxRuntime,
+		Secrets:        req.Secrets,
+		DiskSizeGB:     req.DiskSizeGB,
+		AllowSudo:      req.AllowSudo,
+		Message:        req.Message,
+	})
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("create instance of bot %s: %w", botID, err))
 		return

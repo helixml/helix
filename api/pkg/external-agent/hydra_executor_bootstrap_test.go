@@ -138,7 +138,71 @@ func TestApplySessionBootstrapInstanceSkills(t *testing.T) {
 			if !agent.NoContainerEngine {
 				t.Fatal("an instance must run without a container engine")
 			}
+			if agent.ProjectSecretNames == nil {
+				t.Fatal("an instance with no grants must carry an explicit empty secret allowlist")
+			}
+			if agent.DiskSizeGB != types.DefaultBotInstanceDiskSizeGB || agent.PidsLimit != types.DefaultBotInstancePidsLimit {
+				t.Fatalf("instance limits = disk %d GB / pids %d", agent.DiskSizeGB, agent.PidsLimit)
+			}
+			if !agent.NoNewPrivileges {
+				t.Fatal("instance must default to no-new-privileges")
+			}
 		})
+	}
+}
+
+func TestApplySessionBootstrapInstanceExplicitSecurityOptions(t *testing.T) {
+	profile := types.DefaultBotInstanceProfile()
+	agent := &types.DesktopAgent{SessionID: "ses_instance"}
+	err := applySessionBootstrap(types.SessionMetadata{
+		OrgWorkerID:           "b-broker",
+		RuntimeInstructions:   "instructions",
+		BotInstance:           &profile,
+		BotInstanceDiskSizeGB: 24,
+		BotInstanceAllowSudo:  true,
+	}, agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.DiskSizeGB != 24 || agent.NoNewPrivileges {
+		t.Fatalf("instance security options = disk %d GB / nnp %t", agent.DiskSizeGB, agent.NoNewPrivileges)
+	}
+}
+
+func TestApplySessionBootstrapCopiesInstanceSecretAllowlist(t *testing.T) {
+	profile := types.DefaultBotInstanceProfile()
+	requested := []string{"CRM_TOKEN", "SUPPORT_KEY"}
+	agent := &types.DesktopAgent{SessionID: "ses_instance"}
+	err := applySessionBootstrap(types.SessionMetadata{
+		OrgWorkerID:         "b-broker",
+		RuntimeInstructions: "broker instructions",
+		BotInstance:         &profile,
+		BotInstanceSecrets:  requested,
+	}, agent)
+	if err != nil {
+		t.Fatalf("applySessionBootstrap: %v", err)
+	}
+	if len(agent.ProjectSecretNames) != len(requested) || agent.ProjectSecretNames[0] != requested[0] || agent.ProjectSecretNames[1] != requested[1] {
+		t.Fatalf("ProjectSecretNames = %v, want %v", agent.ProjectSecretNames, requested)
+	}
+	requested[0] = "CHANGED"
+	if agent.ProjectSecretNames[0] != "CRM_TOKEN" {
+		t.Fatal("secret allowlist aliases session metadata")
+	}
+}
+
+func TestMissingProjectSecretNames(t *testing.T) {
+	all := []string{"CRM_TOKEN=one", "SUPPORT_KEY=two=with=equals", "OTHER=three"}
+	if got := missingProjectSecretNames(all, nil); len(got) != 0 {
+		t.Fatalf("ordinary session missing secrets = %v, want none", got)
+	}
+	if got := missingProjectSecretNames(all, []string{"SUPPORT_KEY", "CRM_TOKEN"}); len(got) != 0 {
+		t.Fatalf("available secrets reported missing: %v", got)
+	}
+	got := missingProjectSecretNames(all, []string{"MISSING", "CRM_TOKEN", "ALSO_MISSING"})
+	want := []string{"MISSING", "ALSO_MISSING"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("missing secrets = %v, want %v", got, want)
 	}
 }
 

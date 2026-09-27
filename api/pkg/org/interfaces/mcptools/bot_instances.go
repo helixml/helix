@@ -25,15 +25,25 @@ type botInstanceView struct {
 	Name           string               `json:"name"`
 	SandboxRuntime types.SandboxRuntime `json:"sandbox_runtime"`
 	SandboxStatus  string               `json:"sandbox_status,omitempty"`
+	Secrets        []string             `json:"secrets"`
+	DiskSizeGB     int                  `json:"disk_size_gb"`
+	AllowSudo      bool                 `json:"sudo"`
 }
 
 func toBotInstanceView(session *types.Session) botInstanceView {
+	diskSizeGB := session.Metadata.BotInstanceDiskSizeGB
+	if diskSizeGB == 0 && session.Metadata.SessionRole == types.SessionRoleOrgBotInstance {
+		diskSizeGB = types.DefaultBotInstanceDiskSizeGB
+	}
 	return botInstanceView{
 		SessionID:      session.ID,
 		BotID:          session.Metadata.OrgWorkerID,
 		Name:           session.Name,
 		SandboxRuntime: session.Metadata.SandboxRuntime,
 		SandboxStatus:  session.Metadata.ExternalAgentStatus,
+		Secrets:        append([]string{}, session.Metadata.BotInstanceSecrets...),
+		DiskSizeGB:     diskSizeGB,
+		AllowSudo:      session.Metadata.BotInstanceAllowSudo,
 	}
 }
 
@@ -50,10 +60,13 @@ type CreateBotInstance struct{ deps Deps }
 func NewCreateBotInstance(deps Deps) *CreateBotInstance { return &CreateBotInstance{deps: deps} }
 
 type createBotInstanceArgs struct {
-	NodeID         string `json:"bot_id"`
-	Name           string `json:"name,omitempty"`
-	SandboxRuntime string `json:"sandbox_runtime,omitempty"`
-	Message        string `json:"message,omitempty"`
+	NodeID         string   `json:"bot_id"`
+	Name           string   `json:"name,omitempty"`
+	SandboxRuntime string   `json:"sandbox_runtime,omitempty"`
+	Secrets        []string `json:"secrets,omitempty"`
+	DiskSizeGB     int      `json:"disk_size_gb,omitempty"`
+	AllowSudo      bool     `json:"sudo,omitempty"`
+	Message        string   `json:"message,omitempty"`
 }
 
 var createBotInstanceSchema = mustSchema[createBotInstanceArgs]()
@@ -64,7 +77,10 @@ func (t *CreateBotInstance) Description() string {
 	return "Start a new instance of a Bot: a separate session with the bot's instructions, " +
 		"project and model, running in its own sandbox. Use one instance per end user or " +
 		"case so they never share a browser or workspace. Instances get only what the bot's " +
-		"instance profile enables (by default a browser, no helix tools). Returns session_id."
+		"instance profile enables and the project secret names explicitly passed in secrets " +
+		"(none by default). Disk defaults to 10 GB and may be set up to 1000 GB. " +
+		"Sudo is disabled by default and must be " +
+		"explicitly enabled. Returns session_id."
 }
 func (t *CreateBotInstance) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args createBotInstanceArgs
@@ -84,6 +100,9 @@ func (t *CreateBotInstance) Invoke(ctx context.Context, inv tool.Invocation) (js
 	session, err := t.deps.Instances.Create(ctx, orgID, botID, instances.Params{
 		Name:           args.Name,
 		SandboxRuntime: types.SandboxRuntime(args.SandboxRuntime),
+		Secrets:        args.Secrets,
+		DiskSizeGB:     args.DiskSizeGB,
+		AllowSudo:      args.AllowSudo,
 		Message:        args.Message,
 	})
 	if err != nil {

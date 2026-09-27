@@ -106,6 +106,11 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	}
 	if app.OrganizationID != "" {
 		if assistant := external_agent.FindZedExternalAssistant(app); assistant != nil {
+			if session.Metadata.SessionRole == types.SessionRoleOrgBotInstance {
+				if err := validateBotInstanceCredentials(assistant); err != nil {
+					return nil, system.NewHTTPError422(err.Error())
+				}
+			}
 			runtime := assistant.CodeAgentRuntime
 			if runtime == "" {
 				runtime = types.CodeAgentRuntimeZedAgent

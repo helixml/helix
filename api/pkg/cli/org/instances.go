@@ -13,11 +13,12 @@ import (
 )
 
 // createInstance starts an instance of botID; the sandbox starts asynchronously.
-func createInstance(ctx context.Context, c *client.HelixClient, orgID, botID, name, runtime, message string) (*orgapi.BotInstanceDTO, error) {
+func createInstance(ctx context.Context, c *client.HelixClient, orgID, botID, name, runtime, message string, secrets []string, diskSizeGB int, allowSudo bool) (*orgapi.BotInstanceDTO, error) {
 	createCtx, cancel := callCtx(ctx, 60*time.Second)
 	defer cancel()
 	return c.CreateOrgBotInstance(createCtx, orgID, botID, &orgapi.CreateBotInstanceRequest{
-		Name: name, SandboxRuntime: types.SandboxRuntime(runtime), Message: message,
+		Name: name, SandboxRuntime: types.SandboxRuntime(runtime), Message: message, Secrets: secrets,
+		DiskSizeGB: diskSizeGB, AllowSudo: allowSudo,
 	})
 }
 
@@ -91,7 +92,9 @@ func newInstancesListCmd() *cobra.Command {
 func newInstancesCreateCmd() *cobra.Command {
 	var (
 		orgFlag, name, runtime, message string
-		jsonOut, wait                   bool
+		secrets                         []string
+		diskSizeGB                      int
+		jsonOut, wait, allowSudo        bool
 	)
 	cmd := &cobra.Command{
 		Use:   "create <bot-id>",
@@ -102,7 +105,7 @@ func newInstancesCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			inst, err := createInstance(cmd.Context(), c, orgID, args[0], name, runtime, message)
+			inst, err := createInstance(cmd.Context(), c, orgID, args[0], name, runtime, message, secrets, diskSizeGB, allowSudo)
 			if err != nil {
 				return err
 			}
@@ -122,6 +125,9 @@ func newInstancesCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "Instance name")
 	cmd.Flags().StringVar(&runtime, "runtime", "", "headless-ubuntu | ubuntu-desktop (default: profile, then bot)")
 	cmd.Flags().StringVar(&message, "message", "", "Queue this as the first turn")
+	cmd.Flags().StringArrayVar(&secrets, "secret", nil, "Project development secret name to grant (repeatable)")
+	cmd.Flags().IntVar(&diskSizeGB, "disk-size-gb", 0, "Persistent disk size in GB (default: 10, max: 1000)")
+	cmd.Flags().BoolVar(&allowSudo, "sudo", false, "Allow passwordless sudo (disables no-new-privileges)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "JSON output")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait until the sandbox is running (fails fast if it fails to start)")
 	return cmd
@@ -175,10 +181,11 @@ func newInstancesDeleteCmd() *cobra.Command {
 
 func newInstancesAskCmd() *cobra.Command {
 	var (
-		orgFlag, runtime string
-		attach           []string
-		keep, raw, tools bool
-		timeout          int
+		orgFlag, runtime    string
+		attach, secrets     []string
+		keep, raw, tools    bool
+		allowSudo           bool
+		timeout, diskSizeGB int
 	)
 	cmd := &cobra.Command{
 		Use:   "ask <bot-id> <message>",
@@ -190,7 +197,7 @@ func newInstancesAskCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			inst, err := createInstance(ctx, c, orgID, args[0], "helix ask", runtime, "")
+			inst, err := createInstance(ctx, c, orgID, args[0], "helix ask", runtime, "", secrets, diskSizeGB, allowSudo)
 			if err != nil {
 				return err
 			}
@@ -221,6 +228,9 @@ func newInstancesAskCmd() *cobra.Command {
 	cmd.Flags().StringVar(&orgFlag, "org", "", "Organization id or name (or $HELIX_ORG)")
 	cmd.Flags().StringVar(&runtime, "runtime", "", "headless-ubuntu | ubuntu-desktop")
 	cmd.Flags().StringArrayVarP(&attach, "attach", "a", nil, "File to attach (repeatable)")
+	cmd.Flags().StringArrayVar(&secrets, "secret", nil, "Project development secret name to grant (repeatable)")
+	cmd.Flags().IntVar(&diskSizeGB, "disk-size-gb", 0, "Persistent disk size in GB (default: 10, max: 1000)")
+	cmd.Flags().BoolVar(&allowSudo, "sudo", false, "Allow passwordless sudo (disables no-new-privileges)")
 	cmd.Flags().BoolVar(&keep, "keep", false, "Keep the instance")
 	cmd.Flags().BoolVar(&raw, "raw", false, "Print the whole turn blob")
 	cmd.Flags().BoolVar(&tools, "tools", false, "Print a tool-call summary (stderr)")

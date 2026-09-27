@@ -468,10 +468,18 @@ type SessionMetadata struct {
 	// SessionRoleOrgBotInstance): the bot's instance profile as of the last
 	// sync, which shapes the instance's MCP servers, org tools and skills.
 	BotInstance *BotInstanceProfile `json:"bot_instance,omitempty"`
-	HelixVersion        string `json:"helix_version"`
-	Stream              bool   `json:"stream"`
-	AgentType           string `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
-	SystemSession       bool   `json:"system_session,omitempty"` // True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops
+	// BotInstanceSecrets names the project development secrets explicitly
+	// granted when this instance was created. Empty means no project secrets.
+	BotInstanceSecrets []string `json:"bot_instance_secrets,omitempty"`
+	// BotInstanceDiskSizeGB is the hard capacity of the instance's persistent
+	// home filesystem. BotInstanceAllowSudo is an explicit opt-out from the
+	// default no-new-privileges policy.
+	BotInstanceDiskSizeGB int    `json:"bot_instance_disk_size_gb,omitempty"`
+	BotInstanceAllowSudo  bool   `json:"bot_instance_allow_sudo,omitempty"`
+	HelixVersion          string `json:"helix_version"`
+	Stream                bool   `json:"stream"`
+	AgentType             string `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
+	SystemSession         bool   `json:"system_session,omitempty"` // True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops
 
 	// Autonomous crash recovery. Set true at session creation for surfaces with
 	// no human present to click the in-chat Restart button (spec tasks, org
@@ -2140,10 +2148,18 @@ type DesktopAgent struct {
 	// the sandbox billing row to the bot. Never accepted from callers.
 	OrgWorkerID   string `json:"-"`
 	OrgWorkerName string `json:"-"`
+	// ProjectSecretNames is non-nil for org bot instances, including when the
+	// instance was granted no secrets. It filters project-secret injection.
+	ProjectSecretNames []string `json:"-"`
 	// NoContainerEngine runs the sandbox unprivileged with no Docker or
 	// Podman inside. Set for org bot instances, which serve untrusted users
 	// and never build or run containers. Never accepted from callers.
 	NoContainerEngine bool `json:"-"`
+	// Instance-only resource and privilege controls, restored from session
+	// metadata on every launch path.
+	DiskSizeGB      int   `json:"-"`
+	PidsLimit       int64 `json:"-"`
+	NoNewPrivileges bool  `json:"-"`
 
 	// Branch configuration (for starting on correct branch)
 	BranchMode    string `json:"branch_mode,omitempty"`    // "new" or "existing"

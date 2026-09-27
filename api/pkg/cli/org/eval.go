@@ -316,7 +316,7 @@ func runCase(ctx context.Context, c *client.HelixClient, s *evalSuite, bot strin
 	if runtime == "" {
 		runtime = s.Runtime
 	}
-	inst, err := createInstance(ctx, c, o.orgID, bot, truncate("eval "+o.tag+" "+ec.ID, 60), runtime, "")
+	inst, err := createInstance(ctx, c, o.orgID, bot, truncate("eval "+o.tag+" "+ec.ID, 60), runtime, "", nil, 0, false)
 	if err != nil {
 		rec.Error = err.Error()
 		return rec

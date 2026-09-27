@@ -11,6 +11,12 @@ import (
 // ignore it.
 const SessionRoleOrgBotInstance = "org_bot_instance"
 
+const (
+	DefaultBotInstanceDiskSizeGB = 10
+	MaxBotInstanceDiskSizeGB     = 1000
+	DefaultBotInstancePidsLimit  = 512
+)
+
 // Built-in context servers an instance profile can keep. Project MCP servers
 // are referenced by their own names.
 const (

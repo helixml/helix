@@ -22,10 +22,25 @@ var ErrInvalidRequest = errors.New("invalid request")
 type Params struct {
 	Name           string
 	SandboxRuntime types.SandboxRuntime
+	// DiskSizeGB is the hard size of the instance's persistent home filesystem.
+	// Zero selects DefaultDiskSizeGB.
+	DiskSizeGB int
+	// AllowSudo deliberately permits setuid privilege escalation inside the
+	// instance. False enables no-new-privileges and is the safe default.
+	AllowSudo bool
+	// Secrets names the project development secrets explicitly granted to this
+	// instance. Empty means the instance receives no project secrets.
+	Secrets []string
 	// Message is queued as the instance's first turn. Empty starts the
 	// sandbox with no turn.
 	Message string
 }
+
+const (
+	DefaultDiskSizeGB = types.DefaultBotInstanceDiskSizeGB
+	MaxDiskSizeGB     = types.MaxBotInstanceDiskSizeGB
+	DefaultPidsLimit  = types.DefaultBotInstancePidsLimit
+)
 
 // Manager manages a Bot's instances.
 type Manager interface {

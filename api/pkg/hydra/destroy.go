@@ -56,6 +56,9 @@ func (dm *DevContainerManager) DestroyDevContainer(ctx context.Context, sessionI
 			errs = append(errs, err)
 		}
 	}
+	if err := destroyInstanceDisk(ctx, sessionID); err != nil {
+		errs = append(errs, err)
+	}
 	dirs := []string{
 		filepath.Join(sessionsBaseDir, volume),
 		filepath.Join(workspacesBaseDir, "sessions", sessionID),

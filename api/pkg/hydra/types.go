@@ -120,6 +120,13 @@ type CreateDevContainerRequest struct {
 	// bot instances, which browse untrusted pages.
 	BrowserSandbox bool `json:"browser_sandbox,omitempty"`
 
+	// Untrusted instance controls. DiskSizeGB provisions a capacity-limited,
+	// persistent /home/retro filesystem. PidsLimit is enforced by the pids
+	// cgroup. NoNewPrivileges blocks setuid/setgid privilege escalation.
+	DiskSizeGB      int   `json:"disk_size_gb,omitempty"`
+	PidsLimit       int64 `json:"pids_limit,omitempty"`
+	NoNewPrivileges bool  `json:"no_new_privileges,omitempty"`
+
 	// ProjectID for golden Docker cache lookup (per-project overlayfs)
 	ProjectID string `json:"project_id,omitempty"`
 

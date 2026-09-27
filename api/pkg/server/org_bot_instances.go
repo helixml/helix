@@ -101,6 +101,17 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 	if assistant == nil {
 		return nil, fmt.Errorf("bot app %s has no assistant", appID)
 	}
+	if err := validateBotInstanceCredentials(assistant); err != nil {
+		return nil, err
+	}
+	secretNames, err := b.validateInstanceSecrets(ctx, projectID, params.Secrets)
+	if err != nil {
+		return nil, err
+	}
+	diskSizeGB, err := normalizeBotInstanceDiskSize(params.DiskSizeGB)
+	if err != nil {
+		return nil, err
+	}
 
 	profile := bot.EffectiveInstanceProfile()
 	orgRuntime, orgResources := b.configs.GetDefaultSandboxConfig(ctx, orgID)
@@ -153,6 +164,9 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 			SandboxRuntime:           sandboxRuntime,
 			SandboxResourceOverrides: &resources,
 			BotInstance:              &profile,
+			BotInstanceSecrets:       secretNames,
+			BotInstanceDiskSizeGB:    diskSizeGB,
+			BotInstanceAllowSudo:     params.AllowSudo,
 			AutoRestartOnCrash:       true,
 			AssistantID:              assistant.ID,
 			CodeAgentRuntime:         codeAgentRuntime,
@@ -183,6 +197,59 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 	return created, nil
 }
 
+func normalizeBotInstanceDiskSize(requested int) (int, error) {
+	if requested == 0 {
+		return instances.DefaultDiskSizeGB, nil
+	}
+	if requested < 1 || requested > instances.MaxDiskSizeGB {
+		return 0, fmt.Errorf("%w: disk_size_gb must be between 1 and %d", instances.ErrInvalidRequest, instances.MaxDiskSizeGB)
+	}
+	return requested, nil
+}
+
+func validateBotInstanceCredentials(assistant *types.AssistantConfig) error {
+	if assistant != nil && assistant.CodeAgentCredentialType.IsSubscription() {
+		return fmt.Errorf("%w: org bot instances do not support subscription credentials; configure the bot to use API-key credentials", instances.ErrInvalidRequest)
+	}
+	return nil
+}
+
+func (b botInstances) validateInstanceSecrets(ctx context.Context, projectID string, requested []string) ([]string, error) {
+	if len(requested) == 0 {
+		return []string{}, nil
+	}
+	secrets, err := b.server.Store.ListProjectSecrets(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list project secrets: %w", err)
+	}
+	available := make(map[string]bool, len(secrets))
+	for _, secret := range secrets {
+		scope := secret.Scope
+		if scope == "" {
+			scope = types.SecretScopeDev
+		}
+		if scope.AppliesTo(types.SecretScopeDev) {
+			available[secret.Name] = true
+		}
+	}
+	selected := make([]string, 0, len(requested))
+	seen := make(map[string]bool, len(requested))
+	for _, name := range requested {
+		if name == "" {
+			return nil, fmt.Errorf("%w: instance secret names cannot be empty", instances.ErrInvalidRequest)
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("%w: instance secret %q is listed more than once", instances.ErrInvalidRequest, name)
+		}
+		if !available[name] {
+			return nil, fmt.Errorf("%w: project development secret %q does not exist", instances.ErrInvalidRequest, name)
+		}
+		seen[name] = true
+		selected = append(selected, name)
+	}
+	return selected, nil
+}
+
 // createBotInstanceForChat starts a new instance of the Org Bot behind app for
 // POST /api/v1/sessions/chat. Like the org REST route, any member of the
 // Bot's organization may create one; it is theirs.
@@ -196,6 +263,9 @@ func (s *HelixAPIServer) createBotInstanceForChat(ctx context.Context, user *typ
 	instance, err := s.botInstances.CreateForApp(runtimehelix.WithUserID(ctx, user.ID), app)
 	if errors.Is(err, helixorgstore.ErrNotFound) {
 		return nil, system.NewHTTPError404(err.Error())
+	}
+	if errors.Is(err, instances.ErrInvalidRequest) {
+		return nil, system.NewHTTPError400(err.Error())
 	}
 	if err != nil {
 		log.Error().Err(err).Str("app_id", app.ID).Msg("Failed to create bot instance for chat")

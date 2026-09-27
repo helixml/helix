@@ -478,6 +478,16 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 	defer dockerClient.Close()
+	if req.DiskSizeGB > 0 {
+		if _, _, inspectErr := dockerClient.ImageInspectWithRaw(ctx, resolvedImage); inspectErr != nil {
+			if !dm.tryRecoverImage(ctx, dockerClient, resolvedImage, req.Image) {
+				return nil, fmt.Errorf("image %s is required to initialize instance disk", resolvedImage)
+			}
+		}
+		if err := prepareInstanceDisk(ctx, dockerClient, resolvedImage, req); err != nil {
+			return nil, fmt.Errorf("prepare instance disk: %w", err)
+		}
+	}
 
 	// Build container configuration
 	containerConfig := &container.Config{
@@ -554,6 +564,16 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// 2. Previous start request failed after container creation but before DB update
 	existingContainer, err := dockerClient.ContainerInspect(dockerCtx, req.ContainerName)
 	existingContainerFound := err == nil
+	if existingContainerFound && req.DiskSizeGB > 0 && instanceHardeningChanged(existingContainer.HostConfig, hostConfig) {
+		log.Info().
+			Str("container_id", existingContainer.ID).
+			Str("container_name", req.ContainerName).
+			Msg("Recreating instance container to apply security limits")
+		if err := dockerClient.ContainerRemove(dockerCtx, existingContainer.ID, container.RemoveOptions{Force: true}); err != nil {
+			return nil, fmt.Errorf("remove container to apply instance security limits: %w", err)
+		}
+		existingContainerFound = false
+	}
 	if existingContainerFound && shouldMigrateContainerNetwork(existingContainer.HostConfig.NetworkMode, hostConfig.NetworkMode) && existingContainer.State.Running {
 		log.Warn().
 			Str("container_id", existingContainer.ID).
@@ -827,6 +847,56 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}, nil
 }
 
+func instanceHardeningChanged(existing, desired *container.HostConfig) bool {
+	if existing == nil || desired == nil {
+		return true
+	}
+	if desired.Resources.PidsLimit != nil && (existing.Resources.PidsLimit == nil || *existing.Resources.PidsLimit != *desired.Resources.PidsLimit) {
+		return true
+	}
+	if containsString(existing.SecurityOpt, "no-new-privileges") != containsString(desired.SecurityOpt, "no-new-privileges") {
+		return true
+	}
+	for _, wanted := range desired.SecurityOpt {
+		found := false
+		for _, current := range existing.SecurityOpt {
+			if current == wanted {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return true
+		}
+	}
+	for target, options := range desired.Tmpfs {
+		if existing.Tmpfs[target] != options {
+			return true
+		}
+	}
+	for _, wanted := range desired.Mounts {
+		if wanted.Target != "/home/retro" {
+			continue
+		}
+		for _, current := range existing.Mounts {
+			if current.Target == wanted.Target && current.Source == wanted.Source && current.ReadOnly == wanted.ReadOnly {
+				return false
+			}
+		}
+		return true
+	}
+	return true
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
 func materializeWorkspaceFiles(mounts []MountConfig, files map[string][]byte) error {
 	if len(files) == 0 {
 		return nil
@@ -1053,6 +1123,15 @@ const desktopShmSizeBytes = 1 << 30
 
 // buildHostConfig builds the host configuration for the container
 func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (*container.HostConfig, error) {
+	if req.DiskSizeGB < 0 {
+		return nil, fmt.Errorf("disk size cannot be negative")
+	}
+	if req.PidsLimit < 0 {
+		return nil, fmt.Errorf("pids limit cannot be negative")
+	}
+	if req.NoNewPrivileges && req.Privileged {
+		return nil, fmt.Errorf("no-new-privileges cannot be combined with privileged mode")
+	}
 	if req.RootlessContainerEngine && req.ContainerType != DevContainerTypeHeadless {
 		return nil, fmt.Errorf("rootless container engine requires a headless container")
 	}
@@ -1082,12 +1161,27 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	}
 	// Apply CPU and memory limits when requested. NanoCPUs uses 10^9 units per CPU.
 	resources.NanoCPUs, resources.Memory, resources.MemorySwap = sandboxResourceLimits(req.VCPUs, req.MemoryMB)
+	if req.PidsLimit > 0 {
+		resources.PidsLimit = &req.PidsLimit
+	}
 
 	hostConfig := &container.HostConfig{
 		NetworkMode: SandboxNetworkName,
 		Privileged:  req.Privileged,
 		Resources:   resources,
 		DNS:         []string{sandboxDNSGateway()},
+	}
+	if req.NoNewPrivileges {
+		hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "no-new-privileges")
+	}
+	if req.DiskSizeGB > 0 {
+		// User-controlled persistent writes live on the quota-backed home mount.
+		// Keep conventional world-writable scratch paths in bounded memory so
+		// they cannot be used to consume the host's Docker filesystem instead.
+		hostConfig.Tmpfs = map[string]string{
+			"/tmp":     "rw,nosuid,nodev,size=256m,mode=1777",
+			"/var/tmp": "rw,nosuid,nodev,size=64m,mode=1777",
+		}
 	}
 	if req.ContainerType != DevContainerTypeHeadless {
 		hostConfig.IpcMode = "private"
@@ -1103,7 +1197,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 			// the agent starts, the image drops SYS_ADMIN from the agent's
 			// bounding set and enables no_new_privs.
 			hostConfig.CapAdd = []string{"SYS_ADMIN"}
-			hostConfig.SecurityOpt = []string{"seccomp=unconfined"}
+			hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "seccomp=unconfined")
 			// Rootless Podman needs to mount procfs entries that Docker masks or
 			// makes read-only by default. Empty, non-nil slices explicitly
 			// override those daemon defaults through the Docker API.
@@ -1116,7 +1210,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 				if err != nil {
 					return nil, err
 				}
-				hostConfig.SecurityOpt = []string{"seccomp=" + profile}
+				hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "seccomp="+profile)
 			}
 		}
 	}

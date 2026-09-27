@@ -23,14 +23,17 @@ type QuotaManager interface {
 	LimitReached(ctx context.Context, req *types.QuotaLimitReachedRequest) (*types.QuotaLimitReachedResponse, error)
 }
 
-// ProjectSecretsGetter returns project secrets as `KEY=value` env-var strings.
-// Wired to HelixAPIServer.GetProjectSecretsAsEnvVars at startup so HydraExecutor
-// can inject them on every container start without each caller remembering.
-type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
+// ProjectSecretsGetter returns selected project secrets as `KEY=value`
+// env-var strings. A nil name list requests all secrets; an empty non-nil
+// list requests none.
+// Wired to HelixAPIServer.GetProjectSecretsAsEnvVarsByName at startup so
+// HydraExecutor can inject them on every container start without each caller
+// remembering.
+type ProjectSecretsGetter func(ctx context.Context, projectID string, names []string) ([]string, error)
 
 // agentBinaryCacheDir is the sandbox-host directory holding admin-pinned agent
-// binaries. Shared by every container on the host and keyed by version, so a
-// pinned release is downloaded once rather than once per session.
+// binaries. Shared by trusted non-Bot containers on the host and keyed by
+// version, so a pinned release is downloaded once rather than once per session.
 const agentBinaryCacheDir = "/data/agent-cache"
 
 // HydraExecutor implements the Executor interface using Hydra for dev container management.
@@ -229,15 +232,23 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// ...) appear later in agent.Env and therefore win duplicate-key resolution
 	// in Docker. This preserves the long-standing invariant that a user-defined
 	// project secret can't shadow the system-injected agent API tokens.
-	if h.getProjectSecrets != nil && agent.ProjectID != "" {
-		projectSecrets, err := h.getProjectSecrets(ctx, agent.ProjectID)
+	if h.getProjectSecrets != nil && agent.ProjectID != "" && (agent.ProjectSecretNames == nil || len(agent.ProjectSecretNames) > 0) {
+		projectSecrets, err := h.getProjectSecrets(ctx, agent.ProjectID, agent.ProjectSecretNames)
 		if err != nil {
+			if agent.ProjectSecretNames != nil {
+				return nil, fmt.Errorf("load explicitly granted project secrets: %w", err)
+			}
 			log.Warn().Err(err).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Failed to load project secrets, continuing without them")
-		} else if len(projectSecrets) > 0 {
-			before := len(agent.Env)
-			agent.Env = appendProjectSecrets(agent.Env, projectSecrets)
-			injected := len(agent.Env) - before
-			log.Info().Int("secret_count", injected).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
+		} else {
+			if missing := missingProjectSecretNames(projectSecrets, agent.ProjectSecretNames); len(missing) > 0 {
+				return nil, fmt.Errorf("explicitly granted project secrets are unavailable: %s", strings.Join(missing, ", "))
+			}
+			if len(projectSecrets) > 0 {
+				before := len(agent.Env)
+				agent.Env = appendProjectSecrets(agent.Env, projectSecrets)
+				injected := len(agent.Env) - before
+				log.Info().Int("secret_count", injected).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
+			}
 		}
 	}
 
@@ -477,6 +488,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		GoldenBuild:             agent.GoldenBuild,
 		VCPUs:                   agent.VCPUs,
 		MemoryMB:                agent.MemoryMB,
+		DiskSizeGB:              agent.DiskSizeGB,
+		PidsLimit:               agent.PidsLimit,
+		NoNewPrivileges:         agent.NoNewPrivileges,
 	}
 
 	// Create dev container via Hydra
@@ -861,6 +875,16 @@ func applySessionBootstrap(metadata types.SessionMetadata, agent *types.DesktopA
 	agent.Env = append(agent.Env, "HELIX_WORKER_ID="+workerID)
 	if metadata.BotInstance != nil {
 		agent.NoContainerEngine = true
+		agent.DiskSizeGB = metadata.BotInstanceDiskSizeGB
+		if agent.DiskSizeGB == 0 {
+			agent.DiskSizeGB = types.DefaultBotInstanceDiskSizeGB
+		}
+		agent.PidsLimit = types.DefaultBotInstancePidsLimit
+		agent.NoNewPrivileges = !metadata.BotInstanceAllowSudo
+		// A non-nil empty slice deliberately means no secrets. Ordinary
+		// sessions leave this nil and retain the existing all-project-secrets
+		// behavior.
+		agent.ProjectSecretNames = append([]string{}, metadata.BotInstanceSecrets...)
 	}
 	if metadata.BotInstance != nil && !metadata.BotInstance.HelixSkills {
 		// helix-workspace-setup.sh links the default helix-* skills when
@@ -887,6 +911,26 @@ func appendProjectSecrets(env, secrets []string) []string {
 		env = append(env, secret)
 	}
 	return env
+}
+
+func missingProjectSecretNames(secrets, requestedNames []string) []string {
+	if requestedNames == nil {
+		return nil
+	}
+	present := make(map[string]bool, len(secrets))
+	for _, secret := range secrets {
+		name, _, ok := strings.Cut(secret, "=")
+		if ok {
+			present[name] = true
+		}
+	}
+	missing := make([]string, 0)
+	for _, name := range requestedNames {
+		if !present[name] {
+			missing = append(missing, name)
+		}
+	}
+	return missing
 }
 
 // StopDesktop stops a dev container using Hydra
@@ -1654,6 +1698,9 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	}
 	if agent.NoContainerEngine {
 		env = setContainerEnv(env, "HELIX_CONTAINER_ENGINE", "none")
+		if !agent.NoNewPrivileges {
+			env = setContainerEnv(env, "HELIX_ALLOW_SUDO", "1")
+		}
 	}
 
 	return env
@@ -1733,16 +1780,16 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		})
 	}
 
-	// Shared cache for admin-pinned agent binaries (currently opencode).
-	// Host-level, not per-session: the opencode release archive is ~60MB, so
-	// without this every container on the host would re-download the same
-	// pinned version. Entries are version-keyed and written atomically, which
-	// makes concurrent readers and writers safe.
-	mounts = append(mounts, hydra.MountConfig{
-		Source:      agentBinaryCacheDir,
-		Destination: "/opt/helix/agent-cache",
-		ReadOnly:    false,
-	})
+	// Org Bot sandboxes execute untrusted input and must not share writable
+	// executable state with any other tenant. A pinned override, if needed, is
+	// installed into that container's own writable layer.
+	if agent.OrgWorkerID == "" {
+		mounts = append(mounts, hydra.MountConfig{
+			Source:      agentBinaryCacheDir,
+			Destination: "/opt/helix/agent-cache",
+			ReadOnly:    false,
+		})
+	}
 
 	// For Ubuntu/GNOME containers, create a per-session pipewire directory
 	// and mount it to /run/user/1000 where PipeWire daemon creates its socket

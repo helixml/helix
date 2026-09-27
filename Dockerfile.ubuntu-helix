@@ -676,7 +676,7 @@ if [ "$(id -u)" = "0" ]; then
         source "${init_script}"
     done
 fi
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
     if [ -f /zed-build/zed ] && [ ! -e /usr/local/bin/zed ]; then
         ln -sf /zed-build/zed /usr/local/bin/zed
     fi
@@ -684,13 +684,17 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
         chown "${UNAME}:${UNAME}" "${WORKSPACE_DIR}" /home/retro/work
     fi
     if [ -n "${@:-}" ]; then
-        exec setpriv --bounding-set=-sys_admin --nnp -- \
-            gosu "${UNAME}" /bin/bash -c "$@"
+        if [ "${HELIX_ALLOW_SUDO:-0}" = "1" ] && [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" != "1" ]; then
+            exec gosu "${UNAME}" /bin/bash -c "$@"
+        fi
+        exec setpriv --bounding-set=-sys_admin --nnp -- gosu "${UNAME}" /bin/bash -c "$@"
     fi
     gow_log "Launching the container's startup script as user '${UNAME}'"
     chmod +x /opt/gow/startup.sh 2>/dev/null || true
-    exec setpriv --bounding-set=-sys_admin --nnp -- \
-        gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
+    if [ "${HELIX_ALLOW_SUDO:-0}" = "1" ] && [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" != "1" ]; then
+        exec gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
+    fi
+    exec setpriv --bounding-set=-sys_admin --nnp -- gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
 fi
 if [ -n "${@:-}" ]; then
     /bin/bash -c "$@"
