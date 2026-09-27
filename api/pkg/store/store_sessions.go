@@ -567,7 +567,8 @@ ORDER BY s.config->>'dev_container_id', s.created ASC`
 // ListExternalAgentSessionIDs returns the IDs of external-agent (hydra) sessions
 // that should be considered LIVE for the purposes of the orphan-resource reaper.
 //
-// A session is live if ANY of:
+// A session is live if it is a desktop session outside a deleted project and
+// ANY of:
 //   - its external_agent_status is "running" (a desktop container is up), OR
 //   - it was updated at or after cutoff (recent activity — covers sessions
 //     mid-startup or recently stopped whose container row hasn't settled), OR
@@ -582,7 +583,11 @@ func (s *PostgresStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff 
 	err := s.gdb.WithContext(ctx).
 		Model(&types.Session{}).
 		Where("deleted_at IS NULL").
-		Where("model_name = ?", "external_agent").
+		// Desktop sessions: spec-task sessions carry model_name external_agent;
+		// org bot and exploratory sessions carry their real model name.
+		Where("(model_name = ? OR config->>'agent_type' = ?)", "external_agent", "zed_external").
+		// A deleted project's desktops are gone; its leftovers are orphans.
+		Where("NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = sessions.project_id AND p.deleted_at IS NOT NULL)").
 		Where(s.gdb.
 			Where("config->>'external_agent_status' = ?", "running").
 			Or("updated >= ?", cutoff).

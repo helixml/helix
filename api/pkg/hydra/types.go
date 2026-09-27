@@ -273,6 +273,8 @@ type GCReconcileResponse struct {
 	WorkspacesSkipped   []GCSkip `json:"workspaces_skipped"`
 	FileCopyDirsReaped  []string `json:"file_copy_dirs_reaped"`
 	FileCopyDirsSkipped []GCSkip `json:"file_copy_dirs_skipped"`
+	ContainersReaped    []string `json:"containers_reaped"`
+	VolumesReaped       []string `json:"volumes_reaped"`
 	GoldensFlattened    []string `json:"goldens_flattened"`
 	BytesFreed          int64    `json:"bytes_freed"`
 }

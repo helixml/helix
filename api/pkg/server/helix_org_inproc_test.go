@@ -111,7 +111,6 @@ func TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentI
 	require.NoError(t, db.AutoMigrate(&types.Project{}, &types.App{}, &types.Knowledge{}, &types.KnowledgeVersion{}))
 	for _, statement := range []string{
 		`CREATE TABLE org_bot_runtime_state (org_id TEXT, bot_id TEXT)`,
-		`CREATE TABLE org_subscriptions (org_id TEXT, bot_id TEXT)`,
 		`CREATE TABLE org_bots (org_id TEXT, id TEXT, agent_app_id TEXT)`,
 	} {
 		require.NoError(t, db.Exec(statement).Error)
@@ -166,11 +165,9 @@ func TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentI
 	require.Equal(t, replacement.ID, preserved.DefaultHelixAppID)
 }
 
-// A failure to stop the bot's desktop session must not abort the delete
-// cascade. stopExternalAgentSession 404s on an already-gone session, 400s on a
-// non-zed_external session and 500s when hydra is down; treating any of those
-// as fatal left the bot permanently undeletable.
-func TestInProcClient_DeleteLinkedAgentContinuesWhenSessionStopFails(t *testing.T) {
+// A failure to destroy the bot's desktop must not abort the delete cascade:
+// an unreachable hydra would otherwise leave the bot permanently undeletable.
+func TestInProcClient_DeleteLinkedAgentContinuesWhenDesktopDestroyFails(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
@@ -179,7 +176,6 @@ func TestInProcClient_DeleteLinkedAgentContinuesWhenSessionStopFails(t *testing.
 	require.NoError(t, db.AutoMigrate(&types.Project{}, &types.App{}, &types.Knowledge{}, &types.KnowledgeVersion{}))
 	for _, statement := range []string{
 		`CREATE TABLE org_bot_runtime_state (org_id TEXT, bot_id TEXT)`,
-		`CREATE TABLE org_subscriptions (org_id TEXT, bot_id TEXT)`,
 		`CREATE TABLE org_bots (org_id TEXT, id TEXT, agent_app_id TEXT)`,
 	} {
 		require.NoError(t, db.Exec(statement).Error)
@@ -191,9 +187,10 @@ func TestInProcClient_DeleteLinkedAgentContinuesWhenSessionStopFails(t *testing.
 		"org-test", "b-agent", app.ID,
 	).Error)
 
-	// memorystore has no session seeded, so StopExternalAgent resolves to a 404.
+	executor := external_agent.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_missing", "").Return(errors.New("hydra unreachable"))
 	store := &gormBackedInProcStore{Store: memorystore.New(), db: db}
-	client := NewInProcHelixClient(&HelixAPIServer{Store: store})
+	client := NewInProcHelixClient(&HelixAPIServer{Store: store, externalAgentExecutor: executor})
 	ctx := runtimehelix.WithUser(context.Background(), &types.User{ID: "usr_request"})
 
 	require.NoError(t, client.DeleteLinkedAgent(ctx, "org-test", "b-agent", app.ID, "ses_missing"))
@@ -203,6 +200,43 @@ func TestInProcClient_DeleteLinkedAgentContinuesWhenSessionStopFails(t *testing.
 	require.NoError(t, db.Table("org_bots").Where("org_id = ? AND id = ?", "org-test", "b-agent").Count(&botCount).Error)
 	require.Zero(t, appCount)
 	require.Zero(t, botCount)
+}
+
+// Deleting a bot's project must destroy every desktop the project ever ran,
+// including soft-deleted sessions and task sessions that lack the project id,
+// delete a spec task's workspace only for tasks the project owns, and leave
+// chat sessions and other orgs' sessions alone.
+func TestInProcClient_DestroyProjectRuntimeDestroysEveryProjectDesktop(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&types.Session{}, &types.SpecTask{}))
+
+	require.NoError(t, db.Create(&types.SpecTask{ID: "spt_owned", ProjectID: "prj_bot"}).Error)
+	require.NoError(t, db.Create(&types.SpecTask{ID: "spt_other", ProjectID: "prj_other"}).Error)
+	desktop := types.SessionMetadata{AgentType: "zed_external"}
+	for _, session := range []*types.Session{
+		{ID: "ses_bot", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop},
+		{ID: "ses_task_no_project", OrganizationID: "org-test", ModelName: "external_agent", Metadata: types.SessionMetadata{SpecTaskID: "spt_owned"}},
+		{ID: "ses_foreign_task", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "external_agent", Metadata: types.SessionMetadata{SpecTaskID: "spt_other"}},
+		{ID: "ses_deleted", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop, DeletedAt: gorm.DeletedAt{Time: time.Now(), Valid: true}},
+		{ID: "ses_chat", OrganizationID: "org-test", ProjectID: "prj_bot", ModelName: "glm-5"},
+		{ID: "ses_other_org", OrganizationID: "org-other", ProjectID: "prj_bot", ModelName: "glm-5", Metadata: desktop},
+		{ID: "ses_unrelated", OrganizationID: "org-test", ProjectID: "prj_other", ModelName: "glm-5", Metadata: desktop},
+	} {
+		require.NoError(t, db.Create(session).Error)
+	}
+
+	executor := external_agent.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_bot", "").Return(nil)
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_task_no_project", "spt_owned").Return(nil)
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_foreign_task", "").Return(nil)
+	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_deleted", "").Return(errors.New("hydra unreachable"))
+
+	client := NewInProcHelixClient(&HelixAPIServer{Store: &gormBackedInProcStore{db: db}, externalAgentExecutor: executor})
+	require.NoError(t, client.destroyProjectRuntime(context.Background(), &types.Project{ID: "prj_bot", OrganizationID: "org-test"}))
 }
 
 // The org runtime — not the shared apply handler — is what classifies a bot's

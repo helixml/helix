@@ -2081,7 +2081,7 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 // extra protection we UNION in the session IDs of currently-running containers
 // from hydra's in-memory map, so an in-flight session whose row hasn't been
 // observed by the API yet is never reaped.
-func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileResponse {
+func (dm *DevContainerManager) ReconcileGC(ctx context.Context, req GCReconcileRequest) GCReconcileResponse {
 	liveSessions := make(map[string]bool, len(req.LiveSessionIDs))
 	for _, id := range req.LiveSessionIDs {
 		liveSessions[id] = true
@@ -2134,6 +2134,9 @@ func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileRe
 	fReaped, fSkipped := ReconcileOrphanFileCopyDirs(liveSessions, grace, req.DryRun)
 	resp.FileCopyDirsReaped = fReaped
 	resp.FileCopyDirsSkipped = fSkipped
+
+	// Stopped containers and their docker-data volumes of dead sessions.
+	resp.ContainersReaped, resp.VolumesReaped = dm.reconcileOrphanDockerResources(ctx, liveSessions, grace, req.DryRun)
 
 	if !req.DryRun {
 		// Prune golden snapshots the flatten just absorbed plus any other stale

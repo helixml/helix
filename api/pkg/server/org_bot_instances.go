@@ -272,19 +272,13 @@ func (b botInstances) Delete(ctx context.Context, orgID string, botID orgchart.N
 	return b.deleteSession(ctx, session)
 }
 
-// deleteSession tears an instance down: its sandbox, its workspace, then its
-// session row.
+// deleteSession tears an instance down: its sandbox and every on-host
+// resource it owns, then its session row.
 func (b botInstances) deleteSession(ctx context.Context, session *types.Session) error {
-	executor := b.server.externalAgentExecutor
-	// Read the host before stopping: a stop can clear it from the session.
-	sandboxID := session.SandboxID
-	// Stop unconditionally: a crashed instance leaves an exited container that
-	// still blocks the workspace delete, and the stop also revokes its key.
-	if err := executor.StopDesktop(ctx, session.ID); err != nil {
-		return fmt.Errorf("stop instance sandbox: %w", err)
-	}
-	if err := executor.DeleteWorkspace(ctx, session.ID, sandboxID); err != nil {
-		return fmt.Errorf("delete instance workspace: %w", err)
+	// Destroy also removes a crashed instance's exited container and revokes
+	// its key.
+	if err := b.server.externalAgentExecutor.DestroyDesktop(ctx, session.ID, ""); err != nil {
+		return fmt.Errorf("destroy instance sandbox: %w", err)
 	}
 	if _, err := b.server.Store.DeleteSession(ctx, session.ID); err != nil {
 		return fmt.Errorf("delete instance session: %w", err)
@@ -304,8 +298,15 @@ func (b botInstances) DeleteAll(ctx context.Context, orgID string, botID orgchar
 		return err
 	}
 	for _, session := range sessions {
-		if err := b.deleteSession(ctx, session); err != nil {
-			return fmt.Errorf("delete instance %s: %w", session.ID, err)
+		// Best-effort host teardown: an unreachable sandbox host must not make
+		// the bot undeletable. The orphan reaper removes the host data of the
+		// deleted session.
+		if err := b.server.externalAgentExecutor.DestroyDesktop(ctx, session.ID, ""); err != nil {
+			log.Warn().Err(err).Str("session_id", session.ID).Str("bot_id", string(botID)).
+				Msg("failed to destroy bot instance sandbox; orphan reaper will remove its host data")
+		}
+		if _, err := b.server.Store.DeleteSession(ctx, session.ID); err != nil {
+			return fmt.Errorf("delete instance session %s: %w", session.ID, err)
 		}
 	}
 	return nil
