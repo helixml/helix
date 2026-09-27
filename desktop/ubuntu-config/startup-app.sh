@@ -19,7 +19,7 @@ fi
 
 # Create symlink to Zed binary if not exists
 if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
-    if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+    if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
         gow_log "[start] FATAL: rootless bootstrap did not install /usr/local/bin/zed"
         exit 1
     fi
@@ -40,7 +40,7 @@ if [ ! -d /home/retro/work ]; then
     gow_log "[start] FATAL: /home/retro/work bind mount not present"
     exit 1
 fi
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" != "1" ]; then
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" != "1" ] && [ "${HELIX_CONTAINER_ENGINE:-}" != "none" ]; then
     sudo chown retro:retro "$WORKSPACE_DIR"
     sudo chown retro:retro /home/retro/work
 fi

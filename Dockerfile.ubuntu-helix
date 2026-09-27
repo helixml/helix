@@ -676,21 +676,37 @@ if [ "$(id -u)" = "0" ]; then
         source "${init_script}"
     done
 fi
-if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ]; then
+if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
     if [ -f /zed-build/zed ] && [ ! -e /usr/local/bin/zed ]; then
         ln -sf /zed-build/zed /usr/local/bin/zed
     fi
     if [ -n "${WORKSPACE_DIR:-}" ] && [ -d "${WORKSPACE_DIR}" ] && [ -d /home/retro/work ]; then
         chown "${UNAME}:${UNAME}" "${WORKSPACE_DIR}" /home/retro/work
     fi
+    drop_privileges=(setpriv --bounding-set=-sys_admin --nnp --)
+    if [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+        if [ "${HELIX_ALLOW_SUDO:-0}" = "1" ]; then
+            drop_privileges=()
+        else
+            # An untrusted instance keeps all writable state on its
+            # quota-backed home disk and bounded tmpfs mounts. Close every
+            # other path on the root filesystem to the agent user, so it
+            # cannot fill the host disk through the container's writable
+            # layer. Mount points are pruned: they are the allowed storage.
+            prune=()
+            while read -r _ _ _ _ mount_point _; do
+                [ "${mount_point}" = "/" ] || prune+=(-path "$(printf '%b' "${mount_point}")" -o)
+            done < /proc/self/mountinfo
+            find / -xdev \( "${prune[@]}" -false \) -prune -o ! -type l \
+                \( \( -user "${UNAME}" -exec chown root:root {} + \) , \( -perm /0022 -exec chmod go-w {} + \) \)
+        fi
+    fi
     if [ -n "${@:-}" ]; then
-        exec setpriv --bounding-set=-sys_admin --nnp -- \
-            gosu "${UNAME}" /bin/bash -c "$@"
+        exec "${drop_privileges[@]}" gosu "${UNAME}" /bin/bash -c "$@"
     fi
     gow_log "Launching the container's startup script as user '${UNAME}'"
     chmod +x /opt/gow/startup.sh 2>/dev/null || true
-    exec setpriv --bounding-set=-sys_admin --nnp -- \
-        gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
+    exec "${drop_privileges[@]}" gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
 fi
 if [ -n "${@:-}" ]; then
     /bin/bash -c "$@"

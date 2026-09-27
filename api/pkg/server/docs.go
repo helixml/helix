@@ -24077,6 +24077,9 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "disk_size_gb": {
+                    "type": "integer"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -24090,8 +24093,18 @@ const docTemplate = `{
                     "description": "SandboxStatus is the sandbox's external agent status: \"\" (stopped),\n\"starting\", \"running\", \"restarting\", \"terminated_idle\" …",
                     "type": "string"
                 },
+                "secrets": {
+                    "description": "Secrets are the names granted when the instance was created. Values are\nnever returned.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "session_id": {
                     "type": "string"
+                },
+                "sudo": {
+                    "type": "boolean"
                 },
                 "updated_at": {
                     "type": "string"
@@ -24150,6 +24163,10 @@ const docTemplate = `{
         "api.CreateBotInstanceRequest": {
             "type": "object",
             "properties": {
+                "disk_size_gb": {
+                    "description": "DiskSizeGB is the persistent home filesystem capacity. Omitted defaults\nto 10 GB; accepted values are 1-1000.",
+                    "type": "integer"
+                },
                 "message": {
                     "description": "Message is queued as the instance's first turn.",
                     "type": "string"
@@ -24164,6 +24181,17 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.SandboxRuntime"
                         }
                     ]
+                },
+                "secrets": {
+                    "description": "Secrets names project development secrets to grant to this instance.\nOmitted or empty means no project secrets.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sudo": {
+                    "description": "AllowSudo opts a headless instance out of no-new-privileges. It is\nfalse by default. ubuntu-desktop instances always allow sudo.",
+                    "type": "boolean"
                 }
             }
         },
@@ -28832,23 +28860,23 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "gitlab",
-                "webhook",
-                "local",
-                "cron",
-                "github",
-                "helix_events",
                 "slack",
+                "github",
+                "local",
+                "webhook",
+                "gitlab",
+                "cron",
+                "helix_events",
                 "email"
             ],
             "x-enum-varnames": [
-                "KindGitLab",
-                "KindWebhook",
-                "KindLocal",
-                "KindCron",
-                "KindGitHub",
-                "KindHelixEvents",
                 "KindSlack",
+                "KindGitHub",
+                "KindLocal",
+                "KindWebhook",
+                "KindGitLab",
+                "KindCron",
+                "KindHelixEvents",
                 "KindEmail"
             ]
         },
@@ -38516,6 +38544,20 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.BotInstanceProfile"
                         }
                     ]
+                },
+                "bot_instance_allow_sudo": {
+                    "type": "boolean"
+                },
+                "bot_instance_disk_size_gb": {
+                    "description": "BotInstanceDiskSizeGB is the hard capacity of the instance's persistent\nhome filesystem. BotInstanceAllowSudo is the requested opt-out from the\ndefault no-new-privileges policy. Read both through BotInstanceDiskSize\nand BotInstanceSudo, which apply defaults and runtime rules.",
+                    "type": "integer"
+                },
+                "bot_instance_secrets": {
+                    "description": "BotInstanceSecrets names the project development secrets explicitly\ngranted when this instance was created. Empty means no project secrets.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "callback_url": {
                     "description": "Webhook URL to POST on session completion",

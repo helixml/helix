@@ -101,6 +101,17 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 	if assistant == nil {
 		return nil, fmt.Errorf("bot app %s has no assistant", appID)
 	}
+	if err := instances.ValidateCredentials(assistant); err != nil {
+		return nil, err
+	}
+	secretNames, err := b.selectSecrets(ctx, projectID, params.Secrets)
+	if err != nil {
+		return nil, err
+	}
+	diskSizeGB, err := instances.NormalizeDiskSize(params.DiskSizeGB)
+	if err != nil {
+		return nil, err
+	}
 
 	profile := bot.EffectiveInstanceProfile()
 	orgRuntime, orgResources := b.configs.GetDefaultSandboxConfig(ctx, orgID)
@@ -153,6 +164,9 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 			SandboxRuntime:           sandboxRuntime,
 			SandboxResourceOverrides: &resources,
 			BotInstance:              &profile,
+			BotInstanceSecrets:       secretNames,
+			BotInstanceDiskSizeGB:    diskSizeGB,
+			BotInstanceAllowSudo:     params.AllowSudo,
 			AutoRestartOnCrash:       true,
 			AssistantID:              assistant.ID,
 			CodeAgentRuntime:         codeAgentRuntime,
@@ -183,6 +197,17 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 	return created, nil
 }
 
+func (b botInstances) selectSecrets(ctx context.Context, projectID string, requested []string) ([]string, error) {
+	if len(requested) == 0 {
+		return nil, nil
+	}
+	projectSecrets, err := b.server.Store.ListProjectSecrets(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list project secrets: %w", err)
+	}
+	return instances.SelectSecrets(requested, projectSecrets)
+}
+
 // createBotInstanceForChat starts a new instance of the Org Bot behind app for
 // POST /api/v1/sessions/chat. Like the org REST route, any member of the
 // Bot's organization may create one; it is theirs.
@@ -196,6 +221,9 @@ func (s *HelixAPIServer) createBotInstanceForChat(ctx context.Context, user *typ
 	instance, err := s.botInstances.CreateForApp(runtimehelix.WithUserID(ctx, user.ID), app)
 	if errors.Is(err, helixorgstore.ErrNotFound) {
 		return nil, system.NewHTTPError404(err.Error())
+	}
+	if errors.Is(err, instances.ErrInvalidRequest) {
+		return nil, system.NewHTTPError400(err.Error())
 	}
 	if err != nil {
 		log.Error().Err(err).Str("app_id", app.ID).Msg("Failed to create bot instance for chat")

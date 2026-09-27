@@ -478,6 +478,16 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 	defer dockerClient.Close()
+	if req.DiskSizeGB > 0 {
+		if _, _, inspectErr := dockerClient.ImageInspectWithRaw(ctx, resolvedImage); inspectErr != nil {
+			if !dm.tryRecoverImage(ctx, dockerClient, resolvedImage, req.Image) {
+				return nil, fmt.Errorf("image %s is required to initialize instance disk", resolvedImage)
+			}
+		}
+		if err := prepareInstanceDisk(ctx, dockerClient, resolvedImage, req); err != nil {
+			return nil, fmt.Errorf("prepare instance disk: %w", err)
+		}
+	}
 
 	// Build container configuration
 	containerConfig := &container.Config{
@@ -554,6 +564,16 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// 2. Previous start request failed after container creation but before DB update
 	existingContainer, err := dockerClient.ContainerInspect(dockerCtx, req.ContainerName)
 	existingContainerFound := err == nil
+	if existingContainerFound && req.DiskSizeGB > 0 && quotaHomeConfigChanged(existingContainer.HostConfig, hostConfig) {
+		log.Info().
+			Str("container_id", existingContainer.ID).
+			Str("container_name", req.ContainerName).
+			Msg("Recreating instance container to apply security limits")
+		if err := dockerClient.ContainerRemove(dockerCtx, existingContainer.ID, container.RemoveOptions{Force: true}); err != nil {
+			return nil, fmt.Errorf("remove container to apply instance security limits: %w", err)
+		}
+		existingContainerFound = false
+	}
 	if existingContainerFound && shouldMigrateContainerNetwork(existingContainer.HostConfig.NetworkMode, hostConfig.NetworkMode) && existingContainer.State.Running {
 		log.Warn().
 			Str("container_id", existingContainer.ID).
@@ -1053,6 +1073,15 @@ const desktopShmSizeBytes = 1 << 30
 
 // buildHostConfig builds the host configuration for the container
 func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (*container.HostConfig, error) {
+	if req.DiskSizeGB < 0 {
+		return nil, fmt.Errorf("disk size cannot be negative")
+	}
+	if req.PidsLimit < 0 {
+		return nil, fmt.Errorf("pids limit cannot be negative")
+	}
+	if req.NoNewPrivileges && req.Privileged {
+		return nil, fmt.Errorf("no-new-privileges cannot be combined with privileged mode")
+	}
 	if req.RootlessContainerEngine && req.ContainerType != DevContainerTypeHeadless {
 		return nil, fmt.Errorf("rootless container engine requires a headless container")
 	}
@@ -1082,12 +1111,21 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	}
 	// Apply CPU and memory limits when requested. NanoCPUs uses 10^9 units per CPU.
 	resources.NanoCPUs, resources.Memory, resources.MemorySwap = sandboxResourceLimits(req.VCPUs, req.MemoryMB)
+	if req.PidsLimit > 0 {
+		resources.PidsLimit = &req.PidsLimit
+	}
 
 	hostConfig := &container.HostConfig{
 		NetworkMode: SandboxNetworkName,
 		Privileged:  req.Privileged,
 		Resources:   resources,
 		DNS:         []string{sandboxDNSGateway()},
+	}
+	if req.NoNewPrivileges {
+		hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "no-new-privileges")
+	}
+	if req.DiskSizeGB > 0 {
+		hostConfig.Tmpfs = quotaHomeTmpfs(req.Mounts)
 	}
 	if req.ContainerType != DevContainerTypeHeadless {
 		hostConfig.IpcMode = "private"
@@ -1103,7 +1141,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 			// the agent starts, the image drops SYS_ADMIN from the agent's
 			// bounding set and enables no_new_privs.
 			hostConfig.CapAdd = []string{"SYS_ADMIN"}
-			hostConfig.SecurityOpt = []string{"seccomp=unconfined"}
+			hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "seccomp=unconfined")
 			// Rootless Podman needs to mount procfs entries that Docker masks or
 			// makes read-only by default. Empty, non-nil slices explicitly
 			// override those daemon defaults through the Docker API.
@@ -1116,7 +1154,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 				if err != nil {
 					return nil, err
 				}
-				hostConfig.SecurityOpt = []string{"seccomp=" + profile}
+				hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, "seccomp="+profile)
 			}
 		}
 	}
@@ -1900,6 +1938,12 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	// Remove container
 	if err := dockerClient.ContainerRemove(ctx, dc.ContainerID, container.RemoveOptions{Force: true}); err != nil {
 		log.Warn().Err(err).Str("container_id", dc.ContainerID).Msg("Failed to remove container")
+	} else if isResourceID(sessionID, "ses_") {
+		// A stopped instance must not pin a loop device; the next start
+		// remounts its disk.
+		if err := unmountInstanceDisk(ctx, sessionID); err != nil {
+			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to unmount instance disk")
+		}
 	}
 
 	// Remove the per-session docker-data volume that was mounted at /var/lib/docker.
@@ -2138,6 +2182,9 @@ func (dm *DevContainerManager) ReconcileGC(ctx context.Context, req GCReconcileR
 	// Stopped containers and their docker-data volumes of dead sessions.
 	resp.ContainersReaped, resp.VolumesReaped = dm.reconcileOrphanDockerResources(ctx, liveSessions, grace, req.DryRun)
 
+	// Instance disks of dead sessions, after their containers are gone.
+	resp.InstanceDisksReaped, resp.InstanceDisksSkipped = ReconcileOrphanInstanceDisks(ctx, liveSessions, grace, req.DryRun)
+
 	if !req.DryRun {
 		// Prune golden snapshots the flatten just absorbed plus any other stale
 		// no-clone snapshots (>7d). Frees the old generations the dead session
@@ -2164,6 +2211,8 @@ func (dm *DevContainerManager) ReconcileGC(ctx context.Context, req GCReconcileR
 		Int("workspaces_skipped", len(resp.WorkspacesSkipped)).
 		Int("filecopy_dirs_reaped", len(resp.FileCopyDirsReaped)).
 		Int("filecopy_dirs_skipped", len(resp.FileCopyDirsSkipped)).
+		Int("instance_disks_reaped", len(resp.InstanceDisksReaped)).
+		Int("instance_disks_skipped", len(resp.InstanceDisksSkipped)).
 		Int("goldens_flattened", len(resp.GoldensFlattened)).
 		Int64("bytes_freed", resp.BytesFreed).
 		Msg("GC_RECONCILE completed")
