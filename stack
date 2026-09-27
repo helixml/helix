@@ -971,6 +971,51 @@ function build-desktop() {
 # Generic transfer function - transfers any desktop image to sandbox's dockerd
 # Uses local registry for efficient layer-based transfers (only changed layers transfer)
 # Automatically starts registry if not running
+# desktop_image_tag <image-name> [override] prints the version tag of
+# <image-name>:latest: the override if given, else the image id prefix.
+function desktop_image_tag() {
+  if [ -n "${2:-}" ]; then
+    echo "$2"
+    return
+  fi
+  local IMAGE_HASH_FULL
+  IMAGE_HASH_FULL=$(docker images "$1:latest" --format '{{.ID}}' | sed 's/sha256://')
+  echo "${IMAGE_HASH_FULL:0:6}"
+}
+
+function ensure_local_registry() {
+  if docker compose -f docker-compose.dev.yaml ps registry 2>/dev/null | grep -q "Up"; then
+    return 0
+  fi
+  echo "🚀 Starting local registry for image transfer..."
+  docker compose -f docker-compose.dev.yaml up -d registry
+  local TIMEOUT=10
+  local ELAPSED=0
+  until curl -s http://localhost:5000/v2/ >/dev/null 2>&1; do
+    if [ $ELAPSED -ge $TIMEOUT ]; then
+      echo "⚠️  Registry not ready after ${TIMEOUT}s, continuing anyway..."
+      break
+    fi
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+  done
+}
+
+# push-desktop-to-registry <name> <image-tag> pushes helix-<name>:latest to the
+# local registry as <image-tag>. A sandbox pulls its production desktops from
+# there at boot and aborts if one is missing, so push before (re)starting it.
+function push-desktop-to-registry() {
+  local IMAGE_NAME="helix-$1"
+  local REGISTRY_TAG="localhost:5000/${IMAGE_NAME}:$2"
+  ensure_local_registry
+  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${REGISTRY_TAG}..."
+  docker tag "${IMAGE_NAME}:latest" "$REGISTRY_TAG"
+  if ! docker push "$REGISTRY_TAG" 2>&1 | grep --line-buffered -v "^$"; then
+    echo "❌ Failed to push ${REGISTRY_TAG} to local registry"
+    return 1
+  fi
+}
+
 function transfer-desktop-to-sandbox() {
   local DESKTOP_NAME="$1"
   local IMAGE_NAME="helix-${DESKTOP_NAME}"
@@ -1011,37 +1056,14 @@ function transfer-desktop-to-sandbox() {
     return 0
   fi
 
-  # Ensure local registry is running for image transfer
-  if ! docker compose -f docker-compose.dev.yaml ps registry 2>/dev/null | grep -q "Up"; then
-    echo "🚀 Starting local registry for image transfer..."
-    docker compose -f docker-compose.dev.yaml up -d registry
-    # Wait for registry to be ready
-    local TIMEOUT=10
-    local ELAPSED=0
-    until curl -s http://localhost:5000/v2/ >/dev/null 2>&1; do
-      if [ $ELAPSED -ge $TIMEOUT ]; then
-        echo "⚠️  Registry not ready after ${TIMEOUT}s, continuing anyway..."
-        break
-      fi
-      sleep 1
-      ELAPSED=$((ELAPSED + 1))
-    done
-  fi
-
   # Check if image exists on host
   if ! docker images "${IMAGE_NAME}:latest" -q | grep -q .; then
     echo "⚠️  ${IMAGE_NAME}:latest not found on host, skipping transfer"
     return 0
   fi
 
-  # Get image tag - use pre-calculated value if provided, otherwise compute from image hash
-  local IMAGE_TAG=""
-  if [ -n "$IMAGE_TAG_OVERRIDE" ]; then
-    IMAGE_TAG="$IMAGE_TAG_OVERRIDE"
-  else
-    local IMAGE_HASH_FULL=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
-    IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
-  fi
+  local IMAGE_TAG
+  IMAGE_TAG=$(desktop_image_tag "$IMAGE_NAME" "$IMAGE_TAG_OVERRIDE")
 
   # Check if sandbox already has this exact image by version tag (skip transfer if so)
   local SANDBOX_HAS_TAG=$(sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
@@ -1056,20 +1078,14 @@ function transfer-desktop-to-sandbox() {
   # Use local registry for efficient layer-based transfer
   local TRANSFER_START=$SECONDS
   _tx_elapsed() { local msg="[⏱️  transfer-${DESKTOP_NAME} +$((SECONDS - TRANSFER_START))s] $*"; echo "$msg"; [ -n "${BUILD_SANDBOX_TIMING_LOG:-}" ] && echo "$msg" >> "$BUILD_SANDBOX_TIMING_LOG" || true; }
-  local REGISTRY_TAG="localhost:5000/${IMAGE_NAME}:${IMAGE_TAG}"
   local SANDBOX_REGISTRY_TAG="registry:5000/${IMAGE_NAME}:${IMAGE_TAG}"
 
   # Remove stale runtime-ref before pushing so Hydra can't resolve to the old image
   # during the transfer window. resolveRegistryImage() also validates tags as defense-in-depth.
   sandbox_docker exec "$SANDBOX_CONTAINER_NAME" rm -f "/opt/images/${IMAGE_NAME}.runtime-ref" 2>/dev/null || true
 
-  # Tag for local registry and push
-  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${REGISTRY_TAG}..."
-  docker tag "${IMAGE_NAME}:latest" "$REGISTRY_TAG"
-
   _tx_elapsed "📤 Pushing to local registry..."
-  if ! docker push "$REGISTRY_TAG" 2>&1 | grep --line-buffered -v "^$"; then
-    echo "❌ Failed to push to local registry"
+  if ! push-desktop-to-registry "$DESKTOP_NAME" "$IMAGE_TAG"; then
     return 1
   fi
 
@@ -1400,6 +1416,19 @@ function build-sandbox() {
     source "$DIR/.env"
   fi
   get_sandbox_names
+
+  # The new sandbox pulls every production desktop from the local registry as
+  # it boots and aborts if one is missing, so publish them before restarting
+  # it. On failure the old sandbox keeps running.
+  for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
+    if docker images "helix-${desktop}:latest" -q | grep -q .; then
+      _bs_elapsed "📤 Publishing helix-${desktop} to the local registry before the sandbox restarts..."
+      if ! push-desktop-to-registry "$desktop" "$(desktop_image_tag "helix-${desktop}")"; then
+        echo "❌ Not restarting the sandbox: it could not boot without helix-${desktop}"
+        return 1
+      fi
+    fi
+  done
 
   echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
   cleanup_sandbox_orphans
