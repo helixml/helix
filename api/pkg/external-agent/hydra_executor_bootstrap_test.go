@@ -206,7 +206,7 @@ func TestApplySessionBootstrapCopiesInstanceSecretAllowlist(t *testing.T) {
 }
 
 func TestInjectProjectSecrets(t *testing.T) {
-	all := []string{"CRM_TOKEN=one", "SUPPORT_KEY=two=with=equals", "CRM=prefix-of-another-name"}
+	all := []string{"CRM_URL=one", "REGION=eu=west", "CRM=prefix-of-another-name"}
 	for _, tc := range []struct {
 		name       string
 		agent      types.DesktopAgent
@@ -216,8 +216,8 @@ func TestInjectProjectSecrets(t *testing.T) {
 	}{
 		{"ordinary session gets every secret", types.DesktopAgent{ProjectID: "prj_1"}, all, true, ""},
 		{"instance without grants skips the lookup", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true}, nil, false, ""},
-		{"instance gets only granted secrets", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true, ProjectSecretNames: []string{"SUPPORT_KEY", "CRM"}}, []string{"SUPPORT_KEY=two=with=equals", "CRM=prefix-of-another-name"}, true, ""},
-		{"missing grant fails the start", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true, ProjectSecretNames: []string{"MISSING", "CRM_TOKEN"}}, nil, true, "unavailable: MISSING"},
+		{"instance gets only granted secrets", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true, ProjectSecretNames: []string{"REGION", "CRM"}}, []string{"REGION=eu=west", "CRM=prefix-of-another-name"}, true, ""},
+		{"missing grant fails the start", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true, ProjectSecretNames: []string{"MISSING", "CRM_URL"}}, nil, true, "unavailable: MISSING"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			called := false
