@@ -787,16 +787,20 @@ func (s *HelixAPIServer) publishAgentToolChange(ctx context.Context, appID strin
 	}
 }
 
-// DeleteProject soft-deletes a Helix project and stops any sessions
-// currently running against it. Used by the fire-worker cascade. A
-// 404 from the underlying handler is mapped to ErrProjectNotFound so
-// callers can treat already-gone projects as success.
+// DeleteProject tears down a bot-owned Helix project: it destroys every
+// desktop, spec-task workspace, sandbox, and golden Docker cache the project
+// holds on sandbox hosts, then soft-deletes the project. Used only by the bot
+// delete cascade. A 404 from the underlying handler is mapped to
+// ErrProjectNotFound so callers can treat already-gone projects as success.
 func (c *inProcHelixClient) DeleteProject(ctx context.Context, id string) error {
 	project, err := c.server.Store.GetProject(ctx, id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) || errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("%w: project %s", runtimehelix.ErrProjectNotFound, id)
 		}
+		return err
+	}
+	if err := c.destroyProjectRuntime(ctx, project); err != nil {
 		return err
 	}
 	deleteCtx := ctx
@@ -824,6 +828,84 @@ func (c *inProcHelixClient) DeleteProject(ctx context.Context, id string) error 
 	return nil
 }
 
+type projectRuntimeSession struct {
+	ID         string
+	SpecTaskID string
+}
+
+// destroyProjectRuntime removes what a bot's project accumulates on sandbox
+// hosts. Soft-deleting the project alone only stops the newest desktop and
+// leaves workspaces, inner Docker data, and sandboxes behind. Host teardown is
+// best-effort so an offline sandbox host cannot make a bot undeletable; the
+// orphan reaper treats sessions and tasks of deleted projects as dead, so it
+// removes whatever this pass could not reach.
+func (c *inProcHelixClient) destroyProjectRuntime(ctx context.Context, project *types.Project) error {
+	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
+	if !ok {
+		return fmt.Errorf("destroy project runtime: store %T has no shared database", c.server.Store)
+	}
+	db := accessor.GormDB().WithContext(ctx)
+	var taskIDs []string
+	if err := db.Model(&types.SpecTask{}).Where("project_id = ?", project.ID).Pluck("id", &taskIDs).Error; err != nil {
+		return fmt.Errorf("list project spec tasks: %w", err)
+	}
+	projectTasks := make(map[string]bool, len(taskIDs))
+	for _, taskID := range taskIDs {
+		projectTasks[taskID] = true
+	}
+	// Spec-task sessions do not always carry the task's project_id, so also
+	// match them through the task. Soft-deleted sessions still own host data.
+	var sessions []projectRuntimeSession
+	query := db.Unscoped().Model(&types.Session{}).
+		Select("id, config->>'spec_task_id' AS spec_task_id").
+		Where("project_id = ?", project.ID)
+	if len(taskIDs) > 0 {
+		query = query.Or("config->>'spec_task_id' IN ?", taskIDs)
+	}
+	if err := query.Scan(&sessions).Error; err != nil {
+		return fmt.Errorf("list project sessions: %w", err)
+	}
+
+	if executor := c.server.externalAgentExecutor; executor != nil {
+		for _, session := range sessions {
+			specTaskID := ""
+			if projectTasks[session.SpecTaskID] {
+				specTaskID = session.SpecTaskID
+			}
+			if err := executor.DestroyDesktop(ctx, session.ID, specTaskID); err != nil {
+				log.Warn().Err(err).
+					Str("project_id", project.ID).
+					Str("session_id", session.ID).
+					Msg("failed to destroy project desktop; orphan reaper will remove its host data")
+			}
+		}
+	}
+
+	if c.server.sandboxController != nil {
+		sandboxes, err := c.server.sandboxController.List(ctx, project.OrganizationID, project.ID)
+		if err != nil {
+			return fmt.Errorf("list project sandboxes: %w", err)
+		}
+		for _, sandbox := range sandboxes {
+			if err := c.server.sandboxController.Delete(ctx, sandbox.ID); err != nil {
+				log.Warn().Err(err).
+					Str("project_id", project.ID).
+					Str("sandbox_id", sandbox.ID).
+					Msg("failed to delete project sandbox")
+			}
+		}
+	}
+
+	if cache := project.Metadata.DockerCacheStatus; cache != nil && len(cache.Sandboxes) > 0 {
+		if _, failures, err := c.server.deleteGoldenCacheFromSandboxes(ctx, project.ID); err != nil {
+			log.Warn().Err(err).Str("project_id", project.ID).Msg("failed to delete project golden cache")
+		} else if len(failures) > 0 {
+			log.Warn().Strs("failures", failures).Str("project_id", project.ID).Msg("failed to delete project golden cache on some sandboxes")
+		}
+	}
+	return nil
+}
+
 // DeleteApp removes a Helix App. Used by the fire-worker cascade to
 // clean up the per-Worker agent app that ApplyProject auto-
 // provisioned. 404 maps to ErrProjectNotFound (the same "already
@@ -840,19 +922,16 @@ func (c *inProcHelixClient) DeleteApp(ctx context.Context, id string) error {
 }
 
 func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID, sessionID string) error {
-	if sessionID != "" {
-		// Best-effort: stopping the desktop is a courtesy teardown, not a
-		// precondition for deleting the bot. stopExternalAgentSession 404s on an
-		// already-deleted session, 400s when the session isn't zed_external, and
-		// 500s when hydra is unreachable — none of which should leave the bot
-		// permanently undeletable. The container is reaped by its own lifecycle
-		// either way.
-		if err := c.StopExternalAgent(ctx, sessionID); err != nil {
+	if sessionID != "" && c.server.externalAgentExecutor != nil {
+		// DeleteProject already destroyed this session when it belongs to the
+		// bot's project; this covers a session outside it. Best-effort: an
+		// unreachable hydra must not leave the bot permanently undeletable.
+		if err := c.server.externalAgentExecutor.DestroyDesktop(ctx, sessionID, ""); err != nil {
 			log.Warn().
 				Err(err).
 				Str("session_id", sessionID).
 				Str("bot_id", string(botID)).
-				Msg("failed to stop linked agent session; continuing with delete")
+				Msg("failed to destroy linked agent desktop; continuing with delete")
 		}
 	}
 	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
@@ -879,12 +958,6 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 			orgID, string(botID),
 		).Error; err != nil {
 			return fmt.Errorf("delete runtime state: %w", err)
-		}
-		if err := tx.Exec(
-			"DELETE FROM org_subscriptions WHERE org_id = ? AND bot_id = ?",
-			orgID, string(botID),
-		).Error; err != nil {
-			return fmt.Errorf("delete subscriptions: %w", err)
 		}
 		result := tx.Exec(
 			"DELETE FROM org_bots WHERE org_id = ? AND id = ? AND agent_app_id = ?",

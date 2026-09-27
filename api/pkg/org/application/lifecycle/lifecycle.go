@@ -4,11 +4,9 @@
 // This package owns the two halves of the Node lifecycle: Create (the
 // create cascade - node row, reporting line, topology reconcile,
 // create-activation dispatch) and Delete (the destroy cascade — Helix
-// app teardown, store cleanup, topology reconcile). Both REST
-// and the MCP create_bot tool drive Create here, so the semantics
-// cannot drift between callers. Delete has no MCP counterpart by design
-// (the LLM should not be able to delete bots from chat), so it is a
-// plain Go service callable from REST handlers only.
+// runtime teardown, store cleanup, topology reconcile). REST and the MCP
+// create_bot / delete_bot tools drive both here, so the semantics cannot
+// drift between callers.
 package lifecycle
 
 import (
@@ -52,7 +50,9 @@ type SourceAttacher interface {
 
 // HelixRuntime is the slice of runtime/helix.ProjectService that the
 // Delete cascade needs to tear down a Node's Helix-side project and agent app.
-// Repositories are deliberately preserved. Production wiring
+// DeleteProject destroys the project's desktops, workspaces, sandboxes, and
+// Docker cache on sandbox hosts before archiving the project; repositories are
+// deliberately preserved. Production wiring
 // satisfies this with the in-process adapter used everywhere else; the
 // interface exists so tests can stub.
 type HelixRuntime interface {
@@ -465,18 +465,20 @@ func (s *Service) reconcileAgentLink(ctx context.Context, orgID string, node org
 
 // Delete tears down a Node end-to-end:
 //
-//  1. Read the Helix-runtime state before clearing it.
-//  2. Atomically detach and delete the agent app, NodeRuntimeState,
-//     subscriptions, and node row. The org_reporting_lines foreign keys
-//     drop its lines.
-//  3. Reconcile topology: tear down the deleted Node's own activation +
+//  1. Stop agent delivery: drop queued activations and cancel the running
+//     one, so nothing re-provisions the runtime mid-delete.
+//  2. Destroy the runtime-owned Helix project's desktops, workspaces,
+//     sandboxes, and Docker cache on sandbox hosts, then archive it.
+//  3. Atomically detach and delete the agent app, NodeRuntimeState, and
+//     node row. The org_reporting_lines foreign keys drop its lines.
+//  4. Reconcile topology: tear down the deleted Node's own activation +
 //     team channels and collapse any ex-manager's team chat that just
 //     lost its last report.
 //
 // Attachments are node-anchored, so they die with the node. Transcript
 // events themselves are intentionally left behind as an audit trail; only
-// the Topic row is dropped. The runtime-owned Helix project is archived;
-// repositories and explicitly allowed other projects survive deletion.
+// the Topic row is dropped. Repositories and explicitly allowed other
+// projects survive deletion.
 func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) (err error) {
 	return s.delete(ctx, orgID, id, true)
 }
