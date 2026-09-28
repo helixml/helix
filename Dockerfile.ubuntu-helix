@@ -685,9 +685,13 @@ if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-0}" = "1" ] || [ "${HELIX_CONTAINER_ENG
     fi
     drop_privileges=(setpriv --bounding-set=-sys_admin --nnp --)
     if [ "${HELIX_CONTAINER_ENGINE:-}" = "none" ]; then
+        # util-linux mountpoint exits 32 for "not a mount point" and 1 for
+        # errors; any error keeps the lockdown below.
+        home_mount=0
+        mountpoint -q /home/retro || home_mount=$?
         if [ "${HELIX_ALLOW_SUDO:-0}" = "1" ]; then
             drop_privileges=()
-        elif ! mountpoint -q /home/retro; then
+        elif [ "${home_mount}" = "32" ]; then
             # A control plane or Hydra that predates quota-backed homes leaves
             # the home on the root filesystem; closing it would lock the agent
             # out of its own home.
