@@ -311,11 +311,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 				Str("container_type", containerType).
 				Msg("Auto-selected available sandbox")
 		} else {
-			// Fallback to "local" if no sandbox found (for backwards compatibility)
-			sandboxID = "local"
-			log.Warn().
-				Str("container_type", containerType).
-				Msg("No available sandbox found, falling back to 'local'")
+			return nil, fmt.Errorf("no eligible sandbox runner available for container type %q (required image %q); check runner status, heartbeat, and advertised desktop image versions", containerType, placementImage)
 		}
 	}
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
