@@ -1904,9 +1904,22 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	dm.mu.RUnlock()
 
 	if !exists {
-		// Container not in our map - treat as already deleted (idempotent)
-		// This can happen if Hydra restarted or container was already cleaned up
-		log.Info().Str("session_id", sessionID).Msg("Dev container not found in map, treating as already deleted")
+		// Hydra may have restarted before it recovered a still-running container.
+		// Confirm absence in Docker before reporting a successful stop.
+		dockerClient, err := dm.getDockerClient("")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Docker client: %w", err)
+		}
+		defer dockerClient.Close()
+		if err := removeSessionContainers(ctx, dockerClient, sessionID); err != nil {
+			return nil, err
+		}
+		if isResourceID(sessionID, "ses_") {
+			if err := unmountInstanceDisk(ctx, sessionID); err != nil {
+				log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to unmount instance disk")
+			}
+		}
+		log.Info().Str("session_id", sessionID).Msg("Dev container removed or confirmed absent in Docker")
 		return &DevContainerResponse{
 			SessionID: sessionID,
 			Status:    DevContainerStatusStopped,
@@ -1936,9 +1949,10 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	}
 
 	// Remove container
-	if err := dockerClient.ContainerRemove(ctx, dc.ContainerID, container.RemoveOptions{Force: true}); err != nil {
-		log.Warn().Err(err).Str("container_id", dc.ContainerID).Msg("Failed to remove container")
-	} else if isResourceID(sessionID, "ses_") {
+	if err := dockerClient.ContainerRemove(ctx, dc.ContainerID, container.RemoveOptions{Force: true}); err != nil && !client.IsErrNotFound(err) {
+		return nil, fmt.Errorf("remove container %s: %w", dc.ContainerID, err)
+	}
+	if isResourceID(sessionID, "ses_") {
 		// A stopped instance must not pin a loop device; the next start
 		// remounts its disk.
 		if err := unmountInstanceDisk(ctx, sessionID); err != nil {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -716,6 +717,32 @@ func (s *SessionAuthzSuite) TestArchiveSession_ExternalAgentStopsDesktop() {
 	s.Nil(httpErr)
 	s.Require().NotNil(result)
 	s.True(result.Archived)
+}
+
+func (s *SessionAuthzSuite) TestArchiveSession_StopFailureDoesNotArchive() {
+	session := &types.Session{
+		ID:    "ses_external",
+		Owner: s.userID,
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+		},
+	}
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	executor.EXPECT().StopDesktop(gomock.Any(), session.ID).Return(errors.New("hydra disconnected"))
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/sessions/"+session.ID+"/archive", strings.NewReader(`{"archived":true}`))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.archiveSession(httptest.NewRecorder(), req)
+
+	s.Nil(result)
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusInternalServerError, httpErr.StatusCode)
+	s.False(session.Archived)
 }
 
 func (s *SessionAuthzSuite) TestArchiveSession_OrgAgentDoesNotStopSharedSandbox() {

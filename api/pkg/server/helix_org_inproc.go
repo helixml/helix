@@ -879,10 +879,7 @@ func (c *inProcHelixClient) destroyProjectRuntime(ctx context.Context, project *
 				specTaskID = session.SpecTaskID
 			}
 			if err := executor.DestroyDesktop(ctx, session.ID, specTaskID); err != nil {
-				log.Warn().Err(err).
-					Str("project_id", project.ID).
-					Str("session_id", session.ID).
-					Msg("failed to destroy project desktop; orphan reaper will remove its host data")
+				return fmt.Errorf("destroy project desktop %s: %w", session.ID, err)
 			}
 		}
 	}
@@ -930,14 +927,9 @@ func (c *inProcHelixClient) DeleteApp(ctx context.Context, id string) error {
 func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID, sessionID string) error {
 	if sessionID != "" && c.server.externalAgentExecutor != nil {
 		// DeleteProject already destroyed this session when it belongs to the
-		// bot's project; this covers a session outside it. Best-effort: an
-		// unreachable hydra must not leave the bot permanently undeletable.
+		// bot's project; this covers a session outside it.
 		if err := c.server.externalAgentExecutor.DestroyDesktop(ctx, sessionID, ""); err != nil {
-			log.Warn().
-				Err(err).
-				Str("session_id", sessionID).
-				Str("bot_id", string(botID)).
-				Msg("failed to destroy linked agent desktop; continuing with delete")
+			return fmt.Errorf("destroy linked agent desktop %s: %w", sessionID, err)
 		}
 	}
 	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
