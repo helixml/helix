@@ -754,6 +754,38 @@ const getStoredOrg = (): string | undefined => {
 const storedOrg = getStoredOrg()
 // Capture path before router.start() changes it (router activates defaultRoute which rewrites URL)
 const initialPath = window.location.pathname
+
+/**
+ * The query string exactly as the browser received it, snapshotted before
+ * router.start() rewrites it.
+ *
+ * WHY THIS IS NEEDED. router5 re-serialises the query on start, and its
+ * serialiser form-encodes a space as "+". A host that correctly sent %20 gets
+ * its value rewritten to %2B, which then reads back as a literal plus. Find
+ * AI's embedded agent greeted candidates with "What+are+you+looking+for?" in
+ * front of the client for exactly this reason, and the host was already
+ * encoding correctly — the damage happens here.
+ *
+ * It cannot be repaired downstream: after the round trip a space and a real
+ * "+" are indistinguishable, so the value has to be read before the router
+ * touches it. URLSearchParams decodes both %20 and "+" as a space, which is
+ * the right reading of a query string under either convention.
+ *
+ * Only for values that are DISPLAYED verbatim. Anything the router owns should
+ * still come from route.params.
+ */
+export const initialQueryParams: Record<string, string> = (() => {
+  const out: Record<string, string> = {}
+  try {
+    new URLSearchParams(window.location.search).forEach((value, key) => {
+      out[key] = value
+    })
+  } catch {
+    // A malformed query string must not stop the app booting.
+  }
+  return out
+})()
+
 router.start()
 
 if (storedOrg) {
