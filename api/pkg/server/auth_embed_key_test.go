@@ -207,7 +207,7 @@ func TestEmbedKeyWebsocketIsBoundToItsSession(t *testing.T) {
 }
 
 // A key with nothing bound to it addresses nothing.
-func TestEmbedKeyWithNoTaskIsInert(t *testing.T) {
+func TestEmbedKeyWithNothingBoundIsInert(t *testing.T) {
 	u := &types.User{APIKeyType: types.APIkeytypeEmbed}
 	for _, p := range []string{"/api/v1/config", "/api/v1/spec-tasks/spt_A", "/api/v1/sessions/ses_A"} {
 		if embedKeyAllows(u, req("GET", p)) {
@@ -287,6 +287,113 @@ func TestOwnTaskAndSessionAreNotNeutered(t *testing.T) {
 	} {
 		if _, ok := embedNeuteredResponse(req("GET", p)); ok {
 			t.Errorf("%s must return real data, not an empty stub", p)
+		}
+	}
+}
+
+// Session-only embed keys: an ORG BOT INSTANCE is a bare session with no spec
+// task behind it, so its embed key has only a session to be bound to. These
+// tests are written from the attacker's side, as above: given a key for
+// session A and NO task, what can it reach?
+
+func embedSessionOnlyUser() *types.User {
+	return &types.User{
+		ID:         "user_service",
+		APIKeyType: types.APIkeytypeEmbed,
+		SessionID:  "ses_A",
+	}
+}
+
+func TestSessionOnlyEmbedKeyReachesItsOwnSession(t *testing.T) {
+	u := embedSessionOnlyUser()
+	allowed := []struct{ method, path string }{
+		// Bootstrap — without these the embed page redirects to /login.
+		{"GET", "/api/v1/config"},
+		{"GET", "/api/v1/auth/authenticated"},
+		{"GET", "/api/v1/auth/user"},
+		// The one conversation it may read and drive.
+		{"GET", "/api/v1/sessions/ses_A"},
+		{"GET", "/api/v1/sessions/ses_A/interactions"},
+		{"GET", "/api/v1/sessions/ses_A/step-info"},
+		{"POST", "/api/v1/sessions/ses_A/cancel"},
+	}
+	for _, c := range allowed {
+		if !embedKeyAllows(u, req(c.method, c.path)) {
+			t.Errorf("a session-only key should reach %s %s — the minimal chat needs it", c.method, c.path)
+		}
+	}
+	// Sending a message is body-scoped.
+	if !embedKeyAllows(u, jsonReq("POST", "/api/v1/sessions/chat", `{"session_id":"ses_A"}`)) {
+		t.Error("a session-only key must be able to send a message to its own session")
+	}
+}
+
+// THE IMPORTANT ONE. Dropping the "a key must name a task" guard must not let
+// a session-only key wander into the task surface — which is where the
+// enumeration and mutation paths live.
+func TestSessionOnlyEmbedKeyCannotReachAnySpecTask(t *testing.T) {
+	u := embedSessionOnlyUser()
+	denied := []struct{ method, path string }{
+		{"GET", "/api/v1/spec-tasks/spt_A"},
+		{"GET", "/api/v1/spec-tasks/spt_A/execution-config"},
+		{"GET", "/api/v1/spec-tasks/spt_A/attachments"},
+		{"GET", "/api/v1/spec-tasks/spt_A/progress"},
+		{"GET", "/api/v1/spec-tasks//"},
+		// An empty id must not read as "unrestricted" now that the key's own
+		// SpecTaskID is also empty — the exact shape this change could break.
+		{"GET", "/api/v1/spec-tasks/"},
+		{"GET", "/api/v1/prompt-history?spec_task_id="},
+	}
+	for _, c := range denied {
+		if embedKeyAllows(u, req(c.method, c.path)) {
+			t.Errorf("SECURITY: session-only key reached the task surface at %s %s", c.method, c.path)
+		}
+	}
+	// And the body-scoped task write.
+	if embedKeyAllows(u, jsonReq("POST", "/api/v1/prompt-history/sync", `{"spec_task_id":""}`)) {
+		t.Error("SECURITY: session-only key dispatched a prompt sync with an empty task id")
+	}
+	if embedKeyAllows(u, jsonReq("POST", "/api/v1/prompt-history/sync", `{"spec_task_id":"spt_A"}`)) {
+		t.Error("SECURITY: session-only key dispatched a prompt sync for a task it does not own")
+	}
+}
+
+func TestSessionOnlyEmbedKeyCannotReachAnotherSession(t *testing.T) {
+	u := embedSessionOnlyUser()
+	denied := []struct{ method, path string }{
+		{"GET", "/api/v1/sessions/ses_B"},
+		{"GET", "/api/v1/sessions/ses_B/interactions"},
+		{"POST", "/api/v1/sessions/ses_B/cancel"},
+		{"GET", "/api/v1/external-agents/ses_B/ws/stream"},
+	}
+	for _, c := range denied {
+		if embedKeyAllows(u, req(c.method, c.path)) {
+			t.Errorf("SECURITY: session-only key reached another session at %s %s", c.method, c.path)
+		}
+	}
+	if embedKeyAllows(u, jsonReq("POST", "/api/v1/sessions/chat", `{"session_id":"ses_B"}`)) {
+		t.Error("SECURITY: session-only key posted into another session")
+	}
+	// The websocket carries its subject in the query string.
+	if embedKeyAllows(u, req("GET", "/api/v1/ws/user?session_id=ses_B")) {
+		t.Error("SECURITY: session-only key subscribed to another session's stream")
+	}
+	if !embedKeyAllows(u, req("GET", "/api/v1/ws/user?session_id=ses_A")) {
+		t.Error("a session-only key must be able to stream its own session")
+	}
+}
+
+// The desktop is denied for instances as it is for tasks — and a headless
+// instance has no desktop at all.
+func TestSessionOnlyEmbedKeyCannotDriveTheDesktop(t *testing.T) {
+	u := embedSessionOnlyUser()
+	for _, p := range []string{
+		"/api/v1/external-agents/ses_A/ws/input",
+		"/api/v1/external-agents/ses_A/clipboard",
+		"/api/v1/external-agents/ses_A/screenshot",
+	} {
+		if embedKeyAllows(u, req("POST", p)) {
+			t.Errorf("SECURITY: session-only key drove the desktop at %s", p)
 		}
 	}
 }
