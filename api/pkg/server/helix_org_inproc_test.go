@@ -165,8 +165,7 @@ func TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentI
 	require.Equal(t, replacement.ID, preserved.DefaultHelixAppID)
 }
 
-// A failure to destroy the bot's desktop must not abort the delete cascade:
-// an unreachable hydra would otherwise leave the bot permanently undeletable.
+// A failed desktop destroy must preserve the bot and app for a later retry.
 func TestInProcClient_DeleteLinkedAgentPreservesRowsWhenDesktopDestroyFails(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
