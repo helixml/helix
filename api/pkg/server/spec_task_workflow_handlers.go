@@ -564,11 +564,20 @@ func (s *HelixAPIServer) renderPRFooterForTask(ctx context.Context, repo *types.
 // ensurePullRequestForRepo creates a PR for a spec task in a specific repo if one doesn't exist
 // Returns the RepoPR info if successful, nil if no PR needed (internal repo or branch doesn't exist), or error
 // primaryRepoPath is the local path of the primary repo where the helix-specs branch lives
-func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, primaryRepoPath string, userID string) (*types.RepoPR, error) {
+func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, primaryRepoID, primaryRepoPath, userID string) (*types.RepoPR, error) {
 	if repo.ExternalURL == "" {
 		return nil, nil
 	}
 
+	var result *types.RepoPR
+	err := s.gitRepositoryService.WithRepoLock(repo.ID, func() (err error) {
+		result, err = s.ensurePullRequestForRepoLocked(ctx, repo, task, primaryRepoID, primaryRepoPath, userID)
+		return err
+	})
+	return result, err
+}
+
+func (s *HelixAPIServer) ensurePullRequestForRepoLocked(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, primaryRepoID, primaryRepoPath, userID string) (*types.RepoPR, error) {
 	// If we already track a PR for this repo, return it — don't create a duplicate.
 	// This prevents re-creation when a PR is closed/deleted and ListPullRequests
 	// (which only returns open PRs) can no longer see it.
@@ -579,6 +588,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	}
 
 	branch := task.BranchName
+	targetBranch := services.PullRequestTargetBranch(repo, task, primaryRepoID)
 
 	// Check if the branch exists in this repo before trying to push
 	// The agent may not have made changes in every repo
@@ -599,14 +609,14 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 		return nil, nil
 	}
 
-	// Check if the branch has any commits ahead of the default branch.
+	// Check if the branch has any commits ahead of the MR target branch.
 	// If not, the agent made no changes in this repo — skip PR creation.
-	if repo.LocalPath != "" && repo.DefaultBranch != "" {
-		ahead, _, err := services.GetDivergence(ctx, repo.LocalPath, "refs/heads/"+branch, "refs/heads/"+repo.DefaultBranch)
+	if repo.LocalPath != "" && targetBranch != "" {
+		ahead, _, err := services.GetDivergence(ctx, repo.LocalPath, "refs/heads/"+branch, "refs/heads/"+targetBranch)
 		if err != nil {
 			log.Debug().Err(err).Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Msg("Failed to check branch divergence, proceeding with PR creation")
 		} else if ahead == 0 {
-			log.Info().Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Msg("Branch has no commits ahead of default branch, skipping PR creation")
+			log.Info().Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Str("target_branch", targetBranch).Msg("Branch has no commits ahead of MR target, skipping PR creation")
 			return nil, nil
 		}
 	}
@@ -614,9 +624,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	log.Info().Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Str("task_id", task.ID).Msg("Ensuring pull request for repo")
 
 	// Push branch to remote first — use acting user's credentials when available
-	if err := s.gitRepositoryService.WithRepoLock(repo.ID, func() error {
-		return s.gitRepositoryService.PushBranchToRemote(ctx, repo.ID, branch, false, userID)
-	}); err != nil {
+	if err := s.gitRepositoryService.PushBranchToRemote(ctx, repo.ID, branch, false, userID); err != nil {
 		return nil, fmt.Errorf("failed to push branch: %w", err)
 	}
 
@@ -676,7 +684,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	description = services.AppendPRFooter(description, footer)
 
 	// Create new PR
-	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch, userID)
+	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, title, description, branch, targetBranch, userID)
 	if err != nil {
 		// If a PR already exists for this branch (race condition), find and return it rather than failing.
 		if strings.Contains(err.Error(), "already exists") {
@@ -808,7 +816,7 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 			continue
 		}
 
-		repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task, primaryRepoPath, userID)
+		repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task, primaryRepoID, primaryRepoPath, userID)
 		if err != nil {
 			log.Error().Err(err).Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("Failed to ensure PR for repo")
 
