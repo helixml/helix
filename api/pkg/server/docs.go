@@ -28314,7 +28314,14 @@ const docTemplate = `{
         },
         "server.SecretIntakeRedeemRequest": {
             "type": "object",
+            "required": [
+                "intake_id",
+                "token"
+            ],
             "properties": {
+                "intake_id": {
+                    "type": "string"
+                },
                 "token": {
                     "type": "string"
                 }
@@ -29131,24 +29138,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "slack",
-                "local",
-                "webhook",
-                "github",
-                "email",
-                "helix_events",
                 "gitlab",
-                "cron"
+                "webhook",
+                "local",
+                "github",
+                "cron",
+                "slack",
+                "helix_events",
+                "email"
             ],
             "x-enum-varnames": [
-                "KindSlack",
-                "KindLocal",
-                "KindWebhook",
-                "KindGitHub",
-                "KindEmail",
-                "KindHelixEvents",
                 "KindGitLab",
-                "KindCron"
+                "KindWebhook",
+                "KindLocal",
+                "KindGitHub",
+                "KindCron",
+                "KindSlack",
+                "KindHelixEvents",
+                "KindEmail"
             ]
         },
         "transport.ResolvedActivation": {

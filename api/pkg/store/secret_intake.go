@@ -45,9 +45,9 @@ func (s *SecretIntakePersistence) GetSecretIntakeByFlow(ctx context.Context, has
 	return &item, nil
 }
 
-func (s *SecretIntakePersistence) RedeemSecretIntakeInvitation(ctx context.Context, invitationHash, flowHash, csrfHash string, now, expiresAt time.Time) (bool, error) {
+func (s *SecretIntakePersistence) RedeemSecretIntakeInvitation(ctx context.Context, intakeID, invitationHash, flowHash, csrfHash string, now, expiresAt time.Time) (bool, error) {
 	result := s.db.WithContext(ctx).Model(&types.SecretIntake{}).
-		Where("invitation_hash = ? AND status = ? AND invitation_expires_at > ?", invitationHash, "pending", now).
+		Where("id = ? AND invitation_hash = ? AND status = ? AND invitation_expires_at > ?", intakeID, invitationHash, "pending", now).
 		Updates(map[string]any{"invitation_hash": "", "flow_hash": flowHash, "csrf_hash": csrfHash, "flow_expires_at": expiresAt})
 	return result.RowsAffected == 1, result.Error
 }

@@ -3101,8 +3101,13 @@ definitions:
     type: object
   server.SecretIntakeRedeemRequest:
     properties:
+      intake_id:
+        type: string
       token:
         type: string
+    required:
+    - intake_id
+    - token
     type: object
   server.SecretIntakeSubmissionRequest:
     properties:
@@ -3691,24 +3696,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - slack
-    - local
-    - webhook
-    - github
-    - email
-    - helix_events
     - gitlab
+    - webhook
+    - local
+    - github
     - cron
+    - slack
+    - helix_events
+    - email
     type: string
     x-enum-varnames:
-    - KindSlack
-    - KindLocal
-    - KindWebhook
-    - KindGitHub
-    - KindEmail
-    - KindHelixEvents
     - KindGitLab
+    - KindWebhook
+    - KindLocal
+    - KindGitHub
     - KindCron
+    - KindSlack
+    - KindHelixEvents
+    - KindEmail
   transport.ResolvedActivation:
     properties:
       address:

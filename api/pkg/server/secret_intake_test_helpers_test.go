@@ -31,8 +31,8 @@ func (s *secretIntakeTestStore) GetSecretIntake(ctx context.Context, projectID, 
 func (s *secretIntakeTestStore) GetSecretIntakeByFlow(ctx context.Context, hash string, now time.Time) (*types.SecretIntake, error) {
 	return s.persistence.GetSecretIntakeByFlow(ctx, hash, now)
 }
-func (s *secretIntakeTestStore) RedeemSecretIntakeInvitation(ctx context.Context, invitationHash, flowHash, csrfHash string, now, expiresAt time.Time) (bool, error) {
-	return s.persistence.RedeemSecretIntakeInvitation(ctx, invitationHash, flowHash, csrfHash, now, expiresAt)
+func (s *secretIntakeTestStore) RedeemSecretIntakeInvitation(ctx context.Context, intakeID, invitationHash, flowHash, csrfHash string, now, expiresAt time.Time) (bool, error) {
+	return s.persistence.RedeemSecretIntakeInvitation(ctx, intakeID, invitationHash, flowHash, csrfHash, now, expiresAt)
 }
 func (s *secretIntakeTestStore) SubmitSecretIntake(ctx context.Context, projectID, id, cipher string, now, expiresAt time.Time) (bool, error) {
 	return s.persistence.SubmitSecretIntake(ctx, projectID, id, cipher, now, expiresAt)

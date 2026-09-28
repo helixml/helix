@@ -6177,18 +6177,18 @@ func (mr *MockStoreMockRecorder) ReconcileStuckSendingPrompts(ctx any) *gomock.C
 }
 
 // RedeemSecretIntakeInvitation mocks base method.
-func (m *MockStore) RedeemSecretIntakeInvitation(arg0 context.Context, arg1, arg2, arg3 string, arg4, arg5 time.Time) (bool, error) {
+func (m *MockStore) RedeemSecretIntakeInvitation(arg0 context.Context, arg1, arg2, arg3, arg4 string, arg5, arg6 time.Time) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RedeemSecretIntakeInvitation", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret := m.ctrl.Call(m, "RedeemSecretIntakeInvitation", arg0, arg1, arg2, arg3, arg4, arg5, arg6)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // RedeemSecretIntakeInvitation indicates an expected call of RedeemSecretIntakeInvitation.
-func (mr *MockStoreMockRecorder) RedeemSecretIntakeInvitation(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+func (mr *MockStoreMockRecorder) RedeemSecretIntakeInvitation(arg0, arg1, arg2, arg3, arg4, arg5, arg6 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemSecretIntakeInvitation", reflect.TypeOf((*MockStore)(nil).RedeemSecretIntakeInvitation), arg0, arg1, arg2, arg3, arg4, arg5)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemSecretIntakeInvitation", reflect.TypeOf((*MockStore)(nil).RedeemSecretIntakeInvitation), arg0, arg1, arg2, arg3, arg4, arg5, arg6)
 }
 
 // RegisterSandboxInstance mocks base method.
@@ -7925,18 +7925,18 @@ func (mr *MockSecretIntakeStoreMockRecorder) ReapExpiredSecretIntakes(arg0, arg1
 }
 
 // RedeemSecretIntakeInvitation mocks base method.
-func (m *MockSecretIntakeStore) RedeemSecretIntakeInvitation(arg0 context.Context, arg1, arg2, arg3 string, arg4, arg5 time.Time) (bool, error) {
+func (m *MockSecretIntakeStore) RedeemSecretIntakeInvitation(arg0 context.Context, arg1, arg2, arg3, arg4 string, arg5, arg6 time.Time) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RedeemSecretIntakeInvitation", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret := m.ctrl.Call(m, "RedeemSecretIntakeInvitation", arg0, arg1, arg2, arg3, arg4, arg5, arg6)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // RedeemSecretIntakeInvitation indicates an expected call of RedeemSecretIntakeInvitation.
-func (mr *MockSecretIntakeStoreMockRecorder) RedeemSecretIntakeInvitation(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+func (mr *MockSecretIntakeStoreMockRecorder) RedeemSecretIntakeInvitation(arg0, arg1, arg2, arg3, arg4, arg5, arg6 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemSecretIntakeInvitation", reflect.TypeOf((*MockSecretIntakeStore)(nil).RedeemSecretIntakeInvitation), arg0, arg1, arg2, arg3, arg4, arg5)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemSecretIntakeInvitation", reflect.TypeOf((*MockSecretIntakeStore)(nil).RedeemSecretIntakeInvitation), arg0, arg1, arg2, arg3, arg4, arg5, arg6)
 }
 
 // RevokeSecretIntake mocks base method.

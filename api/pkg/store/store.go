@@ -1015,7 +1015,7 @@ type SecretIntakeStore interface {
 	CreateSecretIntake(context.Context, *types.SecretIntake) error
 	GetSecretIntake(context.Context, string, string) (*types.SecretIntake, error)
 	GetSecretIntakeByFlow(context.Context, string, time.Time) (*types.SecretIntake, error)
-	RedeemSecretIntakeInvitation(context.Context, string, string, string, time.Time, time.Time) (bool, error)
+	RedeemSecretIntakeInvitation(context.Context, string, string, string, string, time.Time, time.Time) (bool, error)
 	SubmitSecretIntake(context.Context, string, string, string, time.Time, time.Time) (bool, error)
 	RevokeSecretIntake(context.Context, string, string) error
 	TakeSecretIntake(context.Context, string, string, time.Time) (string, error)

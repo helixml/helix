@@ -159,12 +159,13 @@ func (s *HelixAPIServer) createSecretIntake(ctx context.Context, projectID strin
 	if err := s.Store.CreateSecretIntake(ctx, item); err != nil {
 		return SecretIntakeView{}, "", err
 	}
-	return secretIntakeResponse(item), strings.TrimRight(s.Cfg.WebServer.URL, "/") + "/connect/intake#" + token, nil
+	return secretIntakeResponse(item), strings.TrimRight(s.Cfg.WebServer.URL, "/") + "/connect/intake/" + item.ID + "#" + token, nil
 }
 
 func (s *HelixAPIServer) registerSecretIntakeRoutes(router, authRouter *mux.Router) {
 	router.HandleFunc("/connect/intake", s.serveSecretIntake).Methods(http.MethodGet)
 	router.HandleFunc("/connect/intake/boot.js", s.secretIntakeBoot).Methods(http.MethodGet)
+	router.HandleFunc("/connect/intake/{intake_id:sci_[A-Za-z0-9_-]+}", s.serveSecretIntake).Methods(http.MethodGet)
 	router.HandleFunc("/connect/intake/redeem", s.redeemSecretIntake).Methods(http.MethodPost)
 	router.HandleFunc("/connect/intake/submit", s.submitSecretIntakeForm).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/secret-intakes", s.createSecretIntakeHTTP).Methods(http.MethodPost)
@@ -382,7 +383,7 @@ func (s *HelixAPIServer) redeemSecretIntake(w http.ResponseWriter, r *http.Reque
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 256)
 	var input SecretIntakeRedeemRequest
-	if json.NewDecoder(r.Body).Decode(&input) != nil || len(input.Token) != 43 {
+	if json.NewDecoder(r.Body).Decode(&input) != nil || !strings.HasPrefix(input.IntakeID, "sci_") || len(input.Token) != 43 {
 		http.Error(w, "invalid invitation", http.StatusBadRequest)
 		return
 	}
@@ -397,7 +398,7 @@ func (s *HelixAPIServer) redeemSecretIntake(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	now := time.Now().UTC()
-	redeemed, err := s.Store.RedeemSecretIntakeInvitation(r.Context(), secretIntakeHash(input.Token), secretIntakeHash(flow), secretIntakeHash(csrf), now, now.Add(secretIntakeFlowTTL))
+	redeemed, err := s.Store.RedeemSecretIntakeInvitation(r.Context(), input.IntakeID, secretIntakeHash(input.Token), secretIntakeHash(flow), secretIntakeHash(csrf), now, now.Add(secretIntakeFlowTTL))
 	if err != nil {
 		http.Error(w, "unable to open intake", http.StatusInternalServerError)
 		return
@@ -452,7 +453,7 @@ func (s *HelixAPIServer) submitSecretIntakeForm(w http.ResponseWriter, r *http.R
 		http.Error(w, "invalid or unavailable submission", http.StatusBadRequest)
 		return
 	}
-	http.Redirect(w, r, "/connect/intake", http.StatusSeeOther)
+	http.Redirect(w, r, "/connect/intake/"+item.ID, http.StatusSeeOther)
 }
 
 type secretIntakePageData struct {
@@ -479,7 +480,7 @@ func (s *HelixAPIServer) serveSecretIntake(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "unable to load intake", http.StatusInternalServerError)
 		return
 	}
-	if err == nil {
+	if err == nil && item.ID == mux.Vars(r)["intake_id"] {
 		data.Brand, data.Accent, data.Title, data.Description, data.Fields = item.BrandName, item.AccentColor, item.Title, item.Description, item.Fields
 		data.ArtifactBefore, data.ArtifactAfter = template.HTML(item.ArtifactBefore), template.HTML(item.ArtifactAfter)
 		data.HasArtifact = item.ArtifactID != ""
@@ -501,7 +502,27 @@ func (s *HelixAPIServer) serveSecretIntake(w http.ResponseWriter, r *http.Reques
 func (s *HelixAPIServer) secretIntakeBoot(w http.ResponseWriter, r *http.Request) {
 	secretIntakePageHeaders(w)
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-	_, _ = w.Write([]byte(`(()=>{const token=location.hash.slice(1);if(!token)return;history.replaceState(null,"",location.pathname);const button=document.getElementById("redeem");if(!button)return;button.hidden=false;button.addEventListener("click",async()=>{button.disabled=true;try{const res=await fetch("/connect/intake/redeem",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token}),credentials:"same-origin"});if(!res.ok)throw new Error();location.reload()}catch{document.getElementById("state").textContent="This link is expired or already used.";button.hidden=true}})})();`))
+	_, _ = w.Write([]byte(`(() => {
+  const state = document.getElementById("state");
+  const token = location.hash.slice(1);
+  const intake_id = location.pathname.split("/").pop();
+  if (!token || !/^sci_[A-Za-z0-9_-]+$/.test(intake_id)) {
+    if (state) state.textContent = "Open the secure link you received to view the form.";
+    return;
+  }
+  history.replaceState(null, "", location.pathname);
+  fetch("/connect/intake/redeem", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ intake_id, token }),
+    credentials: "same-origin"
+  }).then(response => {
+    if (!response.ok) throw new Error("redeem failed");
+    location.reload();
+  }).catch(() => {
+    if (state) state.textContent = "This link is expired or already used.";
+  });
+})();`))
 }
 
 func (s *HelixAPIServer) runSecretIntakeReaper(ctx context.Context) {

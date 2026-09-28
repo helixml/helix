@@ -2000,7 +2000,8 @@ export interface ServerSecretIntakeCreateResponse {
 }
 
 export interface ServerSecretIntakeRedeemRequest {
-  token?: string;
+  intake_id: string;
+  token: string;
 }
 
 export interface ServerSecretIntakeSubmissionRequest {

@@ -18,7 +18,8 @@ const (
 var secretIntakeAccentPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 type SecretIntakeRedeemRequest struct {
-	Token string `json:"token"`
+	IntakeID string `json:"intake_id" binding:"required"`
+	Token    string `json:"token" binding:"required"`
 }
 
 func secretIntakeRandomToken() (string, error) {
