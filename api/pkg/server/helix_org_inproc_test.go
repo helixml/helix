@@ -165,9 +165,8 @@ func TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentI
 	require.Equal(t, replacement.ID, preserved.DefaultHelixAppID)
 }
 
-// A failure to destroy the bot's desktop must not abort the delete cascade:
-// an unreachable hydra would otherwise leave the bot permanently undeletable.
-func TestInProcClient_DeleteLinkedAgentContinuesWhenDesktopDestroyFails(t *testing.T) {
+// A failed desktop destroy must preserve the bot and app for a later retry.
+func TestInProcClient_DeleteLinkedAgentPreservesRowsWhenDesktopDestroyFails(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
@@ -193,13 +192,13 @@ func TestInProcClient_DeleteLinkedAgentContinuesWhenDesktopDestroyFails(t *testi
 	client := NewInProcHelixClient(&HelixAPIServer{Store: store, externalAgentExecutor: executor})
 	ctx := runtimehelix.WithUser(context.Background(), &types.User{ID: "usr_request"})
 
-	require.NoError(t, client.DeleteLinkedAgent(ctx, "org-test", "b-agent", app.ID, "ses_missing"))
+	require.ErrorContains(t, client.DeleteLinkedAgent(ctx, "org-test", "b-agent", app.ID, "ses_missing"), "destroy linked agent desktop")
 
 	var appCount, botCount int64
 	require.NoError(t, db.Model(&types.App{}).Where("id = ?", app.ID).Count(&appCount).Error)
 	require.NoError(t, db.Table("org_bots").Where("org_id = ? AND id = ?", "org-test", "b-agent").Count(&botCount).Error)
-	require.Zero(t, appCount)
-	require.Zero(t, botCount)
+	require.EqualValues(t, 1, appCount)
+	require.EqualValues(t, 1, botCount)
 }
 
 // Deleting a bot's project must destroy every desktop the project ever ran,
@@ -236,7 +235,7 @@ func TestInProcClient_DestroyProjectRuntimeDestroysEveryProjectDesktop(t *testin
 	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_deleted", "").Return(errors.New("hydra unreachable"))
 
 	client := NewInProcHelixClient(&HelixAPIServer{Store: &gormBackedInProcStore{db: db}, externalAgentExecutor: executor})
-	require.NoError(t, client.destroyProjectRuntime(context.Background(), &types.Project{ID: "prj_bot", OrganizationID: "org-test"}))
+	require.ErrorContains(t, client.destroyProjectRuntime(context.Background(), &types.Project{ID: "prj_bot", OrganizationID: "org-test"}), "destroy project desktop ses_deleted")
 }
 
 // The org runtime — not the shared apply handler — is what classifies a bot's

@@ -1063,7 +1063,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 
 		stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), exploratorySession.ID)
 		if stopErr != nil {
-			log.Warn().Err(stopErr).Str("session_id", exploratorySession.ID).Msg("Failed to stop exploratory session (continuing with deletion)")
+			return nil, system.NewHTTPError500(fmt.Sprintf("stop exploratory session before project deletion: %s", stopErr))
 		}
 	}
 
@@ -1082,7 +1082,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 
 				stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
 				if stopErr != nil {
-					log.Warn().Err(stopErr).Str("session_id", task.PlanningSessionID).Msg("Failed to stop session (continuing with deletion)")
+					return nil, system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
 				}
 			}
 		}

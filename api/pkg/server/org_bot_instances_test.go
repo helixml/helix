@@ -142,9 +142,7 @@ func TestBotInstancesSyncProfileAttemptsEveryInstance(t *testing.T) {
 	require.ErrorContains(t, err, "instance ses_one: db down")
 }
 
-// Deleting a bot must not stall on an unreachable instance host: the instance
-// row still goes, and the orphan reaper removes its host data.
-func TestBotInstancesDeleteAllContinuesWhenDestroyFails(t *testing.T) {
+func TestBotInstancesDeleteAllPreservesSessionWhenDestroyFails(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	st := store.NewMockStore(ctrl)
 	executor := external_agent.NewMockExecutor(ctrl)
@@ -157,9 +155,6 @@ func TestBotInstancesDeleteAllContinuesWhenDestroyFails(t *testing.T) {
 	second := &types.Session{ID: "ses_two", Metadata: types.SessionMetadata{OrgWorkerID: "b-broker"}}
 	st.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return([]*types.Session{first, second}, int64(2), nil)
 	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_one", "").Return(errors.New("sandbox offline"))
-	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_two", "").Return(nil)
-	st.EXPECT().DeleteSession(gomock.Any(), "ses_one").Return(first, nil)
-	st.EXPECT().DeleteSession(gomock.Any(), "ses_two").Return(second, nil)
 
-	require.NoError(t, instances.DeleteAll(context.Background(), bot.OrganizationID, "b-broker"))
+	require.ErrorContains(t, instances.DeleteAll(context.Background(), bot.OrganizationID, "b-broker"), "destroy instance sandbox ses_one")
 }
