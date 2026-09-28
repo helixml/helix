@@ -1700,6 +1700,12 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		return nil
 	}
 
+	return s.gitRepoService.WithRepoLock(repo.ID, func() error {
+		return s.ensurePullRequestLocked(ctx, repo, task, branch)
+	})
+}
+
+func (s *GitHTTPServer) ensurePullRequestLocked(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, branch string) error {
 	log.Info().Str("repo_id", repo.ID).Str("branch", branch).Msg("Ensuring pull request")
 
 	// If we already track a PR for this repo, return without pushing or
@@ -1721,11 +1727,8 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		}
 	}
 
-	// Acquire repo lock for push operation to prevent race conditions.
 	// Use the approver's OAuth token when available.
-	if err := s.gitRepoService.WithRepoLock(repo.ID, func() error {
-		return s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false, task.ImplementationApprovedBy)
-	}); err != nil {
+	if err := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false, task.ImplementationApprovedBy); err != nil {
 		return fmt.Errorf("failed to push branch: %w", err)
 	}
 
@@ -1736,7 +1739,7 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 
 	project, err := s.store.GetProject(ctx, task.ProjectID)
 	if err != nil {
-		project = nil
+		return fmt.Errorf("failed to get project: %w", err)
 	}
 
 	// Read PR content from helix-specs (pull_request_<repo-name>.md or pull_request.md)
@@ -1747,6 +1750,7 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 			primaryRepoPath = primaryRepo.LocalPath
 		}
 	}
+	targetBranch := PullRequestTargetBranch(repo, task, project.DefaultRepoID)
 	title, description, found := s.getPullRequestContent(primaryRepoPath, task, repo.Name)
 	if !found {
 		title = task.Name
@@ -1799,7 +1803,7 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	}
 
 	// No existing PR — create one
-	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch, task.ImplementationApprovedBy)
+	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, targetBranch, task.ImplementationApprovedBy)
 	if err != nil {
 		// If PR already exists (422), try to find it and use it
 		if strings.Contains(err.Error(), "already exists") {
@@ -1835,6 +1839,14 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		Str("branch", branch).
 		Msg("Created pull request")
 	return nil
+}
+
+// PullRequestTargetBranch returns the task's selected base for its primary repo.
+func PullRequestTargetBranch(repo *types.GitRepository, task *types.SpecTask, primaryRepoID string) string {
+	if primaryRepoID == repo.ID && task.BaseBranch != "" {
+		return task.BaseBranch
+	}
+	return repo.DefaultBranch
 }
 
 // updateRepoPullRequests updates the RepoPullRequests array with PR info for a repo
