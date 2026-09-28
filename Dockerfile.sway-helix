@@ -840,6 +840,27 @@ _INSTALL_ZEROCOPY
 COPY --from=grim-build /grim-bin /usr/bin/grim
 
 # ====================================================================
+# Headless document extraction - read a document without opening it
+# ====================================================================
+# Mirrors Dockerfile.ubuntu-helix; see the long note there for why.
+#
+# Short version: the office editors below are GUI apps for OPENING and EDITING
+# documents. Extracting text from an uploaded file is a different job, and
+# there was no headless path for it — arch-dependently, since the arm64 branch
+# gets LibreOffice (which has `soffice --headless --convert-to`) and the amd64
+# branch gets OnlyOffice (which does not ship a supported conversion CLI).
+#
+# ~238MB, mostly pandoc. See the size note in Dockerfile.ubuntu-helix.
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    pandoc \
+    antiword \
+    poppler-utils \
+    unzip \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
 # OnlyOffice Desktop Editors - Office document support
 # ====================================================================
 # Enables AI agents to open and edit Word, Excel, and PowerPoint documents.
