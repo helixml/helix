@@ -3199,6 +3199,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	if err != nil {
 		return fmt.Errorf("failed to reload interaction %s: %w", targetInteractionID, err)
 	}
+	apiServer.autoWakeWSAbsentSince.Delete(targetInteraction.ID)
 
 	log.Info().
 		Str("helix_session_id", helixSessionID).
@@ -3266,7 +3267,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		// Re-queue the exact bounced prompt so a concurrent prompt is not failed instead.
 		if targetInteraction.PromptID != "" {
 			if err := apiServer.Controller.Options.Store.RequeueBouncedPrompt(context.Background(), targetInteraction.PromptID); err != nil {
-				log.Debug().Err(err).
+				log.Warn().Err(err).
 					Str("session_id", helixSessionID).
 					Str("prompt_id", targetInteraction.PromptID).
 					Msg("Failed to re-queue bounced prompt")

@@ -284,6 +284,9 @@ type Store interface {
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
 	UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error
+	// ClaimSessionAutoRestart atomically records a restart unless another restart
+	// was recorded after before.
+	ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error)
 	// SetSessionBotInstanceProfile replaces only config.bot_instance, so it
 	// cannot revert status fields a concurrent writer changed.
 	SetSessionBotInstanceProfile(ctx context.Context, sessionID string, profile types.BotInstanceProfile) error
