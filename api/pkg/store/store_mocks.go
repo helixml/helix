@@ -6176,17 +6176,17 @@ func (mr *MockStoreMockRecorder) RequestInteractionCancellationIfWaiting(ctx, in
 }
 
 // RequeueBouncedPrompt mocks base method.
-func (m *MockStore) RequeueBouncedPrompt(ctx context.Context, sessionID string) error {
+func (m *MockStore) RequeueBouncedPrompt(ctx context.Context, promptID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RequeueBouncedPrompt", ctx, sessionID)
+	ret := m.ctrl.Call(m, "RequeueBouncedPrompt", ctx, promptID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RequeueBouncedPrompt indicates an expected call of RequeueBouncedPrompt.
-func (mr *MockStoreMockRecorder) RequeueBouncedPrompt(ctx, sessionID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) RequeueBouncedPrompt(ctx, promptID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequeueBouncedPrompt", reflect.TypeOf((*MockStore)(nil).RequeueBouncedPrompt), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequeueBouncedPrompt", reflect.TypeOf((*MockStore)(nil).RequeueBouncedPrompt), ctx, promptID)
 }
 
 // ResetCrashedPromptsForSession mocks base method.

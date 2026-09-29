@@ -77,6 +77,7 @@ func (s *AutoWakeColdStartSuite) TestKicksDisconnectedInteractionWithPendingQues
 	}, nil).AnyTimes()
 	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses-question").Return(false)
 	startCalled := make(chan struct{}, 1)
 	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
@@ -119,6 +120,7 @@ func (s *AutoWakeColdStartSuite) TestKicksAutoStartWhenNoWS() {
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_cold").Return(session, nil).AnyTimes()
 	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_cold").Return(false)
 
 	startCalled := make(chan struct{}, 1)
 	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -248,6 +250,7 @@ func (s *AutoWakeColdStartSuite) TestKicksAfterColdStartGraceExpires() {
 
 	// Now we DO expect the kick to fire and the budget to burn.
 	s.store.EXPECT().IncrementInteractionAutoWakeCount(gomock.Any(), "int-grace-expired").Return(1, nil)
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_grace_expired").Return(false)
 
 	startCalled := make(chan struct{}, 1)
 	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -264,6 +267,50 @@ func (s *AutoWakeColdStartSuite) TestKicksAfterColdStartGraceExpires() {
 		// Good — past the grace, the kick fires.
 	case <-time.After(2 * time.Second):
 		s.FailNow("StartDesktop should have been invoked once grace expired")
+	}
+}
+
+func (s *AutoWakeColdStartSuite) TestRestartsRunningContainerWithNoWS() {
+	stuck := stuckInteraction("int-running-stuck", "ses_running_stuck", 0)
+	session := &types.Session{
+		ID:        stuck.SessionID,
+		Owner:     "user-1",
+		ProjectID: "prj_x",
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+			ProjectID: "prj_x",
+		},
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).AnyTimes()
+	s.store.EXPECT().IncrementInteractionAutoWakeCount(gomock.Any(), stuck.ID).Return(1, nil)
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(true)
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: session.Owner}, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{stuck}, int64(1), nil)
+	s.store.EXPECT().GetProject(gomock.Any(), session.ProjectID).Return(&types.Project{ID: session.ProjectID, UserID: session.Owner}, nil).AnyTimes()
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().MarkSessionRestarting(gomock.Any(), session.ID).Return(nil)
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil).AnyTimes()
+	s.store.EXPECT().ResetCrashedPromptsForSession(gomock.Any(), session.ID).Return(0, nil)
+
+	gomock.InOrder(
+		s.executor.EXPECT().StopDesktop(gomock.Any(), session.ID).Return(nil),
+		s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(&types.DesktopAgentResponse{DevContainerID: "dev-new"}, nil),
+	)
+
+	pumped := make(chan struct{})
+	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), session.ID).DoAndReturn(
+		func(_ context.Context, _ string) (*types.PromptHistoryEntry, error) {
+			close(pumped)
+			return nil, nil
+		})
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	select {
+	case <-pumped:
+	case <-time.After(2 * time.Second):
+		s.FailNow("running container was not restarted")
 	}
 }
 
