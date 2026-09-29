@@ -38123,6 +38123,9 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.SecretIntakeField"
                     }
                 },
+                "logo_url": {
+                    "type": "string"
+                },
                 "title": {
                     "type": "string"
                 }

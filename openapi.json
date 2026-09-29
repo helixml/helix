@@ -42810,6 +42810,9 @@
                             "$ref": "#/components/schemas/types.SecretIntakeField"
                         }
                     },
+                    "logo_url": {
+                        "type": "string"
+                    },
                     "title": {
                         "type": "string"
                     }

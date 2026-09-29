@@ -33,6 +33,7 @@ Create request:
   "description": "Enter your portal sign-in details.",
   "brand_name": "Example Support",
   "accent_color": "#20a5a1",
+  "logo_url": "https://cdn.example.com/logo.svg",
   "fields": [
     {"name":"username","label":"Username","type":"text","required":true,"autocomplete":"username"},
     {"name":"password","label":"Password","type":"password","required":true,"autocomplete":"current-password"}
@@ -40,7 +41,22 @@ Create request:
 }
 ```
 
-`customer_id` and `conversation_id` are required routing metadata, each at most 128 bytes. The intake ID maps the link and submitted values to these stored fields and the project ID. Derive customer and conversation IDs from your authenticated customer session; Helix does not authenticate the end customer from these strings alone. A link sent to the wrong person can be used by that person. `title` is required (max 100 bytes), `description` is optional (max 300 bytes), `brand_name` is optional (max 80 bytes), and `accent_color` must be `#RRGGBB`. Request 1 to 8 unique fields with lowercase `name` identifiers, labels at most 80 bytes, `text` or `password` type, and optional `required` and `autocomplete`. Accepted autocomplete values are `off`, `username`, `current-password`, `new-password`, and `one-time-code`. Each submitted value is limited to 4096 bytes. The server rejects extra fields.
+`customer_id` and `conversation_id` are required routing metadata, each at most 128 bytes. The intake ID maps the link and submitted values to these stored fields and the project ID. Derive customer and conversation IDs from your authenticated customer session; Helix does not authenticate the end customer from these strings alone. A link sent to the wrong person can be used by that person. `title` is required (max 100 bytes), `description` is optional (max 300 bytes), `brand_name` is optional (max 80 bytes), and `accent_color` must be `#RRGGBB`. `logo_url` is optional (max 512 bytes) and must be an absolute `https` URL; when set it replaces the default shield mark in the form header for white-label branding. The page's Content-Security-Policy allows `img-src https: data:` so the logo can load while scripts stay restricted to the Helix origin.
+
+### URL-driven appearance overrides
+
+The hosted form also accepts a set of optional, purely cosmetic query parameters on the invitation URL, layered on top of the stored branding. They are a lightweight way to theme the page without a new create call:
+
+| Param | Effect | Accepted values |
+|---|---|---|
+| `accent` | Accent color (mark, button, focus ring) | `#RRGGBB` |
+| `bg` | Page background base color | `#RRGGBB` |
+| `card` | Card surface color | `#RRGGBB` |
+| `ink` | Primary text color | `#RRGGBB` |
+| `brand` | Brand name shown under the mark | up to 80 characters |
+| `logo` | Header logo image | absolute `https` URL, up to 512 bytes |
+
+Example: `https://helix.example/connect/intake/<intake_id>#<token>?accent=%23ff8800&bg=%23101820&card=%23161f28&ink=%23eef3f5`. Any parameter with an invalid value is ignored and the stored default is used, so a malformed link still renders correctly. Muted text and border colors are derived from `ink`/`card`, so the four colors are enough to produce a coherent light or dark theme. The colors are presentational only; `logo` loads an external image and is therefore held to the same `https` rule as the stored `logo_url`. The browser boot script preserves the query string when it strips the one-time token from the address bar, so overrides survive the automatic redemption reload. Request 1 to 8 unique fields with lowercase `name` identifiers, labels at most 80 bytes, `text` or `password` type, and optional `required` and `autocomplete`. Accepted autocomplete values are `off`, `username`, `current-password`, `new-password`, and `one-time-code`. Each submitted value is limited to 4096 bytes. The server rejects extra fields.
 
 The `201` response has an `intake` object with `id`, project/customer/conversation IDs, field descriptors, `status`, and expiry, plus an `invite_url` like `https://helix.example/connect/intake/<intake_id>#<random-token>`. Values never appear in create, status, or revoke responses. Statuses are `pending`, `submitted`, `consumed`, `expired`, and `revoked`. The invitation expires in 10 minutes. Opening the link automatically exchanges its ID and one-time token for a 20-minute HttpOnly, SameSite=Strict flow cookie, then displays the CSRF-protected form. The fragment is removed from browser history during redemption. The visible ID identifies the request; the token proves possession of its invitation. Treat the URL as a bearer invitation and deliver it through an appropriate customer channel.
 

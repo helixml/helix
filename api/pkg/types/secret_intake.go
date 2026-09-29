@@ -17,6 +17,7 @@ type SecretIntakeCreateRequest struct {
 	Description    string              `json:"description"`
 	BrandName      string              `json:"brand_name"`
 	AccentColor    string              `json:"accent_color"`
+	LogoURL        string              `json:"logo_url,omitempty"`
 	Fields         []SecretIntakeField `json:"fields"`
 	ArtifactID     string              `json:"artifact_id,omitempty"`
 }
@@ -43,6 +44,7 @@ type SecretIntake struct {
 	Description         string
 	BrandName           string              `gorm:"not null"`
 	AccentColor         string              `gorm:"not null"`
+	LogoURL             string
 	Fields              []SecretIntakeField `gorm:"type:jsonb;serializer:json;not null"`
 	ArtifactID          string
 	ArtifactBefore      string

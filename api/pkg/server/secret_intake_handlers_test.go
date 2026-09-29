@@ -133,6 +133,63 @@ func TestSecretIntakeDirectAPIAndValidation(t *testing.T) {
 	require.NotContains(t, good.Body.String(), "top-secret")
 }
 
+func TestSecretIntakeLogoBranding(t *testing.T) {
+	s := secretIntakeTestServer(t)
+	base := types.SecretIntakeCreateRequest{CustomerID: "cust", ConversationID: "conv", Title: "Connect", Fields: []types.SecretIntakeField{{Name: "api_key", Label: "API key", Type: "password", Required: true}}}
+
+	bad := base
+	bad.LogoURL = "http://cdn.example.com/logo.png"
+	_, _, err := s.createSecretIntake(t.Context(), "prj_test", bad)
+	require.Error(t, err)
+
+	relative := base
+	relative.LogoURL = "/logo.png"
+	_, _, err = s.createSecretIntake(t.Context(), "prj_test", relative)
+	require.Error(t, err)
+
+	ok := base
+	ok.LogoURL = "https://cdn.example.com/logo.svg"
+	view, link, err := s.createSecretIntake(t.Context(), "prj_test", ok)
+	require.NoError(t, err)
+
+	token := strings.Split(link, "#")[1]
+	redeemInput, _ := json.Marshal(map[string]string{"intake_id": view.ID, "token": token})
+	redeem := httptest.NewRecorder()
+	s.redeemSecretIntake(redeem, intakeRequest(http.MethodPost, "/connect/intake/redeem", string(redeemInput)))
+	require.Equal(t, http.StatusNoContent, redeem.Code)
+	page := httptest.NewRecorder()
+	s.serveSecretIntake(page, mux.SetURLVars(intakeRequest(http.MethodGet, "/connect/intake/"+view.ID, "", redeem.Result().Cookies()...), map[string]string{"intake_id": view.ID}))
+	require.Equal(t, http.StatusOK, page.Code)
+	require.Contains(t, page.Body.String(), `src="https://cdn.example.com/logo.svg"`)
+	require.NotContains(t, page.Body.String(), `class="mark"`)
+}
+
+func TestSecretIntakeURLOverrides(t *testing.T) {
+	s := secretIntakeTestServer(t)
+	input := types.SecretIntakeCreateRequest{CustomerID: "cust", ConversationID: "conv", Title: "Connect", AccentColor: "#111111", Fields: []types.SecretIntakeField{{Name: "api_key", Label: "API key", Type: "password", Required: true}}}
+	view, link, err := s.createSecretIntake(t.Context(), "prj_test", input)
+	require.NoError(t, err)
+	token := strings.Split(link, "#")[1]
+	redeemInput, _ := json.Marshal(map[string]string{"intake_id": view.ID, "token": token})
+	redeem := httptest.NewRecorder()
+	s.redeemSecretIntake(redeem, intakeRequest(http.MethodPost, "/connect/intake/redeem", string(redeemInput)))
+	require.Equal(t, http.StatusNoContent, redeem.Code)
+
+	// Valid cosmetic overrides apply; an invalid color and a non-https logo are ignored.
+	q := "?accent=%23ff8800&bg=%23101820&card=%23161f28&ink=%23eef3f5&brand=Acme&logo=http://evil/x.png"
+	page := httptest.NewRecorder()
+	s.serveSecretIntake(page, mux.SetURLVars(intakeRequest(http.MethodGet, "/connect/intake/"+view.ID+q, "", redeem.Result().Cookies()...), map[string]string{"intake_id": view.ID}))
+	require.Equal(t, http.StatusOK, page.Code)
+	body := page.Body.String()
+	require.Contains(t, body, "--accent:#ff8800")
+	require.Contains(t, body, "--bg:#101820")
+	require.Contains(t, body, "--card:#161f28")
+	require.Contains(t, body, "--ink:#eef3f5")
+	require.Contains(t, body, ">Acme</p>")
+	require.NotContains(t, body, "evil")
+	require.Contains(t, body, `class="mark"`) // non-https logo rejected, shield fallback kept
+}
+
 func TestSecretIntakeArtifactSanitization(t *testing.T) {
 	before, after, err := sanitizeSecretIntakeArtifact(`<html><body><h2 onclick="alert(1)">Connect</h2><script>fetch('https://bad.example')</script><div data-helix-form></div><p><img src="https://bad.example/x">Done</p></body></html>`)
 	require.NoError(t, err)

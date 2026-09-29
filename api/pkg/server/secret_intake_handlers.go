@@ -104,6 +104,16 @@ func validateSecretIntakeInput(input *secretIntakeInput) error {
 	if !secretIntakeAccentPattern.MatchString(input.AccentColor) {
 		return errors.New("accent_color must be a six-digit hex color")
 	}
+	input.LogoURL = strings.TrimSpace(input.LogoURL)
+	if input.LogoURL != "" {
+		if len(input.LogoURL) > 512 {
+			return errors.New("logo_url is too long")
+		}
+		logo, err := url.Parse(input.LogoURL)
+		if err != nil || logo.Scheme != "https" || logo.Host == "" {
+			return errors.New("logo_url must be an absolute https URL")
+		}
+	}
 	if len(input.Fields) == 0 || len(input.Fields) > 8 {
 		return errors.New("fields must contain 1 to 8 entries")
 	}
@@ -155,7 +165,7 @@ func (s *HelixAPIServer) createSecretIntake(ctx context.Context, projectID strin
 		return SecretIntakeView{}, "", err
 	}
 	now := time.Now().UTC()
-	item := &types.SecretIntake{ID: "sci_" + system.GenerateUUID(), ProjectID: projectID, CustomerID: input.CustomerID, ConversationID: input.ConversationID, Title: input.Title, Description: input.Description, BrandName: input.BrandName, AccentColor: input.AccentColor, Fields: input.Fields, ArtifactID: input.ArtifactID, ArtifactBefore: artifactBefore, ArtifactAfter: artifactAfter, Status: "pending", InvitationHash: secretIntakeHash(token), InvitationExpiresAt: now.Add(secretIntakeInvitationTTL), CreatedAt: now, UpdatedAt: now}
+	item := &types.SecretIntake{ID: "sci_" + system.GenerateUUID(), ProjectID: projectID, CustomerID: input.CustomerID, ConversationID: input.ConversationID, Title: input.Title, Description: input.Description, BrandName: input.BrandName, AccentColor: input.AccentColor, LogoURL: input.LogoURL, Fields: input.Fields, ArtifactID: input.ArtifactID, ArtifactBefore: artifactBefore, ArtifactAfter: artifactAfter, Status: "pending", InvitationHash: secretIntakeHash(token), InvitationExpiresAt: now.Add(secretIntakeInvitationTTL), CreatedAt: now, UpdatedAt: now}
 	if err := s.Store.CreateSecretIntake(ctx, item); err != nil {
 		return SecretIntakeView{}, "", err
 	}
@@ -457,10 +467,44 @@ func (s *HelixAPIServer) submitSecretIntakeForm(w http.ResponseWriter, r *http.R
 }
 
 type secretIntakePageData struct {
-	Stage, Brand, Accent, Title, Description, CSRF string
-	Fields                                         []types.SecretIntakeField
-	ArtifactBefore, ArtifactAfter                  template.HTML
-	HasArtifact                                    bool
+	Stage, Brand, Accent, Bg, Card, Ink, Logo, Title, Description, CSRF string
+	Fields                                                              []types.SecretIntakeField
+	ArtifactBefore, ArtifactAfter                                       template.HTML
+	HasArtifact                                                         bool
+}
+
+// Cosmetic defaults for the hosted intake page. Stored intake branding and
+// per-request URL overrides layer on top of these.
+const (
+	secretIntakeDefaultAccent = "#00b8d4"
+	secretIntakeDefaultBg     = "#eef3f5"
+	secretIntakeDefaultCard   = "#ffffff"
+	secretIntakeDefaultInk    = "#0f1b22"
+)
+
+// applySecretIntakeQuery layers cosmetic overrides supplied on the page URL on
+// top of the stored branding. Only bounded, non-executable values are accepted
+// (hex colors, a short brand string, an https logo); anything invalid is
+// ignored so a malformed link still renders the stored defaults. Colors are
+// purely presentational; the logo can load an external image, so it is held to
+// the same https rule as the stored logo_url.
+func applySecretIntakeQuery(data *secretIntakePageData, q url.Values) {
+	for _, o := range []struct {
+		key string
+		dst *string
+	}{{"accent", &data.Accent}, {"bg", &data.Bg}, {"card", &data.Card}, {"ink", &data.Ink}} {
+		if v := q.Get(o.key); secretIntakeAccentPattern.MatchString(v) {
+			*o.dst = v
+		}
+	}
+	if v := strings.TrimSpace(q.Get("brand")); v != "" && len(v) <= 80 {
+		data.Brand = v
+	}
+	if v := strings.TrimSpace(q.Get("logo")); v != "" && len(v) <= 512 {
+		if u, err := url.Parse(v); err == nil && u.Scheme == "https" && u.Host != "" {
+			data.Logo = v
+		}
+	}
 }
 
 //go:embed templates/secret_intake.html
@@ -474,7 +518,7 @@ func (s *HelixAPIServer) serveSecretIntake(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "secret intake is disabled", http.StatusNotImplemented)
 		return
 	}
-	data := secretIntakePageData{Stage: "landing", Brand: "Helix Connect", Accent: "#00b8d4", Title: "Secure connection"}
+	data := secretIntakePageData{Stage: "landing", Brand: "Helix Connect", Accent: secretIntakeDefaultAccent, Bg: secretIntakeDefaultBg, Card: secretIntakeDefaultCard, Ink: secretIntakeDefaultInk, Title: "Secure connection"}
 	item, err := s.secretIntakeFlow(r)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "unable to load intake", http.StatusInternalServerError)
@@ -482,6 +526,7 @@ func (s *HelixAPIServer) serveSecretIntake(w http.ResponseWriter, r *http.Reques
 	}
 	if err == nil && item.ID == mux.Vars(r)["intake_id"] {
 		data.Brand, data.Accent, data.Title, data.Description, data.Fields = item.BrandName, item.AccentColor, item.Title, item.Description, item.Fields
+		data.Logo = item.LogoURL
 		data.ArtifactBefore, data.ArtifactAfter = template.HTML(item.ArtifactBefore), template.HTML(item.ArtifactAfter)
 		data.HasArtifact = item.ArtifactID != ""
 		data.Stage = secretIntakeStatus(item)
@@ -495,6 +540,7 @@ func (s *HelixAPIServer) serveSecretIntake(w http.ResponseWriter, r *http.Reques
 			}
 		}
 	}
+	applySecretIntakeQuery(&data, r.URL.Query())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = secretIntakePage.Execute(w, data)
 }
@@ -510,7 +556,7 @@ func (s *HelixAPIServer) secretIntakeBoot(w http.ResponseWriter, r *http.Request
     if (state) state.textContent = "Open the secure link you received to view the form.";
     return;
   }
-  history.replaceState(null, "", location.pathname);
+  history.replaceState(null, "", location.pathname + location.search);
   fetch("/connect/intake/redeem", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

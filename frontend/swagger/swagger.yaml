@@ -10371,6 +10371,8 @@ definitions:
         items:
           $ref: '#/definitions/types.SecretIntakeField'
         type: array
+      logo_url:
+        type: string
       title:
         type: string
     type: object

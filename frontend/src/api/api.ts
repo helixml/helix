@@ -6569,6 +6569,7 @@ export interface TypesSecretIntakeCreateRequest {
   customer_id?: string;
   description?: string;
   fields?: TypesSecretIntakeField[];
+  logo_url?: string;
   title?: string;
 }
 
