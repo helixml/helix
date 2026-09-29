@@ -20,10 +20,10 @@ var sessionRuntimeBaseDir = "/data/sessions"
 
 // DestroyDevContainer tears a session down for good. DeleteDevContainer is a
 // stop: it keeps the session's inner Docker data and workspace so a restart is
-// warm, and it no-ops when hydra has lost track of the container. Destroy also
-// removes the container when hydra no longer tracks it, and deletes every
-// on-host resource the session owns. specTaskID, when set, additionally removes
-// that task's shared workspace; pass it only when the task itself is gone.
+// warm and removes session containers even when hydra has lost its in-memory
+// record. Destroy also deletes every on-host resource the session owns.
+// specTaskID, when set, additionally removes that task's shared workspace; pass
+// it only when the task itself is gone.
 func (dm *DevContainerManager) DestroyDevContainer(ctx context.Context, sessionID, specTaskID string) (*DevContainerResponse, error) {
 	if !isResourceID(sessionID, "ses_") {
 		return nil, fmt.Errorf("invalid session id %q", sessionID)

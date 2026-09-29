@@ -311,11 +311,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 				Str("container_type", containerType).
 				Msg("Auto-selected available sandbox")
 		} else {
-			// Fallback to "local" if no sandbox found (for backwards compatibility)
-			sandboxID = "local"
-			log.Warn().
-				Str("container_type", containerType).
-				Msg("No available sandbox found, falling back to 'local'")
+			return nil, fmt.Errorf("no eligible sandbox runner available for container type %q (required image %q); check runner status, heartbeat, and advertised desktop image versions", containerType, placementImage)
 		}
 	}
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
@@ -987,7 +983,6 @@ func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, d
 	if sessionWasTracked {
 		sandboxID = session.SandboxID
 		sessionGoldenBuild = session.GoldenBuild
-		delete(h.sessions, sessionID)
 	}
 	h.mutex.Unlock()
 
@@ -1023,8 +1018,6 @@ func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, d
 	var screenshotPath string
 	if destroy == nil {
 		screenshotPath = h.capturePausedScreenshot(ctx, sessionID)
-	} else if err := os.Remove(h.pausedScreenshotPath(sessionID)); err != nil && !os.IsNotExist(err) {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to remove paused screenshot")
 	}
 
 	// Delete dev container via Hydra
@@ -1035,37 +1028,31 @@ func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, d
 	} else {
 		resp, err = hydraClient.DestroyDevContainer(ctx, sessionID, destroy.specTaskID)
 	}
-	deleteSucceeded := err == nil
-	var destroyErr error
-	if err != nil && destroy != nil {
-		destroyErr = fmt.Errorf("destroy dev container %s: %w", sessionID, err)
-	}
 	if err != nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to delete dev container (may already be stopped)")
-		// Don't return error - container might already be gone. We
-		// also do NOT decrement here: if the delete failed but the
-		// container is actually still alive on the host, decrementing
-		// would create a phantom "free slot" that the dispatcher
-		// would place new work onto. Operator visibility (a counter
-		// stuck high) is the lesser harm. The periodic reconcile via
-		// DiscoverContainersFromSandbox is the corrective path - it
-		// SETs the counter to the actual container count.
-	} else {
-		log.Info().
-			Str("session_id", sessionID).
-			Str("container_id", resp.ContainerID).
-			Msg("Dev container stopped successfully via Hydra")
+		return fmt.Errorf("teardown dev container %s: %w", sessionID, err)
 	}
+	if destroy != nil {
+		if err := os.Remove(h.pausedScreenshotPath(sessionID)); err != nil && !os.IsNotExist(err) {
+			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to remove paused screenshot")
+		}
+	}
+
+	h.mutex.Lock()
+	delete(h.sessions, sessionID)
+	h.mutex.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("container_id", resp.ContainerID).
+		Msg("Dev container stopped successfully via Hydra")
 
 	// Decrement gated on TWO conditions:
 	//   1. The session was actually in h.sessions when stop started
 	//      (so the matching increment fired earlier; double-stop and
 	//      stop-of-untracked-session both have exists=false here).
-	//   2. The delete actually succeeded (so the container is really
-	//      gone; on failure we keep the counter high to avoid phantom
-	//      free slots, see comment above).
+	//   2. The delete succeeded (failures return above with tracking intact).
 	// Skip the "local" sentinel (no Runner row to decrement).
-	if exists && deleteSucceeded && sandboxID != "" && sandboxID != "local" {
+	if exists && sandboxID != "" && sandboxID != "local" {
 		if decErr := h.store.DecrementSandboxContainerCount(ctx, sandboxID); decErr != nil {
 			log.Warn().
 				Err(decErr).
@@ -1097,14 +1084,8 @@ func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, d
 
 	// Clear external_agent_status and persist the paused screenshot path together.
 	//
-	// EXCEPT when the status is "restarting": that marker was written by
-	// restartSessionContainer immediately before calling us, and this stop is
-	// only the first half of a restart — a boot follows straight after. Clearing
-	// it would leave the session reading as "stopped" (the container name is
-	// still set, so getSession's live probe downgrades it) for the whole
-	// teardown, which is what made the UI flash a "Start sandbox" button
-	// mid-restart. "running" and "starting" are still cleared, so stopping a
-	// booting desktop from the starting spinner behaves exactly as before.
+	// Preserve an existing "restarting" marker because its caller owns the boot
+	// that follows this stop. Other statuses are cleared normally.
 	if dbSession, err := h.store.GetSession(ctx, sessionID); err == nil {
 		restarting := dbSession.Metadata.ExternalAgentStatus == "restarting"
 		if !restarting {
@@ -1121,7 +1102,7 @@ func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, d
 		h.updateSessionStatusMessage(ctx, sessionID, "")
 	}
 
-	return destroyErr
+	return nil
 }
 
 // revokeSessionAPIKeys revokes all ephemeral API keys associated with a session.

@@ -1023,8 +1023,9 @@ func (s *HelixAPIServer) stopAgentSession(w http.ResponseWriter, r *http.Request
 			log.Warn().
 				Err(err).
 				Str("session_id", specTask.PlanningSessionID).
-				Msg("Failed to stop agent container (may already be stopped)")
-			// Don't return error - container might already be gone
+				Msg("Failed to stop agent container")
+			http.Error(w, "Failed to stop agent container", http.StatusInternalServerError)
+			return
 		} else {
 			log.Info().
 				Str("task_id", specTask.ID).
@@ -1051,7 +1052,9 @@ func (s *HelixAPIServer) stopAgentSession(w http.ResponseWriter, r *http.Request
 // restarts call StopDesktop directly instead: their waiting turn is re-delivered
 // when the agent reconnects.
 func (s *HelixAPIServer) stopSessionAgent(ctx context.Context, sessionID, reason string) error {
-	stopErr := s.externalAgentExecutor.StopDesktop(ctx, sessionID)
+	if err := s.externalAgentExecutor.StopDesktop(ctx, sessionID); err != nil {
+		return err
+	}
 	reaped, err := s.Store.ReapWaitingInteractions(ctx, sessionID, types.InteractionStateInterrupted, reason)
 	if err != nil {
 		return fmt.Errorf("reap waiting interactions for %s: %w", sessionID, err)
@@ -1067,5 +1070,5 @@ func (s *HelixAPIServer) stopSessionAgent(ctx context.Context, sessionID, reason
 			}
 		}
 	}
-	return stopErr
+	return nil
 }
