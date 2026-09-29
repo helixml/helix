@@ -61,6 +61,42 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSession() {
 	suite.Equal(session.Name, retrievedSession.Name)
 }
 
+func (suite *PostgresStoreTestSuite) TestClaimSessionAutoRestartHonorsGracePeriod() {
+	ctx := context.Background()
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Created: time.Now(),
+		Updated: time.Now(),
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus: "running",
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(ctx, session.ID)
+	})
+
+	firstRestart := time.Now().UTC().Truncate(time.Microsecond)
+	claimed, err := suite.db.ClaimSessionAutoRestart(ctx, session.ID, firstRestart, firstRestart.Add(-5*time.Minute))
+	suite.Require().NoError(err)
+	suite.True(claimed)
+
+	claimed, err = suite.db.ClaimSessionAutoRestart(ctx, session.ID, firstRestart.Add(10*time.Second), firstRestart.Add(-5*time.Minute+10*time.Second))
+	suite.Require().NoError(err)
+	suite.False(claimed)
+
+	claimed, err = suite.db.ClaimSessionAutoRestart(ctx, session.ID, firstRestart.Add(6*time.Minute), firstRestart.Add(time.Minute))
+	suite.Require().NoError(err)
+	suite.True(claimed)
+
+	stored, err := suite.db.GetSession(ctx, session.ID)
+	suite.Require().NoError(err)
+	suite.Equal("running", stored.Metadata.ExternalAgentStatus)
+	suite.WithinDuration(firstRestart.Add(6*time.Minute), stored.Metadata.LastAutoRestartAt, time.Microsecond)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession() {
 
 	// Create a sample session

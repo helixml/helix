@@ -33,6 +33,21 @@ type MockStoreMockRecorder struct {
 	mock *MockStore
 }
 
+// ClaimSessionAutoRestart mocks base method.
+func (m *MockStore) ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimSessionAutoRestart", ctx, sessionID, restartedAt, before)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimSessionAutoRestart indicates an expected call of ClaimSessionAutoRestart.
+func (mr *MockStoreMockRecorder) ClaimSessionAutoRestart(ctx, sessionID, restartedAt, before any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimSessionAutoRestart", reflect.TypeOf((*MockStore)(nil).ClaimSessionAutoRestart), ctx, sessionID, restartedAt, before)
+}
+
 // NewMockStore creates a new mock instance.
 func NewMockStore(ctrl *gomock.Controller) *MockStore {
 	mock := &MockStore{ctrl: ctrl}
