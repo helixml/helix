@@ -132,8 +132,8 @@ func ValidateCodeAgentModelCompatibility(assistant AssistantConfig) error {
 
 		switch assistant.CodeAgentRuntime {
 		case CodeAgentRuntimeCodexCLI:
-			if !strings.HasPrefix(model, "gpt-5") && !strings.HasPrefix(model, "codex-") {
-				return fmt.Errorf("codex_cli requires a Codex model (gpt-5* or codex-*), got %q", model)
+			if !strings.HasPrefix(model, "gpt-") && !strings.HasPrefix(model, "codex-") {
+				return fmt.Errorf("codex_cli requires a Codex model (gpt-* or codex-*), got %q", model)
 			}
 		case CodeAgentRuntimeClaudeCode:
 			isClaudeAlias := model == "opus" || strings.HasPrefix(model, "opus[") || strings.HasPrefix(model, "opus-") ||
