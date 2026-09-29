@@ -226,6 +226,10 @@ func (s *GitHTTPServer) authMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Invalid API key", http.StatusUnauthorized)
 			return
 		}
+		if user.Waitlisted {
+			http.Error(w, "Account is waiting for approval", http.StatusForbidden)
+			return
+		}
 		if !s.keyTypeAllowsGit(r, keyRecord) {
 			log.Warn().
 				Str("path", r.URL.Path).

@@ -49,3 +49,26 @@ func TestGitKeyTypes(t *testing.T) {
 		}
 	}
 }
+
+func TestGitAuthRejectsWaitlistedUser(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	st.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hl-test"}).Return(&types.ApiKey{
+		Key: "hl-test", Owner: "user-123", Type: types.APIkeytypeAPI,
+	}, nil)
+	st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "user-123"}).Return(&types.User{
+		ID: "user-123", Waitlisted: true,
+	}, nil)
+	server := &GitHTTPServer{store: st, authTokenHeader: "X-API-Key"}
+	request := httptest.NewRequest(http.MethodGet, "/git/repo/info/refs", nil)
+	request.Header.Set("X-API-Key", "hl-test")
+	response := httptest.NewRecorder()
+
+	server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("got status %d, want %d", response.Code, http.StatusForbidden)
+	}
+}
