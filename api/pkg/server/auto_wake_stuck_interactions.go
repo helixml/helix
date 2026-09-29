@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/hydra"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -534,6 +535,16 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		return
 	}
 
+	if session != nil && session.Metadata.AgentType == "zed_external" && apiServer.externalAgentExecutor != nil && apiServer.externalAgentExecutor.HasRunningContainer(ctx, stuck.SessionID) {
+		log.Info().
+			Str("stuck_interaction_id", stuck.ID).
+			Str("session_id", stuck.SessionID).
+			Int("attempt", newCount).
+			Msg("[AUTO_WAKE] Container running without WebSocket; restarting agent")
+		go apiServer.restartAgentForStuckSession(session)
+		return
+	}
+
 	log.Info().
 		Str("stuck_interaction_id", stuck.ID).
 		Str("session_id", stuck.SessionID).
@@ -542,4 +553,18 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		Msg("🔌 [AUTO_WAKE] No WS for stuck interaction — kicking dev container auto-start (helixml/helix#2397)")
 
 	go apiServer.autoStartDevContainerForSession(stuck.SessionID)
+}
+
+func (apiServer *HelixAPIServer) restartAgentForStuckSession(session *types.Session) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: session.Owner})
+	if err != nil || user == nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("[AUTO_WAKE] Failed to load session owner for restart")
+		return
+	}
+	if _, httpErr := apiServer.restartSessionContainer(ctx, user, session, apiServer.threadIsWedged(ctx, session)); httpErr != nil {
+		log.Warn().Str("session_id", session.ID).Str("error", httpErr.Error()).Msg("[AUTO_WAKE] Failed to restart agent")
+	}
 }
