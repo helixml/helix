@@ -440,6 +440,34 @@ CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
   FOLLOWING normal operation: clear → send a message; delete → recreate; cancel →
   resume; reset thread → next turn. Bugs live in that seam, not in the mutation itself.
 
+### Test the full object lifecycle — nothing may leak
+Any change that creates or deletes a resource-owning object (sandbox, session, bot,
+bot instance, spec task, project, …) is not done until you have run create → use →
+delete end-to-end and proved every underlying resource is gone. Leaked containers,
+volumes, and directories accumulate until a sandbox host runs out of disk.
+- **Inventory first.** Before deleting, list everything the create *and its use*
+  produced: DB rows (including side tables and runtime state), containers, Docker
+  volumes, zvols, host directories (`/data/workspaces/…`, `/data/sessions/…`,
+  `/container-docker/sessions/…`), filestore files (`/filestore/…`), API keys, NATS
+  consumers, running goroutines/activations, external webhooks.
+- **Verify each one after delete** — the row is gone (or soft-deleted by design), the
+  container is gone, the disk path is removed. Example for a sandbox:
+  ```bash
+  docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT id, deleted_at FROM sandboxes WHERE id='sbx_…';"
+  docker exec helix-sandbox-nvidia-1 docker ps -a --filter label=helix.session_id=<id>
+  docker exec helix-sandbox-nvidia-1 docker volume ls | grep <id>
+  docker exec helix-sandbox-nvidia-1 find /data/workspaces /data/sessions /container-docker/sessions -maxdepth 3 -name '*<id>*'
+  ```
+- **Stop is not delete.** Hydra's plain stop keeps workspace and Docker data for a warm
+  restart. Deletion paths must use destroy (`Executor.DestroyDesktop`), not stop.
+- **Test the untracked case too.** Teardown must not depend on in-memory state: restart
+  hydra (or the API) between create and delete and verify delete still removes
+  everything.
+- **Best-effort teardown needs a backstop.** If a delete continues when a host is
+  unreachable, the orphan reaper must treat the leftovers as dead — check its live set.
+- Anything deliberately kept (audit rows, repositories) must be named as kept in the
+  PR, not silently left behind. Report every resource checked, with the command output.
+
 ### Live external-agent (Zed) testing is mandatory for lifecycle changes
 - Features touching session/thread lifecycle (clear, fork, cancel, resume, switch-agent)
   MUST be tested against a LIVE, connected Zed — not seeded DB rows. Seeded rows only

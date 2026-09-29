@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -390,6 +391,60 @@ func (c *Controller) HasDisplayCapableHost(ctx context.Context) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// HostReadyForReplacement reports whether a replacement container for this
+// sandbox could actually be placed right now: its pinned host is online, still
+// heartbeating, and still advertising the image the sandbox's runtime needs.
+// The reason string explains the refusal and is empty when ready.
+//
+// Callers use this to avoid destroying a container they would then be unable
+// to rebuild. A persistent sandbox NEVER relocates — pickHostForSandbox
+// refuses, because the data lives on the original host's local disk — so when
+// the pinned host cannot take a replacement, deleting the existing container
+// strands the data and leaves nothing serving. It fails CLOSED: any error
+// looking the host up means "not ready", because "I don't know" must never
+// authorise a destructive recreate.
+//
+// The staleness bound is the same one dispatch uses
+// (DefaultSandboxDispatchStaleThreshold, 90s = 3 missed 30s heartbeats), so
+// this agrees with FindAvailableSandboxInstance about when a host stops being
+// a valid placement target. Note that is tighter than the reaper's 5m
+// mark-offline threshold on purpose: between 90s and 5m the row still says
+// "online" while the host is already undispatchable, and that gap is exactly
+// where a stressed runner gets its healthy containers destroyed.
+func (c *Controller) HostReadyForReplacement(ctx context.Context, sandbox *types.Sandbox) (bool, string) {
+	if sandbox == nil {
+		return false, "no sandbox row"
+	}
+	if sandbox.HostDeviceID == "" {
+		// Never placed, so there is nothing to strand — a fresh placement
+		// picks a host through the normal scheduler path.
+		return true, ""
+	}
+	host, err := c.store.GetSandboxInstance(ctx, sandbox.HostDeviceID)
+	if err != nil || host == nil {
+		return false, fmt.Sprintf("pinned host %s could not be looked up: %v", sandbox.HostDeviceID, err)
+	}
+	if host.Status != "online" {
+		return false, fmt.Sprintf("pinned host %s is %s", host.ID, host.Status)
+	}
+	if age := time.Since(host.LastSeen); age > config.DefaultSandboxDispatchStaleThreshold {
+		return false, fmt.Sprintf("pinned host %s last heartbeat %s ago", host.ID, age.Truncate(time.Second))
+	}
+	spec, err := c.specForSandbox(sandbox)
+	if err != nil {
+		return false, fmt.Sprintf("runtime %q for %s could not be resolved: %v", sandbox.Runtime, sandbox.ID, err)
+	}
+	if spec.RequiresDisplay && !host.CanHostDesktop() {
+		return false, fmt.Sprintf("pinned host %s cannot host runtime %s (gpu_vendor=%q render_node=%q)",
+			host.ID, spec.Name, host.GPUVendor, host.RenderNode)
+	}
+	if spec.VersionKey != "" && !instanceAdvertisesVersion(host, spec.VersionKey) {
+		return false, fmt.Sprintf("pinned host %s no longer advertises the %q image for runtime %s",
+			host.ID, spec.VersionKey, spec.Name)
+	}
+	return true, ""
 }
 
 // instanceAdvertisesVersion mirrors the version-matching logic in

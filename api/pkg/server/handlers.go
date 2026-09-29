@@ -1090,8 +1090,18 @@ func (apiServer *HelixAPIServer) adminMintUserAPIKey(_ http.ResponseWriter, req 
 	specTaskID := req.URL.Query().Get("spec_task_id")
 	sessionID := req.URL.Query().Get("session_id")
 	if req.URL.Query().Get("type") == string(types.APIkeytypeEmbed) {
-		if specTaskID == "" {
-			return nil, system.NewHTTPError400("spec_task_id is required for an embed key — an unbound embed key can address nothing")
+		// At least ONE binding. An unbound embed key can address nothing, and
+		// an unbound key that were allowed through would be a browser-safe
+		// credential with no subject — the one shape this key type must never
+		// take.
+		//
+		// A session with no spec task is legitimate: an org bot INSTANCE is a
+		// bare session (session_role = org_bot_instance) with no task, and its
+		// chat is embedded the same way a task's is. The task-scoped rules in
+		// embedKeyAllows fail closed on their own when SpecTaskID is empty, so
+		// such a key reaches its own session and nothing else.
+		if specTaskID == "" && sessionID == "" {
+			return nil, system.NewHTTPError400("spec_task_id or session_id is required for an embed key — an unbound embed key can address nothing")
 		}
 		keyType = types.APIkeytypeEmbed
 	}

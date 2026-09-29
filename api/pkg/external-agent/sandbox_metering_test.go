@@ -164,13 +164,18 @@ func TestBuildMountsUsesContainerEngineStorageForRuntime(t *testing.T) {
 	desktopMounts := executor.buildMounts(agent, "/workspace/ses_1", "ubuntu")
 	require.Equal(t, "docker-data-ses_1", mountSourceForDestination(desktopMounts, "/var/lib/docker"))
 	require.Empty(t, mountSourceForDestination(desktopMounts, "/home/retro/.local/share/containers"))
+	require.Equal(t, agentBinaryCacheDir, mountSourceForDestination(desktopMounts, "/opt/helix/agent-cache"))
 
-	instance := &types.DesktopAgent{SessionID: "ses_1", NoContainerEngine: true}
+	instance := &types.DesktopAgent{SessionID: "ses_1", OrgWorkerID: "b-broker", NoContainerEngine: true}
 	for _, containerType := range []string{"headless", "ubuntu"} {
 		mounts := executor.buildMounts(instance, "/workspace/ses_1", containerType)
 		require.Empty(t, mountSourceForDestination(mounts, "/var/lib/docker"), containerType)
 		require.Empty(t, mountSourceForDestination(mounts, "/home/retro/.local/share/containers"), containerType)
+		require.Empty(t, mountSourceForDestination(mounts, "/opt/helix/agent-cache"), containerType)
 	}
+
+	mainBot := &types.DesktopAgent{SessionID: "ses_main", OrgWorkerID: "b-broker"}
+	require.Empty(t, mountSourceForDestination(executor.buildMounts(mainBot, "/workspace/ses_main", "ubuntu"), "/opt/helix/agent-cache"))
 }
 
 func mountSourceForDestination(mounts []hydra.MountConfig, destination string) string {

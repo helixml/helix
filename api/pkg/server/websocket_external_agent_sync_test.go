@@ -1066,6 +1066,84 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_PreservesInterruptedStateOnEmp
 	time.Sleep(50 * time.Millisecond)
 }
 
+func (s *WebSocketSyncSuite) TestMessageCompleted_EmptyResponseRequeuesExactPrompt() {
+	s.server.contextMappings[routeKey("agent-1", "thread-bounce")] = "ses_bounce"
+	s.server.requestToInteractionMapping["req-bounce"] = "int-bounce"
+
+	session := &types.Session{ID: "ses_bounce", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).AnyTimes()
+
+	interaction := &types.Interaction{
+		ID:        "int-bounce",
+		SessionID: session.ID,
+		PromptID:  "prompt-original",
+		State:     types.InteractionStateWaiting,
+	}
+	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, got *types.Interaction) (*types.Interaction, error) {
+			s.Equal(types.InteractionStateError, got.State)
+			s.Equal("Agent unresponsive: it returned an empty response.", got.Error)
+			return got, nil
+		},
+	)
+	s.store.EXPECT().RequeueBouncedPrompt(gomock.Any(), "prompt-original").Return(nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{interaction}, int64(1), nil,
+	).AnyTimes()
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), session.ID).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), session.ID).Return(nil, nil).AnyTimes()
+
+	err := s.server.handleMessageCompleted("agent-1", &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-bounce",
+			"request_id":    "req-bounce",
+		},
+	})
+	s.NoError(err)
+
+	time.Sleep(50 * time.Millisecond)
+}
+
+func (s *WebSocketSyncSuite) TestMessageCompleted_DirectEmptyResponseDoesNotClaimRetry() {
+	s.server.contextMappings[routeKey("agent-1", "thread-direct-bounce")] = "ses_direct_bounce"
+	s.server.requestToInteractionMapping["req-direct-bounce"] = "int-direct-bounce"
+
+	session := &types.Session{ID: "ses_direct_bounce", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).AnyTimes()
+
+	interaction := &types.Interaction{
+		ID:        "int-direct-bounce",
+		SessionID: session.ID,
+		State:     types.InteractionStateWaiting,
+	}
+	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, got *types.Interaction) (*types.Interaction, error) {
+			s.Equal(types.InteractionStateError, got.State)
+			s.Equal("Agent unresponsive: it returned an empty response.", got.Error)
+			return got, nil
+		},
+	)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{interaction}, int64(1), nil,
+	).AnyTimes()
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), session.ID).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), session.ID).Return(nil, nil).AnyTimes()
+
+	err := s.server.handleMessageCompleted("agent-1", &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-direct-bounce",
+			"request_id":    "req-direct-bounce",
+		},
+	})
+	s.NoError(err)
+
+	time.Sleep(50 * time.Millisecond)
+}
+
 func (s *WebSocketSyncSuite) TestMessageCompleted_NoWaitingInteraction() {
 	s.server.contextMappings[routeKey("agent-1", "thread-nw")] = "ses_nw"
 

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 )
@@ -10,6 +11,35 @@ import (
 // bot's main (exploratory) session, so triggers and the transcript mirror
 // ignore it.
 const SessionRoleOrgBotInstance = "org_bot_instance"
+
+const (
+	DefaultBotInstanceDiskSizeGB = 10
+	MaxBotInstanceDiskSizeGB     = 1000
+	// DefaultBotInstancePidsLimit stops fork bombs. An idle desktop instance
+	// already runs ~450 tasks on a 12-core host (thread pools scale with
+	// cores), so the limit leaves room for real work on larger hosts.
+	DefaultBotInstancePidsLimit = 4096
+)
+
+// ErrBotInstanceSubscriptionCredentials rejects a subscription-backed bot for
+// instances: a subscription is its owner's personal login, not something to
+// share with the untrusted users an instance serves.
+var ErrBotInstanceSubscriptionCredentials = errors.New("org bot instances do not support subscription credentials; configure the bot to use API-key credentials")
+
+// BotInstanceDiskSize is the capacity of an instance's home disk in GB.
+// Instances created before the size was recorded use the default.
+func (m SessionMetadata) BotInstanceDiskSize() int {
+	if m.BotInstanceDiskSizeGB == 0 {
+		return DefaultBotInstanceDiskSizeGB
+	}
+	return m.BotInstanceDiskSizeGB
+}
+
+// BotInstanceSudo reports whether an instance may escalate with sudo. Desktop
+// instances always may: GNOME startup configures devices as root.
+func (m SessionMetadata) BotInstanceSudo() bool {
+	return m.BotInstanceAllowSudo || m.SandboxRuntime == SandboxRuntimeUbuntuDesktop
+}
 
 // Built-in context servers an instance profile can keep. Project MCP servers
 // are referenced by their own names.

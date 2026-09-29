@@ -188,6 +188,7 @@ export interface ApiBotDetailDTO {
 export interface ApiBotInstanceDTO {
   bot_id?: string;
   created_at?: string;
+  disk_size_gb?: number;
   name?: string;
   owner?: string;
   sandbox_runtime?: TypesSandboxRuntime;
@@ -196,7 +197,13 @@ export interface ApiBotInstanceDTO {
    * "starting", "running", "restarting", "terminated_idle" …
    */
   sandbox_status?: string;
+  /**
+   * Secrets are the names granted when the instance was created. Values are
+   * never returned.
+   */
+  secrets?: string[];
   session_id?: string;
+  sudo?: boolean;
   updated_at?: string;
 }
 
@@ -221,6 +228,11 @@ export interface ApiCreateAssetRequest {
 }
 
 export interface ApiCreateBotInstanceRequest {
+  /**
+   * DiskSizeGB is the persistent home filesystem capacity. Omitted defaults
+   * to 10 GB; accepted values are 1-1000.
+   */
+  disk_size_gb?: number;
   /** Message is queued as the instance's first turn. */
   message?: string;
   name?: string;
@@ -229,6 +241,16 @@ export interface ApiCreateBotInstanceRequest {
    * "headless-ubuntu" or "ubuntu-desktop".
    */
   sandbox_runtime?: TypesSandboxRuntime;
+  /**
+   * Secrets names project development secrets to grant to this instance.
+   * Omitted or empty means no project secrets.
+   */
+  secrets?: string[];
+  /**
+   * AllowSudo opts a headless instance out of no-new-privileges. It is
+   * false by default. ubuntu-desktop instances always allow sudo.
+   */
+  sudo?: boolean;
 }
 
 export interface ApiCreateBotRequest {
@@ -2382,14 +2404,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindGitLab = "gitlab",
   KindWebhook = "webhook",
+  KindEmail = "email",
+  KindGitHub = "github",
+  KindGitLab = "gitlab",
   KindLocal = "local",
   KindCron = "cron",
-  KindGitHub = "github",
   KindHelixEvents = "helix_events",
   KindSlack = "slack",
-  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -6976,6 +6998,19 @@ export interface TypesSessionMetadata {
    * sync, which shapes the instance's MCP servers, org tools and skills.
    */
   bot_instance?: TypesBotInstanceProfile;
+  bot_instance_allow_sudo?: boolean;
+  /**
+   * BotInstanceDiskSizeGB is the hard capacity of the instance's persistent
+   * home filesystem. BotInstanceAllowSudo is the requested opt-out from the
+   * default no-new-privileges policy. Read both through BotInstanceDiskSize
+   * and BotInstanceSudo, which apply defaults and runtime rules.
+   */
+  bot_instance_disk_size_gb?: number;
+  /**
+   * BotInstanceSecrets names the project development secrets explicitly
+   * granted when this instance was created. Empty means no project secrets.
+   */
+  bot_instance_secrets?: string[];
   /** Webhook URL to POST on session completion */
   callback_url?: string;
   /**

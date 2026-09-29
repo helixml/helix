@@ -3199,6 +3199,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	if err != nil {
 		return fmt.Errorf("failed to reload interaction %s: %w", targetInteractionID, err)
 	}
+	apiServer.autoWakeWSAbsentSince.Delete(targetInteraction.ID)
 
 	log.Info().
 		Str("helix_session_id", helixSessionID).
@@ -3251,10 +3252,10 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		log.Warn().
 			Str("helix_session_id", helixSessionID).
 			Str("interaction_id", targetInteraction.ID).
-			Msg("⚠️ [HELIX] message_completed with EMPTY response — marking as error and re-queuing")
+			Msg("⚠️ [HELIX] message_completed with EMPTY response — marking as error")
 
 		targetInteraction.State = types.InteractionStateError
-		targetInteraction.Error = "Agent unresponsive: it returned an empty response. Retrying automatically."
+		targetInteraction.Error = "Agent unresponsive: it returned an empty response."
 		targetInteraction.Updated = time.Now()
 		if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction); err != nil {
 			return fmt.Errorf("failed to update bounced interaction %s: %w", targetInteraction.ID, err)
@@ -3263,11 +3264,14 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			apiServer.enqueueBotInstanceTurnWebhook(context.Background(), helixSession, targetInteraction)
 		}
 
-		// Re-queue the bounced prompt so it will be retried (non-fatal if no matching prompt)
-		if err := apiServer.Controller.Options.Store.RequeueBouncedPrompt(context.Background(), helixSessionID); err != nil {
-			log.Debug().Err(err).
-				Str("session_id", helixSessionID).
-				Msg("No prompt_history_entry to re-queue (Zed user message or already retried)")
+		// Re-queue the exact bounced prompt so a concurrent prompt is not failed instead.
+		if targetInteraction.PromptID != "" {
+			if err := apiServer.Controller.Options.Store.RequeueBouncedPrompt(context.Background(), targetInteraction.PromptID); err != nil {
+				log.Warn().Err(err).
+					Str("session_id", helixSessionID).
+					Str("prompt_id", targetInteraction.PromptID).
+					Msg("Failed to re-queue bounced prompt")
+			}
 		}
 
 		// Publish the error state to frontend

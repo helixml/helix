@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -38,9 +39,11 @@ func (f *fakeInstances) Create(_ context.Context, _ string, botID orgchart.NodeI
 		Name:    params.Name,
 		Created: time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC),
 		Metadata: types.SessionMetadata{
-			OrgWorkerID:    string(botID),
-			SessionRole:    types.SessionRoleOrgBotInstance,
-			SandboxRuntime: params.SandboxRuntime,
+			OrgWorkerID:           string(botID),
+			SessionRole:           types.SessionRoleOrgBotInstance,
+			SandboxRuntime:        params.SandboxRuntime,
+			BotInstanceDiskSizeGB: params.DiskSizeGB,
+			BotInstanceAllowSudo:  params.AllowSudo,
 		},
 	}, nil
 }
@@ -64,7 +67,7 @@ func TestBotInstanceRoutes(t *testing.T) {
 		ID:       "ses_one",
 		Name:     "Broker · Sep 24 12:00",
 		Owner:    "usr_owner",
-		Metadata: types.SessionMetadata{OrgWorkerID: "b-broker", SandboxRuntime: types.SandboxRuntimeUbuntuDesktop, ExternalAgentStatus: "running"},
+		Metadata: types.SessionMetadata{OrgWorkerID: "b-broker", SandboxRuntime: types.SandboxRuntimeUbuntuDesktop, ExternalAgentStatus: "running", BotInstanceSecrets: []string{"CRM_TOKEN"}},
 	}}}
 	deps.BotInstances = fake
 	h := orgapi.Handler(deps)
@@ -76,12 +79,12 @@ func TestBotInstanceRoutes(t *testing.T) {
 	}
 	var list []orgapi.BotInstanceDTO
 	decode(t, rec, &list)
-	if len(list) != 1 || list[0].SessionID != "ses_one" || list[0].SandboxStatus != "running" || list[0].SandboxRuntime != types.SandboxRuntimeUbuntuDesktop {
+	if len(list) != 1 || list[0].SessionID != "ses_one" || list[0].SandboxStatus != "running" || list[0].SandboxRuntime != types.SandboxRuntimeUbuntuDesktop || !slices.Equal(list[0].Secrets, []string{"CRM_TOKEN"}) {
 		t.Fatalf("list = %+v", list)
 	}
 
 	rec = do(t, h, "POST", "/bots/b-broker/instances", orgapi.CreateBotInstanceRequest{
-		Name: "Customer 42", SandboxRuntime: types.SandboxRuntimeHeadlessUbuntu, Message: "hello",
+		Name: "Customer 42", SandboxRuntime: types.SandboxRuntimeHeadlessUbuntu, Secrets: []string{"CRM_TOKEN"}, Message: "hello", DiskSizeGB: 24, AllowSudo: true,
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: got %d; body=%s", rec.Code, rec.Body)
@@ -91,8 +94,8 @@ func TestBotInstanceRoutes(t *testing.T) {
 	if created.SessionID != "ses_new" || created.BotID != "b-broker" {
 		t.Fatalf("created = %+v", created)
 	}
-	want := instances.Params{Name: "Customer 42", SandboxRuntime: types.SandboxRuntimeHeadlessUbuntu, Message: "hello"}
-	if len(fake.created) != 1 || fake.created[0] != want {
+	want := instances.Params{Name: "Customer 42", SandboxRuntime: types.SandboxRuntimeHeadlessUbuntu, Secrets: []string{"CRM_TOKEN"}, Message: "hello", DiskSizeGB: 24, AllowSudo: true}
+	if len(fake.created) != 1 || !reflect.DeepEqual(fake.created[0], want) {
 		t.Fatalf("create params = %+v", fake.created)
 	}
 

@@ -111,6 +111,9 @@ func reapOrphanResources(ctx context.Context, executor Executor, st store.Store,
 			Int("zvols_skipped", len(resp.ZvolsSkipped)).
 			Strs("workspaces_reaped", resp.WorkspacesReaped).
 			Int("workspaces_skipped", len(resp.WorkspacesSkipped)).
+			Strs("instance_disks_reaped", resp.InstanceDisksReaped).
+			Strs("containers_reaped", resp.ContainersReaped).
+			Strs("volumes_reaped", resp.VolumesReaped).
 			Int64("bytes_freed", resp.BytesFreed).
 			Msg("orphan reaper: sandbox reconciled")
 	}
@@ -122,7 +125,8 @@ func reapOrphanResources(ctx context.Context, executor Executor, st store.Store,
 // scan but are live only if recently updated, so a long-archived task's
 // workspace eventually reaps.
 func liveSpecTaskIDsForReaper(ctx context.Context, st store.Store, cutoff time.Time) ([]string, error) {
-	tasks, err := st.ListSpecTasks(ctx, &types.SpecTaskFilters{IncludeArchived: true})
+	// Tasks of a deleted project are dead whatever their status or Keep Alive.
+	tasks, err := st.ListSpecTasks(ctx, &types.SpecTaskFilters{IncludeArchived: true, ExcludeDeletedProjects: true})
 	if err != nil {
 		return nil, err
 	}

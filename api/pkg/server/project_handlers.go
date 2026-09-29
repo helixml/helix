@@ -1063,7 +1063,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 
 		stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), exploratorySession.ID)
 		if stopErr != nil {
-			log.Warn().Err(stopErr).Str("session_id", exploratorySession.ID).Msg("Failed to stop exploratory session (continuing with deletion)")
+			return nil, system.NewHTTPError500(fmt.Sprintf("stop exploratory session before project deletion: %s", stopErr))
 		}
 	}
 
@@ -1082,7 +1082,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 
 				stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
 				if stopErr != nil {
-					log.Warn().Err(stopErr).Str("session_id", task.PlanningSessionID).Msg("Failed to stop session (continuing with deletion)")
+					return nil, system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
 				}
 			}
 		}
@@ -2575,6 +2575,34 @@ func (s *HelixAPIServer) cancelGoldenBuild(_ http.ResponseWriter, r *http.Reques
 	return map[string]string{"message": "golden builds cancelled"}, nil
 }
 
+// deleteGoldenCacheFromSandboxes removes a project's golden Docker cache from
+// every online sandbox. It returns how many sandboxes cleared it and a message
+// per sandbox that failed.
+func (s *HelixAPIServer) deleteGoldenCacheFromSandboxes(ctx context.Context, projectID string) (int, []string, error) {
+	sandboxes, err := s.Store.ListSandboxInstances(ctx)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to list sandboxes: %w", err)
+	}
+
+	var errors []string
+	deleted := 0
+	for _, sb := range sandboxes {
+		if sb.Status != "online" {
+			continue
+		}
+		hydraClient := hydra.NewRevDialClient(s.connman, fmt.Sprintf("hydra-%s", sb.ID))
+		deleteCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := hydraClient.DeleteGoldenCache(deleteCtx, projectID)
+		cancel()
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("sandbox %s: %v", sb.ID, err))
+		} else {
+			deleted++
+		}
+	}
+	return deleted, errors, nil
+}
+
 // deleteDockerCache godoc
 // @Summary Clear golden Docker cache
 // @Description Remove the golden Docker cache for a project from all sandboxes
@@ -2601,29 +2629,10 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	// Send delete to all online sandboxes
-	sandboxes, err := s.Store.ListSandboxInstances(r.Context())
+	deleted, errors, err := s.deleteGoldenCacheFromSandboxes(r.Context(), projectID)
 	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list sandboxes: %v", err))
+		return nil, system.NewHTTPError500(err.Error())
 	}
-
-	var errors []string
-	deleted := 0
-	for _, sb := range sandboxes {
-		if sb.Status != "online" {
-			continue
-		}
-		hydraClient := hydra.NewRevDialClient(s.connman, fmt.Sprintf("hydra-%s", sb.ID))
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		err := hydraClient.DeleteGoldenCache(ctx, projectID)
-		cancel()
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("sandbox %s: %v", sb.ID, err))
-		} else {
-			deleted++
-		}
-	}
-
 	if len(errors) > 0 && deleted == 0 {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to clear cache: %s", errors[0]))
 	}

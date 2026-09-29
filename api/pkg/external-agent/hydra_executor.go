@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -29,8 +30,8 @@ type QuotaManager interface {
 type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
 
 // agentBinaryCacheDir is the sandbox-host directory holding admin-pinned agent
-// binaries. Shared by every container on the host and keyed by version, so a
-// pinned release is downloaded once rather than once per session.
+// binaries. Shared by trusted non-Bot containers on the host and keyed by
+// version, so a pinned release is downloaded once rather than once per session.
 const agentBinaryCacheDir = "/data/agent-cache"
 
 // HydraExecutor implements the Executor interface using Hydra for dev container management.
@@ -229,16 +230,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// ...) appear later in agent.Env and therefore win duplicate-key resolution
 	// in Docker. This preserves the long-standing invariant that a user-defined
 	// project secret can't shadow the system-injected agent API tokens.
-	if h.getProjectSecrets != nil && agent.ProjectID != "" {
-		projectSecrets, err := h.getProjectSecrets(ctx, agent.ProjectID)
-		if err != nil {
-			log.Warn().Err(err).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Failed to load project secrets, continuing without them")
-		} else if len(projectSecrets) > 0 {
-			before := len(agent.Env)
-			agent.Env = appendProjectSecrets(agent.Env, projectSecrets)
-			injected := len(agent.Env) - before
-			log.Info().Int("secret_count", injected).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
-		}
+	if err := h.injectProjectSecrets(ctx, agent); err != nil {
+		return nil, err
 	}
 
 	// Call OnBeforeCreate hook inside the lock to refresh API keys.
@@ -318,11 +311,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 				Str("container_type", containerType).
 				Msg("Auto-selected available sandbox")
 		} else {
-			// Fallback to "local" if no sandbox found (for backwards compatibility)
-			sandboxID = "local"
-			log.Warn().
-				Str("container_type", containerType).
-				Msg("No available sandbox found, falling back to 'local'")
+			return nil, fmt.Errorf("no eligible sandbox runner available for container type %q (required image %q); check runner status, heartbeat, and advertised desktop image versions", containerType, placementImage)
 		}
 	}
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
@@ -477,6 +466,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		GoldenBuild:             agent.GoldenBuild,
 		VCPUs:                   agent.VCPUs,
 		MemoryMB:                agent.MemoryMB,
+		DiskSizeGB:              agent.DiskSizeGB,
+		PidsLimit:               agent.PidsLimit,
+		NoNewPrivileges:         agent.NoNewPrivileges,
 	}
 
 	// Create dev container via Hydra
@@ -861,6 +853,11 @@ func applySessionBootstrap(metadata types.SessionMetadata, agent *types.DesktopA
 	agent.Env = append(agent.Env, "HELIX_WORKER_ID="+workerID)
 	if metadata.BotInstance != nil {
 		agent.NoContainerEngine = true
+		agent.DiskSizeGB = metadata.BotInstanceDiskSize()
+		agent.PidsLimit = types.DefaultBotInstancePidsLimit
+		agent.NoNewPrivileges = !metadata.BotInstanceSudo()
+		agent.RestrictProjectSecrets = true
+		agent.ProjectSecretNames = slices.Clone(metadata.BotInstanceSecrets)
 	}
 	if metadata.BotInstance != nil && !metadata.BotInstance.HelixSkills {
 		// helix-workspace-setup.sh links the default helix-* skills when
@@ -889,8 +886,74 @@ func appendProjectSecrets(env, secrets []string) []string {
 	return env
 }
 
+func (h *HydraExecutor) injectProjectSecrets(ctx context.Context, agent *types.DesktopAgent) error {
+	if h.getProjectSecrets == nil || agent.ProjectID == "" {
+		return nil
+	}
+	if agent.RestrictProjectSecrets && len(agent.ProjectSecretNames) == 0 {
+		return nil
+	}
+	projectSecrets, err := h.getProjectSecrets(ctx, agent.ProjectID)
+	if err != nil {
+		if agent.RestrictProjectSecrets {
+			return fmt.Errorf("load granted project secrets: %w", err)
+		}
+		log.Warn().Err(err).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Failed to load project secrets, continuing without them")
+		return nil
+	}
+	if agent.RestrictProjectSecrets {
+		if projectSecrets, err = selectProjectSecrets(projectSecrets, agent.ProjectSecretNames); err != nil {
+			return err
+		}
+	}
+	if len(projectSecrets) == 0 {
+		return nil
+	}
+	before := len(agent.Env)
+	agent.Env = appendProjectSecrets(agent.Env, projectSecrets)
+	log.Info().Int("secret_count", len(agent.Env)-before).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
+	return nil
+}
+
+// selectProjectSecrets keeps the named `KEY=value` secrets. A granted secret
+// that no longer exists fails the start rather than silently running without it.
+func selectProjectSecrets(secrets, names []string) ([]string, error) {
+	selected := make([]string, 0, len(names))
+	var missing []string
+	for _, name := range names {
+		i := slices.IndexFunc(secrets, func(secret string) bool { return strings.HasPrefix(secret, name+"=") })
+		if i < 0 {
+			missing = append(missing, name)
+			continue
+		}
+		selected = append(selected, secrets[i])
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("granted project secrets are unavailable: %s", strings.Join(missing, ", "))
+	}
+	return selected, nil
+}
+
 // StopDesktop stops a dev container using Hydra
 func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error {
+	return h.teardownDesktop(ctx, sessionID, nil)
+}
+
+// desktopDestroy selects destroy semantics for teardownDesktop.
+type desktopDestroy struct {
+	specTaskID string
+}
+
+// DestroyDesktop removes a desktop for good. Unlike StopDesktop, which keeps
+// the session's workspace and inner Docker data for a warm restart, it deletes
+// every on-host resource the session owns plus its paused screenshot.
+// specTaskID, when set, also deletes that task's workspace; pass it only when
+// the task is gone. Returns an error when hydra could not destroy the desktop.
+func (h *HydraExecutor) DestroyDesktop(ctx context.Context, sessionID, specTaskID string) error {
+	return h.teardownDesktop(ctx, sessionID, &desktopDestroy{specTaskID: specTaskID})
+}
+
+func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, destroy *desktopDestroy) error {
 	if sessionID == "" {
 		return fmt.Errorf("session ID is required to stop desktop")
 	}
@@ -920,7 +983,6 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	if sessionWasTracked {
 		sandboxID = session.SandboxID
 		sessionGoldenBuild = session.GoldenBuild
-		delete(h.sessions, sessionID)
 	}
 	h.mutex.Unlock()
 
@@ -952,37 +1014,45 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 
 	// Capture a screenshot before tearing down the container so stopped desktops
 	// can still show their last state in the Kanban card and session viewer.
-	screenshotPath := h.capturePausedScreenshot(ctx, sessionID)
+	// A destroyed desktop has no last state to show.
+	var screenshotPath string
+	if destroy == nil {
+		screenshotPath = h.capturePausedScreenshot(ctx, sessionID)
+	}
 
 	// Delete dev container via Hydra
-	resp, err := hydraClient.DeleteDevContainer(ctx, sessionID)
-	deleteSucceeded := err == nil
-	if err != nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to delete dev container (may already be stopped)")
-		// Don't return error - container might already be gone. We
-		// also do NOT decrement here: if the delete failed but the
-		// container is actually still alive on the host, decrementing
-		// would create a phantom "free slot" that the dispatcher
-		// would place new work onto. Operator visibility (a counter
-		// stuck high) is the lesser harm. The periodic reconcile via
-		// DiscoverContainersFromSandbox is the corrective path - it
-		// SETs the counter to the actual container count.
+	var resp *hydra.DevContainerResponse
+	var err error
+	if destroy == nil {
+		resp, err = hydraClient.DeleteDevContainer(ctx, sessionID)
 	} else {
-		log.Info().
-			Str("session_id", sessionID).
-			Str("container_id", resp.ContainerID).
-			Msg("Dev container stopped successfully via Hydra")
+		resp, err = hydraClient.DestroyDevContainer(ctx, sessionID, destroy.specTaskID)
 	}
+	if err != nil {
+		return fmt.Errorf("teardown dev container %s: %w", sessionID, err)
+	}
+	if destroy != nil {
+		if err := os.Remove(h.pausedScreenshotPath(sessionID)); err != nil && !os.IsNotExist(err) {
+			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to remove paused screenshot")
+		}
+	}
+
+	h.mutex.Lock()
+	delete(h.sessions, sessionID)
+	h.mutex.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("container_id", resp.ContainerID).
+		Msg("Dev container stopped successfully via Hydra")
 
 	// Decrement gated on TWO conditions:
 	//   1. The session was actually in h.sessions when stop started
 	//      (so the matching increment fired earlier; double-stop and
 	//      stop-of-untracked-session both have exists=false here).
-	//   2. The delete actually succeeded (so the container is really
-	//      gone; on failure we keep the counter high to avoid phantom
-	//      free slots, see comment above).
+	//   2. The delete succeeded (failures return above with tracking intact).
 	// Skip the "local" sentinel (no Runner row to decrement).
-	if exists && deleteSucceeded && sandboxID != "" && sandboxID != "local" {
+	if exists && sandboxID != "" && sandboxID != "local" {
 		if decErr := h.store.DecrementSandboxContainerCount(ctx, sandboxID); decErr != nil {
 			log.Warn().
 				Err(decErr).
@@ -1014,14 +1084,8 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 
 	// Clear external_agent_status and persist the paused screenshot path together.
 	//
-	// EXCEPT when the status is "restarting": that marker was written by
-	// restartSessionContainer immediately before calling us, and this stop is
-	// only the first half of a restart — a boot follows straight after. Clearing
-	// it would leave the session reading as "stopped" (the container name is
-	// still set, so getSession's live probe downgrades it) for the whole
-	// teardown, which is what made the UI flash a "Start sandbox" button
-	// mid-restart. "running" and "starting" are still cleared, so stopping a
-	// booting desktop from the starting spinner behaves exactly as before.
+	// Preserve an existing "restarting" marker because its caller owns the boot
+	// that follows this stop. Other statuses are cleared normally.
 	if dbSession, err := h.store.GetSession(ctx, sessionID); err == nil {
 		restarting := dbSession.Metadata.ExternalAgentStatus == "restarting"
 		if !restarting {
@@ -1038,24 +1102,6 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 		h.updateSessionStatusMessage(ctx, sessionID, "")
 	}
 
-	return nil
-}
-
-// DeleteWorkspace deletes a stopped session's workspace directory on the
-// sandbox host that ran it. The caller reads sandboxID before stopping the
-// desktop, since a stop can clear it from the session. Stop the desktop
-// first: hydra refuses while the session still has a container.
-func (h *HydraExecutor) DeleteWorkspace(ctx context.Context, sessionID, sandboxID string) error {
-	if sessionID == "" {
-		return fmt.Errorf("session ID is required to delete a workspace")
-	}
-	if sandboxID == "" {
-		sandboxID = "local"
-	}
-	hydraClient := hydra.NewRevDialClient(h.connman, fmt.Sprintf("hydra-%s", sandboxID))
-	if err := hydraClient.DeleteSessionWorkspace(ctx, sessionID); err != nil {
-		return fmt.Errorf("delete workspace of session %s on sandbox %s: %w", sessionID, sandboxID, err)
-	}
 	return nil
 }
 
@@ -1337,20 +1383,23 @@ func (h *HydraExecutor) capturePausedScreenshot(ctx context.Context, sessionID s
 		return ""
 	}
 
-	filestoreRoot := h.filestoreLocalPath
-	if filestoreRoot == "" {
-		filestoreRoot = "/filestore"
-	}
-	dir := filepath.Join(filestoreRoot, "workspaces", "paused-screenshots")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	path := h.pausedScreenshotPath(sessionID)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return ""
 	}
-	path := filepath.Join(dir, sessionID+".jpg")
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return ""
 	}
 	log.Info().Str("session_id", sessionID).Str("path", path).Msg("Saved paused screenshot")
 	return path
+}
+
+func (h *HydraExecutor) pausedScreenshotPath(sessionID string) string {
+	filestoreRoot := h.filestoreLocalPath
+	if filestoreRoot == "" {
+		filestoreRoot = "/filestore"
+	}
+	return filepath.Join(filestoreRoot, "workspaces", "paused-screenshots", sessionID+".jpg")
 }
 
 func (h *HydraExecutor) setExternalAgentStatus(ctx context.Context, sessionID, status string) {
@@ -1635,6 +1684,9 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	}
 	if agent.NoContainerEngine {
 		env = setContainerEnv(env, "HELIX_CONTAINER_ENGINE", "none")
+		if !agent.NoNewPrivileges {
+			env = setContainerEnv(env, "HELIX_ALLOW_SUDO", "1")
+		}
 	}
 
 	return env
@@ -1714,16 +1766,16 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		})
 	}
 
-	// Shared cache for admin-pinned agent binaries (currently opencode).
-	// Host-level, not per-session: the opencode release archive is ~60MB, so
-	// without this every container on the host would re-download the same
-	// pinned version. Entries are version-keyed and written atomically, which
-	// makes concurrent readers and writers safe.
-	mounts = append(mounts, hydra.MountConfig{
-		Source:      agentBinaryCacheDir,
-		Destination: "/opt/helix/agent-cache",
-		ReadOnly:    false,
-	})
+	// Org Bot sandboxes execute untrusted input and must not share writable
+	// executable state with any other tenant. A pinned override, if needed, is
+	// installed into that container's own writable layer.
+	if agent.OrgWorkerID == "" {
+		mounts = append(mounts, hydra.MountConfig{
+			Source:      agentBinaryCacheDir,
+			Destination: "/opt/helix/agent-cache",
+			ReadOnly:    false,
+		})
+	}
 
 	// For Ubuntu/GNOME containers, create a per-session pipewire directory
 	// and mount it to /run/user/1000 where PipeWire daemon creates its socket

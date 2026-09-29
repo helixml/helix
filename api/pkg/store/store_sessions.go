@@ -323,6 +323,25 @@ func (s *PostgresStore) UpdateSessionMetadata(ctx context.Context, sessionID str
 	return nil
 }
 
+func (s *PostgresStore) ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error) {
+	if sessionID == "" {
+		return false, fmt.Errorf("id not specified")
+	}
+
+	metadata, err := json.Marshal(map[string]time.Time{"last_auto_restart_at": restartedAt})
+	if err != nil {
+		return false, fmt.Errorf("encode restart time: %w", err)
+	}
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("id = ? AND (config->>'last_auto_restart_at' IS NULL OR (config->>'last_auto_restart_at')::timestamptz < ?)", sessionID, before).
+		Update("config", gorm.Expr("config || ?::jsonb", string(metadata)))
+	if result.Error != nil {
+		return false, fmt.Errorf("claim session auto-restart: %w", result.Error)
+	}
+	return result.RowsAffected == 1, nil
+}
+
 func (s *PostgresStore) SetSessionBotInstanceProfile(ctx context.Context, sessionID string, profile types.BotInstanceProfile) error {
 	if sessionID == "" {
 		return errors.New("session_id is required")
@@ -567,7 +586,8 @@ ORDER BY s.config->>'dev_container_id', s.created ASC`
 // ListExternalAgentSessionIDs returns the IDs of external-agent (hydra) sessions
 // that should be considered LIVE for the purposes of the orphan-resource reaper.
 //
-// A session is live if ANY of:
+// A session is live if it is a desktop session outside a deleted project and
+// ANY of:
 //   - its external_agent_status is "running" (a desktop container is up), OR
 //   - it was updated at or after cutoff (recent activity — covers sessions
 //     mid-startup or recently stopped whose container row hasn't settled), OR
@@ -582,7 +602,11 @@ func (s *PostgresStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff 
 	err := s.gdb.WithContext(ctx).
 		Model(&types.Session{}).
 		Where("deleted_at IS NULL").
-		Where("model_name = ?", "external_agent").
+		// Desktop sessions: spec-task sessions carry model_name external_agent;
+		// org bot and exploratory sessions carry their real model name.
+		Where("(model_name = ? OR config->>'agent_type' = ?)", "external_agent", "zed_external").
+		// A deleted project's desktops are gone; its leftovers are orphans.
+		Where("NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = sessions.project_id AND p.deleted_at IS NOT NULL)").
 		Where(s.gdb.
 			Where("config->>'external_agent_status' = ?", "running").
 			Or("updated >= ?", cutoff).
