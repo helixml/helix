@@ -49,6 +49,9 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		if rejectWaitlisted(w, user) {
+			return
+		}
 
 		sessionID := r.URL.Query().Get("session_id")
 		if sessionID == "" {
