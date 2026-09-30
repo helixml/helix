@@ -562,7 +562,9 @@ WITH desktop_last_activity AS (
         s.config->>'dev_container_id' AS container_id,
         GREATEST(COALESCE(MAX(i.updated), '1970-01-01'::timestamptz), MAX(s.updated)) AS last_activity,
         MIN(COALESCE(
-            CASE WHEN s.config->'bot_instance'->>'idle_timeout_seconds' ~ '^[0-9]+$'
+            CASE WHEN s.config->>'bot_instance_idle_timeout_seconds' ~ '^[0-9]{1,10}$'
+                 THEN NULLIF((s.config->>'bot_instance_idle_timeout_seconds')::bigint, 0) END,
+            CASE WHEN s.config->'bot_instance'->>'idle_timeout_seconds' ~ '^[0-9]{1,10}$'
                  THEN NULLIF((s.config->'bot_instance'->>'idle_timeout_seconds')::bigint, 0) END,
             ?::bigint)) AS effective_seconds
     FROM sessions s

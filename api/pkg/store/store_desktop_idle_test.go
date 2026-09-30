@@ -451,3 +451,45 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_ZeroOver
 		suite.NotEqual(session.ID, s.ID, "0 override must inherit the 1h default, not stop immediately")
 	}
 }
+
+// TestPostgresStore_ListIdleDesktops_InstanceOverrideSurvivesProfileSync
+// verifies that a per-instance idle override (stored outside the synced
+// bot_instance profile) wins over the profile AND survives a profile sync.
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_InstanceOverrideSurvivesProfileSync() {
+	ctx := context.Background()
+	containerID := "container-override-sync-" + system.GenerateUUID()
+
+	oldTime := time.Now().Add(-20 * time.Minute)
+	profile := types.BotInstanceProfile{IdleTimeoutSeconds: 300} // 5m: would reap a 20m-idle desktop
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Created: oldTime,
+		Updated: oldTime,
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus:                   "running",
+			DevContainerID:                        containerID,
+			BotInstance:                           &profile,
+			BotInstanceIdleTimeoutOverrideSeconds: 6 * 3600, // 6h per-instance override
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	// A profile sync overwrites config.bot_instance wholesale — the override
+	// field must survive it and keep winning.
+	synced := types.BotInstanceProfile{IdleTimeoutSeconds: 300}
+	suite.NoError(suite.db.SetSessionBotInstanceProfile(ctx, session.ID, synced))
+	sync, err := suite.db.GetSession(ctx, session.ID)
+	suite.NoError(err)
+	suite.Equal(6*3600, sync.Metadata.EffectiveIdleTimeoutSeconds(),
+		"the per-instance override must survive a profile sync")
+
+	now := time.Now().UTC()
+	results, err := suite.db.ListIdleDesktops(ctx, now, 1*time.Hour)
+	suite.NoError(err)
+	for _, s := range results {
+		suite.NotEqual(session.ID, s.ID, "the surviving 6h override must keep a 20m-idle desktop alive despite the 5m profile")
+	}
+}

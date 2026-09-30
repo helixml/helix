@@ -52,6 +52,17 @@ func (m SessionMetadata) BotInstanceIdleTimeoutSeconds() int {
 	return int(m.BotInstance.IdleTimeoutSeconds)
 }
 
+// EffectiveIdleTimeoutSeconds returns the idle override that applies to this
+// instance: the per-instance override captured at creation, else the
+// profile's value (kept current by profile syncs), else 0 — the deployment's
+// HELIX_DESKTOP_IDLE_TIMEOUT.
+func (m SessionMetadata) EffectiveIdleTimeoutSeconds() int {
+	if m.BotInstanceIdleTimeoutOverrideSeconds != 0 {
+		return m.BotInstanceIdleTimeoutOverrideSeconds
+	}
+	return m.BotInstanceIdleTimeoutSeconds()
+}
+
 // Built-in context servers an instance profile can keep. Project MCP servers
 // are referenced by their own names.
 const (
@@ -107,7 +118,8 @@ func (s *IdleSeconds) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	value, err := strconv.ParseFloat(text, 64)
-	if err != nil {
+	if err != nil || value < 0 || value > float64(MaxBotInstanceIdleTimeoutSeconds)*10 {
+		// Anything absurd degrades to "inherit" rather than failing the scan.
 		*s = 0
 		return nil
 	}

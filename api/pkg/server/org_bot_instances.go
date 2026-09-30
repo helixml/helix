@@ -114,13 +114,12 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 	}
 
 	profile := bot.EffectiveInstanceProfile()
+	idleOverride := 0
 	if params.IdleTimeoutSeconds != 0 {
 		if _, err := types.NormalizeBotInstanceIdleTimeout(params.IdleTimeoutSeconds); err != nil {
 			return nil, fmt.Errorf("%w: %w", instances.ErrInvalidRequest, err)
 		}
-		merged := profile
-		merged.IdleTimeoutSeconds = types.IdleSeconds(params.IdleTimeoutSeconds)
-		profile = merged
+		idleOverride = params.IdleTimeoutSeconds
 	}
 	orgRuntime, orgResources := b.configs.GetDefaultSandboxConfig(ctx, orgID)
 	launch := runtimehelix.EffectiveLaunchConfig(bot, orgRuntime, orgResources)
@@ -163,22 +162,23 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 		ProjectID:      projectID,
 		ParentApp:      appID,
 		Metadata: types.SessionMetadata{
-			Stream:                   true,
-			AgentType:                "zed_external",
-			ProjectID:                projectID,
-			SessionRole:              types.SessionRoleOrgBotInstance,
-			OrgWorkerID:              string(bot.ID),
-			RuntimeInstructions:      mandate,
-			SandboxRuntime:           sandboxRuntime,
-			SandboxResourceOverrides: &resources,
-			BotInstance:              &profile,
-			BotInstanceSecrets:       secretNames,
-			BotInstanceDiskSizeGB:    diskSizeGB,
-			BotInstanceAllowSudo:     params.AllowSudo,
-			AutoRestartOnCrash:       true,
-			AssistantID:              assistant.ID,
-			CodeAgentRuntime:         codeAgentRuntime,
-			ZedAgentName:             codeAgentRuntime.ZedAgentName(),
+			Stream:                                true,
+			AgentType:                             "zed_external",
+			ProjectID:                             projectID,
+			SessionRole:                           types.SessionRoleOrgBotInstance,
+			OrgWorkerID:                           string(bot.ID),
+			RuntimeInstructions:                   mandate,
+			SandboxRuntime:                        sandboxRuntime,
+			SandboxResourceOverrides:              &resources,
+			BotInstance:                           &profile,
+			BotInstanceIdleTimeoutOverrideSeconds: idleOverride,
+			BotInstanceSecrets:                    secretNames,
+			BotInstanceDiskSizeGB:                 diskSizeGB,
+			BotInstanceAllowSudo:                  params.AllowSudo,
+			AutoRestartOnCrash:                    true,
+			AssistantID:                           assistant.ID,
+			CodeAgentRuntime:                      codeAgentRuntime,
+			ZedAgentName:                          codeAgentRuntime.ZedAgentName(),
 		},
 	})
 	if err != nil {

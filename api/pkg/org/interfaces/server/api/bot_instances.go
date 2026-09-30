@@ -68,7 +68,7 @@ func botInstanceDTO(session *types.Session) BotInstanceDTO {
 		Secrets:            append([]string{}, session.Metadata.BotInstanceSecrets...),
 		DiskSizeGB:         session.Metadata.BotInstanceDiskSize(),
 		AllowSudo:          session.Metadata.BotInstanceSudo(),
-		IdleTimeoutSeconds: session.Metadata.BotInstanceIdleTimeoutSeconds(),
+		IdleTimeoutSeconds: session.Metadata.EffectiveIdleTimeoutSeconds(),
 		CreatedAt:          session.Created.Format(time.RFC3339),
 		UpdatedAt:          session.Updated.Format(time.RFC3339),
 	}

@@ -468,6 +468,13 @@ type SessionMetadata struct {
 	// SessionRoleOrgBotInstance): the bot's instance profile as of the last
 	// sync, which shapes the instance's MCP servers, org tools and skills.
 	BotInstance *BotInstanceProfile `json:"bot_instance,omitempty"`
+	// BotInstanceIdleTimeoutOverrideSeconds is the per-instance idle override
+	// captured at instance creation. It lives OUTSIDE the BotInstance profile
+	// because profile syncs overwrite config.bot_instance wholesale and would
+	// wipe a per-instance value. It wins over the profile's
+	// idle_timeout_seconds; 0 inherits (read through
+	// EffectiveIdleTimeoutSeconds).
+	BotInstanceIdleTimeoutOverrideSeconds int `json:"bot_instance_idle_timeout_seconds,omitempty"`
 	// BotInstanceSecrets names the project development secrets explicitly
 	// granted when this instance was created. Empty means no project secrets.
 	BotInstanceSecrets []string `json:"bot_instance_secrets,omitempty"`
