@@ -1,9 +1,11 @@
 package system
 
 import (
+	"log/slog"
 	"os"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/logredact"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -38,6 +40,10 @@ func SetupLoggingTo(out *os.File) {
 	// edit to change the level of the stack we report
 	// zerolog.CallerSkipFrameCount = 3 // Skip 3 frames (this function, log.Output, log.Logger)
 	log.Logger = log.Output(output).With().Caller().Logger().Level(logLevel)
+
+	// Packages that fall back to slog.Default() (much of the org / Meta
+	// API) get the same redaction.
+	slog.SetDefault(slog.New(logredact.NewSlogHandler(slog.NewTextHandler(os.Stderr, nil))))
 }
 
 // isTerminal reports whether f is a character device (a TTY). When stdout is

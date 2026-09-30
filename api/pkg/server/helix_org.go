@@ -17,6 +17,7 @@ import (
 
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/logredact"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	assetapp "github.com/helixml/helix/api/pkg/org/application/assets"
 	"github.com/helixml/helix/api/pkg/org/application/attachments"
@@ -663,7 +664,9 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		return nil, err
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	// Redact by value: org errors can wrap git stderr or URLs carrying
+	// GitHub tokens, and must never reach the logs in clear text.
+	logger := slog.New(logredact.NewSlogHandler(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	// Convert the retired Topic model into Triggers, Processor inputs and
 	// Worker attachments. Runs once per boot before anything reads the
@@ -1446,7 +1449,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// because GitHub deliveries authenticate via HMAC, not the helix
 	// session/api-key layer. Per-request: resolve {org} from mux
 	// vars → orgID → build the github.Transport → dispatch.
-	ghLogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ghLogger := slog.New(logredact.NewSlogHandler(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	// Reuse the bot-preferring projection so the public webhook's outbound
 	// actions act as the installed App when there is one.
 	tokenResolver := gitHubTokenResolver
