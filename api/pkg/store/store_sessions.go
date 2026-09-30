@@ -104,15 +104,8 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Order("created DESC")
 	}
 
-	if query.PerPage == 0 {
-		query.PerPage = -1
-	}
-
-	var offset int
-
-	if query.Page > 0 {
-		offset = (query.Page - 1) * query.PerPage
-	}
+	perPage := unboundedIfZero(query.PerPage)
+	offset := pageIndexOffset(query.Page, perPage)
 
 	if query.Search != "" {
 		q = q.Where("name LIKE ?", "%"+query.Search+"%")
@@ -127,7 +120,7 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 
 	// Execute query and return results
 	var sessions []*types.Session
-	err = q.Offset(offset).Limit(query.PerPage).Find(&sessions).Error
+	err = q.Offset(offset).Limit(perPage).Find(&sessions).Error
 	if err != nil {
 		return nil, 0, err
 	}
