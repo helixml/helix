@@ -12,7 +12,7 @@ import { useRefreshSpecTaskStatus } from '../../services/specTaskService'
 import { SESSION_TYPE_TEXT } from '../../types'
 import RobustPromptInput from '../common/RobustPromptInput'
 import ChatWelcome from './ChatWelcome'
-import { shouldShowWelcome } from './minimalChatLogic'
+import { composerSendMode, shouldShowWelcome } from './minimalChatLogic'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from './EmbeddedSessionView'
 import type { ResponseEntry } from './InteractionInference'
 import { ComposerPlanProgress, planStepsFromResponseEntries } from './PlanProgress'
@@ -83,6 +83,9 @@ const AgentChat: FC<AgentChatProps> = ({
   const [composerPlanExpanded, setComposerPlanExpanded] = useState(false)
   const [dismissedPlanInteractionId, setDismissedPlanInteractionId] = useState<string | null>(null)
   const apiClient = api.getApiClient()
+  // Only a spec task opens with a hidden briefing turn; an org bot instance's
+  // first interaction is the customer's own message.
+  const hasBriefingTurn = !!specTaskId
   const refreshSpecTaskStatus = useRefreshSpecTaskStatus(specTaskId)
 
   const {
@@ -118,6 +121,7 @@ const AgentChat: FC<AgentChatProps> = ({
     hasSentInWelcome,
     latestInteractionsResponse?.data?.totalCount ?? 0,
     latestInteractionsLoading,
+    hasBriefingTurn,
   )
   // Session-keyed queue for sessions without a spec task; the spec-task
   // composer carries its own backend-backed queue instead.
@@ -184,6 +188,7 @@ const AgentChat: FC<AgentChatProps> = ({
   const composer = (
     <RobustPromptInput
       minimal={minimal}
+      sendMode={composerSendMode(minimal, !!(specTaskId && projectId))}
       sessionId={sessionId}
       specTaskId={specTaskId}
       projectId={projectId}
@@ -253,6 +258,7 @@ const AgentChat: FC<AgentChatProps> = ({
           sessionId={sessionId}
           enableInteractionDebugCopy={enableInteractionDebugCopy}
           minimal={minimal}
+          hasBriefingTurn={hasBriefingTurn}
         />
       </Box>
 
