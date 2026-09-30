@@ -50,7 +50,9 @@ func (s *QuotaManagerSuite) SetupTest() {
 // expectUserQuotaDefaults sets up the common mock expectations for user quota lookups
 // with zero resource counts and no active sessions.
 func (s *QuotaManagerSuite) expectUserQuotaDefaults(userID string, wallet *types.Wallet, settings *types.SystemSettings) {
-	s.store.EXPECT().GetWalletByUser(gomock.Any(), userID).Return(wallet, nil)
+	if settings.EnforceQuotas {
+		s.store.EXPECT().GetWalletByUser(gomock.Any(), userID).Return(wallet, nil)
+	}
 	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(settings, nil)
 	s.executor.EXPECT().ListSessions().Return(nil)
 	s.store.EXPECT().GetProjectsCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
@@ -61,7 +63,9 @@ func (s *QuotaManagerSuite) expectUserQuotaDefaults(userID string, wallet *types
 // expectOrgQuotaDefaults sets up the common mock expectations for org quota lookups
 // with zero resource counts and no active sessions.
 func (s *QuotaManagerSuite) expectOrgQuotaDefaults(orgID string, wallet *types.Wallet, settings *types.SystemSettings) {
-	s.store.EXPECT().GetWalletByOrg(gomock.Any(), orgID).Return(wallet, nil)
+	if settings.EnforceQuotas {
+		s.store.EXPECT().GetWalletByOrg(gomock.Any(), orgID).Return(wallet, nil)
+	}
 	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(settings, nil)
 	s.executor.EXPECT().ListSessions().Return(nil)
 	s.store.EXPECT().GetProjectsCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
@@ -317,6 +321,7 @@ func (s *QuotaManagerSuite) TestGetQuotas_OrgWithActiveSessions() {
 // =============================================================================
 
 func (s *QuotaManagerSuite) TestGetQuotas_WalletError() {
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(enforceQuotasSettings(), nil)
 	s.store.EXPECT().GetWalletByUser(gomock.Any(), "user1").Return(nil, fmt.Errorf("db error"))
 
 	_, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{UserID: "user1"})
@@ -325,7 +330,6 @@ func (s *QuotaManagerSuite) TestGetQuotas_WalletError() {
 }
 
 func (s *QuotaManagerSuite) TestGetQuotas_SystemSettingsError() {
-	s.store.EXPECT().GetWalletByUser(gomock.Any(), "user1").Return(freeWallet("user1"), nil)
 	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(nil, fmt.Errorf("settings error"))
 
 	_, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{UserID: "user1"})
@@ -372,7 +376,26 @@ func (s *QuotaManagerSuite) TestGetQuotas_SpecTasksCountError() {
 	s.Contains(err.Error(), "spec tasks error")
 }
 
+func (s *QuotaManagerSuite) TestGetQuotas_NoWalletWhenQuotasDisabled() {
+	s.expectUserQuotaDefaults("user1", nil, disabledQuotasSettings())
+
+	resp, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{UserID: "user1"})
+	s.NoError(err)
+	s.Equal(-1, resp.MaxProjects)
+	s.Equal("user1", resp.UserID)
+}
+
+func (s *QuotaManagerSuite) TestGetQuotas_NoOrgWalletWhenQuotasDisabled() {
+	s.expectOrgQuotaDefaults("org1", &types.Wallet{OrgID: "org1"}, disabledQuotasSettings())
+
+	resp, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{UserID: "user1", OrganizationID: "org1"})
+	s.NoError(err)
+	s.Equal(-1, resp.MaxProjects)
+	s.Equal("org1", resp.OrganizationID)
+}
+
 func (s *QuotaManagerSuite) TestGetQuotas_OrgWalletError() {
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(enforceQuotasSettings(), nil)
 	s.store.EXPECT().GetWalletByOrg(gomock.Any(), "org1").Return(nil, fmt.Errorf("org wallet error"))
 
 	_, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{
@@ -612,6 +635,7 @@ func (s *QuotaManagerSuite) TestLimitReached_OrgDesktopReached() {
 }
 
 func (s *QuotaManagerSuite) TestLimitReached_ErrorPropagated() {
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(enforceQuotasSettings(), nil)
 	s.store.EXPECT().GetWalletByUser(gomock.Any(), "user1").Return(nil, fmt.Errorf("db down"))
 
 	_, err := s.manager.LimitReached(context.Background(), &types.QuotaLimitReachedRequest{
@@ -820,7 +844,9 @@ func (s *QuotaManagerSuite) TestQuotaDesktopResolution() {
 					wallet.StripeSubscriptionID = "sub_org"
 					wallet.SubscriptionStatus = stripe.SubscriptionStatusActive
 				}
-				st.EXPECT().GetWalletByOrg(gomock.Any(), "org1").Return(wallet, nil)
+				if tc.enforce {
+					st.EXPECT().GetWalletByOrg(gomock.Any(), "org1").Return(wallet, nil)
+				}
 				st.EXPECT().GetSystemSettings(gomock.Any()).Return(settings, nil)
 
 				sessions := make([]*external_agent.ZedSession, tc.activeCount)
@@ -845,7 +871,9 @@ func (s *QuotaManagerSuite) TestQuotaDesktopResolution() {
 					wallet.StripeSubscriptionID = "sub_user"
 					wallet.SubscriptionStatus = stripe.SubscriptionStatusActive
 				}
-				st.EXPECT().GetWalletByUser(gomock.Any(), "user1").Return(wallet, nil)
+				if tc.enforce {
+					st.EXPECT().GetWalletByUser(gomock.Any(), "user1").Return(wallet, nil)
+				}
 				st.EXPECT().GetSystemSettings(gomock.Any()).Return(settings, nil)
 
 				sessions := make([]*external_agent.ZedSession, tc.activeCount)

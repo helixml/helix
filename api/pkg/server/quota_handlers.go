@@ -20,31 +20,28 @@ import (
 func (s *HelixAPIServer) getQuotasHandler(rw http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 
-	orgID := req.URL.Query().Get("org_id") // Optional
+	quotaReq := &types.QuotaRequest{UserID: user.ID}
 
-	org, err := s.lookupOrg(req.Context(), orgID)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			http.Error(rw, err.Error(), http.StatusNotFound)
+	if orgRef := req.URL.Query().Get("org_id"); orgRef != "" {
+		org, err := s.lookupOrg(req.Context(), orgRef)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				http.Error(rw, err.Error(), http.StatusNotFound)
+				return
+			}
+			http.Error(rw, fmt.Sprintf("failed to lookup org: %s", err), http.StatusInternalServerError)
 			return
 		}
-		http.Error(rw, fmt.Sprintf("failed to lookup org: %s", err), http.StatusInternalServerError)
-		return
-	}
 
-	if orgID != "" {
-		// Authorize org membe
-		_, err := s.authorizeOrgMember(req.Context(), user, org.ID)
-		if err != nil {
+		if _, err := s.authorizeOrgMember(req.Context(), user, org.ID); err != nil {
 			http.Error(rw, err.Error(), http.StatusForbidden)
 			return
 		}
+
+		quotaReq.OrganizationID = org.ID
 	}
 
-	quotas, err := s.quotaManager.GetQuotas(req.Context(), &types.QuotaRequest{
-		UserID:         user.ID,
-		OrganizationID: org.ID,
-	})
+	quotas, err := s.quotaManager.GetQuotas(req.Context(), quotaReq)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
