@@ -413,6 +413,7 @@ func newBotsPromptCmd() *cobra.Command {
 func newBotsProfileCmd() *cobra.Command {
 	var (
 		orgFlag, runtime, mcp, tools, skills string
+		idleTimeout                          time.Duration
 	)
 	cmd := &cobra.Command{
 		Use:   "profile <bot-id>",
@@ -423,6 +424,7 @@ func newBotsProfileCmd() *cobra.Command {
   --mcp      chrome-devtools,helix-session,helix-desktop,kodit,<project MCP name>   ("" = none)
   --tools    helix-org tools, e.g. get_secret. Served = profile tools ∩ the bot's own tools.
   --skills   on | off (helix-* skills; the bot repo's .agents/skills are always linked)
+  --idle-timeout  15m (5m-7d; 0s = inherit the deployment default)
 
 Changes apply at each instance's next sandbox start. Granting tools needs an org owner/admin.`,
 		Args: cobra.ExactArgs(1),
@@ -462,6 +464,14 @@ Changes apply at each instance's next sandbox start. Granting tools needs an org
 			if cmd.Flags().Changed("skills") {
 				p.HelixSkills, changed = skills == "on", true
 			}
+			if cmd.Flags().Changed("idle-timeout") {
+				seconds := int(idleTimeout.Seconds())
+				if _, err := types.NormalizeBotInstanceIdleTimeout(seconds); err != nil {
+					return err
+				}
+				p.IdleTimeoutSeconds = types.IdleSeconds(seconds)
+				changed = true
+			}
 			if changed {
 				have := map[string]bool{}
 				for _, t := range detail.Bot.Tools {
@@ -487,6 +497,7 @@ Changes apply at each instance's next sandbox start. Granting tools needs an org
 	cmd.Flags().StringVar(&mcp, "mcp", "", "Comma list of MCP servers")
 	cmd.Flags().StringVar(&tools, "tools", "", "Comma list of helix-org tools")
 	cmd.Flags().StringVar(&skills, "skills", "", "on | off")
+	cmd.Flags().DurationVar(&idleTimeout, "idle-timeout", 0, "Stop this bot's instance sandboxes after this idle time (e.g. 15m; 5m-7d; 0s = inherit the deployment default). Overrides HELIX_DESKTOP_IDLE_TIMEOUT for every instance started from now on.")
 	return cmd
 }
 
