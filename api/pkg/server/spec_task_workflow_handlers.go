@@ -135,7 +135,8 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if repo.DefaultBranch == "" {
+	targetBranch := services.TaskTargetBranch(repo, specTask, project.DefaultRepoID)
+	if targetBranch == "" {
 		writeErrResponse(w, fmt.Errorf("default branch not set for repository"), http.StatusInternalServerError)
 		return
 	}
@@ -191,7 +192,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		}()
 
 		// Send message to agent to commit and push any remaining uncommitted changes
-		s.sendImplementationPushInstruction(ctx, specTask, repo)
+		s.sendImplementationPushInstruction(ctx, specTask, repo, project.DefaultRepoID)
 
 		// Re-fetch to get the latest RepoPullRequests (may have been set by concurrent push)
 		updatedTask, err := s.Store.GetSpecTask(ctx, specTaskID)
@@ -224,7 +225,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		s.sendImplementationPushInstruction(ctx, specTask, repo)
+		s.sendImplementationPushInstruction(ctx, specTask, repo, project.DefaultRepoID)
 
 		writeResponse(w, specTask, http.StatusOK)
 		return
@@ -232,7 +233,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	// For external repos, acquire lock and sync before merge.
 	// The lock serializes git operations to prevent race conditions.
-	var oldDefaultBranchRef string
+	var oldTargetRef string
 	if repo.IsExternal && repo.ExternalURL != "" {
 		// Acquire repo lock for the entire merge flow (sync → merge → push)
 		lock := s.gitRepositoryService.GetRepoLock(repo.ID)
@@ -247,11 +248,11 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 				Msg("Failed to sync from upstream before merge - continuing with local state")
 		}
 		// Capture ref before merge for rollback
-		oldDefaultBranchRef, _ = services.GetBranchCommitID(ctx, repo.LocalPath, repo.DefaultBranch)
+		oldTargetRef, _ = services.GetBranchCommitID(ctx, repo.LocalPath, targetBranch)
 	}
 
-	// Try fast-forward merge of feature branch to main
-	_, mergeErr := services.MergeBranchFastForward(ctx, repo.LocalPath, specTask.BranchName, repo.DefaultBranch)
+	// Try fast-forward merge of feature branch into the task target branch
+	_, mergeErr := services.MergeBranchFastForward(ctx, repo.LocalPath, specTask.BranchName, targetBranch)
 	if mergeErr != nil {
 		// Idempotency: if we already asked the agent to rebase and it hasn't pushed
 		// since, do not re-send the prompt. Repeated Accept clicks while the agent
@@ -262,7 +263,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			Err(mergeErr).
 			Str("task_id", specTask.ID).
 			Str("source_branch", specTask.BranchName).
-			Str("target_branch", repo.DefaultBranch).
+			Str("target_branch", targetBranch).
 			Bool("rebase_pending", rebasePending).
 			Msg("Fast-forward merge failed - branch has diverged")
 
@@ -292,7 +293,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		go func() {
 			defer s.wg.Done()
 
-			message, err := prompts.RebaseRequiredInstruction(specTask.BranchName, repo.DefaultBranch)
+			message, err := prompts.RebaseRequiredInstruction(specTask.BranchName, targetBranch)
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -312,7 +313,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 				log.Info().
 					Str("task_id", specTask.ID).
 					Str("branch_name", specTask.BranchName).
-					Str("default_branch", repo.DefaultBranch).
+					Str("target_branch", targetBranch).
 					Msg("Sent rebase instruction to agent")
 			}
 		}()
@@ -324,20 +325,20 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	// For external repos, push the merged default branch to upstream
 	if repo.IsExternal && repo.ExternalURL != "" {
-		if pushErr := s.gitRepositoryService.PushBranchToRemote(ctx, repo.ID, repo.DefaultBranch, false); pushErr != nil {
+		if pushErr := s.gitRepositoryService.PushBranchToRemote(ctx, repo.ID, targetBranch, false); pushErr != nil {
 			// Push failed - rollback merge and return error
 			log.Error().
 				Err(pushErr).
 				Str("task_id", specTask.ID).
-				Str("branch", repo.DefaultBranch).
+				Str("branch", targetBranch).
 				Msg("Failed to push merged branch to upstream - rolling back")
 
-			if oldDefaultBranchRef != "" {
-				if rollbackErr := services.UpdateBranchRef(ctx, repo.LocalPath, repo.DefaultBranch, oldDefaultBranchRef); rollbackErr != nil {
+			if oldTargetRef != "" {
+				if rollbackErr := services.UpdateBranchRef(ctx, repo.LocalPath, targetBranch, oldTargetRef); rollbackErr != nil {
 					log.Error().
 						Err(rollbackErr).
 						Str("task_id", specTask.ID).
-						Str("branch", repo.DefaultBranch).
+						Str("branch", targetBranch).
 						Msg("Failed to rollback branch after push failure")
 				}
 			}
@@ -348,7 +349,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 		log.Info().
 			Str("task_id", specTask.ID).
-			Str("branch", repo.DefaultBranch).
+			Str("branch", targetBranch).
 			Msg("Pushed merged branch to upstream")
 	}
 
@@ -364,7 +365,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	log.Info().
 		Str("task_id", specTask.ID).
 		Str("source_branch", specTask.BranchName).
-		Str("target_branch", repo.DefaultBranch).
+		Str("target_branch", targetBranch).
 		Msg("Server-side merge completed")
 
 	// Updating spec task
@@ -392,7 +393,40 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 // the PR metadata and commit + push every repo it touched. Both approval paths
 // use it: the PR path sends it so late uncommitted work still reaches the PR,
 // and the server-side-merge path sends it when the agent has pushed nothing yet.
-func (s *HelixAPIServer) sendImplementationPushInstruction(ctx context.Context, specTask *types.SpecTask, repo *types.GitRepository) {
+func (s *HelixAPIServer) sendImplementationPushInstruction(ctx context.Context, specTask *types.SpecTask, repo *types.GitRepository, primaryRepoID string) {
+	message, err := s.buildImplementationPushInstruction(ctx, specTask, repo, primaryRepoID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", specTask.ID).
+			Str("planning_session_id", specTask.PlanningSessionID).
+			Msg("Failed to generate push instruction for agent")
+		return
+	}
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		// interrupt=false: the push instruction is a system-driven follow-up, not
+		// reactive feedback — enqueue it to defer behind any in-flight agent turn.
+		err := s.enqueueSpecTaskAgentMessage(context.Background(), specTask, message, false, "")
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", specTask.ID).
+				Str("planning_session_id", specTask.PlanningSessionID).
+				Msg("Failed to send push instruction to agent via WebSocket")
+		} else {
+			log.Info().
+				Str("task_id", specTask.ID).
+				Str("branch_name", specTask.BranchName).
+				Msg("Implementation approved - sent push instruction to agent via WebSocket")
+		}
+	}()
+}
+
+func (s *HelixAPIServer) buildImplementationPushInstruction(ctx context.Context, specTask *types.SpecTask, repo *types.GitRepository, primaryRepoID string) (string, error) {
 	// Gather non-primary repo names so the push instruction tells the agent
 	// to push all repos, not just the primary one
 	var nonPrimaryRepoNames []string
@@ -414,42 +448,13 @@ func (s *HelixAPIServer) sendImplementationPushInstruction(ctx context.Context, 
 		}
 	}
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-
-		message, err := prompts.ImplementationApprovedPushInstruction(
-			specTask.BranchName,
-			repo.Name,
-			repo.DefaultBranch,
-			services.GetTaskDirName(specTask),
-			nonPrimaryRepoNames,
-		)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("task_id", specTask.ID).
-				Str("planning_session_id", specTask.PlanningSessionID).
-				Msg("Failed to generate push instruction for agent")
-			return
-		}
-
-		// interrupt=false: the push instruction is a system-driven follow-up, not
-		// reactive feedback — enqueue it to defer behind any in-flight agent turn.
-		err = s.enqueueSpecTaskAgentMessage(context.Background(), specTask, message, false, "")
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("task_id", specTask.ID).
-				Str("planning_session_id", specTask.PlanningSessionID).
-				Msg("Failed to send push instruction to agent via WebSocket")
-		} else {
-			log.Info().
-				Str("task_id", specTask.ID).
-				Str("branch_name", specTask.BranchName).
-				Msg("Implementation approved - sent push instruction to agent via WebSocket")
-		}
-	}()
+	return prompts.ImplementationApprovedPushInstruction(
+		specTask.BranchName,
+		repo.Name,
+		services.TaskTargetBranch(repo, specTask, primaryRepoID),
+		services.GetTaskDirName(specTask),
+		nonPrimaryRepoNames,
+	)
 }
 
 // isRebasePending reports whether the agent has already been asked to rebase
@@ -588,7 +593,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepoLocked(ctx context.Context, rep
 	}
 
 	branch := task.BranchName
-	targetBranch := services.PullRequestTargetBranch(repo, task, primaryRepoID)
+	targetBranch := services.TaskTargetBranch(repo, task, primaryRepoID)
 
 	// Check if the branch exists in this repo before trying to push
 	// The agent may not have made changes in every repo

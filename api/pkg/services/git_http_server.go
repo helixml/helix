@@ -1276,11 +1276,12 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: get repo failed")
 		return
 	}
-	if repo.DefaultBranch == "" {
+	targetBranch := TaskTargetBranch(repo, task, project.DefaultRepoID)
+	if targetBranch == "" {
 		return
 	}
 
-	var oldDefaultBranchRef string
+	var oldTargetRef string
 	if repo.IsExternal && repo.ExternalURL != "" {
 		lock := s.gitRepoService.GetRepoLock(repo.ID)
 		lock.Lock()
@@ -1289,25 +1290,25 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 		if err := s.gitRepoService.SyncAllBranches(ctx, repo.ID, true); err != nil {
 			log.Warn().Err(err).Str("task_id", task.ID).Str("repo_id", repo.ID).Msg("auto-merge: sync failed, continuing with local state")
 		}
-		oldDefaultBranchRef, _ = GetBranchCommitID(ctx, repo.LocalPath, repo.DefaultBranch)
+		oldTargetRef, _ = GetBranchCommitID(ctx, repo.LocalPath, targetBranch)
 	}
 
-	if _, mergeErr := MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, repo.DefaultBranch); mergeErr != nil {
+	if _, mergeErr := MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, targetBranch); mergeErr != nil {
 		log.Info().
 			Err(mergeErr).
 			Str("task_id", task.ID).
 			Str("source_branch", task.BranchName).
-			Str("target_branch", repo.DefaultBranch).
+			Str("target_branch", targetBranch).
 			Msg("auto-merge: FF still not possible after agent push — leaving task in implementation_review")
 		return
 	}
 
 	if repo.IsExternal && repo.ExternalURL != "" {
-		if pushErr := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, repo.DefaultBranch, false); pushErr != nil {
-			log.Error().Err(pushErr).Str("task_id", task.ID).Str("branch", repo.DefaultBranch).Msg("auto-merge: push to upstream failed - rolling back")
-			if oldDefaultBranchRef != "" {
-				if rollbackErr := UpdateBranchRef(ctx, repo.LocalPath, repo.DefaultBranch, oldDefaultBranchRef); rollbackErr != nil {
-					log.Error().Err(rollbackErr).Str("task_id", task.ID).Str("branch", repo.DefaultBranch).Msg("auto-merge: rollback failed")
+		if pushErr := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, targetBranch, false); pushErr != nil {
+			log.Error().Err(pushErr).Str("task_id", task.ID).Str("branch", targetBranch).Msg("auto-merge: push to upstream failed - rolling back")
+			if oldTargetRef != "" {
+				if rollbackErr := UpdateBranchRef(ctx, repo.LocalPath, targetBranch, oldTargetRef); rollbackErr != nil {
+					log.Error().Err(rollbackErr).Str("task_id", task.ID).Str("branch", targetBranch).Msg("auto-merge: rollback failed")
 				}
 			}
 			return
@@ -1331,7 +1332,7 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 	log.Info().
 		Str("task_id", task.ID).
 		Str("source_branch", task.BranchName).
-		Str("target_branch", repo.DefaultBranch).
+		Str("target_branch", targetBranch).
 		Msg("auto-merge: server-side merge completed after agent rebase push")
 }
 
@@ -1754,7 +1755,7 @@ func (s *GitHTTPServer) ensurePullRequestLocked(ctx context.Context, repo *types
 			primaryRepoPath = primaryRepo.LocalPath
 		}
 	}
-	targetBranch := PullRequestTargetBranch(repo, task, project.DefaultRepoID)
+	targetBranch := TaskTargetBranch(repo, task, project.DefaultRepoID)
 	title, description, found := s.getPullRequestContent(primaryRepoPath, task, repo.Name)
 	if !found {
 		title = task.Name
@@ -1845,8 +1846,10 @@ func (s *GitHTTPServer) ensurePullRequestLocked(ctx context.Context, repo *types
 	return nil
 }
 
-// PullRequestTargetBranch returns the task's selected base for its primary repo.
-func PullRequestTargetBranch(repo *types.GitRepository, task *types.SpecTask, primaryRepoID string) string {
+// TaskTargetBranch is the branch a task's work lands on in repo: the task's
+// selected base for the primary repo, the repo default otherwise. Every prompt,
+// merge and PR that names a task's target branch must resolve it here.
+func TaskTargetBranch(repo *types.GitRepository, task *types.SpecTask, primaryRepoID string) string {
 	if primaryRepoID == repo.ID && task.BaseBranch != "" {
 		return task.BaseBranch
 	}
