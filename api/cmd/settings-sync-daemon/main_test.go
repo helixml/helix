@@ -49,6 +49,7 @@ func TestSyncInitialConfigReportsFatalConfigError(t *testing.T) {
 
 	err := daemon.syncInitialConfig(5, 0)
 	require.Error(t, err)
+	assert.True(t, isFatalZedConfigError(err), "fatal error must remain classifiable by main")
 	assert.Equal(t, 1, configRequests, "stable client errors must not be retried")
 	assert.Equal(t, 1, startupErrorRequests)
 	assert.True(t, strings.Contains(reportedError, "status 422"))
@@ -80,6 +81,7 @@ func TestSyncInitialConfigDoesNotReportTransientError(t *testing.T) {
 
 	err := daemon.syncInitialConfig(2, 0)
 	require.Error(t, err)
+	assert.False(t, isFatalZedConfigError(err), "transient error must not stop the daemon")
 	assert.Equal(t, 2, configRequests)
 	assert.Zero(t, startupErrorRequests, "transient failures must not fail the interaction")
 }
